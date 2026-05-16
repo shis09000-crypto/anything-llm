@@ -1050,6 +1050,7 @@ const EXTRA_PROVIDER_ENV_KEYS = [
   "AWS_BEDROCK_STREAMING_DISABLED",
   "OLLAMA_RESPONSE_TIMEOUT",
   "NVIDIA_NIM_LLM_MODEL_TOKEN_LIMIT",
+  "STORAGE_DIR",
 ];
 
 const PROVIDER_ENV_KEYS = [
@@ -1463,7 +1464,7 @@ async function updateENV(newENVs = {}, force = false, userId = null) {
 
   await logChangesToEventLog(newValues, userId);
   if (!error) persistProviderSettingsBackup();
-  if (process.env.NODE_ENV === "production") dumpENV();
+  if (!error) dumpENV();
   return { newValues, error: error?.length > 0 ? error : false };
 }
 
@@ -1486,7 +1487,7 @@ function providerSelectionMissing() {
 }
 
 function hydrateProviderSettingsBackup() {
-  const result = hydrateFromBackup(PROVIDER_ENV_KEYS);
+  const result = hydrateFromBackup(PROVIDER_ENV_KEYS, { overwrite: true });
   if (!result.success) {
     if (providerSelectionMissing()) {
       console.warn(
@@ -1501,7 +1502,7 @@ function hydrateProviderSettingsBackup() {
     console.log(
       `[ProviderSettingsBackup] Restored ${appliedKeys.length} missing provider setting(s) from backup.`
     );
-    if (process.env.NODE_ENV === "production") dumpENV();
+    dumpENV();
   } else if (!result.exists && providerSelectionMissing()) {
     console.warn(
       "[ProviderSettingsBackup] No provider backup exists and required provider selections are missing. Configure LLM/vector providers before use."
@@ -1511,13 +1512,36 @@ function hydrateProviderSettingsBackup() {
   return result;
 }
 
+function ensureVectorProviderPersistenceDefaults() {
+  const applied = {};
+  if (!process.env.VECTOR_DB) {
+    process.env.VECTOR_DB = "lancedb";
+    applied.VECTOR_DB = process.env.VECTOR_DB;
+  }
+  if (!process.env.EMBEDDING_ENGINE) {
+    process.env.EMBEDDING_ENGINE = "native";
+    applied.EMBEDDING_ENGINE = process.env.EMBEDDING_ENGINE;
+  }
+
+  if (Object.keys(applied).length === 0) return { applied };
+
+  persistProviderSettingsBackup();
+  dumpENV();
+  console.log(
+    `[ProviderSettingsBackup] Applied persistent vector defaults: ${Object.keys(
+      applied
+    ).join(", ")}.`
+  );
+  return { applied };
+}
+
 function exportProviderSettingsBackup(options = {}) {
   return exportBackupValues(PROVIDER_ENV_KEYS, options);
 }
 
 function importProviderSettingsBackup(payload = {}, options = {}) {
   const result = importBackupValues(payload, PROVIDER_ENV_KEYS, options);
-  if (result.success && process.env.NODE_ENV === "production") dumpENV();
+  if (result.success) dumpENV();
   if (result.applied) result.applied = maskValues(result.applied);
   return result;
 }
@@ -1650,6 +1674,7 @@ function dumpENV() {
 
 module.exports = {
   dumpENV,
+  ensureVectorProviderPersistenceDefaults,
   exportProviderSettingsBackup,
   hydrateProviderSettingsBackup,
   importProviderSettingsBackup,

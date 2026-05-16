@@ -2,9 +2,13 @@ process.env.NODE_ENV === "development"
   ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
   : require("dotenv").config();
 
+const {
+  ensureVectorProviderPersistenceDefaults,
+  hydrateProviderSettingsBackup,
+} = require("./utils/helpers/updateENV");
 require("./utils/logger")();
-const { hydrateProviderSettingsBackup } = require("./utils/helpers/updateENV");
 hydrateProviderSettingsBackup();
+ensureVectorProviderPersistenceDefaults();
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
