@@ -19,6 +19,25 @@ class LanceDb extends VectorDatabase {
     super();
   }
 
+  static normalizeRowsForSchema(data = [], schema = null) {
+    if (!schema?.fields?.length) return data;
+
+    const utf8Fields = schema.fields.filter(
+      (field) => field.type?.toString?.() === "Utf8"
+    );
+    if (utf8Fields.length === 0) return data;
+
+    return data.map((row) => {
+      const normalized = { ...row };
+      for (const field of utf8Fields) {
+        if (!Object.prototype.hasOwnProperty.call(normalized, field.name)) {
+          normalized[field.name] = "";
+        }
+      }
+      return normalized;
+    });
+  }
+
   get uri() {
     const basePath = !!process.env.STORAGE_DIR
       ? process.env.STORAGE_DIR
@@ -239,7 +258,9 @@ class LanceDb extends VectorDatabase {
     const hasNamespace = await this.hasNamespace(namespace);
     if (hasNamespace) {
       const collection = await client.openTable(namespace);
-      await collection.add(data).catch((error) => {
+      const schema = await collection.schema();
+      const normalizedData = LanceDb.normalizeRowsForSchema(data, schema);
+      await collection.add(normalizedData).catch((error) => {
         if (
           error.message?.includes("FixedSizeList") ||
           error.message?.includes("Values length")

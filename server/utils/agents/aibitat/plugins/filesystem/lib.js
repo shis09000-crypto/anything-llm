@@ -403,9 +403,20 @@ class FilesystemManager {
   }
 
   async getPolicyAllowedDirectories(context = {}) {
-    return (await getAllowedDirectories(context, "read"))
-      .map((dir) => dir.resolvedPath || dir.path)
+    const dirs = await getAllowedDirectories(context, "read");
+    const result = dirs
+      .map((dir) => dir?.resolvedPath || dir?.path)
       .filter(Boolean);
+    if (result.length === 0) {
+      console.warn("[FilesystemManager] No allowed directories resolved", {
+        rawDirs: dirs.map((d) => ({
+          path: d?.path,
+          resolved: d?.resolvedPath,
+        })),
+        tool: context?.tool,
+      });
+    }
+    return result;
   }
 
   /**

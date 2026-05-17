@@ -1,0 +1,10 @@
+{
+  "runId": "babd6d5c-b3b0-46cd-a39f-3d1b624d82df",
+  "toolName": "filesystem-get-file-info",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/染色体整体结构_课后测试题.md"
+  },
+  "result": "size: 13906\nsizeFormatted: 13.91 kB\ncreated: 2026-05-17T16:15:25.621Z\nmodified: 2026-05-17T16:15:25.621Z\naccessed: 2026-05-17T16:15:26.863Z\nisDirectory: false\nisFile: true\npermissions: 644",
+  "resultSha256": "983a252171dbb8f1447f4a3b93d13523d26c2b63cd308f94aac66262416791d7",
+  "createdAt": "2026-05-17T16:15:27.721Z"
+}

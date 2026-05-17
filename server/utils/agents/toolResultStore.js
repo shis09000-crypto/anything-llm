@@ -24,8 +24,11 @@ function todayFolder() {
 
 function safeStringify(value) {
   if (typeof value === "string") return value;
+  if (value === undefined) return "";
+  if (value === null) return "null";
   try {
-    return JSON.stringify(value, null, 2);
+    const serialized = JSON.stringify(value, null, 2);
+    return serialized === undefined ? String(value) : serialized;
   } catch {
     return String(value);
   }
@@ -41,7 +44,7 @@ function parseMaybeJson(value) {
 }
 
 function truncate(value = "", maxChars = MAX_TOOL_OUTPUT_PREVIEW_CHARS) {
-  const text = String(value || "");
+  const text = value === undefined || value === null ? "" : String(value);
   if (text.length <= maxChars) return { text, truncated: false };
   return { text: text.slice(0, maxChars), truncated: true };
 }

@@ -1,0 +1,11 @@
+{
+  "runId": "8c1f654d-3a0d-4280-86dc-af324c47019d",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "课后测试题",
+    "mode": "glob"
+  },
+  "result": "No matches found",
+  "resultSha256": "4b4d7ac22cee34f92cd16fbe4193b0eb106e185100ea38f72b0190e1affaf933",
+  "createdAt": "2026-05-17T16:13:01.041Z"
+}

@@ -158,32 +158,37 @@ function sandboxDirectories() {
     directUploadsPath,
     storagePath("anythingllm-fs"),
     storagePath("generated-files"),
-  ].map((dir) => ({
-    id: `sandbox-${path.basename(dir)}`,
-    label: path.basename(dir),
-    path: dir,
-    resolvedPath: ensureDirPath(dir),
-    read: true,
-    write: true,
-    enabled: true,
-    source: "sandbox",
-  }));
+  ]
+    .filter((dir) => typeof dir === "string" && dir.length > 0)
+    .map((dir) => ({
+      id: `sandbox-${path.basename(dir)}`,
+      label: path.basename(dir),
+      path: dir,
+      resolvedPath: ensureDirPath(dir),
+      read: true,
+      write: true,
+      enabled: true,
+      source: "sandbox",
+    }))
+    .filter((entry) => entry.resolvedPath !== null);
 }
 
 function builtinAuthorizedDirectories() {
-  return ["Desktop", "Documents", "Downloads"].map((folder) => {
-    const dirPath = path.join(os.homedir(), folder);
-    return {
-      id: `builtin-${folder.toLowerCase()}`,
-      label: folder,
-      path: `~/${folder}`,
-      resolvedPath: ensureDirPath(dirPath),
-      read: true,
-      write: false,
-      enabled: true,
-      source: "builtin",
-    };
-  });
+  return ["Desktop", "Documents", "Downloads"]
+    .map((folder) => {
+      const dirPath = path.join(os.homedir(), folder);
+      return {
+        id: `builtin-${folder.toLowerCase()}`,
+        label: folder,
+        path: `~/${folder}`,
+        resolvedPath: ensureDirPath(dirPath),
+        read: true,
+        write: false,
+        enabled: true,
+        source: "builtin",
+      };
+    })
+    .filter((entry) => entry.resolvedPath !== null);
 }
 
 function normalizeDirectoryRule(rule = {}, fallbackUserId = null) {

@@ -1,0 +1,11 @@
+{
+  "runId": "cc2f6bd6-ca2b-4609-8994-6f942ef9d841",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "染色体整体结构讲解笔记：染色质环是染色体高级折叠单位，每个环含50,000-200,000 bp DNA。灯刷染色体见于两栖动物卵母细胞，环上基因转录活跃。多线染色体见于果蝇唾液腺细胞，深色bands为凝缩区，浅色interbands为松散区。染色体胀泡（puff）是基因表达时局部去凝缩形成的膨大区域。"
+  },
+  "result": "The content was failed to be embedded properly.",
+  "resultSha256": "ba050d9e5b3b29bd17150b87a5c42d83d4f2aab23bca395fa83e8c47c9e8291c",
+  "createdAt": "2026-05-17T16:09:55.357Z"
+}

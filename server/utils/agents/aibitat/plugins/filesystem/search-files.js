@@ -171,6 +171,7 @@ module.exports.FilesystemSearchFiles = {
                 );
 
                 for (const dir of allowedDirs) {
+                  if (!dir || typeof dir !== "string") continue;
                   try {
                     const { files } = searchFilesWithRipgrepGlob({
                       searchPath: dir,
@@ -218,6 +219,7 @@ module.exports.FilesystemSearchFiles = {
               const seenKeys = new Set();
 
               for (const dir of allowedDirs) {
+                if (!dir || typeof dir !== "string") continue;
                 try {
                   const results = searchWithRipgrep({
                     searchPath: dir,
@@ -426,6 +428,14 @@ async function readMatchingFileContents(filePaths, maxFiles, context = {}) {
   for (const filePath of filesToRead) {
     try {
       const validPath = await filesystem.validateReadPath(filePath, context);
+      if (!validPath || typeof validPath !== "string") {
+        results.push({
+          path: filePath,
+          content: `Error reading file: resolved path is invalid`,
+          success: false,
+        });
+        continue;
+      }
       const content = await filesystem.readFileContent(validPath);
       const filename = path.basename(filePath);
 

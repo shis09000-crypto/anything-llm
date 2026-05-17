@@ -12,8 +12,7 @@ const { v4: uuidv4 } = require("uuid");
 
 // ── Ensure STORAGE_DIR is set ──────────────────────────────────────────────
 const storageDir =
-  process.env.STORAGE_DIR ||
-  path.resolve(__dirname, "../storage");
+  process.env.STORAGE_DIR || path.resolve(__dirname, "../storage");
 process.env.STORAGE_DIR = storageDir;
 
 const BATCH_DIR = path.join(storageDir, "embedding-batches");
@@ -29,13 +28,16 @@ function readJsonl(filePath) {
   if (!fs.existsSync(filePath)) return [];
   const raw = fs.readFileSync(filePath, "utf8").trim();
   if (!raw) return [];
-  return raw.split("\n").map((line) => {
-    try {
-      return JSON.parse(line);
-    } catch {
-      return null;
-    }
-  }).filter(Boolean);
+  return raw
+    .split("\n")
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 // ── Read manifest (keyed by docId) ──────────────────────────────────────────
@@ -47,7 +49,10 @@ function readManifest(jobId) {
 
 // ── Strips <document_metadata>...</document_metadata> from chunk text ───────
 function stripMetadataTags(text = "") {
-  return text.replace(/<document_metadata>[\s\S]*?<\/document_metadata>\s*/g, "");
+  return text.replace(
+    /<document_metadata>[\s\S]*?<\/document_metadata>\s*/g,
+    ""
+  );
 }
 
 // ── Main recovery ───────────────────────────────────────────────────────────
@@ -77,12 +82,18 @@ async function recover() {
 
     const manifest = readManifest(job.jobId);
     const inputs = readJsonl(path.join(BATCH_DIR, `${job.jobId}.jsonl`));
-    const outputs = readJsonl(path.join(BATCH_DIR, `${job.jobId}.output.jsonl`));
+    const outputs = readJsonl(
+      path.join(BATCH_DIR, `${job.jobId}.output.jsonl`)
+    );
 
-    console.log(`  Input lines: ${inputs.length}, Output lines: ${outputs.length}`);
+    console.log(
+      `  Input lines: ${inputs.length}, Output lines: ${outputs.length}`
+    );
 
     if (inputs.length !== outputs.length) {
-      console.warn(`  ⚠️  Input/output count mismatch, will pair by index only`);
+      console.warn(
+        `  ⚠️  Input/output count mismatch, will pair by index only`
+      );
     }
 
     // Build docId -> docMetadata lookup from manifest
@@ -95,8 +106,10 @@ async function recover() {
         description: entry.data?.description || "",
         docAuthor: entry.data?.docAuthor || "",
         docSource: entry.data?.docSource || "",
+        chunkSource: entry.data?.chunkSource || "",
         published: entry.data?.published || "",
-        wordCount: entry.data?.wordCount || null,
+        wordCount: entry.data?.wordCount ?? null,
+        token_count_estimate: entry.data?.token_count_estimate ?? null,
       };
     }
 
@@ -107,7 +120,10 @@ async function recover() {
       });
       if (!existing) {
         const meta = docMetaByDocId[docId] || {};
-        const docPath = meta.docpath || job.documentPaths[0] || "custom-documents/unknown.json";
+        const docPath =
+          meta.docpath ||
+          job.documentPaths[0] ||
+          "custom-documents/unknown.json";
         await prisma.workspace_documents.create({
           data: {
             docId,
@@ -164,6 +180,14 @@ async function recover() {
         vector: embedding,
         text: chunkText,
         title: meta.title || docId,
+        url: meta.url || "",
+        docAuthor: meta.docAuthor || "",
+        description: meta.description || "",
+        docSource: meta.docSource || "",
+        chunkSource: meta.chunkSource || "",
+        published: meta.published || "",
+        wordCount: meta.wordCount,
+        token_count_estimate: meta.token_count_estimate,
         docId: docId,
         docpath: meta.docpath || "",
         chunkIndex: parseInt(chunkNum),
@@ -180,14 +204,12 @@ async function recover() {
     // Insert into LanceDB
     const namespace = job.workspaceSlug;
     const hasNamespace = await vectorDb.hasNamespace(namespace);
-    if (hasNamespace) {
-      const table = await client.openTable(namespace);
-      await table.add(submissions);
-      console.log(`  ✓ Added ${submissions.length} vectors to existing LanceDB table '${namespace}'`);
-    } else {
-      await client.createTable(namespace, submissions);
-      console.log(`  ✓ Created LanceDB table '${namespace}' with ${submissions.length} vectors`);
-    }
+    await vectorDb.updateOrCreateCollection(client, submissions, namespace);
+    console.log(
+      `  ✓ ${hasNamespace ? "Added" : "Created"} ${
+        submissions.length
+      } vectors ${hasNamespace ? "to existing" : "in new"} LanceDB table '${namespace}'`
+    );
     totalVectorsInserted += submissions.length;
 
     // Create document_vectors records (skip duplicates)
@@ -205,7 +227,9 @@ async function recover() {
         totalDocVectorsCreated++;
       }
     }
-    console.log(`  ✓ Created ${docVectorRecords.length} document_vectors records`);
+    console.log(
+      `  ✓ Created ${docVectorRecords.length} document_vectors records`
+    );
   }
 
   // ── Summary ───────────────────────────────────────────────────────────────

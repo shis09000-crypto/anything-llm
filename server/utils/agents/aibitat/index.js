@@ -924,6 +924,8 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       this.handlerProps?.log?.(
         `[debug]: Tool ${name} handler completed in ${elapsedMs}ms`
       );
+      if (result === undefined || result === null)
+        return `Tool ${name} completed but returned no content.`;
       return result;
     } catch (error) {
       this.handlerProps?.log?.(

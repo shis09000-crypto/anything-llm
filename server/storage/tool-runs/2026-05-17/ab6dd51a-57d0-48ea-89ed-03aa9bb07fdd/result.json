@@ -1,0 +1,11 @@
+{
+  "runId": "ab6dd51a-57d0-48ea-89ed-03aa9bb07fdd",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "染色体整体结构——讲解笔记（第一部分）\n核心思想：染色体的功能来自DNA序列、染色质修饰和三维空间结构的共同作用。间期染色体为了表达和调控而动态折叠，有丝分裂染色体为了分离和保护而高度凝缩。\n\n染色质环（Chromatin Loops）：染色体被折叠成大的染色质环，每个环50,000–200,000 bp DNA，有些可达1,000,000 bp。灯刷染色体（lampbrush chromosome）在两栖动物卵母细胞中特有，轴伸出大量转录活跃的染色质环。环状结构的意义：分区管理、基因表达与空间结构相关。3C技术检测两个基因组位点在三维空间中的接近关系。\n\n多线染色体（Polytene Chromosomes）：果蝇唾液腺细胞中多轮DNA复制但不分裂形成。深色bands（凝缩）和浅色interbands（松散）。果蝇约3700条bands和3700条interbands。"
+  },
+  "result": "The content was failed to be embedded properly.",
+  "resultSha256": "ba050d9e5b3b29bd17150b87a5c42d83d4f2aab23bca395fa83e8c47c9e8291c",
+  "createdAt": "2026-05-17T16:09:52.802Z"
+}

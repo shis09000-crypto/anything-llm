@@ -449,6 +449,9 @@ async function writeBatchOutput(jobId, outputFileId) {
       values: embedding,
       metadata: {
         ...docManifest.data,
+        docId: parsed.docId,
+        docpath: docManifest.docpath,
+        chunkIndex: parsed.chunkIndex,
         pageContent: undefined,
         text,
       },
