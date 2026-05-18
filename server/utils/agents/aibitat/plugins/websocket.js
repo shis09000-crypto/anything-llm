@@ -493,7 +493,7 @@ const websocket = {
 
               socketTimeout = setTimeout(() => {
                 console.log(
-                  chalk.red(
+                  chalk.green(
                     `Client took too long to respond, chat thread is dead after ${SOCKET_TIMEOUT_MS}ms`
                   )
                 );

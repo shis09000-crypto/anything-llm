@@ -1,0 +1,11 @@
+{
+  "runId": "41446f60-2f15-4b30-beee-116b4c48a7e0",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "写入md文件后，没有用户明确允许或指示，禁止直接调用batch模式，禁止写入向量库。必须等待用户确认或指示后再进行下一步操作。"
+  },
+  "result": "The content was failed to be embedded properly.",
+  "resultSha256": "ba050d9e5b3b29bd17150b87a5c42d83d4f2aab23bca395fa83e8c47c9e8291c",
+  "createdAt": "2026-05-18T09:51:43.071Z"
+}

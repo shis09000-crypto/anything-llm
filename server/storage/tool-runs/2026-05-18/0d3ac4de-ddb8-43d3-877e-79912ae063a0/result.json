@@ -1,0 +1,10 @@
+{
+  "runId": "0d3ac4de-ddb8-43d3-877e-79912ae063a0",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm"
+  },
+  "result": "[DIR] .devcontainer\n[FILE] .dockerignore\n[FILE] .DS_Store\n[FILE] .editorconfig\n[FILE] .env.example\n[DIR] .git\n[FILE] .gitattributes\n[DIR] .github\n[FILE] .gitignore\n[FILE] .gitmodules\n[FILE] .hadolint.yaml\n[FILE] .nvmrc\n[FILE] .prettierignore\n[FILE] .prettierrc\n[DIR] .serena\n[DIR] .taskmaster\n[DIR] .vscode\n[FILE] anythingllm_batch_workspace_debug.zip\n[FILE] anythingllm_tree2.txt\n[FILE] BARE_METAL.md\n[DIR] browser-extension\n[DIR] cloud-deployments\n[DIR] collector\n[FILE] CONTRIBUTING.md\n[DIR] docker\n[DIR] embed\n[FILE] eslint.config.js\n[DIR] extras\n[DIR] frontend\n[DIR] images\n[FILE] LICENSE\n[DIR] locales\n[FILE] package.json\n[FILE] pull_request_template.md\n[FILE] README.md\n[FILE] RELEASE_NOTES_v1.md\n[FILE] SECURITY.md\n[DIR] server\n[DIR] storage\n[FILE] TERMS_SELF_HOSTED.md",
+  "resultSha256": "4b983b231e968fbcaef8b13516bfaa628109b0a8e33549a0a18a5f4bb8def613",
+  "createdAt": "2026-05-18T09:54:28.149Z"
+}

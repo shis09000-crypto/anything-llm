@@ -1,0 +1,13 @@
+{
+  "runId": "d983ae73-56d5-4402-8bd1-48e3534769f9",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "anythingllm",
+    "mode": "glob",
+    "includeFileContents": false,
+    "maxResults": 30
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/anythingllm_batch_workspace_debug.zip\n/Users/shijie/Desktop/anything-llm/storage/plugins/anythingllm_mcp_servers.json\n/Users/shijie/Desktop/anything-llm/cloud-deployments/aws/cloudformation/cloudformation_create_anythingllm.json\n/Users/shijie/Desktop/anything-llm/server/storage/anythingllm.db\n/Users/shijie/Desktop/anything-llm/server/storage/plugins/anythingllm_mcp_servers.json\n/Users/shijie/Desktop/anything-llm/anythingllm_tree2.txt\n/Users/shijie/Desktop/anything-llm/frontend/public/embed/anythingllm-chat-widget.min.js\n/Users/shijie/Desktop/anything-llm/frontend/public/embed/anythingllm-chat-widget.min.css\n/Users/shijie/Desktop/anything-llm/frontend/dist/embed/anythingllm-chat-widget.min.js\n/Users/shijie/Desktop/anything-llm/frontend/dist/embed/anythingllm-chat-widget.min.css",
+  "resultSha256": "89b82eec74cb070444801a4ae44eb1da59a5d63e43c31c3b102fe8e940a48ca7",
+  "createdAt": "2026-05-18T09:54:23.674Z"
+}

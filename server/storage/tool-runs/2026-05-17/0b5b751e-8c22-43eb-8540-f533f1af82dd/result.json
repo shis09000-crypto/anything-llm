@@ -1,0 +1,11 @@
+{
+  "runId": "0b5b751e-8c22-43eb-8540-f533f1af82dd",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "## THE GLOBAL STRUCTURE OF CHROMOSOMES — 染色体的整体结构\n\n核心思想：染色体的功能来自 DNA 序列、染色质修饰和三维空间结构的共同作用；间期染色体为了表达和调控而动态折叠，有丝分裂染色体为了分离和保护而高度凝缩。\n\n### 一、染色质环（chromatin loops）\n间期染色体具有高层级折叠，形成环状结构。每个环是独立工作区，含50,000–200,000 bp DNA。灯刷染色体（两栖动物卵母细胞）由染色体轴伸出大的染色质环，环上基因转录活跃。3C技术可检测线性距离远但三维空间靠近的DNA片段。\n\n### 二、多线染色体（polytene chromosomes）\n果蝇唾液腺细胞中，多轮DNA复制不分裂→多拷贝并排→巨大染色体。深色band=凝缩区域，浅色interband=松散区域。约3700条band和3700条interband，可作为染色体地图。\n\n### 三、染色质多种形式\n常染色质（开放）、经典异染色质（HP1/H3K9me3）、Polycomb异染色质（H3K27me3）、活跃转录染色质（H3K4me3）、调控型染色质（H3K27ac）。染色质状态随细胞类型和发育阶段改变。\n\n### 四、染色体胀泡（chromosome puffs）\n多线染色体上基因高表达时局部去凝缩形成puff。放射性尿苷标记证实puff区域RNA合成活跃。人类细胞中0.4-2 Mb区域在基因沉默时紧密，表达时扩展。\n\n### 五、染色体领地（chromosome territories）\n间期细胞核中46条染色体各自占据相对独立区域。染色体领地内部仍有局部环伸出、收回、移动。\n\n### 六、分形球模型（fractal globule）\nHi-C数据支持，特点：高度压缩、少缠结（knot-free）、局部可快速展开。既能打包又能快速取用局部DNA。\n\n### 七、核内亚区室（无膜细胞器）\n核仁（rRNA转录/核糖体组装）、Cajal body、speckle。无膜、由RNA和蛋白质网络形成、高度动态、提高局部反应效率。\n\n### 八、有丝分裂染色体凝缩\nM期基因表达关闭。cohesin（黏连蛋白）维持姐妹染色单体连接，condensin（凝缩蛋白）促进凝缩。包装层级：2nm DNA→11nm核小体→30nm纤维→环→700nm染色单体→1400nm中期染色体。最终压缩约10,000倍。\n\n### 九、必背概念\nchromatin loop、lampbrush chromosome、polytene chromosome、band/interband、chromosome puff、chromosome territory、fractal globule、nucleolus、Cajal body、speckle、cohesin、condensin"
+  },
+  "result": "The content was failed to be embedded properly.",
+  "resultSha256": "ba050d9e5b3b29bd17150b87a5c42d83d4f2aab23bca395fa83e8c47c9e8291c",
+  "createdAt": "2026-05-17T18:46:48.838Z"
+}

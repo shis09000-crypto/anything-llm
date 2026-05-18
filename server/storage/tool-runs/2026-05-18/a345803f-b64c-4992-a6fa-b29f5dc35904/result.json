@@ -1,0 +1,11 @@
+{
+  "runId": "a345803f-b64c-4992-a6fa-b29f5dc35904",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "规则：写入md后，无用户明确许可，不得调用batch模式，不得写入向量库。"
+  },
+  "result": "The content was failed to be embedded properly.",
+  "resultSha256": "ba050d9e5b3b29bd17150b87a5c42d83d4f2aab23bca395fa83e8c47c9e8291c",
+  "createdAt": "2026-05-18T09:51:48.842Z"
+}

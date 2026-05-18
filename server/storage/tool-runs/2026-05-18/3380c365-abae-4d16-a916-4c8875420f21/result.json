@@ -1,0 +1,11 @@
+{
+  "runId": "3380c365-abae-4d16-a916-4c8875420f21",
+  "toolName": "filesystem-read-text-file",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/.env.example",
+    "head": 100
+  },
+  "result": "Error reading file: blacklisted_path: Path is blocked by file access rule: .env*",
+  "resultSha256": "41d1aa0f06abfba2915b34bbb08d843fd4b999bcba0182cecea7ed97d6a88d27",
+  "createdAt": "2026-05-18T09:54:29.735Z"
+}

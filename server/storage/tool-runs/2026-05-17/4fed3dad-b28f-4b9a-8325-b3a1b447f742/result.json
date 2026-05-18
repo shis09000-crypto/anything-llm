@@ -1,0 +1,10 @@
+{
+  "runId": "4fed3dad-b28f-4b9a-8325-b3a1b447f742",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/染色体整体结构_课后测试题.md"
+  },
+  "result": "{\"success\":true,\"source\":\"local_path\",\"scannedFiles\":[\"Desktop/anything-llm/server/storage/anythingllm-fs/染色体整体结构_课后测试题.md\"],\"importedFiles\":[{\"path\":\"Desktop/anything-llm/server/storage/anythingllm-fs/染色体整体结构_课后测试题.md\",\"documentPaths\":[\"custom-documents/03fecd26-4589-47c5-80b7-7e713c52f466-_.md-9549a650-1105-4a26-b94e-2c34fd5097ab.json\"]}],\"skippedFiles\":[],\"batchJobId\":\"6504f58d-0947-4768-a65f-bcc7c9c5172a\",\"documents\":[{\"docId\":\"ec00ebca-217e-4bf8-a756-4439b7a5dfc7\",\"path\":\"custom-documents/03fecd26-4589-47c5-80b7-7e713c52f466-_.md-9549a650-1105-4a26-b94e-2c34fd5097ab.json\"}],\"embeddingStatus\":\"processing\",\"message\":\"Documents are being processed asynchronously. You can view progress in Settings -> Batch Jobs.\"}",
+  "resultSha256": "c811beda78888a75e088f11c0876dc7c17081dcc769fbc2ecbff059892fb0509",
+  "createdAt": "2026-05-17T18:46:30.528Z"
+}

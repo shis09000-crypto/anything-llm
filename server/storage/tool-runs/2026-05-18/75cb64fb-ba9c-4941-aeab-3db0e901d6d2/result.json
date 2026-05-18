@@ -1,0 +1,10 @@
+{
+  "runId": "75cb64fb-ba9c-4941-aeab-3db0e901d6d2",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/embedding-batches"
+  },
+  "result": "[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.jsonl\n[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.manifest.json\n[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.output.jsonl\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.jsonl\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.manifest.json\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.output.jsonl\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.jsonl\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.manifest.json\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.output.jsonl\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.jsonl\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.manifest.json\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.output.jsonl\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.jsonl\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.manifest.json\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.output.jsonl\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.jsonl\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.manifest.json\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.output.jsonl",
+  "resultSha256": "7a057631448f827ca68ea2591d626d488ca1108fcdb367469681a5fe97b7938c",
+  "createdAt": "2026-05-18T09:54:35.536Z"
+}
