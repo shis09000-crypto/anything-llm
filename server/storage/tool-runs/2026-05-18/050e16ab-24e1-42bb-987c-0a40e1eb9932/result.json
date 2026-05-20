@@ -1,0 +1,10 @@
+{
+  "runId": "050e16ab-24e1-42bb-987c-0a40e1eb9932",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md"
+  },
+  "result": "{\"success\":true,\"source\":\"local_path\",\"scannedFiles\":[\"Desktop/anything-llm/server/storage/anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md\"],\"importedFiles\":[{\"path\":\"Desktop/anything-llm/server/storage/anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md\",\"documentPaths\":[\"custom-documents/b68a3e37-9b50-4fe6-899c-6b39cf992c1b-Chapter4_DNA_Chromosomes_Genomes_.md-ee678bcc-5621-43fe-89ed-65808346c8ba.json\"]}],\"skippedFiles\":[],\"batchJobId\":\"9438ab1e-16d3-47c6-9a2c-e80cbbfc3b14\",\"documents\":[{\"docId\":\"dc7b4712-88e9-494a-b4fd-36bbc3f2f9eb\",\"path\":\"custom-documents/b68a3e37-9b50-4fe6-899c-6b39cf992c1b-Chapter4_DNA_Chromosomes_Genomes_.md-ee678bcc-5621-43fe-89ed-65808346c8ba.json\"}],\"embeddingStatus\":\"processing\",\"message\":\"Documents are being processed asynchronously. You can view progress in Settings -> Batch Jobs.\"}",
+  "resultSha256": "ae7bab317b6aca87b230f9010a96d2b1d0521177e1b1b5b89461892ba003983c",
+  "createdAt": "2026-05-18T16:39:49.392Z"
+}

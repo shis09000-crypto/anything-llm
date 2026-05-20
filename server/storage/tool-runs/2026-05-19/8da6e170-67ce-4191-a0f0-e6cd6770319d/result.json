@@ -1,0 +1,10 @@
+{
+  "runId": "8da6e170-67ce-4191-a0f0-e6cd6770319d",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/embedding-batches"
+  },
+  "result": "[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.jsonl\n[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.manifest.json\n[FILE] 294d6502-05b2-480d-a70d-2953c2b51de6.output.jsonl\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.jsonl\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.manifest.json\n[FILE] 395d8698-6f24-4e21-99db-522bb276f117.output.jsonl\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.jsonl\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.manifest.json\n[FILE] 6504f58d-0947-4768-a65f-bcc7c9c5172a.output.jsonl\n[FILE] 9438ab1e-16d3-47c6-9a2c-e80cbbfc3b14.jsonl\n[FILE] 9438ab1e-16d3-47c6-9a2c-e80cbbfc3b14.manifest.json\n[FILE] 9438ab1e-16d3-47c6-9a2c-e80cbbfc3b14.output.jsonl\n[FILE] 9465a7f3-3d44-4c91-ad17-93bae6143b7f.jsonl\n[FILE] 9465a7f3-3d44-4c91-ad17-93bae6143b7f.manifest.json\n[FILE] 9465a7f3-3d44-4c91-ad17-93bae6143b7f.output.jsonl\n[FILE] 97f46e09-4fe3-4ef4-8d56-7ea9fd5df2f9.jsonl\n[FILE] 97f46e09-4fe3-4ef4-8d56-7ea9fd5df2f9.manifest.json\n[FILE] 97f46e09-4fe3-4ef4-8d56-7ea9fd5df2f9.output.jsonl\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.jsonl\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.manifest.json\n[FILE] 9ff83a30-b670-49bf-96b6-8d88abcc276d.output.jsonl\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.jsonl\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.manifest.json\n[FILE] b0c05293-ccab-4f83-809f-b8bf0457b361.output.jsonl\n[FILE] b1583bff-e67f-4f3f-966a-efa5815b1d56.jsonl\n[FILE] b1583bff-e67f-4f3f-966a-efa5815b1d56.manifest.json\n[FILE] b1583bff-e67f-4f3f-966a-efa5815b1d56.output.jsonl\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.jsonl\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.manifest.json\n[FILE] b2c0685c-5dab-4b84-9dff-cc63e00127e0.output.jsonl",
+  "resultSha256": "73b4a7405343c7ba9c88900ddf27efdb8e4260063918832c6b0f92864d5fd854",
+  "createdAt": "2026-05-19T11:53:12.766Z"
+}

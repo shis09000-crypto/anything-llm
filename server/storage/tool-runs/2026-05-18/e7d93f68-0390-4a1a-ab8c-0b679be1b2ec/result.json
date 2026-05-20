@@ -1,0 +1,14 @@
+{
+  "runId": "e7d93f68-0390-4a1a-ab8c-0b679be1b2ec",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "document_identifiers": [
+      "anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md",
+      "anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md",
+      "anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md"
+    ]
+  },
+  "result": "{\"success\":false,\"source\":\"workspace_document\",\"scannedFiles\":[\"anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md\",\"anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md\",\"anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md\"],\"importedFiles\":[],\"skippedFiles\":[{\"path\":\"anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md\",\"reason\":\"document_not_found\"},{\"path\":\"anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md\",\"reason\":\"document_not_found\"},{\"path\":\"anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md\",\"reason\":\"document_not_found\"}],\"batchJobId\":null,\"embeddingStatus\":null,\"errors\":[{\"identifier\":\"anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md\",\"error\":\"document_not_found\"},{\"identifier\":\"anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md\",\"error\":\"document_not_found\"},{\"identifier\":\"anythingllm-fs/Chapter4_DNA_Chromosomes_Genomes_练习题.md\",\"error\":\"document_not_found\"}]}",
+  "resultSha256": "d9cbddde78164e8c43a021859336adf32b4eb7a96993470823da8eecf07b7c49",
+  "createdAt": "2026-05-18T16:47:44.058Z"
+}

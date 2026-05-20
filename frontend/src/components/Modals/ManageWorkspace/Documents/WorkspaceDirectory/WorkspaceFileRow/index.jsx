@@ -55,7 +55,8 @@ export default function WorkspaceFileRow({
 
   const isMovedItem = movedItems?.some((movedItem) => movedItem.id === item.id);
   const embeddingStatus = item?.embeddingStatuses?.[workspace.id] || null;
-  const isProcessing = embeddingStatus?.status === "processing";
+  const indexStatus = normalizeIndexStatus(embeddingStatus?.status);
+  const isProcessing = ["pending", "indexing"].includes(indexStatus);
   return (
     <div
       className={`text-theme-text-primary text-xs grid grid-cols-12 py-2 pl-3.5 pr-8 h-[34px] items-center file-row ${
@@ -101,18 +102,12 @@ export default function WorkspaceFileRow({
       </div>
       <div className="col-span-2 flex justify-end items-center">
         {isProcessing ? (
-          <div
-            className="bg-yellow-600/20 rounded-3xl whitespace-nowrap"
-            title={`Batch job: ${embeddingStatus.batchJobId || "pending"}`}
-          >
-            <p className="text-xs px-2 py-0.5 text-yellow-300 light:text-yellow-700">
-              Processing
-            </p>
-          </div>
+          <IndexStatusBadge status={indexStatus} details={embeddingStatus} />
         ) : hasChanges ? (
           <div className="w-4 h-4 ml-2 flex-shrink-0" />
         ) : (
           <div className="flex gap-x-2 items-center">
+            <IndexStatusBadge status={indexStatus} details={embeddingStatus} />
             <WatchForChanges
               workspace={workspace}
               docPath={`${folderName}/${item.name}`}
@@ -128,6 +123,64 @@ export default function WorkspaceFileRow({
         )}
       </div>
     </div>
+  );
+}
+
+function normalizeIndexStatus(status) {
+  if (status === "processing" || status === "embedding") return "indexing";
+  if (status === "completed" || status === "complete") return "indexed";
+  return status || null;
+}
+
+function IndexStatusBadge({ status, details }) {
+  if (!status) return null;
+  const config = {
+    pending: {
+      icon: "⏳",
+      label: "Pending indexing",
+      className: "text-yellow-300 light:text-yellow-700",
+    },
+    indexing: {
+      icon: "🔄",
+      label: "Indexing",
+      className: "text-yellow-300 light:text-yellow-700",
+    },
+    indexed: {
+      icon: "✅",
+      label: "Indexed",
+      className: "text-green-300 light:text-green-700",
+    },
+    outdated: {
+      icon: "⚠️",
+      label: "Outdated index",
+      className: "text-orange-300 light:text-orange-700",
+    },
+    failed: {
+      icon: "❌",
+      label: "Indexing failed",
+      className: "text-red-300 light:text-red-700",
+    },
+  }[status];
+  if (!config) return null;
+
+  const title = [
+    config.label,
+    details?.error ? `Error: ${details.error}` : null,
+    details?.indexedAt ? `Last indexed: ${details.indexedAt}` : null,
+    details?.embeddingCount ? `Embeddings: ${details.embeddingCount}` : null,
+    details?.batchJobId ? `Batch job: ${details.batchJobId}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return (
+    <span
+      title={title}
+      className={`text-xs leading-none mr-1 ${config.className}`}
+      aria-label={config.label}
+    >
+      {config.icon}
+    </span>
   );
 }
 

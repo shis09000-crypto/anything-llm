@@ -1,0 +1,11 @@
+{
+  "runId": "1490228a-6d4f-4a7e-9448-a8e1bab2e4e9",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "list_indexed",
+    "workspaceSlug": "1cd3992d-e83f-44dd-a760-28e267b224ba"
+  },
+  "result": "{\"workspaceSlug\":\"1cd3992d-e83f-44dd-a760-28e267b224ba\",\"count\":0,\"documents\":[]}",
+  "resultSha256": "3302b4a9950b402151eaed0f6d8f84a6c07043ba32c0156846bfd645e4978ba3",
+  "createdAt": "2026-05-19T11:55:02.042Z"
+}

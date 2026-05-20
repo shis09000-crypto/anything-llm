@@ -1,0 +1,11 @@
+{
+  "runId": "bc45482a-a41d-4f0c-913f-71c3f406bfda",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "CHROMOSOMAL DNA AND ITS PACKAGING IN THE CHROMATIN FIBER（上半部分）",
+    "mode": "glob"
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/CHROMOSOMAL DNA AND ITS PACKAGING IN THE CHROMATIN FIBER（上半部分）.md",
+  "resultSha256": "50cbc5dd9cfb64f5cabb0ffe10ea21d7fac326badd763456bb29b89e89117e10",
+  "createdAt": "2026-05-19T12:04:12.573Z"
+}

@@ -15,6 +15,7 @@ import {
   FolderOpen,
   FilePlus,
   Terminal,
+  ListChecks,
 } from "@phosphor-icons/react";
 import RAGImage from "@/media/agents/rag-memory.png";
 import SummarizeImage from "@/media/agents/view-summarize.png";
@@ -34,6 +35,15 @@ export const getDefaultSkills = (t) => ({
     icon: Brain,
     image: RAGImage,
     skill: "rag-memory",
+  },
+  document_index_status_tool: {
+    title: "Document Index Status",
+    description:
+      "Check which workspace documents are indexed, unindexed, outdated, or failed.",
+    component: DefaultSkillPanel,
+    icon: ListChecks,
+    image: RAGImage,
+    skill: "document_index_status_tool",
   },
   "document-ingest-agent": {
     title: t("agent.skill.ingest.title"),

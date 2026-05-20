@@ -118,6 +118,9 @@ const memory = {
           },
           store: async function (content = "") {
             try {
+              if (!content || String(content).trim().length === 0)
+                return "The content was not embedded because it was empty.";
+
               const workspace = this.super.handlerProps.invocation.workspace;
               const vectorDB = getVectorDbClass();
               this.super.handlerProps.log("memory.store: direct memory write");
@@ -140,8 +143,12 @@ const memory = {
                 null
               );
 
-              if (!!error)
-                return "The content was failed to be embedded properly.";
+              if (!!error) {
+                this.super.handlerProps.log(
+                  `memory.store failed to embed content. ${error}`
+                );
+                return `The content was failed to be embedded properly. ${error}`;
+              }
               this.super.introspect(
                 `${this.caller}: I saved the content to long-term memory in this workspaces vector database.`
               );

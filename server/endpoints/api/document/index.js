@@ -14,6 +14,7 @@ const { CollectorApi } = require("../../../utils/collectorApi");
 const fs = require("fs");
 const path = require("path");
 const { Document } = require("../../../models/documents");
+const { Workspace } = require("../../../models/workspace");
 const { purgeFolder } = require("../../../utils/files/purgeDocument");
 const documentsPath =
   process.env.NODE_ENV === "development"
@@ -44,6 +45,71 @@ function validateWorkspaceSlugQuery(request, response, next) {
 
 function apiDocumentEndpoints(app) {
   if (!app) return;
+  async function resolveWorkspaceId(request) {
+    const body = reqBody(request) || {};
+    const workspaceSlug = request.query.workspaceSlug || body.workspaceSlug;
+    const workspaceId = request.query.workspaceId || body.workspaceId;
+    if (workspaceSlug) {
+      const workspace = await Workspace.get({ slug: String(workspaceSlug) });
+      return workspace?.id || null;
+    }
+    return workspaceId ? Number(workspaceId) : null;
+  }
+
+  app.get(
+    "/v1/document/index-status",
+    [validApiKey],
+    async (request, response) => {
+      try {
+        const {
+          DocumentIndexStatus,
+        } = require("../../../models/documentIndexStatus");
+        const workspaceId = await resolveWorkspaceId(request);
+        const statuses = await DocumentIndexStatus.where({
+          workspaceId,
+          filePath: request.query.filePath || null,
+          docId: request.query.docId || null,
+        });
+        response.status(200).json({ statuses });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({
+          success: false,
+          error: `Failed to get index status: ${e.message}`,
+        });
+      }
+    }
+  );
+
+  app.patch(
+    "/v1/document/index-status",
+    [validApiKey],
+    async (request, response) => {
+      try {
+        const {
+          DocumentIndexStatus,
+        } = require("../../../models/documentIndexStatus");
+        const body = reqBody(request);
+        const workspaceId = await resolveWorkspaceId(request);
+        const status = await DocumentIndexStatus.manualUpdate({
+          workspaceId: workspaceId || body.workspaceId,
+          filePath: body.filePath,
+          docId: body.docId || null,
+          indexStatus: body.indexStatus,
+          errorMessage: body.errorMessage ?? null,
+          chunkCount: body.chunkCount ?? null,
+          embeddingCount: body.embeddingCount ?? null,
+        });
+        response.status(200).json({ success: true, status });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({
+          success: false,
+          error: `Failed to update index status: ${e.message}`,
+        });
+      }
+    }
+  );
 
   app.post(
     "/v1/document/upload",

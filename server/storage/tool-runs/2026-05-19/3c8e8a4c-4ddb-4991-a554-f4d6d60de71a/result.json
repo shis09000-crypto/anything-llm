@@ -1,0 +1,10 @@
+{
+  "runId": "3c8e8a4c-4ddb-4991-a554-f4d6d60de71a",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/system"
+  },
+  "result": "[FILE] provider-settings.backup.json",
+  "resultSha256": "efb2eaf698bf6febfff541a84a21b3534bfcf1fcbcc58d01ac2e1d3502d784ae",
+  "createdAt": "2026-05-19T11:53:05.077Z"
+}

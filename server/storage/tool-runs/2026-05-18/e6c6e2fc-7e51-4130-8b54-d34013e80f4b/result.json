@@ -1,0 +1,10 @@
+{
+  "runId": "e6c6e2fc-7e51-4130-8b54-d34013e80f4b",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md"
+  },
+  "result": "{\"success\":false,\"source\":\"local_path\",\"scannedFiles\":[],\"importedFiles\":[],\"skippedFiles\":[{\"path\":\"/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_下半部分.md\",\"reason\":\"path_not_found\"}],\"batchJobId\":null,\"embeddingStatus\":null,\"error\":\"path_not_found\"}",
+  "resultSha256": "4a544605fed6bb321cb9ffdd9b30acd3ced0864229012aebe7c93c44bd7006b6",
+  "createdAt": "2026-05-18T16:38:17.048Z"
+}

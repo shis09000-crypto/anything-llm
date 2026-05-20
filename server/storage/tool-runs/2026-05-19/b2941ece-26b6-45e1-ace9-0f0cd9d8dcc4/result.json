@@ -1,0 +1,11 @@
+{
+  "runId": "b2941ece-26b6-45e1-ace9-0f0cd9d8dcc4",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "list_unindexed",
+    "workspaceSlug": "xibaofenzyxue"
+  },
+  "result": "{\"error\":\"workspace_not_found\",\"message\":\"No workspace was found for slug \\\"xibaofenzyxue\\\".\"}",
+  "resultSha256": "c06a5552694f04f17401bd9e1ce4ebde51ec0265edfde4a1bec9dd7eb25a02aa",
+  "createdAt": "2026-05-19T11:52:59.494Z"
+}

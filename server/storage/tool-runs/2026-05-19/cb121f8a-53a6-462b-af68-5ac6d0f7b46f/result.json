@@ -1,0 +1,10 @@
+{
+  "runId": "cb121f8a-53a6-462b-af68-5ac6d0f7b46f",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/vector-cache"
+  },
+  "result": "[FILE] 2a0a7dfd-6a4e-559e-8021-ccd1f82b6ccb.json\n[FILE] 586fecc0-0f6e-5863-a1cf-f0ff187007cb.json\n[FILE] 7e8ad63c-5e24-5eb6-bccc-3d96640d87ac.json\n[FILE] 7f32949c-63c6-5718-8877-ad16a3b6edea.json\n[FILE] 80390269-4272-599f-bc46-8633adebe1a3.json\n[FILE] 90f50cd6-0b78-5b07-bd44-ba3c9b8193ae.json\n[FILE] 9803d860-71fa-5b57-b9ef-de31d8c3b3a5.json",
+  "resultSha256": "340f521c0a2c4f06d0267c73e1af2d993810b0b10c4b1146ca161625e9d532a4",
+  "createdAt": "2026-05-19T11:28:03.951Z"
+}

@@ -1,0 +1,11 @@
+{
+  "runId": "2ccced42-fd53-44fe-a755-c5911340cc38",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "get_summary",
+    "workspaceSlug": "workspace"
+  },
+  "result": "{\"error\":\"workspace_not_found\",\"message\":\"No workspace was found for slug \\\"workspace\\\".\"}",
+  "resultSha256": "779fb682333b21b67ad2fe1fbb7690ff8ef59c5fbcbd39cba4e1043aa4016272",
+  "createdAt": "2026-05-19T11:46:34.318Z"
+}

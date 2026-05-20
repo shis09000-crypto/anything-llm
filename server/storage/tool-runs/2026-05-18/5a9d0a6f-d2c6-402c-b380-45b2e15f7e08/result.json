@@ -1,0 +1,10 @@
+{
+  "runId": "5a9d0a6f-d2c6-402c-b380-45b2e15f7e08",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md"
+  },
+  "result": "{\"success\":true,\"source\":\"local_path\",\"scannedFiles\":[\"Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md\"],\"importedFiles\":[{\"path\":\"Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md\",\"documentPaths\":[\"custom-documents/849751d5-f414-42fb-a99d-14be82a0eeea-HOW_GENOMES_EVOLVE_.md-f72572bf-544a-4c18-9dfc-d90156dec403.json\"]}],\"skippedFiles\":[],\"batchJobId\":\"9465a7f3-3d44-4c91-ad17-93bae6143b7f\",\"documents\":[{\"docId\":\"b38e333a-ba33-4295-8c66-28329ab6698f\",\"path\":\"custom-documents/849751d5-f414-42fb-a99d-14be82a0eeea-HOW_GENOMES_EVOLVE_.md-f72572bf-544a-4c18-9dfc-d90156dec403.json\"}],\"embeddingStatus\":\"processing\",\"message\":\"Documents are being processed asynchronously. You can view progress in Settings -> Batch Jobs.\"}",
+  "resultSha256": "2bfa01029d83d0795dda0fec6e5f1d2092b8dacd1b327ce3e4b2ed543ff598c1",
+  "createdAt": "2026-05-18T16:38:14.928Z"
+}

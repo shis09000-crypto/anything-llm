@@ -1,0 +1,10 @@
+{
+  "runId": "e26556ac-fa44-4585-8b57-c86f3ceddf56",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "document_identifier": "Chapter4_DNA_Chromosomes_Genomes_173-179_测试题.md"
+  },
+  "result": "{\"success\":true,\"source\":\"workspace_document\",\"scannedFiles\":[\"Chapter4_DNA_Chromosomes_Genomes_173-179_测试题.md\"],\"importedFiles\":[{\"docId\":\"7d956dbb-f150-41d7-aae3-43b467b07e51\",\"path\":\"custom-documents/d8cb05ac-f91b-48f7-b0d0-e87ac6c46e95-Chapter4_DNA_Chromosomes_Genomes_173-179_.md-3d7c5116-5e07-46bf-8a7f-0a4073324212.json\"}],\"skippedFiles\":[],\"batchJobId\":\"8daba0f2-7960-4afa-aad5-b7a81e59bd60\",\"documents\":[{\"docId\":\"7d956dbb-f150-41d7-aae3-43b467b07e51\",\"path\":\"custom-documents/d8cb05ac-f91b-48f7-b0d0-e87ac6c46e95-Chapter4_DNA_Chromosomes_Genomes_173-179_.md-3d7c5116-5e07-46bf-8a7f-0a4073324212.json\"}],\"embeddingStatus\":\"processing\",\"message\":\"Documents are being processed asynchronously. You can view progress in Settings -> Batch Jobs.\"}",
+  "resultSha256": "11e43bf6638453efbef29d3eee6eb37ca438e2c128ac10a5f178f46c1767b257",
+  "createdAt": "2026-05-19T12:04:41.830Z"
+}

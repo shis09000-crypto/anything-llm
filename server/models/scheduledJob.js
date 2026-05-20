@@ -294,6 +294,12 @@ const ScheduledJob = {
         description: "Recall and cite information from embedded documents",
       },
       {
+        id: "document_index_status_tool",
+        name: "Document Index Status",
+        description:
+          "Check which workspace documents are indexed, unindexed, outdated, or failed",
+      },
+      {
         id: "document-ingest-agent",
         name: "Document Ingest",
         description: "Add uploaded or parsed documents to the workspace",

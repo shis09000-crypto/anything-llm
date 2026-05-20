@@ -1,0 +1,10 @@
+{
+  "runId": "b19e9fe8-1217-493e-b805-7aa4569d892e",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage"
+  },
+  "result": "[FILE] .DS_Store\n[DIR] anythingllm-fs\n[FILE] anythingllm.db\n[DIR] assets\n[DIR] comkey\n[DIR] direct-uploads\n[DIR] documents\n[DIR] embedding-batches\n[DIR] generated-files\n[DIR] lancedb\n[DIR] models\n[DIR] plugins\n[DIR] push-notifications\n[FILE] README.md\n[DIR] system\n[DIR] tmp\n[DIR] tool-runs\n[DIR] vector-cache",
+  "resultSha256": "213097411fa19449fc4bc114573e5f99d8fb7f9ad44095f41ac71f5745790114",
+  "createdAt": "2026-05-19T11:28:11.859Z"
+}

@@ -1,0 +1,11 @@
+{
+  "runId": "fcc748e7-791b-4fe7-8ceb-05d3a18f9b44",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "list_unindexed",
+    "workspaceSlug": "细胞分子学"
+  },
+  "result": "{\"error\":\"workspace_not_found\",\"message\":\"No workspace was found for slug \\\"细胞分子学\\\".\"}",
+  "resultSha256": "849a393f7964b4791badcd3b5becbefb9d066b3b7bcd93734bb41f970ff76fa8",
+  "createdAt": "2026-05-19T11:52:56.509Z"
+}

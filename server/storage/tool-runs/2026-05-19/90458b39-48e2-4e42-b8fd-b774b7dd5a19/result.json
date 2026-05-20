@@ -1,0 +1,10 @@
+{
+  "runId": "90458b39-48e2-4e42-b8fd-b774b7dd5a19",
+  "toolName": "filesystem-read-text-file",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/system/provider-settings.backup.json"
+  },
+  "result": "{\n  \"version\": 1,\n  \"updatedAt\": \"2026-05-15T22:29:49.653Z\",\n  \"values\": {\n    \"LLM_PROVIDER\": \"deepseek\",\n    \"EMBEDDING_MODEL_PREF\": \"text-embedding-v4\",\n    \"EMBEDDING_ENGINE\": \"generic-openai\",\n    \"EMBEDDING_BASE_PATH\": \"https://dashscope.aliyuncs.com/compatible-mode/v1\",\n    \"EMBEDDING_MODEL_MAX_CHUNK_LENGTH\": \"5000\",\n    \"DOCUMENT_EMBEDDING_MODE\": \"batch\",\n    \"GENERIC_OPEN_AI_EMBEDDING_API_KEY\": \"sk-3c2fcd886b874f34afcf1393129810b2\",\n    \"GENERIC_OPEN_AI_EMBEDDING_MAX_CONCURRENT_CHUNKS\": \"500\",\n    \"VECTOR_DB\": \"lancedb\",\n    \"DEEPSEEK_API_KEY\": \"sk-115b8c9bf31a4758b9f072a2ab2cf104\",\n    \"DEEPSEEK_MODEL_PREF\": \"deepseek-v4-pro\"\n  }\n}",
+  "resultSha256": "0e17f04b5cb117ea47cc38d6dffd3ecb6be2bf5da1ee4eb0aafa1862b8d66078",
+  "createdAt": "2026-05-19T11:49:11.197Z"
+}

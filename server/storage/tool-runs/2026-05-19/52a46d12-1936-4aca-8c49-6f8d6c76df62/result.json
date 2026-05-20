@@ -1,0 +1,11 @@
+{
+  "runId": "52a46d12-1936-4aca-8c49-6f8d6c76df62",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/tool-runs",
+    "includeSizes": true
+  },
+  "result": "[DIR] 2026-05-16                     \n[DIR] 2026-05-17                     \n[DIR] 2026-05-18                     \n[DIR] 2026-05-19                     \n\nTotal: 0 files, 4 directories\nCombined size: 0 B",
+  "resultSha256": "37b208a262cacdcb787f31d141f56825b48b016676210adb581ed67b9993e9ab",
+  "createdAt": "2026-05-19T09:26:07.703Z"
+}

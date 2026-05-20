@@ -1,0 +1,11 @@
+{
+  "runId": "3c6f7a35-9d61-43bb-96e7-93bf6bdb707e",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "分子生物学第四章173-179测验题-含解析",
+    "mode": "glob"
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/分子生物学第四章173-179测验题-含解析.md",
+  "resultSha256": "7d9ca5e4ff944d1d02dbbc2a630d491eeb52c2c0c5c4181e9f76d45138586bd4",
+  "createdAt": "2026-05-19T12:04:15.951Z"
+}

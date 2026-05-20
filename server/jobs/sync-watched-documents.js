@@ -5,6 +5,7 @@ const { fileData } = require("../utils/files");
 const { log, conclude, updateSourceDocument } = require("./helpers/index.js");
 const { getVectorDbClass } = require("../utils/helpers/index.js");
 const { DocumentSyncRun } = require("../models/documentSyncRun.js");
+const { DocumentIndexStatus } = require("../models/documentIndexStatus.js");
 
 (async () => {
   try {
@@ -94,6 +95,12 @@ const { DocumentSyncRun } = require("../models/documentSyncRun.js");
             reason: "No content found.",
           }
         );
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: document.docpath,
+          errorMessage: "No content found.",
+        });
         continue;
       }
 
@@ -122,11 +129,16 @@ const { DocumentSyncRun } = require("../models/documentSyncRun.js");
       // update the defined document and workspace vectorDB with the latest information
       // it will skip cache and create a new vectorCache file.
       const vectorDatabase = getVectorDbClass();
+      await DocumentIndexStatus.markIndexing({
+        workspaceId: workspace.id,
+        docId: document.docId,
+        filePath: document.docpath,
+      });
       await vectorDatabase.deleteDocumentFromNamespace(
         workspace.slug,
         document.docId
       );
-      await vectorDatabase.addDocumentToNamespace(
+      const { vectorized, error } = await vectorDatabase.addDocumentToNamespace(
         workspace.slug,
         {
           ...currentDocumentData,
@@ -136,12 +148,35 @@ const { DocumentSyncRun } = require("../models/documentSyncRun.js");
         document.docpath,
         true
       );
+      if (!vectorized) {
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: document.docpath,
+          errorMessage: error || "Failed to write refreshed vectors.",
+        });
+        await DocumentSyncQueue.saveRun(
+          queue.id,
+          DocumentSyncRun.statuses.failed,
+          {
+            filename: document.filename,
+            workspacesModified: [],
+            reason: error || "Failed to write refreshed vectors.",
+          }
+        );
+        continue;
+      }
       updateSourceDocument(document.docpath, {
         ...currentDocumentData,
         pageContent: newContent,
         docId: document.docId,
         published: new Date().toLocaleString(),
         // Todo: Update word count and token_estimate?
+      });
+      await DocumentIndexStatus.markIndexed({
+        workspaceId: workspace.id,
+        docId: document.docId,
+        filePath: document.docpath,
       });
       log(
         `Workspace "${workspace.name}" vectors of ${source} updated. Document and vector cache updated.`
@@ -171,7 +206,12 @@ const { DocumentSyncRun } = require("../models/documentSyncRun.js");
             additionalWorkspace.slug,
             additionalDocumentRef.docId
           );
-          await vectorDatabase.addDocumentToNamespace(
+          await DocumentIndexStatus.markIndexing({
+            workspaceId: additionalWorkspace.id,
+            docId: additionalDocumentRef.docId,
+            filePath: additionalDocumentRef.docpath,
+          });
+          const additionalResult = await vectorDatabase.addDocumentToNamespace(
             additionalWorkspace.slug,
             {
               ...currentDocumentData,
@@ -180,6 +220,21 @@ const { DocumentSyncRun } = require("../models/documentSyncRun.js");
             },
             additionalDocumentRef.docpath
           );
+          if (!additionalResult.vectorized) {
+            await DocumentIndexStatus.markFailed({
+              workspaceId: additionalWorkspace.id,
+              docId: additionalDocumentRef.docId,
+              filePath: additionalDocumentRef.docpath,
+              errorMessage:
+                additionalResult.error || "Failed to write refreshed vectors.",
+            });
+            continue;
+          }
+          await DocumentIndexStatus.markIndexed({
+            workspaceId: additionalWorkspace.id,
+            docId: additionalDocumentRef.docId,
+            filePath: additionalDocumentRef.docpath,
+          });
           log(
             `Workspace "${additionalWorkspace.name}" vectors for ${source} was also updated with the new content from cache.`
           );

@@ -22,20 +22,40 @@ class LanceDb extends VectorDatabase {
   static normalizeRowsForSchema(data = [], schema = null) {
     if (!schema?.fields?.length) return data;
 
-    const utf8Fields = schema.fields.filter(
-      (field) => field.type?.toString?.() === "Utf8"
-    );
-    if (utf8Fields.length === 0) return data;
-
     return data.map((row) => {
       const normalized = { ...row };
-      for (const field of utf8Fields) {
-        if (!Object.prototype.hasOwnProperty.call(normalized, field.name)) {
-          normalized[field.name] = "";
-        }
+      for (const field of schema.fields) {
+        if (Object.prototype.hasOwnProperty.call(normalized, field.name))
+          continue;
+
+        const defaultValue = LanceDb.defaultValueForSchemaField(field);
+        if (defaultValue === undefined) continue;
+        normalized[field.name] = defaultValue;
       }
       return normalized;
     });
+  }
+
+  static defaultValueForSchemaField(field = {}) {
+    const type = field.type?.toString?.() || "";
+    if (type === "Utf8" || type === "LargeUtf8") return "";
+    if (
+      type.includes("Int") ||
+      type.includes("Float") ||
+      type.includes("Decimal")
+    )
+      return 0;
+    if (type === "Bool") return false;
+    return undefined;
+  }
+
+  static docpathForDocument(docId = "", fullFilePath = null, metadata = {}) {
+    const docpath =
+      fullFilePath ||
+      metadata.docpath ||
+      metadata.source ||
+      `agent-memory/${docId}.txt`;
+    return String(docpath);
   }
 
   get uri() {
@@ -339,6 +359,7 @@ class LanceDb extends VectorDatabase {
     try {
       const { pageContent, docId, ...metadata } = documentData;
       if (!pageContent || pageContent.length == 0) return false;
+      const docpath = LanceDb.docpathForDocument(docId, fullFilePath, metadata);
 
       this.logger("Adding new vectorized document into namespace", namespace);
       if (!skipCache) {
@@ -351,10 +372,18 @@ class LanceDb extends VectorDatabase {
 
           for (const chunk of chunks) {
             chunk.forEach((chunk) => {
+              const chunkIndex = submissions.length;
               const id = uuidv4();
               const { id: _id, ...metadata } = chunk.metadata;
               documentVectors.push({ docId, vectorId: id });
-              submissions.push({ id: id, vector: chunk.values, ...metadata });
+              submissions.push({
+                id,
+                vector: chunk.values,
+                ...metadata,
+                docId: metadata.docId || docId,
+                docpath: metadata.docpath || docpath,
+                chunkIndex: metadata.chunkIndex ?? chunkIndex,
+              });
             });
           }
 
@@ -399,7 +428,13 @@ class LanceDb extends VectorDatabase {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: {
+              ...metadata,
+              docId,
+              docpath,
+              chunkIndex: i,
+              text: textChunks[i],
+            },
           };
 
           vectors.push(vectorRecord);

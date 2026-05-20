@@ -1,0 +1,11 @@
+{
+  "runId": "1d2a9d17-7c87-4630-946c-aab372a1334b",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "list_unindexed",
+    "workspaceSlug": "default"
+  },
+  "result": "{\"error\":\"workspace_not_found\",\"message\":\"No workspace was found for slug \\\"default\\\".\"}",
+  "resultSha256": "7aeb93a32aac35dd95246c9432450c7a37e78331e259edd0c0337168d533a27a",
+  "createdAt": "2026-05-19T11:46:35.568Z"
+}

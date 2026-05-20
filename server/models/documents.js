@@ -5,6 +5,7 @@ const { Telemetry } = require("./telemetry");
 const { EventLogs } = require("./eventLogs");
 const { safeJsonParse } = require("../utils/http");
 const { getModelTag } = require("../endpoints/utils");
+const { DocumentIndexStatus } = require("./documentIndexStatus");
 
 const Document = {
   writable: ["pinned", "watched", "lastUpdatedAt"],
@@ -119,8 +120,17 @@ const Document = {
         totalDocs: additions.length,
       };
 
+      await DocumentIndexStatus.upsertPending({
+        workspaceId: workspace.id,
+        filePath: path,
+      });
       const data = await fileData(path);
       if (!data) {
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          filePath: path,
+          errorMessage: "Failed to load file data",
+        });
         emitProgress(workspace.slug, {
           type: "doc_failed",
           ...docProgress,
@@ -139,6 +149,11 @@ const Document = {
         metadata: JSON.stringify(metadata),
       };
 
+      await DocumentIndexStatus.markIndexing({
+        workspaceId: workspace.id,
+        docId,
+        filePath: path,
+      });
       emitProgress(workspace.slug, { type: "doc_starting", ...docProgress });
 
       global.__embeddingProgress = {
@@ -160,6 +175,12 @@ const Document = {
         );
         failedToEmbed.push(metadata?.title || newDoc.filename);
         errors.add(error);
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId,
+          filePath: path,
+          errorMessage: error || "Unknown error",
+        });
         emitProgress(workspace.slug, {
           type: "doc_failed",
           ...docProgress,
@@ -170,6 +191,11 @@ const Document = {
 
       try {
         await prisma.workspace_documents.create({ data: newDoc });
+        await DocumentIndexStatus.markIndexed({
+          workspaceId: workspace.id,
+          docId,
+          filePath: path,
+        });
         embedded.push(path);
         emitProgress(workspace.slug, {
           type: "doc_complete",
@@ -177,6 +203,12 @@ const Document = {
         });
       } catch (error) {
         console.error(error.message);
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId,
+          filePath: path,
+          errorMessage: "Failed to save document record",
+        });
         emitProgress(workspace.slug, {
           type: "doc_failed",
           ...docProgress,
@@ -235,6 +267,11 @@ const Document = {
         });
         await prisma.document_vectors.deleteMany({
           where: { docId: document.docId },
+        });
+        await DocumentIndexStatus.markDeleted({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: path,
         });
       } catch (error) {
         console.error(error.message);

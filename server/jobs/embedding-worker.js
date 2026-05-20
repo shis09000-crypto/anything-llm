@@ -25,6 +25,7 @@ const prisma = require("../utils/prisma");
 const { getVectorDbClass } = require("../utils/helpers");
 const { fileData } = require("../utils/files");
 const { Telemetry } = require("../models/telemetry");
+const { DocumentIndexStatus } = require("../models/documentIndexStatus");
 
 const queue = [];
 const cancelled = new Set();
@@ -75,8 +76,17 @@ async function processQueue() {
       totalDocs: batch.length,
     };
 
+    await DocumentIndexStatus.upsertPending({
+      workspaceId,
+      filePath,
+    });
     const data = await fileData(filePath);
     if (!data) {
+      await DocumentIndexStatus.markFailed({
+        workspaceId,
+        filePath,
+        errorMessage: "Failed to load file data",
+      });
       emit({
         type: "doc_failed",
         ...docProgress,
@@ -96,6 +106,11 @@ async function processQueue() {
       metadata: JSON.stringify(metadata),
     };
 
+    await DocumentIndexStatus.markIndexing({
+      workspaceId,
+      docId,
+      filePath,
+    });
     emit({
       type: "doc_starting",
       ...docProgress,
@@ -114,6 +129,12 @@ async function processQueue() {
     if (!vectorized) {
       console.error("Failed to vectorize", metadata?.title || newDoc.filename);
       failedToEmbed.push(metadata?.title || newDoc.filename);
+      await DocumentIndexStatus.markFailed({
+        workspaceId,
+        docId,
+        filePath,
+        errorMessage: error || "Unknown error",
+      });
       emit({
         type: "doc_failed",
         ...docProgress,
@@ -124,6 +145,11 @@ async function processQueue() {
 
     try {
       await prisma.workspace_documents.create({ data: newDoc });
+      await DocumentIndexStatus.markIndexed({
+        workspaceId,
+        docId,
+        filePath,
+      });
       embedded.push(filePath);
       emit({
         type: "doc_complete",
@@ -131,6 +157,12 @@ async function processQueue() {
       });
     } catch (err) {
       console.error(err.message);
+      await DocumentIndexStatus.markFailed({
+        workspaceId,
+        docId,
+        filePath,
+        errorMessage: "Failed to save document record",
+      });
       emit({
         type: "doc_failed",
         ...docProgress,

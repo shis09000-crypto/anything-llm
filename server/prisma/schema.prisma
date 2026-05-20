@@ -120,6 +120,28 @@ model document_vectors {
   lastUpdatedAt DateTime @default(now())
 }
 
+model DocumentIndexStatus {
+  id             Int       @id @default(autoincrement())
+  workspaceId    Int
+  docId          String?
+  filePath       String
+  fileHash       String    @default("")
+  indexStatus    String    @default("pending")
+  indexedAt      DateTime?
+  errorMessage   String?
+  chunkCount     Int       @default(0)
+  embeddingCount Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([workspaceId, filePath])
+  @@index([workspaceId])
+  @@index([docId])
+  @@index([filePath])
+  @@index([fileHash])
+  @@index([indexStatus])
+}
+
 model workspaces {
   id                           Int                            @id @default(autoincrement())
   name                         String

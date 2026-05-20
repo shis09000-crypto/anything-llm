@@ -1,0 +1,11 @@
+{
+  "runId": "3b102acf-9d92-4792-8b09-552085c56a10",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "generated-files",
+    "mode": "glob"
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/server/jobs/cleanup-generated-files.js",
+  "resultSha256": "ceb37c7a294a7e14b283ba932b8f3d81cd3585ba0ff39a670b320c3611a9df42",
+  "createdAt": "2026-05-19T09:25:23.790Z"
+}

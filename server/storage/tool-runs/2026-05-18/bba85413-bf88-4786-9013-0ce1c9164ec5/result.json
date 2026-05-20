@@ -1,0 +1,12 @@
+{
+  "runId": "bba85413-bf88-4786-9013-0ce1c9164ec5",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "batch",
+    "mode": "glob",
+    "maxResults": 50
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/anythingllm_batch_workspace_debug.zip",
+  "resultSha256": "a243cdfd38d793108f3c6abc2794ee9e2bf119d2017d7b15b75257a88081e40d",
+  "createdAt": "2026-05-18T16:43:47.326Z"
+}

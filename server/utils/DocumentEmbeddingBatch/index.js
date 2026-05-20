@@ -11,6 +11,7 @@ const {
 const { fileData, storeVectorResult } = require("../files");
 const { SystemSettings } = require("../../models/systemSettings");
 const { EmbeddingBatchJob } = require("../../models/embeddingBatchJob");
+const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
 const prisma = require("../prisma");
 
 const DASH_SCOPE_BASE_PATH =
@@ -157,10 +158,19 @@ async function createWorkspaceDocuments({ workspace, additions, jobId }) {
   const errors = new Set();
 
   for (const docpath of additions) {
+    await DocumentIndexStatus.upsertPending({
+      workspaceId: workspace.id,
+      filePath: docpath,
+    });
     const data = await fileData(docpath);
     if (!data) {
       failedToEmbed.push(docpath);
       errors.add("Failed to load file data");
+      await DocumentIndexStatus.markFailed({
+        workspaceId: workspace.id,
+        filePath: docpath,
+        errorMessage: "Failed to load file data",
+      });
       continue;
     }
 
@@ -178,10 +188,21 @@ async function createWorkspaceDocuments({ workspace, additions, jobId }) {
 
     try {
       await prisma.workspace_documents.create({ data: newDoc });
+      await DocumentIndexStatus.markIndexing({
+        workspaceId: workspace.id,
+        docId,
+        filePath: docpath,
+      });
       docs.push({ ...newDoc, data });
     } catch (error) {
       failedToEmbed.push(metadata?.title || newDoc.filename);
       errors.add(error.message);
+      await DocumentIndexStatus.markFailed({
+        workspaceId: workspace.id,
+        docId,
+        filePath: docpath,
+        errorMessage: error.message,
+      });
     }
   }
 
@@ -227,6 +248,16 @@ async function enqueueBatchDocuments({
         lastUpdatedAt: new Date(),
       },
     });
+    await Promise.all(
+      docs.map((doc) =>
+        DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId: doc.docId,
+          filePath: doc.docpath,
+          errorMessage: error,
+        })
+      )
+    );
     return { failedToEmbed: additions, errors: [error], embedded: [] };
   }
 
@@ -479,6 +510,13 @@ async function writeBatchOutput(jobId, outputFileId) {
       docManifest.docpath
     );
     if (!vectorized) throw new Error(error || "Failed to write vectors.");
+    await DocumentIndexStatus.markIndexed({
+      workspaceId: job.workspaceId,
+      docId,
+      filePath: docManifest.docpath,
+      chunkCount: vectors.length,
+      embeddingCount: vectors.length,
+    });
     vectorsWritten += vectors.length;
   }
 

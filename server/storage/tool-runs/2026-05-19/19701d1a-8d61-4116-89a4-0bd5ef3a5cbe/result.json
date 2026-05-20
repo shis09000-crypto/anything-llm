@@ -1,0 +1,12 @@
+{
+  "runId": "19701d1a-8d61-4116-89a4-0bd5ef3a5cbe",
+  "toolName": "filesystem-search-files",
+  "arguments": {
+    "pattern": "workspace",
+    "mode": "glob",
+    "maxResults": 20
+  },
+  "result": "/Users/shijie/Desktop/anything-llm/anythingllm_batch_workspace_debug.zip\n/Users/shijie/Desktop/claudecodeui/pnpm-workspace.yaml\n/Users/shijie/Desktop/anything-llm/frontend/src/models/workspaceThread.js\n/Users/shijie/Desktop/anything-llm/frontend/src/models/workspace.js\n/Users/shijie/Desktop/claudecodeui/src/components/project-creation-wizard/data/workspaceApi.ts\n/Users/shijie/Desktop/anything-llm/server/endpoints/workspaceThreads.js\n/Users/shijie/Desktop/anything-llm/server/endpoints/workspacesParsedFiles.js\n/Users/shijie/Desktop/anything-llm/server/endpoints/workspaces.js\n/Users/shijie/Desktop/anything-llm/server/models/workspaceThread.js\n/Users/shijie/Desktop/anything-llm/server/models/workspaceUsers.js\n/Users/shijie/Desktop/anything-llm/server/models/workspaceAgentInvocation.js\n/Users/shijie/Desktop/anything-llm/server/models/workspace.js\n/Users/shijie/Desktop/anything-llm/server/models/workspacesSuggestedMessages.js\n/Users/shijie/Desktop/anything-llm/server/models/workspaceChats.js\n/Users/shijie/Desktop/anything-llm/server/models/workspaceParsedFiles.js\n/Users/shijie/Desktop/anything-llm/frontend/src/components/UserIcon/workspace.svg",
+  "resultSha256": "839b044dd23c184e8984a43c42a86bdbb3bb819a375a50b77266735b785771a9",
+  "createdAt": "2026-05-19T09:25:26.750Z"
+}

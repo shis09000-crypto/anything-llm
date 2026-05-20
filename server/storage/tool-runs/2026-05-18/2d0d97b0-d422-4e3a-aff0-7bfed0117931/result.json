@@ -1,0 +1,11 @@
+{
+  "runId": "2d0d97b0-d422-4e3a-aff0-7bfed0117931",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/",
+    "glob": "THE_GLOBAL_STRUCTURE_OF_CHROMOSOMES.md"
+  },
+  "result": "Error: Tool document-ingest-agent timed out after 30000ms.",
+  "resultSha256": "beb62ae3c4947121449e99f8cdcfafcf36dfa8a271fc0892580502d1006b54eb",
+  "createdAt": "2026-05-18T16:37:42.703Z"
+}

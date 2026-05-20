@@ -1,0 +1,11 @@
+{
+  "runId": "4edff338-e626-40f3-93fd-c22559e402be",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "get_summary",
+    "workspaceSlug": "1cd3992d-e83f-44dd-a760-28e267b224ba"
+  },
+  "result": "{\"workspaceSlug\":\"1cd3992d-e83f-44dd-a760-28e267b224ba\",\"summary\":{\"indexed\":0,\"unindexed\":14,\"indexing\":0,\"outdated\":0,\"failed\":0,\"deleted\":0,\"pending\":14,\"missingStatus\":14,\"totalCurrentDocuments\":14}}",
+  "resultSha256": "042a1a5d33b10de5172770b529d66d34b3f467009766e515b4c397d05fc22388",
+  "createdAt": "2026-05-19T11:55:04.084Z"
+}

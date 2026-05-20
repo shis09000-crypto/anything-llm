@@ -162,6 +162,22 @@ const EmbeddingBatchJob = {
         },
       })
       .catch(() => null);
+    const retryDocs = await prisma.workspace_documents
+      .findMany({
+        where: { embeddingBatchJobId: jobId },
+        select: { workspaceId: true, docId: true, docpath: true },
+      })
+      .catch(() => []);
+    const { DocumentIndexStatus } = require("./documentIndexStatus");
+    await Promise.all(
+      retryDocs.map((doc) =>
+        DocumentIndexStatus.markIndexing({
+          workspaceId: doc.workspaceId,
+          docId: doc.docId,
+          filePath: doc.docpath,
+        })
+      )
+    ).catch(() => null);
     return result;
   },
 
@@ -170,12 +186,31 @@ const EmbeddingBatchJob = {
       error: String(error?.message || error || "Unknown error"),
       ...metadata,
     });
+    const errorMessage = String(error?.message || error || "Unknown error");
+    const failedDocs = await prisma.workspace_documents
+      .findMany({
+        where: { embeddingBatchJobId: jobId },
+        select: { workspaceId: true, docId: true, docpath: true },
+      })
+      .catch(() => []);
+    const { DocumentIndexStatus } = require("./documentIndexStatus");
+    await Promise.all(
+      failedDocs.map((doc) =>
+        DocumentIndexStatus.markFailed({
+          workspaceId: doc.workspaceId,
+          docId: doc.docId,
+          filePath: doc.docpath,
+          errorMessage,
+        })
+      )
+    ).catch(() => null);
+
     return await prisma.workspace_documents
       .updateMany({
         where: { embeddingBatchJobId: jobId },
         data: {
           embeddingStatus: "failed",
-          embeddingError: String(error?.message || error || "Unknown error"),
+          embeddingError: errorMessage,
           lastUpdatedAt: new Date(),
         },
       })

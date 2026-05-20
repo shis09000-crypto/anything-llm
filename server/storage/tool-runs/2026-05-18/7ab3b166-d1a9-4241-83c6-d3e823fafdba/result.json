@@ -1,0 +1,11 @@
+{
+  "runId": "7ab3b166-d1a9-4241-83c6-d3e823fafdba",
+  "toolName": "rag-memory",
+  "arguments": {
+    "action": "store",
+    "content": "# HOW GENOMES EVOLVE — 基因组如何进化（上半部分）\n\n## 一、总论：基因组进化研究为什么重要\n基因组比较可以反推生命历史。homologous genes（同源基因）：由于共同祖先而在序列和功能上相似的基因。很多人类基因在蠕虫、果蝇、酵母甚至细菌中都有明显同源基因。\n\n## 二、基因组比较通过进化保守性揭示功能性 DNA 序列\nconserved regions（保守区域）：有功能的 DNA 更容易在进化中被保留下来。人和小鼠约8000万年前分化。人类基因组约5%属于多物种保守序列，其中只有约三分之一编码蛋白。purifying selection（净化选择）。\n\n非编码DNA功能：enhancer（增强子）、promoter（启动子）、silencer（沉默子）、insulator（绝缘子）、lncRNA、miRNA、结构序列。\n\n## 三、基因组改变来自DNA复制和维护机制的失败及转座元件\npoint mutation（点突变）、deletion（缺失）、duplication（重复）、inversion（倒位）、translocation（易位）。transposable elements/transposons（转座子）。人类基因组接近一半是古老转座事件遗迹。\n\n人类基因组组成：LINEs、SINEs、retroviral-like elements、DNA-only transposon fossils、introns、protein-coding regions、simple sequence repeats、segmental duplications、nonrepetitive noncoding DNA。\n\n## 四、两个物种基因组序列差异与分化时间成比例\nphylogenetic tree（系统发育树）。分化时间短+序列相似→不一定功能重要；分化时间长+序列仍相似→强烈提示功能重要。maximum parsimony（最大简约法）。\n\n## 五、系统发育树与分子钟\nmolecular clock（分子钟）。分子钟快：不受净化选择的区域（内含子、同义密码子第三位、假基因）。分子钟慢：受强功能约束区域（关键蛋白、rRNA）。线粒体DNA突变率高。\n\n## 六、人和小鼠染色体比较\n约180次染色体断裂与重接。synteny（共线性）：不同物种中基因顺序保守。小鼠谱系丢失约45%DNA，人类丢失约25%。\n\n## 七、脊椎动物基因组大小反映DNA增加和丢失的平衡\n鸡基因组约10亿bp，河豚Fugu约4亿bp（内含子短，缺少重复DNA）。基因组大小变化 = DNA增加量 - DNA丢失量。Fugu huntingtin基因约24,000bp，人类约180,000bp，但都有67个外显子一一对应。\n\n## 八、推断古代基因组序列\n尼安德特人基因组：现代人祖先与尼安德特人杂交，约27万-44万年前分化。方法：直接古DNA测序 + 比较现代物种反推祖先。\n\n## 重点术语\nhomologous genes, conserved regions, purifying selection, point mutation, deletion, duplication, inversion, translocation, transposon, phylogenetic tree, molecular clock, synteny, pseudogene"
+  },
+  "result": "The content given was successfully embedded. There is nothing else to do.",
+  "resultSha256": "4d63ae889a582ad825c9adaa85c835f74a7037819a6f7d393db5c32cd32c1197",
+  "createdAt": "2026-05-18T16:48:44.615Z"
+}

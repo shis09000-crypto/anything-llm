@@ -1,0 +1,10 @@
+{
+  "runId": "b0f1a972-13d1-4d1c-9f77-8c040011d558",
+  "toolName": "filesystem-list-directory",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/lancedb/1cd3992d-e83f-44dd-a760-28e267b224ba.lance/data"
+  },
+  "result": "[FILE] 06683eab-b8c1-4185-80e2-955421963b14.lance\n[FILE] 1e081968-efea-4bb1-b489-bdae1721a95f.lance\n[FILE] 1fddfa4a-29bb-440d-9099-04dfd4d32663.lance\n[FILE] 2c95a4c9-c1e3-4078-a22b-cc713c6b5b05.lance\n[FILE] 38860bcc-a2aa-4126-bfc1-a83601685ac4.lance\n[FILE] 6078dac7-2c10-4439-99c5-b6f7f736508c.lance\n[FILE] 6290d3ca-5b7d-40bd-99bc-a65cb987fbe1.lance\n[FILE] 63d74f47-bded-4915-b631-c3c557a5dc63.lance\n[FILE] 8e10ecfe-5787-47a4-b6cf-f365063ff7e3.lance\n[FILE] a5e758cd-e458-410d-8e22-d0d22a6b414b.lance\n[FILE] b4f8db39-7be2-42eb-9c01-18c80fcc8edf.lance\n[FILE] c84fb8f8-0762-4495-89dc-c317c5cdcab0.lance\n[FILE] cfd45b58-c82b-46c0-a902-c60b24ab230f.lance\n[FILE] e0d8ca72-a085-4d95-90ee-9603cb9e0c40.lance\n[FILE] e238be19-d74d-4ac7-a819-9eacb3885c2a.lance\n[FILE] ea072204-6f8d-4ffd-96a8-d9b1c27115db.lance",
+  "resultSha256": "92703fea63f8895f083e76b6e34b9ec80d726bb792bd4ff83df437f76c76991a",
+  "createdAt": "2026-05-19T11:28:02.440Z"
+}

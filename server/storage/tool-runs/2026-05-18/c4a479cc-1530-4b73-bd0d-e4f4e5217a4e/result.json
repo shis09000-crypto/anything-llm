@@ -1,0 +1,16 @@
+{
+  "runId": "c4a479cc-1530-4b73-bd0d-e4f4e5217a4e",
+  "toolName": "document-ingest-agent",
+  "arguments": {
+    "document_identifiers": [
+      "THE_GLOBAL_STRUCTURE_OF_CHROMOSOMES.md",
+      "染色体整体结构_课后测试题.md",
+      "HOW_GENOMES_EVOLVE_上半部分.md",
+      "HOW_GENOMES_EVOLVE_下半部分.md",
+      "Chapter4_DNA_Chromosomes_Genomes_练习题.md"
+    ]
+  },
+  "result": "{\"success\":false,\"source\":\"workspace_document\",\"scannedFiles\":[\"THE_GLOBAL_STRUCTURE_OF_CHROMOSOMES.md\",\"染色体整体结构_课后测试题.md\",\"HOW_GENOMES_EVOLVE_上半部分.md\",\"HOW_GENOMES_EVOLVE_下半部分.md\",\"Chapter4_DNA_Chromosomes_Genomes_练习题.md\"],\"importedFiles\":[],\"skippedFiles\":[{\"path\":\"HOW_GENOMES_EVOLVE_上半部分.md\",\"reason\":\"ambiguous_document_identifier\"},{\"path\":\"HOW_GENOMES_EVOLVE_下半部分.md\",\"reason\":\"document_not_found\"},{\"path\":\"Chapter4_DNA_Chromosomes_Genomes_练习题.md\",\"reason\":\"document_not_found\"}],\"batchJobId\":null,\"embeddingStatus\":null,\"errors\":[{\"identifier\":\"HOW_GENOMES_EVOLVE_上半部分.md\",\"error\":\"ambiguous_document_identifier\"},{\"identifier\":\"HOW_GENOMES_EVOLVE_下半部分.md\",\"error\":\"document_not_found\"},{\"identifier\":\"Chapter4_DNA_Chromosomes_Genomes_练习题.md\",\"error\":\"document_not_found\"}]}",
+  "resultSha256": "ebb566ed15e5630d997a58b7b06bc8520fcf3324401c48f2bbf65db07fe391ff",
+  "createdAt": "2026-05-18T16:38:16.620Z"
+}

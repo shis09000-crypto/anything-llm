@@ -378,32 +378,57 @@ async function getWatchedDocumentFilenames(filenames = []) {
  * @returns {Promise<Record<string, Record<string, {status: string, error: string|null, batchJobId: string|null}>>>}
  */
 async function getEmbeddingStatusesByDocument(filenames = []) {
-  return (
-    await Document.where(
-      {
-        docpath: { in: Object.keys(filenames) },
-      },
-      null,
-      null,
-      null,
-      {
-        workspaceId: true,
-        docpath: true,
-        embeddingStatus: true,
-        embeddingError: true,
-        embeddingBatchJobId: true,
-      }
-    )
-  ).reduce((result, doc) => {
+  const docpaths = Object.keys(filenames);
+  const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
+  const indexStatuses = await DocumentIndexStatus.forFilePaths(docpaths);
+  const result = indexStatuses.reduce((result, status) => {
+    const filename = filenames[status.filePath];
+    if (!filename) return result;
+    if (!result[filename]) result[filename] = {};
+    result[filename][status.workspaceId] = {
+      status: status.indexStatus,
+      error: status.errorMessage || null,
+      batchJobId: null,
+      indexedAt: status.indexedAt || null,
+      fileHash: status.fileHash || null,
+      chunkCount: status.chunkCount || 0,
+      embeddingCount: status.embeddingCount || 0,
+    };
+    return result;
+  }, {});
+
+  const legacyDocs = await Document.where(
+    {
+      docpath: { in: docpaths },
+    },
+    null,
+    null,
+    null,
+    {
+      workspaceId: true,
+      docpath: true,
+      embeddingStatus: true,
+      embeddingError: true,
+      embeddingBatchJobId: true,
+    }
+  );
+
+  return legacyDocs.reduce((result, doc) => {
     const filename = filenames[doc.docpath];
     if (!result[filename]) result[filename] = {};
+    if (result[filename][doc.workspaceId]) return result;
     result[filename][doc.workspaceId] = {
-      status: doc.embeddingStatus || "completed",
+      status:
+        doc.embeddingStatus === "processing"
+          ? DocumentIndexStatus.statuses.indexing
+          : doc.embeddingStatus === "failed"
+            ? DocumentIndexStatus.statuses.failed
+            : DocumentIndexStatus.statuses.indexed,
       error: doc.embeddingError || null,
       batchJobId: doc.embeddingBatchJobId || null,
     };
     return result;
-  }, {});
+  }, result);
 }
 
 /**

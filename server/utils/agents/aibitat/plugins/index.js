@@ -13,6 +13,7 @@ const { gmailAgent } = require("./gmail/index.js");
 const { outlookAgent } = require("./outlook/index.js");
 const { googleCalendarAgent } = require("./google-calendar/index.js");
 const { shellAgent } = require("./shell/index.js");
+const { documentIndexStatusTool } = require("./document-index-status-tool.js");
 
 module.exports = {
   webScraping,
@@ -30,6 +31,7 @@ module.exports = {
   outlookAgent,
   googleCalendarAgent,
   shellAgent,
+  documentIndexStatusTool,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -47,4 +49,5 @@ module.exports = {
   [outlookAgent.name]: outlookAgent,
   [googleCalendarAgent.name]: googleCalendarAgent,
   [shellAgent.name]: shellAgent,
+  [documentIndexStatusTool.name]: documentIndexStatusTool,
 };

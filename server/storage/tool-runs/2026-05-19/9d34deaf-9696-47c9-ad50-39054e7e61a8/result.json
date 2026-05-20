@@ -1,0 +1,11 @@
+{
+  "runId": "9d34deaf-9696-47c9-ad50-39054e7e61a8",
+  "toolName": "document_index_status_tool",
+  "arguments": {
+    "action": "list_unindexed",
+    "workspaceSlug": "xi-bao-fen-zi-xue"
+  },
+  "result": "{\"error\":\"workspace_not_found\",\"message\":\"No workspace was found for slug \\\"xi-bao-fen-zi-xue\\\".\"}",
+  "resultSha256": "5a291573fb26cff982a404ad0120a5ec13097942125b5bc5f21816bd8719d0fd",
+  "createdAt": "2026-05-19T11:52:57.951Z"
+}
