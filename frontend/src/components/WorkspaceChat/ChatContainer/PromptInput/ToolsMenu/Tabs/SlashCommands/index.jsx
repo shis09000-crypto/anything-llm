@@ -57,6 +57,11 @@ export default function SlashCommandsTab({
         description: t("chat_window.preset_reset_description"),
         autoSubmit: true,
       },
+      {
+        command: "/mindmap",
+        description: "从最新助手回复生成思维导图。",
+        autoSubmit: true,
+      },
       ...presets.map((preset) => ({
         command: preset.command,
         description: preset.description,

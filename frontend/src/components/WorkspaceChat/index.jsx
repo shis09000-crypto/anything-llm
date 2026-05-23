@@ -12,8 +12,13 @@ import {
   useWatchForAutoPlayAssistantTTSResponse,
 } from "../contexts/TTSProvider";
 import { PENDING_HOME_MESSAGE } from "@/utils/constants";
-import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import {
+  draftHistoryIntegrity,
+  draftNeedsServerHistoryRefresh,
+  useChatThreadDrafts,
+} from "@/contexts/ChatThreadDraftProvider";
 import { setEventDelegatorForCodeSnippets } from "@/utils/chat/codeBlockCopy";
+import { debugChatTurn } from "@/utils/chat/debug";
 
 export default function WorkspaceChat({ loading, workspace }) {
   useWatchForAutoPlayAssistantTTSResponse();
@@ -72,7 +77,16 @@ export default function WorkspaceChat({ loading, workspace }) {
       }
 
       const draft = getDraft(workspace.slug, threadSlug);
+      const needsServerHistoryRefresh = draftNeedsServerHistoryRefresh(draft);
       if (draft) {
+        if (needsServerHistoryRefresh) {
+          debugChatTurn("WorkspaceChat:needsServerHistoryRefresh", {
+            key,
+            workspaceSlug: workspace.slug,
+            threadSlug,
+            ...draftHistoryIntegrity(draft),
+          });
+        }
         setLoadedIfChanged({
           key,
           workspace,
@@ -85,7 +99,20 @@ export default function WorkspaceChat({ loading, workspace }) {
         ? await Workspace.threads.chatHistory(workspace.slug, threadSlug)
         : await Workspace.chatHistory(workspace.slug);
       if (cancelled) return;
-      if (!restoredChatKeysRef.current.has(key)) {
+      const latestDraft = getDraft(workspace.slug, threadSlug);
+      const latestDraftNeedsRefresh =
+        draftNeedsServerHistoryRefresh(latestDraft);
+      if (!restoredChatKeysRef.current.has(key) || latestDraftNeedsRefresh) {
+        debugChatTurn("WorkspaceChat:mergeServerHistory", {
+          key,
+          workspaceSlug: workspace.slug,
+          threadSlug,
+          historyLength: chatHistory.length,
+          wasAlreadyRestored: restoredChatKeysRef.current.has(key),
+          needsServerHistoryRefresh:
+            needsServerHistoryRefresh || latestDraftNeedsRefresh,
+          ...draftHistoryIntegrity(latestDraft),
+        });
         restoredChatKeysRef.current.add(key);
         mergeServerHistory({
           workspaceSlug: workspace.slug,

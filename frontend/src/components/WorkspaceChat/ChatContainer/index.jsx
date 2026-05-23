@@ -1,4 +1,4 @@
-import { useEffect, useContext, useRef, useMemo } from "react";
+import { useEffect, useContext, useRef, useMemo, useState } from "react";
 import ChatHistory from "./ChatHistory";
 import { DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -23,9 +23,10 @@ import { useTranslation } from "react-i18next";
 import paths from "@/utils/paths";
 import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
-import TextSizeMenu from "./TextSizeMenu";
 import WorkspaceModelPicker from "./WorkspaceModelPicker";
 import SourcesSidebar, { SourcesSidebarProvider } from "./SourcesSidebar";
+import MindMapPanel from "./MindMapPanel";
+import TopRightActionZone from "./TopRightActionZone";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import {
   isAssistantTurn,
@@ -33,9 +34,22 @@ import {
 } from "@/utils/chat/turns";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
+import showToast from "@/utils/toast";
+import {
+  previousSidebarState,
+  SIDEBAR_SET_STATE_EVENT,
+} from "@/components/Sidebar/SidebarToggle";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
+}
+
+function setSidebarForMindMap(open) {
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
+      detail: { open, source: "mind-map-panel" },
+    })
+  );
 }
 
 export default function ChatContainer({
@@ -61,10 +75,13 @@ export default function ChatContainer({
   const chatItems = draft?.items || knownItems;
   const loadingResponse = !!draft?.isStreaming;
   const latestAssistantTurn = lastAssistantTurn(chatItems);
+  const [mindMapOpen, setMindMapOpen] = useState(false);
+  const [mindMapRequest, setMindMapRequest] = useState(null);
   const { files, parseAttachments } = useContext(DndUploaderContext);
   const { chatHistoryRef } = useChatContainerQuickScroll();
   const pendingMessageChecked = useRef(false);
   const restoredChatKeysRef = useRef(new Set());
+  const mindMapSidebarStateRef = useRef(null);
 
   const { listening, resetTranscript } = useSpeechRecognition({
     clearTranscriptOnListen: true,
@@ -84,9 +101,61 @@ export default function ChatContainer({
     );
   }
 
+  function openMindMap(body = {}) {
+    setMindMapOpen(true);
+    setMindMapRequest({ id: Date.now(), body });
+  }
+
+  function handleMindMapCommand(message = "") {
+    if (!/^\/mindmap(\s|$)/i.test(message.trim())) return false;
+    const text = message
+      .trim()
+      .replace(/^\/mindmap/i, "")
+      .trim();
+    if (text) {
+      openMindMap({ sourceType: "text", text });
+      return true;
+    }
+    if (!latestAssistantTurn?.finalContent) {
+      setMindMapOpen(true);
+      showToast("当前还没有可用于生成思维导图的助手回复。", "info");
+      return true;
+    }
+    openMindMap({
+      sourceType: "chat",
+      chatId: latestAssistantTurn.chatId,
+      text: latestAssistantTurn.finalContent,
+    });
+    return true;
+  }
+
   function currentFileAccessMode() {
     return FileAccessPolicy.getSessionMode(workspace?.slug, threadSlug);
   }
+
+  useEffect(() => {
+    if (isMobile) return;
+
+    if (mindMapOpen) {
+      if (mindMapSidebarStateRef.current === null)
+        mindMapSidebarStateRef.current = previousSidebarState();
+      setSidebarForMindMap(false);
+      return;
+    }
+
+    if (mindMapSidebarStateRef.current === null) return;
+    const shouldRestoreOpen = mindMapSidebarStateRef.current;
+    mindMapSidebarStateRef.current = null;
+    setSidebarForMindMap(shouldRestoreOpen);
+  }, [mindMapOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (isMobile || mindMapSidebarStateRef.current === null) return;
+      setSidebarForMindMap(mindMapSidebarStateRef.current);
+      mindMapSidebarStateRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!workspace?.slug || !chatKey) return;
@@ -124,6 +193,12 @@ export default function ChatContainer({
     const currentMessage =
       document.getElementById(PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage) return false;
+
+    if (handleMindMapCommand(currentMessage)) {
+      clearPromptInputDraft(threadSlug ?? workspace.slug);
+      setMessageEmit("");
+      return false;
+    }
 
     // Clear the localStorage draft for this thread/workspace so that if the
     // PromptInput remounts (empty→chat transition), it won't restore stale text
@@ -213,6 +288,12 @@ export default function ChatContainer({
 
     if (!text || text === "") return false;
 
+    if (handleMindMapCommand(text)) {
+      clearPromptInputDraft(threadSlug ?? workspace.slug);
+      setMessageEmit("");
+      return false;
+    }
+
     // Clear the localStorage draft so that if the PromptInput remounts
     // (e.g. /reset causing empty→chat or chat→empty transitions),
     // it won't restore stale text.
@@ -258,7 +339,10 @@ export default function ChatContainer({
         className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
       >
         {isMobile && <SidebarMobileHeader />}
-        <TextSizeMenu />
+        <TopRightActionZone
+          isMindMapOpen={mindMapOpen}
+          onMindMap={() => setMindMapOpen(true)}
+        />
         <WorkspaceModelPicker workspaceSlug={workspace.slug} />
         <DnDFileUploaderWrapper>
           <div className="flex flex-col h-full w-full items-center justify-center">
@@ -296,6 +380,16 @@ export default function ChatContainer({
           </div>
         </DnDFileUploaderWrapper>
         <ChatTooltips />
+        <MindMapPanel
+          workspace={workspace}
+          threadSlug={threadSlug}
+          isOpen={mindMapOpen}
+          request={mindMapRequest}
+          onClose={() => setMindMapOpen(false)}
+          sendCommand={sendCommand}
+          setMessage={(message) => setMessageEmit(message)}
+          floating
+        />
       </div>
     );
   }
@@ -306,9 +400,12 @@ export default function ChatContainer({
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
       >
-        <TextSizeMenu />
         <div className="flex-1 min-w-0 transition-all duration-500 relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
           {isMobile && <SidebarMobileHeader />}
+          <TopRightActionZone
+            isMindMapOpen={mindMapOpen}
+            onMindMap={() => setMindMapOpen(true)}
+          />
           <WorkspaceModelPicker workspaceSlug={workspace.slug} />
           <DnDFileUploaderWrapper>
             <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -323,6 +420,7 @@ export default function ChatContainer({
                     chatKey={chatKey}
                     approvalState={draft?.pendingApproval}
                     onToolApprovalResponse={respondToApproval}
+                    onGenerateMindMap={openMindMap}
                   />
                 </MetricsProvider>
                 <PromptInput
@@ -340,6 +438,15 @@ export default function ChatContainer({
           </DnDFileUploaderWrapper>
           <ChatTooltips />
         </div>
+        <MindMapPanel
+          workspace={workspace}
+          threadSlug={threadSlug}
+          isOpen={mindMapOpen}
+          request={mindMapRequest}
+          onClose={() => setMindMapOpen(false)}
+          sendCommand={sendCommand}
+          setMessage={(message) => setMessageEmit(message)}
+        />
         <SourcesSidebar />
       </div>
     </SourcesSidebarProvider>

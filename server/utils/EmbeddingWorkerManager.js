@@ -115,6 +115,15 @@ async function embedFiles(slug, files, workspaceId, userId) {
     if (msg.type === "all_complete") {
       workerCompleted = true;
       logEmbeddingEvent(msg);
+      const { processPendingGraphExtractionJobs } = require("./knowledgeGraph");
+      setImmediate(() =>
+        processPendingGraphExtractionJobs({ workspaceId }).catch((error) =>
+          console.error(
+            `[KnowledgeGraph] failed to process jobs for ${slug}:`,
+            error.message
+          )
+        )
+      );
     }
     emitProgress(slug, msg);
   });

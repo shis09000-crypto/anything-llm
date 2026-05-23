@@ -89,6 +89,7 @@ model users {
   prompt_history               prompt_history[]
   desktop_mobile_devices       desktop_mobile_devices[]
   workspace_parsed_files       workspace_parsed_files[]
+  workspace_mind_maps          workspace_mind_maps[]
 }
 
 model recovery_codes {
@@ -142,6 +143,219 @@ model DocumentIndexStatus {
   @@index([indexStatus])
 }
 
+model KnowledgeNode {
+  id                       Int      @id @default(autoincrement())
+  workspaceId              Int
+  canonicalName            String
+  canonicalKey             String
+  aliases                  String   @default("[]")
+  displayNameZh            String?
+  displayNameEn            String?
+  entityType               String   @default("concept")
+  summary                  String?
+  globalImportanceScore    Float    @default(0)
+  workspaceImportanceScore Float    @default(0)
+  recentImportanceScore    Float    @default(0)
+  usageCount               Int      @default(0)
+  recentUsageCount         Int      @default(0)
+  lastReferencedAt         DateTime?
+  embedding                String?
+  embeddingModel           String?
+  embeddingVersion         String?
+  mergeLogicVersion        String
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@unique([workspaceId, canonicalKey])
+  @@index([workspaceId, entityType])
+  @@index([workspaceId, canonicalKey])
+  @@index([workspaceId, globalImportanceScore])
+  @@index([workspaceId, workspaceImportanceScore])
+  @@index([workspaceId, recentImportanceScore])
+  @@index([workspaceId, lastReferencedAt])
+}
+
+model KnowledgeEdge {
+  id                       Int      @id @default(autoincrement())
+  workspaceId              Int
+  sourceNodeId             Int
+  targetNodeId             Int
+  relationType             String
+  relationLabel            String?
+  relationLabelZh          String?
+  relationLabelEn          String?
+  confidence               Float    @default(0)
+  weight                   Float    @default(1)
+  usageCount               Int      @default(0)
+  lastReferencedAt         DateTime?
+  extractionPromptVersion  String
+  mergeLogicVersion        String
+  relationOntologyVersion  String
+  graphVersion             String
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@unique([workspaceId, sourceNodeId, targetNodeId, relationType])
+  @@index([workspaceId, sourceNodeId])
+  @@index([workspaceId, targetNodeId])
+  @@index([workspaceId, relationType])
+  @@index([workspaceId, confidence])
+  @@index([workspaceId, weight])
+}
+
+model EdgeEvidence {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  edgeId          Int
+  documentId      String
+  chunkId         String
+  snippet         String?
+  confidence      Float    @default(0)
+  extractionJobId Int?
+  createdAt       DateTime @default(now())
+
+  @@unique([edgeId, chunkId])
+  @@index([workspaceId, edgeId])
+  @@index([workspaceId, documentId])
+  @@index([workspaceId, chunkId])
+}
+
+model ConceptChunkMap {
+  id             Int      @id @default(autoincrement())
+  workspaceId    Int
+  nodeId         Int
+  documentId     String
+  chunkId        String
+  relevanceScore Float    @default(0)
+  mentionCount   Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([workspaceId, nodeId, chunkId])
+  @@index([workspaceId, nodeId])
+  @@index([workspaceId, chunkId])
+  @@index([workspaceId, documentId])
+}
+
+model GraphExtractionJob {
+  id                       Int       @id @default(autoincrement())
+  workspaceId              Int
+  chunkId                  String
+  documentId               String
+  status                   String    @default("pending")
+  graphVersion             String
+  extractionPromptVersion  String
+  promptDomain             String
+  mergeLogicVersion        String
+  relationOntologyVersion  String
+  extractedAt              DateTime?
+  errorMessage             String?
+  retryCount               Int       @default(0)
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@unique([workspaceId, chunkId])
+  @@index([status])
+  @@index([workspaceId, chunkId])
+  @@index([workspaceId, documentId])
+}
+
+model GraphRetrievalCache {
+  id            Int      @id @default(autoincrement())
+  workspaceId   Int
+  conceptKey    String
+  paramsHash    String
+  resultJson    String
+  hitCount      Int      @default(0)
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([workspaceId, conceptKey, paramsHash])
+  @@index([workspaceId, conceptKey])
+  @@index([workspaceId, expiresAt])
+}
+
+model GraphLabelTranslationCache {
+  id            Int      @id @default(autoincrement())
+  workspaceId   Int
+  cacheKey      String
+  sourceText    String
+  sourceType    String   @default("node")
+  displayNameZh String?
+  displayNameEn String?
+  aliasesJson   String   @default("[]")
+  model         String?
+  promptVersion String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([workspaceId, cacheKey])
+}
+
+model KnowledgeGraphRepairIssue {
+  id                       Int       @id @default(autoincrement())
+  workspaceId              Int
+  documentId               String    @default("")
+  chunkId                  String    @default("")
+  issueType                String
+  status                   String    @default("open")
+  priorityScore            Float     @default(0)
+  priorityReason           String?
+  rootConceptHit           Boolean   @default(false)
+  workspaceImportanceScore Float     @default(0)
+  traversalUsageCount      Int       @default(0)
+  retryCount               Int       @default(0)
+  nextRetryAt              DateTime?
+  cooldownUntil            DateTime?
+  repairMethod             String?
+  repairConfidence         String?
+  lastError                String?
+  explainReason            String?
+  quarantineReason         String?
+  metadataJson             String    @default("{}")
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@unique([workspaceId, issueType, documentId, chunkId])
+  @@index([workspaceId, status])
+  @@index([workspaceId, priorityScore])
+  @@index([workspaceId, nextRetryAt])
+  @@index([workspaceId, cooldownUntil])
+}
+
+model KnowledgeGraphRepairRun {
+  id                         Int      @id @default(autoincrement())
+  workspaceId                Int
+  trigger                    String   @default("auto")
+  scanned                    Int      @default(0)
+  repaired                   Int      @default(0)
+  failed                     Int      @default(0)
+  skipped                    Int      @default(0)
+  budgetExhausted            Boolean  @default(false)
+  durationMs                 Int      @default(0)
+  tokenBudgetUsed            Int      @default(0)
+  providerBudgetUsed         Int      @default(0)
+  successRate                Float    @default(0)
+  avgRepairLatencyMs         Float    @default(0)
+  providerFailureRate        Float    @default(0)
+  needsReembedCount          Int      @default(0)
+  quarantinedCount           Int      @default(0)
+  lowConfidenceRelationRatio Float    @default(0)
+  relatedToRatio             Float    @default(0)
+  malformedExtractionRatio   Float    @default(0)
+  abnormalFanoutCount        Int      @default(0)
+  timeoutRate                Float    @default(0)
+  malformedJsonRate          Float    @default(0)
+  avgExtractionLatencyMs     Float    @default(0)
+  providerFailureTrend       Float    @default(0)
+  metricsJson                String   @default("{}")
+  createdAt                  DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, trigger])
+}
+
 model workspaces {
   id                           Int                            @id @default(autoincrement())
   name                         String
@@ -171,6 +385,7 @@ model workspaces {
   workspace_agent_invocations  workspace_agent_invocations[]
   prompt_history               prompt_history[]
   workspace_parsed_files       workspace_parsed_files[]
+  workspace_mind_maps          workspace_mind_maps[]
 }
 
 model workspace_threads {
@@ -214,6 +429,38 @@ model workspace_chats {
   lastUpdatedAt  DateTime @default(now())
   feedbackScore  Boolean?
   users          users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+}
+
+model workspace_mind_maps {
+  id             Int        @id @default(autoincrement())
+  workspaceId    Int
+  user_id        Int?
+  thread_id      Int?
+  cacheUserKey   String     @default("anonymous")
+  sourceType     String
+  sourceId       String?
+  sourceTitle    String?
+  sourceHash     String
+  title          String
+  layout         String
+  theme          String
+  schema         String
+  markdown       String?
+  viewport       String?
+  promptVersion  String
+  schemaVersion  String
+  generationModel String?
+  suitability    String?
+  createdAt      DateTime   @default(now())
+  lastUpdatedAt  DateTime   @default(now())
+  workspace      workspaces @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user           users?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([workspaceId, cacheUserKey, sourceHash])
+  @@index([workspaceId])
+  @@index([user_id])
+  @@index([thread_id])
+  @@index([sourceHash])
 }
 
 model workspace_agent_invocations {

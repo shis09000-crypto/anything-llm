@@ -144,11 +144,21 @@ async function processQueue() {
     }
 
     try {
-      await prisma.workspace_documents.create({ data: newDoc });
+      const createdDocument = await prisma.workspace_documents.create({
+        data: newDoc,
+      });
       await DocumentIndexStatus.markIndexed({
         workspaceId,
         docId,
         filePath,
+      });
+      const {
+        scheduleGraphExtractionForDocument,
+      } = require("../utils/knowledgeGraph");
+      await scheduleGraphExtractionForDocument({
+        workspace: { id: workspaceId, slug: workspaceSlug },
+        document: createdDocument,
+        processNow: false,
       });
       embedded.push(filePath);
       emit({

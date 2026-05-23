@@ -517,6 +517,19 @@ async function writeBatchOutput(jobId, outputFileId) {
       chunkCount: vectors.length,
       embeddingCount: vectors.length,
     });
+    const { scheduleGraphExtractionForDocument } = require("../knowledgeGraph");
+    await scheduleGraphExtractionForDocument({
+      workspace: { id: job.workspaceId, slug: job.workspaceSlug },
+      document: {
+        docId,
+        docpath: docManifest.docpath,
+        metadata: JSON.stringify({
+          ...docManifest.data,
+          pageContent: undefined,
+        }),
+      },
+      processNow: false,
+    });
     vectorsWritten += vectors.length;
   }
 
@@ -553,6 +566,16 @@ async function writeBatchOutput(jobId, outputFileId) {
     embeddedFiles: job.documentPaths,
     batchJobId: jobId,
   });
+  const { processPendingGraphExtractionJobs } = require("../knowledgeGraph");
+  setImmediate(() =>
+    processPendingGraphExtractionJobs({ workspaceId: job.workspaceId }).catch(
+      (error) =>
+        console.error(
+          `[KnowledgeGraph] failed to process batch graph jobs for ${job.workspaceSlug}:`,
+          error.message
+        )
+    )
+  );
   stopSchedule(jobId);
 }
 

@@ -1,6 +1,12 @@
 import React, { memo, useState } from "react";
 import useCopyText from "@/hooks/useCopyText";
-import { Check, ThumbsUp, ArrowsClockwise, Copy } from "@phosphor-icons/react";
+import {
+  Check,
+  ThumbsUp,
+  ArrowsClockwise,
+  Copy,
+  GitFork,
+} from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import { EditMessageAction } from "./EditMessage";
 import RenderMetrics from "./RenderMetrics";
@@ -18,6 +24,7 @@ const Actions = ({
   isEditing,
   role,
   metrics = {},
+  onGenerateMindMap,
 }) => {
   const { t } = useTranslation();
   const [selectedFeedback, setSelectedFeedback] = useState(feedbackScore);
@@ -49,6 +56,13 @@ const Actions = ({
               regenerateMessage={regenerateMessage}
               slug={slug}
               chatId={chatId}
+            />
+          )}
+          {chatId && role !== "user" && !isEditing && (
+            <MindMapButton
+              message={message}
+              chatId={chatId}
+              onGenerateMindMap={onGenerateMindMap}
             />
           )}
           {chatId && role !== "user" && !isEditing && (
@@ -96,6 +110,35 @@ function FeedbackButton({
       </button>
     </div>
   );
+}
+
+function MindMapButton({ message, chatId, onGenerateMindMap }) {
+  if (!onGenerateMindMap || !message) return null;
+  return (
+    <div className="mt-3 relative">
+      <button
+        onClick={() =>
+          onGenerateMindMap({
+            sourceType: "chat",
+            chatId,
+            selectedText: selectedTextWithinMessage(message),
+          })
+        }
+        data-tooltip-id="generate-mind-map"
+        data-tooltip-content="生成思维导图"
+        className="text-zinc-300 light:text-slate-500"
+        aria-label="生成思维导图"
+      >
+        <GitFork size={20} className="mb-1" />
+      </button>
+    </div>
+  );
+}
+
+function selectedTextWithinMessage(message = "") {
+  const selected = window.getSelection?.().toString?.().trim?.() || "";
+  if (!selected) return "";
+  return message.includes(selected) ? selected : "";
 }
 
 function CopyMessage({ message }) {

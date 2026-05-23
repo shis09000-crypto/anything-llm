@@ -1,0 +1,11 @@
+{
+  "runId": "576cd4d7-a71c-45d2-92d0-bebca43d68a4",
+  "toolName": "filesystem-read-text-file",
+  "arguments": {
+    "head": 5,
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/generated-files/text-5e62c933-6b4f-4a78-8fca-244263cc9162.md"
+  },
+  "result": "# CHROMATIN STRUCTURE AND FUNCTION\n\n染色质结构与功能\n\n范围：从第 194 页 CHROMATIN STRUCTURE AND FUNCTION 开始，到第 202 页 Barrier DNA Sequences Block the Spread of Reader–Writer Complexes and thereby Separate Neighboring Chromatin Domains 这个小标题出现之前。",
+  "resultSha256": "0a856c991e19386c27342f8ccbb4c7417649f7f0399840f2c9290dda38fa9c48",
+  "createdAt": "2026-05-23T07:45:43.486Z"
+}

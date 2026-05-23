@@ -24,6 +24,7 @@ function AssistantTurn({
   chatKey,
   approvalState = null,
   onToolApprovalResponse,
+  onGenerateMindMap,
   regenerateMessage,
   saveEditedMessage,
   forkThread,
@@ -38,11 +39,29 @@ function AssistantTurn({
     chatId: turn.chatId,
     role: "assistant",
   });
-  const thoughts = useMemo(
+  const thoughtEvents = useMemo(
     () =>
       (turn.timeline || []).filter((event) =>
         ["thought", "markdown_delta"].includes(event.type)
       ),
+    [turn.timeline]
+  );
+  const normalToolEvents = useMemo(
+    () =>
+      (turn.timeline || []).filter((event) =>
+        ["tool_call", "tool_result"].includes(event.type)
+      ),
+    [turn.timeline]
+  );
+  const approvalEvents = useMemo(
+    () =>
+      (turn.timeline || []).filter(
+        (event) => event.type === "approval_request"
+      ),
+    [turn.timeline]
+  );
+  const errorEvents = useMemo(
+    () => (turn.timeline || []).filter((event) => event.type === "error"),
     [turn.timeline]
   );
   const approvalResults = useMemo(
@@ -51,19 +70,6 @@ function AssistantTurn({
         (turn.timeline || [])
           .filter((event) => event.type === "approval_result")
           .map((event) => [event.requestId, event])
-      ),
-    [turn.timeline]
-  );
-  const toolEvents = useMemo(
-    () =>
-      (turn.timeline || []).filter((event) =>
-        [
-          "tool_call",
-          "tool_result",
-          "approval_request",
-          "approval_result",
-          "error",
-        ].includes(event.type)
       ),
     [turn.timeline]
   );
@@ -82,14 +88,16 @@ function AssistantTurn({
       dotLoaderVisible: isRunning && !turn.finalContent,
       finalContentLength: turn.finalContent?.length || 0,
       timelineEventCount: turn.timeline?.length || 0,
-      thoughtCount: thoughts.length,
-      toolEventCount: toolEvents.length,
+      thoughtCount: thoughtEvents.length,
+      toolEventCount: normalToolEvents.length,
+      approvalEventCount: approvalEvents.length,
     });
   }, [
+    approvalEvents.length,
     chatKey,
     isRunning,
-    thoughts.length,
-    toolEvents.length,
+    normalToolEvents.length,
+    thoughtEvents.length,
     turn.chatId,
     turn.finalContent,
     turn.status,
@@ -111,8 +119,12 @@ function AssistantTurn({
       className={`${isDeleted ? "animate-remove" : ""} flex justify-start w-full group`}
     >
       <div className="py-4 px-4 md:pl-0 flex flex-col w-full">
-        <ThoughtTimeline events={thoughts} isRunning={isRunning} />
-        {toolEvents.map((event) => (
+        <ThoughtTimeline
+          events={thoughtEvents}
+          toolEvents={normalToolEvents}
+          isRunning={isRunning}
+        />
+        {approvalEvents.map((event) => (
           <ToolEvent
             key={event.id}
             event={event}
@@ -121,6 +133,9 @@ function AssistantTurn({
             chatKey={chatKey}
             onToolApprovalResponse={onToolApprovalResponse}
           />
+        ))}
+        {errorEvents.map((event) => (
+          <ToolEvent key={event.id} event={event} />
         ))}
         {isEditing ? (
           <EditMessageForm
@@ -184,6 +199,7 @@ function AssistantTurn({
             role="assistant"
             forkThread={forkThread}
             metrics={turn.metrics}
+            onGenerateMindMap={onGenerateMindMap}
           />
         </div>
         <Citations sources={turn.sources} />

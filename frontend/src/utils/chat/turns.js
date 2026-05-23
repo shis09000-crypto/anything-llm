@@ -360,6 +360,11 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     nextItems[localUserIdx] = {
       ...nextItems[localUserIdx],
       chatId: nextItems[localUserIdx].chatId || serverUser.chatId,
+      content: nextItems[localUserIdx].content || serverUser.content,
+      attachments:
+        nextItems[localUserIdx].attachments?.length > 0
+          ? nextItems[localUserIdx].attachments
+          : serverUser.attachments || [],
     };
   }
 

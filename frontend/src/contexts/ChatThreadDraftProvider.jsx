@@ -24,6 +24,7 @@ import {
   createTurn,
   findAssistantTurn,
   isAssistantTurn,
+  isUserItem,
   mergeServerHistoryIntoTurns as mergeServerHistoryIntoTurnItems,
   normalizeTimelineEvent,
   normalizeTurnItems,
@@ -39,6 +40,8 @@ const MAX_FINAL_CONTENT_STORAGE_CHARS = 5_000;
 const MAX_TIMELINE_EVENT_CHARS = 500;
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
 const MAX_STORED_TIMELINE_EVENTS = 20;
+const MAX_STORED_SOURCE_COUNT = 8;
+const MAX_SOURCE_FIELD_CHARS = 300;
 
 export function getChatThreadKey(workspaceSlug, threadSlug = null) {
   if (!workspaceSlug) return null;
@@ -115,6 +118,75 @@ function draftFromStorageValue(value) {
 function truncateText(value = "", maxChars = MAX_TIMELINE_EVENT_CHARS) {
   const text = String(value || "");
   return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+}
+
+function compactSourceMetadata(metadata = {}) {
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
+    return {};
+
+  const allowedKeys = [
+    "id",
+    "title",
+    "name",
+    "url",
+    "source",
+    "document",
+    "file",
+    "fileName",
+    "filePath",
+    "page",
+    "score",
+  ];
+  return allowedKeys.reduce((acc, key) => {
+    if (metadata[key] === undefined || metadata[key] === null) return acc;
+    acc[key] =
+      typeof metadata[key] === "string"
+        ? truncateText(metadata[key], MAX_SOURCE_FIELD_CHARS)
+        : metadata[key];
+    return acc;
+  }, {});
+}
+
+function compactSourceForStorage(source = {}) {
+  if (!source) return null;
+  if (typeof source === "string") {
+    return { title: truncateText(source, MAX_SOURCE_FIELD_CHARS) };
+  }
+  if (typeof source !== "object" || Array.isArray(source)) return null;
+
+  const compact = {};
+  [
+    "id",
+    "title",
+    "name",
+    "url",
+    "source",
+    "document",
+    "file",
+    "fileName",
+    "filePath",
+    "chunkId",
+    "score",
+    "relevanceScore",
+  ].forEach((key) => {
+    if (source[key] === undefined || source[key] === null) return;
+    compact[key] =
+      typeof source[key] === "string"
+        ? truncateText(source[key], MAX_SOURCE_FIELD_CHARS)
+        : source[key];
+  });
+
+  const metadata = compactSourceMetadata(source.metadata);
+  if (Object.keys(metadata).length > 0) compact.metadata = metadata;
+  return Object.keys(compact).length > 0 ? compact : null;
+}
+
+function compactSourcesForStorage(sources = []) {
+  if (!Array.isArray(sources)) return [];
+  return sources
+    .slice(0, MAX_STORED_SOURCE_COUNT)
+    .map(compactSourceForStorage)
+    .filter(Boolean);
 }
 
 function compactPayload(payload = {}) {
@@ -220,7 +292,7 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       turnId: item.turnId,
       type: item.type,
       role: item.role,
-      content: minimal ? "" : truncateText(item.content || "", 2_000),
+      content: truncateText(item.content || "", 2_000),
       chatId: item.chatId,
       createdAt: item.createdAt,
       attachments: [],
@@ -236,6 +308,8 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
           .filter(Boolean);
     const shouldStoreFinalContent =
       item.status !== TURN_STATUSES.completed || !item.chatId;
+    const shouldStoreSources =
+      !minimal && (item.status !== TURN_STATUSES.completed || !item.chatId);
     return {
       id: item.id,
       turnId: item.turnId,
@@ -254,7 +328,7 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
               item.finalContent || "",
               MAX_FINAL_CONTENT_STORAGE_CHARS
             ),
-      sources: minimal ? [] : item.sources || [],
+      sources: shouldStoreSources ? compactSourcesForStorage(item.sources) : [],
       metrics: minimal ? {} : item.metrics || {},
       timeline,
     };
@@ -283,6 +357,32 @@ function serializeDraftForStorage(draft, { minimal = false } = {}) {
     threadSlug: draft.threadSlug,
     persistError: draft.persistError || null,
   };
+}
+
+export function draftHistoryIntegrity(draft = {}) {
+  const sourceDraft = draft || {};
+  const items = normalizeTurnItems(
+    Array.isArray(sourceDraft.items) ? sourceDraft.items : []
+  );
+  const userItems = items.filter(isUserItem);
+  const blankServerBackedUserItems = userItems.filter(
+    (item) => item.chatId && !String(item.content || "").trim()
+  );
+  const completedAssistantTurns = items.filter(
+    (item) => isAssistantTurn(item) && item.status === TURN_STATUSES.completed
+  );
+
+  return {
+    itemCount: items.length,
+    userItemCount: userItems.length,
+    blankServerBackedUserItemCount: blankServerBackedUserItems.length,
+    completedAssistantTurnCount: completedAssistantTurns.length,
+  };
+}
+
+export function draftNeedsServerHistoryRefresh(draft = {}) {
+  if (!draft) return false;
+  return draftHistoryIntegrity(draft).blankServerBackedUserItemCount > 0;
 }
 
 function isStorageQuotaError(error) {
@@ -379,9 +479,17 @@ function persistDraft(draft) {
 
   try {
     const serialized = JSON.stringify(serializeDraftForStorage(draft));
+    debugChatTurn("persistDraft:storageSize", {
+      key,
+      serializedLength: serialized.length,
+      maxLength: MAX_DRAFT_STORAGE_CHARS,
+      minimal: false,
+      ...draftHistoryIntegrity(draft),
+    });
     if (serialized.length > MAX_DRAFT_STORAGE_CHARS) {
       const sizeError = new Error("Draft exceeded storage limit.");
       sizeError.name = "QuotaExceededError";
+      sizeError.serializedLength = serialized.length;
       throw sizeError;
     }
     sessionStorage.setItem(key, serialized);
@@ -390,12 +498,22 @@ function persistDraft(draft) {
       key,
       error: error?.message || String(error),
       quota: isStorageQuotaError(error),
+      serializedLength: error?.serializedLength || null,
+      maxLength: MAX_DRAFT_STORAGE_CHARS,
+      ...draftHistoryIntegrity(draft),
     });
     try {
-      sessionStorage.setItem(
-        key,
-        JSON.stringify(serializeDraftForStorage(draft, { minimal: true }))
+      const minimalSerialized = JSON.stringify(
+        serializeDraftForStorage(draft, { minimal: true })
       );
+      debugChatTurn("persistDraft:storageSize", {
+        key,
+        serializedLength: minimalSerialized.length,
+        maxLength: MAX_DRAFT_STORAGE_CHARS,
+        minimal: true,
+        ...draftHistoryIntegrity(draft),
+      });
+      sessionStorage.setItem(key, minimalSerialized);
     } catch (minimalError) {
       debugChatTurn("persistDraft:storageDropped", {
         key,
@@ -888,12 +1006,20 @@ export function ChatThreadDraftProvider({ children }) {
           )
         );
         const existing = prev[chatKey] || restored;
+        const integrity = draftHistoryIntegrity(existing);
+        if (draftNeedsServerHistoryRefresh(existing)) {
+          debugChatTurn("ensureDraft:needsServerHistoryRefresh", {
+            chatKey,
+            ...integrity,
+          });
+        }
         debugRuntime("ensureDraft:before", {
           chatKey,
           turnId: existing?.activeTurnId || null,
           draft: existing || null,
           historyLength: history.length,
           seedItemCount: items.length,
+          ...integrity,
         });
         const seedItems =
           history.length > 0
@@ -917,6 +1043,7 @@ export function ChatThreadDraftProvider({ children }) {
           draft: next,
           historyLength: history.length,
           itemCount: next.items.length,
+          ...draftHistoryIntegrity(next),
         });
         persistDraft(next);
         const nextDrafts = { ...prev, [chatKey]: next };
@@ -1753,8 +1880,10 @@ export function ChatThreadDraftProvider({ children }) {
       debugRuntime("mergeServerHistory:before", {
         chatKey,
         historyLength: history.length,
+        ...draftHistoryIntegrity(draftsRef.current[chatKey]),
       });
       updateDraft(chatKey, (draft) => {
+        const beforeIntegrity = draftHistoryIntegrity(draft);
         const items = mergeServerHistoryIntoTurnItems(history, draft.items, {
           chatKey,
         });
@@ -1762,11 +1891,16 @@ export function ChatThreadDraftProvider({ children }) {
           ...draft,
           items,
         };
+        const afterIntegrity = draftHistoryIntegrity(next);
         debugRuntime("mergeServerHistory:after", {
           chatKey,
           turnId: next.activeTurnId || null,
           draft: next,
           historyLength: history.length,
+          beforeBlankServerBackedUserItemCount:
+            beforeIntegrity.blankServerBackedUserItemCount,
+          beforeUserItemCount: beforeIntegrity.userItemCount,
+          ...afterIntegrity,
         });
         return next;
       });

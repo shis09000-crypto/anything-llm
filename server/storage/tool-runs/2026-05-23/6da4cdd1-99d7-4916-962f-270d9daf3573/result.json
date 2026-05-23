@@ -1,0 +1,10 @@
+{
+  "runId": "6da4cdd1-99d7-4916-962f-270d9daf3573",
+  "toolName": "filesystem-get-file-info",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/anythingllm-fs/HOW_GENOMES_EVOLVE_上半部分.md"
+  },
+  "result": "size: 14993\nsizeFormatted: 14.99 kB\ncreated: 2026-05-18T09:47:26.676Z\nmodified: 2026-05-18T09:47:26.677Z\naccessed: 2026-05-18T09:47:28.292Z\nisDirectory: false\nisFile: true\npermissions: 644",
+  "resultSha256": "17107abd023131bf9553ac0da5a0214a710986de5fa5bef9b65cb33130998d95",
+  "createdAt": "2026-05-23T07:45:23.825Z"
+}

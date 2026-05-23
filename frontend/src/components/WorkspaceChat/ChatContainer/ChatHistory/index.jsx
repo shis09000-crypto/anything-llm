@@ -32,6 +32,7 @@ export default forwardRef(function (
     chatKey = null,
     approvalState = null,
     onToolApprovalResponse,
+    onGenerateMindMap,
   },
   ref
 ) {
@@ -249,6 +250,7 @@ export default forwardRef(function (
                     chatKey={chatKey}
                     approvalState={approvalState}
                     onToolApprovalResponse={onToolApprovalResponse}
+                    onGenerateMindMap={onGenerateMindMap}
                     regenerateMessage={regenerateAssistantMessage}
                     saveEditedMessage={saveEditedMessage}
                     forkThread={forkThread}

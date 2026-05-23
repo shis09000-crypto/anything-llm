@@ -1,0 +1,10 @@
+{
+  "runId": "23c45a07-628a-45f5-b064-d00e65273a3f",
+  "toolName": "filesystem-get-file-info",
+  "arguments": {
+    "path": "/Users/shijie/Desktop/anything-llm/server/storage/generated-files/text-122d4e0a-bfcd-4a5e-9478-65fd48277211.md"
+  },
+  "result": "size: 17791\nsizeFormatted: 17.79 kB\ncreated: 2026-05-15T09:19:26.063Z\nmodified: 2026-05-15T09:19:26.064Z\naccessed: 2026-05-15T09:19:26.480Z\nisDirectory: false\nisFile: true\npermissions: 644",
+  "resultSha256": "e05db5f1f4805442d905cd6a6604bcd3318d4123240f415a1e1bb495f2305f67",
+  "createdAt": "2026-05-23T07:45:34.360Z"
+}

@@ -12,7 +12,7 @@ function getTextSizes(t) {
   ];
 }
 
-export default function TextSizeMenu() {
+export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   const { t } = useTranslation();
   const TEXT_SIZES = useMemo(() => getTextSizes(t), [t]);
   const mode = useLoginMode();
@@ -39,6 +39,10 @@ export default function TextSizeMenu() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showMenu]);
 
+  useEffect(() => {
+    onOpenChange?.(showMenu);
+  }, [showMenu, onOpenChange]);
+
   function handleTextSizeChange(size) {
     setSelectedSize(size);
     window.localStorage.setItem("anythingllm_text_size", size);
@@ -48,11 +52,13 @@ export default function TextSizeMenu() {
   // User icon is visible when login mode is active (single with password or multi-user)
   const hasUserIcon = mode !== null;
 
-  if (isMobile) return null;
+  if (isMobile && !inline) return null;
+  const wrapperClass = inline
+    ? "relative"
+    : `absolute top-3 md:top-5 z-30 ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`;
+
   return (
-    <div
-      className={`absolute top-3 md:top-5 z-30 ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`}
-    >
+    <div className={wrapperClass}>
       <button
         ref={buttonRef}
         type="button"

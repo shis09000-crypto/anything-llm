@@ -35,6 +35,11 @@ class BackgroundService {
       timeout: "5m",
       interval: "8hr",
     },
+    {
+      name: "knowledge-graph-repair",
+      timeout: "10m",
+      interval: process.env.KNOWLEDGE_GRAPH_REPAIR_INTERVAL || "6hr",
+    },
   ];
 
   #documentSyncJobs = [

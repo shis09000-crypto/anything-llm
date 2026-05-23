@@ -190,12 +190,27 @@ const Document = {
       }
 
       try {
-        await prisma.workspace_documents.create({ data: newDoc });
+        const createdDocument = await prisma.workspace_documents.create({
+          data: newDoc,
+        });
         await DocumentIndexStatus.markIndexed({
           workspaceId: workspace.id,
           docId,
           filePath: path,
         });
+        const {
+          scheduleGraphExtractionForDocument,
+        } = require("../utils/knowledgeGraph");
+        scheduleGraphExtractionForDocument({
+          workspace,
+          document: createdDocument,
+          processNow: true,
+        }).catch((error) =>
+          console.error(
+            "[KnowledgeGraph] failed to schedule document extraction",
+            error.message
+          )
+        );
         embedded.push(path);
         emitProgress(workspace.slug, {
           type: "doc_complete",
@@ -267,6 +282,11 @@ const Document = {
         });
         await prisma.document_vectors.deleteMany({
           where: { docId: document.docId },
+        });
+        const { KnowledgeGraph } = require("./knowledgeGraph");
+        await KnowledgeGraph.deleteDocumentGraph({
+          workspaceId: workspace.id,
+          documentId: document.docId,
         });
         await DocumentIndexStatus.markDeleted({
           workspaceId: workspace.id,

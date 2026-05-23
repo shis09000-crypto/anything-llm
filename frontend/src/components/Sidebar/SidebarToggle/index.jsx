@@ -2,8 +2,9 @@ import React, { useEffect, useState } from "react";
 import { SidebarSimple } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
 import { Tooltip } from "react-tooltip";
-const SIDEBAR_TOGGLE_STORAGE_KEY = "anythingllm_sidebar_toggle";
+export const SIDEBAR_TOGGLE_STORAGE_KEY = "anythingllm_sidebar_toggle";
 export const SIDEBAR_TOGGLE_EVENT = "sidebar-toggle";
+export const SIDEBAR_SET_STATE_EVENT = "sidebar-set-state";
 
 /**
  * Returns the previous state of the sidebar from localStorage.
@@ -12,7 +13,7 @@ export const SIDEBAR_TOGGLE_EVENT = "sidebar-toggle";
  * If the sidebar state is not set, returns true.
  * @returns {boolean}
  */
-function previousSidebarState() {
+export function previousSidebarState() {
   const previousState = window.localStorage.getItem(SIDEBAR_TOGGLE_STORAGE_KEY);
   if (previousState === "closed") return false;
   return true;
@@ -56,7 +57,21 @@ export function useSidebarToggle() {
     return () => {
       window.removeEventListener("keydown", toggleSidebar);
     };
-  }, []);
+  }, [canToggleSidebar]);
+
+  useEffect(() => {
+    function setSidebarState(e) {
+      if (!canToggleSidebar) return;
+      const open = e?.detail?.open;
+      if (typeof open !== "boolean") return;
+      setShowSidebar(open);
+    }
+
+    window.addEventListener(SIDEBAR_SET_STATE_EVENT, setSidebarState);
+    return () => {
+      window.removeEventListener(SIDEBAR_SET_STATE_EVENT, setSidebarState);
+    };
+  }, [canToggleSidebar]);
 
   useEffect(() => {
     window.localStorage.setItem(
