@@ -70,6 +70,11 @@ async function processGraphExtractionJob(job) {
       workspaceId: job.workspaceId,
       nodeIds: Array.from(touchedNodeIds),
     });
+    await KnowledgeGraph.markNodeMetricsStale({
+      workspaceId: job.workspaceId,
+      nodeIds: Array.from(touchedNodeIds),
+      reason: "graph_extraction_completed",
+    });
     await KnowledgeGraph.markJobCompleted(job.id);
     console.log(
       `[KnowledgeGraph] completed job ${job.id} in ${Date.now() - startedAt}ms`

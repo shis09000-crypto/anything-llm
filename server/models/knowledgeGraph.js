@@ -113,6 +113,24 @@ function toRepairRun(row = null) {
   };
 }
 
+function toNodeMetrics(row = null) {
+  if (!row) return null;
+  return {
+    ...row,
+    stale: !!row.stale,
+    reasons: safeJsonParse(row.reasonsJson, {}),
+    normalizedInputs: safeJsonParse(row.normalizedInputsJson, {}),
+  };
+}
+
+function toMetricsRun(row = null) {
+  if (!row) return null;
+  return {
+    ...row,
+    errors: safeJsonParse(row.errorJson, []),
+  };
+}
+
 function countFrom(rows) {
   return Number(rows?.[0]?.count || 0);
 }
@@ -285,6 +303,86 @@ async function ensureTables() {
     `CREATE INDEX IF NOT EXISTS "KnowledgeGraphRepairIssue_workspaceId_priorityScore_idx" ON "KnowledgeGraphRepairIssue"("workspaceId", "priorityScore")`,
     `CREATE INDEX IF NOT EXISTS "KnowledgeGraphRepairIssue_workspaceId_nextRetryAt_idx" ON "KnowledgeGraphRepairIssue"("workspaceId", "nextRetryAt")`,
     `CREATE INDEX IF NOT EXISTS "KnowledgeGraphRepairIssue_workspaceId_cooldownUntil_idx" ON "KnowledgeGraphRepairIssue"("workspaceId", "cooldownUntil")`,
+    `CREATE TABLE IF NOT EXISTS "KnowledgeGraphEvidenceUsage" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "workspaceId" INTEGER NOT NULL,
+      "targetType" TEXT NOT NULL,
+      "targetId" TEXT NOT NULL,
+      "action" TEXT NOT NULL,
+      "count" INTEGER NOT NULL DEFAULT 1,
+      "lastUsedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "KnowledgeGraphEvidenceUsage_workspaceId_targetType_targetId_action_key" ON "KnowledgeGraphEvidenceUsage"("workspaceId", "targetType", "targetId", "action")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeGraphEvidenceUsage_workspaceId_targetType_targetId_idx" ON "KnowledgeGraphEvidenceUsage"("workspaceId", "targetType", "targetId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeGraphEvidenceUsage_workspaceId_action_idx" ON "KnowledgeGraphEvidenceUsage"("workspaceId", "action")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeGraphEvidenceUsage_workspaceId_lastUsedAt_idx" ON "KnowledgeGraphEvidenceUsage"("workspaceId", "lastUsedAt")`,
+    `CREATE TABLE IF NOT EXISTS "KnowledgeNodeMetrics" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "workspaceId" INTEGER NOT NULL,
+      "nodeId" INTEGER NOT NULL,
+      "evidenceStrength" INTEGER NOT NULL DEFAULT 0,
+      "bridgeValue" INTEGER NOT NULL DEFAULT 0,
+      "knowledgeConnectivity" INTEGER NOT NULL DEFAULT 0,
+      "traversalImportance" INTEGER NOT NULL DEFAULT 0,
+      "crossDocumentPresence" INTEGER NOT NULL DEFAULT 0,
+      "freshness" INTEGER NOT NULL DEFAULT 0,
+      "relationDiversity" INTEGER NOT NULL DEFAULT 0,
+      "sourceAuthority" INTEGER NOT NULL DEFAULT 0,
+      "stability" INTEGER NOT NULL DEFAULT 0,
+      "conflictSafety" INTEGER NOT NULL DEFAULT 0,
+      "reasonsJson" TEXT NOT NULL DEFAULT '{}',
+      "normalizedInputsJson" TEXT NOT NULL DEFAULT '{}',
+      "formulaVersion" TEXT NOT NULL DEFAULT 'metrics-v1',
+      "stale" BOOLEAN NOT NULL DEFAULT true,
+      "warning" TEXT,
+      "lastError" TEXT,
+      "lockedAt" DATETIME,
+      "lockedBy" TEXT,
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_workspaceId_nodeId_key" ON "KnowledgeNodeMetrics"("workspaceId", "nodeId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_workspaceId_idx" ON "KnowledgeNodeMetrics"("workspaceId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_nodeId_idx" ON "KnowledgeNodeMetrics"("nodeId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_formulaVersion_idx" ON "KnowledgeNodeMetrics"("formulaVersion")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_stale_idx" ON "KnowledgeNodeMetrics"("stale")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_lockedAt_idx" ON "KnowledgeNodeMetrics"("lockedAt")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetrics_updatedAt_idx" ON "KnowledgeNodeMetrics"("updatedAt")`,
+    `CREATE TABLE IF NOT EXISTS "KnowledgeNodeMetricsSnapshot" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "workspaceId" INTEGER NOT NULL,
+      "nodeId" INTEGER NOT NULL,
+      "formulaVersion" TEXT NOT NULL,
+      "scoresJson" TEXT NOT NULL,
+      "normalizedInputsJson" TEXT NOT NULL DEFAULT '{}',
+      "snapshotPeriod" TEXT NOT NULL DEFAULT 'daily',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsSnapshot_workspaceId_nodeId_idx" ON "KnowledgeNodeMetricsSnapshot"("workspaceId", "nodeId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsSnapshot_formulaVersion_idx" ON "KnowledgeNodeMetricsSnapshot"("formulaVersion")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsSnapshot_snapshotPeriod_idx" ON "KnowledgeNodeMetricsSnapshot"("snapshotPeriod")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsSnapshot_createdAt_idx" ON "KnowledgeNodeMetricsSnapshot"("createdAt")`,
+    `CREATE TABLE IF NOT EXISTS "KnowledgeNodeMetricsRecomputeRun" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "workspaceId" INTEGER,
+      "trigger" TEXT NOT NULL DEFAULT 'worker',
+      "formulaVersion" TEXT NOT NULL DEFAULT 'metrics-v1',
+      "batchSize" INTEGER NOT NULL DEFAULT 0,
+      "processed" INTEGER NOT NULL DEFAULT 0,
+      "succeeded" INTEGER NOT NULL DEFAULT 0,
+      "failed" INTEGER NOT NULL DEFAULT 0,
+      "skipped" INTEGER NOT NULL DEFAULT 0,
+      "durationMs" INTEGER NOT NULL DEFAULT 0,
+      "lockedCount" INTEGER NOT NULL DEFAULT 0,
+      "errorJson" TEXT NOT NULL DEFAULT '[]',
+      "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsRecomputeRun_workspaceId_idx" ON "KnowledgeNodeMetricsRecomputeRun"("workspaceId")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsRecomputeRun_trigger_idx" ON "KnowledgeNodeMetricsRecomputeRun"("trigger")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsRecomputeRun_formulaVersion_idx" ON "KnowledgeNodeMetricsRecomputeRun"("formulaVersion")`,
+    `CREATE INDEX IF NOT EXISTS "KnowledgeNodeMetricsRecomputeRun_createdAt_idx" ON "KnowledgeNodeMetricsRecomputeRun"("createdAt")`,
     `CREATE TABLE IF NOT EXISTS "KnowledgeGraphRepairRun" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "workspaceId" INTEGER NOT NULL,
@@ -562,6 +660,11 @@ const KnowledgeGraph = {
       Number(relevanceScore || 0),
       Number(mentionCount || 1)
     );
+    await this.markNodeMetricsStale({
+      workspaceId,
+      nodeIds: [nodeId],
+      reason: "concept_chunk_map_updated",
+    });
   },
 
   async upsertEdgeWithEvidence({
@@ -651,6 +754,11 @@ const KnowledgeGraph = {
       );
     }
 
+    await this.markNodeMetricsStale({
+      workspaceId,
+      nodeIds: [sourceNodeId, targetNodeId],
+      reason: "edge_or_evidence_updated",
+    });
     await this.invalidateCache(workspaceId);
     return edge;
   },
@@ -1468,6 +1576,426 @@ const KnowledgeGraph = {
     );
   },
 
+  async recordEvidenceUsage({
+    workspaceId,
+    targetType,
+    targetId,
+    action = "view",
+  }) {
+    await ensureTables();
+    const validTargetTypes = ["node", "edge"];
+    const validActions = ["view", "jump", "copy", "ask", "expand_chunk"];
+    if (
+      !workspaceId ||
+      !validTargetTypes.includes(String(targetType)) ||
+      !targetId ||
+      !validActions.includes(String(action))
+    )
+      return null;
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "KnowledgeGraphEvidenceUsage" (
+        "workspaceId", "targetType", "targetId", "action", "count", "lastUsedAt"
+      ) VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+      ON CONFLICT("workspaceId", "targetType", "targetId", "action")
+      DO UPDATE SET
+        "count" = "count" + 1,
+        "lastUsedAt" = CURRENT_TIMESTAMP,
+        "updatedAt" = CURRENT_TIMESTAMP`,
+      Number(workspaceId),
+      String(targetType),
+      String(targetId),
+      String(action)
+    );
+    const row = (
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM "KnowledgeGraphEvidenceUsage"
+        WHERE "workspaceId" = ? AND "targetType" = ? AND "targetId" = ?
+          AND "action" = ?
+        LIMIT 1`,
+        Number(workspaceId),
+        String(targetType),
+        String(targetId),
+        String(action)
+      )
+    )?.[0];
+    if (String(targetType) === "node") {
+      await this.markNodeMetricsStale({
+        workspaceId,
+        nodeIds: [targetId],
+        reason: "evidence_usage_updated",
+      });
+    } else if (String(targetType) === "edge") {
+      const edge = (
+        await prisma.$queryRawUnsafe(
+          `SELECT "sourceNodeId", "targetNodeId" FROM "KnowledgeEdge"
+          WHERE "workspaceId" = ? AND "id" = ? LIMIT 1`,
+          Number(workspaceId),
+          Number(targetId)
+        )
+      )?.[0];
+      if (edge) {
+        await this.markNodeMetricsStale({
+          workspaceId,
+          nodeIds: [edge.sourceNodeId, edge.targetNodeId],
+          reason: "edge_evidence_usage_updated",
+        });
+      }
+    }
+    return row || null;
+  },
+
+  async getNodeMetrics({ workspaceId, nodeId, formulaVersion = "metrics-v1" }) {
+    await ensureTables();
+    if (!workspaceId || !nodeId) return null;
+    const row = (
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM "KnowledgeNodeMetrics"
+        WHERE "workspaceId" = ? AND "nodeId" = ?
+        LIMIT 1`,
+        Number(workspaceId),
+        Number(nodeId)
+      )
+    )?.[0];
+    if (!row) return null;
+    const metrics = toNodeMetrics(row);
+    if (metrics.formulaVersion !== formulaVersion) metrics.stale = true;
+    return metrics;
+  },
+
+  async markNodeMetricsStale({
+    workspaceId,
+    nodeIds = [],
+    reason = "graph_changed",
+  }) {
+    await ensureTables();
+    void reason;
+    const ids = [...new Set((nodeIds || []).map(Number).filter(Boolean))];
+    if (!workspaceId || ids.length === 0) return 0;
+    for (const nodeId of ids) {
+      await prisma.$executeRawUnsafe(
+        `INSERT INTO "KnowledgeNodeMetrics" (
+          "workspaceId", "nodeId", "formulaVersion", "stale", "lastError"
+        ) VALUES (?, ?, 'metrics-v1', true, NULL)
+        ON CONFLICT("workspaceId", "nodeId") DO UPDATE SET
+          "stale" = true,
+          "lastError" = NULL,
+          "updatedAt" = CURRENT_TIMESTAMP`,
+        Number(workspaceId),
+        Number(nodeId)
+      );
+    }
+    return ids.length;
+  },
+
+  async markWorkspaceNodeMetricsStale(
+    workspaceId,
+    reason = "workspace_changed"
+  ) {
+    await ensureTables();
+    void reason;
+    if (!workspaceId) return 0;
+    await prisma.$executeRawUnsafe(
+      `INSERT OR IGNORE INTO "KnowledgeNodeMetrics" (
+        "workspaceId", "nodeId", "formulaVersion", "stale"
+      )
+      SELECT "workspaceId", "id", 'metrics-v1', true
+      FROM "KnowledgeNode" WHERE "workspaceId" = ?`,
+      Number(workspaceId)
+    );
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgeNodeMetrics"
+      SET "stale" = true, "lastError" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "workspaceId" = ?`,
+      Number(workspaceId)
+    );
+    const count = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ?`,
+      Number(workspaceId)
+    );
+    return countFrom(count);
+  },
+
+  async ensureMissingNodeMetricRows({
+    workspaceId = null,
+    formulaVersion = "metrics-v1",
+  } = {}) {
+    await ensureTables();
+    const clause = workspaceId
+      ? `WHERE n."workspaceId" = ? AND m."id" IS NULL`
+      : `WHERE m."id" IS NULL`;
+    await prisma.$executeRawUnsafe(
+      `INSERT OR IGNORE INTO "KnowledgeNodeMetrics" (
+        "workspaceId", "nodeId", "formulaVersion", "stale"
+      )
+      SELECT n."workspaceId", n."id", ?, true
+      FROM "KnowledgeNode" n
+      LEFT JOIN "KnowledgeNodeMetrics" m
+        ON m."workspaceId" = n."workspaceId" AND m."nodeId" = n."id"
+      ${clause}`,
+      formulaVersion,
+      ...(workspaceId ? [Number(workspaceId)] : [])
+    );
+  },
+
+  async nodeMetricsCandidates({
+    workspaceId = null,
+    limit = 50,
+    formulaVersion = "metrics-v1",
+    lockTtlMs = 900000,
+  } = {}) {
+    await ensureTables();
+    await this.ensureMissingNodeMetricRows({ workspaceId, formulaVersion });
+    const lockSeconds = Math.max(60, Math.round(Number(lockTtlMs) / 1000));
+    const workspaceClause = workspaceId ? `AND n."workspaceId" = ?` : "";
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT m.*, n."workspaceImportanceScore", n."recentImportanceScore",
+        n."usageCount", n."recentUsageCount",
+        COALESCE(edgeStats."edgeCount", 0) AS "edgeCount",
+        COALESCE(evidenceStats."evidenceCount", 0) AS "evidenceCount"
+      FROM "KnowledgeNodeMetrics" m
+      JOIN "KnowledgeNode" n ON n."id" = m."nodeId" AND n."workspaceId" = m."workspaceId"
+      LEFT JOIN (
+        SELECT "workspaceId", "nodeId", COUNT(*) AS "edgeCount" FROM (
+          SELECT "workspaceId", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          UNION ALL
+          SELECT "workspaceId", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+        ) GROUP BY "workspaceId", "nodeId"
+      ) edgeStats ON edgeStats."workspaceId" = m."workspaceId" AND edgeStats."nodeId" = m."nodeId"
+      LEFT JOIN (
+        SELECT e."workspaceId", ids."nodeId", COUNT(ev."id") AS "evidenceCount"
+        FROM "KnowledgeEdge" e
+        JOIN (
+          SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          UNION ALL
+          SELECT "id", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+        ) ids ON ids."id" = e."id"
+        LEFT JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
+        GROUP BY e."workspaceId", ids."nodeId"
+      ) evidenceStats ON evidenceStats."workspaceId" = m."workspaceId" AND evidenceStats."nodeId" = m."nodeId"
+      WHERE (m."stale" = true OR m."formulaVersion" != ?)
+        ${workspaceClause}
+        AND (m."lockedAt" IS NULL OR m."lockedAt" < datetime('now', '-' || ? || ' seconds'))
+      ORDER BY
+        n."recentUsageCount" DESC,
+        n."workspaceImportanceScore" DESC,
+        evidenceStats."evidenceCount" DESC,
+        edgeStats."edgeCount" DESC,
+        n."updatedAt" DESC
+      LIMIT ?`,
+      formulaVersion,
+      ...(workspaceId ? [Number(workspaceId)] : []),
+      lockSeconds,
+      Number(limit || 50)
+    );
+    return rows.map(toNodeMetrics);
+  },
+
+  async lockNodeMetricsRow({ id, lockedBy, lockTtlMs = 900000 }) {
+    await ensureTables();
+    if (!id || !lockedBy) return null;
+    const lockSeconds = Math.max(60, Math.round(Number(lockTtlMs) / 1000));
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgeNodeMetrics"
+      SET "lockedAt" = CURRENT_TIMESTAMP, "lockedBy" = ?
+      WHERE "id" = ?
+        AND ("lockedAt" IS NULL OR "lockedAt" < datetime('now', '-' || ? || ' seconds'))`,
+      String(lockedBy),
+      Number(id),
+      lockSeconds
+    );
+    const row = (
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM "KnowledgeNodeMetrics"
+        WHERE "id" = ? AND "lockedBy" = ? LIMIT 1`,
+        Number(id),
+        String(lockedBy)
+      )
+    )?.[0];
+    return row ? toNodeMetrics(row) : null;
+  },
+
+  async upsertNodeMetrics({
+    workspaceId,
+    nodeId,
+    scores = {},
+    reasons = {},
+    normalizedInputs = {},
+    formulaVersion = "metrics-v1",
+    warning = null,
+    stale = false,
+  }) {
+    await ensureTables();
+    if (!workspaceId || !nodeId) return null;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "KnowledgeNodeMetrics" (
+        "workspaceId", "nodeId", "evidenceStrength", "bridgeValue",
+        "knowledgeConnectivity", "traversalImportance",
+        "crossDocumentPresence", "freshness", "relationDiversity",
+        "sourceAuthority", "stability", "conflictSafety", "reasonsJson",
+        "normalizedInputsJson", "formulaVersion", "stale", "warning",
+        "lastError", "lockedAt", "lockedBy"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+      ON CONFLICT("workspaceId", "nodeId") DO UPDATE SET
+        "evidenceStrength" = excluded."evidenceStrength",
+        "bridgeValue" = excluded."bridgeValue",
+        "knowledgeConnectivity" = excluded."knowledgeConnectivity",
+        "traversalImportance" = excluded."traversalImportance",
+        "crossDocumentPresence" = excluded."crossDocumentPresence",
+        "freshness" = excluded."freshness",
+        "relationDiversity" = excluded."relationDiversity",
+        "sourceAuthority" = excluded."sourceAuthority",
+        "stability" = excluded."stability",
+        "conflictSafety" = excluded."conflictSafety",
+        "reasonsJson" = excluded."reasonsJson",
+        "normalizedInputsJson" = excluded."normalizedInputsJson",
+        "formulaVersion" = excluded."formulaVersion",
+        "stale" = excluded."stale",
+        "warning" = excluded."warning",
+        "lastError" = NULL,
+        "lockedAt" = NULL,
+        "lockedBy" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP`,
+      Number(workspaceId),
+      Number(nodeId),
+      Number(scores.evidenceStrength || 0),
+      Number(scores.bridgeValue || 0),
+      Number(scores.knowledgeConnectivity || 0),
+      Number(scores.traversalImportance || 0),
+      Number(scores.crossDocumentPresence || 0),
+      Number(scores.freshness || 0),
+      Number(scores.relationDiversity || 0),
+      Number(scores.sourceAuthority || 0),
+      Number(scores.stability || 0),
+      Number(scores.conflictSafety || 0),
+      safeJSONStringify(reasons, "{}"),
+      safeJSONStringify(normalizedInputs, "{}"),
+      formulaVersion,
+      stale ? 1 : 0,
+      warning
+    );
+    return await this.getNodeMetrics({ workspaceId, nodeId, formulaVersion });
+  },
+
+  async markNodeMetricsError({ workspaceId, nodeId, error }) {
+    await ensureTables();
+    if (!workspaceId || !nodeId) return null;
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgeNodeMetrics"
+      SET "lastError" = ?, "lockedAt" = NULL, "lockedBy" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "workspaceId" = ? AND "nodeId" = ?`,
+      String(error?.message || error || "metrics_recompute_failed"),
+      Number(workspaceId),
+      Number(nodeId)
+    );
+    return await this.getNodeMetrics({ workspaceId, nodeId });
+  },
+
+  async latestNodeMetricsSnapshot({
+    workspaceId,
+    nodeId,
+    formulaVersion = "metrics-v1",
+  }) {
+    await ensureTables();
+    const row = (
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM "KnowledgeNodeMetricsSnapshot"
+        WHERE "workspaceId" = ? AND "nodeId" = ? AND "formulaVersion" = ?
+        ORDER BY "createdAt" DESC LIMIT 1`,
+        Number(workspaceId),
+        Number(nodeId),
+        formulaVersion
+      )
+    )?.[0];
+    if (!row) return null;
+    return {
+      ...row,
+      scores: safeJsonParse(row.scoresJson, {}),
+      normalizedInputs: safeJsonParse(row.normalizedInputsJson, {}),
+    };
+  },
+
+  async maybeCreateNodeMetricsSnapshot({
+    workspaceId,
+    nodeId,
+    scores = {},
+    normalizedInputs = {},
+    formulaVersion = "metrics-v1",
+    snapshotPeriod = "daily",
+  }) {
+    await ensureTables();
+    if (!workspaceId || !nodeId) return null;
+    const existing = (
+      await prisma.$queryRawUnsafe(
+        `SELECT "id" FROM "KnowledgeNodeMetricsSnapshot"
+        WHERE "workspaceId" = ? AND "nodeId" = ?
+          AND "formulaVersion" = ? AND "snapshotPeriod" = ?
+          AND date("createdAt") = date('now')
+        LIMIT 1`,
+        Number(workspaceId),
+        Number(nodeId),
+        formulaVersion,
+        snapshotPeriod
+      )
+    )?.[0];
+    if (existing) return null;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "KnowledgeNodeMetricsSnapshot" (
+        "workspaceId", "nodeId", "formulaVersion", "scoresJson",
+        "normalizedInputsJson", "snapshotPeriod"
+      ) VALUES (?, ?, ?, ?, ?, ?)`,
+      Number(workspaceId),
+      Number(nodeId),
+      formulaVersion,
+      safeJSONStringify(scores, "{}"),
+      safeJSONStringify(normalizedInputs, "{}"),
+      snapshotPeriod
+    );
+    return true;
+  },
+
+  async createNodeMetricsRecomputeRun({
+    workspaceId = null,
+    trigger = "worker",
+    formulaVersion = "metrics-v1",
+    batchSize = 0,
+    processed = 0,
+    succeeded = 0,
+    failed = 0,
+    skipped = 0,
+    durationMs = 0,
+    lockedCount = 0,
+    errors = [],
+  }) {
+    await ensureTables();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO "KnowledgeNodeMetricsRecomputeRun" (
+        "workspaceId", "trigger", "formulaVersion", "batchSize",
+        "processed", "succeeded", "failed", "skipped", "durationMs",
+        "lockedCount", "errorJson"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      workspaceId ? Number(workspaceId) : null,
+      trigger,
+      formulaVersion,
+      Number(batchSize || 0),
+      Number(processed || 0),
+      Number(succeeded || 0),
+      Number(failed || 0),
+      Number(skipped || 0),
+      Number(durationMs || 0),
+      Number(lockedCount || 0),
+      safeJSONStringify(errors, "[]")
+    );
+    const row = (
+      await prisma.$queryRawUnsafe(
+        `SELECT * FROM "KnowledgeNodeMetricsRecomputeRun"
+        ORDER BY "id" DESC LIMIT 1`
+      )
+    )?.[0];
+    return toMetricsRun(row);
+  },
+
   async deleteDocumentGraph({ workspaceId, documentId }) {
     await ensureTables();
     if (!workspaceId || !documentId) return false;
@@ -1505,6 +2033,10 @@ const KnowledgeGraph = {
       }
     }
     await this.invalidateCache(workspaceId);
+    await this.markWorkspaceNodeMetricsStale(
+      workspaceId,
+      "document_graph_deleted"
+    );
     return true;
   },
 };

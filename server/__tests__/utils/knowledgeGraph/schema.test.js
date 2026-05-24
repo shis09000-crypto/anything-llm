@@ -11,6 +11,7 @@ const {
 const {
   boundedTraversalOptions,
 } = require("../../../utils/knowledgeGraph/traversal");
+const { boundedPathOptions } = require("../../../utils/knowledgeGraph/path");
 const {
   graphAwareRerank,
 } = require("../../../utils/knowledgeGraph/graphAwareRerank");
@@ -50,8 +51,9 @@ describe("knowledge graph utilities", () => {
         text: "This function implements an endpoint.",
       })
     ).toBe("code");
-    expect(buildExtractionPrompt({ text: "revenue margin", domain: "finance" }))
-      .toContain("companies, metrics, events");
+    expect(
+      buildExtractionPrompt({ text: "revenue margin", domain: "finance" })
+    ).toContain("companies, metrics, events");
   });
 
   it("normalizes relation aliases and downgrades unknown labels", () => {
@@ -75,6 +77,23 @@ describe("knowledge graph utilities", () => {
       confidenceCutoff: 1,
       perNodeFanout: 20,
       includeEvidence: true,
+    });
+  });
+
+  it("bounds multi-hop reasoning path options", () => {
+    const options = boundedPathOptions({
+      maxDepth: 99,
+      limit: 99,
+      confidenceCutoff: -1,
+      perNodeFanout: 99,
+      includeEvidence: false,
+    });
+    expect(options).toEqual({
+      maxDepth: 4,
+      limit: 5,
+      confidenceCutoff: 0,
+      perNodeFanout: 20,
+      includeEvidence: false,
     });
   });
 

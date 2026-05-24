@@ -45,6 +45,10 @@ async function backfillKnowledgeGraph({
     });
     processed += processResult.processed;
     if (cleanup) await cleanupKnowledgeGraph({ workspaceId: workspace.id });
+    await KnowledgeGraph.markWorkspaceNodeMetricsStale(
+      workspace.id,
+      "backfill_completed"
+    );
     const stats = await KnowledgeGraph.graphStats(workspace.id);
     console.log(
       "[KnowledgeGraph] backfill workspace stats",

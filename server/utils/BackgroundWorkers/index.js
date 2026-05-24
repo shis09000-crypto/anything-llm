@@ -40,6 +40,11 @@ class BackgroundService {
       timeout: "10m",
       interval: process.env.KNOWLEDGE_GRAPH_REPAIR_INTERVAL || "6hr",
     },
+    {
+      name: "knowledge-node-metrics-recompute",
+      timeout: "10m",
+      interval: process.env.KNOWLEDGE_NODE_METRICS_RECOMPUTE_INTERVAL || "1hr",
+    },
   ];
 
   #documentSyncJobs = [

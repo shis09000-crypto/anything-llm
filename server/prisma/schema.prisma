@@ -356,6 +356,94 @@ model KnowledgeGraphRepairRun {
   @@index([workspaceId, trigger])
 }
 
+model KnowledgeGraphEvidenceUsage {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  targetType  String
+  targetId    String
+  action      String
+  count       Int      @default(1)
+  lastUsedAt  DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workspaceId, targetType, targetId, action])
+  @@index([workspaceId, targetType, targetId])
+  @@index([workspaceId, action])
+  @@index([workspaceId, lastUsedAt])
+}
+
+model KnowledgeNodeMetrics {
+  id                   Int       @id @default(autoincrement())
+  workspaceId          Int
+  nodeId               Int
+  evidenceStrength     Int       @default(0)
+  bridgeValue          Int       @default(0)
+  knowledgeConnectivity Int      @default(0)
+  traversalImportance  Int       @default(0)
+  crossDocumentPresence Int      @default(0)
+  freshness            Int       @default(0)
+  relationDiversity    Int       @default(0)
+  sourceAuthority      Int       @default(0)
+  stability            Int       @default(0)
+  conflictSafety       Int       @default(0)
+  reasonsJson          String    @default("{}")
+  normalizedInputsJson String    @default("{}")
+  formulaVersion       String    @default("metrics-v1")
+  stale                Boolean   @default(true)
+  warning              String?
+  lastError            String?
+  lockedAt             DateTime?
+  lockedBy             String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([workspaceId, nodeId])
+  @@index([workspaceId])
+  @@index([nodeId])
+  @@index([formulaVersion])
+  @@index([stale])
+  @@index([lockedAt])
+  @@index([updatedAt])
+}
+
+model KnowledgeNodeMetricsSnapshot {
+  id                   Int      @id @default(autoincrement())
+  workspaceId          Int
+  nodeId               Int
+  formulaVersion       String
+  scoresJson           String
+  normalizedInputsJson String   @default("{}")
+  snapshotPeriod       String   @default("daily")
+  createdAt            DateTime @default(now())
+
+  @@index([workspaceId, nodeId])
+  @@index([formulaVersion])
+  @@index([snapshotPeriod])
+  @@index([createdAt])
+}
+
+model KnowledgeNodeMetricsRecomputeRun {
+  id             Int      @id @default(autoincrement())
+  workspaceId    Int?
+  trigger        String   @default("worker")
+  formulaVersion String   @default("metrics-v1")
+  batchSize      Int      @default(0)
+  processed      Int      @default(0)
+  succeeded      Int      @default(0)
+  failed         Int      @default(0)
+  skipped        Int      @default(0)
+  durationMs     Int      @default(0)
+  lockedCount    Int      @default(0)
+  errorJson      String   @default("[]")
+  createdAt      DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([trigger])
+  @@index([formulaVersion])
+  @@index([createdAt])
+}
+
 model workspaces {
   id                           Int                            @id @default(autoincrement())
   name                         String

@@ -27,10 +27,14 @@ import {
 } from "@phosphor-icons/react";
 import MindMap from "@/models/mindMap";
 import showToast from "@/utils/toast";
+import renderMarkdown from "@/utils/chat/markdown";
+import DOMPurify from "@/utils/chat/purify";
 import MindMapNode from "./MindMapNode";
+import GraphMindMapEdge from "./GraphMindMapEdge";
 import { layoutMindMap } from "./layout";
 
 const nodeTypes = { mindMapNode: MindMapNode };
+const edgeTypes = { graphMindMapEdge: GraphMindMapEdge };
 const layouts = ["tree", "radial", "timeline", "flow", "comparison"];
 const themes = ["napkin", "ocean", "forest", "sunset", "mono"];
 const layoutLabels = {
@@ -47,6 +51,25 @@ const themeLabels = {
   sunset: "日落",
   mono: "黑白",
 };
+const relationFilterOptions = [
+  { value: "all", label: "全部" },
+  { value: "causes", label: "因果" },
+  { value: "part_of", label: "组成/属于" },
+  { value: "depends_on", label: "依赖" },
+  { value: "regulates", label: "调控" },
+  { value: "contrasts_with", label: "对比" },
+  { value: "precedes", label: "先后" },
+  { value: "references", label: "引用" },
+  { value: "related_to", label: "相关" },
+  { value: "conflict", label: "冲突" },
+];
+const labelModes = [
+  { value: "auto", label: "自动" },
+  { value: "main", label: "只显示主线" },
+  { value: "hover", label: "hover 显示" },
+  { value: "all", label: "全部显示" },
+  { value: "hidden", label: "全部隐藏" },
+];
 
 export default function MindMapPanel({
   workspace,
@@ -89,6 +112,8 @@ function MindMapPanelInner({
   const lastRequestId = useRef(null);
   const saveViewportTimer = useRef(null);
   const suggestionTimer = useRef(null);
+  const nodeMetricsCache = useRef(new Map());
+  const graphPositionCache = useRef(new Map());
   const { fitView, getViewport, setViewport } = useReactFlow();
   const [mode, setMode] = useState("ai");
   const [savedMaps, setSavedMaps] = useState([]);
@@ -114,19 +139,65 @@ function MindMapPanelInner({
   const [repairStatus, setRepairStatus] = useState(null);
   const [graphEmptyReason, setGraphEmptyReason] = useState(null);
   const [hideWeakRelations, setHideWeakRelations] = useState(true);
+  const [mainOnly, setMainOnly] = useState(false);
+  const [hideRelatedTo, setHideRelatedTo] = useState(true);
+  const [relationTypeFilter, setRelationTypeFilter] = useState("all");
+  const [labelMode, setLabelMode] = useState("auto");
+  const [pathSource, setPathSource] = useState("");
+  const [pathTarget, setPathTarget] = useState("");
+  const [pathResult, setPathResult] = useState(null);
+  const [pathLoading, setPathLoading] = useState(false);
+  const [selectedPathIndex, setSelectedPathIndex] = useState(0);
+  const [evidenceTarget, setEvidenceTarget] = useState(null);
+  const [evidenceData, setEvidenceData] = useState(null);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceSort, setEvidenceSort] = useState("trust");
+  const [evidenceCluster, setEvidenceCluster] = useState("");
+  const [evidencePage, setEvidencePage] = useState(1);
+  const [expandedEvidence, setExpandedEvidence] = useState(new Set());
+  const [nodeMetrics, setNodeMetrics] = useState(null);
+  const [nodeMetricsLoading, setNodeMetricsLoading] = useState(false);
 
   const documents = workspace?.documents || [];
   const isGraphMap = activeMap?.sourceType === "graph";
+  const graphNeedsSimplification =
+    isGraphMap &&
+    ((activeMap?.schema?.nodes?.length || 0) > 40 ||
+      (activeMap?.schema?.edges?.length || 0) > 80);
   const activeSchema = useMemo(() => {
     if (!activeMap?.schema) return null;
     const schema = {
       ...activeMap.schema,
       layout,
       theme,
+      edgeLabelMode: labelMode,
     };
-    if (!isGraphMap || !hideWeakRelations) return schema;
-    return filterWeakGraphSchema(schema);
-  }, [activeMap, layout, theme, isGraphMap, hideWeakRelations]);
+    if (!isGraphMap) return schema;
+    return filterGraphSchema(schema, {
+      hideWeakRelations,
+      mainOnly,
+      hideRelatedTo,
+      relationTypeFilter,
+      labelMode,
+      autoSimplified: graphNeedsSimplification,
+      selectedPath: pathResult?.paths?.[selectedPathIndex],
+      selectedEdgeId: selectedEdge?.id,
+    });
+  }, [
+    activeMap,
+    layout,
+    theme,
+    labelMode,
+    isGraphMap,
+    hideWeakRelations,
+    mainOnly,
+    hideRelatedTo,
+    relationTypeFilter,
+    graphNeedsSimplification,
+    pathResult,
+    selectedPathIndex,
+    selectedEdge?.id,
+  ]);
 
   const refreshSavedMaps = useCallback(async () => {
     if (!workspace?.slug) return;
@@ -151,6 +222,105 @@ function MindMapPanelInner({
   useEffect(() => {
     if (mode === "graph") refreshGraphStatus();
   }, [mode, refreshGraphStatus]);
+
+  useEffect(() => {
+    if (!isGraphMap || !evidenceTarget || !workspace?.slug) {
+      setEvidenceData(null);
+      return;
+    }
+    let cancelled = false;
+    async function loadEvidence() {
+      setEvidenceLoading(true);
+      const params = {
+        page: evidencePage,
+        limit: 10,
+        sort: evidenceSort,
+        cluster: evidenceCluster,
+      };
+      const result =
+        evidenceTarget.type === "edge"
+          ? await MindMap.edgeEvidence(workspace.slug, {
+              ...params,
+              edgeId: evidenceTarget.id,
+            })
+          : await MindMap.nodeEvidence(workspace.slug, {
+              ...params,
+              nodeId: evidenceTarget.id,
+            });
+      if (cancelled) return;
+      setEvidenceLoading(false);
+      if (result?.error) {
+        setEvidenceData({ error: result.error });
+        return;
+      }
+      setEvidenceData(result);
+      setExpandedEvidence(new Set());
+      MindMap.recordEvidenceUsage(workspace.slug, {
+        targetType: evidenceTarget.type,
+        targetId: String(evidenceTarget.id),
+        action: "view",
+      });
+    }
+    loadEvidence();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    evidenceCluster,
+    evidencePage,
+    evidenceSort,
+    evidenceTarget,
+    isGraphMap,
+    workspace?.slug,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isGraphMap ||
+      evidenceTarget?.type !== "node" ||
+      !evidenceTarget?.id ||
+      !workspace?.slug
+    ) {
+      setNodeMetrics(null);
+      setNodeMetricsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const cacheKey = `${workspace.slug}:${evidenceTarget.id}`;
+    const cached = nodeMetricsCache.current.get(cacheKey);
+    if (cached) {
+      setNodeMetrics(cached);
+      if (cached.stale || cached.emptyReason === "metrics_missing") {
+        MindMap.recomputeNodeMetrics(workspace.slug, {
+          nodeId: evidenceTarget.id,
+        });
+      }
+      return;
+    }
+    async function loadNodeMetrics() {
+      setNodeMetricsLoading(true);
+      const result = await MindMap.nodeMetrics(workspace.slug, {
+        nodeId: evidenceTarget.id,
+      });
+      if (cancelled) return;
+      setNodeMetricsLoading(false);
+      if (result?.error) {
+        setNodeMetrics({ error: result.error });
+        return;
+      }
+      nodeMetricsCache.current.set(cacheKey, result);
+      setNodeMetrics(result);
+      if (result?.stale || result?.emptyReason === "metrics_missing") {
+        MindMap.recomputeNodeMetrics(workspace.slug, {
+          nodeId: evidenceTarget.id,
+        });
+      }
+    }
+    loadNodeMetrics();
+    return () => {
+      cancelled = true;
+    };
+  }, [evidenceTarget, isGraphMap, workspace?.slug]);
 
   useEffect(() => {
     if (!showDocumentMenu) return;
@@ -194,6 +364,9 @@ function MindMapPanelInner({
       setNotice(null);
       setSelectedNode(null);
       setSelectedEdge(null);
+      setEvidenceTarget(null);
+      setEvidenceData(null);
+      setNodeMetrics(null);
       setGraphEmptyReason(null);
       const result = await MindMap.generate(workspace.slug, {
         layout,
@@ -249,7 +422,13 @@ function MindMapPanelInner({
       setNotice(null);
       setSelectedNode(null);
       setSelectedEdge(null);
+      setEvidenceTarget(null);
+      setEvidenceData(null);
+      setNodeMetrics(null);
       setGraphEmptyReason(null);
+      setPathResult(null);
+      setSelectedPathIndex(0);
+      graphPositionCache.current = new Map();
       setShowGraphSuggestions(false);
       const result = await MindMap.graph(workspace.slug, {
         concept: query,
@@ -287,6 +466,40 @@ function MindMapPanelInner({
     [graphConcept, graphStatus, layout, workspace?.slug]
   );
 
+  const loadPath = useCallback(async () => {
+    const source = String(pathSource || graphConcept || "").trim();
+    const target = String(pathTarget || selectedNode?.label || "").trim();
+    if (!workspace?.slug || !source || !target) {
+      showToast("请输入路径起点和终点。", "warning");
+      return;
+    }
+    setPathLoading(true);
+    const result = await MindMap.graphPath(workspace.slug, {
+      source,
+      target,
+      maxDepth: 4,
+      limit: 3,
+      confidenceCutoff: 0.45,
+      includeEvidence: true,
+    });
+    setPathLoading(false);
+    if (result?.error) {
+      showToast(result.error, "error");
+      return;
+    }
+    setPathResult(result);
+    setSelectedPathIndex(0);
+    if (!result.paths?.length) {
+      showToast("未找到可解释的多跳关系链。", "warning");
+    }
+  }, [
+    graphConcept,
+    pathSource,
+    pathTarget,
+    selectedNode?.label,
+    workspace?.slug,
+  ]);
+
   useEffect(() => {
     if (!request?.id || request.id === lastRequestId.current) return;
     lastRequestId.current = request.id;
@@ -301,7 +514,9 @@ function MindMapPanelInner({
         setEdges([]);
         return;
       }
-      const result = await layoutMindMap(activeSchema, collapsed);
+      const result = await layoutMindMap(activeSchema, collapsed, {
+        positionCache: isGraphMap ? graphPositionCache.current : null,
+      });
       if (cancelled) return;
       setNodes(result.nodes);
       setEdges(result.edges);
@@ -326,10 +541,21 @@ function MindMapPanelInner({
     setViewport,
   ]);
 
-  const onNodeClick = useCallback((_, node) => {
-    setSelectedNode(node.data);
-    setSelectedEdge(null);
-  }, []);
+  const onNodeClick = useCallback(
+    (_, node) => {
+      setSelectedNode(node.data);
+      setSelectedEdge(null);
+      if (isGraphMap && node.data?.sourceNodeId) {
+        setEvidencePage(1);
+        setEvidenceTarget({
+          type: "node",
+          id: node.data.sourceNodeId,
+          label: node.data.label,
+        });
+      }
+    },
+    [isGraphMap]
+  );
 
   const onNodeMouseEnter = useCallback((_, node) => {
     setHoveredNode(node.data);
@@ -339,10 +565,38 @@ function MindMapPanelInner({
     setHoveredNode(null);
   }, []);
 
-  const onEdgeClick = useCallback((_, edge) => {
-    setSelectedEdge(edge.data || edge);
-    setSelectedNode(null);
-  }, []);
+  const onEdgeClick = useCallback(
+    (_, edge) => {
+      const data = edge.data || edge;
+      if (data.isLayoutEdge || data.clickable === false) return;
+      setSelectedEdge(data);
+      setSelectedNode(null);
+      const graphEdgeId = parseGraphEdgeId(data.id);
+      if (isGraphMap && graphEdgeId) {
+        setEvidencePage(1);
+        setEvidenceTarget({
+          type: "edge",
+          id: graphEdgeId,
+          label: data.label || data.relationType,
+        });
+      }
+    },
+    [isGraphMap]
+  );
+
+  useEffect(() => {
+    function handleGraphEdgeClick(event) {
+      const detail = event.detail || {};
+      if (!detail.data) return;
+      onEdgeClick(event, { id: detail.id, data: detail.data });
+    }
+    document.addEventListener("mindmap-graph-edge-click", handleGraphEdgeClick);
+    return () =>
+      document.removeEventListener(
+        "mindmap-graph-edge-click",
+        handleGraphEdgeClick
+      );
+  }, [onEdgeClick]);
 
   const onNodeDoubleClick = useCallback((_, node) => {
     setCollapsed((prev) => {
@@ -616,6 +870,17 @@ function MindMapPanelInner({
                 />
                 <button
                   type="button"
+                  onClick={() => setMainOnly((prev) => !prev)}
+                  className={`rounded-lg border px-2 py-1 text-xs ${
+                    mainOnly
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                >
+                  只看主线
+                </button>
+                <button
+                  type="button"
                   onClick={() => setHideWeakRelations((prev) => !prev)}
                   className={`rounded-lg border px-2 py-1 text-xs ${
                     hideWeakRelations
@@ -623,14 +888,67 @@ function MindMapPanelInner({
                       : "border-slate-200 bg-white text-slate-700"
                   }`}
                 >
-                  Hide Weak Relations
+                  隐藏弱关系
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setHideRelatedTo((prev) => !prev)}
+                  className={`rounded-lg border px-2 py-1 text-xs ${
+                    hideRelatedTo
+                      ? "border-blue-200 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-white text-slate-700"
+                  }`}
+                >
+                  隐藏“相关”
+                </button>
+                <select
+                  className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                  value={relationTypeFilter}
+                  onChange={(event) =>
+                    setRelationTypeFilter(event.target.value)
+                  }
+                >
+                  {relationFilterOptions.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                  value={labelMode}
+                  onChange={(event) => setLabelMode(event.target.value)}
+                >
+                  {labelModes.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      标签：{item.label}
+                    </option>
+                  ))}
+                </select>
                 <ToolbarButton
                   label="Focus Node"
                   onClick={focusSelectedNode}
                   Icon={ArrowsOut}
                 />
               </div>
+              {graphNeedsSimplification && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                  已自动简化关系视图，可关闭过滤器手动展开全部关系。
+                </div>
+              )}
+              <PathViewControls
+                source={pathSource}
+                setSource={setPathSource}
+                target={pathTarget}
+                setTarget={setPathTarget}
+                defaultSource={graphConcept}
+                selectedNode={selectedNode}
+                loading={pathLoading}
+                result={pathResult}
+                selectedIndex={selectedPathIndex}
+                setSelectedIndex={setSelectedPathIndex}
+                onLoad={loadPath}
+              />
             </div>
           )}
 
@@ -737,6 +1055,7 @@ function MindMapPanelInner({
               nodes={nodes}
               edges={edges}
               nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
               fitView
               minZoom={0.15}
               maxZoom={2}
@@ -766,14 +1085,42 @@ function MindMapPanelInner({
           )}
         </div>
 
-        {(selectedNode || selectedEdge) && (
-          <SelectionPanel
-            node={selectedNode}
-            edge={selectedEdge}
-            explainSelected={explainSelected}
-            setMessage={setMessage}
-          />
-        )}
+        {(selectedNode || selectedEdge) &&
+          (isGraphMap ? (
+            <EvidencePanel
+              node={selectedNode}
+              edge={selectedEdge}
+              data={evidenceData}
+              loading={evidenceLoading}
+              sort={evidenceSort}
+              setSort={setEvidenceSort}
+              cluster={evidenceCluster}
+              setCluster={setEvidenceCluster}
+              page={evidencePage}
+              setPage={setEvidencePage}
+              expanded={expandedEvidence}
+              setExpanded={setExpandedEvidence}
+              onClose={() => {
+                setSelectedNode(null);
+                setSelectedEdge(null);
+                setEvidenceTarget(null);
+                setEvidenceData(null);
+                setNodeMetrics(null);
+                setExpandedEvidence(new Set());
+              }}
+              workspaceSlug={workspace?.slug}
+              setMessage={setMessage}
+              nodeMetrics={nodeMetrics}
+              nodeMetricsLoading={nodeMetricsLoading}
+            />
+          ) : (
+            <SelectionPanel
+              node={selectedNode}
+              edge={selectedEdge}
+              explainSelected={explainSelected}
+              setMessage={setMessage}
+            />
+          ))}
       </div>
     </div>
   );
@@ -836,6 +1183,89 @@ function DocumentGenerateMenu({
               );
             })}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PathViewControls({
+  source,
+  setSource,
+  target,
+  setTarget,
+  defaultSource,
+  selectedNode,
+  loading,
+  result,
+  selectedIndex,
+  setSelectedIndex,
+  onLoad,
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[180px] flex-1">
+          <label className="mb-1 block text-[11px] font-medium text-slate-500">
+            Path View 起点
+          </label>
+          <input
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-300"
+            placeholder={defaultSource || "起点概念"}
+          />
+        </div>
+        <div className="min-w-[180px] flex-1">
+          <label className="mb-1 block text-[11px] font-medium text-slate-500">
+            终点
+          </label>
+          <input
+            value={target}
+            onChange={(event) => setTarget(event.target.value)}
+            className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-blue-300"
+            placeholder={selectedNode?.label || "终点概念"}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onLoad}
+          disabled={loading}
+          className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+        >
+          {loading ? "查找中..." : "解释 A → D"}
+        </button>
+      </div>
+      {!!result?.paths?.length && (
+        <div className="mt-3 space-y-2">
+          <div className="font-medium text-slate-800">推理关系链</div>
+          {result.paths.map((path, index) => (
+            <button
+              type="button"
+              key={`${path.edgeIds?.join("-")}-${index}`}
+              onClick={() => setSelectedIndex(index)}
+              className={`w-full rounded-lg border px-2 py-2 text-left ${
+                selectedIndex === index
+                  ? "border-blue-200 bg-blue-50 text-blue-800"
+                  : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              <div className="font-medium">
+                {(path.nodes || [])
+                  .map((node) => node.displayNameZh || node.canonicalName)
+                  .join(" → ")}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                {path.trustSummary?.level || "medium"} · score{" "}
+                {Number(path.trustSummary?.score || path.score || 0).toFixed(2)}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+      {result?.emptyReason && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800">
+          未找到路径：{result.emptyReason}
         </div>
       )}
     </div>
@@ -1102,6 +1532,700 @@ function HoverPreview({ node }) {
   );
 }
 
+function EvidencePanel({
+  node,
+  edge,
+  data,
+  loading,
+  nodeMetrics,
+  nodeMetricsLoading,
+  sort,
+  setSort,
+  cluster,
+  setCluster,
+  page,
+  setPage,
+  expanded,
+  setExpanded,
+  onClose,
+  workspaceSlug,
+  setMessage,
+}) {
+  const [showFullRadar, setShowFullRadar] = useState(false);
+  const [showMetricBasis, setShowMetricBasis] = useState(false);
+  const targetType = edge ? "edge" : "node";
+  const targetId = edge ? parseGraphEdgeId(edge.id) : node?.sourceNodeId;
+  const title = edge
+    ? data?.edge
+      ? `${conceptName(data.edge.sourceConcept)} → ${conceptName(
+          data.edge.targetConcept
+        )}`
+      : edge.label || edge.relationType || "关系证据"
+    : data?.concept
+      ? conceptName(data.concept)
+      : node?.label || "概念证据";
+
+  const recordUsage = (action) => {
+    if (!workspaceSlug || !targetId) return;
+    MindMap.recordEvidenceUsage(workspaceSlug, {
+      targetType,
+      targetId: String(targetId),
+      action,
+    });
+  };
+
+  const toggleFullChunk = (item) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+    recordUsage("expand_chunk");
+  };
+
+  const jumpToEvidence = (item) => {
+    setExpanded((prev) => new Set(prev).add(item.id));
+    recordUsage("jump");
+    setTimeout(() => {
+      document
+        .getElementById(`kg-evidence-source-${item.id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 40);
+  };
+
+  const copyCitation = async (item) => {
+    const citation = [
+      `> ${item.snippet || "无 snippet"}`,
+      "",
+      `来源：${item.document?.filename || item.documentId || "未知文档"}`,
+      `chunk: ${item.chunkId}`,
+      item.relation?.relationType
+        ? `relation: ${item.relation.relationType}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    await navigator.clipboard?.writeText(citation).catch(() => null);
+    recordUsage("copy");
+    showToast("已复制引用。", "success");
+  };
+
+  const askWithEvidence = (item) => {
+    setMessage(
+      `请基于下面这段原始证据继续解释，不要脱离原文：\n\n${item.snippet || ""}\n\n来源：${
+        item.document?.filename || item.documentId || "未知文档"
+      }\nchunk: ${item.chunkId}`
+    );
+    recordUsage("ask");
+  };
+
+  return (
+    <div className="max-h-[42%] min-h-[190px] overflow-hidden border-t border-slate-200 bg-white">
+      <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-slate-900">{title}</div>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
+            {edge && (
+              <span>
+                {data?.edge?.relationLabelZh
+                  ? `${data.edge.relationLabelZh} · `
+                  : ""}
+                {data?.edge?.relationType || edge.relationType}
+              </span>
+            )}
+            {data?.trustLevel && (
+              <TrustBadge level={data.trustLevel} score={data.trustScore} />
+            )}
+            {data?.stabilityLevel && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">
+                {stabilityLabel(data.stabilityLevel)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <select
+            value={sort}
+            onChange={(event) => {
+              setPage(1);
+              setSort(event.target.value);
+            }}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700"
+          >
+            <option value="trust">可信度优先</option>
+            <option value="rank">最可靠</option>
+            <option value="timeline">时间线</option>
+          </select>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-900"
+            aria-label="关闭证据详情"
+          >
+            <X size={14} weight="bold" />
+          </button>
+        </div>
+      </div>
+
+      <div className="h-[calc(100%-46px)] overflow-y-auto px-3 py-3">
+        {loading ? (
+          <div className="py-8 text-center text-xs text-slate-500">
+            正在加载原始证据...
+          </div>
+        ) : data?.error ? (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+            {data.error}
+          </div>
+        ) : (
+          <>
+            <EvidenceSummary data={data} />
+            {!edge && (
+              <ImportanceRadar
+                metrics={nodeMetrics}
+                loading={nodeMetricsLoading}
+                showFull={showFullRadar}
+                setShowFull={setShowFullRadar}
+                showBasis={showMetricBasis}
+                setShowBasis={setShowMetricBasis}
+              />
+            )}
+            <ClusterFilter
+              clusters={data?.clusters || []}
+              active={cluster}
+              setActive={(value) => {
+                setPage(1);
+                setCluster(value);
+              }}
+            />
+            <WhyNoEvidence info={data?.whyNoEvidence} />
+            <div className="mt-3 space-y-3">
+              {(data?.evidence || []).map((item) => (
+                <EvidenceCard
+                  key={item.id}
+                  item={item}
+                  expanded={expanded.has(item.id)}
+                  onToggle={() => toggleFullChunk(item)}
+                  onJump={() => jumpToEvidence(item)}
+                  onCopy={() => copyCitation(item)}
+                  onAsk={() => askWithEvidence(item)}
+                />
+              ))}
+            </div>
+            <EvidencePagination
+              pagination={data?.pagination}
+              page={page}
+              setPage={setPage}
+            />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const radarLabels = {
+  evidenceStrength: "证据强度",
+  bridgeValue: "桥接价值",
+  knowledgeConnectivity: "知识连接度",
+  traversalImportance: "推理核心度",
+  crossDocumentPresence: "跨文档出现率",
+  freshness: "近期活跃度",
+  relationDiversity: "关系多样性",
+  sourceAuthority: "来源可信度",
+  stability: "稳定性",
+  conflictSafety: "冲突安全度",
+};
+const compactRadarKeys = [
+  "evidenceStrength",
+  "bridgeValue",
+  "traversalImportance",
+  "sourceAuthority",
+];
+
+function ImportanceRadar({
+  metrics,
+  loading,
+  showFull,
+  setShowFull,
+  showBasis,
+  setShowBasis,
+}) {
+  const [activeMetric, setActiveMetric] = useState(null);
+  if (loading) {
+    return (
+      <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-center text-xs text-slate-500">
+        正在加载重要性指标...
+      </div>
+    );
+  }
+  if (metrics?.error) {
+    return (
+      <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+        {metrics.error}
+      </div>
+    );
+  }
+  if (!metrics?.radar?.length) {
+    return (
+      <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-3 text-xs text-blue-800">
+        <div className="font-semibold">暂无重要性指标</div>
+        <div className="mt-1">
+          已请求后台计算，可稍后刷新，或运行 CLI 重新计算节点指标。
+        </div>
+      </div>
+    );
+  }
+
+  const radarItems = showFull
+    ? metrics.radar
+    : metrics.radar.filter((item) => compactRadarKeys.includes(item.key));
+  const active = activeMetric || radarItems[0];
+
+  return (
+    <div className="mt-3 rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/50 p-3 text-xs text-slate-700">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <div className="font-semibold text-slate-900">重要性雷达图</div>
+          <div className="mt-1 max-w-[520px] text-[11px] leading-4 text-slate-500">
+            该雷达图表示当前 workspace 图谱结构下的相对重要性，不代表客观真理。
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={() => setShowFull(!showFull)}
+            className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-50"
+          >
+            {showFull ? "核心维度" : "完整 10 维"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowBasis(!showBasis)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50"
+          >
+            查看计算依据
+          </button>
+        </div>
+      </div>
+      {metrics.stale && (
+        <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800">
+          指标可能过期，后台会自动刷新。
+        </div>
+      )}
+      {metrics.warning && (
+        <div className="mt-2 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-[11px] text-orange-800">
+          该节点指标近期波动异常，建议检查 evidence / repair 状态。
+        </div>
+      )}
+      <div className="mt-3 grid gap-3 md:grid-cols-[180px_1fr]">
+        <RadarSvg
+          items={radarItems}
+          activeKey={active?.key}
+          onActive={setActiveMetric}
+        />
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {radarItems.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onMouseEnter={() => setActiveMetric(item)}
+                onFocus={() => setActiveMetric(item)}
+                className={`rounded-lg border px-2 py-1 text-left transition ${
+                  active?.key === item.key
+                    ? "border-blue-200 bg-blue-50 text-blue-800"
+                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <span className="block text-[11px] font-medium">
+                  {item.labelZh || radarLabels[item.key] || item.key}
+                </span>
+                <span className="mt-0.5 block text-sm font-semibold">
+                  {item.score}
+                </span>
+              </button>
+            ))}
+          </div>
+          {active && (
+            <div className="rounded-xl border border-slate-200 bg-white px-3 py-2">
+              <div className="font-semibold text-slate-800">
+                {active.labelZh || radarLabels[active.key]}{" "}
+                <span className="font-normal text-slate-400">
+                  {active.labelEn}
+                </span>
+              </div>
+              <div className="mt-1 text-[11px] text-slate-400">
+                formulaVersion:{" "}
+                {active.formulaVersion || metrics.formulaVersion}
+              </div>
+              <div className="mt-2 space-y-1 text-[11px] leading-4 text-slate-600">
+                {(active.reasons || []).slice(0, 4).map((reason, index) => (
+                  <div key={`${active.key}-${index}`}>{reason}</div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+      {showBasis && <MetricBasis metrics={metrics} />}
+    </div>
+  );
+}
+
+function RadarSvg({ items = [], activeKey, onActive }) {
+  const size = 168;
+  const center = size / 2;
+  const radius = 58;
+  const angleStep = (Math.PI * 2) / Math.max(1, items.length);
+  const points = items.map((item, index) => {
+    const angle = -Math.PI / 2 + angleStep * index;
+    const valueRadius = radius * (Number(item.score || 0) / 100);
+    return {
+      item,
+      x: center + Math.cos(angle) * valueRadius,
+      y: center + Math.sin(angle) * valueRadius,
+      axisX: center + Math.cos(angle) * radius,
+      axisY: center + Math.sin(angle) * radius,
+    };
+  });
+  const polygon = points.map((point) => `${point.x},${point.y}`).join(" ");
+  return (
+    <svg
+      viewBox={`0 0 ${size} ${size}`}
+      className="h-[180px] w-full rounded-xl border border-blue-100 bg-white"
+      role="img"
+      aria-label="重要性雷达图"
+    >
+      {[0.33, 0.66, 1].map((scale) => (
+        <circle
+          key={scale}
+          cx={center}
+          cy={center}
+          r={radius * scale}
+          fill="none"
+          stroke="#dbeafe"
+          strokeWidth="1"
+        />
+      ))}
+      {points.map((point) => (
+        <line
+          key={`axis-${point.item.key}`}
+          x1={center}
+          y1={center}
+          x2={point.axisX}
+          y2={point.axisY}
+          stroke="#e2e8f0"
+          strokeWidth="1"
+        />
+      ))}
+      <polygon
+        points={polygon}
+        fill="#60a5fa"
+        fillOpacity="0.22"
+        stroke="#2563eb"
+        strokeWidth="2"
+      />
+      {points.map((point) => (
+        <g key={point.item.key}>
+          <circle
+            cx={point.x}
+            cy={point.y}
+            r={activeKey === point.item.key ? 4.5 : 3.5}
+            fill={activeKey === point.item.key ? "#1d4ed8" : "#60a5fa"}
+            tabIndex="0"
+            onMouseEnter={() => onActive(point.item)}
+            onFocus={() => onActive(point.item)}
+            className="cursor-pointer outline-none"
+          />
+          <title>
+            {point.item.labelZh || radarLabels[point.item.key]}:{" "}
+            {point.item.score}
+          </title>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function MetricBasis({ metrics }) {
+  const inputs = metrics.normalizedInputs || {};
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="font-semibold text-slate-800">计算依据</div>
+      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+        {Object.entries(inputs).map(([key, value]) => (
+          <div
+            key={key}
+            className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"
+          >
+            <div className="text-[10px] uppercase text-slate-400">{key}</div>
+            <div className="mt-0.5 break-all text-[11px] font-semibold text-slate-700">
+              {String(value)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3 space-y-2">
+        {(metrics.radar || []).map((item) => (
+          <details
+            key={item.key}
+            className="rounded-lg border border-slate-100 bg-slate-50 px-2 py-1"
+          >
+            <summary className="cursor-pointer text-[11px] font-medium text-slate-700">
+              {item.labelZh || radarLabels[item.key]} · {item.score} ·{" "}
+              {item.formulaVersion || metrics.formulaVersion}
+            </summary>
+            <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500">
+              {(item.reasons || []).map((reason, index) => (
+                <div key={`${item.key}-basis-${index}`}>{reason}</div>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceSummary({ data }) {
+  if (!data) return null;
+  return (
+    <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+      <StatusPill
+        label="证据可信度"
+        value={trustLabel(data.trustLevel, data.trustScore)}
+      />
+      <StatusPill
+        label="证据数量"
+        value={data.pagination?.total || data.evidence?.length || 0}
+      />
+      <StatusPill
+        label="关系数量"
+        value={data.relationCount ?? data.edge?.weight ?? 0}
+      />
+      <StatusPill label="漂移" value={driftLabel(data.drift?.driftLevel)} />
+      {data.stabilityExplanation && (
+        <div className="col-span-2 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-slate-600 md:col-span-4">
+          证据稳定性：{data.stabilityExplanation}
+        </div>
+      )}
+      {data.drift?.driftLevel && data.drift.driftLevel !== "none" && (
+        <div className="col-span-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1 text-amber-800 md:col-span-4">
+          Evidence drift：{data.drift.explanation}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClusterFilter({ clusters = [], active, setActive }) {
+  const visible = clusters.filter((item) => item.count > 0);
+  if (!visible.length) return null;
+  return (
+    <div className="mt-3 flex flex-wrap gap-1.5">
+      <button
+        type="button"
+        onClick={() => setActive("")}
+        className={`rounded-full border px-2 py-0.5 text-[11px] ${
+          !active
+            ? "border-blue-200 bg-blue-50 text-blue-700"
+            : "border-slate-200 text-slate-600"
+        }`}
+      >
+        全部
+      </button>
+      {visible.map((item) => (
+        <button
+          key={item.key}
+          type="button"
+          onClick={() => setActive(item.key)}
+          className={`rounded-full border px-2 py-0.5 text-[11px] ${
+            active === item.key
+              ? "border-blue-200 bg-blue-50 text-blue-700"
+              : "border-slate-200 text-slate-600"
+          }`}
+        >
+          {item.label} {item.count}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function WhyNoEvidence({ info }) {
+  if (!info) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+      <div className="font-semibold">为什么没有强证据？</div>
+      <div className="mt-1">{(info.reasons || []).join("；")}</div>
+      {info.recommendedAction && (
+        <div className="mt-1 text-amber-700">{info.recommendedAction}</div>
+      )}
+    </div>
+  );
+}
+
+function EvidenceCard({ item, expanded, onToggle, onJump, onCopy, onAsk }) {
+  return (
+    <div
+      id={`kg-evidence-${item.id}`}
+      className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700"
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        <TrustBadge level={item.trustLevel} score={item.trustScore} />
+        <span className="rounded-full bg-white px-2 py-0.5 text-slate-600">
+          {item.clusterLabel || "其他"}
+        </span>
+        <span className="rounded-full bg-white px-2 py-0.5 text-slate-600">
+          {stabilityLabel(item.stabilityLevel)}
+        </span>
+        {item.conflicts?.length > 0 && (
+          <span
+            className={`rounded-full px-2 py-0.5 ${conflictClass(
+              item.conflicts
+            )}`}
+          >
+            冲突：{conflictSeverityLabel(item.conflicts)}
+          </span>
+        )}
+      </div>
+      <div className="mt-2 rounded-lg bg-white p-2 leading-5 text-slate-800">
+        {highlightText(item.snippet || "暂无 snippet", item.highlightTerms)}
+      </div>
+      {(item.contextBefore || item.contextAfter) && (
+        <div className="mt-2 rounded-lg border border-slate-100 bg-white/70 p-2 text-[11px] leading-5 text-slate-500">
+          {item.contextBefore && (
+            <div>{highlightText(item.contextBefore, item.highlightTerms)}</div>
+          )}
+          {item.contextAfter && (
+            <div>{highlightText(item.contextAfter, item.highlightTerms)}</div>
+          )}
+        </div>
+      )}
+      <div className="mt-2 grid gap-2 md:grid-cols-2">
+        <ReasonBlock
+          title="为什么选中这段证据？"
+          lines={[item.whyThisEvidence]}
+        />
+        <ReasonBlock title="为什么可信/不可信？" lines={item.trustReasons} />
+        <ReasonBlock title="来源权威性" lines={item.sourceAuthorityReasons} />
+        {item.drift?.explanation && (
+          <ReasonBlock
+            title="Evidence drift"
+            lines={[item.drift.explanation]}
+          />
+        )}
+      </div>
+      <div className="mt-2 break-all text-[11px] text-slate-500">
+        来源：{item.document?.filename || item.documentId || "未知文档"} · chunk{" "}
+        {item.chunkId} · relation {item.relation?.relationType || "n/a"}
+      </div>
+      {expanded && item.fullChunk && (
+        <SourceMarkdownReader item={item} onCollapse={onToggle} />
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <EvidenceAction label="跳转原文" onClick={onJump} />
+        <EvidenceAction
+          label={expanded ? "收起完整 chunk" : "展开完整 chunk"}
+          onClick={onToggle}
+        />
+        <EvidenceAction label="复制引用" onClick={onCopy} />
+        <EvidenceAction label="继续提问" onClick={onAsk} />
+      </div>
+    </div>
+  );
+}
+
+function SourceMarkdownReader({ item, onCollapse }) {
+  const sourceTitle = item.document?.filename || item.documentId || "未知文档";
+  return (
+    <div
+      id={`kg-evidence-source-${item.id}`}
+      className="mt-3 overflow-hidden rounded-xl border border-blue-100 bg-white shadow-sm"
+    >
+      <div className="flex items-start justify-between gap-3 border-b border-blue-50 bg-blue-50/70 px-3 py-2">
+        <div className="min-w-0">
+          <div className="text-xs font-semibold text-slate-800">原文上下文</div>
+          <div className="mt-0.5 break-all text-[11px] text-slate-500">
+            {sourceTitle} · chunk {item.chunkId}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onCollapse}
+          className="shrink-0 rounded-lg border border-blue-100 bg-white px-2 py-1 text-[11px] text-blue-700 hover:bg-blue-50"
+        >
+          收起原文
+        </button>
+      </div>
+      <div
+        className="kg-evidence-markdown markdown max-h-[340px] overflow-y-auto px-4 py-3 text-[12px] leading-6 text-slate-700 [&_*]:!text-slate-700 [&_a]:!text-blue-700 [&_code]:!text-slate-800 [&_h1]:!text-slate-900 [&_h2]:!text-slate-900 [&_h3]:!text-slate-900 [&_li::marker]:!text-slate-500 [&_strong]:!font-semibold [&_strong]:!text-slate-900 [&_.hljs]:!max-w-full"
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(renderMarkdown(item.fullChunk || "")),
+        }}
+      />
+    </div>
+  );
+}
+
+function ReasonBlock({ title, lines = [] }) {
+  const visible = (lines || []).filter(Boolean).slice(0, 4);
+  if (!visible.length) return null;
+  return (
+    <div className="rounded-lg border border-slate-100 bg-white px-2 py-1.5">
+      <div className="font-medium text-slate-700">{title}</div>
+      <div className="mt-1 space-y-0.5 text-[11px] leading-4 text-slate-500">
+        {visible.map((line, index) => (
+          <div key={`${title}-${index}`}>{line}</div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EvidenceAction({ label, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-50"
+    >
+      {label}
+    </button>
+  );
+}
+
+function EvidencePagination({ pagination, page, setPage }) {
+  if (!pagination || pagination.totalPages <= 1) return null;
+  return (
+    <div className="mt-3 flex items-center justify-between text-xs text-slate-500">
+      <span>
+        第 {pagination.page} / {pagination.totalPages} 页，共 {pagination.total}{" "}
+        条证据
+      </span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => setPage(Math.max(1, page - 1))}
+          className="rounded-lg border border-slate-200 px-2 py-1 disabled:opacity-40"
+        >
+          上一页
+        </button>
+        <button
+          type="button"
+          disabled={page >= pagination.totalPages}
+          onClick={() => setPage(page + 1)}
+          className="rounded-lg border border-slate-200 px-2 py-1 disabled:opacity-40"
+        >
+          下一页
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SelectionPanel({ node, edge, explainSelected, setMessage }) {
   if (edge) {
     return (
@@ -1187,11 +2311,91 @@ function ToolbarButton({ label, onClick, Icon }) {
   );
 }
 
-function filterWeakGraphSchema(schema = {}) {
-  const strongEdges = (schema.edges || []).filter(
-    (edge) => edge.type === "parent" || Number(edge.confidence ?? 1) >= 0.55
+function filterGraphSchema(schema = {}, options = {}) {
+  const selectedEdgeIds = new Set(
+    (options.selectedPath?.edgeIds || []).map((id) => `kg-edge-${id}`)
   );
-  return { ...schema, edges: strongEdges };
+  const autoSimplified = Boolean(options.autoSimplified);
+  const edges = (schema.edges || [])
+    .map((edge) => ({
+      ...edge,
+      labelMode:
+        options.labelMode === "auto"
+          ? edge.labelModeDefault || "auto"
+          : options.labelMode,
+      isPathEdge: selectedEdgeIds.has(edge.id),
+      isSelectedEdge: options.selectedEdgeId === edge.id,
+    }))
+    .filter((edge) => {
+      if (edge.isLayoutEdge || edge.edgeRole === "layout") return true;
+      if (options.mainOnly) return edge.isMainEdge;
+      if (
+        (autoSimplified || options.hideWeakRelations) &&
+        (edge.isWeakRelation ||
+          edge.relationType === "related_to" ||
+          Number(edge.confidence ?? 1) < 0.55 ||
+          Number(edge.evidenceCount || 0) === 0)
+      )
+        return false;
+      if (options.hideRelatedTo && edge.relationType === "related_to")
+        return false;
+      if (options.relationTypeFilter === "conflict") return edge.isConflictEdge;
+      if (
+        options.relationTypeFilter &&
+        options.relationTypeFilter !== "all" &&
+        edge.relationType !== options.relationTypeFilter
+      )
+        return false;
+      return true;
+    });
+  const budgetedEdges = applyEdgeBudget(edges, autoSimplified);
+  const pathNodeIds = new Set(
+    (options.selectedPath?.nodeIds || []).map((id) => `kg-${id}`)
+  );
+  return {
+    ...schema,
+    edgeLabelMode:
+      autoSimplified && options.labelMode === "auto"
+        ? "main"
+        : options.labelMode,
+    nodes: (schema.nodes || []).map((node) => ({
+      ...node,
+      isPathNode: pathNodeIds.has(node.id),
+    })),
+    edges: budgetedEdges,
+  };
+}
+
+function applyEdgeBudget(edges = [], autoSimplified = false) {
+  const main = edges.filter((edge) => edge.isMainEdge || edge.isLayoutEdge);
+  const rest = edges
+    .filter((edge) => !edge.isMainEdge && !edge.isLayoutEdge)
+    .sort(edgeSortScore);
+  const counts = new Map();
+  const kept = [...main];
+  for (const edge of rest) {
+    const role = edge.edgeRole || "support";
+    const limit =
+      role === "branch" ? 6 : role === "support" ? 4 : autoSimplified ? 0 : 2;
+    const sourceCount = counts.get(edge.source) || 0;
+    const targetCount = counts.get(edge.target) || 0;
+    if (sourceCount >= limit || targetCount >= limit) continue;
+    kept.push(edge);
+    counts.set(edge.source, sourceCount + 1);
+    counts.set(edge.target, targetCount + 1);
+  }
+  return kept;
+}
+
+function edgeSortScore(a = {}, b = {}) {
+  const roleWeight = { branch: 5, support: 3, conflict: 4, weak: 1 };
+  const score = (edge) =>
+    (roleWeight[edge.edgeRole] || 2) * 10 +
+    Number(edge.confidence || 0) * 4 +
+    Math.min(3, Number(edge.weight || 0)) +
+    Math.min(3, Number(edge.evidenceCount || 0)) -
+    (edge.relationType === "related_to" ? 5 : 0);
+  return score(b) - score(a);
 }
 
 function defaultCollapsed(schema = {}) {
@@ -1244,4 +2448,103 @@ function formatAliases(aliases = []) {
       return [alias].filter(Boolean);
     })
     .map((alias) => String(alias));
+}
+
+function parseGraphEdgeId(value = "") {
+  const match = String(value || "").match(/^kg-edge-(\d+)$/);
+  return match ? Number(match[1]) : null;
+}
+
+function conceptName(concept = {}) {
+  if (!concept) return "";
+  return (
+    concept.displayNameZh ||
+    concept.displayNameEn ||
+    concept.canonicalName ||
+    ""
+  );
+}
+
+function trustLabel(level, score) {
+  const labels = { high: "高可信", medium: "中可信", low: "低可信" };
+  return `${labels[level] || "待评估"} ${formatScore(score)}`;
+}
+
+function driftLabel(level) {
+  const labels = {
+    none: "稳定",
+    watch: "观察",
+    degrading: "下降",
+  };
+  return labels[level] || "无";
+}
+
+function stabilityLabel(level) {
+  const labels = {
+    stable: "长期稳定",
+    emerging: "新出现",
+    unstable: "低稳定",
+    weak: "证据较弱",
+  };
+  return labels[level] || "待评估";
+}
+
+function TrustBadge({ level, score }) {
+  const classes = {
+    high: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    medium: "bg-blue-50 text-blue-700 border-blue-200",
+    low: "bg-amber-50 text-amber-700 border-amber-200",
+  };
+  return (
+    <span
+      className={`rounded-full border px-2 py-0.5 text-[11px] ${
+        classes[level] || "border-slate-200 bg-slate-50 text-slate-600"
+      }`}
+    >
+      {trustLabel(level, score)}
+    </span>
+  );
+}
+
+function conflictSeverityLabel(conflicts = []) {
+  if (conflicts.some((item) => item.severity === "severe")) return "严重";
+  if (conflicts.some((item) => item.severity === "moderate")) return "中度";
+  return "轻度";
+}
+
+function conflictClass(conflicts = []) {
+  const severity = conflictSeverityLabel(conflicts);
+  if (severity === "严重") return "bg-rose-50 text-rose-700";
+  if (severity === "中度") return "bg-orange-50 text-orange-700";
+  return "bg-amber-50 text-amber-700";
+}
+
+function highlightText(text = "", terms = []) {
+  const value = String(text || "");
+  const cleanTerms = [...new Set((terms || []).filter(Boolean).map(String))]
+    .filter((term) => term.length >= 2)
+    .slice(0, 8);
+  if (!cleanTerms.length) return value;
+  const pattern = new RegExp(
+    `(${cleanTerms.map(escapeRegExp).join("|")})`,
+    "gi"
+  );
+  return value.split(pattern).map((part, index) => {
+    const isMatch = cleanTerms.some(
+      (term) => term.toLowerCase() === part.toLowerCase()
+    );
+    if (!isMatch) return <span key={`${part}-${index}`}>{part}</span>;
+    return (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded bg-yellow-100 px-0.5 text-slate-900"
+      >
+        {part}
+      </mark>
+    );
+  });
+}
+
+function escapeRegExp(value = "") {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

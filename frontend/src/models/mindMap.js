@@ -78,6 +78,27 @@ const MindMap = {
       .catch(() => null);
   },
 
+  async graphPath(slug, params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/path?${searchParams.toString()}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "加载推理路径失败。");
+        return data;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
   async repairStatus(slug) {
     return await fetch(
       `${API_BASE}/workspace/${slug}/knowledge/repair-status`,
@@ -120,6 +141,105 @@ const MindMap = {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "解除隔离失败。");
         return data.issue;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
+  async nodeEvidence(slug, params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/evidence/node?${searchParams.toString()}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "加载节点证据失败。");
+        return data.evidence;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
+  async edgeEvidence(slug, params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/evidence/edge?${searchParams.toString()}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "加载关系证据失败。");
+        return data.evidence;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
+  async recordEvidenceUsage(slug, body = {}) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/evidence/usage`,
+      {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    )
+      .then((res) => (res.ok ? res.json() : null))
+      .catch(() => null);
+  },
+
+  async nodeMetrics(slug, params = {}) {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/node-metrics?${searchParams.toString()}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "加载重要性指标失败。");
+        return data.metrics;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
+  async recomputeNodeMetrics(slug, body = {}) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/node-metrics/recompute`,
+      {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "请求重算指标失败。");
+        return data.result;
       })
       .catch((error) => ({ error: error.message }));
   },

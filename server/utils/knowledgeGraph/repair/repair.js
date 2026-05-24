@@ -160,6 +160,10 @@ async function repairWorkspace({
     },
   });
   await KnowledgeGraph.invalidateCache(workspace.id);
+  await KnowledgeGraph.markWorkspaceNodeMetricsStale(
+    workspace.id,
+    "repair_completed"
+  );
   return {
     workspace: workspace.slug,
     run,

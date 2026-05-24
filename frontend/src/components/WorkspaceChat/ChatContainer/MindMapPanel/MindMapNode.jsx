@@ -29,7 +29,7 @@ function MindMapNode({ data, selected }) {
     <div
       className={`mind-map-node h-[164px] w-[280px] overflow-hidden rounded-2xl border p-4 transition-all ${
         themeStyles[data.theme] || themeStyles.napkin
-      } ${selected ? "ring-2 ring-blue-400" : ""} ${
+      } ${selected || data.isPathNode ? "ring-2 ring-blue-400" : ""} ${
         isImportant ? "border-slate-300" : ""
       }`}
       style={{
@@ -77,6 +77,11 @@ function MindMapNode({ data, selected }) {
           <span className="rounded-full bg-slate-100 px-2 py-0.5">
             importance {formatScore(data.importanceScore)}
           </span>
+          {data.clusterLabel && (
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-600">
+              {data.clusterLabel}
+            </span>
+          )}
         </div>
       )}
       {data.hasChildren && (

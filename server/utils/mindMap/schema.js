@@ -30,14 +30,41 @@ const NODE_META_FIELDS = [
   "collapsedByDefault",
   "size",
   "sourceType",
+  "clusterKey",
+  "clusterLabel",
 ];
 const EDGE_META_FIELDS = [
   "relationType",
   "relationLabelZh",
   "relationLabelEn",
+  "displayLabel",
+  "displayLabelZh",
+  "displayLabelEn",
+  "shouldShowLabel",
+  "labelModeDefault",
+  "edgeRole",
+  "isMainEdge",
+  "isBranchEdge",
+  "isSupportEdge",
+  "isWeakRelation",
+  "isConflictEdge",
+  "isLayoutEdge",
+  "isCycleEdge",
+  "isPrimaryEdge",
+  "clickable",
   "confidence",
   "weight",
+  "visualWeight",
+  "visualOpacity",
+  "visualStyle",
+  "trustScore",
+  "trustLevel",
+  "trustReasons",
+  "evidenceSupportLevel",
   "evidenceCount",
+  "firstSeenAt",
+  "latestSeenAt",
+  "evidenceTimeRange",
   "documentIds",
   "chunkIds",
   "evidence",
@@ -168,7 +195,9 @@ function normalizeMindMapSchema(input, options = {}) {
     const id = uniqueId(`${node.parentId}-${node.id}`, edgeSeen);
     if (
       normalizedEdges.some(
-        (edge) => edge.source === node.parentId && edge.target === node.id
+        (edge) =>
+          (edge.source === node.parentId && edge.target === node.id) ||
+          (edge.source === node.id && edge.target === node.parentId)
       )
     )
       continue;
@@ -177,7 +206,15 @@ function normalizeMindMapSchema(input, options = {}) {
       source: node.parentId,
       target: node.id,
       label: "",
-      type: "parent",
+      type: "layout",
+      edgeRole: "layout",
+      isLayoutEdge: true,
+      clickable: false,
+      shouldShowLabel: false,
+      labelModeDefault: "hidden",
+      visualWeight: 1,
+      visualOpacity: 0.18,
+      visualStyle: "layout",
     });
   }
 
@@ -245,6 +282,35 @@ function pickEdgeMetadata(edge = {}) {
     metadata.weight = Number(metadata.weight || 0);
   if (metadata.evidenceCount !== undefined)
     metadata.evidenceCount = Number(metadata.evidenceCount || 0);
+  if (metadata.visualWeight !== undefined)
+    metadata.visualWeight = Number(metadata.visualWeight || 0);
+  if (metadata.visualOpacity !== undefined)
+    metadata.visualOpacity = Math.max(
+      0,
+      Math.min(1, Number(metadata.visualOpacity || 0))
+    );
+  if (metadata.trustScore !== undefined)
+    metadata.trustScore = Math.max(
+      0,
+      Math.min(1, Number(metadata.trustScore || 0))
+    );
+  [
+    "shouldShowLabel",
+    "isMainEdge",
+    "isBranchEdge",
+    "isSupportEdge",
+    "isWeakRelation",
+    "isConflictEdge",
+    "isLayoutEdge",
+    "isCycleEdge",
+    "isPrimaryEdge",
+    "clickable",
+  ].forEach((field) => {
+    if (metadata[field] !== undefined)
+      metadata[field] = Boolean(metadata[field]);
+  });
+  if (Array.isArray(metadata.trustReasons))
+    metadata.trustReasons = metadata.trustReasons.map(String).slice(0, 5);
   if (Array.isArray(metadata.documentIds))
     metadata.documentIds = metadata.documentIds.map(String).slice(0, 20);
   if (Array.isArray(metadata.chunkIds))

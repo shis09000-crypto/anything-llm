@@ -43,6 +43,11 @@ async function cleanupKnowledgeGraph({ workspaceId = null } = {}) {
     ...values
   );
   if (workspaceId) await KnowledgeGraph.invalidateCache(workspaceId);
+  if (workspaceId)
+    await KnowledgeGraph.markWorkspaceNodeMetricsStale(
+      workspaceId,
+      "cleanup_decay_completed"
+    );
   return { success: true };
 }
 

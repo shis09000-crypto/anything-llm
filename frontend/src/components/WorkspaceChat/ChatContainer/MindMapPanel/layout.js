@@ -1,4 +1,5 @@
 import ELK from "elkjs/lib/elk.bundled.js";
+import { MarkerType } from "@xyflow/react";
 
 const elk = new ELK();
 const NODE_WIDTH = 280;
@@ -37,7 +38,11 @@ export function visibleMindMap(schema = {}, collapsed = new Set()) {
   };
 }
 
-export async function layoutMindMap(schema = {}, collapsed = new Set()) {
+export async function layoutMindMap(
+  schema = {},
+  collapsed = new Set(),
+  options = {}
+) {
   const layout = schema.layout || "tree";
   const visible = visibleMindMap(schema, collapsed);
   if (layout === "radial") return radialLayout(visible, schema);
@@ -58,19 +63,22 @@ export async function layoutMindMap(schema = {}, collapsed = new Set()) {
       width: NODE_WIDTH,
       height: NODE_HEIGHT,
     })),
-    edges: visible.edges.map((edge) => ({
-      id: edge.id,
-      sources: [edge.source],
-      targets: [edge.target],
-    })),
+    edges: visible.edges
+      .filter((edge) => participatesInLayout(edge))
+      .map((edge) => ({
+        id: edge.id,
+        sources: [edge.source],
+        targets: [edge.target],
+      })),
   };
 
   const result = await elk.layout(graph);
-  const positions = new Map(
+  const positions = applyStablePositions(
     (result.children || []).map((node) => [
       node.id,
       { x: node.x || 0, y: node.y || 0 },
-    ])
+    ]),
+    options.positionCache
   );
   return toFlowElements(visible, schema, positions);
 }
@@ -104,6 +112,27 @@ function radialLayout(visible, schema) {
   return toFlowElements(visible, schema, positions);
 }
 
+function applyStablePositions(positionEntries, positionCache) {
+  const positions = new Map(positionEntries);
+  if (!positionCache) return positions;
+  for (const [id, position] of positions.entries()) {
+    const cached = positionCache.get?.(id);
+    if (cached && Number.isFinite(cached.x) && Number.isFinite(cached.y)) {
+      positions.set(id, cached);
+    } else if (positionCache.set) {
+      positionCache.set(id, position);
+    }
+  }
+  return positions;
+}
+
+function participatesInLayout(edge = {}) {
+  if (edge.isLayoutEdge || edge.edgeRole === "layout") return true;
+  if (edge.isMainEdge || edge.edgeRole === "main") return true;
+  if (edge.isBranchEdge || edge.edgeRole === "branch") return true;
+  return edge.type === "parent";
+}
+
 function toFlowElements(visible, schema, positions) {
   const childCounts = visible.childCounts;
   return {
@@ -121,20 +150,37 @@ function toFlowElements(visible, schema, positions) {
     })),
     edges: visible.edges.map((edge) => {
       const confidence = Number(edge.confidence ?? 0.7);
-      const visualWeight = Math.max(1.2, Math.min(4.6, 1.2 + confidence * 3));
+      const visualWeight = Number.isFinite(Number(edge.visualWeight))
+        ? Number(edge.visualWeight)
+        : Math.max(1.2, Math.min(4.6, 1.2 + confidence * 3));
       const color = edge.color || "#94a3b8";
+      const isGraphEdge = edge.type === "graph" || edge.edgeRole;
       return {
         id: edge.id,
         source: edge.source,
         target: edge.target,
-        label: edge.label || "",
-        type: "smoothstep",
+        label: edge.displayLabel || edge.label || "",
+        type: isGraphEdge ? "graphMindMapEdge" : "smoothstep",
         animated: schema.layout === "flow",
-        data: { ...edge },
+        markerEnd:
+          isGraphEdge && !edge.isLayoutEdge
+            ? { type: MarkerType.ArrowClosed, color }
+            : undefined,
+        data: {
+          ...edge,
+          label: edge.displayLabel || edge.label || "",
+          labelMode: schema.edgeLabelMode || edge.labelModeDefault || "auto",
+        },
         style: {
           stroke: color,
           strokeWidth: visualWeight,
-          opacity: Math.max(0.38, Math.min(0.95, 0.35 + confidence * 0.6)),
+          opacity:
+            edge.visualOpacity ??
+            Math.max(0.38, Math.min(0.95, 0.35 + confidence * 0.6)),
+          strokeDasharray:
+            edge.visualStyle === "dashed" || edge.isWeakRelation
+              ? "7 6"
+              : undefined,
         },
         labelStyle: {
           fill: color,
