@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import PiperTTSClient from "@/utils/piperTTS";
+import PiperTTSClient, { revokeTtsBlobUrl } from "@/utils/piperTTS";
 import { titleCase } from "text-case";
 import { humanFileSize } from "@/utils/numbers";
 import showToast from "@/utils/toast";
@@ -136,6 +136,14 @@ function DemoVoiceSample({ voiceId }) {
   const [speaking, setSpeaking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [audioSrc, setAudioSrc] = useState(null);
+  const audioSrcRef = useRef(null);
+
+  function releaseAudioSrc(url = audioSrcRef.current, updateState = true) {
+    if (!url) return;
+    revokeTtsBlobUrl(url);
+    audioSrcRef.current = null;
+    if (updateState) setAudioSrc(null);
+  }
 
   async function speakMessage(e) {
     e.preventDefault();
@@ -151,7 +159,11 @@ function DemoVoiceSample({ voiceId }) {
         const blobUrl = await client.getAudioBlobForText(
           "Hello, welcome to AnythingLLM!"
         );
-        setAudioSrc(blobUrl);
+        releaseAudioSrc();
+        if (blobUrl) {
+          audioSrcRef.current = blobUrl;
+          setAudioSrc(blobUrl);
+        }
         setLoading(false);
         client.worker?.terminate();
         PiperTTSClient._instance = null;
@@ -166,19 +178,21 @@ function DemoVoiceSample({ voiceId }) {
   }
 
   useEffect(() => {
-    function setupPlayer() {
-      if (!playerRef?.current) return;
-      playerRef.current.addEventListener("play", () => {
-        setSpeaking(true);
-      });
-
-      playerRef.current.addEventListener("pause", () => {
-        playerRef.current.currentTime = 0;
-        setSpeaking(false);
-        setAudioSrc(null);
-      });
-    }
-    setupPlayer();
+    const player = playerRef.current;
+    if (!player) return;
+    const onPlay = () => setSpeaking(true);
+    const onPause = () => {
+      player.currentTime = 0;
+      setSpeaking(false);
+      releaseAudioSrc();
+    };
+    player.addEventListener("play", onPlay);
+    player.addEventListener("pause", onPause);
+    return () => {
+      player.removeEventListener("play", onPlay);
+      player.removeEventListener("pause", onPause);
+      releaseAudioSrc(audioSrcRef.current, false);
+    };
   }, []);
 
   return (

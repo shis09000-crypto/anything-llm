@@ -31,6 +31,10 @@ import {
   normalizeTurnItems,
   updateAssistantTurnInItems,
 } from "@/utils/chat/turns";
+import {
+  estimatePayloadBytes,
+  setDraftMemoryStatsProvider,
+} from "@/utils/chat/memoryDiagnostics";
 
 const ChatThreadDraftContext = createContext(null);
 const STORAGE_PREFIX = "chat-thread-draft";
@@ -43,6 +47,9 @@ const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
 const MAX_STORED_TIMELINE_EVENTS = 20;
 const MAX_STORED_SOURCE_COUNT = 8;
 const MAX_SOURCE_FIELD_CHARS = 300;
+const MAX_RETAINED_INACTIVE_DRAFTS = 4;
+const MAX_COMPACT_INACTIVE_ITEMS = 40;
+const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
 
 export function getChatThreadKey(workspaceSlug, threadSlug = null) {
   if (!workspaceSlug) return null;
@@ -464,6 +471,71 @@ function hasLocalDraftItems(draft = {}) {
   );
 }
 
+function compactInactiveItem(item = {}) {
+  if (!isAssistantTurn(item)) return item;
+  if (item.status !== TURN_STATUSES.completed) return item;
+  return {
+    ...item,
+    finalContent: truncateText(
+      item.finalContent || "",
+      MAX_COMPACT_FINAL_CONTENT_CHARS
+    ),
+    sources: [],
+    outputs: [],
+    metrics: {},
+    timeline: [],
+  };
+}
+
+function compactInactiveDraft(draft = {}) {
+  return {
+    ...draft,
+    items: normalizeTurnItems(draft.items || [])
+      .slice(-MAX_COMPACT_INACTIVE_ITEMS)
+      .map(compactInactiveItem),
+    pendingApproval: null,
+    activeToolCall: null,
+    isStreaming: false,
+    isAgentRunning: false,
+  };
+}
+
+function shouldRetainFullDraft(chatKey, draft, activeChatKey) {
+  return (
+    chatKey === activeChatKey ||
+    hasUnfinishedDraft(draft) ||
+    hasLocalDraftItems(draft) ||
+    !!draft.persistError
+  );
+}
+
+function pruneDraftCollection(drafts = {}, activeChatKey = null) {
+  const next = {};
+  const inactive = [];
+
+  Object.entries(drafts).forEach(([chatKey, draft]) => {
+    if (shouldRetainFullDraft(chatKey, draft, activeChatKey)) {
+      next[chatKey] = draft;
+      return;
+    }
+    inactive.push([chatKey, draft]);
+  });
+
+  inactive
+    .sort(([, a], [, b]) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .forEach(([chatKey, draft], index) => {
+      if (index < MAX_RETAINED_INACTIVE_DRAFTS) {
+        const compacted = compactInactiveDraft(draft);
+        next[chatKey] = compacted;
+        persistDraft(compacted);
+      } else {
+        removeStoredDraft(draft.workspaceSlug, draft.threadSlug);
+      }
+    });
+
+  return next;
+}
+
 function persistDraft(draft) {
   if (typeof window === "undefined" || !draft?.workspaceSlug) return;
   const key = getStorageKey(draft.workspaceSlug, draft.threadSlug);
@@ -689,6 +761,7 @@ export function ChatThreadDraftProvider({ children }) {
   const draftListenersRef = useRef(new Map());
   const activityListenersRef = useRef(new Map());
   const activityVersionRef = useRef(0);
+  const activeChatKeyRef = useRef(null);
 
   const emitListeners = useCallback((listenersRef, key) => {
     const listeners = listenersRef.current.get(key);
@@ -736,6 +809,26 @@ export function ChatThreadDraftProvider({ children }) {
   useEffect(() => {
     runningStateRef.current = runningState;
   }, [runningState]);
+
+  useEffect(() => {
+    setDraftMemoryStatsProvider(() => {
+      const drafts = draftsRef.current || {};
+      const values = Object.values(drafts);
+      return {
+        activeChatKey: activeChatKeyRef.current,
+        draftCount: values.length,
+        itemCount: values.reduce(
+          (sum, draft) => sum + (draft.items?.length || 0),
+          0
+        ),
+        runningDraftCount: values.filter(hasUnfinishedDraft).length,
+        retainedBytes: estimatePayloadBytes(drafts),
+        listenerKeys: draftListenersRef.current.size,
+        activityListenerKeys: activityListenersRef.current.size,
+      };
+    });
+    return () => setDraftMemoryStatsProvider(null);
+  }, []);
 
   const updateRunningState = useCallback(
     (updater) => {
@@ -785,7 +878,10 @@ export function ChatThreadDraftProvider({ children }) {
           draft: next,
         });
         persistDraft(next);
-        const nextDrafts = { ...prev, [chatKey]: next };
+        const nextDrafts = pruneDraftCollection(
+          { ...prev, [chatKey]: next },
+          activeChatKeyRef.current || chatKey
+        );
         draftsRef.current = nextDrafts;
         queueMicrotask(() => emitListeners(draftListenersRef, chatKey));
         return nextDrafts;
@@ -1032,6 +1128,7 @@ export function ChatThreadDraftProvider({ children }) {
   const ensureDraft = useCallback(
     ({ workspaceSlug, threadSlug = null, items = [], history = [] }) => {
       const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
+      activeChatKeyRef.current = chatKey;
       setDrafts((prev) => {
         const restored = draftFromStorageValue(
           safeJsonParse(
@@ -1079,7 +1176,10 @@ export function ChatThreadDraftProvider({ children }) {
           ...draftHistoryIntegrity(next),
         });
         persistDraft(next);
-        const nextDrafts = { ...prev, [chatKey]: next };
+        const nextDrafts = pruneDraftCollection(
+          { ...prev, [chatKey]: next },
+          chatKey
+        );
         draftsRef.current = nextDrafts;
         queueMicrotask(() => emitListeners(draftListenersRef, chatKey));
         return nextDrafts;

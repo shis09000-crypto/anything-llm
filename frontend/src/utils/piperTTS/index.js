@@ -1,9 +1,37 @@
 import showToast from "../toast";
 
+const trackedBlobUrls = new Map();
+const WORKER_IDLE_TIMEOUT_MS = 60_000;
+
+export function trackTtsBlobUrl(url, size = 0) {
+  if (!url) return url;
+  trackedBlobUrls.set(url, { size, createdAt: Date.now() });
+  return url;
+}
+
+export function revokeTtsBlobUrl(url) {
+  if (!url) return;
+  try {
+    URL.revokeObjectURL(url);
+  } catch {}
+  trackedBlobUrls.delete(url);
+}
+
+export function getTrackedTtsBlobStats() {
+  return {
+    count: trackedBlobUrls.size,
+    bytes: [...trackedBlobUrls.values()].reduce(
+      (sum, item) => sum + (item.size || 0),
+      0
+    ),
+  };
+}
+
 export default class PiperTTSClient {
   static _instance;
   voiceId = "en_US-hfc_female-medium";
   worker = null;
+  idleTimer = null;
 
   constructor({ voiceId } = { voiceId: null }) {
     if (PiperTTSClient._instance) {
@@ -17,11 +45,27 @@ export default class PiperTTSClient {
   }
 
   #getWorker() {
+    this.#clearIdleTerminate();
     if (!this.worker)
       this.worker = new Worker(new URL("./worker.js", import.meta.url), {
         type: "module",
       });
     return this.worker;
+  }
+
+  #clearIdleTerminate() {
+    if (!this.idleTimer) return;
+    clearTimeout(this.idleTimer);
+    this.idleTimer = null;
+  }
+
+  #scheduleIdleTerminate() {
+    this.#clearIdleTerminate();
+    this.idleTimer = setTimeout(() => {
+      this.worker?.terminate();
+      this.worker = null;
+      PiperTTSClient._instance = null;
+    }, WORKER_IDLE_TIMEOUT_MS);
   }
 
   /**
@@ -47,6 +91,8 @@ export default class PiperTTSClient {
       };
 
       timeout = setTimeout(() => {
+        tmpWorker.removeEventListener("message", handleMessage);
+        tmpWorker.terminate();
         reject("TTS Worker timed out.");
       }, 30_000);
       tmpWorker.addEventListener("message", handleMessage);
@@ -72,6 +118,8 @@ export default class PiperTTSClient {
       };
 
       timeout = setTimeout(() => {
+        tmpWorker.removeEventListener("message", handleMessage);
+        tmpWorker.terminate();
         reject("TTS Worker timed out.");
       }, 30_000);
       tmpWorker.addEventListener("message", handleMessage);
@@ -89,6 +137,7 @@ export default class PiperTTSClient {
         if (event.data.type === "error") {
           this.worker.removeEventListener("message", handleMessage);
           timeout && clearTimeout(timeout);
+          this.#scheduleIdleTerminate();
           return resolve({ blobURL: null, error: event.data.message });
         }
 
@@ -96,15 +145,22 @@ export default class PiperTTSClient {
           console.log("PiperTTSWorker debug event:", event.data);
           return;
         }
+        const blobURL = trackTtsBlobUrl(
+          URL.createObjectURL(event.data.audio),
+          event.data.audio?.size || 0
+        );
         resolve({
-          blobURL: URL.createObjectURL(event.data.audio),
+          blobURL,
           error: null,
         });
         this.worker.removeEventListener("message", handleMessage);
         timeout && clearTimeout(timeout);
+        this.#scheduleIdleTerminate();
       };
 
       timeout = setTimeout(() => {
+        this.worker?.removeEventListener("message", handleMessage);
+        this.#scheduleIdleTerminate();
         resolve({ blobURL: null, error: "PiperTTSWorker Worker timed out." });
       }, 30_000);
       this.worker.addEventListener("message", handleMessage);

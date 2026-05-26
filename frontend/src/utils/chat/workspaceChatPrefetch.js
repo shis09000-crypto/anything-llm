@@ -63,7 +63,11 @@ export function prefetchThreadHistory(workspaceSlug, threadSlug = null) {
       );
       return payload;
     },
-    { priority: "P3", label: "workspacechat:hover-prefetch" }
+    {
+      priority: "P3",
+      label: "workspacechat:hover-prefetch",
+      dedupeKey: `prefetch:${workspaceSlug}:${threadSlug || "default"}`,
+    }
   );
 }
 
@@ -79,6 +83,10 @@ export function warmWorkspaceChat(workspaceSlug) {
         prefetchThreadHistory(workspaceSlug, thread.slug)
       );
     },
-    { priority: "P3", label: "workspacechat:background-warmup" }
+    {
+      priority: "P3",
+      label: "workspacechat:background-warmup",
+      dedupeKey: `warmup:${workspaceSlug}`,
+    }
   );
 }

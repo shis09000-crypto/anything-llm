@@ -1,4 +1,4 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 import { X } from "@phosphor-icons/react";
@@ -8,12 +8,17 @@ import {
 } from "../ChatHistory/Citation";
 import MobileCitationModal from "./MobileCitationModal";
 import SourceItem from "./SourceItem";
+import {
+  estimatePayloadBytes,
+  setSourcesMemoryStatsProvider,
+} from "@/utils/chat/memoryDiagnostics";
 
 export const SourcesSidebarContext = createContext();
 
 export function SourcesSidebarProvider({ children }) {
   const [sources, setSources] = useState([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedSource, setSelectedSource] = useState(null);
 
   function openSidebar(newSources) {
     setSources(newSources);
@@ -22,11 +27,30 @@ export function SourcesSidebarProvider({ children }) {
 
   function closeSidebar() {
     setSidebarOpen(false);
+    setSelectedSource(null);
+    setSources([]);
   }
+
+  useEffect(() => {
+    setSourcesMemoryStatsProvider(() => ({
+      sidebarOpen,
+      sourceCount: sources.length,
+      retainedBytes: estimatePayloadBytes(sources),
+      selectedSourceBytes: estimatePayloadBytes(selectedSource),
+    }));
+    return () => setSourcesMemoryStatsProvider(null);
+  }, [selectedSource, sidebarOpen, sources]);
 
   return (
     <SourcesSidebarContext.Provider
-      value={{ sources, sidebarOpen, openSidebar, closeSidebar }}
+      value={{
+        sources,
+        sidebarOpen,
+        openSidebar,
+        closeSidebar,
+        selectedSource,
+        setSelectedSource,
+      }}
     >
       {children}
     </SourcesSidebarContext.Provider>
@@ -38,9 +62,14 @@ export function useSourcesSidebar() {
 }
 
 export default function SourcesSidebar() {
-  const { sources, sidebarOpen, closeSidebar } = useSourcesSidebar();
+  const {
+    sources,
+    sidebarOpen,
+    closeSidebar,
+    selectedSource,
+    setSelectedSource,
+  } = useSourcesSidebar();
   const { t } = useTranslation();
-  const [selectedSource, setSelectedSource] = useState(null);
 
   const combined = combineLikeSources(sources);
 

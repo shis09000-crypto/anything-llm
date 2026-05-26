@@ -5,6 +5,9 @@ const SESSION_PREFIX = "workspacechat-history:";
 export const THREAD_HISTORY_CACHE_VERSION = 1;
 export const THREAD_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 export const THREAD_HISTORY_CACHE_MAX_SIZE = 8 * 1024 * 1024;
+export const THREAD_HISTORY_MEMORY_MAX_SIZE = 3 * 1024 * 1024;
+export const THREAD_HISTORY_SESSION_MAX_SIZE = 4 * 1024 * 1024;
+export const THREAD_HISTORY_MEMORY_MAX_ENTRIES = 32;
 
 const memoryCache = new Map();
 
@@ -93,6 +96,7 @@ function pruneIndexedDb(db) {
 function setSession(key, entry) {
   try {
     sessionStorage.setItem(`${SESSION_PREFIX}${key}`, JSON.stringify(entry));
+    pruneSessionStorage();
   } catch {}
 }
 
@@ -104,16 +108,85 @@ function getSession(key) {
   }
 }
 
+function memoryEntries() {
+  return [...memoryCache.entries()].map(([key, entry]) => ({
+    key,
+    entry,
+    size: entry?.size || estimateSize(entry?.payload),
+    updatedAt: entry?.updatedAt || 0,
+  }));
+}
+
+function pruneMemoryCache() {
+  const entries = memoryEntries()
+    .filter(({ entry }) => {
+      const expired = isExpired(entry);
+      if (expired) memoryCache.delete(entry.key);
+      return !expired;
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  let size = 0;
+  entries.forEach((item, index) => {
+    size += item.size;
+    if (
+      index >= THREAD_HISTORY_MEMORY_MAX_ENTRIES ||
+      size > THREAD_HISTORY_MEMORY_MAX_SIZE
+    ) {
+      memoryCache.delete(item.key);
+    }
+  });
+}
+
+function sessionEntries() {
+  if (typeof sessionStorage === "undefined") return [];
+  const entries = [];
+  try {
+    Object.keys(sessionStorage).forEach((storageKey) => {
+      if (!storageKey.startsWith(SESSION_PREFIX)) return;
+      const raw = sessionStorage.getItem(storageKey);
+      const entry = JSON.parse(raw);
+      entries.push({
+        storageKey,
+        entry,
+        size: raw?.length || 0,
+        updatedAt: entry?.updatedAt || 0,
+      });
+    });
+  } catch {}
+  return entries;
+}
+
+function pruneSessionStorage() {
+  const entries = sessionEntries()
+    .filter(({ storageKey, entry }) => {
+      const expired = isExpired(entry);
+      if (expired) sessionStorage.removeItem(storageKey);
+      return !expired;
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  let size = 0;
+  entries.forEach((item) => {
+    size += item.size;
+    if (size > THREAD_HISTORY_SESSION_MAX_SIZE) {
+      sessionStorage.removeItem(item.storageKey);
+    }
+  });
+}
+
 export const threadHistoryCache = {
   key: cacheKey,
   async get(options) {
     const key = cacheKey(options);
     const memory = memoryCache.get(key);
     if (!isExpired(memory)) return memory.payload;
+    if (memory) memoryCache.delete(key);
 
     const session = getSession(key);
     if (!isExpired(session)) {
       memoryCache.set(key, session);
+      pruneMemoryCache();
       return session.payload;
     }
 
@@ -121,6 +194,7 @@ export const threadHistoryCache = {
     if (!isExpired(indexed)) {
       memoryCache.set(key, indexed);
       setSession(key, indexed);
+      pruneMemoryCache();
       return indexed.payload;
     }
     return null;
@@ -135,8 +209,30 @@ export const threadHistoryCache = {
       size: estimateSize(payload),
     };
     memoryCache.set(key, entry);
+    pruneMemoryCache();
     setSession(key, entry);
     if (indexed) await writeIndexedDb(entry);
+  },
+  prune() {
+    pruneMemoryCache();
+    pruneSessionStorage();
+    openDb().then((db) => db && pruneIndexedDb(db));
+  },
+  stats() {
+    const memory = memoryEntries();
+    const session = sessionEntries();
+    return {
+      memoryEntries: memory.length,
+      memoryBytes: memory.reduce((sum, item) => sum + item.size, 0),
+      sessionEntries: session.length,
+      sessionBytes: session.reduce((sum, item) => sum + item.size, 0),
+      limits: {
+        memoryBytes: THREAD_HISTORY_MEMORY_MAX_SIZE,
+        sessionBytes: THREAD_HISTORY_SESSION_MAX_SIZE,
+        memoryEntries: THREAD_HISTORY_MEMORY_MAX_ENTRIES,
+        ttlMs: THREAD_HISTORY_CACHE_TTL_MS,
+      },
+    };
   },
   invalidateThread(workspaceSlug, threadSlug = null) {
     const needle = `:${workspaceSlug}:${threadSlug || "default"}:`;

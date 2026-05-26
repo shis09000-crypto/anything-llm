@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { SpeakerHigh, PauseCircle, CircleNotch } from "@phosphor-icons/react";
-import PiperTTSClient from "@/utils/piperTTS";
+import PiperTTSClient, { revokeTtsBlobUrl } from "@/utils/piperTTS";
 import messageToSpeech from "@/utils/chat/messageToSpeech";
 
 export default function PiperTTS({ chatId, voiceId = null, message }) {
@@ -8,6 +8,14 @@ export default function PiperTTS({ chatId, voiceId = null, message }) {
   const [speaking, setSpeaking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [audioSrc, setAudioSrc] = useState(null);
+  const audioSrcRef = useRef(null);
+
+  function releaseAudioSrc(url = audioSrcRef.current, updateState = true) {
+    if (!url) return;
+    revokeTtsBlobUrl(url);
+    audioSrcRef.current = null;
+    if (updateState) setAudioSrc(null);
+  }
 
   async function speakMessage(e) {
     e.preventDefault();
@@ -23,7 +31,11 @@ export default function PiperTTS({ chatId, voiceId = null, message }) {
         const blobUrl = await client.getAudioBlobForText(
           messageToSpeech(message)
         );
-        setAudioSrc(blobUrl);
+        releaseAudioSrc();
+        if (blobUrl) {
+          audioSrcRef.current = blobUrl;
+          setAudioSrc(blobUrl);
+        }
         setLoading(false);
       } else {
         playerRef.current.play();
@@ -36,18 +48,26 @@ export default function PiperTTS({ chatId, voiceId = null, message }) {
   }
 
   useEffect(() => {
-    function setupPlayer() {
-      if (!playerRef?.current) return;
-      playerRef.current.addEventListener("play", () => {
-        setSpeaking(true);
-      });
-
-      playerRef.current.addEventListener("pause", () => {
-        playerRef.current.currentTime = 0;
-        setSpeaking(false);
-      });
-    }
-    setupPlayer();
+    const player = playerRef.current;
+    if (!player) return;
+    const onPlay = () => setSpeaking(true);
+    const onPause = () => {
+      player.currentTime = 0;
+      setSpeaking(false);
+    };
+    const onEnded = () => {
+      setSpeaking(false);
+      releaseAudioSrc();
+    };
+    player.addEventListener("play", onPlay);
+    player.addEventListener("pause", onPause);
+    player.addEventListener("ended", onEnded);
+    return () => {
+      player.removeEventListener("play", onPlay);
+      player.removeEventListener("pause", onPause);
+      player.removeEventListener("ended", onEnded);
+      releaseAudioSrc(audioSrcRef.current, false);
+    };
   }, []);
 
   return (

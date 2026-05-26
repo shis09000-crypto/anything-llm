@@ -18,9 +18,14 @@ import ErrorBoundaryFallback from "./components/ErrorBoundaryFallback";
 import { ChatThreadDraftProvider } from "@/contexts/ChatThreadDraftProvider";
 import { MotionProvider } from "@/contexts/MotionProvider";
 import MotionRouteOutlet from "@/components/MotionRouteOutlet";
+import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
 
 export default function App() {
   const location = useLocation();
+  useEffect(() => {
+    installAnythingMemoryDiagnostics();
+  }, []);
+
   return (
     <ErrorBoundary
       FallbackComponent={ErrorBoundaryFallback}

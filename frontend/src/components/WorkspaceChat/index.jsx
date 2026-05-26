@@ -233,6 +233,7 @@ export default function WorkspaceChat({ loading, workspace }) {
           priority: "P0",
           label: "workspacechat:first-page",
           signal: historyAbortRef.current.signal,
+          dedupeKey: `history:first:${key}`,
         }
       );
       if (!payload || historySeqRef.current !== seq) return;
@@ -315,6 +316,7 @@ export default function WorkspaceChat({ loading, workspace }) {
             priority: "P2",
             label: "workspacechat:hydrate-visible",
             signal: hydrationAbortRef.current.signal,
+            dedupeKey: `history:hydrate:${key}:${lightChatIds.join(",")}`,
           }
         );
       }
@@ -365,6 +367,7 @@ export default function WorkspaceChat({ loading, workspace }) {
         priority: "P3",
         label: "workspacechat:older-page",
         signal: olderAbortRef.current.signal,
+        dedupeKey: `history:older:${loaded.key}:${beforeChatId}`,
       }
     );
 

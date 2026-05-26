@@ -6,32 +6,50 @@ const PRIORITY_ORDER = {
 };
 
 class RequestPriorityQueue {
-  constructor({ concurrency = 3 } = {}) {
+  constructor({ concurrency = 3, maxPending = 48, staleMs = 45_000 } = {}) {
     this.concurrency = concurrency;
+    this.maxPending = maxPending;
+    this.staleMs = staleMs;
     this.active = 0;
     this.queue = [];
     this.pausedPriorities = new Set();
   }
 
-  schedule(task, { priority = "P2", label = "request", signal = null } = {}) {
+  schedule(
+    task,
+    { priority = "P2", label = "request", signal = null, dedupeKey = null } = {}
+  ) {
     if (typeof task !== "function") return Promise.resolve(null);
-    return new Promise((resolve, reject) => {
-      const entry = {
+    if (dedupeKey) {
+      const existing = this.queue.find(
+        (entry) => entry.dedupeKey === dedupeKey
+      );
+      if (existing) return existing.promise;
+    }
+
+    this.prune();
+    let entry = null;
+    const promise = new Promise((resolve, reject) => {
+      entry = {
         task,
         priority,
         label,
         signal,
+        dedupeKey,
         resolve,
         reject,
         createdAt: performance.now(),
       };
-      this.queue.push(entry);
-      this.queue.sort((a, b) => {
-        const rank = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-        return rank !== 0 ? rank : a.createdAt - b.createdAt;
-      });
-      this.flush();
     });
+    entry.promise = promise;
+    this.queue.push(entry);
+    this.queue.sort((a, b) => {
+      const rank = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+      return rank !== 0 ? rank : a.createdAt - b.createdAt;
+    });
+    this.enforcePendingBudget();
+    this.flush();
+    return promise;
   }
 
   setPaused(priority, paused) {
@@ -52,7 +70,48 @@ class RequestPriorityQueue {
     this.queue = pending;
   }
 
+  prune() {
+    const now = performance.now();
+    this.clear(
+      (entry) =>
+        entry.signal?.aborted ||
+        (entry.priority === "P3" && now - entry.createdAt > this.staleMs)
+    );
+  }
+
+  enforcePendingBudget() {
+    if (this.queue.length <= this.maxPending) return;
+    const sorted = [...this.queue].sort((a, b) => {
+      const rank = PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority];
+      return rank !== 0 ? rank : a.createdAt - b.createdAt;
+    });
+    const toDrop = new Set(
+      sorted.slice(0, this.queue.length - this.maxPending)
+    );
+    this.queue = this.queue.filter((entry) => {
+      if (!toDrop.has(entry)) return true;
+      entry.resolve(null);
+      return false;
+    });
+  }
+
+  stats() {
+    const byPriority = this.queue.reduce((acc, entry) => {
+      acc[entry.priority] = (acc[entry.priority] || 0) + 1;
+      return acc;
+    }, {});
+    return {
+      active: this.active,
+      pending: this.queue.length,
+      byPriority,
+      pausedPriorities: [...this.pausedPriorities],
+      maxPending: this.maxPending,
+      staleMs: this.staleMs,
+    };
+  }
+
   flush() {
+    this.prune();
     while (this.active < this.concurrency) {
       const index = this.queue.findIndex(
         (entry) => !this.pausedPriorities.has(entry.priority)
