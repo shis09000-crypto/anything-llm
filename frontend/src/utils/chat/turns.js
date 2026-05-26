@@ -198,6 +198,7 @@ export function normalizeTurnItem(item = {}) {
       turnId,
       attachments: Array.isArray(item.attachments) ? item.attachments : [],
       createdAt,
+      hydrationStatus: item.hydrationStatus || null,
     };
   }
 
@@ -219,6 +220,7 @@ export function normalizeTurnItem(item = {}) {
       createdAt,
       updatedAt: item.updatedAt || createdAt,
       timeline,
+      hydrationStatus: item.hydrationStatus || null,
     };
   }
 
@@ -299,6 +301,7 @@ function serverGroupToItems(group, chatKey = null) {
     attachments: group.user?.attachments || [],
     chatId: group.chatId,
     createdAt,
+    hydrationStatus: group.user?.hydrationStatus || null,
   };
 
   const assistant = group.assistant || {};
@@ -326,6 +329,8 @@ function serverGroupToItems(group, chatKey = null) {
     feedbackScore: assistant.feedbackScore,
     outputs: assistant.outputs || [],
     responseType: assistant.type,
+    hydrationStatus:
+      group.user?.hydrationStatus || assistant.hydrationStatus || null,
   };
 
   return [userMessage, assistantTurn];
@@ -365,6 +370,7 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
         nextItems[localUserIdx].attachments?.length > 0
           ? nextItems[localUserIdx].attachments
           : serverUser.attachments || [],
+      hydrationStatus: serverUser.hydrationStatus || null,
     };
   }
 
@@ -377,6 +383,7 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     feedbackScore: serverAssistant.feedbackScore,
     outputs: serverAssistant.outputs || localAssistant.outputs || [],
     responseType: serverAssistant.responseType || localAssistant.responseType,
+    hydrationStatus: serverAssistant.hydrationStatus || null,
     status:
       localAssistant.status === TURN_STATUSES.failed
         ? TURN_STATUSES.failed

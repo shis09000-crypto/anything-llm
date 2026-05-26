@@ -131,7 +131,7 @@ export default function ThoughtTimeline({
                 loop
                 muted
                 playsInline
-                className="w-[18px] h-[18px] scale-[165%] transition-opacity duration-200 light:invert light:opacity-50"
+                className="w-[18px] h-[18px] scale-[165%] motion-hover light:invert light:opacity-50"
                 data-tooltip-id="agent-thinking"
                 data-tooltip-content="Agent is thinking..."
                 aria-label="Agent is thinking..."
@@ -142,7 +142,7 @@ export default function ThoughtTimeline({
               <img
                 src={AgentStatic}
                 alt="Agent complete"
-                className="w-[18px] h-[18px] transition-opacity duration-200 light:invert light:opacity-50"
+                className="w-[18px] h-[18px] motion-hover light:invert light:opacity-50"
                 data-tooltip-id="agent-thinking"
                 data-tooltip-content="Agent has finished thinking"
                 aria-label="Agent has finished thinking"
@@ -153,7 +153,7 @@ export default function ThoughtTimeline({
             <button
               type="button"
               onClick={handleExpandClick}
-              className="absolute top-4 right-4 border-none text-zinc-200 light:text-slate-800 transition-colors"
+              className="absolute top-4 right-4 border-none text-zinc-200 light:text-slate-800 motion-hover"
               data-tooltip-id="expand-cot"
               data-tooltip-content={
                 isExpanded ? "Hide thought chain" : "Show thought chain"
@@ -163,12 +163,12 @@ export default function ThoughtTimeline({
               }
             >
               <CaretDown
-                className={`w-4 h-4 transform transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                className={`w-4 h-4 transform motion-hover ${isExpanded ? "rotate-180" : ""}`}
               />
             </button>
           )}
           <div
-            className={`ml-[28px] mr-[26px] transition-[max-height] duration-300 ease-in-out origin-top ${isExpanded ? "" : "overflow-hidden max-h-[18px]"}`}
+            className={`ml-[28px] mr-[26px] transition-[max-height] origin-top ${isExpanded ? "" : "overflow-hidden max-h-[18px]"}`}
           >
             <div className="text-zinc-200 light:text-slate-800 font-mono text-sm leading-[18px]">
               {!isExpanded ? (

@@ -71,7 +71,7 @@ export default function RecoveryCodeModal({
           <div className="flex w-full justify-end items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
             <button
               type="button"
-              className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-x-2"
+              className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-x-2"
               onClick={downloadClicked ? handleClose : downloadRecoveryCodes}
             >
               {downloadClicked ? (

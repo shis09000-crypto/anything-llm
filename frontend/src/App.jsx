@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect } from "react";
-import { Outlet, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { AuthProvider } from "@/AuthContext";
 import { ToastContainer } from "react-toastify";
@@ -16,6 +16,8 @@ import ImageLightbox from "@/components/ImageLightbox";
 import { ErrorBoundary } from "react-error-boundary";
 import ErrorBoundaryFallback from "./components/ErrorBoundaryFallback";
 import { ChatThreadDraftProvider } from "@/contexts/ChatThreadDraftProvider";
+import { MotionProvider } from "@/contexts/MotionProvider";
+import MotionRouteOutlet from "@/components/MotionRouteOutlet";
 
 export default function App() {
   const location = useLocation();
@@ -32,13 +34,15 @@ export default function App() {
               <LogoProvider>
                 <PfpProvider>
                   <I18nextProvider i18n={i18n}>
-                    <ChatThreadDraftProvider>
-                      <DefaultDocumentTitle />
-                      <Outlet />
-                      <ToastContainer />
-                      <KeyboardShortcutsHelp />
-                      <ImageLightbox />
-                    </ChatThreadDraftProvider>
+                    <MotionProvider>
+                      <ChatThreadDraftProvider>
+                        <DefaultDocumentTitle />
+                        <MotionRouteOutlet />
+                        <ToastContainer />
+                        <KeyboardShortcutsHelp />
+                        <ImageLightbox />
+                      </ChatThreadDraftProvider>
+                    </MotionProvider>
                   </I18nextProvider>
                 </PfpProvider>
               </LogoProvider>

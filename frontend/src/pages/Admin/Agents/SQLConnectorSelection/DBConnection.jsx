@@ -47,7 +47,7 @@ export default function DBConnection({
           <button
             type="button"
             data-tooltip-id="edit-sql-connection-tooltip"
-            className="border-none text-theme-text-secondary hover:text-theme-text-primary transition-colors duration-200 p-1 rounded"
+            className="border-none text-theme-text-secondary hover:text-theme-text-primary motion-hover p-1 rounded"
             onClick={openModal}
           >
             <PencilSimple size={18} />

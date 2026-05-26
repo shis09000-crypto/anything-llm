@@ -68,7 +68,7 @@ export default function BrowserExtensionApiKeyRow({
               onClick={handleCopy}
               data-tooltip-id="copy-connection-text"
               data-tooltip-content="Copy connection string"
-              className="border-none text-theme-text-primary hover:text-theme-text-secondary transition-colors duration-200 p-1 rounded"
+              className="border-none text-theme-text-primary hover:text-theme-text-secondary motion-hover p-1 rounded"
             >
               {copied ? (
                 <Check className="h-4 w-4 text-green-500" />
@@ -81,7 +81,7 @@ export default function BrowserExtensionApiKeyRow({
               onClick={handleConnect}
               data-tooltip-id="auto-connection"
               data-tooltip-content="Automatically connect to extension"
-              className="border-none text-theme-text-primary hover:text-theme-text-secondary transition-colors duration-200 p-1 rounded"
+              className="border-none text-theme-text-primary hover:text-theme-text-secondary motion-hover p-1 rounded"
             >
               <Plug className="h-4 w-4" />
             </button>

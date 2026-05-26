@@ -199,7 +199,7 @@ function RunHeader({
         <button
           type="button"
           onClick={onBack}
-          className="border-none flex items-center gap-2 text-zinc-400 light:text-slate-600 hover:text-zinc-50 light:hover:text-slate-950 text-sm transition-colors w-fit"
+          className="border-none flex items-center gap-2 text-zinc-400 light:text-slate-600 hover:text-zinc-50 light:hover:text-slate-950 text-sm motion-hover w-fit"
         >
           <ArrowLeft className="h-4 w-4" />
           {t("scheduledJobs.runDetail.back")}
@@ -231,7 +231,7 @@ function RunHeader({
             onClick={onKillRun}
             disabled={killing}
             title={t("scheduledJobs.runDetail.stopJob")}
-            className="border-none h-9 px-5 rounded-lg bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-600 text-sm font-medium hover:bg-red-500/30 light:hover:bg-red-200 transition-colors disabled:opacity-50 shrink-0 flex items-center gap-2"
+            className="border-none h-9 px-5 rounded-lg bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-600 text-sm font-medium hover:bg-red-500/30 light:hover:bg-red-200 motion-hover disabled:opacity-50 shrink-0 flex items-center gap-2"
           >
             <Stop className="h-4 w-4" weight="bold" />
             {killing
@@ -244,7 +244,7 @@ function RunHeader({
             type="button"
             onClick={onContinueInThread}
             disabled={continuing}
-            className="border-none h-9 px-5 rounded-lg bg-zinc-50 text-zinc-950 light:bg-slate-900 light:text-white text-sm font-medium hover:bg-zinc-200 light:hover:bg-slate-800 transition-colors disabled:opacity-50 shrink-0"
+            className="border-none h-9 px-5 rounded-lg bg-zinc-50 text-zinc-950 light:bg-slate-900 light:text-white text-sm font-medium hover:bg-zinc-200 light:hover:bg-slate-800 motion-hover disabled:opacity-50 shrink-0"
           >
             {continuing
               ? t("scheduledJobs.runDetail.creating")

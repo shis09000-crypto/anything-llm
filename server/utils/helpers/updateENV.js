@@ -1581,6 +1581,11 @@ function dumpENV() {
 
     "STORAGE_DIR",
     "SERVER_PORT",
+    "COLLECTOR_PORT",
+    "COLLECTOR_ENDPOINT",
+    "DESKTOP_RUNTIME_CONFIG_PATH",
+    "DESKTOP_LOG_DIR",
+    "DESKTOP_ENV_PATH",
     // For persistent data encryption
     "SIG_KEY",
     "SIG_SALT",
@@ -1644,6 +1649,12 @@ function dumpENV() {
     // Preset provider import keys.
     "PRESET_DEEPSEEK_API_KEY",
     "PRESET_DASHSCOPE_API_KEY",
+
+    // Built-in product feedback delivery keys. These are injected by desktop
+    // builds and are intentionally separate from user Gmail agent settings.
+    "FEEDBACK_GMAIL_SCRIPT_URL",
+    "FEEDBACK_GMAIL_API_KEY",
+    "FEEDBACK_TO_EMAIL",
   ];
 
   // Simple sanitization of each value to prevent ENV injection via newline or quote escaping.
@@ -1667,7 +1678,9 @@ function dumpENV() {
     .map(([key, value]) => `${key}='${sanitizeValue(value)}'`)
     .join("\n");
 
-  const envPath = path.join(__dirname, "../../.env");
+  const envPath =
+    process.env.DESKTOP_ENV_PATH || path.join(__dirname, "../../.env");
+  fs.mkdirSync(path.dirname(envPath), { recursive: true });
   fs.writeFileSync(envPath, envResult, { encoding: "utf8", flag: "w" });
   return true;
 }

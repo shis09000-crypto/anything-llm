@@ -82,7 +82,7 @@ export default function AgentLLMItem({
                   e.preventDefault();
                   openModal();
                 }}
-                className="border-none p-2 text-white/60 hover:text-white hover:bg-theme-bg-hover rounded-md transition-all duration-300"
+                className="border-none p-2 text-white/60 hover:text-white hover:bg-theme-bg-hover rounded-md motion-hover"
                 title="Edit Settings"
               >
                 <Gear size={20} weight="bold" />
@@ -146,7 +146,7 @@ function SetupProvider({
             <button
               onClick={closeModal}
               type="button"
-              className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+              className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
             >
               <X size={24} weight="bold" className="text-white" />
             </button>
@@ -167,14 +167,14 @@ function SetupProvider({
               <button
                 type="button"
                 onClick={closeModal}
-                className="transition-all duration-300 text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
+                className="motion-hover text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 form="provider-form"
-                className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
               >
                 Save {LLMOption.name} settings
               </button>

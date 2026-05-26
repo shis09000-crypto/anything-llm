@@ -1,4 +1,50 @@
 const winston = require("winston");
+const fs = require("fs");
+const path = require("path");
+
+function fileLogger(service) {
+  const logDir = process.env.DESKTOP_LOG_DIR;
+  if (!logDir) return null;
+  fs.mkdirSync(logDir, { recursive: true });
+  const logFile = path.join(logDir, `${service}.log`);
+  const maxBytes = 5 * 1024 * 1024;
+  const maxRotatedLogs = 5;
+
+  function rotateIfNeeded() {
+    try {
+      if (!fs.existsSync(logFile) || fs.statSync(logFile).size < maxBytes)
+        return;
+      for (let index = maxRotatedLogs - 1; index >= 1; index -= 1) {
+        const from = `${logFile}.${index}`;
+        const to = `${logFile}.${index + 1}`;
+        if (fs.existsSync(to)) fs.rmSync(to, { force: true });
+        if (fs.existsSync(from)) fs.renameSync(from, to);
+      }
+      fs.renameSync(logFile, `${logFile}.1`);
+    } catch {}
+  }
+
+  return function append(level, args) {
+    rotateIfNeeded();
+    const message = args
+      .map((arg) => {
+        if (arg instanceof Error) return arg.stack;
+        if (typeof arg === "object") {
+          try {
+            return JSON.stringify(arg);
+          } catch {
+            return String(arg);
+          }
+        }
+        return String(arg);
+      })
+      .join(" ");
+    fs.appendFileSync(
+      logFile,
+      JSON.stringify({ ts: new Date().toISOString(), level, message }) + "\n"
+    );
+  };
+}
 
 class Logger {
   logger = console;
@@ -7,7 +53,36 @@ class Logger {
     if (Logger._instance) return Logger._instance;
     this.logger =
       process.env.NODE_ENV === "production" ? this.getWinstonLogger() : console;
+    this.attachDesktopFileLogger();
     Logger._instance = this;
+  }
+
+  attachDesktopFileLogger() {
+    const append = fileLogger("collector");
+    if (!append || console.__desktopFileLoggerAttached) return;
+    console.__desktopFileLoggerAttached = true;
+    const original = {
+      log: console.log.bind(console),
+      error: console.error.bind(console),
+      info: console.info.bind(console),
+      warn: console.warn.bind(console),
+    };
+    console.log = (...args) => {
+      append("info", args);
+      original.log(...args);
+    };
+    console.error = (...args) => {
+      append("error", args);
+      original.error(...args);
+    };
+    console.info = (...args) => {
+      append("info", args);
+      original.info(...args);
+    };
+    console.warn = (...args) => {
+      append("warn", args);
+      original.warn(...args);
+    };
   }
 
   getWinstonLogger() {

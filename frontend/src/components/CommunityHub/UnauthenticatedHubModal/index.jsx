@@ -15,7 +15,7 @@ export default function UnauthenticatedHubModal({ show, onClose }) {
           <button
             onClick={onClose}
             type="button"
-            className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+            className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
           >
             <X size={18} weight="bold" className="text-white" />
           </button>
@@ -28,7 +28,7 @@ export default function UnauthenticatedHubModal({ show, onClose }) {
             </p>
             <Link
               to={paths.communityHub.authentication()}
-              className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg transition-colors mt-4 text-sm font-semibold text-center"
+              className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg motion-hover mt-4 text-sm font-semibold text-center"
             >
               {t("community_hub.publish.generic.unauthenticated.button")}
             </Link>

@@ -79,7 +79,7 @@ function ShowWorkspaceChat() {
     getWorkspace();
   }, [slug, tab]);
 
-  if (loading) return <FullScreenLoader />;
+  if (loading) return <WorkspaceSettingsSkeleton />;
 
   const TabContent = TABS[tab];
   return (
@@ -88,12 +88,12 @@ function ShowWorkspaceChat() {
         {!isMobile && <Sidebar />}
         <div
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll"
+          className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll"
         >
           <div className="flex flex-wrap gap-x-8 gap-y-3 pt-6 pb-4 ml-16 mr-8 border-b-2 border-white light:border-theme-chat-input-border border-opacity-10">
             <Link
               to={paths.workspace.chat(slug)}
-              className="absolute top-2 left-2 md:top-4 md:left-4 transition-all duration-300 p-2 rounded-full text-white bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover z-10"
+              className="absolute top-2 left-2 md:top-4 md:left-4 motion-hover p-2 rounded-full text-white bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover z-10"
             >
               <ArrowUUpLeft className="h-5 w-5" weight="fill" />
             </Link>
@@ -140,6 +140,33 @@ function ShowWorkspaceChat() {
         </div>
       </div>
     </WorkspaceHealthProvider>
+  );
+}
+
+function WorkspaceSettingsSkeleton() {
+  return (
+    <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+      {!isMobile && <Sidebar />}
+      <div
+        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-hidden"
+      >
+        <div className="flex gap-x-8 pt-6 pb-4 ml-16 mr-8 border-b-2 border-white light:border-theme-chat-input-border border-opacity-10">
+          {[0, 1, 2, 3].map((index) => (
+            <div
+              key={index}
+              className="motion-skeleton h-6 w-28 rounded-md"
+              style={{ "--motion-list-index": index }}
+            />
+          ))}
+        </div>
+        <div className="px-16 py-6 space-y-4">
+          <div className="motion-skeleton h-8 w-64 rounded-md" />
+          <div className="motion-skeleton h-24 w-full max-w-3xl rounded-md" />
+          <div className="motion-skeleton h-10 w-52 rounded-md" />
+        </div>
+      </div>
+    </div>
   );
 }
 

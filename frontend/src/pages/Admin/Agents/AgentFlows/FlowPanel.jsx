@@ -48,7 +48,7 @@ function ManageFlowMenu({ flow, onDelete }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="p-1.5 rounded-lg text-white hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+        className="p-1.5 rounded-lg text-white hover:bg-theme-action-menu-item-hover motion-hover"
       >
         <Gear className="h-5 w-5" weight="bold" />
       </button>
@@ -57,14 +57,14 @@ function ManageFlowMenu({ flow, onDelete }) {
           <button
             type="button"
             onClick={() => navigate(paths.agents.editAgent(flow.uuid))}
-            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 transition-colors duration-200 w-full text-left"
+            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 motion-hover w-full text-left"
           >
             <span className="text-sm whitespace-nowrap">Edit Flow</span>
           </button>
           <button
             type="button"
             onClick={deleteFlow}
-            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 transition-colors duration-200 w-full text-left"
+            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 motion-hover w-full text-left"
           >
             <span className="text-sm whitespace-nowrap">Delete Flow</span>
           </button>

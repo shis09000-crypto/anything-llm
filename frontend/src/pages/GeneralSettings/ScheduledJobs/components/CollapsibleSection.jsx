@@ -23,7 +23,7 @@ export default function CollapsibleSection({
         <button
           type="button"
           onClick={() => setOpen(!open)}
-          className="border-none flex-1 h-12 flex items-center gap-2 px-[18px] hover:bg-white/5 light:hover:bg-slate-100 transition-colors text-left"
+          className="border-none flex-1 h-12 flex items-center gap-2 px-[18px] hover:bg-white/5 light:hover:bg-slate-100 motion-hover text-left"
         >
           {open ? (
             <CaretDown className="h-4 w-4 text-zinc-50 light:text-slate-950" />
@@ -59,7 +59,7 @@ function CopyButton({ content }) {
       type="button"
       onClick={copyToClipboard}
       disabled={copied}
-      className="h-12 px-4 flex items-center hover:bg-white/5 light:hover:bg-slate-100 transition-colors"
+      className="h-12 px-4 flex items-center hover:bg-white/5 light:hover:bg-slate-100 motion-hover"
     >
       {copied ? (
         <CheckCircle size={20} className="text-green-500" />

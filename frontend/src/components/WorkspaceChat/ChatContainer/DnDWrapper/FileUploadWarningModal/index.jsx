@@ -76,7 +76,7 @@ export default function FileUploadWarningModal({
           <button
             onClick={onClose}
             type="button"
-            className="border-none transition-all duration-300 bg-theme-modal-border text-white hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+            className="border-none motion-hover bg-theme-modal-border text-white hover:opacity-60 px-4 py-2 rounded-lg text-sm"
           >
             Cancel
           </button>
@@ -84,7 +84,7 @@ export default function FileUploadWarningModal({
             <button
               onClick={onContinue}
               type="button"
-              className="border-none transition-all duration-300 bg-theme-modal-border text-white hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+              className="border-none motion-hover bg-theme-modal-border text-white hover:opacity-60 px-4 py-2 rounded-lg text-sm"
             >
               Continue Anyway
             </button>
@@ -93,7 +93,7 @@ export default function FileUploadWarningModal({
                 onClick={onEmbed}
                 disabled={isEmbedding || !canEmbed}
                 type="button"
-                className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                className="border-none motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
               >
                 Embed {pluralize("File", fileCount)}
               </button>

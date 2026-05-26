@@ -67,7 +67,7 @@ export default function ToolApprovalRequest({
         <div className="w-full">
           <div
             style={{
-              transition: "all 0.1s ease-in-out",
+              transition: "all 0.1s",
               borderRadius: "16px",
             }}
             className="relative bg-zinc-800 light:bg-slate-100 p-4 pb-2 flex flex-col gap-y-1 overflow-hidden"
@@ -136,7 +136,7 @@ function ToolApprovalHeader({
           aria-label={isExpanded ? "Hide details" : "Show details"}
         >
           <CaretDown
-            className={`w-4 h-4 transform transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+            className={`w-4 h-4 transform motion-hover ${isExpanded ? "rotate-180" : ""}`}
           />
         </button>
       )}
@@ -184,7 +184,7 @@ function ToolApprovalResponseOption({
         <button
           type="button"
           onClick={onApprove}
-          className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+          className="border-none motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
         >
           {t("chat_window.agent_invocation.approve")}
         </button>
@@ -197,7 +197,7 @@ function ToolApprovalResponseOption({
         </button>
       </div>
       {allowAlwaysAllow && (
-        <label className="flex items-center gap-2 cursor-pointer text-white/60 light:text-slate-600 text-xs hover:text-white/80 light:hover:text-slate-800 transition-colors">
+        <label className="flex items-center gap-2 cursor-pointer text-white/60 light:text-slate-600 text-xs hover:text-white/80 light:hover:text-slate-800 motion-hover">
           <input
             type="checkbox"
             checked={alwaysAllow}

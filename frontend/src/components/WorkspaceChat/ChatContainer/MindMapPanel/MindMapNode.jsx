@@ -28,7 +28,7 @@ function MindMapNode({ data, selected }) {
 
   return (
     <div
-      className={`mind-map-node h-[164px] w-[280px] overflow-hidden rounded-2xl border p-4 transition-all ${
+      className={`mind-map-node h-[164px] w-[280px] overflow-hidden rounded-2xl border p-4 motion-hover ${
         themeStyles[data.theme] || themeStyles.napkin
       } ${selected || data.isPathNode ? "ring-2 ring-blue-400" : ""} ${
         isImportant ? "border-slate-300" : ""

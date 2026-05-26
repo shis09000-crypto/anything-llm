@@ -349,7 +349,7 @@ export default function WorkspaceHealthBeacon({
               高级信息
               <CaretDown
                 size={14}
-                className={`transition-transform ${showAdvanced ? "rotate-180" : ""}`}
+                className={`motion-hover ${showAdvanced ? "rotate-180" : ""}`}
               />
             </button>
             {showAdvanced && (

@@ -1,6 +1,8 @@
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
+const envPath =
+  process.env.NODE_ENV === "development"
+    ? `.env.${process.env.NODE_ENV}`
+    : process.env.DESKTOP_ENV_PATH || ".env";
+require("dotenv").config({ path: envPath });
 
 require("./utils/logger")();
 const express = require("express");
@@ -187,9 +189,13 @@ app.all("*", function (_, response) {
 });
 
 app
-  .listen(8888, async () => {
+  .listen(process.env.COLLECTOR_PORT || 8888, async () => {
     await wipeCollectorStorage();
-    console.log(`Document processor app listening on port 8888`);
+    console.log(
+      `Document processor app listening on port ${
+        process.env.COLLECTOR_PORT || 8888
+      }`
+    );
   })
   .on("error", function (_) {
     process.once("SIGUSR2", function () {

@@ -358,7 +358,7 @@ const PinAlert = memo(() => {
         <div className="flex w-full justify-end items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
           <button
             onClick={dismissAlert}
-            className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+            className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
           >
             {t("connectors.pinning.accept")}
           </button>
@@ -426,7 +426,7 @@ const DocumentWatchAlert = memo(() => {
         <div className="flex w-full justify-end items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
           <button
             onClick={dismissAlert}
-            className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+            className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
           >
             {t("connectors.watching.accept")}
           </button>
@@ -600,7 +600,7 @@ function EmbeddingFileRow({ filename, status: fileStatus, onRemove }) {
           <div className="flex items-center gap-x-2 w-full justify-end">
             <div className="w-20 h-[1.5px] bg-white/10 light:bg-sky-900/10 rounded-full overflow-hidden">
               <div
-                className="h-full bg-white light:bg-sky-400 rounded-full transition-all duration-300"
+                className="h-full bg-white light:bg-sky-400 rounded-full motion-hover"
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -616,7 +616,7 @@ function EmbeddingFileRow({ filename, status: fileStatus, onRemove }) {
             {onRemove && (
               <button
                 onClick={onRemove}
-                className="border-none hover:bg-white/10 light:hover:bg-sky-900/10 rounded p-0.5 transition-colors"
+                className="border-none hover:bg-white/10 light:hover:bg-sky-900/10 rounded p-0.5 motion-hover"
                 title="Remove from queue"
               >
                 <X

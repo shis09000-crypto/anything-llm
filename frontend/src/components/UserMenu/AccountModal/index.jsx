@@ -87,7 +87,7 @@ export default function AccountModal({ user, hideModal }) {
           <button
             onClick={hideModal}
             type="button"
-            className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+            className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
           >
             <X size={24} weight="bold" className="text-white" />
           </button>
@@ -99,7 +99,7 @@ export default function AccountModal({ user, hideModal }) {
           <form onSubmit={handleUpdate} className="space-y-6">
             <div className="flex flex-col md:flex-row items-center justify-center gap-8">
               <div className="flex flex-col items-center">
-                <label className="group w-48 h-48 flex flex-col items-center justify-center bg-theme-bg-primary hover:bg-theme-bg-secondary transition-colors duration-300 rounded-full mt-8 border-2 border-dashed border-white light:border-[#686C6F] light:bg-[#E0F2FE] light:hover:bg-transparent cursor-pointer hover:opacity-60">
+                <label className="group w-48 h-48 flex flex-col items-center justify-center bg-theme-bg-primary hover:bg-theme-bg-secondary motion-hover rounded-full mt-8 border-2 border-dashed border-white light:border-[#686C6F] light:bg-[#E0F2FE] light:hover:bg-transparent cursor-pointer hover:opacity-60">
                   <input
                     id="logo-upload"
                     type="file"
@@ -207,13 +207,13 @@ export default function AccountModal({ user, hideModal }) {
               <button
                 onClick={hideModal}
                 type="button"
-                className="transition-all duration-300 text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
+                className="motion-hover text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
               >
                 {t("profile_settings.cancel")}
               </button>
               <button
                 type="submit"
-                className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
               >
                 {t("profile_settings.update_account")}
               </button>

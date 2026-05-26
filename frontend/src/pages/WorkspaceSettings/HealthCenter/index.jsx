@@ -215,7 +215,7 @@ export default function HealthCenter() {
                       current === key ? null : key
                     )
                   }
-                  className="w-full rounded-xl border border-yellow-400/20 bg-yellow-500/[0.06] light:bg-yellow-50/70 px-3 py-3 text-left transition-all hover:border-yellow-300/45 hover:shadow-[0_0_20px_rgba(250,204,21,0.12)]"
+                  className="w-full rounded-xl border border-yellow-400/20 bg-yellow-500/[0.06] light:bg-yellow-50/70 px-3 py-3 text-left motion-hover hover:border-yellow-300/45 hover:shadow-[0_0_20px_rgba(250,204,21,0.12)]"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -228,7 +228,7 @@ export default function HealthCenter() {
                     </div>
                     <CaretDown
                       size={16}
-                      className={`mt-0.5 shrink-0 text-white/45 light:text-slate-400 transition-transform ${
+                      className={`mt-0.5 shrink-0 text-white/45 light:text-slate-400 motion-hover ${
                         isOpen ? "rotate-180" : ""
                       }`}
                     />

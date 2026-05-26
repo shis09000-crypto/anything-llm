@@ -47,7 +47,7 @@ export default function StartNode({
           {config.variables.length > 1 && (
             <button
               onClick={() => handleDeleteVariable(index, variable.name)}
-              className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 transition-colors duration-300"
+              className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 motion-hover"
               title="Delete variable"
             >
               <X className="w-4 h-4" />
@@ -59,7 +59,7 @@ export default function StartNode({
                 const newVars = [...config.variables, { name: "", value: "" }];
                 onConfigChange({ variables: newVars });
               }}
-              className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+              className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover motion-hover"
               title="Add variable"
             >
               <Plus className="w-4 h-4" />

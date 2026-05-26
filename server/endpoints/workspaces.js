@@ -5,6 +5,7 @@ const {
   multiUserMode,
   userFromSession,
   safeJsonParse,
+  queryParams,
 } = require("../utils/http");
 const { normalizePath, isWithin } = require("../utils/files");
 const { Workspace } = require("../models/workspace");
@@ -38,6 +39,60 @@ const { purgeDocument } = require("../utils/files/purgeDocument");
 const { getModelTag } = require("./utils");
 const { searchWorkspaceAndThreads } = require("../utils/helpers/search");
 const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
+
+function normalizedChatIds(chatIds = []) {
+  return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
+}
+
+function parseHistoryQuery(request) {
+  const query = queryParams(request);
+  const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
+  const beforeChatId = Number(query.beforeChatId) || null;
+  const priorityWindow = Math.min(
+    Math.max(Number(query.priorityWindow) || 0, 0),
+    limit
+  );
+  return {
+    enabled:
+      query.limit !== undefined ||
+      query.beforeChatId !== undefined ||
+      query.detail !== undefined ||
+      query.priorityWindow !== undefined,
+    limit,
+    beforeChatId,
+    detail: query.detail === "light" ? "light" : "full",
+    priorityWindow,
+  };
+}
+
+function lightChatIdsForHistory(history = [], options = {}) {
+  if (!options.enabled || options.detail !== "light") return new Set();
+  const fullStart = Math.max(history.length - options.priorityWindow, 0);
+  return new Set(
+    history
+      .filter((record, index) => index < fullStart)
+      .map((record) => record.id)
+  );
+}
+
+async function historyPageMeta(baseClause = {}, history = [], options = {}) {
+  const oldestId = history[0]?.id || null;
+  const hasMore =
+    !!oldestId &&
+    (history.length >= options.limit
+      ? (await WorkspaceChats.count({
+          ...baseClause,
+          id: { lt: oldestId },
+        })) > 0
+      : false);
+  return {
+    limit: options.limit,
+    beforeChatId: options.beforeChatId,
+    nextBeforeChatId: oldestId,
+    totalReturned: history.length,
+    hasMore,
+  };
+}
 
 function workspaceEndpoints(app) {
   if (!app) return;
@@ -411,10 +466,89 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const history = multiUserMode(response)
-          ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
-          : await WorkspaceChats.forWorkspace(workspace.id);
-        response.status(200).json({ history: convertToChatHistory(history) });
+        const historyOptions = parseHistoryQuery(request);
+        const baseClause = {
+          workspaceId: workspace.id,
+          thread_id: null,
+          api_session_id: null,
+          include: true,
+          ...(multiUserMode(response) ? { user_id: user.id } : {}),
+        };
+        const whereClause = {
+          ...baseClause,
+          ...(historyOptions.beforeChatId
+            ? { id: { lt: historyOptions.beforeChatId } }
+            : {}),
+        };
+        const history = historyOptions.enabled
+          ? await WorkspaceChats.where(
+              whereClause,
+              historyOptions.limit,
+              { id: "desc" }
+            )
+          : multiUserMode(response)
+            ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
+            : await WorkspaceChats.forWorkspace(workspace.id);
+        const orderedHistory = historyOptions.enabled
+          ? [...history].reverse()
+          : history;
+        const lightChatIds = lightChatIdsForHistory(
+          orderedHistory,
+          historyOptions
+        );
+        const page = historyOptions.enabled
+          ? await historyPageMeta(baseClause, orderedHistory, historyOptions)
+          : null;
+        response.status(200).json({
+          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          ...(page ? { page: { ...page, lightChatIds: [...lightChatIds] } } : {}),
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/chats/hydrate",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    async (request, response) => {
+      try {
+        const { slug } = request.params;
+        const { chatIds = [] } = reqBody(request);
+        const user = await userFromSession(request, response);
+        const workspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+
+        if (!workspace || !Array.isArray(chatIds)) {
+          response.sendStatus(400).end();
+          return;
+        }
+
+        const ids = normalizedChatIds(chatIds);
+        if (ids.length === 0) {
+          response.status(200).json({ history: [], hydratedChatIds: [] });
+          return;
+        }
+
+        const history = await WorkspaceChats.where(
+          {
+            workspaceId: workspace.id,
+            thread_id: null,
+            api_session_id: null,
+            include: true,
+            id: { in: ids },
+            ...(multiUserMode(response) ? { user_id: user.id } : {}),
+          },
+          null,
+          { id: "asc" }
+        );
+        response.status(200).json({
+          history: convertToChatHistory(history),
+          hydratedChatIds: history.map((chat) => chat.id),
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

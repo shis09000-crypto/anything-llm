@@ -31,7 +31,10 @@ import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import useUser from "@/hooks/useUser";
 import WorkspaceModelPicker from "@/components/WorkspaceChat/ChatContainer/WorkspaceModelPicker";
 import { ChatTooltips } from "@/components/WorkspaceChat/ChatContainer/ChatTooltips";
-import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import {
+  useChatThreadDrafts,
+  useThreadActivitySnapshot,
+} from "@/contexts/ChatThreadDraftProvider";
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
 import useLoginMode from "@/hooks/useLoginMode";
@@ -71,6 +74,7 @@ export default function Home() {
   const pendingFilesRef = useRef([]);
   const { hasWorkspaceActivity, getRunningThread, getThreadPath } =
     useChatThreadDrafts();
+  useThreadActivitySnapshot();
 
   const navigateToRunningThread = useCallback(
     (workspaceSlug) => {
@@ -178,7 +182,7 @@ export default function Home() {
     return (
       <div
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
+        className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
       />
     );
   }
@@ -231,6 +235,7 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
   const { files, parseAttachments } = useContext(DndUploaderContext);
   const { hasWorkspaceActivity, getRunningThread, getThreadPath } =
     useChatThreadDrafts();
+  useThreadActivitySnapshot();
   const runningThread = workspace?.slug
     ? getRunningThread(workspace.slug)
     : null;
@@ -344,7 +349,7 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
   return (
     <div
       style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-      className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+      className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
     >
       {isMobile && <SidebarMobileHeader />}
       {!isMobile && workspace?.slug && (
@@ -413,7 +418,7 @@ function NoWorkspacesAssigned() {
   return (
     <div
       style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-      className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
+      className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
     >
       <div className="flex flex-col h-full w-full items-center justify-center">
         <p className="text-white/60 text-sm text-center whitespace-pre-line">

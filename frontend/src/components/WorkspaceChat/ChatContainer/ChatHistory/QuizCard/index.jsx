@@ -189,11 +189,11 @@ const quizSurfaceStyle = {
 const quizPanelClass =
   "rounded-2xl border border-slate-200 bg-white shadow-[0_12px_32px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)]";
 const quizButtonBaseClass =
-  "border rounded-2xl px-4 py-2.5 text-sm font-medium shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-300/60 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)]";
+  "border rounded-2xl px-4 py-2.5 text-sm font-medium shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] motion-hover hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-300/60 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)]";
 const quizButtonSecondaryClass = `${quizButtonBaseClass} border-slate-200 bg-white text-slate-700 hover:bg-slate-50`;
 const quizButtonPrimaryClass = `${quizButtonBaseClass} border-sky-300/40 bg-sky-500 text-white font-semibold shadow-[0_12px_32px_rgba(14,165,233,0.28),0_0_22px_rgba(125,211,252,0.22),inset_0_1px_0_rgba(255,255,255,0.24)] hover:bg-sky-400 hover:shadow-[0_16px_42px_rgba(14,165,233,0.36),0_0_30px_rgba(125,211,252,0.28),inset_0_1px_0_rgba(255,255,255,0.28)] disabled:hover:bg-sky-500 disabled:hover:shadow-[0_12px_32px_rgba(14,165,233,0.28),0_0_22px_rgba(125,211,252,0.22),inset_0_1px_0_rgba(255,255,255,0.24)]`;
 const quizIconButtonClass =
-  "border border-slate-200 rounded-full bg-white p-1.5 text-slate-500 shadow-[0_8px_20px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all duration-200 hover:-translate-y-0.5 hover:text-red-500 hover:shadow-[0_12px_28px_rgba(15,23,42,0.14)]";
+  "border border-slate-200 rounded-full bg-white p-1.5 text-slate-500 shadow-[0_8px_20px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] motion-hover hover:-translate-y-0.5 hover:text-red-500 hover:shadow-[0_12px_28px_rgba(15,23,42,0.14)]";
 
 function questionTypeLabel(type) {
   return (
@@ -835,7 +835,7 @@ function QuestionInput({
       <textarea
         value={selectedAnswer || ""}
         onChange={(event) => onFill(event.target.value)}
-        className={`${quizPanelClass} mt-4 min-h-[120px] w-full p-3 text-sm text-slate-900 outline-none transition-all duration-200 focus:ring-2 focus:ring-sky-300/60`}
+        className={`${quizPanelClass} mt-4 min-h-[120px] w-full p-3 text-sm text-slate-900 outline-none motion-hover focus:ring-2 focus:ring-sky-300/60`}
         placeholder="输入你的答案"
       />
     );
@@ -843,7 +843,7 @@ function QuestionInput({
 
   const multiSelected = Array.isArray(selectedAnswer) ? selectedAnswer : [];
   const baseOptionClass =
-    "border text-left rounded-2xl px-3 py-2.5 text-sm leading-6 transition-all duration-150 shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(15,23,42,0.14),0_0_18px_rgba(125,211,252,0.18),inset_0_1px_0_rgba(255,255,255,0.95)]";
+    "border text-left rounded-2xl px-3 py-2.5 text-sm leading-6 motion-hover shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] hover:-translate-y-0.5 hover:shadow-[0_14px_32px_rgba(15,23,42,0.14),0_0_18px_rgba(125,211,252,0.18),inset_0_1px_0_rgba(255,255,255,0.95)]";
   return (
     <div className="mt-4 flex flex-col gap-2">
       {(question.options || []).map((option) => {

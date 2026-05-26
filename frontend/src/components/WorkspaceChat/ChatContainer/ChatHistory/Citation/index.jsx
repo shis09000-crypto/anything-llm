@@ -150,7 +150,7 @@ export default function Citations({ sources = [] }) {
   return (
     <button
       onClick={handleOpenSourcesSidebar}
-      className="w-fit flex items-center gap-[5px] px-[10px] py-[4px] rounded-full hover:bg-white/5 light:hover:bg-black/5 transition-colors"
+      className="w-fit flex items-center gap-[5px] px-[10px] py-[4px] rounded-full hover:bg-white/5 light:hover:bg-black/5 motion-hover"
       type="button"
     >
       <span className="text-xs text-white light:text-slate-800">
@@ -232,7 +232,7 @@ export function CitationDetailModal({ source, onClose }) {
           <button
             onClick={onClose}
             type="button"
-            className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-zinc-700 light:hover:bg-slate-200 border-transparent border"
+            className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-zinc-700 light:hover:bg-slate-200 border-transparent border"
           >
             <X
               size={24}

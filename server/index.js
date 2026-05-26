@@ -1,6 +1,8 @@
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
+const envPath =
+  process.env.NODE_ENV === "development"
+    ? `.env.${process.env.NODE_ENV}`
+    : process.env.DESKTOP_ENV_PATH || ".env";
+require("dotenv").config({ path: envPath });
 
 const {
   ensureVectorProviderPersistenceDefaults,

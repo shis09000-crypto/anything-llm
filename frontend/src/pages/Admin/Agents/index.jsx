@@ -459,7 +459,7 @@ export default function AdminAgents() {
                       setShowSkillModal(false);
                       setSelectedSkill("");
                     }}
-                    className="text-white/60 hover:text-white transition-colors duration-200"
+                    className="text-white/60 hover:text-white motion-hover"
                   >
                     <div className="flex items-center text-sky-400">
                       <CaretLeft size={24} />
@@ -822,7 +822,7 @@ function SkillList({
               index === Object.keys(skills).length - 1
                 ? "rounded-b-xl"
                 : "border-b border-white/10"
-            } cursor-pointer transition-all duration-300  hover:bg-theme-bg-primary ${
+            } cursor-pointer motion-hover  hover:bg-theme-bg-primary ${
               selectedSkill === skill
                 ? "bg-white/10 light:bg-theme-bg-sidebar"
                 : ""

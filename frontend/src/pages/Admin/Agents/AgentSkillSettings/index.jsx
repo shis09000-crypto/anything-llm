@@ -14,7 +14,7 @@ export default function AgentSkillSettings() {
       <button
         type="button"
         onClick={openModal}
-        className={`w-10 h-10 flex items-center justify-center light:border-black/10 light:border-solid border-none light:!border rounded-lg transition-colors outline-none bg-transparent hover:bg-theme-bg-secondary`}
+        className={`w-10 h-10 flex items-center justify-center light:border-black/10 light:border-solid border-none light:!border rounded-lg motion-hover outline-none bg-transparent hover:bg-theme-bg-secondary`}
       >
         <SlidersHorizontal size={24} className={`text-theme-text-secondary`} />
       </button>

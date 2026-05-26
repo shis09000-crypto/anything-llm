@@ -48,7 +48,7 @@ export default function FolderRow({
           </div>
           <div
             onClick={handleExpandClick}
-            className={`transform transition-transform duration-200 ${
+            className={`transform motion-hover ${
               expanded ? "rotate-360" : " rotate-270"
             }`}
           >

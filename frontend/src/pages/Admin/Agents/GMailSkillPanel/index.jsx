@@ -202,7 +202,7 @@ function ConfigurationSection({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="border-none w-full flex items-center justify-between p-3 bg-theme-bg-secondary/30 hover:bg-theme-bg-secondary/50 transition-colors"
+        className="border-none w-full flex items-center justify-between p-3 bg-theme-bg-secondary/30 hover:bg-theme-bg-secondary/50 motion-hover"
       >
         <div className="flex items-center gap-x-2">
           <span className="text-theme-text-primary font-semibold text-sm">
@@ -219,7 +219,7 @@ function ConfigurationSection({
         </div>
         <CaretDown
           size={16}
-          className={`text-theme-text-secondary transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`text-theme-text-secondary motion-hover ${expanded ? "rotate-180" : ""}`}
         />
       </button>
 

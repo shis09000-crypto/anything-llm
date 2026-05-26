@@ -4,12 +4,14 @@ import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
 import ModalWrapper from "@/components/ModalWrapper";
+import { useNavigate } from "react-router-dom";
 
 const noop = () => false;
 export default function NewWorkspaceModal({ hideModal = noop }) {
   const formEl = useRef(null);
   const [error, setError] = useState(null);
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const handleCreate = async (e) => {
     setError(null);
     e.preventDefault();
@@ -18,7 +20,9 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
     for (var [key, value] of form.entries()) data[key] = value;
     const { workspace, message } = await Workspace.new(data);
     if (!!workspace) {
-      window.location.href = paths.workspace.chat(workspace.slug);
+      navigate(paths.workspace.chat(workspace.slug));
+      hideModal();
+      return;
     }
     setError(message);
   };
@@ -35,7 +39,7 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
           <button
             onClick={hideModal}
             type="button"
-            className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+            className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
           >
             <X size={24} weight="bold" className="text-white" />
           </button>
@@ -73,7 +77,7 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
             <div className="flex w-full justify-end items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
               <button
                 type="submit"
-                className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
               >
                 Save
               </button>

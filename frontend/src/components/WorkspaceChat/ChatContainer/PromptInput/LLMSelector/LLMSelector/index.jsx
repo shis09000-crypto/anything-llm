@@ -31,7 +31,7 @@ export default function LLMSelectorSidePanel({
             key={llm.value}
             type="button"
             data-llm-value={llm.value}
-            className={`border-none cursor-pointer flex gap-2 items-center px-2.5 py-1.5 rounded-md transition-colors ${
+            className={`border-none cursor-pointer flex gap-2 items-center px-2.5 py-1.5 rounded-md motion-hover ${
               selectedLLMProvider === llm.value
                 ? "bg-zinc-700 light:bg-slate-200"
                 : "hover:bg-zinc-700/50 light:hover:bg-slate-100 bg-transparent"

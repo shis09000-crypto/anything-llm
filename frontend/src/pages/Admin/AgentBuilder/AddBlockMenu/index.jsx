@@ -43,12 +43,12 @@ export default function AddBlockMenu({
     <div className="relative mt-4 w-[280px] mx-auto pb-4" ref={menuRef}>
       <button
         onClick={() => setShowBlockMenu(!showBlockMenu)}
-        className="transition-all duration-300 w-full p-2.5 bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover border border-white/10 rounded-lg text-white flex items-center justify-center gap-2 text-sm font-medium"
+        className="motion-hover w-full p-2.5 bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover border border-white/10 rounded-lg text-white flex items-center justify-center gap-2 text-sm font-medium"
       >
         <Plus className="w-4 h-4" />
         Add Block
         <CaretDown
-          className={`w-3.5 h-3.5 transition-transform duration-300 ${showBlockMenu ? "rotate-180" : ""}`}
+          className={`w-3.5 h-3.5 motion-hover ${showBlockMenu ? "rotate-180" : ""}`}
         />
       </button>
       {showBlockMenu && (
@@ -64,7 +64,7 @@ export default function AddBlockMenu({
                     addBlock(type);
                     setShowBlockMenu(false);
                   }}
-                  className="w-full p-2.5 flex items-center gap-3 hover:bg-theme-action-menu-item-hover text-white transition-colors duration-300 group"
+                  className="w-full p-2.5 flex items-center gap-3 hover:bg-theme-action-menu-item-hover text-white motion-hover group"
                 >
                   <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
                     <div className="w-fit h-fit text-white">{info.icon}</div>

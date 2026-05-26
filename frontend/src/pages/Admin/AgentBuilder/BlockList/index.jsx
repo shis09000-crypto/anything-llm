@@ -225,13 +225,13 @@ export default function BlockList({
       {blocks.map((block, index) => (
         <div key={block.id} className="flex flex-col">
           <div
-            className={`bg-theme-action-menu-bg border border-white/10 rounded-lg overflow-hidden transition-all duration-300 ${
+            className={`bg-theme-action-menu-bg border border-white/10 rounded-lg overflow-hidden motion-hover ${
               block.isExpanded ? "w-full" : "w-[280px] mx-auto"
             }`}
           >
             <div
               onClick={() => toggleBlockExpansion(block.id)}
-              className="w-full p-4 flex items-center justify-between hover:bg-theme-action-menu-item-hover transition-colors duration-300 group cursor-pointer"
+              className="w-full p-4 flex items-center justify-between hover:bg-theme-action-menu-item-hover motion-hover group cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <div className="w-7 h-7 rounded-lg bg-white/10 light:bg-white flex items-center justify-center">
@@ -261,7 +261,7 @@ export default function BlockList({
                             e.stopPropagation();
                             moveBlock(index, index - 1);
                           }}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-white hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-white hover:bg-theme-action-menu-item-hover motion-hover"
                           data-tooltip-id="block-action"
                           data-tooltip-content="Move block up"
                         >
@@ -274,7 +274,7 @@ export default function BlockList({
                             e.stopPropagation();
                             moveBlock(index, index + 1);
                           }}
-                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-white hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-white hover:bg-theme-action-menu-item-hover motion-hover"
                           data-tooltip-id="block-action"
                           data-tooltip-content="Move block down"
                         >
@@ -286,7 +286,7 @@ export default function BlockList({
                           e.stopPropagation();
                           removeBlock(block.id);
                         }}
-                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/20 transition-colors duration-300"
+                        className="w-7 h-7 flex items-center justify-center rounded-lg bg-theme-bg-primary border border-white/5 text-red-400 hover:bg-red-500/10 hover:border-red-500/20 motion-hover"
                         data-tooltip-id="block-action"
                         data-tooltip-content="Delete block"
                       >
@@ -297,7 +297,7 @@ export default function BlockList({
               </div>
             </div>
             <div
-              className={`overflow-hidden transition-all duration-300 ease-in-out ${
+              className={`overflow-hidden motion-hover ${
                 block.isExpanded
                   ? "max-h-[1000px] opacity-100"
                   : "max-h-0 opacity-0"

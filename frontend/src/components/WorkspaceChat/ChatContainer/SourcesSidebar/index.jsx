@@ -62,7 +62,7 @@ export default function SourcesSidebar() {
   return (
     <>
       <div
-        className="h-full overflow-hidden transition-all duration-500 flex-shrink-0"
+        className="h-full overflow-hidden motion-hover flex-shrink-0"
         style={{ width: sidebarOpen ? "366px" : "0px" }}
       >
         <div
@@ -76,7 +76,7 @@ export default function SourcesSidebar() {
             <button
               onClick={closeSidebar}
               type="button"
-              className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 transition-colors"
+              className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 motion-hover"
             >
               <X size={16} weight="bold" />
             </button>

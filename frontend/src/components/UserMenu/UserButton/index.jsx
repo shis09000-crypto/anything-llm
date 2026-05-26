@@ -67,7 +67,7 @@ export default function UserButton() {
         ref={buttonRef}
         onClick={() => setShowMenu(!showMenu)}
         type="button"
-        className="uppercase transition-all duration-300 w-[35px] h-[35px] text-base font-semibold rounded-full flex items-center bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover justify-center text-white p-2 hover:border-slate-100 hover:border-opacity-50 border-transparent border"
+        className="uppercase motion-hover w-[35px] h-[35px] text-base font-semibold rounded-full flex items-center bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover justify-center text-white p-2 hover:border-slate-100 hover:border-opacity-50 border-transparent border"
       >
         {mode === "multi" ? <UserDisplay /> : <Person size={14} />}
       </button>
@@ -125,7 +125,7 @@ function UserDisplay() {
 
   if (pfp) {
     return (
-      <div className="w-[35px] h-[35px] rounded-full flex-shrink-0 overflow-hidden transition-all duration-300 bg-gray-100 hover:border-slate-100 hover:border-opacity-50 border-transparent border hover:opacity-60">
+      <div className="w-[35px] h-[35px] rounded-full flex-shrink-0 overflow-hidden motion-hover bg-gray-100 hover:border-slate-100 hover:border-opacity-50 border-transparent border hover:opacity-60">
         <img
           src={pfp}
           alt="User profile picture"

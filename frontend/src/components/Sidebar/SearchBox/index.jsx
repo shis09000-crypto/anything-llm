@@ -173,7 +173,7 @@ function SearchResultItem({ to, name, hint }) {
     <Link
       to={to}
       onClick={() => window.dispatchEvent(new Event(SEARCH_RESULT_SELECTED))}
-      className="hover:bg-[#FFF]/10 light:hover:bg-[#000]/10 transition-all duration-300 rounded-sm px-[8px] py-[2px]"
+      className="hover:bg-[#FFF]/10 light:hover:bg-[#000]/10 motion-hover rounded-sm px-[8px] py-[2px]"
     >
       <p className="text-theme-text-primary text-sm truncate w-[80%]">
         {name}
@@ -197,7 +197,7 @@ function ShortWidthNewWorkspaceButton({ user, showNewWsModal }) {
         data-tooltip-id="new-workspace-tooltip"
         data-tooltip-content={t("new-workspace.title")}
         onClick={showNewWsModal}
-        className="border-none flex items-center justify-center bg-white  rounded-lg p-[8px] hover:bg-white/80 light:hover:bg-slate-300 transition-all duration-300"
+        className="border-none flex items-center justify-center bg-white  rounded-lg p-[8px] hover:bg-white/80 light:hover:bg-slate-300 motion-hover"
       >
         <Plus
           size={16}

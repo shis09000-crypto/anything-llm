@@ -12,8 +12,9 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
 
@@ -30,6 +31,7 @@ export default function ThreadItem({
   ctrlPressed = false,
 }) {
   const { slug: urlSlug, threadSlug = null } = useParams();
+  const navigate = useNavigate();
   const { t } = useTranslation();
   const workspaceSlug = workspace?.slug ?? urlSlug;
   const optionsContainer = useRef(null);
@@ -126,6 +128,12 @@ export default function ThreadItem({
           <Link
             ref={ref}
             to={linkTo}
+            onMouseEnter={() =>
+              prefetchThreadHistory(workspaceSlug, thread.slug || null)
+            }
+            onFocus={() =>
+              prefetchThreadHistory(workspaceSlug, thread.slug || null)
+            }
             data-tooltip-id="workspace-thread-name"
             data-tooltip-content={threadStatusLabel(thread.name, activity, t)}
             className="w-full pl-2 py-1 overflow-hidden"
@@ -185,6 +193,7 @@ export default function ThreadItem({
                 onRemove={onRemove}
                 close={() => setShowOptions(false)}
                 currentThreadSlug={threadSlug}
+                navigate={navigate}
               />
             )}
           </div>
@@ -235,6 +244,7 @@ function OptionsMenu({
   onRemove,
   close,
   currentThreadSlug,
+  navigate,
 }) {
   const menuRef = useRef(null);
 
@@ -313,7 +323,7 @@ function OptionsMenu({
       onRemove(thread.id);
       // Redirect if deleting the active thread
       if (currentThreadSlug === thread.slug) {
-        window.location.href = paths.workspace.chat(workspace.slug);
+        navigate(paths.workspace.chat(workspace.slug));
       }
       return;
     }

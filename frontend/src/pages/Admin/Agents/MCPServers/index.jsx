@@ -161,7 +161,7 @@ function MCPServerItem({ server, isFirst, isLast, isSelected, handleClick }) {
         isFirst ? "rounded-t-xl" : ""
       } ${
         isLast ? "rounded-b-xl" : "border-b border-white/10"
-      } cursor-pointer transition-all duration-300 hover:bg-theme-bg-primary ${
+      } cursor-pointer motion-hover hover:bg-theme-bg-primary ${
         isSelected ? "bg-white/10 light:bg-theme-bg-sidebar" : ""
       }`}
       onClick={handleClick}

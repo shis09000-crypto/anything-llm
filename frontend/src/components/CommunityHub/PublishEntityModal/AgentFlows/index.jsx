@@ -84,7 +84,7 @@ export default function AgentFlows({ entity }) {
             to={paths.communityHub.viewItem("agent-flow", itemId)}
             target="_blank"
             rel="noreferrer"
-            className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg transition-colors mt-4 text-sm font-semibold text-center"
+            className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg motion-hover mt-4 text-sm font-semibold text-center"
           >
             {t("community_hub.publish.agent_flow.view_on_hub")}
           </Link>
@@ -220,7 +220,7 @@ export default function AgentFlows({ entity }) {
                           </span>
                         )}
                         <span
-                          className={`ml-2 text-theme-text-secondary transition-transform duration-200 ${isExpanded ? "rotate-90" : ""}`}
+                          className={`ml-2 text-theme-text-secondary motion-hover ${isExpanded ? "rotate-90" : ""}`}
                         >
                           <CaretRight size={16} />
                         </span>
@@ -248,7 +248,7 @@ export default function AgentFlows({ entity }) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="border-none mt-4 w-full bg-cta-button hover:opacity-80 text-theme-text-primary font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="border-none mt-4 w-full bg-cta-button hover:opacity-80 text-theme-text-primary font-medium py-2 px-4 rounded-lg motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting
               ? t("community_hub.publish.agent_flow.submitting")

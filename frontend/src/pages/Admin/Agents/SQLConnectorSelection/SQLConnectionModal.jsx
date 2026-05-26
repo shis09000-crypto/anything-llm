@@ -270,7 +270,7 @@ export default function SQLConnectionModal({
             <button
               onClick={handleClose}
               type="button"
-              className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+              className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
             >
               <X size={24} weight="bold" className="text-white" />
             </button>
@@ -456,7 +456,7 @@ export default function SQLConnectionModal({
               <button
                 type="button"
                 onClick={handleClose}
-                className="transition-all duration-300 text-white hover:bg-zinc-700 light:hover:bg-theme-bg-primary px-4 py-2 rounded-lg text-sm"
+                className="motion-hover text-white hover:bg-zinc-700 light:hover:bg-theme-bg-primary px-4 py-2 rounded-lg text-sm"
               >
                 Cancel
               </button>
@@ -464,7 +464,7 @@ export default function SQLConnectionModal({
                 type="submit"
                 form="sql-connection-form"
                 disabled={isValidating}
-                className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
+                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm disabled:opacity-50"
               >
                 {isValidating ? "Validating..." : "Save connection"}
               </button>

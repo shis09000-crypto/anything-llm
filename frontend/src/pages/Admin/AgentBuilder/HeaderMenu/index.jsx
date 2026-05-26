@@ -38,7 +38,7 @@ export default function HeaderMenu({
         <div className="flex items-center gap-x-2">
           <button
             onClick={() => navigate(paths.settings.agentSkills())}
-            className="w-8 h-8 flex items-center justify-center rounded-full bg-theme-settings-input-bg border border-white/10 hover:bg-theme-action-menu-bg transition-colors duration-300"
+            className="w-8 h-8 flex items-center justify-center rounded-full bg-theme-settings-input-bg border border-white/10 hover:bg-theme-action-menu-bg motion-hover"
           >
             <CaretLeft
               weight="bold"
@@ -51,7 +51,7 @@ export default function HeaderMenu({
           >
             <button
               onClick={() => navigate(paths.settings.agentSkills())}
-              className="!border-t-transparent !border-l-transparent !border-b-transparent flex items-center gap-x-2 px-4 py-2 border-r border-white/10 hover:bg-theme-action-menu-bg transition-colors duration-300"
+              className="!border-t-transparent !border-l-transparent !border-b-transparent flex items-center gap-x-2 px-4 py-2 border-r border-white/10 hover:bg-theme-action-menu-bg motion-hover"
             >
               <img
                 src={AnythingInfinityLogo}
@@ -65,7 +65,7 @@ export default function HeaderMenu({
             <div className="relative">
               <button
                 disabled={!hasOtherFlows}
-                className="border-none flex items-center justify-between gap-x-1 text-theme-text-primary text-sm px-4 py-2 enabled:hover:bg-theme-action-menu-bg transition-colors duration-300 min-w-[200px] max-w-[300px]"
+                className="border-none flex items-center justify-between gap-x-1 text-theme-text-primary text-sm px-4 py-2 enabled:hover:bg-theme-action-menu-bg motion-hover min-w-[200px] max-w-[300px]"
                 onClick={() => {
                   if (!agentName && !hasOtherFlows) {
                     const agentNameInput = document.getElementById(
@@ -100,7 +100,7 @@ export default function HeaderMenu({
                           navigate(paths.agents.editAgent(flow.uuid));
                           setShowDropdown(false);
                         }}
-                        className="border-none w-full text-left px-2 py-1 text-sm text-theme-text-primary hover:bg-theme-action-menu-bg transition-colors duration-300"
+                        className="border-none w-full text-left px-2 py-1 text-sm text-theme-text-primary hover:bg-theme-action-menu-bg motion-hover"
                       >
                         <span className="block truncate">
                           {flow?.name || "Untitled Flow"}
@@ -117,20 +117,20 @@ export default function HeaderMenu({
           <div className="flex items-center gap-x-[15px]">
             <button
               onClick={onNewFlow}
-              className="flex items-center gap-x-2 text-theme-text-primary text-sm font-medium px-3 py-2 rounded-lg border border-white bg-theme-settings-input-bg hover:bg-theme-action-menu-bg transition-colors duration-300"
+              className="flex items-center gap-x-2 text-theme-text-primary text-sm font-medium px-3 py-2 rounded-lg border border-white bg-theme-settings-input-bg hover:bg-theme-action-menu-bg motion-hover"
             >
               <Plus className="w-4 h-4" />
               New Flow
             </button>
             <button
               onClick={onPublishFlow}
-              className="px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 border border-white/10 bg-theme-bg-primary text-theme-text-primary hover:bg-theme-action-menu-bg transition-all duration-300"
+              className="px-3 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 border border-white/10 bg-theme-bg-primary text-theme-text-primary hover:bg-theme-action-menu-bg motion-hover"
             >
               Publish
             </button>
             <button
               onClick={onSaveFlow}
-              className="border-none bg-primary-button hover:opacity-80 text-black light:text-white px-3 py-2 rounded-lg text-sm font-medium transition-all duration-300 flex items-center justify-center gap-2"
+              className="border-none bg-primary-button hover:opacity-80 text-black light:text-white px-3 py-2 rounded-lg text-sm font-medium motion-hover flex items-center justify-center gap-2"
             >
               Save
             </button>

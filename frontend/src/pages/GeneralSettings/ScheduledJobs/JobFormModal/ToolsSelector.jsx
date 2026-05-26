@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 import paths from "@/utils/paths";
+import { useNavigate } from "react-router-dom";
 
 /**
  * Build a flat lookup map from categorized tools for quick label resolution.
@@ -31,7 +32,7 @@ function Checkbox({ state, disabled = false }) {
   return (
     <span
       aria-hidden="true"
-      className={`flex items-center justify-center size-4 rounded border shrink-0 transition-colors ${
+      className={`flex items-center justify-center size-4 rounded border shrink-0 motion-hover ${
         disabled
           ? "bg-zinc-700 border-zinc-600 opacity-50"
           : filled
@@ -63,6 +64,7 @@ export default function ToolsSelector({
   onChange,
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState("bottom");
@@ -217,7 +219,7 @@ export default function ToolsSelector({
                     <button
                       type="button"
                       onClick={() => toggleCategory(cat.category)}
-                      className="border-none flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm font-medium text-zinc-50 light:text-slate-700 bg-zinc-700/50 light:bg-slate-100 hover:bg-zinc-700 light:hover:bg-slate-200 transition-colors"
+                      className="border-none flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm font-medium text-zinc-50 light:text-slate-700 bg-zinc-700/50 light:bg-slate-100 hover:bg-zinc-700 light:hover:bg-slate-200 motion-hover"
                     >
                       {expanded ? (
                         <CaretDown size={12} weight="bold" />
@@ -227,10 +229,20 @@ export default function ToolsSelector({
                       <span className="flex-1 text-left truncate flex items-center gap-1.5">
                         {cat.name}
                         {cat.requiresSetup && (
-                          <a
-                            href={paths.settings.agentSkills()}
-                            onClick={(e) => e.stopPropagation()}
-                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 light:bg-amber-100 light:text-amber-700 hover:bg-amber-500/30 light:hover:bg-amber-200 transition-colors"
+                          <span
+                            role="link"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(paths.settings.agentSkills());
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter" && e.key !== " ") return;
+                              e.preventDefault();
+                              e.stopPropagation();
+                              navigate(paths.settings.agentSkills());
+                            }}
+                            className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 light:bg-amber-100 light:text-amber-700 hover:bg-amber-500/30 light:hover:bg-amber-200 motion-hover"
                             title={t(
                               "scheduledJobs.modal.needsSetup",
                               "This skill requires configuration before use"
@@ -241,7 +253,7 @@ export default function ToolsSelector({
                               "scheduledJobs.modal.needsSetupLabel",
                               "Needs Setup"
                             )}
-                          </a>
+                          </span>
                         )}
                       </span>
                       <span className="text-xs text-zinc-400 light:text-slate-500 mr-1">
@@ -277,7 +289,7 @@ export default function ToolsSelector({
                               }
                               disabled={itemNeedsSetup}
                               title={item.description || undefined}
-                              className={`border-none flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-zinc-300 light:text-slate-600 transition-colors ${
+                              className={`border-none flex items-center gap-2 w-full px-2 py-1.5 rounded-md text-sm text-zinc-300 light:text-slate-600 motion-hover ${
                                 itemNeedsSetup
                                   ? "opacity-60 cursor-not-allowed"
                                   : "hover:bg-zinc-700/60 light:hover:bg-slate-100"
@@ -287,10 +299,21 @@ export default function ToolsSelector({
                                 <span className="flex items-center gap-1.5 truncate">
                                   {item.name}
                                   {item.requiresSetup && !cat.requiresSetup && (
-                                    <a
-                                      href={paths.settings.agentSkills()}
-                                      onClick={(e) => e.stopPropagation()}
-                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 light:bg-amber-100 light:text-amber-700 hover:bg-amber-500/30 light:hover:bg-amber-200 transition-colors"
+                                    <span
+                                      role="link"
+                                      tabIndex={0}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigate(paths.settings.agentSkills());
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key !== "Enter" && e.key !== " ")
+                                          return;
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        navigate(paths.settings.agentSkills());
+                                      }}
+                                      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/20 text-amber-400 light:bg-amber-100 light:text-amber-700 hover:bg-amber-500/30 light:hover:bg-amber-200 motion-hover"
                                       title={t(
                                         "scheduledJobs.modal.needsSetup",
                                         "This skill requires configuration before use"
@@ -301,7 +324,7 @@ export default function ToolsSelector({
                                         "scheduledJobs.modal.needsSetupLabel",
                                         "Needs Setup"
                                       )}
-                                    </a>
+                                    </span>
                                   )}
                                 </span>
                                 {item.description && (
@@ -339,7 +362,7 @@ export default function ToolsSelector({
                 type="button"
                 onClick={() => removeTool(id)}
                 aria-label={`Remove ${labelFor(id)}`}
-                className="border-none text-zinc-400 light:text-slate-500 hover:text-zinc-50 light:hover:text-slate-900 transition-colors"
+                className="border-none text-zinc-400 light:text-slate-500 hover:text-zinc-50 light:hover:text-slate-900 motion-hover"
               >
                 <X size={12} weight="bold" />
               </button>

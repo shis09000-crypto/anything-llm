@@ -31,6 +31,13 @@ const {
 } = require("./snapshot");
 
 const activeQuizGenerations = new Set();
+const chatWriteQueues = new Map();
+const QUIZ_BACKGROUND_GENERATION_CONCURRENCY = 2;
+const QUESTION_TYPE_PRIORITY = {
+  single_choice: 1,
+  multiple_choice: 2,
+  fill_blank: 3,
+};
 
 function quizGenerationLog(event, details = {}) {
   console.log(`[QuizGeneration] ${event}`, details);
@@ -85,6 +92,18 @@ async function updateChatQuiz(chatId, quiz, text = null) {
   });
 }
 
+async function withQuizWriteLock(chatId, operation) {
+  const key = String(chatId);
+  const previous = chatWriteQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => {}).then(operation);
+  chatWriteQueues.set(key, current);
+  try {
+    return await current;
+  } finally {
+    if (chatWriteQueues.get(key) === current) chatWriteQueues.delete(key);
+  }
+}
+
 function quizStatusValue(quiz = {}) {
   if (quiz.abandoned) return "abandoned";
   if (quiz.pendingTypes?.length > 0) return "generating";
@@ -123,6 +142,8 @@ function preserveRuntimeState(previous = {}, next = {}) {
       previous.wrongQuestionsSavedAt || next.wrongQuestionsSavedAt,
     favoritedQuestionIds:
       previous.favoritedQuestionIds || next.favoritedQuestionIds || [],
+    deferredQuestions:
+      next.deferredQuestions || previous.deferredQuestions || [],
     abandoned: previous.abandoned || next.abandoned || false,
     abandonedAt: previous.abandonedAt || next.abandonedAt,
   };
@@ -141,46 +162,82 @@ async function quizChat({ workspace, user = null, quizId }) {
   return { chat, quiz };
 }
 
-async function markJobFailed({ chatId, type, error }) {
-  const chat = await WorkspaceChats.get({ id: Number(chatId) });
-  const quiz = quizFromChat(chat);
-  if (!quiz) return;
-  if (quiz.abandoned || quiz.submitted) return;
-  const failedTypes = [...new Set([...(quiz.failedTypes || []), type])];
-  const errors = [
-    ...(quiz.errors || []),
-    { type, message: error?.message || String(error || "generation_failed") },
-  ];
-  const nextQuiz = assembleQuiz({
-    quizId: quiz.id,
-    plan: quiz.plan,
-    evidenceChunks: quiz.evidenceChunks || [],
-    sourceRefs: quiz.sourceRefs || [],
-    jobs: quiz.generationStatus?.jobs || [],
-    questions: quiz.questions || [],
-    failedTypes,
-    errors,
+async function markJobFailed({ chatId, type, error, concurrencySlot = null }) {
+  await withQuizWriteLock(chatId, async () => {
+    const chat = await WorkspaceChats.get({ id: Number(chatId) });
+    const quiz = quizFromChat(chat);
+    if (!quiz) return;
+    if (quiz.abandoned || quiz.submitted) return;
+    const failedTypes = [...new Set([...(quiz.failedTypes || []), type])];
+    const errors = [
+      ...(quiz.errors || []),
+      { type, message: error?.message || String(error || "generation_failed") },
+    ];
+    const { visible, deferred } = visibleAndDeferredQuestions({
+      quiz: { ...quiz, failedTypes, errors },
+    });
+    const nextQuiz = assembleQuiz({
+      quizId: quiz.id,
+      plan: quiz.plan,
+      evidenceChunks: quiz.evidenceChunks || [],
+      sourceRefs: quiz.sourceRefs || [],
+      jobs: quiz.generationStatus?.jobs || [],
+      questions: visible,
+      failedTypes,
+      errors,
+    });
+    await updateChatQuiz(
+      chatId,
+      preserveRuntimeState(quiz, { ...nextQuiz, deferredQuestions: deferred })
+    );
+    quizGenerationLog("merged", {
+      quizId: chatId,
+      type,
+      failed: true,
+      visible: visible.length,
+      deferred: deferred.length,
+      concurrencySlot,
+    });
   });
-  await updateChatQuiz(chatId, preserveRuntimeState(quiz, nextQuiz));
 }
 
-async function appendJobQuestions({ chatId, questions }) {
-  const chat = await WorkspaceChats.get({ id: Number(chatId) });
-  const quiz = quizFromChat(chat);
-  if (!quiz) return;
-  if (quiz.abandoned || quiz.submitted) return;
-  const mergedQuestions = mergeQuestions(quiz.questions || [], questions || []);
-  const nextQuiz = assembleQuiz({
-    quizId: quiz.id,
-    plan: quiz.plan,
-    evidenceChunks: quiz.evidenceChunks || [],
-    sourceRefs: quiz.sourceRefs || [],
-    jobs: quiz.generationStatus?.jobs || [],
-    questions: mergedQuestions,
-    failedTypes: quiz.failedTypes || [],
-    errors: quiz.errors || [],
+async function appendJobQuestions({
+  chatId,
+  questions,
+  type = null,
+  concurrencySlot = null,
+}) {
+  await withQuizWriteLock(chatId, async () => {
+    const chat = await WorkspaceChats.get({ id: Number(chatId) });
+    const quiz = quizFromChat(chat);
+    if (!quiz) return;
+    if (quiz.abandoned || quiz.submitted) return;
+    const { visible, deferred } = visibleAndDeferredQuestions({
+      quiz,
+      incoming: questions || [],
+    });
+    const nextQuiz = assembleQuiz({
+      quizId: quiz.id,
+      plan: quiz.plan,
+      evidenceChunks: quiz.evidenceChunks || [],
+      sourceRefs: quiz.sourceRefs || [],
+      jobs: quiz.generationStatus?.jobs || [],
+      questions: visible,
+      failedTypes: quiz.failedTypes || [],
+      errors: quiz.errors || [],
+    });
+    await updateChatQuiz(
+      chatId,
+      preserveRuntimeState(quiz, { ...nextQuiz, deferredQuestions: deferred })
+    );
+    quizGenerationLog(deferred.length > 0 ? "merge_deferred" : "merged", {
+      quizId: chatId,
+      type,
+      visible: visible.length,
+      deferred: deferred.length,
+      concurrencySlot,
+    });
   });
-  await updateChatQuiz(chatId, preserveRuntimeState(quiz, nextQuiz));
 }
 
 function countQuestionsByType(questions = [], type) {
@@ -188,7 +245,12 @@ function countQuestionsByType(questions = [], type) {
 }
 
 function jobIsSatisfied(quiz = {}, job = {}) {
-  return countQuestionsByType(quiz.questions || [], job.type) >= job.count;
+  return (
+    countQuestionsByType(
+      mergeQuestions(quiz.questions || [], quiz.deferredQuestions || []),
+      job.type
+    ) >= job.count
+  );
 }
 
 function pendingJobsForQuiz(quiz = {}) {
@@ -206,65 +268,125 @@ function pendingJobsForQuiz(quiz = {}) {
   });
 }
 
-async function runBackgroundJobs({ chatId, jobs = [] }) {
-  for (const job of jobs) {
-    const latest = quizFromChat(
-      await WorkspaceChats.get({ id: Number(chatId) })
-    );
-    if (!latest) return;
-    if (latest.abandoned || latest.submitted) {
-      quizGenerationLog("skipped", {
-        quizId: chatId,
-        type: job.type,
-        reason: latest.abandoned ? "abandoned" : "submitted",
-      });
-      return;
-    }
-    if (jobIsSatisfied(latest, job)) {
-      quizGenerationLog("skipped", {
-        quizId: chatId,
-        type: job.type,
-        reason: "already_satisfied",
-        count: job.count,
-      });
-      continue;
-    }
+function sortQuestionsByType(questions = []) {
+  return [...(questions || [])].sort((a, b) => {
+    const typeDelta =
+      (QUESTION_TYPE_PRIORITY[a.type] || 99) -
+      (QUESTION_TYPE_PRIORITY[b.type] || 99);
+    if (typeDelta !== 0) return typeDelta;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+}
 
-    const startedAt = Date.now();
-    quizGenerationLog("started", {
+function visibleAndDeferredQuestions({ quiz = {}, incoming = [] }) {
+  const failedTypes = new Set(quiz.failedTypes || []);
+  const jobs = quiz.generationStatus?.jobs || [];
+  const merged = sortQuestionsByType(
+    mergeQuestions(
+      mergeQuestions(quiz.questions || [], quiz.deferredQuestions || []),
+      incoming || []
+    )
+  );
+  const visible = [];
+  const deferred = [];
+
+  for (const question of merged) {
+    const questionPriority = QUESTION_TYPE_PRIORITY[question.type] || 99;
+    const blocked = jobs.some((job) => {
+      const jobPriority = QUESTION_TYPE_PRIORITY[job.type] || 99;
+      if (jobPriority >= questionPriority) return false;
+      if (failedTypes.has(job.type)) return false;
+      return countQuestionsByType(merged, job.type) < job.count;
+    });
+    if (blocked) deferred.push(question);
+    else visible.push(question);
+  }
+
+  return { visible, deferred };
+}
+
+async function runOneBackgroundJob({ chatId, job, concurrencySlot }) {
+  const latest = quizFromChat(await WorkspaceChats.get({ id: Number(chatId) }));
+  if (!latest) return;
+  if (latest.abandoned || latest.submitted) {
+    quizGenerationLog("skipped", {
       quizId: chatId,
       type: job.type,
-      count: job.count,
-      generator: job.generator,
-      model: "deepseek-v4-pro",
+      reason: latest.abandoned ? "abandoned" : "submitted",
+      concurrencySlot,
     });
-    try {
-      const result = await runGenerationJob(job);
-      if (!result.questions?.length) {
-        const error = new Error(`quiz_${job.type}_empty_valid_questions`);
-        error.code = "quiz_empty_valid_questions";
-        throw error;
-      }
-      await appendJobQuestions({
-        chatId,
-        questions: result.questions || [],
-      });
-      quizGenerationLog("succeeded", {
-        quizId: chatId,
-        type: job.type,
-        generated: result.questions?.length || 0,
-        durationMs: Date.now() - startedAt,
-      });
-    } catch (error) {
-      quizGenerationLog("failed", {
-        quizId: chatId,
-        type: job.type,
-        durationMs: Date.now() - startedAt,
-        error: error.message,
-      });
-      await markJobFailed({ chatId, type: job.type, error });
+    return;
+  }
+  if (jobIsSatisfied(latest, job)) {
+    quizGenerationLog("skipped", {
+      quizId: chatId,
+      type: job.type,
+      reason: "already_satisfied",
+      count: job.count,
+      concurrencySlot,
+    });
+    return;
+  }
+
+  const startedAt = Date.now();
+  quizGenerationLog("started", {
+    quizId: chatId,
+    type: job.type,
+    count: job.count,
+    generator: job.generator,
+    model: "deepseek-v4-pro",
+    concurrencySlot,
+  });
+  try {
+    const result = await runGenerationJob(job);
+    if (!result.questions?.length) {
+      const error = new Error(`quiz_${job.type}_empty_valid_questions`);
+      error.code = "quiz_empty_valid_questions";
+      throw error;
+    }
+    await appendJobQuestions({
+      chatId,
+      questions: result.questions || [],
+      type: job.type,
+      concurrencySlot,
+    });
+    quizGenerationLog("succeeded", {
+      quizId: chatId,
+      type: job.type,
+      generated: result.questions?.length || 0,
+      durationMs: Date.now() - startedAt,
+      concurrencySlot,
+    });
+  } catch (error) {
+    quizGenerationLog("failed", {
+      quizId: chatId,
+      type: job.type,
+      durationMs: Date.now() - startedAt,
+      error: error.message,
+      concurrencySlot,
+    });
+    await markJobFailed({ chatId, type: job.type, error, concurrencySlot });
+  }
+}
+
+async function runBackgroundJobs({ chatId, jobs = [] }) {
+  const queue = [...jobs];
+  const workerCount = Math.min(
+    QUIZ_BACKGROUND_GENERATION_CONCURRENCY,
+    queue.length
+  );
+  let index = 0;
+
+  async function worker(concurrencySlot) {
+    while (index < queue.length) {
+      const job = queue[index++];
+      await runOneBackgroundJob({ chatId, job, concurrencySlot });
     }
   }
+
+  await Promise.all(
+    Array.from({ length: workerCount }, (_, slot) => worker(slot + 1))
+  );
 }
 
 async function enqueueRemainingGenerationJobs({ chatId, reason = "unknown" }) {
@@ -648,4 +770,6 @@ module.exports = {
   enqueueRemainingGenerationJobs,
   pendingJobsForQuiz,
   runBackgroundJobs,
+  visibleAndDeferredQuestions,
+  QUIZ_BACKGROUND_GENERATION_CONCURRENCY,
 };

@@ -52,7 +52,7 @@ export default function CreateBotSection() {
             to={BOTFATHER_URL}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 w-[172px] hover:opacity-90 transition-opacity duration-200"
+            className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 w-[172px] hover:opacity-90 motion-hover"
           >
             <TelegramLogo className="h-5 w-5" weight="fill" />
             {t("telegram.setup.step1.open-botfather")}

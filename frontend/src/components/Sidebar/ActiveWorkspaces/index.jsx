@@ -121,7 +121,7 @@ export default function ActiveWorkspaces() {
                           to={paths.workspace.chat(workspace.slug)}
                           aria-current={isActive ? "page" : ""}
                           className={`
-                            transition-all duration-[200ms]
+                            motion-hover duration-[200ms]
                             flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-white justify-start items-center
                             bg-theme-sidebar-item-default
                             ${isActive ? "light:bg-blue-200 font-bold" : "hover:bg-theme-sidebar-subitem-hover light:hover:bg-slate-300"}
@@ -148,8 +148,7 @@ export default function ActiveWorkspaces() {
                                   className={`
                                   text-[14px] leading-loose whitespace-nowrap overflow-hidden
                                   ${isActive ? "font-bold text-white light:text-blue-900" : "font-medium "} truncate
-                                  w-full group-hover:w-[130px] group-hover:duration-200
-                                `}
+                                  w-full group-hover:w-[130px] group-hover:`}
                                 >
                                   {workspace.name}
                                 </p>
@@ -157,7 +156,7 @@ export default function ActiveWorkspaces() {
                             </div>
                             {user?.role !== "default" && (
                               <div
-                                className={`flex items-center gap-x-[2px] transition-opacity duration-200 ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                className={`flex items-center gap-x-[2px] motion-hover ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
                               >
                                 <button
                                   type="button"

@@ -428,7 +428,7 @@ function RecommendationCard({
   return (
     <article
       ref={ref}
-      className="group relative rounded-xl border border-slate-200/80 bg-white/65 p-4 shadow-sm backdrop-blur hover:border-blue-200 hover:bg-blue-50/55 transition-colors"
+      className="group relative rounded-xl border border-slate-200/80 bg-white/65 p-4 shadow-sm backdrop-blur hover:border-blue-200 hover:bg-blue-50/55 motion-hover"
     >
       {onDismiss && (
         <button

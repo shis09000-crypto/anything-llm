@@ -53,7 +53,7 @@ export default forwardRef(function ChatPromptHistory(
         show
           ? "translate-x-0 opacity-100 visible"
           : "translate-x-full opacity-0 invisible"
-      } transition-all duration-300`}
+      } motion-hover`}
     >
       <div className="sticky flex items-center justify-between">
         <div className="text-theme-text-primary text-sm font-semibold">

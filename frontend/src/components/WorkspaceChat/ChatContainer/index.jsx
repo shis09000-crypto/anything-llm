@@ -34,7 +34,10 @@ import SourcesSidebar, { SourcesSidebarProvider } from "./SourcesSidebar";
 import MindMapPanel from "./MindMapPanel";
 import TopRightActionZone from "./TopRightActionZone";
 import WorkspaceOverview from "./WorkspaceOverview";
-import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import {
+  useChatDraft,
+  useChatThreadDrafts,
+} from "@/contexts/ChatThreadDraftProvider";
 import {
   isAssistantTurn,
   mergeServerHistoryIntoTurns,
@@ -78,10 +81,12 @@ export default function ChatContainer({
   workspace,
   threadSlug = null,
   knownHistory = [],
+  hasMoreHistory = false,
+  isLoadingOlderHistory = false,
+  onLoadOlderHistory = null,
 }) {
   const navigate = useNavigate();
   const {
-    getDraft,
     mergeServerHistory,
     startStream,
     startLocalTurn,
@@ -92,7 +97,7 @@ export default function ChatContainer({
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
-  const draft = getDraft(workspace?.slug, threadSlug);
+  const draft = useChatDraft(workspace?.slug, threadSlug);
   const knownItems = useMemo(
     () => mergeServerHistoryIntoTurns(knownHistory, [], { chatKey }),
     [knownHistory, chatKey]
@@ -107,7 +112,6 @@ export default function ChatContainer({
   const { files, dragging, parseAttachments } = useContext(DndUploaderContext);
   const { chatHistoryRef } = useChatContainerQuickScroll();
   const pendingMessageChecked = useRef(false);
-  const restoredChatKeysRef = useRef(new Set());
   const mindMapSidebarStateRef = useRef(null);
   const overviewShowTimerRef = useRef(null);
   const overviewHideTimerRef = useRef(null);
@@ -320,8 +324,6 @@ export default function ChatContainer({
 
   useEffect(() => {
     if (!workspace?.slug || !chatKey) return;
-    if (restoredChatKeysRef.current.has(chatKey)) return;
-    restoredChatKeysRef.current.add(chatKey);
     mergeServerHistory({
       workspaceSlug: workspace.slug,
       threadSlug,
@@ -565,7 +567,7 @@ export default function ChatContainer({
     return (
       <div
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+        className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
       >
         {isMobile && <SidebarMobileHeader />}
         <TopRightActionZone
@@ -578,7 +580,7 @@ export default function ChatContainer({
           <div className="flex flex-col h-full w-full">
             <div className="flex-1 min-h-0 overflow-hidden">
               <div
-                className={`h-full transform-gpu transition-[opacity,transform,filter] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                className={`h-full transform-gpu transition-[opacity,transform,filter] ease-[cubic-bezier(0.22,1,0.36,1)] ${
                   overviewVisible && !isDraggingFile
                     ? "translate-y-0 scale-100 opacity-100 blur-0"
                     : "translate-y-8 scale-[0.985] opacity-0 blur-[5px]"
@@ -674,7 +676,7 @@ export default function ChatContainer({
         style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
         className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
       >
-        <div className="flex-1 min-w-0 transition-all duration-500 relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
+        <div className="flex-1 min-w-0 motion-hover relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
           {isMobile && <SidebarMobileHeader />}
           <TopRightActionZone
             isMindMapOpen={mindMapOpen}
@@ -696,6 +698,9 @@ export default function ChatContainer({
                     approvalState={draft?.pendingApproval}
                     onToolApprovalResponse={respondToApproval}
                     onGenerateMindMap={openMindMap}
+                    hasMoreHistory={hasMoreHistory}
+                    isLoadingOlderHistory={isLoadingOlderHistory}
+                    onLoadOlderHistory={onLoadOlderHistory}
                   />
                 </MetricsProvider>
                 <PromptInput
@@ -741,7 +746,7 @@ export default function ChatContainer({
 function QuizIntentConfirmation({ prompt, onConfirm, onCancel }) {
   if (!prompt) return null;
   const buttonBase =
-    "border rounded-2xl px-4 py-2.5 text-sm font-medium shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] transition-all duration-200 hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-300/60 focus:ring-offset-2 focus:ring-offset-white";
+    "border rounded-2xl px-4 py-2.5 text-sm font-medium shadow-[0_10px_24px_rgba(15,23,42,0.10),inset_0_1px_0_rgba(255,255,255,0.95)] motion-hover hover:-translate-y-0.5 focus:outline-none focus:ring-2 focus:ring-sky-300/60 focus:ring-offset-2 focus:ring-offset-white";
   const secondaryButton = `${buttonBase} border-slate-200 bg-white text-slate-700 hover:bg-slate-50`;
   const primaryButton = `${buttonBase} border-sky-300/40 bg-sky-500 text-white font-semibold shadow-[0_12px_32px_rgba(14,165,233,0.28),0_0_22px_rgba(125,211,252,0.22),inset_0_1px_0_rgba(255,255,255,0.24)] hover:bg-sky-400 hover:shadow-[0_16px_42px_rgba(14,165,233,0.36),0_0_30px_rgba(125,211,252,0.28),inset_0_1px_0_rgba(255,255,255,0.28)]`;
   return (

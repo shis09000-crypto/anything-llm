@@ -59,7 +59,7 @@ export default function RunRow({ run, jobId, onKilled }) {
       onClick={() =>
         navigate(paths.settings.scheduledJobRunDetail(jobId, run.id))
       }
-      className="border-none flex items-center px-4 h-14 hover:bg-white/5 light:hover:bg-slate-200 transition-colors text-left w-full"
+      className="border-none flex items-center px-4 h-14 hover:bg-white/5 light:hover:bg-slate-200 motion-hover text-left w-full"
     >
       <div className="w-[200px] flex items-center gap-2 relative">
         {unreadAndTerminal && (
@@ -74,7 +74,7 @@ export default function RunRow({ run, jobId, onKilled }) {
             onClick={handleKill}
             disabled={killing}
             title={t("scheduledJobs.runHistory.stopJob")}
-            className="border-none ml-2 p-1.5 rounded bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-600 hover:bg-red-500/30 light:hover:bg-red-200 transition-colors disabled:opacity-50"
+            className="border-none ml-2 p-1.5 rounded bg-red-500/20 text-red-400 light:bg-red-100 light:text-red-600 hover:bg-red-500/30 light:hover:bg-red-200 motion-hover disabled:opacity-50"
           >
             <Stop className="h-3.5 w-3.5" weight="bold" />
           </button>

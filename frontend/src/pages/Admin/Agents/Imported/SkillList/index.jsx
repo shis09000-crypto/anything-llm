@@ -38,7 +38,7 @@ export default function ImportedSkillList({
             index === Object.keys(skills).length - 1
               ? "rounded-b-xl"
               : "border-b border-white/10"
-          } cursor-pointer transition-all duration-300 hover:bg-theme-bg-primary ${
+          } cursor-pointer motion-hover hover:bg-theme-bg-primary ${
             selectedSkill === config.hubId ? "bg-theme-bg-primary" : ""
           }`}
           onClick={() => handleClick?.({ ...config, imported: true })}

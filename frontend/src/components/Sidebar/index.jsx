@@ -37,7 +37,7 @@ export default function Sidebar() {
           width: showSidebar ? "292px" : "0px",
           paddingLeft: showSidebar ? "0px" : "16px",
         }}
-        className="relative transition-all duration-500"
+        className="relative motion-hover"
       >
         {canToggleSidebar && (
           <ToggleSidebarButton
@@ -56,11 +56,11 @@ export default function Sidebar() {
                 <img
                   src={logo}
                   alt="Logo"
-                  className={`rounded max-h-[24px] object-contain transition-opacity duration-500 ${showSidebar ? "opacity-100" : "opacity-0"}`}
+                  className={`rounded max-h-[24px] object-contain motion-hover ${showSidebar ? "opacity-100" : "opacity-0"}`}
                 />
                 {showTextBrand && (
                   <span
-                    className={`text-sm font-semibold text-theme-text-primary light:text-slate-700 whitespace-nowrap transition-opacity duration-500 ${showSidebar ? "opacity-100" : "opacity-0"}`}
+                    className={`text-sm font-semibold text-theme-text-primary light:text-slate-700 whitespace-nowrap motion-hover ${showSidebar ? "opacity-100" : "opacity-0"}`}
                   >
                     {productName}
                   </span>
@@ -155,14 +155,14 @@ export function SidebarMobileHeader() {
         style={{
           transform: showSidebar ? `translateX(0vw)` : `translateX(-100vw)`,
         }}
-        className={`z-99 fixed top-0 left-0 transition-all duration-500 w-[100vw] h-[100vh]`}
+        className={`z-99 fixed top-0 left-0 motion-hover w-[100vw] h-[100vh]`}
       >
         <div
           className={`${
             showBgOverlay
-              ? "transition-all opacity-1"
+              ? "motion-hover opacity-1"
               : "transition-none opacity-0"
-          }  duration-500 fixed top-0 left-0 bg-theme-bg-secondary bg-opacity-75 w-screen h-screen`}
+          } fixed top-0 left-0 bg-theme-bg-secondary bg-opacity-75 w-screen h-screen`}
           onClick={() => setShowSidebar(false)}
         />
         <div
@@ -223,7 +223,7 @@ function NewWorkspaceButton({ user, showNewWsModal }) {
     <div className="flex gap-x-2 items-center justify-between">
       <button
         onClick={showNewWsModal}
-        className="flex flex-grow w-[75%] h-[44px] gap-x-2 py-[5px] px-4 bg-white rounded-lg text-sidebar justify-center items-center hover:bg-opacity-80 transition-all duration-300"
+        className="flex flex-grow w-[75%] h-[44px] gap-x-2 py-[5px] px-4 bg-white rounded-lg text-sidebar justify-center items-center hover:bg-opacity-80 motion-hover"
       >
         <Plus className="h-5 w-5" />
         <p className="text-sidebar text-sm font-semibold">

@@ -91,7 +91,7 @@ function ProviderPrivacyItem({ title, provider, altText }) {
             <div className="text-theme-text-secondary text-sm">
               Your usage, chats, and data are subject to the service&apos;s{" "}
               <Link
-                className="text-theme-text-secondary hover:text-theme-text-primary text-sm font-medium underline transition-colors inline-flex items-center gap-1"
+                className="text-theme-text-secondary hover:text-theme-text-primary text-sm font-medium underline motion-hover inline-flex items-center gap-1"
                 to={provider.policyUrl}
                 target="_blank"
                 rel="noopener noreferrer"

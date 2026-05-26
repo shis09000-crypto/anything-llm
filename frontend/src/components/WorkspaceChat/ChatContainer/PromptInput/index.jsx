@@ -832,7 +832,7 @@ function SendPromptButton({ formRef, promptInput, isDisabled }) {
         ref={formRef}
         type="submit"
         disabled={isDisabled || !promptInput.trim().length}
-        className={`border-none flex justify-center items-center rounded-full w-8 h-8 transition-all ${
+        className={`border-none flex justify-center items-center rounded-full w-8 h-8 motion-hover ${
           promptInput.trim().length && !isDisabled
             ? "cursor-pointer bg-white hover:bg-zinc-200 light:bg-blue-500 light:hover:bg-blue-600"
             : "cursor-not-allowed bg-zinc-600 light:bg-slate-300"

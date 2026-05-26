@@ -32,24 +32,24 @@ export default function LogRow({ log }) {
         }`}
       >
         <EventBadge event={log.event} />
-        <td className="px-6 border-transparent transform transition-transform duration-200">
+        <td className="px-6 border-transparent transform motion-hover">
           {log.user.username}
         </td>
-        <td className="px-6 border-transparent transform transition-transform duration-200">
+        <td className="px-6 border-transparent transform motion-hover">
           {formatDateTime24(log.occurredAt)}
         </td>
         {hasMetadata && (
           <div className="mt-1">
             {expanded ? (
               <td
-                className={`px-2 gap-x-1 flex items-center justify-center transform transition-transform duration-200`}
+                className={`px-2 gap-x-1 flex items-center justify-center transform motion-hover`}
               >
                 <CaretUp weight="bold" size={20} />
                 <p className="text-xs text-white/50 w-[20px]">hide</p>
               </td>
             ) : (
               <td
-                className={`px-2 gap-x-1 flex items-center justify-center transform transition-transform duration-200`}
+                className={`px-2 gap-x-1 flex items-center justify-center transform motion-hover`}
               >
                 <CaretDown weight="bold" size={20} />
                 <p className="text-xs text-white/50 w-[20px]">show</p>

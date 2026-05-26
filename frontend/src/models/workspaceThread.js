@@ -3,6 +3,21 @@ import { API_BASE } from "@/utils/constants";
 import { baseHeaders, safeJsonParse } from "@/utils/request";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { v4 } from "uuid";
+import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
+
+function historyPageQuery({
+  limit = 20,
+  beforeChatId = null,
+  detail = "light",
+  priorityWindow = 5,
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("detail", detail);
+  params.set("priorityWindow", String(priorityWindow));
+  if (beforeChatId) params.set("beforeChatId", String(beforeChatId));
+  return params.toString();
+}
 
 const WorkspaceThread = {
   all: async function (workspaceSlug) {
@@ -60,6 +75,10 @@ const WorkspaceThread = {
       }
     )
       .then((res) => res.ok)
+      .then((ok) => {
+        if (ok) threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+        return ok;
+      })
       .catch(() => false);
   },
   deleteBulk: async function (workspaceSlug, threadSlugs = []) {
@@ -72,20 +91,78 @@ const WorkspaceThread = {
       }
     )
       .then((res) => res.ok)
+      .then((ok) => {
+        if (ok) {
+          threadSlugs.forEach((threadSlug) =>
+            threadHistoryCache.invalidateThread(workspaceSlug, threadSlug)
+          );
+        }
+        return ok;
+      })
       .catch(() => false);
   },
-  chatHistory: async function (workspaceSlug, threadSlug) {
+  chatHistory: async function (workspaceSlug, threadSlug, options = {}) {
     const history = await fetch(
       `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats`,
       {
         method: "GET",
         headers: baseHeaders(),
+        signal: options.signal,
       }
     )
       .then((res) => res.json())
       .then((res) => res.history || [])
-      .catch(() => []);
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return [];
+      });
     return history;
+  },
+  chatHistoryPage: async function (workspaceSlug, threadSlug, options = {}) {
+    const query = historyPageQuery(options);
+    const payload = await fetch(
+      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+        signal: options.signal,
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { history: [], page: null };
+      });
+    return {
+      history: payload.history || [],
+      page: payload.page || null,
+    };
+  },
+  chatHistoryHydration: async function (
+    workspaceSlug,
+    threadSlug,
+    chatIds = [],
+    options = {}
+  ) {
+    if (!chatIds.length) return { history: [], hydratedChatIds: [] };
+    const payload = await fetch(
+      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats/hydrate`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        signal: options.signal,
+        body: JSON.stringify({ chatIds }),
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { history: [], hydratedChatIds: [] };
+      });
+    return {
+      history: payload.history || [],
+      hydratedChatIds: payload.hydratedChatIds || [],
+    };
   },
   streamChat: async function (
     { workspaceSlug, threadSlug },
@@ -186,7 +263,10 @@ const WorkspaceThread = {
       }
     )
       .then((res) => {
-        if (res.ok) return true;
+        if (res.ok) {
+          threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+          return true;
+        }
         throw new Error("Failed to delete chats.");
       })
       .catch((e) => {
@@ -210,7 +290,10 @@ const WorkspaceThread = {
       }
     )
       .then((res) => {
-        if (res.ok) return true;
+        if (res.ok) {
+          threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+          return true;
+        }
         throw new Error("Failed to update chat.");
       })
       .catch((e) => {

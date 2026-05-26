@@ -4,6 +4,21 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
 import { ABORT_STREAM_EVENT } from "@/utils/chat";
+import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
+
+function historyPageQuery({
+  limit = 20,
+  beforeChatId = null,
+  detail = "light",
+  priorityWindow = 5,
+} = {}) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("detail", detail);
+  params.set("priorityWindow", String(priorityWindow));
+  if (beforeChatId) params.set("beforeChatId", String(beforeChatId));
+  return params.toString();
+}
 
 const Workspace = {
   workspaceOrderStorageKey: "anythingllm-workspace-order",
@@ -65,15 +80,57 @@ const Workspace = {
       .then((res) => res.json())
       .catch(() => ({ success: false }));
   },
-  chatHistory: async function (slug) {
+  chatHistory: async function (slug, options = {}) {
     const history = await fetch(`${API_BASE}/workspace/${slug}/chats`, {
       method: "GET",
       headers: baseHeaders(),
+      signal: options.signal,
     })
       .then((res) => res.json())
       .then((res) => res.history || [])
-      .catch(() => []);
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return [];
+      });
     return history;
+  },
+  chatHistoryPage: async function (slug, options = {}) {
+    const query = historyPageQuery(options);
+    const payload = await fetch(
+      `${API_BASE}/workspace/${slug}/chats?${query}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+        signal: options.signal,
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { history: [], page: null };
+      });
+    return {
+      history: payload.history || [],
+      page: payload.page || null,
+    };
+  },
+  chatHistoryHydration: async function (slug, chatIds = [], options = {}) {
+    if (!chatIds.length) return { history: [], hydratedChatIds: [] };
+    const payload = await fetch(`${API_BASE}/workspace/${slug}/chats/hydrate`, {
+      method: "POST",
+      headers: baseHeaders(),
+      signal: options.signal,
+      body: JSON.stringify({ chatIds }),
+    })
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { history: [], hydratedChatIds: [] };
+      });
+    return {
+      history: payload.history || [],
+      hydratedChatIds: payload.hydratedChatIds || [],
+    };
   },
   updateChatFeedback: async function (chatId, slug, feedback) {
     const result = await fetch(
@@ -96,7 +153,10 @@ const Workspace = {
       body: JSON.stringify({ chatIds }),
     })
       .then((res) => {
-        if (res.ok) return true;
+        if (res.ok) {
+          threadHistoryCache.invalidateThread(slug, null);
+          return true;
+        }
         throw new Error("Failed to delete chats.");
       })
       .catch((e) => {
@@ -118,7 +178,9 @@ const Workspace = {
   ) {
     if (!!threadSlug)
       return this.threads._updateChat(slug, threadSlug, chatId, newText, role);
-    return this._updateChat(slug, chatId, newText, role);
+    const result = await this._updateChat(slug, chatId, newText, role);
+    if (result) threadHistoryCache.invalidateThread(slug, null);
+    return result;
   },
   multiplexStream: async function ({
     workspaceSlug,

@@ -115,7 +115,7 @@ export default function RenderMetrics({ metrics = {} }) {
           ? "Click to only show metrics when hovering"
           : "Click to show metrics as soon as they are available"
       }
-      className={`border-none flex md:justify-end items-center gap-x-[8px] -ml-7 ${showMetricsAutomatically ? "opacity-100" : "opacity-0"} md:group-hover:opacity-100 transition-all duration-300`}
+      className={`border-none flex md:justify-end items-center gap-x-[8px] -ml-7 ${showMetricsAutomatically ? "opacity-100" : "opacity-0"} md:group-hover:opacity-100 motion-hover`}
     >
       <p className="cursor-pointer text-xs font-mono text-zinc-400 light:text-slate-500">
         {buildMetricsString(metrics)}

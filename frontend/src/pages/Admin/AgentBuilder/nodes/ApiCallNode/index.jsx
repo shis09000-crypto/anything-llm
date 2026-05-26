@@ -76,7 +76,7 @@ export default function ApiCallNode({
             <button
               ref={varButtonRef}
               onClick={() => setShowVarMenu(!showVarMenu)}
-              className="h-full px-3 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover transition-colors duration-300 flex items-center gap-1"
+              className="h-full px-3 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover motion-hover flex items-center gap-1"
               title="Insert variable"
             >
               <Plus className="w-4 h-4" />
@@ -124,7 +124,7 @@ export default function ApiCallNode({
           </label>
           <button
             onClick={addHeader}
-            className="p-1.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+            className="p-1.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover motion-hover"
             title="Add header"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -157,7 +157,7 @@ export default function ApiCallNode({
               />
               <button
                 onClick={() => removeHeader(index)}
-                className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 transition-colors duration-300"
+                className="p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 motion-hover"
                 title="Remove header"
               >
                 <X className="w-4 h-4" />
@@ -244,7 +244,7 @@ export default function ApiCallNode({
                         );
                         onConfigChange({ formData: newFormData });
                       }}
-                      className="p-2.5 rounded-lg bg-theme-bg-primary border border-white/5 text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 transition-colors duration-300 light:bg-theme-settings-input-bg light:border-black/10"
+                      className="p-2.5 rounded-lg bg-theme-bg-primary border border-white/5 text-theme-text-primary hover:text-red-500 hover:border-red-500/20 hover:bg-red-500/10 motion-hover light:bg-theme-settings-input-bg light:border-black/10"
                       title="Remove field"
                     >
                       <X className="w-4 h-4" />
@@ -259,7 +259,7 @@ export default function ApiCallNode({
                     ];
                     onConfigChange({ formData: newFormData });
                   }}
-                  className="w-full p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover transition-colors duration-300 text-sm"
+                  className="w-full p-2.5 rounded-lg border-none bg-theme-settings-input-bg text-theme-text-primary hover:bg-theme-action-menu-item-hover motion-hover text-sm"
                 >
                   Add Form Field
                 </button>

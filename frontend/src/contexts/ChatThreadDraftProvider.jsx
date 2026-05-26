@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import Workspace from "@/models/workspace";
 import handleChat, { ABORT_STREAM_EVENT } from "@/utils/chat";
@@ -684,6 +685,30 @@ export function ChatThreadDraftProvider({ children }) {
   const erroredThreadRefs = useRef({});
   const confirmPersistedRef = useRef(null);
   const settledTurnRefs = useRef({});
+  const deltaFlushRefs = useRef({});
+  const draftListenersRef = useRef(new Map());
+  const activityListenersRef = useRef(new Map());
+  const activityVersionRef = useRef(0);
+
+  const emitListeners = useCallback((listenersRef, key) => {
+    const listeners = listenersRef.current.get(key);
+    if (listeners) listeners.forEach((listener) => listener());
+    const wildcard = listenersRef.current.get("*");
+    if (wildcard) wildcard.forEach((listener) => listener());
+  }, []);
+
+  const subscribeListener = useCallback((listenersRef, key, listener) => {
+    const listenerKey = key || "*";
+    const listeners = listenersRef.current.get(listenerKey) || new Set();
+    listeners.add(listener);
+    listenersRef.current.set(listenerKey, listeners);
+    return () => {
+      const current = listenersRef.current.get(listenerKey);
+      if (!current) return;
+      current.delete(listener);
+      if (current.size === 0) listenersRef.current.delete(listenerKey);
+    };
+  }, []);
 
   const debugRuntime = useCallback(
     (
@@ -712,17 +737,24 @@ export function ChatThreadDraftProvider({ children }) {
     runningStateRef.current = runningState;
   }, [runningState]);
 
-  const updateRunningState = useCallback((updater) => {
-    setRunningState((prev) => {
-      const next = normalizeRunningState(updater(normalizeRunningState(prev)));
-      persistActiveRunningState(
-        next.activeRunningThread,
-        next.threadActivityByKey
-      );
-      runningStateRef.current = next;
-      return next;
-    });
-  }, []);
+  const updateRunningState = useCallback(
+    (updater) => {
+      setRunningState((prev) => {
+        const next = normalizeRunningState(
+          updater(normalizeRunningState(prev))
+        );
+        persistActiveRunningState(
+          next.activeRunningThread,
+          next.threadActivityByKey
+        );
+        runningStateRef.current = next;
+        activityVersionRef.current += 1;
+        queueMicrotask(() => emitListeners(activityListenersRef, "*"));
+        return next;
+      });
+    },
+    [emitListeners]
+  );
 
   const updateDraft = useCallback(
     (chatKey, updater) => {
@@ -755,10 +787,11 @@ export function ChatThreadDraftProvider({ children }) {
         persistDraft(next);
         const nextDrafts = { ...prev, [chatKey]: next };
         draftsRef.current = nextDrafts;
+        queueMicrotask(() => emitListeners(draftListenersRef, chatKey));
         return nextDrafts;
       });
     },
-    [debugRuntime]
+    [debugRuntime, emitListeners]
   );
 
   const markThreadRunning = useCallback(
@@ -1048,11 +1081,12 @@ export function ChatThreadDraftProvider({ children }) {
         persistDraft(next);
         const nextDrafts = { ...prev, [chatKey]: next };
         draftsRef.current = nextDrafts;
+        queueMicrotask(() => emitListeners(draftListenersRef, chatKey));
         return nextDrafts;
       });
       return chatKey;
     },
-    []
+    [debugRuntime, emitListeners]
   );
 
   const updateAssistantTurn = useCallback(
@@ -1073,6 +1107,54 @@ export function ChatThreadDraftProvider({ children }) {
       });
     },
     [debugRuntime, updateDraft]
+  );
+
+  const enqueueAssistantDelta = useCallback(
+    (chatKey, turnId, event = {}) => {
+      const key = `${chatKey}:${turnId}`;
+      const pending = deltaFlushRefs.current[key] || {
+        content: "",
+        sources: [],
+        metrics: null,
+        chatId: null,
+        frame: null,
+      };
+      pending.content += event.content || "";
+      pending.sources =
+        event.sources?.length > 0 ? event.sources : pending.sources;
+      pending.metrics = event.metrics || pending.metrics;
+      pending.chatId = event.chatId || pending.chatId;
+
+      if (!pending.frame) {
+        pending.frame = requestAnimationFrame(() => {
+          const nextPending = deltaFlushRefs.current[key];
+          delete deltaFlushRefs.current[key];
+          if (!nextPending) return;
+          updateDraft(chatKey, (draft) => {
+            const turn = canApplyTurnEvent(draft, turnId);
+            if (!turn || turn.status !== TURN_STATUSES.running) return draft;
+            return {
+              ...draft,
+              items: updateAssistantTurnInItems(draft.items, turnId, {
+                finalContent: `${turn.finalContent || ""}${nextPending.content}`,
+                sources:
+                  nextPending.sources?.length > 0
+                    ? nextPending.sources
+                    : turn.sources || [],
+                metrics: nextPending.metrics || turn.metrics || {},
+                chatId: nextPending.chatId || turn.chatId,
+                status: TURN_STATUSES.running,
+              }),
+              isStreaming: true,
+              activeTurnId: turnId,
+            };
+          });
+        });
+      }
+
+      deltaFlushRefs.current[key] = pending;
+    },
+    [updateDraft]
   );
 
   const appendTimelineEvent = useCallback(
@@ -1128,10 +1210,27 @@ export function ChatThreadDraftProvider({ children }) {
       updateDraft(chatKey, (current) => {
         const currentTurn =
           findAssistantTurn(current.items || [], turnId) || turn;
+        const pendingKey = `${chatKey}:${turnId}`;
+        const pendingDelta = deltaFlushRefs.current[pendingKey];
+        if (pendingDelta?.frame) cancelAnimationFrame(pendingDelta.frame);
+        delete deltaFlushRefs.current[pendingKey];
+        const finalPatch =
+          pendingDelta?.content && patch.finalContent === undefined
+            ? {
+                ...patch,
+                finalContent: `${currentTurn.finalContent || ""}${pendingDelta.content}`,
+                sources:
+                  pendingDelta.sources?.length > 0
+                    ? pendingDelta.sources
+                    : patch.sources,
+                metrics: pendingDelta.metrics || patch.metrics,
+                chatId: pendingDelta.chatId || patch.chatId,
+              }
+            : patch;
         const nextItems = updateAssistantTurnInItems(
           current.items,
           turnId,
-          completeTurnPatch(currentTurn, patch)
+          completeTurnPatch(currentTurn, finalPatch)
         );
         const next = {
           ...current,
@@ -1242,24 +1341,7 @@ export function ChatThreadDraftProvider({ children }) {
           });
           return null;
         }
-        updateDraft(chatKey, (draft) => {
-          const turn = canApplyTurnEvent(draft, turnId);
-          if (!turn) return draft;
-          if (turn.status !== TURN_STATUSES.running) return draft;
-          return {
-            ...draft,
-            items: updateAssistantTurnInItems(draft.items, turnId, {
-              finalContent: `${turn.finalContent || ""}${event.content || ""}`,
-              sources:
-                event.sources?.length > 0 ? event.sources : turn.sources || [],
-              metrics: event.metrics || turn.metrics || {},
-              chatId: event.chatId || turn.chatId,
-              status: TURN_STATUSES.running,
-            }),
-            isStreaming: true,
-            activeTurnId: turnId,
-          };
-        });
+        enqueueAssistantDelta(chatKey, turnId, event);
         markThreadRunning(chatKey, turnId);
         return event;
       }
@@ -1393,6 +1475,7 @@ export function ChatThreadDraftProvider({ children }) {
       appendTimelineEvent,
       completeAssistantTurn,
       debugRuntime,
+      enqueueAssistantDelta,
       failAssistantTurn,
       markThreadRunning,
       updateDraft,
@@ -1943,6 +2026,17 @@ export function ChatThreadDraftProvider({ children }) {
     []
   );
 
+  const getDraftByKey = useCallback(
+    (chatKey) => draftsRef.current[chatKey] || null,
+    []
+  );
+
+  const subscribeDraft = useCallback(
+    (chatKey, listener) =>
+      subscribeListener(draftListenersRef, chatKey, listener),
+    [subscribeListener]
+  );
+
   const hasWorkspaceActivity = useCallback(
     (workspaceSlug) =>
       Object.values(draftsRef.current).some(
@@ -1961,6 +2055,19 @@ export function ChatThreadDraftProvider({ children }) {
     const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
     return runningStateRef.current.threadActivityByKey?.[chatKey] || null;
   }, []);
+
+  const getThreadActivityByKey = useCallback(
+    (chatKey) => runningStateRef.current.threadActivityByKey?.[chatKey] || null,
+    []
+  );
+
+  const subscribeThreadActivity = useCallback(
+    (chatKey, listener) =>
+      subscribeListener(activityListenersRef, chatKey || "*", listener),
+    [subscribeListener]
+  );
+
+  const getActivityVersion = useCallback(() => activityVersionRef.current, []);
 
   const hasThreadActivity = useCallback(
     (workspaceSlug, threadSlug = null) => {
@@ -2012,8 +2119,9 @@ export function ChatThreadDraftProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      drafts,
       getDraft,
+      getDraftByKey,
+      subscribeDraft,
       ensureDraft,
       mergeServerHistory,
       createTurn,
@@ -2028,13 +2136,14 @@ export function ChatThreadDraftProvider({ children }) {
       hasWorkspaceActivity,
       hasThreadActivity,
       getThreadActivity,
+      getThreadActivityByKey,
+      getActivityVersion,
+      subscribeThreadActivity,
       getRunningThreads,
       getRunningThread,
       getAssistantTurnByChatId,
       updateUserItem,
       clearThreadActivity,
-      activeRunningThread: runningState.activeRunningThread,
-      threadActivityByKey: runningState.threadActivityByKey,
       getThreadPath,
       getChatKey: getChatThreadKey,
     }),
@@ -2042,22 +2151,25 @@ export function ChatThreadDraftProvider({ children }) {
       appendTimelineEvent,
       clearThreadActivity,
       completeAssistantTurn,
-      drafts,
       ensureDraft,
       failAssistantTurn,
       getAssistantTurnByChatId,
       getDraft,
+      getDraftByKey,
       getRunningThread,
       getRunningThreads,
       getThreadActivity,
+      getThreadActivityByKey,
+      getActivityVersion,
       hasThreadActivity,
       hasWorkspaceActivity,
       mergeServerHistory,
       respondToApproval,
-      runningState,
       startStream,
       startLocalTurn,
       stopStream,
+      subscribeDraft,
+      subscribeThreadActivity,
       updateAssistantTurn,
       updateUserItem,
     ]
@@ -2077,4 +2189,34 @@ export function useChatThreadDrafts() {
       "useChatThreadDrafts must be used within ChatThreadDraftProvider"
     );
   return context;
+}
+
+export function useChatDraft(workspaceSlug, threadSlug = null) {
+  const context = useChatThreadDrafts();
+  const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
+  return useSyncExternalStore(
+    (listener) => context.subscribeDraft(chatKey, listener),
+    () => context.getDraftByKey(chatKey),
+    () => context.getDraftByKey(chatKey)
+  );
+}
+
+export function useThreadActivity(workspaceSlug, threadSlug = null) {
+  const context = useChatThreadDrafts();
+  const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
+  return useSyncExternalStore(
+    (listener) => context.subscribeThreadActivity(chatKey, listener),
+    () => context.getThreadActivityByKey(chatKey),
+    () => context.getThreadActivityByKey(chatKey)
+  );
+}
+
+export function useThreadActivitySnapshot() {
+  const context = useChatThreadDrafts();
+  useSyncExternalStore(
+    (listener) => context.subscribeThreadActivity("*", listener),
+    () => context.getActivityVersion(),
+    () => context.getActivityVersion()
+  );
+  return context.getRunningThreads();
 }

@@ -37,6 +37,7 @@ const HistoricalMessage = ({
   forkThread,
   metrics = {},
   outputs = [],
+  hydrationStatus = null,
 }) => {
   // Freeze uuid on first render. User messages arrive without a uuid and this value
   // is used as the wrapper div's `key` — a default param fallback would regenerate
@@ -163,6 +164,12 @@ const HistoricalMessage = ({
               </Link>
             )}
             <ChatAttachments attachments={attachments} />
+            {hydrationStatus === "light" && (
+              <div className="mt-3 space-y-2" aria-hidden="true">
+                <div className="motion-skeleton h-3 w-1/2 rounded" />
+                <div className="motion-skeleton h-3 w-1/3 rounded" />
+              </div>
+            )}
             <HistoricalOutputs outputs={outputs} workspace={workspace} />
           </div>
         )}
@@ -205,7 +212,8 @@ export default memo(
       prevProps.isLastMessage === nextProps.isLastMessage &&
       prevProps.chatId === nextProps.chatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
-      JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources)
+      JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
+      prevProps.hydrationStatus === nextProps.hydrationStatus
     );
   }
 );
@@ -223,7 +231,7 @@ function ChatAttachments({ attachments = [] }) {
           type="button"
           key={item.name}
           onClick={() => openImageLightbox(attachments, index)}
-          className="p-0 border-none bg-transparent cursor-pointer hover:opacity-80 transition-opacity"
+          className="p-0 border-none bg-transparent cursor-pointer hover:opacity-80 motion-hover"
         >
           <img
             alt={`Attachment: ${item.name}`}

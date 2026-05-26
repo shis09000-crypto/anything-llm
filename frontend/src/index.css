@@ -114,6 +114,98 @@
   --glass-text: #eef6ff;
   --glass-muted-text: rgb(226 232 240 / 0.72);
   --glass-placeholder: rgb(226 232 240 / 0.58);
+
+  --motion-ease-emphasized: cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --motion-route-duration: 700ms;
+  --motion-route-fallback-duration: 180ms;
+  --motion-route-y: -24px;
+  --motion-route-blur-enter: 6px;
+  --motion-route-blur-exit: 4px;
+  --motion-route-scale: 0.985;
+  --motion-page-duration: 700ms;
+  --motion-page-y: -24px;
+  --motion-page-blur: 6px;
+  --motion-panel-duration: 420ms;
+  --motion-panel-y: 10px;
+  --motion-panel-blur: 3px;
+  --motion-modal-duration: 360ms;
+  --motion-modal-y: 12px;
+  --motion-modal-scale: 0.96;
+  --motion-popover-duration: 180ms;
+  --motion-popover-blur: 3px;
+  --motion-micro-duration: 120ms;
+  --motion-micro-scale: 0.97;
+  --motion-hover-duration: 180ms;
+  --motion-list-duration: 360ms;
+  --motion-list-y: 8px;
+  --motion-list-stagger: 40ms;
+  --motion-skeleton-duration: 3.2s;
+  --motion-skeleton-base: rgb(255 255 255 / 0.08);
+  --motion-skeleton-highlight: rgb(255 255 255 / 0.13);
+}
+
+[data-motion-density="minimal"] {
+  --motion-route-duration: 480ms;
+  --motion-route-y: -12px;
+  --motion-route-blur-enter: 2px;
+  --motion-route-blur-exit: 2px;
+  --motion-route-scale: 0.995;
+  --motion-page-duration: 480ms;
+  --motion-page-y: -12px;
+  --motion-page-blur: 2px;
+  --motion-panel-duration: 280ms;
+  --motion-panel-y: 5px;
+  --motion-panel-blur: 1px;
+  --motion-modal-duration: 300ms;
+  --motion-modal-y: 6px;
+  --motion-modal-scale: 0.985;
+  --motion-popover-duration: 140ms;
+  --motion-popover-blur: 1px;
+  --motion-list-duration: 260ms;
+  --motion-list-y: 4px;
+  --motion-list-stagger: 30ms;
+  --motion-skeleton-duration: 3.5s;
+}
+
+[data-motion-density="expressive"] {
+  --motion-route-duration: 700ms;
+  --motion-route-y: -28px;
+  --motion-route-blur-enter: 6px;
+  --motion-route-blur-exit: 5px;
+  --motion-route-scale: 0.982;
+  --motion-page-duration: 700ms;
+  --motion-page-y: -28px;
+  --motion-page-blur: 6px;
+  --motion-panel-duration: 480ms;
+  --motion-panel-y: 12px;
+  --motion-panel-blur: 4px;
+  --motion-modal-duration: 400ms;
+  --motion-modal-y: 12px;
+  --motion-modal-scale: 0.96;
+  --motion-popover-duration: 180ms;
+  --motion-popover-blur: 3px;
+  --motion-list-duration: 400ms;
+  --motion-list-y: 8px;
+  --motion-list-stagger: 50ms;
+  --motion-skeleton-duration: 2.8s;
+}
+
+[data-theme="light"] {
+  --motion-skeleton-base: rgb(15 23 42 / 0.07);
+  --motion-skeleton-highlight: rgb(15 23 42 / 0.12);
+}
+
+[data-reduced-motion] {
+  --motion-route-duration: 1ms;
+  --motion-page-duration: 1ms;
+  --motion-panel-duration: 1ms;
+  --motion-modal-duration: 1ms;
+  --motion-popover-duration: 1ms;
+  --motion-micro-duration: 1ms;
+  --motion-hover-duration: 1ms;
+  --motion-list-duration: 1ms;
+  --motion-skeleton-duration: 8s;
 }
 
 [data-theme="light"] {
@@ -235,8 +327,7 @@
   isolation: isolate;
   overflow: hidden;
   color: var(--glass-text);
-  background:
-    radial-gradient(
+  background: radial-gradient(
       circle at 22% 0%,
       rgb(255 255 255 / calc(var(--glass-highlight) * 0.7)),
       transparent 32%
@@ -274,8 +365,7 @@
 .liquid-glass::before,
 .liquid-glass-control::before {
   z-index: 0;
-  background:
-    linear-gradient(
+  background: linear-gradient(
       115deg,
       transparent 0%,
       rgb(255 255 255 / calc(var(--glass-highlight) * 0.62)) 18%,
@@ -299,8 +389,7 @@
   box-shadow:
     inset 1px 1px 1px rgb(255 255 255 / calc(var(--glass-highlight) * 0.7)),
     inset -1px -1px 1px rgb(15 23 42 / 0.16);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.16), transparent 34%),
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), transparent 34%),
     radial-gradient(
       circle at 50% 115%,
       rgb(255 255 255 / calc(var(--glass-highlight) * 0.32)),
@@ -338,7 +427,6 @@
   --glass-shadow: 0 12px 36px rgb(0 0 0 / 0.18);
   transition:
     border-color 180ms ease,
-    box-shadow 180ms ease,
     transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -386,7 +474,6 @@
   --glass-shadow: 0 22px 72px rgb(0 0 0 / 0.22);
   transition:
     border-color 200ms ease,
-    box-shadow 200ms ease,
     background 200ms ease;
 }
 
@@ -443,8 +530,7 @@
 }
 
 .liquid-glass-health::before {
-  background:
-    radial-gradient(
+  background: radial-gradient(
       circle at 70% 10%,
       rgb(var(--glass-status-glow) / 0.32),
       transparent 36%
@@ -585,25 +671,26 @@ a {
 .greyC {
   filter: gray;
   -webkit-filter: grayscale(100%);
-  transition: 0.4s;
+  transition: filter var(--motion-hover-duration) var(--motion-ease-standard);
 }
 
 .greyC:hover {
   filter: none;
   -webkit-filter: none;
-  transition: 0.4s;
 }
 
 .chat__message {
   transform-origin: 0 100%;
   transform: scale(0);
-  animation: message 0.15s ease-out 0s forwards;
+  animation: message var(--motion-micro-duration) var(--motion-ease-standard) 0s
+    forwards;
   animation-delay: 500ms;
 }
 
 @keyframes message {
   0% {
-    max-height: 100%;
+    opacity: 0;
+    transform: scale(0.96);
   }
 
   80% {
@@ -611,13 +698,10 @@ a {
   }
 
   100% {
+    opacity: 1;
     transform: scale(1);
-    max-height: 100%;
-    overflow: visible;
-    padding-top: 1rem;
   }
 }
-
 
 @media (prefers-color-scheme: light) {
   .sidebar-items:after {
@@ -672,13 +756,11 @@ a {
  */
 .dot-falling {
   position: relative;
-  left: -9999px;
   width: 10px;
   height: 10px;
   border-radius: 5px;
   background-color: #eeeeee;
   color: #5fa4fa;
-  box-shadow: 9999px 0 0 0 #eeeeee;
   animation: dot-falling 1.5s infinite linear;
   animation-delay: 0.1s;
 }
@@ -692,6 +774,7 @@ a {
 }
 
 .dot-falling::before {
+  right: 16px;
   width: 10px;
   height: 10px;
   border-radius: 5px;
@@ -702,6 +785,7 @@ a {
 }
 
 .dot-falling::after {
+  left: 16px;
   width: 10px;
   height: 10px;
   border-radius: 5px;
@@ -713,49 +797,58 @@ a {
 
 @keyframes dot-falling {
   0% {
-    box-shadow: 9999px -15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(-10px);
   }
 
   25%,
   50%,
   75% {
-    box-shadow: 9999px 0 0 0 #eeeeee;
+    opacity: 1;
+    transform: translateY(0);
   }
 
   100% {
-    box-shadow: 9999px 15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
 @keyframes dot-falling-before {
   0% {
-    box-shadow: 9984px -15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(-10px);
   }
 
   25%,
   50%,
   75% {
-    box-shadow: 9984px 0 0 0 #eeeeee;
+    opacity: 1;
+    transform: translateY(0);
   }
 
   100% {
-    box-shadow: 9984px 15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
 @keyframes dot-falling-after {
   0% {
-    box-shadow: 10014px -15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(-10px);
   }
 
   25%,
   50%,
   75% {
-    box-shadow: 10014px 0 0 0 #eeeeee;
+    opacity: 1;
+    transform: translateY(0);
   }
 
   100% {
-    box-shadow: 10014px 15px 0 0 rgba(152, 128, 255, 0);
+    opacity: 0;
+    transform: translateY(10px);
   }
 }
 
@@ -949,6 +1042,374 @@ dialog::backdrop {
   }
 }
 
+.motion-route-stack {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--theme-bg-container);
+}
+
+.motion-route-layer {
+  width: 100%;
+  min-height: 100vh;
+  transform-origin: center top;
+}
+
+.motion-route-current {
+  position: relative;
+  z-index: 1;
+}
+
+.motion-route-exit,
+.motion-route-exit-fade {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.motion-route-exit {
+  animation: motionRouteExit var(--motion-route-duration)
+    var(--motion-ease-emphasized) forwards;
+}
+
+.motion-route-enter {
+  animation: motionRouteEnter var(--motion-route-duration)
+    var(--motion-ease-emphasized) both;
+}
+
+.motion-route-exit-fade {
+  animation: motionRouteFadeOut var(--motion-route-fallback-duration)
+    var(--motion-ease-standard) forwards;
+}
+
+.motion-route-enter-fade {
+  animation: motionRouteFadeIn var(--motion-route-fallback-duration)
+    var(--motion-ease-standard) both;
+}
+
+.motion-route-static {
+  opacity: 1;
+  transform: none;
+  filter: none;
+}
+
+.motion-page-enter {
+  animation: motionPageEnter var(--motion-page-duration)
+    var(--motion-ease-emphasized) both;
+}
+
+.motion-page-exit {
+  animation: motionPageExit var(--motion-page-duration)
+    var(--motion-ease-emphasized) forwards;
+}
+
+.motion-panel-enter {
+  animation: motionPanelEnter var(--motion-panel-duration)
+    var(--motion-ease-emphasized) both;
+}
+
+.motion-panel-switch {
+  transition:
+    opacity var(--motion-panel-duration) var(--motion-ease-emphasized),
+    transform var(--motion-panel-duration) var(--motion-ease-emphasized),
+    filter var(--motion-panel-duration) var(--motion-ease-emphasized);
+}
+
+.motion-modal-overlay {
+  opacity: 1;
+}
+
+.motion-modal-open {
+  animation: motionOverlayEnter var(--motion-modal-duration)
+    var(--motion-ease-standard) both;
+}
+
+.motion-modal-content {
+  animation: motionModalEnter var(--motion-modal-duration)
+    var(--motion-ease-emphasized) both;
+}
+
+.motion-popover,
+.tooltip,
+.allm-tooltip {
+  transition:
+    opacity var(--motion-popover-duration) var(--motion-ease-standard),
+    filter var(--motion-popover-duration) var(--motion-ease-standard) !important;
+}
+
+.motion-list-item {
+  animation: motionListItemEnter var(--motion-list-duration)
+    var(--motion-ease-emphasized) both;
+  animation-delay: calc(
+    var(--motion-list-index, 0) * var(--motion-list-stagger)
+  );
+}
+
+.motion-pressable {
+  transition:
+    opacity var(--motion-hover-duration) var(--motion-ease-standard),
+    transform var(--motion-micro-duration) var(--motion-ease-standard),
+    filter var(--motion-hover-duration) var(--motion-ease-standard);
+}
+
+.motion-pressable:active {
+  transform: scale(var(--motion-micro-scale));
+}
+
+.motion-hover {
+  transition:
+    opacity var(--motion-hover-duration) var(--motion-ease-standard),
+    transform var(--motion-hover-duration) var(--motion-ease-standard),
+    filter var(--motion-hover-duration) var(--motion-ease-standard);
+}
+
+.motion-skeleton,
+.react-loading-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: var(--motion-skeleton-base) !important;
+  background-image: none !important;
+  animation: motionSkeletonPulse var(--motion-skeleton-duration)
+    var(--motion-ease-standard) infinite !important;
+  filter: blur(0);
+}
+
+.motion-skeleton::after,
+.react-loading-skeleton::after {
+  position: absolute;
+  inset: 0;
+  content: "";
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    transparent 36%,
+    var(--motion-skeleton-highlight) 50%,
+    transparent 64%,
+    transparent 100%
+  );
+  transform: translateX(-110%);
+  animation: motionSkeletonShimmer var(--motion-skeleton-duration)
+    var(--motion-ease-standard) infinite;
+}
+
+.motion-debug-overlay {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 999999;
+  width: 320px;
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid rgb(125 211 252 / 0.35);
+  border-radius: 8px;
+  background: rgb(2 6 23 / 0.88);
+  color: #e0f2fe;
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    "Liberation Mono",
+    "Courier New",
+    monospace;
+  padding: 10px;
+  pointer-events: none;
+}
+
+.motion-debug-title {
+  margin-bottom: 6px;
+  font-weight: 700;
+}
+
+.motion-debug-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 48px 34px;
+  gap: 6px;
+  border-top: 1px solid rgb(226 232 240 / 0.12);
+  padding-top: 5px;
+  margin-top: 5px;
+}
+
+.motion-debug-route,
+.motion-debug-budget {
+  border-top: 1px solid rgb(226 232 240 / 0.12);
+  padding-top: 5px;
+  margin-top: 5px;
+}
+
+@keyframes motionRouteEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-route-y))
+      scale(var(--motion-route-scale));
+    filter: blur(var(--motion-route-blur-enter));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes motionRouteExit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-route-y))
+      scale(var(--motion-route-scale));
+    filter: blur(var(--motion-route-blur-exit));
+  }
+}
+
+@keyframes motionRouteFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motionRouteFadeOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes motionPageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-page-y));
+    filter: blur(var(--motion-page-blur));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes motionPageExit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(var(--motion-page-y));
+    filter: blur(4px);
+  }
+}
+
+@keyframes motionPanelEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-panel-y));
+    filter: blur(var(--motion-panel-blur));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes motionOverlayEnter {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes motionModalEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-modal-y))
+      scale(var(--motion-modal-scale));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes motionListItemEnter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--motion-list-y));
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes motionSkeletonPulse {
+  0% {
+    filter: blur(0);
+    opacity: 0.92;
+  }
+
+  50% {
+    filter: blur(0.35px);
+    opacity: 1;
+  }
+
+  100% {
+    filter: blur(0);
+    opacity: 0.92;
+  }
+}
+
+@keyframes motionSkeletonShimmer {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(110%);
+  }
+}
+
+[data-reduced-motion] .motion-route-enter,
+[data-reduced-motion] .motion-route-exit,
+[data-reduced-motion] .motion-route-enter-fade,
+[data-reduced-motion] .motion-route-exit-fade,
+[data-reduced-motion] .motion-page-enter,
+[data-reduced-motion] .motion-page-exit,
+[data-reduced-motion] .motion-panel-enter,
+[data-reduced-motion] .motion-modal-open,
+[data-reduced-motion] .motion-modal-content,
+[data-reduced-motion] .motion-list-item {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+}
+
 .tooltip {
   @apply !bg-black !text-white !py-2 !px-3 !rounded-md !z-10;
 }
@@ -959,18 +1420,21 @@ dialog::backdrop {
 
 @keyframes slideDown {
   from {
-    max-height: 0;
     opacity: 0;
+    transform: translateY(-4px);
+    filter: blur(2px);
   }
 
   to {
-    max-height: 400px;
     opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
 .slide-down {
-  animation: slideDown 0.3s ease-out forwards;
+  animation: slideDown var(--motion-panel-duration)
+    var(--motion-ease-emphasized) forwards;
 }
 
 .input-label {
@@ -1084,7 +1548,10 @@ dialog::backdrop {
   margin-left: 20px;
   padding-left: 10px;
   position: relative;
-  transition: all 0.3s ease;
+  transition:
+    opacity var(--motion-hover-duration) var(--motion-ease-standard),
+    transform var(--motion-hover-duration) var(--motion-ease-standard),
+    filter var(--motion-hover-duration) var(--motion-ease-standard);
   line-height: 1.4rem;
 }
 
@@ -1123,7 +1590,10 @@ dialog::backdrop {
   margin-left: 20px;
 
   padding-left: 10px;
-  transition: all 0.3s ease;
+  transition:
+    opacity var(--motion-hover-duration) var(--motion-ease-standard),
+    transform var(--motion-hover-duration) var(--motion-ease-standard),
+    filter var(--motion-hover-duration) var(--motion-ease-standard);
   line-height: 1.4rem;
 }
 
@@ -1349,16 +1819,17 @@ does not extend the close button beyond the viewport. */
 @keyframes fadeAndShrink {
   50% {
     opacity: 25%;
+    transform: scale(0.995);
   }
 
   75% {
     opacity: 10%;
+    transform: scale(0.99);
   }
 
   100% {
-    height: 0px;
     opacity: 0%;
-    display: none;
+    transform: scale(0.98);
   }
 }
 
@@ -1389,7 +1860,8 @@ does not extend the close button beyond the viewport. */
 }
 
 .animate-fadeUpIn {
-  animation: fadeUpIn 0.3s ease-out forwards;
+  animation: fadeUpIn var(--motion-list-duration)
+    var(--motion-ease-emphasized) forwards;
 }
 
 @keyframes bounce-subtle {
@@ -1421,10 +1893,13 @@ does not extend the close button beyond the viewport. */
 }
 
 .animate-thoughtTransition {
-  animation: thoughtTransition 0.5s ease-out forwards;
+  animation: thoughtTransition var(--motion-panel-duration)
+    var(--motion-ease-emphasized) forwards;
 }
 
 .checklist-completed {
-  -webkit-animation: fadein 0.3s linear forwards;
-  animation: fadein 0.3s linear forwards;
+  -webkit-animation: fadein var(--motion-micro-duration)
+    var(--motion-ease-standard) forwards;
+  animation: fadein var(--motion-micro-duration) var(--motion-ease-standard)
+    forwards;
 }

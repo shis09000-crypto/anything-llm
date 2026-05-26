@@ -34,7 +34,7 @@ export default function MobileCitationModal({
               <button
                 onClick={onClose}
                 type="button"
-                className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 transition-colors"
+                className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 motion-hover"
               >
                 <X size={16} weight="bold" />
               </button>

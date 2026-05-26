@@ -89,7 +89,7 @@ export default function TopRightActionZone({
         <WorkspaceHealthBeacon workspaceSlug={workspaceSlug} />
       </WorkspaceHealthProvider>
       <div
-        className={`mt-2 flex flex-col items-center gap-2 transition-all ease-out ${
+        className={`mt-2 flex flex-col items-center gap-2 motion-hover ${
           isRevealed
             ? "opacity-100 translate-y-0"
             : `${hiddenOpacity} translate-y-1`

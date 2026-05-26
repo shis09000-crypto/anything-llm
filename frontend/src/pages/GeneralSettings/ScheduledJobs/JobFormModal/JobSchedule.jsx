@@ -41,7 +41,7 @@ export default function JobSchedule({
             key={tab.value}
             type="button"
             onClick={() => onModeChange(tab.value)}
-            className={`border-none px-3 py-1 text-xs rounded-md transition-colors ${
+            className={`border-none px-3 py-1 text-xs rounded-md motion-hover ${
               scheduleMode === tab.value
                 ? "bg-zinc-50 text-zinc-950 light:bg-zinc-950 light:text-white"
                 : "text-theme-text-secondary hover:text-theme-text-primary"

@@ -6,7 +6,8 @@ import { safeJsonParse } from "@/utils/request";
  * 'autoSubmitSttInput' |
  * 'autoPlayAssistantTtsResponse' |
  * 'enableSpellCheck' |
- * 'renderHTML'
+ * 'renderHTML' |
+ * 'motionDensity'
  * } AvailableSettings - The supported settings for the appearance model.
  */
 
@@ -17,11 +18,12 @@ const Appearance = {
     autoPlayAssistantTtsResponse: false,
     enableSpellCheck: true,
     renderHTML: false,
+    motionDensity: "balanced",
   },
 
   /**
    * Fetches any locally storage settings for the user
-   * @returns {{showScrollbar: boolean, autoSubmitSttInput: boolean, autoPlayAssistantTtsResponse: boolean, enableSpellCheck: boolean, renderHTML: boolean}}
+   * @returns {{showScrollbar: boolean, autoSubmitSttInput: boolean, autoPlayAssistantTtsResponse: boolean, enableSpellCheck: boolean, renderHTML: boolean, motionDensity: string}}
    */
   getSettings: () => {
     const settings = localStorage.getItem(APPEARANCE_SETTINGS);
@@ -43,7 +45,7 @@ const Appearance = {
   /**
    * Updates a specific setting from the user's settings
    * @param {AvailableSettings} key - The key of the setting to update
-   * @param {any} value - The value to update the setting to
+   * @param {any} value - The value to update setting to
    * @returns {object}
    */
   set: (key, value) => {

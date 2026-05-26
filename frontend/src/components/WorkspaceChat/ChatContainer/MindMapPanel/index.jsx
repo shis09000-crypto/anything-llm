@@ -821,7 +821,7 @@ function MindMapPanelInner({
 
   return (
     <div
-      className={`h-full overflow-hidden transition-all duration-500 flex-shrink-0 w-full md:w-[720px] md:min-w-[680px] xl:w-[860px] 2xl:w-[980px] bg-zinc-950/80 md:bg-transparent ${
+      className={`h-full overflow-hidden motion-hover flex-shrink-0 w-full md:w-[720px] md:min-w-[680px] xl:w-[860px] 2xl:w-[980px] bg-zinc-950/80 md:bg-transparent ${
         floating
           ? "fixed right-0 inset-y-0 z-30"
           : "fixed md:relative inset-0 md:ml-4 z-30 md:z-auto"

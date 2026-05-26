@@ -26,7 +26,7 @@ export default function MobileConnectModal({ isOpen, onClose }) {
         <button
           onClick={onClose}
           type="button"
-          className="absolute top-4 right-4 transition-all duration-300 bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
+          className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
         >
           <X size={24} weight="bold" className="text-[#FFF]" />
         </button>

@@ -30,12 +30,12 @@ const ThoughtBubble = ({ thought }) => {
     <div className="mb-3">
       <div
         onClick={() => setIsExpanded(!isExpanded)}
-        className="cursor-pointer flex items-center gap-x-2 text-theme-text-secondary hover:text-theme-text-primary transition-colors mb-2"
+        className="cursor-pointer flex items-center gap-x-2 text-theme-text-secondary hover:text-theme-text-primary motion-hover mb-2"
       >
         <CaretDown
           size={14}
           weight="bold"
-          className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
+          className={`motion-hover ${isExpanded ? "rotate-180" : ""}`}
         />
         <span className="text-xs font-medium">View thoughts</span>
       </div>

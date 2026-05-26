@@ -15,7 +15,7 @@ export default function SourceItem({ source, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex flex-col gap-[2px] items-start w-full text-left hover:opacity-75 transition-opacity"
+      className="flex flex-col gap-[2px] items-start w-full text-left hover:opacity-75 motion-hover"
     >
       <div className="flex gap-[6px] items-start w-full">
         <SourceTypeCircle

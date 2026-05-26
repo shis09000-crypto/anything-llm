@@ -4,9 +4,12 @@ import showToast from "@/utils/toast";
 import { Plus, CircleNotch, Trash } from "@phosphor-icons/react";
 import { useEffect, useState } from "react";
 import ThreadItem from "./ThreadItem";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import {
+  useChatThreadDrafts,
+  useThreadActivitySnapshot,
+} from "@/contexts/ChatThreadDraftProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 export const THREAD_RENAME_EVENT = "renameThread";
 
@@ -14,12 +17,14 @@ export default function ThreadContainer({
   workspace,
   isVirtualThread = false,
 }) {
+  const navigate = useNavigate();
   const { threadSlug = null } = useParams();
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const { t } = useTranslation();
   const { hasThreadActivity, clearThreadActivity } = useChatThreadDrafts();
+  useThreadActivitySnapshot();
 
   useEffect(() => {
     const chatHandler = (event) => {
@@ -98,7 +103,7 @@ export default function ThreadContainer({
 
     // Only redirect if current thread is being deleted
     if (slugs.includes(threadSlug)) {
-      window.location.href = paths.workspace.chat(workspace.slug);
+      navigate(paths.workspace.chat(workspace.slug));
     }
   };
 
@@ -246,6 +251,7 @@ function getSortedThreadRows(threads, workspaceSlug, hasThreadActivity) {
 }
 
 function NewThreadButton({ workspace }) {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const onClick = async () => {
     setLoading(true);
@@ -255,9 +261,7 @@ function NewThreadButton({ workspace }) {
       setLoading(false);
       return;
     }
-    window.location.replace(
-      paths.workspace.thread(workspace.slug, thread.slug)
-    );
+    navigate(paths.workspace.thread(workspace.slug, thread.slug));
   };
 
   return (

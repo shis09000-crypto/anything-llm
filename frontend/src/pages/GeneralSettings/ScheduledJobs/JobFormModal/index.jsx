@@ -114,7 +114,7 @@ export default function JobFormModal({ job = null, onClose, onSaved }) {
             <button
               onClick={onClose}
               type="button"
-              className="border-none transition-all duration-300 text-gray-400 bg-transparent hover:border-white/60 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center"
+              className="border-none motion-hover text-gray-400 bg-transparent hover:border-white/60 rounded-lg text-sm p-1.5 ml-auto inline-flex items-center"
             >
               <X className="text-gray-300 text-lg" />
             </button>

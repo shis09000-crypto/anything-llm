@@ -77,14 +77,14 @@ export default function SettingsSidebar() {
           style={{
             transform: showSidebar ? `translateX(0vw)` : `translateX(-100vw)`,
           }}
-          className={`z-99 fixed top-0 left-0 transition-all duration-500 w-[100vw] h-[100vh]`}
+          className={`z-99 fixed top-0 left-0 motion-hover w-[100vw] h-[100vh]`}
         >
           <div
             className={`${
               showBgOverlay
-                ? "transition-all opacity-1"
+                ? "motion-hover opacity-1"
                 : "transition-none opacity-0"
-            }  duration-500 fixed top-0 left-0 bg-theme-bg-secondary bg-opacity-75 w-screen h-screen`}
+            } fixed top-0 left-0 bg-theme-bg-secondary bg-opacity-75 w-screen h-screen`}
             onClick={() => setShowSidebar(false)}
           />
           <div
@@ -108,12 +108,12 @@ export default function SettingsSidebar() {
                   )}
                 </div>
                 <div className="flex gap-x-2 items-center text-slate-500 shrink-0">
-                  <a
-                    href={paths.home()}
-                    className="transition-all duration-300 p-2 rounded-full text-white bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover hover:border-slate-100 hover:border-opacity-50 border-transparent border"
+                  <Link
+                    to={paths.home()}
+                    className="motion-hover p-2 rounded-full text-white bg-theme-action-menu-bg hover:bg-theme-action-menu-item-hover hover:border-slate-100 hover:border-opacity-50 border-transparent border"
                   >
                     <House className="h-4 w-4" />
-                  </a>
+                  </Link>
                 </div>
               </div>
 
@@ -168,7 +168,7 @@ export default function SettingsSidebar() {
         </Link>
         <div
           ref={sidebarRef}
-          className="transition-all duration-500 relative m-[16px] rounded-[16px] bg-theme-bg-sidebar border-[2px] border-theme-sidebar-border light:border-none min-w-[250px] p-[10px] h-[calc(100%-76px)]"
+          className="motion-hover relative m-[16px] rounded-[16px] bg-theme-bg-sidebar border-[2px] border-theme-sidebar-border light:border-none min-w-[250px] p-[10px] h-[calc(100%-76px)]"
         >
           <div className="w-full h-full flex flex-col overflow-x-hidden items-between min-w-[235px]">
             <div className="text-theme-text-secondary text-sm font-medium uppercase mt-[4px] mb-0 ml-2">

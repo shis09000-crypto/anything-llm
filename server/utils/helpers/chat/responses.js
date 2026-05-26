@@ -120,11 +120,13 @@ function handleDefaultStreamResponseV2(response, stream, responseProps) {
   });
 }
 
-function convertToChatHistory(history = []) {
+function convertToChatHistory(history = [], options = {}) {
+  const lightChatIds = new Set(options.lightChatIds || []);
   const formattedHistory = [];
   for (const record of history) {
     const { prompt, response, createdAt, feedbackScore = null, id } = record;
     const data = JSON.parse(response);
+    const isLight = lightChatIds.has(id);
 
     // In the event that a bad response was stored - we should skip its entire record
     // because it was likely an error and cannot be used in chats and will fail to render on UI.
@@ -145,20 +147,24 @@ function convertToChatHistory(history = []) {
         role: "user",
         content: prompt,
         sentAt: moment(createdAt).unix(),
-        attachments: data?.attachments ?? [],
+        attachments: isLight ? [] : data?.attachments ?? [],
         chatId: id,
+        ...(isLight ? { hydrationStatus: "light" } : {}),
       },
       {
         type: data?.type || "chart",
         role: "assistant",
         content: data.text,
-        sources: data.sources || [],
+        sources: isLight ? [] : data.sources || [],
         chatId: id,
         sentAt: moment(createdAt).unix(),
         feedbackScore,
-        metrics: data?.metrics || {},
-        ...(data?.outputs?.length > 0 ? { outputs: data.outputs } : {}),
-        ...(data?.agentEvents?.length > 0
+        metrics: isLight ? {} : data?.metrics || {},
+        ...(isLight ? { hydrationStatus: "light" } : {}),
+        ...(!isLight && data?.outputs?.length > 0
+          ? { outputs: data.outputs }
+          : {}),
+        ...(!isLight && data?.agentEvents?.length > 0
           ? { agentEvents: data.agentEvents }
           : {}),
       },

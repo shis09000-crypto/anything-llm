@@ -236,7 +236,7 @@ function ModelRow({
   return (
     <div
       ref={modelRowRef}
-      className="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-x-4 transition-all duration-300 rounded-lg"
+      className="w-full grid grid-cols-[1fr_auto_1fr] items-center gap-x-4 motion-hover rounded-lg"
     >
       <button
         type="button"

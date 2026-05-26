@@ -70,7 +70,7 @@ export default function DisconnectedView({
             <button
               type="button"
               onClick={() => setShowToken(!showToken)}
-              className="text-zinc-400 light:text-slate-500 hover:text-zinc-300 light:hover:text-slate-700 transition-colors shrink-0"
+              className="text-zinc-400 light:text-slate-500 hover:text-zinc-300 light:hover:text-slate-700 motion-hover shrink-0"
             >
               <Icon className="h-4 w-4" />
             </button>
@@ -86,7 +86,7 @@ export default function DisconnectedView({
           <button
             type="submit"
             disabled={reconnecting}
-            className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-8 px-5 hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-8 px-5 hover:opacity-90 motion-hover disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
           >
             {reconnecting ? (
               <CircleNotch className="h-4 w-4 animate-spin" />

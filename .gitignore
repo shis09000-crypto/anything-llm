@@ -11,6 +11,9 @@ yarn.lock
 *.bak
 .idea
 .playwright-mcp/
+dist-desktop/
+server/public/
+desktop/*.env
 
 # Logs
 logs

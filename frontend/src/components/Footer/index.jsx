@@ -2,7 +2,6 @@ import System from "@/models/system";
 import paths from "@/utils/paths";
 import {
   BookOpen,
-  DiscordLogo,
   GithubLogo,
   Briefcase,
   Envelope,
@@ -16,11 +15,11 @@ import SettingsButton from "../SettingsButton";
 import { isMobile } from "react-device-detect";
 import { Tooltip } from "react-tooltip";
 import { Link } from "react-router-dom";
+import FeedbackModal from "../FeedbackModal";
 
 export const MAX_ICONS = 3;
 export const ICON_COMPONENTS = {
   BookOpen: BookOpen,
-  DiscordLogo: DiscordLogo,
   GithubLogo: GithubLogo,
   Envelope: Envelope,
   LinkSimple: LinkSimple,
@@ -29,9 +28,9 @@ export const ICON_COMPONENTS = {
   Briefcase: Briefcase,
   Info: Info,
 };
-
 export default function Footer() {
   const [footerData, setFooterData] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   useEffect(() => {
     async function fetchFooterData() {
@@ -50,27 +49,26 @@ export default function Footer() {
       <div className="flex justify-center mb-2">
         <div className="flex space-x-4">
           <div className="flex w-fit">
-            <Link
-              to={paths.github()}
-              target="_blank"
-              rel="noreferrer"
-              className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
+            <button
+              type="button"
+              className="motion-hover p-2 rounded-full bg-theme-sidebar-footer-icon cursor-default opacity-80"
               aria-label="Find us on GitHub"
+              aria-disabled="true"
               data-tooltip-id="footer-item"
-              data-tooltip-content="View Source Code"
+              data-tooltip-content="GitHub link disabled"
             >
               <GithubLogo
                 weight="fill"
                 className="h-5 w-5 text-white light:text-slate-800"
               />
-            </Link>
+            </button>
           </div>
           <div className="flex w-fit">
             <Link
               to={paths.docs()}
               target="_blank"
               rel="noreferrer"
-              className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
+              className="motion-hover p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
               aria-label="Docs"
               data-tooltip-id="footer-item"
               data-tooltip-content="Open AnythingLLM help docs"
@@ -82,23 +80,25 @@ export default function Footer() {
             </Link>
           </div>
           <div className="flex w-fit">
-            <Link
-              to={paths.discord()}
-              target="_blank"
-              rel="noreferrer"
-              className="transition-all duration-300 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
-              aria-label="Join our Discord server"
+            <button
+              type="button"
+              className="motion-hover p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
+              aria-label="提交问题反馈"
               data-tooltip-id="footer-item"
-              data-tooltip-content="Join the AnythingLLM Discord"
+              data-tooltip-content="提交问题反馈"
+              onClick={() => setFeedbackOpen(true)}
             >
-              <DiscordLogo
+              <Envelope
                 weight="fill"
                 className="h-5 w-5 text-white light:text-slate-800"
               />
-            </Link>
+            </button>
           </div>
           {!isMobile && <SettingsButton />}
         </div>
+        {feedbackOpen && (
+          <FeedbackModal onClose={() => setFeedbackOpen(false)} />
+        )}
         <Tooltip
           id="footer-item"
           place="top"
@@ -118,7 +118,7 @@ export default function Footer() {
             href={item.url}
             target="_blank"
             rel="noreferrer"
-            className="transition-all duration-300 flex w-fit h-fit p-2 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover hover:border-slate-100"
+            className="motion-hover flex w-fit h-fit p-2 p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover hover:border-slate-100"
           >
             {React.createElement(
               ICON_COMPONENTS?.[item.icon] ?? ICON_COMPONENTS.Info,

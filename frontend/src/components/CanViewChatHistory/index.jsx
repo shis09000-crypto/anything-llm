@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FullScreenLoader } from "@/components/Preloader";
 import System from "@/models/system";
 import paths from "@/utils/paths";
+import { useNavigate } from "react-router-dom";
 
 /**
  * Protects the view from system set ups who cannot view chat history.
@@ -10,9 +11,13 @@ import paths from "@/utils/paths";
  */
 export function CanViewChatHistory({ children }) {
   const { loading, viewable } = useCanViewChatHistory();
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!loading && !viewable) navigate(paths.home(), { replace: true });
+  }, [loading, navigate, viewable]);
+
   if (loading) return <FullScreenLoader />;
   if (!viewable) {
-    window.location.href = paths.home();
     return <FullScreenLoader />;
   }
 

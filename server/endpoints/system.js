@@ -1,6 +1,8 @@
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
+const envPath =
+  process.env.NODE_ENV === "development"
+    ? `.env.${process.env.NODE_ENV}`
+    : process.env.DESKTOP_ENV_PATH || ".env";
+require("dotenv").config({ path: envPath });
 const { viewLocalFiles, normalizePath, isWithin } = require("../utils/files");
 const { purgeDocument, purgeFolder } = require("../utils/files/purgeDocument");
 const { getVectorDbClass } = require("../utils/helpers");
@@ -73,6 +75,8 @@ const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
 const { SystemPromptVariables } = require("../models/systemPromptVariables");
 const { VALID_COMMANDS } = require("../utils/chats");
 const { AgentSkillWhitelist } = require("../models/agentSkillWhitelist");
+const { runtimeSummary } = require("../utils/desktopRuntime");
+const { submitFeedback } = require("../utils/feedback");
 
 const PROVIDER_PRESETS = {
   SHIJIE_DEEPSEEK_ALI_V1: {
@@ -738,6 +742,7 @@ function systemEndpoints(app) {
             EmbeddingEngine: preset.embedder.provider,
             EmbeddingBasePath: preset.embedder.baseUrl,
             EmbeddingModelPref: preset.embedder.model,
+            EmbeddingModelMaxChunkLength: "5000",
             GenericOpenAiEmbeddingApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
           },
           false,
@@ -764,6 +769,38 @@ function systemEndpoints(app) {
       } catch (e) {
         console.error(e.message);
         response.status(500).json({ success: false, error: e.message });
+      }
+    }
+  );
+
+  app.get(
+    "/system/desktop-runtime",
+    [validatedRequest],
+    async (_, response) => {
+      try {
+        response.status(200).json({ success: true, runtime: runtimeSummary() });
+      } catch (e) {
+        response.status(500).json({ success: false, error: e.message });
+      }
+    }
+  );
+
+  app.post(
+    "/system/feedback/submit",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const { reason = "", images = [] } = reqBody(request);
+        await submitFeedback({ reason, images });
+        await EventLogs.logEvent(
+          "desktop_feedback_submitted",
+          { imageCount: Array.isArray(images) ? images.length : 0 },
+          response?.locals?.user?.id
+        );
+        response.status(200).json({ success: true });
+      } catch (e) {
+        console.error("[Feedback] Submit failed:", e.message);
+        response.status(200).json({ success: false, error: e.message });
       }
     }
   );

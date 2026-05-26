@@ -34,7 +34,7 @@ export default function SkillSection({
           <CaretDown
             size={10}
             weight="bold"
-            className={`text-zinc-400 light:text-slate-500 transition-transform duration-150 ${
+            className={`text-zinc-400 light:text-slate-500 motion-hover ${
               expanded ? "" : "-rotate-90"
             }`}
           />

@@ -74,7 +74,7 @@ function ManageServerMenu({ server, toggleServer, onDelete }) {
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="p-1.5 rounded-lg text-white hover:bg-theme-action-menu-item-hover transition-colors duration-300"
+        className="p-1.5 rounded-lg text-white hover:bg-theme-action-menu-item-hover motion-hover"
       >
         <Gear className="h-5 w-5" weight="bold" />
       </button>
@@ -83,7 +83,7 @@ function ManageServerMenu({ server, toggleServer, onDelete }) {
           <button
             type="button"
             onClick={handleToggleServer}
-            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 transition-colors duration-200 w-full text-left"
+            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 motion-hover w-full text-left"
           >
             <span className="text-sm">
               {running
@@ -94,7 +94,7 @@ function ManageServerMenu({ server, toggleServer, onDelete }) {
           <button
             type="button"
             onClick={deleteServer}
-            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 transition-colors duration-200 w-full text-left"
+            className="border-none flex items-center rounded-lg gap-x-2 hover:bg-theme-action-menu-item-hover py-1.5 px-2 motion-hover w-full text-left"
           >
             <span className="text-sm">{t("agent.mcp.delete-server")}</span>
           </button>
@@ -271,7 +271,7 @@ function ServerTool({ serverName, tool, enabled, onToggle }) {
         </div>
         <div className="flex items-center gap-x-3">
           <div
-            className={`border-none text-theme-text-secondary hover:text-cta-button transition-transform duration-200 ${
+            className={`border-none text-theme-text-secondary hover:text-cta-button motion-hover ${
               open ? "rotate-180" : ""
             }`}
           >

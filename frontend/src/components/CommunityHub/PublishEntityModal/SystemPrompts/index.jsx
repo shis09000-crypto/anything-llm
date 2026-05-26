@@ -78,7 +78,7 @@ export default function SystemPrompts({ entity }) {
             to={paths.communityHub.viewItem("system-prompt", itemId)}
             target="_blank"
             rel="noreferrer"
-            className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg transition-colors mt-4 text-sm font-semibold text-center"
+            className="w-[265px] bg-theme-bg-secondary hover:bg-theme-sidebar-item-hover text-theme-text-primary py-2 px-4 rounded-lg motion-hover mt-4 text-sm font-semibold text-center"
           >
             {t("community_hub.publish.system_prompt.view_on_hub")}
           </Link>
@@ -200,13 +200,13 @@ export default function SystemPrompts({ entity }) {
                 />
                 <label
                   htmlFor="public"
-                  className="h-[36px] px-4 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer text-theme-text-primary hover:text-theme-text-secondary peer-checked/public:bg-theme-sidebar-item-hover peer-checked/public:text-theme-primary-button flex items-center justify-center"
+                  className="h-[36px] px-4 rounded-lg text-sm font-medium motion-hover cursor-pointer text-theme-text-primary hover:text-theme-text-secondary peer-checked/public:bg-theme-sidebar-item-hover peer-checked/public:text-theme-primary-button flex items-center justify-center"
                 >
                   Public
                 </label>
                 <label
                   htmlFor="private"
-                  className="h-[36px] px-4 rounded-lg text-sm font-medium transition-all duration-200 cursor-pointer text-theme-text-primary hover:text-theme-text-secondary peer-checked/private:bg-theme-sidebar-item-hover peer-checked/private:text-theme-primary-button flex items-center justify-center"
+                  className="h-[36px] px-4 rounded-lg text-sm font-medium motion-hover cursor-pointer text-theme-text-primary hover:text-theme-text-secondary peer-checked/private:bg-theme-sidebar-item-hover peer-checked/private:text-theme-primary-button flex items-center justify-center"
                 >
                   Private
                 </label>
@@ -238,7 +238,7 @@ export default function SystemPrompts({ entity }) {
           <button
             type="submit"
             disabled={isSubmitting}
-            className="border-none w-full bg-cta-button hover:opacity-80 text-theme-text-primary font-medium py-2 px-4 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="border-none w-full bg-cta-button hover:opacity-80 text-theme-text-primary font-medium py-2 px-4 rounded-lg motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting
               ? t("community_hub.publish.system_prompt.submitting")

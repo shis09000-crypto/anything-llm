@@ -90,7 +90,7 @@ export default function ReadingTools() {
                 key={option.value}
                 type="button"
                 onClick={() => setTextSize(option.value)}
-                className={`w-full rounded-lg border px-4 py-3 text-left transition-all ${
+                className={`w-full rounded-lg border px-4 py-3 text-left motion-hover ${
                   textSize === option.value
                     ? "border-sky-400 bg-sky-500/15 text-sky-100 light:bg-sky-50 light:text-sky-700"
                     : "border-white/10 light:border-slate-200 text-white/75 light:text-slate-700 hover:bg-white/5 light:hover:bg-slate-50"

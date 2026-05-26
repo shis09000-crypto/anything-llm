@@ -3,6 +3,7 @@ import { CaretRight } from "@phosphor-icons/react";
 import { Link, useLocation } from "react-router-dom";
 import { safeJsonParse } from "@/utils/request";
 import useScrollActiveItemIntoView from "@/hooks/useScrollActiveItemIntoView";
+import { prefetchSettingsRoute } from "@/utils/chat/workspaceChatPrefetch";
 
 export default function MenuOption({
   btnText,
@@ -70,7 +71,7 @@ export default function MenuOption({
       <div
         className={`
           flex items-center justify-between w-full
-          transition-all duration-300
+          motion-hover
           rounded-[6px]
           ${
             isActive
@@ -86,6 +87,8 @@ export default function MenuOption({
             isChild ? "hover:text-white" : "text-white light:text-black"
           }`}
           onClick={hasChildren ? handleClick : undefined}
+          onMouseEnter={prefetchSettingsRoute}
+          onFocus={prefetchSettingsRoute}
         >
           {icon}
           <p
@@ -106,7 +109,7 @@ export default function MenuOption({
               size={16}
               weight="bold"
               // color={isExpanded ? "#000000" : "var(--theme-sidebar-subitem-icon)"}
-              className={`transition-transform text-white light:text-black ${
+              className={`motion-hover text-white light:text-black ${
                 isExpanded ? "rotate-90" : ""
               }`}
             />

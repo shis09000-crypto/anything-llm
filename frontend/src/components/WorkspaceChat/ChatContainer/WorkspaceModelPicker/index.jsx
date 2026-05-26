@@ -87,7 +87,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
         />
       )}
       <div
-        className={`hidden md:block absolute top-2 z-30 transition-all duration-500 ${
+        className={`hidden md:block absolute top-2 z-30 motion-hover ${
           sidebarOpen ? "left-3" : "left-11"
         }`}
       >

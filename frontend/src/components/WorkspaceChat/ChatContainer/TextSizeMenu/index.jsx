@@ -63,7 +63,7 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
         ref={buttonRef}
         type="button"
         onClick={() => setShowMenu(!showMenu)}
-        className={`group border-none cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full transition-all ${
+        className={`group border-none cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full motion-hover ${
           showMenu
             ? "bg-zinc-700 light:bg-slate-200"
             : "hover:bg-zinc-700 light:hover:bg-slate-200"

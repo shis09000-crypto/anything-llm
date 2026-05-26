@@ -148,10 +148,20 @@ function AssistantTurn({
         ) : (
           <div className="break-words">
             {turn.finalContent ? (
-              <MarkdownOutput content={turn.finalContent} messageId={turn.id} />
+              <MarkdownOutput
+                content={turn.finalContent}
+                messageId={turn.id}
+                deferEnhancement={!isLastMessage}
+              />
             ) : isRunning ? (
               <div className="mt-3 ml-1 dot-falling light:invert" />
             ) : null}
+            {turn.hydrationStatus === "light" && (
+              <div className="mt-3 space-y-2" aria-hidden="true">
+                <div className="motion-skeleton h-3 w-1/2 rounded" />
+                <div className="motion-skeleton h-3 w-1/3 rounded" />
+              </div>
+            )}
             {isRefusalMessage && (
               <Link
                 data-tooltip-id="query-refusal-info"

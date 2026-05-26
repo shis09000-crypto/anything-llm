@@ -154,7 +154,7 @@ export default function AdvancedGatewayConnectorSettings() {
               type="button"
               onClick={handleTest}
               disabled={testing}
-              className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-800 light:bg-white border border-white/10 light:border-slate-300 text-white light:text-slate-900 rounded-lg h-9 px-4 hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-800 light:bg-white border border-white/10 light:border-slate-300 text-white light:text-slate-900 rounded-lg h-9 px-4 hover:opacity-90 motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {testing ? (
                 <CircleNotch className="h-4 w-4 animate-spin" />
@@ -166,7 +166,7 @@ export default function AdvancedGatewayConnectorSettings() {
             <button
               type="submit"
               disabled={saving}
-              className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 px-5 hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 px-5 hover:opacity-90 motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {saving ? (
                 <CircleNotch className="h-4 w-4 animate-spin" />
@@ -212,7 +212,7 @@ function SecretInput({ label, value, onChange, placeholder }) {
         <button
           type="button"
           onClick={() => setShowSecret(!showSecret)}
-          className="text-zinc-400 light:text-slate-500 hover:text-zinc-300 light:hover:text-slate-700 transition-colors shrink-0"
+          className="text-zinc-400 light:text-slate-500 hover:text-zinc-300 light:hover:text-slate-700 motion-hover shrink-0"
         >
           <Icon className="h-4 w-4" />
         </button>

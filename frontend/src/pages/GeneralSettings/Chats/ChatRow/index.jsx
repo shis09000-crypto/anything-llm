@@ -41,13 +41,13 @@ export default function ChatRow({ chat, onDelete }) {
         <td className="px-6">{chat.workspace?.name}</td>
         <td
           onClick={openPromptModal}
-          className="px-6 border-transparent cursor-pointer transform transition-transform duration-200 hover:scale-105 hover:shadow-lg"
+          className="px-6 border-transparent cursor-pointer transform motion-hover hover:scale-105 hover:shadow-lg"
         >
           {truncate(chat.prompt, 40)}
         </td>
         <td
           onClick={openResponseModal}
-          className="px-6 cursor-pointer transform transition-transform duration-200 hover:scale-105 hover:shadow-lg"
+          className="px-6 cursor-pointer transform motion-hover hover:scale-105 hover:shadow-lg"
         >
           {truncate(safeJsonParse(chat.response, {})?.text, 40)}
         </td>

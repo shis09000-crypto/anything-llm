@@ -5,7 +5,10 @@ import {
   useState,
   useMemo,
   forwardRef,
+  memo,
+  useCallback,
 } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import HistoricalMessage from "./HistoricalMessage";
 import AssistantTurn from "./AssistantTurn";
 import { useManageWorkspaceModal } from "../../../Modals/ManageWorkspace";
@@ -13,7 +16,7 @@ import ManageWorkspace from "../../../Modals/ManageWorkspace";
 import { ArrowDown } from "@phosphor-icons/react";
 import debounce from "lodash.debounce";
 import Workspace from "@/models/workspace";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import paths from "@/utils/paths";
 import Appearance from "@/models/appearance";
 import useTextSize from "@/hooks/useTextSize";
@@ -33,6 +36,9 @@ export default forwardRef(function (
     approvalState = null,
     onToolApprovalResponse,
     onGenerateMindMap,
+    hasMoreHistory = false,
+    isLoadingOlderHistory = false,
+    onLoadOlderHistory = null,
   },
   ref
 ) {
@@ -40,7 +46,10 @@ export default forwardRef(function (
   const scrollPositionsRef = useRef({});
   const suppressAutoScrollRef = useRef(false);
   const chatHistoryRef = useRef(null);
+  const previousScrollHeightRef = useRef(0);
+  const previousFirstItemIdRef = useRef(null);
   const { threadSlug = null } = useParams();
+  const navigate = useNavigate();
   const { showing, hideModal } = useManageWorkspaceModal();
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
@@ -50,6 +59,18 @@ export default forwardRef(function (
   const { showScrollbar } = Appearance.getSettings();
   const { textSizeClass } = useTextSize();
   const { updateAssistantTurn, updateUserItem } = useChatThreadDrafts();
+  const shouldVirtualize = items.length > 80;
+  const rowVirtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => chatHistoryRef.current,
+    getItemKey: (index) => items[index]?.id || index,
+    estimateSize: () => 164,
+    overscan: items.some(
+      (item) => item.type === "assistant_turn" && item.status === "running"
+    )
+      ? 4
+      : 8,
+  });
 
   useEffect(() => {
     const assistantTurns = items
@@ -115,6 +136,9 @@ export default forwardRef(function (
 
     setIsAtBottom(isBottom);
     lastScrollTopRef.current = scrollTop;
+    if (scrollTop < 240 && hasMoreHistory && !isLoadingOlderHistory) {
+      onLoadOlderHistory?.();
+    }
   };
 
   const debouncedScroll = useMemo(() => debounce(handleScroll, 100), [chatKey]);
@@ -142,6 +166,30 @@ export default forwardRef(function (
     isStreaming,
     scrollToBottom,
   });
+
+  useLayoutEffect(() => {
+    const element = chatHistoryRef.current;
+    if (!element) return;
+
+    const firstId = items[0]?.id || null;
+    const previousFirstId = previousFirstItemIdRef.current;
+    const previousScrollHeight = previousScrollHeightRef.current;
+    if (
+      previousFirstId &&
+      firstId &&
+      previousFirstId !== firstId &&
+      !isAtBottom
+    ) {
+      element.scrollTop += Math.max(
+        element.scrollHeight - previousScrollHeight,
+        0
+      );
+    }
+
+    previousFirstItemIdRef.current = firstId;
+    previousScrollHeightRef.current = element.scrollHeight;
+    rowVirtualizer.measure();
+  }, [items, isAtBottom, rowVirtualizer]);
 
   const saveEditedMessage = async ({
     editedMessage,
@@ -199,10 +247,7 @@ export default forwardRef(function (
       threadSlug,
       chatId
     );
-    window.location.href = paths.workspace.thread(
-      workspace.slug,
-      newThreadSlug
-    );
+    navigate(paths.workspace.thread(workspace.slug, newThreadSlug));
   };
 
   const itemById = useMemo(
@@ -212,6 +257,36 @@ export default forwardRef(function (
   const lastAssistantTurnId = [...items]
     .reverse()
     .find((item) => item.type === "assistant_turn")?.id;
+  const renderMessageRow = useCallback(
+    (item) => (
+      <MessageRow
+        key={item.id}
+        item={item}
+        itemById={itemById}
+        workspace={workspace}
+        chatKey={chatKey}
+        approvalState={approvalState}
+        onToolApprovalResponse={onToolApprovalResponse}
+        onGenerateMindMap={onGenerateMindMap}
+        regenerateAssistantMessage={regenerateAssistantMessage}
+        saveEditedMessage={saveEditedMessage}
+        forkThread={forkThread}
+        isLastAssistantTurn={item.id === lastAssistantTurnId}
+      />
+    ),
+    [
+      approvalState,
+      chatKey,
+      forkThread,
+      itemById,
+      lastAssistantTurnId,
+      onGenerateMindMap,
+      onToolApprovalResponse,
+      regenerateAssistantMessage,
+      saveEditedMessage,
+      workspace,
+    ]
+  );
 
   return (
     <MessageActionsProvider>
@@ -223,44 +298,32 @@ export default forwardRef(function (
           onScroll={handleScroll}
         >
           <div className="w-full max-w-[750px]">
-            {items.map((item) => {
-              if (item.type === "user") {
-                return (
-                  <HistoricalMessage
-                    key={item.id}
-                    uuid={item.id}
-                    message={item.content}
-                    role="user"
-                    workspace={workspace}
-                    chatId={item.chatId}
-                    attachments={item.attachments}
-                    saveEditedMessage={saveEditedMessage}
-                    forkThread={forkThread}
-                  />
-                );
-              }
-
-              if (item.type === "assistant_turn") {
-                return (
-                  <AssistantTurn
-                    key={item.id}
-                    turn={item}
-                    userItem={itemById.get(item.userMessageId)}
-                    workspace={workspace}
-                    chatKey={chatKey}
-                    approvalState={approvalState}
-                    onToolApprovalResponse={onToolApprovalResponse}
-                    onGenerateMindMap={onGenerateMindMap}
-                    regenerateMessage={regenerateAssistantMessage}
-                    saveEditedMessage={saveEditedMessage}
-                    forkThread={forkThread}
-                    isLastMessage={item.id === lastAssistantTurnId}
-                  />
-                );
-              }
-
-              return null;
-            })}
+            {isLoadingOlderHistory && (
+              <div className="motion-skeleton h-12 rounded-md mb-2" />
+            )}
+            {shouldVirtualize ? (
+              <div
+                className="relative w-full"
+                style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+              >
+                {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const item = items[virtualRow.index];
+                  if (!item) return null;
+                  return (
+                    <VirtualMessageRow
+                      key={virtualRow.key}
+                      itemId={item.id}
+                      virtualRow={virtualRow}
+                      virtualizer={rowVirtualizer}
+                    >
+                      {renderMessageRow(item)}
+                    </VirtualMessageRow>
+                  );
+                })}
+              </div>
+            ) : (
+              items.map(renderMessageRow)
+            )}
           </div>
           {showing && (
             <ManageWorkspace
@@ -288,3 +351,114 @@ export default forwardRef(function (
     </MessageActionsProvider>
   );
 });
+
+function VirtualMessageRow({ itemId, virtualRow, virtualizer, children }) {
+  const elementRef = useRef(null);
+  const observerRef = useRef(null);
+
+  const measure = useCallback(() => {
+    const element = elementRef.current;
+    if (!element) return;
+    virtualizer.measureElement(element);
+  }, [virtualizer]);
+
+  const setElement = useCallback(
+    (element) => {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      elementRef.current = element;
+      if (!element) return;
+
+      virtualizer.measureElement(element);
+      if (typeof ResizeObserver !== "undefined") {
+        observerRef.current = new ResizeObserver(() => {
+          requestAnimationFrame(measure);
+        });
+        observerRef.current.observe(element);
+      }
+    },
+    [measure, virtualizer]
+  );
+
+  useLayoutEffect(() => {
+    measure();
+    const frame = requestAnimationFrame(measure);
+    return () => cancelAnimationFrame(frame);
+  }, [itemId, measure]);
+
+  useEffect(() => {
+    return () => observerRef.current?.disconnect();
+  }, []);
+
+  return (
+    <div
+      ref={setElement}
+      data-index={virtualRow.index}
+      data-item-id={itemId}
+      className="absolute left-0 top-0 w-full"
+      style={{
+        transform: `translateY(${virtualRow.start}px)`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const MessageRow = memo(
+  function MessageRow({
+    item,
+    itemById,
+    workspace,
+    chatKey,
+    approvalState,
+    onToolApprovalResponse,
+    onGenerateMindMap,
+    regenerateAssistantMessage,
+    saveEditedMessage,
+    forkThread,
+    isLastAssistantTurn,
+  }) {
+    if (item.type === "user") {
+      return (
+        <HistoricalMessage
+          uuid={item.id}
+          message={item.content}
+          role="user"
+          workspace={workspace}
+          chatId={item.chatId}
+          attachments={item.attachments}
+          hydrationStatus={item.hydrationStatus}
+          saveEditedMessage={saveEditedMessage}
+          forkThread={forkThread}
+        />
+      );
+    }
+
+    if (item.type === "assistant_turn") {
+      return (
+        <AssistantTurn
+          turn={item}
+          userItem={itemById.get(item.userMessageId)}
+          workspace={workspace}
+          chatKey={chatKey}
+          approvalState={approvalState}
+          onToolApprovalResponse={onToolApprovalResponse}
+          onGenerateMindMap={onGenerateMindMap}
+          regenerateMessage={regenerateAssistantMessage}
+          saveEditedMessage={saveEditedMessage}
+          forkThread={forkThread}
+          isLastMessage={isLastAssistantTurn}
+        />
+      );
+    }
+
+    return null;
+  },
+  (prevProps, nextProps) =>
+    prevProps.item === nextProps.item &&
+    prevProps.workspace === nextProps.workspace &&
+    prevProps.chatKey === nextProps.chatKey &&
+    prevProps.approvalState === nextProps.approvalState &&
+    prevProps.isLastAssistantTurn === nextProps.isLastAssistantTurn
+);

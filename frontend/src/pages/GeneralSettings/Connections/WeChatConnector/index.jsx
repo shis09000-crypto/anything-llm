@@ -166,7 +166,7 @@ export default function WeChatConnectorSettings() {
                 type="button"
                 onClick={handleGenerateQrCode}
                 disabled={!canGenerate}
-                className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 px-5 hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-50 light:bg-slate-900 text-zinc-900 light:text-white rounded-lg h-9 px-5 hover:opacity-90 motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isGenerating ? (
                   <CircleNotch className="h-4 w-4 animate-spin" />
@@ -190,7 +190,7 @@ export default function WeChatConnectorSettings() {
                   type="button"
                   onClick={handleGenerateQrCode}
                   disabled={!canGenerate}
-                  className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-800 light:bg-white border border-white/10 light:border-slate-300 text-white light:text-slate-900 rounded-lg h-9 px-4 hover:opacity-90 transition-opacity duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-zinc-800 light:bg-white border border-white/10 light:border-slate-300 text-white light:text-slate-900 rounded-lg h-9 px-4 hover:opacity-90 motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ArrowClockwise className="h-4 w-4" />
                   {t("wechat.actions.relogin")}
@@ -199,7 +199,7 @@ export default function WeChatConnectorSettings() {
                   type="button"
                   onClick={handleDisconnect}
                   disabled={isBusy}
-                  className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-transparent border border-red-400/50 text-red-300 light:text-red-600 rounded-lg h-9 px-4 hover:bg-red-500/10 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center justify-center gap-x-1.5 text-sm font-medium bg-transparent border border-red-400/50 text-red-300 light:text-red-600 rounded-lg h-9 px-4 hover:bg-red-500/10 motion-hover disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isDisconnecting ? (
                     <CircleNotch className="h-4 w-4 animate-spin" />

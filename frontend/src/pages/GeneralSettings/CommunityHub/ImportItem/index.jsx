@@ -27,7 +27,7 @@ function SideBarSelection({ setStep, currentStep }) {
             <div
               key={stepKey}
               className={[
-                "py-3 flex items-center justify-between transition-all duration-300",
+                "py-3 flex items-center justify-between motion-hover",
                 isSelected ? "rounded-t-xl" : "",
                 isLast
                   ? ""

@@ -308,7 +308,7 @@ function ConfigurationSection({
       <button
         type="button"
         onClick={() => setExpanded(!expanded)}
-        className="border-none w-full flex items-center justify-between p-3 bg-theme-bg-secondary/30 hover:bg-theme-bg-secondary/50 transition-colors"
+        className="border-none w-full flex items-center justify-between p-3 bg-theme-bg-secondary/30 hover:bg-theme-bg-secondary/50 motion-hover"
       >
         <div className="flex items-center gap-x-2">
           <span className="text-theme-text-primary font-semibold text-sm">
@@ -325,7 +325,7 @@ function ConfigurationSection({
         </div>
         <CaretDown
           size={16}
-          className={`text-theme-text-secondary transition-transform ${expanded ? "rotate-180" : ""}`}
+          className={`text-theme-text-secondary motion-hover ${expanded ? "rotate-180" : ""}`}
         />
       </button>
 
@@ -486,7 +486,7 @@ function ConfigurationSection({
                 type="button"
                 onClick={onStartAuth}
                 disabled={authLoading}
-                className="flex items-center justify-center gap-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white text-sm font-medium rounded-lg transition-colors"
+                className="flex items-center justify-center gap-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-600/50 text-white text-sm font-medium rounded-lg motion-hover"
               >
                 {authLoading ? (
                   <CircleNotch size={16} className="animate-spin" />
@@ -514,7 +514,7 @@ function ConfigurationSection({
                 type="button"
                 onClick={onRevokeAuth}
                 disabled={authLoading}
-                className="flex items-center justify-center gap-x-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-500 text-sm font-medium rounded-lg transition-colors"
+                className="flex items-center justify-center gap-x-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/50 text-red-500 text-sm font-medium rounded-lg motion-hover"
               >
                 {authLoading ? (
                   <CircleNotch size={16} className="animate-spin" />

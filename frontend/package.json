@@ -7,7 +7,8 @@
     "start": "vite --open",
     "dev": "cross-env NODE_ENV=development vite --debug --host=0.0.0.0",
     "build": "vite build && node scripts/postbuild.js",
-    "lint:check": "eslint src",
+    "lint:check": "eslint src && node scripts/check-motion-system.mjs",
+    "perf:workspacechat": "node scripts/workspacechat-stress-report.mjs",
     "lint": "eslint --fix src",
     "preview": "vite preview"
   },
@@ -16,6 +17,7 @@
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mintplex-labs/piper-tts-web": "^1.0.4",
     "@phosphor-icons/react": "^2.1.7",
+    "@tanstack/react-virtual": "^3.8.3",
     "@tremor/react": "^3.15.1",
     "@xyflow/react": "^12.10.2",
     "cronstrue": "^2.50.0",

@@ -4,7 +4,7 @@ import LoadingChat from "./LoadingChat";
 import ChatContainer from "./ChatContainer";
 import paths from "@/utils/paths";
 import ModalWrapper from "../ModalWrapper";
-import { useLocation, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { DnDFileUploaderProvider } from "./ChatContainer/DnDWrapper";
 import { WarningCircle } from "@phosphor-icons/react";
 import {
@@ -19,6 +19,60 @@ import {
 } from "@/contexts/ChatThreadDraftProvider";
 import { setEventDelegatorForCodeSnippets } from "@/utils/chat/codeBlockCopy";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
+import { WorkspaceChatPerfMarks } from "@/utils/chat/performanceBudget";
+
+const FIRST_PAGE_LIMIT = 20;
+const PRIORITY_FULL_WINDOW = 5;
+
+function mergeHistoryMessages(existing = [], incoming = [], mode = "replace") {
+  if (mode === "replace") return incoming;
+  const next =
+    mode === "prepend"
+      ? [...incoming, ...existing]
+      : [...existing, ...incoming];
+  const order = [];
+  const byKey = new Map();
+  for (const message of next) {
+    const key = `${message.chatId}:${message.role}`;
+    if (!byKey.has(key)) order.push(key);
+    byKey.set(key, message);
+  }
+  return order.map((key) => byKey.get(key));
+}
+
+function lightChatIdsFromHistory(history = []) {
+  return [
+    ...new Set(
+      history
+        .filter((message) => message.hydrationStatus === "light")
+        .map((message) => message.chatId)
+        .filter(Boolean)
+    ),
+  ];
+}
+
+function historyClient(threadSlug = null) {
+  return threadSlug
+    ? {
+        page: (workspaceSlug, options) =>
+          Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, options),
+        hydrate: (workspaceSlug, chatIds, options) =>
+          Workspace.threads.chatHistoryHydration(
+            workspaceSlug,
+            threadSlug,
+            chatIds,
+            options
+          ),
+      }
+    : {
+        page: (workspaceSlug, options) =>
+          Workspace.chatHistoryPage(workspaceSlug, options),
+        hydrate: (workspaceSlug, chatIds, options) =>
+          Workspace.chatHistoryHydration(workspaceSlug, chatIds, options),
+      };
+}
 
 export default function WorkspaceChat({ loading, workspace }) {
   useWatchForAutoPlayAssistantTTSResponse();
@@ -38,6 +92,15 @@ export default function WorkspaceChat({ loading, workspace }) {
   // avoiding a skeleton/loader flash on workspace/thread switches.
   const [loaded, setLoaded] = useState(null);
   const restoredChatKeysRef = useRef(new Set());
+  const historyAbortRef = useRef(null);
+  const hydrationAbortRef = useRef(null);
+  const olderAbortRef = useRef(null);
+  const historySeqRef = useRef(0);
+  const [historyState, setHistoryState] = useState({
+    page: null,
+    loadingRecent: false,
+    loadingOlder: false,
+  });
   const setLoadedIfChanged = useCallback((next) => {
     setLoaded((prev) => {
       if (
@@ -52,8 +115,45 @@ export default function WorkspaceChat({ loading, workspace }) {
     });
   }, []);
 
+  const mergeAndRenderHistory = useCallback(
+    async ({ key, workspace, threadSlug, history, page, mode = "replace" }) => {
+      setLoaded((prev) => {
+        const base =
+          prev?.key === key
+            ? prev
+            : { key, workspace, threadSlug, history: [] };
+        return {
+          ...base,
+          workspace,
+          threadSlug,
+          history: mergeHistoryMessages(base.history, history, mode),
+        };
+      });
+      if (page) {
+        setHistoryState((prev) => ({
+          ...prev,
+          page,
+          loadingRecent: false,
+          loadingOlder: false,
+        }));
+      }
+      mergeServerHistory({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        history,
+      });
+    },
+    [mergeServerHistory]
+  );
+
   useEffect(() => {
-    let cancelled = false;
+    const seq = historySeqRef.current + 1;
+    historySeqRef.current = seq;
+    historyAbortRef.current?.abort();
+    hydrationAbortRef.current?.abort();
+    historyAbortRef.current = new AbortController();
+    hydrationAbortRef.current = new AbortController();
+
     async function getHistory() {
       if (loading) return;
       if (!workspace?.slug) {
@@ -78,6 +178,14 @@ export default function WorkspaceChat({ loading, workspace }) {
 
       const draft = getDraft(workspace.slug, threadSlug);
       const needsServerHistoryRefresh = draftNeedsServerHistoryRefresh(draft);
+      WorkspaceChatPerfMarks.mark(`${key}:shell`);
+      const cached = await threadHistoryCache.get({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        kind: "page",
+        cursor: "latest",
+      });
+      if (historySeqRef.current !== seq) return;
       if (draft) {
         if (needsServerHistoryRefresh) {
           debugChatTurn("WorkspaceChat:needsServerHistoryRefresh", {
@@ -91,14 +199,44 @@ export default function WorkspaceChat({ loading, workspace }) {
           key,
           workspace,
           threadSlug,
-          history: [],
+          history: cached?.history || [],
+        });
+      } else {
+        setLoadedIfChanged({
+          key,
+          workspace,
+          threadSlug,
+          history: cached?.history || [],
         });
       }
+      setHistoryState({
+        page: cached?.page || null,
+        loadingRecent: true,
+        loadingOlder: false,
+      });
+      WorkspaceChatPerfMarks.measure(
+        "thread shell",
+        `${key}:shell`,
+        "threadShellMs"
+      );
 
-      const chatHistory = threadSlug
-        ? await Workspace.threads.chatHistory(workspace.slug, threadSlug)
-        : await Workspace.chatHistory(workspace.slug);
-      if (cancelled) return;
+      const client = historyClient(threadSlug);
+      const payload = await requestPriorityQueue.schedule(
+        () =>
+          client.page(workspace.slug, {
+            limit: FIRST_PAGE_LIMIT,
+            detail: "light",
+            priorityWindow: PRIORITY_FULL_WINDOW,
+            signal: historyAbortRef.current.signal,
+          }),
+        {
+          priority: "P0",
+          label: "workspacechat:first-page",
+          signal: historyAbortRef.current.signal,
+        }
+      );
+      if (!payload || historySeqRef.current !== seq) return;
+      const chatHistory = payload.history || [];
       const latestDraft = getDraft(workspace.slug, threadSlug);
       const latestDraftNeedsRefresh =
         draftNeedsServerHistoryRefresh(latestDraft);
@@ -114,25 +252,79 @@ export default function WorkspaceChat({ loading, workspace }) {
           ...draftHistoryIntegrity(latestDraft),
         });
         restoredChatKeysRef.current.add(key);
-        mergeServerHistory({
+      }
+      await mergeAndRenderHistory({
+        key,
+        workspace,
+        threadSlug,
+        history: chatHistory,
+        page: payload.page,
+        mode: "replace",
+      });
+      threadHistoryCache.set(
+        {
           workspaceSlug: workspace.slug,
           threadSlug,
-          history: chatHistory,
-        });
-      }
+          kind: "page",
+          cursor: "latest",
+        },
+        { history: chatHistory, page: payload.page }
+      );
+      WorkspaceChatPerfMarks.measure(
+        "last 5 readable",
+        `${key}:shell`,
+        "lastFiveReadableMs"
+      );
 
-      if (!draft) {
-        setLoadedIfChanged({
-          key,
-          workspace,
-          threadSlug,
-          history: chatHistory,
-        });
+      const lightChatIds = payload.page?.lightChatIds?.length
+        ? payload.page.lightChatIds
+        : lightChatIdsFromHistory(chatHistory);
+      if (lightChatIds.length > 0) {
+        requestPriorityQueue.schedule(
+          async () => {
+            const hydration = await client.hydrate(
+              workspace.slug,
+              lightChatIds,
+              {
+                signal: hydrationAbortRef.current.signal,
+              }
+            );
+            if (!hydration?.history?.length || historySeqRef.current !== seq) {
+              return null;
+            }
+            await mergeAndRenderHistory({
+              key,
+              workspace,
+              threadSlug,
+              history: hydration.history,
+              mode: "append",
+            });
+            threadHistoryCache.set(
+              {
+                workspaceSlug: workspace.slug,
+                threadSlug,
+                kind: "hydrate",
+                cursor: lightChatIds.join(","),
+              },
+              hydration,
+              { indexed: true }
+            );
+            return hydration;
+          },
+          {
+            priority: "P2",
+            label: "workspacechat:hydrate-visible",
+            signal: hydrationAbortRef.current.signal,
+          }
+        );
       }
     }
-    getHistory();
+    getHistory().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+    });
     return () => {
-      cancelled = true;
+      historyAbortRef.current?.abort();
+      hydrationAbortRef.current?.abort();
     };
   }, [
     workspace,
@@ -142,9 +334,57 @@ export default function WorkspaceChat({ loading, workspace }) {
     getRunningThread,
     getThreadPath,
     location.state?.userSelectedThread,
-    mergeServerHistory,
+    mergeAndRenderHistory,
     navigate,
     setLoadedIfChanged,
+  ]);
+
+  const loadOlderHistory = useCallback(async () => {
+    if (!loaded?.workspace?.slug || historyState.loadingOlder) return;
+    if (historyState.page && !historyState.page.hasMore) return;
+    const beforeChatId =
+      historyState.page?.nextBeforeChatId ||
+      loaded.history.find((message) => message.chatId)?.chatId;
+    if (!beforeChatId) return;
+
+    olderAbortRef.current?.abort();
+    olderAbortRef.current = new AbortController();
+    setHistoryState((prev) => ({ ...prev, loadingOlder: true }));
+
+    const client = historyClient(loaded.threadSlug);
+    const payload = await requestPriorityQueue.schedule(
+      () =>
+        client.page(loaded.workspace.slug, {
+          limit: FIRST_PAGE_LIMIT,
+          beforeChatId,
+          detail: "light",
+          priorityWindow: 0,
+          signal: olderAbortRef.current.signal,
+        }),
+      {
+        priority: "P3",
+        label: "workspacechat:older-page",
+        signal: olderAbortRef.current.signal,
+      }
+    );
+
+    if (!payload?.history?.length) {
+      setHistoryState((prev) => ({ ...prev, loadingOlder: false }));
+      return;
+    }
+    await mergeAndRenderHistory({
+      key: loaded.key,
+      workspace: loaded.workspace,
+      threadSlug: loaded.threadSlug,
+      history: payload.history,
+      page: payload.page,
+      mode: "prepend",
+    });
+  }, [
+    historyState.loadingOlder,
+    historyState.page,
+    loaded,
+    mergeAndRenderHistory,
   ]);
 
   useEffect(() => {
@@ -159,7 +399,7 @@ export default function WorkspaceChat({ loading, workspace }) {
   if (loaded === null) {
     if (hasPendingMessage) {
       return (
-        <div className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full" />
+        <div className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full" />
       );
     }
     return <LoadingChat />;
@@ -188,12 +428,12 @@ export default function WorkspaceChat({ loading, workspace }) {
                 </p>
               </div>
               <div className="flex w-full justify-end items-center p-6 space-x-2 border-t border-theme-modal-border rounded-b">
-                <a
-                  href={paths.home()}
-                  className="transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                <Link
+                  to={paths.home()}
+                  className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
                 >
                   Return to homepage
-                </a>
+                </Link>
               </div>
             </div>
           </ModalWrapper>
@@ -215,6 +455,9 @@ export default function WorkspaceChat({ loading, workspace }) {
           workspace={loaded.workspace}
           threadSlug={loaded.threadSlug}
           knownHistory={loaded.history}
+          hasMoreHistory={!!historyState.page?.hasMore}
+          isLoadingOlderHistory={historyState.loadingOlder}
+          onLoadOlderHistory={loadOlderHistory}
         />
       </DnDFileUploaderProvider>
     </TTSProvider>

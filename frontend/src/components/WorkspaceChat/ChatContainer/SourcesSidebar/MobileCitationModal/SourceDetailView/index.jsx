@@ -14,7 +14,7 @@ export default function SourceDetailView({ source, onBack, onClose }) {
         <button
           onClick={onBack}
           type="button"
-          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 transition-colors"
+          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 motion-hover"
         >
           <CaretLeft size={20} weight="bold" />
         </button>
@@ -24,7 +24,7 @@ export default function SourceDetailView({ source, onBack, onClose }) {
         <button
           onClick={onClose}
           type="button"
-          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 transition-colors"
+          className="text-white/60 light:text-slate-400 hover:text-white light:hover:text-slate-900 motion-hover"
         >
           <X size={16} weight="bold" />
         </button>

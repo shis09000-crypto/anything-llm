@@ -20,7 +20,7 @@ export default function SuggestedMessages({
             <button
               type="button"
               onClick={() => sendCommand({ text, autoSubmit: true })}
-              className="w-full text-left py-3 px-3 text-white/80 text-sm font-normal leading-5 hover:text-white transition-colors light:text-theme-text-primary light:hover:text-theme-text-primary/80 hover:bg-zinc-800 light:hover:bg-black/20 rounded-lg"
+              className="w-full text-left py-3 px-3 text-white/80 text-sm font-normal leading-5 hover:text-white motion-hover light:text-theme-text-primary light:hover:text-theme-text-primary/80 hover:bg-zinc-800 light:hover:bg-black/20 rounded-lg"
             >
               {text}
             </button>
