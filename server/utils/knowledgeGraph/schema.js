@@ -17,6 +17,16 @@ function cleanText(value = "", max = 500) {
     .slice(0, max);
 }
 
+function normalizeAliasValue(alias) {
+  if (alias && typeof alias === "object" && !Array.isArray(alias)) {
+    return [alias.zh, alias.en, alias.name, alias.label]
+      .map((item) => cleanText(item, 140))
+      .filter(Boolean);
+  }
+  const text = cleanText(alias, 140);
+  return text ? [text] : [];
+}
+
 function parseExtractionJson(raw = "") {
   if (raw && typeof raw === "object") return raw;
   const text = String(raw || "").trim();
@@ -55,7 +65,7 @@ function normalizeExtractionResult(raw = "") {
       type: cleanText(entity?.type || "concept", 80).toLowerCase(),
       summary: cleanText(entity?.summary, 700),
       aliases: Array.isArray(entity?.aliases)
-        ? entity.aliases.map((alias) => cleanText(alias, 140)).filter(Boolean)
+        ? entity.aliases.flatMap(normalizeAliasValue).filter(Boolean)
         : [],
     }))
     .filter((entity) => entity.name);

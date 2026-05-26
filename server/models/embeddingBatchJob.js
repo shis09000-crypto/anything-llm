@@ -83,8 +83,57 @@ const EmbeddingBatchJob = {
     const jobs = await this.where({}, limit, { createdAt: "desc" });
     for (const job of jobs) {
       job.events = await this.events(job.jobId, 10);
+      job.graphStatus = await this.graphStatus(job.documentIds);
     }
     return jobs;
+  },
+
+  graphStatus: async function (documentIds = []) {
+    const ids = Array.isArray(documentIds)
+      ? documentIds.filter((id) => typeof id === "string" && id.length > 0)
+      : [];
+    const empty = {
+      status: "not_started",
+      total: 0,
+      completed: 0,
+      pending: 0,
+      processing: 0,
+      failed: 0,
+    };
+    if (ids.length === 0) return empty;
+
+    try {
+      const placeholders = ids.map(() => "?").join(",");
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT "status", COUNT(*) AS count
+         FROM "GraphExtractionJob"
+         WHERE "documentId" IN (${placeholders})
+         GROUP BY "status"`,
+        ...ids
+      );
+      const counts = rows.reduce(
+        (acc, row) => {
+          const status = String(row.status || "");
+          if (!Object.prototype.hasOwnProperty.call(acc, status)) return acc;
+          acc[status] = Number(row.count || 0);
+          acc.total += Number(row.count || 0);
+          return acc;
+        },
+        { ...empty, status: "not_started" }
+      );
+
+      if (counts.total === 0) return counts;
+      if (counts.processing > 0) counts.status = "processing";
+      else if (counts.pending > 0) counts.status = "pending";
+      else if (counts.failed > 0 && counts.completed > 0)
+        counts.status = "partial_failed";
+      else if (counts.failed > 0) counts.status = "failed";
+      else counts.status = "completed";
+      return counts;
+    } catch (error) {
+      console.error("Failed to resolve batch job graph status.", error.message);
+      return { ...empty, status: "unknown" };
+    }
   },
 
   recoverable: async function () {

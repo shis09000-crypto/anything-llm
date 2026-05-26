@@ -23,7 +23,8 @@ function MindMapNode({ data, selected }) {
     Number(data.recentImportanceScore || 0) >= 0.35;
 
   const englishLabel = data.displayNameEn || data.canonicalName;
-  const showEnglishLabel = englishLabel && englishLabel !== data.label;
+  const showEnglishLabel =
+    !isGraphNode && englishLabel && englishLabel !== data.label;
 
   return (
     <div
@@ -72,10 +73,10 @@ function MindMapNode({ data, selected }) {
       {isGraphNode && (
         <div className="mt-3 flex flex-wrap gap-1.5 text-[10px] text-slate-500">
           <span className="rounded-full bg-slate-100 px-2 py-0.5">
-            evidence {data.evidenceCount || 0}
+            证据 {data.evidenceCount || 0}
           </span>
           <span className="rounded-full bg-slate-100 px-2 py-0.5">
-            importance {formatScore(data.importanceScore)}
+            重要度 {formatScore(data.importanceScore)}
           </span>
           {data.clusterLabel && (
             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-blue-600">

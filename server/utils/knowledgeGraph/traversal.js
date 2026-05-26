@@ -59,7 +59,6 @@ function toNode(row = {}) {
 }
 
 async function relatedConcepts({ workspaceId, concept, options = {} }) {
-  await KnowledgeGraph.ensureTables();
   const traversal = boundedTraversalOptions(options);
   const conceptKey = KnowledgeGraph.canonicalKey(concept);
   const cached = await getGraphRetrievalCache({
@@ -72,6 +71,7 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
   const matchedNode = await KnowledgeGraph.findNodeByNameOrAlias({
     workspaceId,
     name: concept,
+    ensureSchema: false,
   });
   if (!matchedNode) {
     return {
@@ -171,16 +171,6 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
     return scoreB - scoreA;
   });
 
-  await prisma.$executeRawUnsafe(
-    `UPDATE "KnowledgeNode"
-    SET "usageCount" = "usageCount" + 1,
-      "recentUsageCount" = "recentUsageCount" + 1,
-      "lastReferencedAt" = CURRENT_TIMESTAMP,
-      "updatedAt" = CURRENT_TIMESTAMP
-    WHERE "id" = ?`,
-    Number(matchedNode.id)
-  );
-
   const result = {
     concept,
     matchedNode: toNode(matchedNode),
@@ -190,13 +180,40 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
     sourceCounts,
     cache: { hit: false },
   };
-  await setGraphRetrievalCache({
-    workspaceId,
-    conceptKey,
-    params: traversal,
-    result,
+  setImmediate(() => {
+    recordTraversalUsage(matchedNode.id);
+    setGraphRetrievalCache({
+      workspaceId,
+      conceptKey,
+      params: traversal,
+      result,
+    }).catch((error) =>
+      console.warn(
+        "[KnowledgeGraph] traversal cache write skipped:",
+        error.message
+      )
+    );
   });
   return result;
+}
+
+async function recordTraversalUsage(nodeId) {
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgeNode"
+      SET "usageCount" = "usageCount" + 1,
+        "recentUsageCount" = "recentUsageCount" + 1,
+        "lastReferencedAt" = CURRENT_TIMESTAMP,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ?`,
+      Number(nodeId)
+    );
+  } catch (error) {
+    console.warn(
+      "[KnowledgeGraph] traversal usage write skipped:",
+      error.message
+    );
+  }
 }
 
 module.exports = {

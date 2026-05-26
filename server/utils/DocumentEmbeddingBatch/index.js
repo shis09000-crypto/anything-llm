@@ -568,12 +568,14 @@ async function writeBatchOutput(jobId, outputFileId) {
   });
   const { processPendingGraphExtractionJobs } = require("../knowledgeGraph");
   setImmediate(() =>
-    processPendingGraphExtractionJobs({ workspaceId: job.workspaceId }).catch(
-      (error) =>
-        console.error(
-          `[KnowledgeGraph] failed to process batch graph jobs for ${job.workspaceSlug}:`,
-          error.message
-        )
+    processPendingGraphExtractionJobs({
+      workspaceId: job.workspaceId,
+      drain: true,
+    }).catch((error) =>
+      console.error(
+        `[KnowledgeGraph] failed to process batch graph jobs for ${job.workspaceSlug}:`,
+        error.message
+      )
     )
   );
   stopSchedule(jobId);

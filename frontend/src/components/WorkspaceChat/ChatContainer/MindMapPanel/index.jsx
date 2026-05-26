@@ -143,6 +143,7 @@ function MindMapPanelInner({
   const [hideRelatedTo, setHideRelatedTo] = useState(true);
   const [relationTypeFilter, setRelationTypeFilter] = useState("all");
   const [labelMode, setLabelMode] = useState("auto");
+  const [graphControlsCollapsed, setGraphControlsCollapsed] = useState(true);
   const [pathSource, setPathSource] = useState("");
   const [pathTarget, setPathTarget] = useState("");
   const [pathResult, setPathResult] = useState(null);
@@ -462,49 +463,86 @@ function MindMapPanelInner({
           ? { type: "cached", message: "已命中图谱缓存，直接打开关系图。" }
           : null
       );
+      return result;
     },
     [graphConcept, graphStatus, layout, workspace?.slug]
+  );
+
+  const loadPathFor = useCallback(
+    async (sourceValue, targetValue) => {
+      const source = String(sourceValue || "").trim();
+      const target = String(targetValue || "").trim();
+      if (!workspace?.slug || !source || !target) {
+        showToast("请输入路径起点和终点。", "warning");
+        return null;
+      }
+      setPathLoading(true);
+      const result = await MindMap.graphPath(workspace.slug, {
+        source,
+        target,
+        maxDepth: 4,
+        limit: 3,
+        confidenceCutoff: 0.45,
+        includeEvidence: true,
+      });
+      setPathLoading(false);
+      if (result?.error) {
+        showToast(result.error, "error");
+        return result;
+      }
+      setPathResult(result);
+      setSelectedPathIndex(0);
+      if (!result.paths?.length) {
+        showToast("未找到可解释的多跳关系链。", "warning");
+      }
+      return result;
+    },
+    [workspace?.slug]
   );
 
   const loadPath = useCallback(async () => {
     const source = String(pathSource || graphConcept || "").trim();
     const target = String(pathTarget || selectedNode?.label || "").trim();
-    if (!workspace?.slug || !source || !target) {
-      showToast("请输入路径起点和终点。", "warning");
-      return;
-    }
-    setPathLoading(true);
-    const result = await MindMap.graphPath(workspace.slug, {
-      source,
-      target,
-      maxDepth: 4,
-      limit: 3,
-      confidenceCutoff: 0.45,
-      includeEvidence: true,
-    });
-    setPathLoading(false);
-    if (result?.error) {
-      showToast(result.error, "error");
-      return;
-    }
-    setPathResult(result);
-    setSelectedPathIndex(0);
-    if (!result.paths?.length) {
-      showToast("未找到可解释的多跳关系链。", "warning");
-    }
-  }, [
-    graphConcept,
-    pathSource,
-    pathTarget,
-    selectedNode?.label,
-    workspace?.slug,
-  ]);
+    return loadPathFor(source, target);
+  }, [graphConcept, loadPathFor, pathSource, pathTarget, selectedNode?.label]);
 
   useEffect(() => {
     if (!request?.id || request.id === lastRequestId.current) return;
     lastRequestId.current = request.id;
-    generate(request.body);
-  }, [request, generate]);
+    const body = request.body || {};
+    async function handleRequest() {
+      if (body.sourceType === "graph") {
+        await loadGraph(body.concept || body.text || body.source);
+        return;
+      }
+      if (body.sourceType === "graphPath") {
+        const source = body.source || body.concept;
+        const target = body.target;
+        setPathSource(source || "");
+        setPathTarget(target || "");
+        await loadGraph(source);
+        if (source && target) await loadPathFor(source, target);
+        return;
+      }
+      if (body.sourceType === "evidence") {
+        const concept = body.concept || body.text || "";
+        const targetType = body.targetType === "edge" ? "edge" : "node";
+        const targetId = body.targetId;
+        await loadGraph(concept);
+        if (targetId) {
+          setEvidencePage(1);
+          setEvidenceTarget({
+            type: targetType,
+            id: targetId,
+            label: body.label || concept,
+          });
+        }
+        return;
+      }
+      generate(body);
+    }
+    handleRequest();
+  }, [request, generate, loadGraph, loadPathFor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,6 +740,60 @@ function MindMapPanelInner({
     }
   };
 
+  const graphConceptSearchInput = (
+    <div className="relative min-w-[220px] flex-1">
+      <MagnifyingGlass
+        size={14}
+        className="absolute left-2 top-2.5 text-slate-400"
+      />
+      <input
+        value={graphConcept}
+        onChange={(event) => setGraphConcept(event.target.value)}
+        onFocus={() => setShowGraphSuggestions(graphSuggestions.length > 0)}
+        onKeyDown={handleGraphKeyDown}
+        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-7 pr-3 text-xs text-slate-800 outline-none focus:border-blue-300"
+        placeholder="搜索概念，例如 Gene duplication / HP1 / Chromatin"
+      />
+      {showGraphSuggestions && graphSuggestions.length > 0 && (
+        <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
+          {graphSuggestions.map((concept, index) => (
+            <button
+              key={concept.id}
+              type="button"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => loadGraph(concept.canonicalName)}
+              className={`w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
+                index === activeSuggestionIndex
+                  ? "bg-blue-50"
+                  : "hover:bg-slate-50"
+              }`}
+            >
+              <span className="block text-xs font-medium text-slate-800">
+                {concept.displayNameZh || concept.canonicalName}
+              </span>
+              {concept.displayNameZh && (
+                <span className="mt-0.5 block text-[11px] text-slate-500">
+                  {concept.displayNameEn || concept.canonicalName}
+                </span>
+              )}
+              {!!concept.aliases?.length && (
+                <span className="mt-0.5 block text-[11px] text-slate-500">
+                  {formatAliases(concept.aliases).slice(0, 3).join(" / ")}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const graphCompactStats = graphStatus
+    ? `节点 ${graphStatus.nodes || 0} · 关系 ${graphStatus.edges || 0} · 证据 ${
+        graphStatus.evidence || 0
+      }`
+    : "知识图谱状态加载中";
+
   if (isCollapsed) {
     return (
       <div
@@ -794,165 +886,144 @@ function MindMapPanelInner({
 
           {mode === "graph" && (
             <div className="mt-3 space-y-3">
-              <GraphStatusBar status={graphStatus} />
-              <RepairStatusBar
-                repair={repairStatus}
-                onRepair={runGraphRepair}
-                onReleaseQuarantine={releaseQuarantine}
-              />
-              {graphStatus?.isSparse && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                  当前知识图谱数据较少，结果可能不完整。建议先运行 Knowledge
-                  Graph backfill。
-                </div>
-              )}
-              {graphStatus?.missingVectorCacheDocuments > 0 && (
-                <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800">
-                  有 {graphStatus.missingVectorCacheDocuments} 个旧文档缺少
-                  vector-cache 文本，已从可构建范围中单独标记；不会重新生成
-                  embedding。
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="relative min-w-[240px] flex-1">
-                  <MagnifyingGlass
-                    size={14}
-                    className="absolute left-2 top-2.5 text-slate-400"
+              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {graphConceptSearchInput}
+                  <ToolbarButton
+                    label="展开关系"
+                    onClick={() => loadGraph()}
+                    Icon={GitFork}
                   />
-                  <input
-                    value={graphConcept}
-                    onChange={(event) => setGraphConcept(event.target.value)}
-                    onFocus={() =>
-                      setShowGraphSuggestions(graphSuggestions.length > 0)
+                  <ToolbarButton
+                    label="适应视图"
+                    onClick={() => fitView({ padding: 0.18, duration: 260 })}
+                    Icon={ArrowsOut}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGraphControlsCollapsed((previous) => !previous)
                     }
-                    onKeyDown={handleGraphKeyDown}
-                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-7 pr-3 text-xs text-slate-800 outline-none focus:border-blue-300"
-                    placeholder="搜索概念，例如 Gene duplication / HP1 / Chromatin"
-                  />
-                  {showGraphSuggestions && graphSuggestions.length > 0 && (
-                    <div className="absolute left-0 right-0 top-[calc(100%+6px)] z-50 max-h-[240px] overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl">
-                      {graphSuggestions.map((concept, index) => (
-                        <button
-                          key={concept.id}
-                          type="button"
-                          onMouseDown={(event) => event.preventDefault()}
-                          onClick={() => loadGraph(concept.canonicalName)}
-                          className={`w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 ${
-                            index === activeSuggestionIndex
-                              ? "bg-blue-50"
-                              : "hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className="block text-xs font-medium text-slate-800">
-                            {concept.displayNameZh || concept.canonicalName}
-                          </span>
-                          {concept.displayNameZh && (
-                            <span className="mt-0.5 block text-[11px] text-slate-500">
-                              {concept.displayNameEn || concept.canonicalName}
-                            </span>
-                          )}
-                          {!!concept.aliases?.length && (
-                            <span className="mt-0.5 block text-[11px] text-slate-500">
-                              {formatAliases(concept.aliases)
-                                .slice(0, 3)
-                                .join(" / ")}
-                            </span>
-                          )}
-                        </button>
-                      ))}
+                    className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                  >
+                    {graphControlsCollapsed ? (
+                      <CaretDown size={14} weight="bold" />
+                    ) : (
+                      <CaretRight size={14} weight="bold" />
+                    )}
+                    {graphControlsCollapsed ? "展开工具" : "折叠工具"}
+                  </button>
+                  <span className="ml-auto rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
+                    {graphCompactStats}
+                  </span>
+                </div>
+                {!graphControlsCollapsed && (
+                  <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
+                    <GraphStatusBar status={graphStatus} />
+                    <RepairStatusBar
+                      repair={repairStatus}
+                      onRepair={runGraphRepair}
+                      onReleaseQuarantine={releaseQuarantine}
+                    />
+                    {graphStatus?.isSparse && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        当前知识图谱数据较少，结果可能不完整。建议先运行
+                        Knowledge Graph backfill。
+                      </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setMainOnly((prev) => !prev)}
+                        className={`rounded-lg border px-2 py-1 text-xs ${
+                          mainOnly
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        只看主线
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHideWeakRelations((prev) => !prev)}
+                        className={`rounded-lg border px-2 py-1 text-xs ${
+                          hideWeakRelations
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        隐藏弱关系
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setHideRelatedTo((prev) => !prev)}
+                        className={`rounded-lg border px-2 py-1 text-xs ${
+                          hideRelatedTo
+                            ? "border-blue-200 bg-blue-50 text-blue-700"
+                            : "border-slate-200 bg-white text-slate-700"
+                        }`}
+                      >
+                        隐藏“相关”
+                      </button>
+                      <select
+                        className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                        value={relationTypeFilter}
+                        onChange={(event) =>
+                          setRelationTypeFilter(event.target.value)
+                        }
+                      >
+                        {relationFilterOptions.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            {item.label}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                        value={labelMode}
+                        onChange={(event) => setLabelMode(event.target.value)}
+                      >
+                        {labelModes.map((item) => (
+                          <option key={item.value} value={item.value}>
+                            标签：{item.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ToolbarButton
+                        label="Focus Node"
+                        onClick={focusSelectedNode}
+                        Icon={ArrowsOut}
+                      />
                     </div>
-                  )}
-                </div>
-                <ToolbarButton
-                  label="Expand Related Concepts"
-                  onClick={() => loadGraph()}
-                  Icon={GitFork}
-                />
-                <button
-                  type="button"
-                  onClick={() => setMainOnly((prev) => !prev)}
-                  className={`rounded-lg border px-2 py-1 text-xs ${
-                    mainOnly
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-slate-200 bg-white text-slate-700"
-                  }`}
-                >
-                  只看主线
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHideWeakRelations((prev) => !prev)}
-                  className={`rounded-lg border px-2 py-1 text-xs ${
-                    hideWeakRelations
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-slate-200 bg-white text-slate-700"
-                  }`}
-                >
-                  隐藏弱关系
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setHideRelatedTo((prev) => !prev)}
-                  className={`rounded-lg border px-2 py-1 text-xs ${
-                    hideRelatedTo
-                      ? "border-blue-200 bg-blue-50 text-blue-700"
-                      : "border-slate-200 bg-white text-slate-700"
-                  }`}
-                >
-                  隐藏“相关”
-                </button>
-                <select
-                  className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-                  value={relationTypeFilter}
-                  onChange={(event) =>
-                    setRelationTypeFilter(event.target.value)
-                  }
-                >
-                  {relationFilterOptions.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-                  value={labelMode}
-                  onChange={(event) => setLabelMode(event.target.value)}
-                >
-                  {labelModes.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      标签：{item.label}
-                    </option>
-                  ))}
-                </select>
-                <ToolbarButton
-                  label="Focus Node"
-                  onClick={focusSelectedNode}
-                  Icon={ArrowsOut}
-                />
+                    {graphNeedsSimplification && (
+                      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                        已自动简化关系视图，可关闭过滤器手动展开全部关系。
+                      </div>
+                    )}
+                    <PathViewControls
+                      source={pathSource}
+                      setSource={setPathSource}
+                      target={pathTarget}
+                      setTarget={setPathTarget}
+                      defaultSource={graphConcept}
+                      selectedNode={selectedNode}
+                      loading={pathLoading}
+                      result={pathResult}
+                      selectedIndex={selectedPathIndex}
+                      setSelectedIndex={setSelectedPathIndex}
+                      onLoad={loadPath}
+                    />
+                  </div>
+                )}
               </div>
-              {graphNeedsSimplification && (
-                <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                  已自动简化关系视图，可关闭过滤器手动展开全部关系。
-                </div>
-              )}
-              <PathViewControls
-                source={pathSource}
-                setSource={setPathSource}
-                target={pathTarget}
-                setTarget={setPathTarget}
-                defaultSource={graphConcept}
-                selectedNode={selectedNode}
-                loading={pathLoading}
-                result={pathResult}
-                selectedIndex={selectedPathIndex}
-                setSelectedIndex={setSelectedPathIndex}
-                onLoad={loadPath}
-              />
             </div>
           )}
 
-          <div className="mt-3 pb-3 flex flex-wrap gap-2 items-center">
+          <div
+            className={`mt-3 flex flex-wrap gap-2 items-center ${
+              mode === "graph" && graphControlsCollapsed ? "hidden" : "pb-3"
+            }`}
+          >
             {mode === "ai" && (
               <>
                 <select
@@ -1298,18 +1369,14 @@ function GraphStatusBar({ status }) {
         : "部分构建";
   return (
     <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-3">
-      <StatusPill label="Nodes" value={status.nodes || 0} />
-      <StatusPill label="Edges" value={status.edges || 0} />
-      <StatusPill label="Evidence" value={status.evidence || 0} />
+      <StatusPill label="节点" value={status.nodes || 0} />
+      <StatusPill label="关系" value={status.edges || 0} />
+      <StatusPill label="证据" value={status.evidence || 0} />
       <StatusPill
-        label="Processed"
+        label="已处理文档"
         value={`${status.graphProcessedDocuments ?? status.processedDocuments ?? 0}/${status.eligibleVectorDocuments ?? status.vectorDocuments ?? 0}`}
       />
-      <StatusPill
-        label="Missing cache"
-        value={status.missingVectorCacheDocuments || 0}
-      />
-      <StatusPill label="Status" value={statusLabel} />
+      <StatusPill label="构建状态" value={statusLabel} />
     </div>
   );
 }
@@ -1509,18 +1576,18 @@ function HoverPreview({ node }) {
       <div className="font-semibold text-slate-900">{node.label}</div>
       {!!node.aliases?.length && (
         <div className="mt-1">
-          Aliases: {formatAliases(node.aliases).slice(0, 4).join(" / ")}
+          别名：{formatAliases(node.aliases).slice(0, 4).join(" / ")}
         </div>
       )}
       <div className="mt-2 grid grid-cols-2 gap-1">
-        <span>Evidence: {node.evidenceCount || 0}</span>
-        <span>Importance: {formatScore(node.importanceScore)}</span>
-        <span>Workspace: {formatScore(node.workspaceImportanceScore)}</span>
-        <span>Recent: {formatScore(node.recentImportanceScore)}</span>
+        <span>证据：{node.evidenceCount || 0}</span>
+        <span>重要度：{formatScore(node.importanceScore)}</span>
+        <span>工作区：{formatScore(node.workspaceImportanceScore)}</span>
+        <span>近期：{formatScore(node.recentImportanceScore)}</span>
       </div>
       {!!node.topChunks?.length && (
         <div className="mt-2">
-          <div className="font-medium text-slate-700">Top chunks</div>
+          <div className="font-medium text-slate-700">相关片段</div>
           {node.topChunks.slice(0, 3).map((chunk) => (
             <div key={chunk.chunkId} className="mt-1 truncate text-slate-500">
               {chunk.title || chunk.documentId}
@@ -2235,7 +2302,7 @@ function SelectionPanel({ node, edge, explainSelected, setMessage }) {
         </div>
         <div className="mt-1 text-xs text-slate-500">
           {edge.relationLabelZh ? `${edge.relationLabelZh} · ` : ""}
-          Confidence {formatScore(edge.confidence)} · Evidence{" "}
+          置信度 {formatScore(edge.confidence)} · 证据{" "}
           {edge.evidenceCount || edge.evidence?.length || 0}
         </div>
         <EvidenceList evidence={edge.evidence} chunkIds={edge.chunkIds} />

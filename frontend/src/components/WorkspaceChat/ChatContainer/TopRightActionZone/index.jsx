@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { GitFork } from "@phosphor-icons/react";
 import { isMobile } from "react-device-detect";
 import useLoginMode from "@/hooks/useLoginMode";
-import TextSizeMenu from "../TextSizeMenu";
+import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
+import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
 
 const MIND_MAP_REVEAL_DELAY_MS = 125;
 const HIDE_DELAY_MS = 2000;
@@ -11,6 +12,7 @@ const FADE_OUT_MS = 700;
 export default function TopRightActionZone({
   isMindMapOpen = false,
   onMindMap,
+  workspaceSlug,
 }) {
   const mode = useLoginMode();
   const hasUserIcon = mode !== null;
@@ -19,7 +21,6 @@ export default function TopRightActionZone({
   const interactionTimer = useRef(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [isInteractive, setIsInteractive] = useState(!isMindMapOpen);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     return () => {
@@ -33,18 +34,11 @@ export default function TopRightActionZone({
       setIsInteractive(true);
       return;
     }
-    if (!isMindMapOpen || isMenuOpen) return;
+    if (!isMindMapOpen) return;
     clearTimers();
     setIsRevealed(false);
     setIsInteractive(false);
-  }, [isMindMapOpen, isMenuOpen]);
-
-  useEffect(() => {
-    if (!isMenuOpen) return;
-    clearTimers();
-    setIsInteractive(true);
-    setIsRevealed(true);
-  }, [isMenuOpen]);
+  }, [isMindMapOpen]);
 
   function clearTimers() {
     clearTimeout(revealTimer.current);
@@ -68,8 +62,6 @@ export default function TopRightActionZone({
     clearTimeout(revealTimer.current);
     clearTimeout(hideTimer.current);
     clearTimeout(interactionTimer.current);
-    if (isMenuOpen) return;
-
     hideTimer.current = setTimeout(() => {
       setIsRevealed(false);
       interactionTimer.current = setTimeout(() => {
@@ -93,8 +85,11 @@ export default function TopRightActionZone({
         scheduleHide();
       }}
     >
+      <WorkspaceHealthProvider workspaceSlug={workspaceSlug}>
+        <WorkspaceHealthBeacon workspaceSlug={workspaceSlug} />
+      </WorkspaceHealthProvider>
       <div
-        className={`flex flex-col items-center gap-2 transition-all ease-out ${
+        className={`mt-2 flex flex-col items-center gap-2 transition-all ease-out ${
           isRevealed
             ? "opacity-100 translate-y-0"
             : `${hiddenOpacity} translate-y-1`
@@ -103,7 +98,6 @@ export default function TopRightActionZone({
           transitionDuration: isRevealed ? "200ms" : `${FADE_OUT_MS}ms`,
         }}
       >
-        <TextSizeMenu inline onOpenChange={setIsMenuOpen} />
         <MindMapQuickEntry onOpen={onMindMap} />
       </div>
     </div>
@@ -117,11 +111,11 @@ function MindMapQuickEntry({ onOpen }) {
       onClick={onOpen}
       title="进入思维导图"
       aria-label="进入思维导图"
-      className="group border-none cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full transition-all hover:bg-zinc-700 light:hover:bg-slate-200 bg-zinc-800/40 light:bg-white/70 light:shadow-sm light:border light:border-slate-200"
+      className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
     >
       <GitFork
         size={18}
-        className="text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
+        className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
       />
     </button>
   );

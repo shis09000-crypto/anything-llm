@@ -40,12 +40,14 @@ async function scheduleGraphExtractionForDocument({
         processPendingGraphExtractionJobs,
       } = require("./processGraphExtractionJob");
       setImmediate(() =>
-        processPendingGraphExtractionJobs({ workspaceId: workspace.id }).catch(
-          (error) =>
-            console.error(
-              "[KnowledgeGraph] async extraction failed",
-              error.message
-            )
+        processPendingGraphExtractionJobs({
+          workspaceId: workspace.id,
+          drain: true,
+        }).catch((error) =>
+          console.error(
+            "[KnowledgeGraph] async extraction failed",
+            error.message
+          )
         )
       );
     }

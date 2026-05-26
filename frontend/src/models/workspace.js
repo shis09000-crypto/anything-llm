@@ -597,6 +597,129 @@ const Workspace = {
     return response;
   },
 
+  generateQuiz: async function (slug, { message, threadSlug = null } = {}) {
+    return await fetch(`${API_BASE}/workspace/${slug}/quiz/generate`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ message, threadSlug }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  quizStatus: async function (slug, quizId) {
+    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/status`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  submitQuiz: async function (slug, quizId, answers = {}) {
+    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/submit`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ answers }),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  submitQuizStream: async function (slug, quizId, answers = {}, handleChat) {
+    await fetchEventSource(
+      `${API_BASE}/workspace/${slug}/quiz/${quizId}/submit-stream`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify({ answers }),
+        openWhenHidden: true,
+        async onopen(response) {
+          if (response.ok) return;
+          throw new Error(`Quiz analysis failed with ${response.status}`);
+        },
+        async onmessage(msg) {
+          const chatResult = safeJsonParse(msg.data, null);
+          if (chatResult) handleChat?.(chatResult);
+        },
+        onerror(error) {
+          handleChat?.({
+            id: v4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: error.message,
+          });
+          throw error;
+        },
+      }
+    );
+  },
+
+  saveQuizProgress: async function (
+    slug,
+    quizId,
+    { answers = {}, currentIndex = 0 } = {}
+  ) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/quiz/${quizId}/progress`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify({ answers, currentIndex }),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  abandonQuiz: async function (slug, quizId) {
+    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/abandon`, {
+      method: "POST",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  saveQuizWrongQuestions: async function (slug, quizId) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/quiz/${quizId}/wrong-questions`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  favoriteQuizQuestion: async function (slug, quizId, questionId) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/quiz/${quizId}/favorite-question`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify({ questionId }),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
+  unfavoriteQuizQuestion: async function (slug, quizId, questionId) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/quiz/${quizId}/favorite-question/${questionId}`,
+      {
+        method: "DELETE",
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((e) => ({ success: false, error: e.message }));
+  },
+
   /**
    * Checks if the agent command is available for a workspace
    * by checking if the workspace's agent provider supports native tool calling.

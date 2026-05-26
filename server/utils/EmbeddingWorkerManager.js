@@ -117,11 +117,12 @@ async function embedFiles(slug, files, workspaceId, userId) {
       logEmbeddingEvent(msg);
       const { processPendingGraphExtractionJobs } = require("./knowledgeGraph");
       setImmediate(() =>
-        processPendingGraphExtractionJobs({ workspaceId }).catch((error) =>
-          console.error(
-            `[KnowledgeGraph] failed to process jobs for ${slug}:`,
-            error.message
-          )
+        processPendingGraphExtractionJobs({ workspaceId, drain: true }).catch(
+          (error) =>
+            console.error(
+              `[KnowledgeGraph] failed to process jobs for ${slug}:`,
+              error.message
+            )
         )
       );
     }

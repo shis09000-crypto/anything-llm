@@ -3,7 +3,7 @@ import System from "@/models/system";
 import showToast from "@/utils/toast";
 import { formatDateTime24 } from "@/utils/dates";
 import { ArrowClockwise, CaretDown, CaretUp } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { isMobile } from "react-device-detect";
 import * as Skeleton from "react-loading-skeleton";
 import { useTranslation } from "react-i18next";
@@ -14,16 +14,38 @@ export default function BatchJobs() {
   const [retryingJobId, setRetryingJobId] = useState(null);
   const { t } = useTranslation();
 
-  async function fetchJobs() {
-    setLoading(true);
+  const fetchJobs = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) setLoading(true);
     const { jobs: _jobs = [] } = await System.embeddingBatchJobs();
     setJobs(_jobs);
     setLoading(false);
-  }
+  }, []);
 
   useEffect(() => {
     fetchJobs();
-  }, []);
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    const shouldRefresh = jobs.some((job) => {
+      const batchActive = [
+        "queued",
+        "file_uploaded",
+        "submitted",
+        "polling",
+        "retrying",
+      ].includes(job.status);
+      const graphActive = ["pending", "processing"].includes(
+        job.graphStatus?.status
+      );
+      return batchActive || graphActive;
+    });
+    if (!shouldRefresh) return;
+
+    const interval = setInterval(() => {
+      fetchJobs({ silent: true });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [fetchJobs, jobs]);
 
   async function handleRetry(jobId) {
     setRetryingJobId(jobId);
@@ -88,12 +110,13 @@ export default function BatchJobs() {
 function JobsTable({ jobs, onRetry, retryingJobId }) {
   const { t } = useTranslation();
   return (
-    <table className="w-full text-xs text-left rounded-lg min-w-[1220px] border-spacing-0">
+    <table className="w-full text-xs text-left rounded-lg min-w-[1340px] border-spacing-0">
       <thead className="text-theme-text-secondary text-xs leading-[18px] font-bold uppercase border-white/10 border-b">
         <tr>
           <th className="px-4 py-3">{t("batch-jobs.table.job-id")}</th>
           <th className="px-4 py-3">{t("batch-jobs.table.workspace")}</th>
           <th className="px-4 py-3">{t("batch-jobs.table.status")}</th>
+          <th className="px-4 py-3">{t("batch-jobs.table.graph")}</th>
           <th className="px-4 py-3">{t("batch-jobs.table.retry-count")}</th>
           <th className="px-4 py-3">{t("batch-jobs.table.next-retry")}</th>
           <th className="px-4 py-3">{t("batch-jobs.table.created")}</th>
@@ -132,6 +155,9 @@ function JobRow({ job, onRetry, retrying }) {
         <td className="px-4 py-2">{job.workspaceSlug}</td>
         <td className="px-4 py-2">
           <StatusBadge status={job.status} />
+        </td>
+        <td className="px-4 py-2">
+          <GraphStatusBadge graphStatus={job.graphStatus} />
         </td>
         <td className="px-4 py-2">{job.retryCount || 0}</td>
         <td className="px-4 py-2 whitespace-nowrap">
@@ -176,7 +202,7 @@ function JobRow({ job, onRetry, retrying }) {
       </tr>
       {expanded && (
         <tr className="bg-theme-bg-primary">
-          <td colSpan="10" className="px-4 py-4">
+          <td colSpan="11" className="px-4 py-4">
             <div className="rounded-lg bg-theme-bg-secondary p-3 border-white/10 border">
               {(job.events || []).length === 0 ? (
                 <p className="text-theme-text-secondary">No events</p>
@@ -203,6 +229,37 @@ function JobRow({ job, onRetry, retrying }) {
         </tr>
       )}
     </>
+  );
+}
+
+function GraphStatusBadge({ graphStatus }) {
+  const { t } = useTranslation();
+  if (!graphStatus || !graphStatus.total)
+    return <span className="text-theme-text-secondary">--</span>;
+
+  const colors = {
+    not_started: "bg-slate-600/20 text-slate-200 light:text-slate-700",
+    pending: "bg-yellow-600/20 text-yellow-300 light:text-yellow-700",
+    processing: "bg-blue-600/20 text-blue-300 light:text-blue-700",
+    completed: "bg-green-600/20 text-green-300 light:text-green-700",
+    partial_failed: "bg-orange-600/20 text-orange-300 light:text-orange-700",
+    failed: "bg-red-600/20 text-red-300 light:text-red-700",
+    unknown: "bg-slate-600/20 text-slate-200 light:text-slate-700",
+  };
+  const status = graphStatus.status || "unknown";
+  return (
+    <div className="flex flex-col gap-y-1">
+      <span
+        className={`w-fit rounded-full px-2 py-0.5 text-xs font-medium ${
+          colors[status] || colors.unknown
+        }`}
+      >
+        {t(`batch-jobs.graph.status.${status}`)}
+      </span>
+      <span className="text-[11px] leading-4 text-theme-text-secondary whitespace-nowrap">
+        {graphStatus.completed || 0}/{graphStatus.total || 0}
+      </span>
+    </div>
   );
 }
 

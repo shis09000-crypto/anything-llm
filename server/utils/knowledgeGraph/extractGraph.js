@@ -15,7 +15,7 @@ async function extractGraphFromChunk({ chunkText, domain = "default" }) {
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt:
-        "You are a knowledge graph extraction engine. You output strict JSON only.",
+        "你是知识图谱抽取引擎。只输出严格 JSON。实体名称、摘要和证据短语必须优先使用简体中文，除必要专有名词外不要输出英文解释。",
       userPrompt: prompt,
       contextTexts: [],
       chatHistory: [],
@@ -25,7 +25,7 @@ async function extractGraphFromChunk({ chunkText, domain = "default" }) {
   );
   const { textResponse, metrics } = await LLMConnector.getChatCompletion(
     messages,
-    { temperature: 0.1 }
+    { temperature: 0.1, responseFormat: { type: "json_object" } }
   );
   const graph = normalizeExtractionResult(textResponse);
   console.log(

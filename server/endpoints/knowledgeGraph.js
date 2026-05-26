@@ -91,7 +91,9 @@ function knowledgeGraphEndpoints(app) {
     async (_request, response) => {
       try {
         const workspace = response.locals.workspace;
-        const stats = await KnowledgeGraph.graphStats(workspace.id);
+        const stats = await KnowledgeGraph.graphStats(workspace.id, {
+          ensureSchema: false,
+        });
         response.status(200).json({ stats });
       } catch (error) {
         console.error(error);
@@ -106,7 +108,10 @@ function knowledgeGraphEndpoints(app) {
     async (_request, response) => {
       try {
         const workspace = response.locals.workspace;
-        const repair = await KnowledgeGraph.repairStatus(workspace.id);
+        const repair = await KnowledgeGraph.repairStatus(workspace.id, {
+          ensureSchema: false,
+          repairLegacyVectorCache: false,
+        });
         response.status(200).json({ repair });
       } catch (error) {
         console.error(error);

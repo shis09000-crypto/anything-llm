@@ -1841,6 +1841,34 @@ export function ChatThreadDraftProvider({ children }) {
     ]
   );
 
+  const startLocalTurn = useCallback(
+    ({ workspaceSlug, threadSlug = null, prompt, history = [] }) => {
+      const chatKey = ensureDraft({
+        workspaceSlug,
+        threadSlug,
+        history,
+      });
+      const { turnId, items: turnItems } = createTurn({
+        prompt,
+        chatKey,
+      });
+      delete settledTurnRefs.current[turnRefKey(chatKey, turnId)];
+      updateDraft(chatKey, (draft) => ({
+        ...draft,
+        items: [...(draft.items || []), ...turnItems],
+        activeTurnId: turnId,
+        pendingApproval: null,
+        activeToolCall: null,
+        isStreaming: true,
+        isAgentRunning: false,
+        persistError: null,
+      }));
+      markThreadRunning(chatKey, turnId);
+      return { chatKey, turnId };
+    },
+    [ensureDraft, markThreadRunning, updateDraft]
+  );
+
   const stopStream = useCallback(
     (chatKey = null) => {
       const keys = chatKey ? [chatKey] : Object.keys(draftsRef.current);
@@ -1994,6 +2022,7 @@ export function ChatThreadDraftProvider({ children }) {
       completeAssistantTurn,
       failAssistantTurn,
       startStream,
+      startLocalTurn,
       respondToApproval,
       stopStream,
       hasWorkspaceActivity,
@@ -2027,6 +2056,7 @@ export function ChatThreadDraftProvider({ children }) {
       respondToApproval,
       runningState,
       startStream,
+      startLocalTurn,
       stopStream,
       updateAssistantTurn,
       updateUserItem,

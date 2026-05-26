@@ -47,6 +47,7 @@ function normalizeAliases(aliases = []) {
       continue;
     }
     const text = String(alias || "").trim();
+    if (text === "[object Object]") continue;
     const key = canonicalKey(text);
     if (!text || seen.has(key)) continue;
     seen.add(key);
@@ -112,6 +113,25 @@ function toRepairRun(row = null) {
     metrics: safeJsonParse(row.metricsJson, {}),
   };
 }
+
+const REPAIR_ISSUE_SELECT = `"id", "workspaceId", "documentId", "chunkId",
+  "issueType", "status", "priorityScore", "priorityReason", "rootConceptHit",
+  "workspaceImportanceScore", "traversalUsageCount", "retryCount",
+  CAST("nextRetryAt" AS TEXT) AS "nextRetryAt",
+  CAST("cooldownUntil" AS TEXT) AS "cooldownUntil",
+  "repairMethod", "repairConfidence", "lastError", "explainReason",
+  "quarantineReason", "metadataJson",
+  CAST("createdAt" AS TEXT) AS "createdAt",
+  CAST("updatedAt" AS TEXT) AS "updatedAt"`;
+
+const REPAIR_RUN_SELECT = `"id", "workspaceId", "trigger", "scanned",
+  "repaired", "failed", "skipped", "budgetExhausted", "durationMs",
+  "tokenBudgetUsed", "providerBudgetUsed", "successRate",
+  "avgRepairLatencyMs", "providerFailureRate", "needsReembedCount",
+  "quarantinedCount", "lowConfidenceRelationRatio", "relatedToRatio",
+  "malformedExtractionRatio", "abnormalFanoutCount", "timeoutRate",
+  "malformedJsonRate", "avgExtractionLatencyMs", "providerFailureTrend",
+  "metricsJson", CAST("createdAt" AS TEXT) AS "createdAt"`;
 
 function toNodeMetrics(row = null) {
   if (!row) return null;
@@ -432,6 +452,23 @@ async function ensureColumn(table, column, definition) {
   );
 }
 
+async function resolveLegacyVectorCacheRepairIssues(workspaceId) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE "KnowledgeGraphRepairIssue"
+    SET "status" = 'repaired',
+      "repairMethod" = COALESCE("repairMethod", 'source_text_fallback_accepted'),
+      "repairConfidence" = COALESCE("repairConfidence", 'medium'),
+      "explainReason" = '历史 vector-cache 遗留状态已清理；该文档可通过源文档文本参与 KG 覆盖，不再计入健康告警。',
+      "lastError" = NULL,
+      "updatedAt" = CURRENT_TIMESTAMP
+    WHERE "workspaceId" = ?
+      AND "issueType" = 'missing_vector_cache'
+      AND "status" IN ('open', 'needs_reembed', 'quarantined')
+      AND "metadataJson" LIKE '%"hasSourceText":true%'`,
+    Number(workspaceId)
+  );
+}
+
 const KnowledgeGraph = {
   statuses: {
     pending: "pending",
@@ -444,8 +481,8 @@ const KnowledgeGraph = {
   paramsHash,
   ensureTables,
 
-  async findNodeByNameOrAlias({ workspaceId, name }) {
-    await ensureTables();
+  async findNodeByNameOrAlias({ workspaceId, name, ensureSchema = true }) {
+    if (ensureSchema) await ensureTables();
     const key = canonicalKey(name);
     const direct = (
       await prisma.$queryRawUnsafe(
@@ -573,6 +610,34 @@ const KnowledgeGraph = {
       WHERE "id" = ?`,
       displayNameZh,
       displayNameEn,
+      safeJSONStringify(nextAliases),
+      Number(id)
+    );
+    return await this.getNode(id);
+  },
+
+  async updateNodeChineseFields({
+    id,
+    displayNameZh = null,
+    summary = null,
+    aliases = null,
+  }) {
+    await ensureTables();
+    if (!id) return null;
+    const current = await this.getNode(id);
+    if (!current) return null;
+    const nextAliases = aliases
+      ? normalizeAliases([...(current.aliases || []), ...aliases])
+      : current.aliases || [];
+    await prisma.$executeRawUnsafe(
+      `UPDATE "KnowledgeNode"
+      SET "displayNameZh" = COALESCE(?, "displayNameZh"),
+        "summary" = COALESCE(?, "summary"),
+        "aliases" = ?,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "id" = ?`,
+      displayNameZh,
+      summary,
       safeJSONStringify(nextAliases),
       Number(id)
     );
@@ -878,8 +943,28 @@ const KnowledgeGraph = {
     );
   },
 
-  async graphStats(workspaceId) {
+  async resetStaleProcessingJobs({
+    workspaceId = null,
+    staleMinutes = 15,
+    reason = "auto_reset_stale_processing_job",
+  } = {}) {
     await ensureTables();
+    const workspaceClause = workspaceId ? `AND "workspaceId" = ?` : "";
+    await prisma.$executeRawUnsafe(
+      `UPDATE "GraphExtractionJob"
+      SET "status" = 'pending', "errorMessage" = ?,
+        "updatedAt" = CURRENT_TIMESTAMP
+      WHERE "status" = 'processing'
+        AND "updatedAt" <= datetime('now', ?)
+        ${workspaceClause}`,
+      reason,
+      `-${Math.max(1, Number(staleMinutes || 15))} minutes`,
+      ...(workspaceId ? [Number(workspaceId)] : [])
+    );
+  },
+
+  async graphStats(workspaceId, { ensureSchema = true } = {}) {
+    if (ensureSchema) await ensureTables();
     const [
       nodes,
       edges,
@@ -892,9 +977,6 @@ const KnowledgeGraph = {
       graphCoveredDocuments,
       vectorDocuments,
       vectorRows,
-      terminalVectorRows,
-      completedVectorRows,
-      failedVectorRows,
       graphProcessedDocuments,
       noGraphOutputDocuments,
       workspaceDocuments,
@@ -937,80 +1019,47 @@ const KnowledgeGraph = {
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
-        `SELECT COUNT(DISTINCT v."docId") AS count
-        FROM "document_vectors" v
-        JOIN "workspace_documents" d ON d."docId" = v."docId"
-        WHERE d."workspaceId" = ?`,
+        `SELECT COUNT(DISTINCT "documentId") AS count
+        FROM "GraphExtractionJob"
+        WHERE "workspaceId" = ?`,
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*) AS count
-        FROM "document_vectors" v
-        JOIN "workspace_documents" d ON d."docId" = v."docId"
-        WHERE d."workspaceId" = ?`,
-        Number(workspaceId)
-      ),
-      prisma.$queryRawUnsafe(
-        `SELECT COUNT(DISTINCT v."vectorId") AS count
-        FROM "document_vectors" v
-        JOIN "workspace_documents" d ON d."docId" = v."docId"
-        JOIN "GraphExtractionJob" j
-          ON j."workspaceId" = d."workspaceId" AND j."chunkId" = v."vectorId"
-        WHERE d."workspaceId" = ? AND j."status" IN ('completed', 'failed')`,
-        Number(workspaceId)
-      ),
-      prisma.$queryRawUnsafe(
-        `SELECT COUNT(DISTINCT v."vectorId") AS count
-        FROM "document_vectors" v
-        JOIN "workspace_documents" d ON d."docId" = v."docId"
-        JOIN "GraphExtractionJob" j
-          ON j."workspaceId" = d."workspaceId" AND j."chunkId" = v."vectorId"
-        WHERE d."workspaceId" = ? AND j."status" = 'completed'`,
-        Number(workspaceId)
-      ),
-      prisma.$queryRawUnsafe(
-        `SELECT COUNT(DISTINCT v."vectorId") AS count
-        FROM "document_vectors" v
-        JOIN "workspace_documents" d ON d."docId" = v."docId"
-        JOIN "GraphExtractionJob" j
-          ON j."workspaceId" = d."workspaceId" AND j."chunkId" = v."vectorId"
-        WHERE d."workspaceId" = ? AND j."status" = 'failed'`,
+        FROM "GraphExtractionJob"
+        WHERE "workspaceId" = ?`,
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*) AS count FROM (
-          SELECT d."docId"
-          FROM "workspace_documents" d
-          JOIN "document_vectors" v ON v."docId" = d."docId"
-          LEFT JOIN "GraphExtractionJob" j
-            ON j."workspaceId" = d."workspaceId" AND j."chunkId" = v."vectorId"
-          WHERE d."workspaceId" = ?
-          GROUP BY d."docId"
-          HAVING COUNT(DISTINCT v."vectorId") > 0
-            AND COUNT(DISTINCT v."vectorId") =
-              COUNT(DISTINCT CASE WHEN j."status" IN ('completed', 'failed') THEN v."vectorId" END)
+          SELECT j."documentId"
+          FROM "GraphExtractionJob" j
+          WHERE j."workspaceId" = ?
+          GROUP BY j."documentId"
+          HAVING COUNT(*) > 0
+            AND COUNT(*) = SUM(CASE WHEN j."status" IN ('completed', 'failed') THEN 1 ELSE 0 END)
         )`,
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*) AS count FROM (
-          SELECT d."docId"
-          FROM "workspace_documents" d
-          JOIN "document_vectors" v ON v."docId" = d."docId"
-          LEFT JOIN "GraphExtractionJob" j
-            ON j."workspaceId" = d."workspaceId" AND j."chunkId" = v."vectorId"
-          LEFT JOIN "ConceptChunkMap" c
-            ON c."workspaceId" = d."workspaceId" AND c."documentId" = d."docId"
-          LEFT JOIN "EdgeEvidence" ev
-            ON ev."workspaceId" = d."workspaceId" AND ev."documentId" = d."docId"
-          WHERE d."workspaceId" = ?
-          GROUP BY d."docId"
-          HAVING COUNT(DISTINCT v."vectorId") > 0
-            AND COUNT(DISTINCT v."vectorId") =
-              COUNT(DISTINCT CASE WHEN j."status" = 'completed' THEN v."vectorId" END)
-            AND COUNT(DISTINCT c."chunkId") = 0
-            AND COUNT(DISTINCT ev."chunkId") = 0
+          SELECT j."documentId"
+          FROM "GraphExtractionJob" j
+          WHERE j."workspaceId" = ?
+          GROUP BY j."documentId"
+          HAVING COUNT(*) > 0
+            AND COUNT(*) = SUM(CASE WHEN j."status" = 'completed' THEN 1 ELSE 0 END)
+            AND NOT EXISTS (
+              SELECT 1 FROM "ConceptChunkMap" c
+              WHERE c."workspaceId" = ? AND c."documentId" = j."documentId"
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM "EdgeEvidence" ev
+              WHERE ev."workspaceId" = ? AND ev."documentId" = j."documentId"
+            )
         )`,
+        Number(workspaceId),
+        Number(workspaceId),
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
@@ -1018,9 +1067,10 @@ const KnowledgeGraph = {
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
-        `SELECT DISTINCT d."docId", d."docpath", COUNT(v."vectorId") AS "vectorRows"
+        `SELECT d."docId", d."docpath", COUNT(j."chunkId") AS "vectorRows"
         FROM "workspace_documents" d
-        JOIN "document_vectors" v ON v."docId" = d."docId"
+        LEFT JOIN "GraphExtractionJob" j
+          ON j."workspaceId" = d."workspaceId" AND j."documentId" = d."docId"
         WHERE d."workspaceId" = ?
         GROUP BY d."docId", d."docpath"`,
         Number(workspaceId)
@@ -1078,9 +1128,9 @@ const KnowledgeGraph = {
       missingVectorCacheDocuments,
       sourceTextFallbackDocuments,
       missingGraphTextDocuments,
-      terminalVectorRows: countFrom(terminalVectorRows),
-      completedVectorRows: countFrom(completedVectorRows),
-      failedVectorRows: countFrom(failedVectorRows),
+      terminalVectorRows: countFrom(completedJobs) + countFrom(failedJobs),
+      completedVectorRows: countFrom(completedJobs),
+      failedVectorRows: countFrom(failedJobs),
     };
     const terminalWorkComplete =
       counts.pendingJobs === 0 &&
@@ -1203,10 +1253,10 @@ const KnowledgeGraph = {
     await ensureTables();
     const row = (
       await prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairIssue"
-        WHERE "workspaceId" = ? AND "issueType" = ?
-          AND "documentId" = ? AND "chunkId" = ?
-        LIMIT 1`,
+        `SELECT ${REPAIR_ISSUE_SELECT} FROM "KnowledgeGraphRepairIssue"
+	        WHERE "workspaceId" = ? AND "issueType" = ?
+	          AND "documentId" = ? AND "chunkId" = ?
+	        LIMIT 1`,
         Number(workspaceId),
         String(issueType),
         String(documentId || ""),
@@ -1229,10 +1279,10 @@ const KnowledgeGraph = {
       : `AND ("nextRetryAt" IS NULL OR "nextRetryAt" <= CURRENT_TIMESTAMP)
         AND ("cooldownUntil" IS NULL OR "cooldownUntil" <= CURRENT_TIMESTAMP)`;
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT * FROM "KnowledgeGraphRepairIssue"
-      WHERE "workspaceId" = ?
-        AND "status" IN (${statusList.map(() => "?").join(",")})
-        ${blockClause}
+      `SELECT ${REPAIR_ISSUE_SELECT} FROM "KnowledgeGraphRepairIssue"
+	      WHERE "workspaceId" = ?
+	        AND "status" IN (${statusList.map(() => "?").join(",")})
+	        ${blockClause}
       ORDER BY "priorityScore" DESC, "createdAt" ASC
       LIMIT ?`,
       Number(workspaceId),
@@ -1291,7 +1341,8 @@ const KnowledgeGraph = {
     );
     const row = (
       await prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairIssue" WHERE "id" = ? LIMIT 1`,
+        `SELECT ${REPAIR_ISSUE_SELECT} FROM "KnowledgeGraphRepairIssue"
+	        WHERE "id" = ? LIMIT 1`,
         Number(id)
       )
     )?.[0];
@@ -1375,17 +1426,22 @@ const KnowledgeGraph = {
     );
     const row = (
       await prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairRun"
-        WHERE "workspaceId" = ?
-        ORDER BY "id" DESC LIMIT 1`,
+        `SELECT ${REPAIR_RUN_SELECT} FROM "KnowledgeGraphRepairRun"
+	        WHERE "workspaceId" = ?
+	        ORDER BY "id" DESC LIMIT 1`,
         Number(workspaceId)
       )
     )?.[0];
     return row ? toRepairRun(row) : null;
   },
 
-  async repairStatus(workspaceId) {
-    await ensureTables();
+  async repairStatus(
+    workspaceId,
+    { ensureSchema = true, repairLegacyVectorCache = true } = {}
+  ) {
+    if (ensureSchema) await ensureTables();
+    if (repairLegacyVectorCache)
+      await resolveLegacyVectorCacheRepairIssues(workspaceId);
     const [
       latestRun,
       openIssues,
@@ -1396,8 +1452,8 @@ const KnowledgeGraph = {
       recentIssues,
     ] = await Promise.all([
       prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairRun"
-        WHERE "workspaceId" = ? ORDER BY "createdAt" DESC LIMIT 1`,
+        `SELECT ${REPAIR_RUN_SELECT} FROM "KnowledgeGraphRepairRun"
+	        WHERE "workspaceId" = ? ORDER BY "createdAt" DESC LIMIT 1`,
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
@@ -1427,8 +1483,14 @@ const KnowledgeGraph = {
         Number(workspaceId)
       ),
       prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairIssue"
-        WHERE "workspaceId" = ?
+        `SELECT ${REPAIR_ISSUE_SELECT}
+	        FROM "KnowledgeGraphRepairIssue"
+	        WHERE "workspaceId" = ?
+	          AND NOT (
+	            "issueType" = 'missing_vector_cache'
+            AND "status" = 'repaired'
+            AND "metadataJson" LIKE '%"hasSourceText":true%'
+          )
         ORDER BY "updatedAt" DESC LIMIT 8`,
         Number(workspaceId)
       ),
@@ -1450,9 +1512,9 @@ const KnowledgeGraph = {
     await ensureTables();
     const row = (
       await prisma.$queryRawUnsafe(
-        `SELECT * FROM "KnowledgeGraphRepairIssue"
-        WHERE "workspaceId" = ? AND "id" = ? AND "status" = 'quarantined'
-        LIMIT 1`,
+        `SELECT ${REPAIR_ISSUE_SELECT} FROM "KnowledgeGraphRepairIssue"
+	        WHERE "workspaceId" = ? AND "id" = ? AND "status" = 'quarantined'
+	        LIMIT 1`,
         Number(workspaceId),
         Number(issueId)
       )
@@ -1524,7 +1586,6 @@ const KnowledgeGraph = {
   },
 
   async getCache({ workspaceId, conceptKey, params }) {
-    await ensureTables();
     const hash = paramsHash(params);
     const row = (
       await prisma.$queryRawUnsafe(
@@ -1539,17 +1600,20 @@ const KnowledgeGraph = {
       )
     )?.[0];
     if (!row) return null;
-    await prisma.$executeRawUnsafe(
-      `UPDATE "GraphRetrievalCache"
-      SET "hitCount" = "hitCount" + 1, "updatedAt" = CURRENT_TIMESTAMP
-      WHERE "id" = ?`,
-      Number(row.id)
-    );
+    prisma
+      .$executeRawUnsafe(
+        `UPDATE "GraphRetrievalCache"
+        SET "hitCount" = "hitCount" + 1, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "id" = ?`,
+        Number(row.id)
+      )
+      .catch((error) =>
+        console.warn("[KnowledgeGraph] cache hit write skipped:", error.message)
+      );
     return toCache(row);
   },
 
   async setCache({ workspaceId, conceptKey, params, result, ttlMs }) {
-    await ensureTables();
     const hash = paramsHash(params);
     const expiresAt = toSqliteDateTime(new Date(Date.now() + ttlMs));
     await prisma.$executeRawUnsafe(

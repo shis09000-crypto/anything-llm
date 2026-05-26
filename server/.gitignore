@@ -24,7 +24,11 @@ storage/direct-uploads
 logs/server.log
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 storage/lancedb
+storage/embedding-batches/*
+storage/tool-runs/*
 public/
 
 # For legacy copies of repo

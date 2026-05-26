@@ -1,7 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 import debounce from "lodash.debounce";
-import { ArrowUp, At, CaretDown, Shield } from "@phosphor-icons/react";
+import {
+  ArrowUp,
+  At,
+  CaretDown,
+  Question,
+  Shield,
+} from "@phosphor-icons/react";
 import StopGenerationButton from "./StopGenerationButton";
 import SpeechToText from "./SpeechToText";
 import { Tooltip } from "react-tooltip";
@@ -38,8 +44,12 @@ const FILE_ACCESS_MODE_OPTIONS = [
  * @param {function} props.sendCommand - handler for slash commands and agent mentions
  * @param {Array} [props.attachments] - file attachments array
  * @param {boolean} [props.centered] - renders in centered layout mode (for home page)
+ * @param {boolean} [props.glass] - uses a translucent shell for overlay-style home pages
  * @param {string} [props.workspaceSlug] - workspace slug for home page context
  * @param {string} [props.threadSlug] - thread slug for home page context
+ * @param {function} [props.onComposeStateChange] - reports local compose state to the parent
+ * @param {boolean} [props.quizModeActive] - next submission generates a quiz
+ * @param {function} [props.onToggleQuizMode] - toggles quiz mode
  */
 export default function PromptInput({
   workspace = {},
@@ -48,8 +58,12 @@ export default function PromptInput({
   sendCommand,
   attachments = [],
   centered = false,
+  glass = false,
   workspaceSlug = null,
   threadSlug = null,
+  onComposeStateChange,
+  quizModeActive = false,
+  onToggleQuizMode,
 }) {
   const { t } = useTranslation();
   const { showAgentCommand = true } = workspace ?? {};
@@ -57,6 +71,8 @@ export default function PromptInput({
   const agentSessionActive = useIsAgentSessionActive();
   const [promptInput, setPromptInput] = useState("");
   const [showTools, setShowTools] = useState(false);
+  const [isComposing, setIsComposing] = useState(false);
+  const [isVoiceInputActive, setIsVoiceInputActive] = useState(false);
   const autoOpenedToolsRef = useRef(false);
   const toolsHighlightRef = useRef(-1);
   const formRef = useRef(null);
@@ -105,6 +121,25 @@ export default function PromptInput({
     return () =>
       window?.removeEventListener(PROMPT_INPUT_EVENT, handlePromptUpdate);
   }, []);
+
+  useEffect(() => {
+    onComposeStateChange?.({
+      hasDraftInput: promptInput.trim().length > 0,
+      isComposing,
+      slashMenuOpen: showTools,
+      hasAttachments: attachments.length > 0,
+      isVoiceInputActive,
+      isStreaming: !!isStreaming,
+    });
+  }, [
+    attachments.length,
+    isComposing,
+    isStreaming,
+    isVoiceInputActive,
+    onComposeStateChange,
+    promptInput,
+    showTools,
+  ]);
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) textareaRef.current.focus();
@@ -377,7 +412,13 @@ export default function PromptInput({
               centered={centered}
               highlightedIndexRef={toolsHighlightRef}
             />
-            <div className="bg-zinc-800 light:bg-white light:border light:border-slate-300 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden">
+            <div
+              className={`rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden ${
+                glass
+                  ? "liquid-glass liquid-glass-strong"
+                  : "bg-zinc-800 light:bg-white light:border light:border-slate-300"
+              }`}
+            >
               <AttachmentManager attachments={attachments} />
               <div className="flex items-center">
                 <textarea
@@ -389,6 +430,11 @@ export default function PromptInput({
                     saveCurrentState();
                     handlePasteEvent(e);
                   }}
+                  onCompositionStart={() => setIsComposing(true)}
+                  onCompositionEnd={(event) => {
+                    setIsComposing(false);
+                    setPromptInput(event.currentTarget.value);
+                  }}
                   required={true}
                   onFocus={() => setFocused(true)}
                   onBlur={(e) => {
@@ -397,7 +443,11 @@ export default function PromptInput({
                   }}
                   value={promptInput}
                   spellCheck={Appearance.get("enableSpellCheck")}
-                  className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] pt-[20px] w-full leading-5 text-white light:text-slate-600 bg-transparent placeholder:text-white/60 light:placeholder:text-slate-400 resize-none active:outline-none focus:outline-none flex-grow pwa:!text-[16px] ${textSizeClass}`}
+                  className={`border-none cursor-text max-h-[50vh] md:max-h-[350px] md:min-h-[40px] pt-[20px] w-full leading-5 bg-transparent resize-none active:outline-none focus:outline-none flex-grow pwa:!text-[16px] ${
+                    glass
+                      ? "liquid-glass-input"
+                      : "text-white light:text-slate-600 placeholder:text-white/60 light:placeholder:text-slate-400"
+                  } ${textSizeClass}`}
                   placeholder={t("chat_window.send_message")}
                 />
               </div>
@@ -421,6 +471,11 @@ export default function PromptInput({
                     textareaRef={textareaRef}
                     autoOpenedToolsRef={autoOpenedToolsRef}
                   />
+                  <QuizModeButton
+                    active={quizModeActive}
+                    onToggle={onToggleQuizMode}
+                    textareaRef={textareaRef}
+                  />
                   <FileAccessModeButton
                     workspaceSlug={workspaceSlug || workspace?.slug}
                     threadSlug={threadSlug}
@@ -428,7 +483,10 @@ export default function PromptInput({
                   />
                 </div>
                 <div className="flex gap-x-2 items-center">
-                  <SpeechToText sendCommand={sendCommand} />
+                  <SpeechToText
+                    sendCommand={sendCommand}
+                    onListeningChange={setIsVoiceInputActive}
+                  />
                   {isStreaming ? (
                     <StopGenerationButton />
                   ) : (
@@ -440,11 +498,53 @@ export default function PromptInput({
                   )}
                 </div>
               </div>
+              {quizModeActive && (
+                <div className="pb-3 text-xs text-sky-300 light:text-sky-600">
+                  测试模式已开启：下一次输入将生成测试题
+                </div>
+              )}
             </div>
           </div>
         </div>
       </form>
     </div>
+  );
+}
+
+function QuizModeButton({ active, onToggle, textareaRef }) {
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        onToggle?.();
+        textareaRef.current?.focus();
+      }}
+      className={`group border-none cursor-pointer flex items-center justify-center gap-x-1 h-6 px-2 rounded-full ${
+        active
+          ? "bg-sky-900/50 light:bg-sky-100"
+          : "hover:bg-zinc-700 light:hover:bg-slate-200"
+      }`}
+      aria-label="测试模式"
+    >
+      <Question
+        size={15}
+        className={
+          active
+            ? "text-sky-300 light:text-sky-600"
+            : "text-zinc-300 light:text-slate-600"
+        }
+        weight="bold"
+      />
+      <span
+        className={`text-xs font-medium ${
+          active
+            ? "text-sky-300 light:text-sky-600"
+            : "text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-slate-800"
+        }`}
+      >
+        测试
+      </span>
+    </button>
   );
 }
 
@@ -734,8 +834,8 @@ function SendPromptButton({ formRef, promptInput, isDisabled }) {
         disabled={isDisabled || !promptInput.trim().length}
         className={`border-none flex justify-center items-center rounded-full w-8 h-8 transition-all ${
           promptInput.trim().length && !isDisabled
-            ? "cursor-pointer bg-white hover:bg-zinc-200 light:bg-slate-800 light:hover:bg-slate-600"
-            : "cursor-not-allowed bg-zinc-600 light:bg-slate-400"
+            ? "cursor-pointer bg-white hover:bg-zinc-200 light:bg-blue-500 light:hover:bg-blue-600"
+            : "cursor-not-allowed bg-zinc-600 light:bg-slate-300"
         }`}
         data-tooltip-id="send-prompt"
         data-tooltip-content={

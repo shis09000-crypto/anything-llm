@@ -12,6 +12,8 @@ function workerConcurrency() {
   return Math.max(1, Number.isNaN(value) ? 1 : value);
 }
 
+const activeDrains = new Set();
+
 async function processGraphExtractionJob(job) {
   const startedAt = Date.now();
   await KnowledgeGraph.markJobProcessing(job.id);
@@ -81,7 +83,12 @@ async function processGraphExtractionJob(job) {
     );
     return { success: true };
   } catch (error) {
-    await KnowledgeGraph.markJobFailed(job.id, error);
+    await KnowledgeGraph.markJobFailed(job.id, error).catch((markError) =>
+      console.error(
+        `[KnowledgeGraph] failed to record failed job ${job.id}:`,
+        markError.message
+      )
+    );
     console.error(`[KnowledgeGraph] failed job ${job.id}:`, error.message);
     return { success: false, error: error.message };
   }
@@ -91,12 +98,41 @@ async function processPendingGraphExtractionJobs({
   workspaceId = null,
   limit = 25,
   retryFailed = false,
+  drain = false,
 } = {}) {
-  const jobs = await KnowledgeGraph.pendingJobs({
-    workspaceId,
-    limit,
-    retryFailed,
-  });
+  const drainKey = `${workspaceId || "all"}:${retryFailed ? "retry" : "pending"}`;
+  if (drain) {
+    if (activeDrains.has(drainKey))
+      return { processed: 0, succeeded: 0, failed: 0, skipped: "active_drain" };
+    activeDrains.add(drainKey);
+  }
+
+  try {
+    const totals = { processed: 0, succeeded: 0, failed: 0 };
+    await KnowledgeGraph.resetStaleProcessingJobs({ workspaceId });
+
+    let shouldContinue = true;
+    while (shouldContinue) {
+      const jobs = await KnowledgeGraph.pendingJobs({
+        workspaceId,
+        limit,
+        retryFailed,
+      });
+      if (jobs.length === 0) break;
+      const batch = await processGraphExtractionJobBatch(jobs);
+      totals.processed += batch.processed;
+      totals.succeeded += batch.succeeded;
+      totals.failed += batch.failed;
+      shouldContinue = drain && jobs.length >= Number(limit || 25);
+    }
+
+    return totals;
+  } finally {
+    if (drain) activeDrains.delete(drainKey);
+  }
+}
+
+async function processGraphExtractionJobBatch(jobs) {
   const concurrency = workerConcurrency();
   let index = 0;
   const results = [];

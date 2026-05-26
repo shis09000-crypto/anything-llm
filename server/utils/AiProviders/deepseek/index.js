@@ -96,7 +96,10 @@ class DeepSeekLLM {
     return textResponse;
   }
 
-  async getChatCompletion(messages = null, { temperature = 0.7 }) {
+  async getChatCompletion(
+    messages = null,
+    { temperature = 0.7, responseFormat = null } = {}
+  ) {
     if (!(await this.isValidChatCompletionModel(this.model)))
       throw new Error(
         `DeepSeek chat: ${this.model} is not valid for chat completion!`
@@ -108,6 +111,7 @@ class DeepSeekLLM {
           model: this.model,
           messages,
           temperature,
+          ...(responseFormat ? { response_format: responseFormat } : {}),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -137,7 +141,10 @@ class DeepSeekLLM {
     };
   }
 
-  async streamGetChatCompletion(messages = null, { temperature = 0.7 }) {
+  async streamGetChatCompletion(
+    messages = null,
+    { temperature = 0.7, responseFormat = null } = {}
+  ) {
     if (!(await this.isValidChatCompletionModel(this.model)))
       throw new Error(
         `DeepSeek chat: ${this.model} is not valid for chat completion!`
@@ -149,6 +156,7 @@ class DeepSeekLLM {
         stream: true,
         messages,
         temperature,
+        ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
       messages,
       runPromptTokenCalculation: false,

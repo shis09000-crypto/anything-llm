@@ -163,7 +163,7 @@ const HistoricalMessage = ({
               </Link>
             )}
             <ChatAttachments attachments={attachments} />
-            <HistoricalOutputs outputs={outputs} />
+            <HistoricalOutputs outputs={outputs} workspace={workspace} />
           </div>
         )}
         <div className="flex items-start md:items-center gap-x-1">

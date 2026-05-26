@@ -1,3 +1,4 @@
+const path = require("path");
 const { PrismaClient } = require("@prisma/client");
 
 // npx prisma introspect
@@ -6,8 +7,32 @@ const { PrismaClient } = require("@prisma/client");
 // npx prisma migrate reset -> resets the db
 
 const logLevels = ["error", "info", "warn"]; // add "query" to debug query logs
+
+function sqliteDatasourceUrl() {
+  const dbPath = path.resolve(__dirname, "../../storage/anythingllm.db");
+  const url = new URL(`file:${dbPath}`);
+  url.searchParams.set("connection_limit", "1");
+  url.searchParams.set("pool_timeout", "10");
+  return url.toString();
+}
+
 const prisma = new PrismaClient({
   log: logLevels,
+  datasources: {
+    db: {
+      url: sqliteDatasourceUrl(),
+    },
+  },
 });
+
+if (process.env.NODE_ENV !== "test") {
+  (async () => {
+    await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+    await prisma.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
+    await prisma.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+  })().catch((error) =>
+    console.warn("[Prisma] Failed to apply SQLite pragmas:", error.message)
+  );
+}
 
 module.exports = prisma;

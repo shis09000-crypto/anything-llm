@@ -18,7 +18,7 @@ const SILENCE_INTERVAL = 3_200; // wait in seconds of silence before closing.
  * @param {(textToAppend: string, autoSubmit: boolean) => void} props.sendCommand - The function to send the command
  * @returns {React.ReactElement} The SpeechToText component
  */
-export default function SpeechToText({ sendCommand }) {
+export default function SpeechToText({ sendCommand, onListeningChange }) {
   const previousTranscriptRef = useRef("");
   const {
     transcript,
@@ -92,6 +92,10 @@ export default function SpeechToText({ sendCommand }) {
       document.removeEventListener("keydown", handleKeyPress);
     };
   }, [handleKeyPress]);
+
+  useEffect(() => {
+    onListeningChange?.(listening);
+  }, [listening, onListeningChange]);
 
   useEffect(() => {
     if (!!window)

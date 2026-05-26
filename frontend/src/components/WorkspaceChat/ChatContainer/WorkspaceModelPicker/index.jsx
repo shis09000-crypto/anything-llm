@@ -94,17 +94,15 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
         <button
           type="button"
           onClick={() => setShowSelector(!showSelector)}
-          className={`group border-none cursor-pointer px-2.5 py-1 flex items-center rounded-full transition-all ${
-            showSelector
-              ? "bg-zinc-700 light:bg-slate-200"
-              : "hover:bg-zinc-700 light:hover:bg-slate-200"
+          className={`liquid-glass-control liquid-glass-subtle group cursor-pointer px-3 py-1.5 flex items-center rounded-full ${
+            showSelector ? "liquid-glass-active" : ""
           }`}
         >
           <span
-            className={`text-xs ${
+            className={`text-xs font-medium ${
               showSelector
-                ? "text-white light:text-slate-800"
-                : "text-zinc-500 light:text-slate-500 group-hover:text-white light:group-hover:text-slate-800"
+                ? "text-sky-100 light:text-sky-700"
+                : "liquid-glass-muted group-hover:text-white light:group-hover:text-slate-900"
             }`}
           >
             {modelName || t("chat_window.select_model")}

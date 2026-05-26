@@ -81,6 +81,12 @@ export default {
       vectorDatabase: (slug) => {
         return `/workspace/${slug}/settings/vector-database`;
       },
+      healthCenter: (slug) => {
+        return `/workspace/${slug}/settings/health-center`;
+      },
+      readingTools: (slug) => {
+        return `/workspace/${slug}/settings/reading-tools`;
+      },
       members: (slug) => {
         return `/workspace/${slug}/settings/members`;
       },

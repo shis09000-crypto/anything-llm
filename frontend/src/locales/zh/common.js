@@ -926,6 +926,7 @@ const TRANSLATIONS = {
       "job-id": "Job ID",
       workspace: "Workspace",
       status: "状态",
+      graph: "知识图谱",
       "retry-count": "重试次数",
       "next-retry": "下次重试",
       created: "创建时间",
@@ -938,6 +939,17 @@ const TRANSLATIONS = {
       working: "处理中...",
       started: "已恢复批处理任务轮询。",
       failed: "恢复批处理任务轮询失败。",
+    },
+    graph: {
+      status: {
+        not_started: "未开始",
+        pending: "等待中",
+        processing: "处理中",
+        completed: "已完成",
+        partial_failed: "部分失败",
+        failed: "失败",
+        unknown: "未知",
+      },
     },
   },
   text: {

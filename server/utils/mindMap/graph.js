@@ -9,6 +9,9 @@ const {
   normalizeMindMapSchema,
   mindMapToMarkdown,
 } = require("./schema");
+const {
+  enqueueChineseNodeBackfill,
+} = require("../knowledgeGraph/chineseBackfill");
 
 const GRAPH_THEME = "napkin";
 const DEFAULT_GRAPH_LAYOUT = "tree";
@@ -79,6 +82,10 @@ function importanceScore(node = {}) {
   );
 }
 
+function nodeDisplayName(node = {}) {
+  return node.displayNameZh || node.canonicalName || node.displayNameEn || "";
+}
+
 async function fullNodesById({ workspaceId, nodeIds = [] }) {
   if (!nodeIds.length) return new Map();
   const rows = await prisma.$queryRawUnsafe(
@@ -94,7 +101,7 @@ async function fullNodesById({ workspaceId, nodeIds = [] }) {
   rows.forEach((row) => {
     map.set(Number(row.id), {
       ...row,
-      aliases: safeParseArray(row.aliases),
+      aliases: normalizeGraphAliases(safeParseArray(row.aliases)),
       globalImportanceScore: Number(row.globalImportanceScore || 0),
       workspaceImportanceScore: Number(row.workspaceImportanceScore || 0),
       recentImportanceScore: Number(row.recentImportanceScore || 0),
@@ -110,6 +117,24 @@ function safeParseArray(value) {
   } catch {
     return [];
   }
+}
+
+function normalizeGraphAliases(aliases = []) {
+  const seen = new Set();
+  return (Array.isArray(aliases) ? aliases : [])
+    .flatMap((alias) => {
+      if (alias && typeof alias === "object") {
+        return [alias.zh, alias.en, alias.name, alias.label].filter(Boolean);
+      }
+      return [alias].filter(Boolean);
+    })
+    .map((alias) => String(alias).trim())
+    .filter((alias) => {
+      const key = alias.toLowerCase();
+      if (!alias || alias === "[object Object]" || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 }
 
 async function nodeEvidenceCounts({ workspaceId, nodeIds = [] }) {
@@ -389,7 +414,9 @@ async function graphMindMapFromConcept({
     confidenceCutoff,
     includeEvidence: true,
   });
-  const graphStatus = await KnowledgeGraph.graphStats(workspaceId);
+  const graphStatus = await KnowledgeGraph.graphStats(workspaceId, {
+    ensureSchema: false,
+  });
   const traversal = await relatedConcepts({
     workspaceId,
     concept,
@@ -454,14 +481,22 @@ async function graphMindMapFromConcept({
     if (!nodeClusterById.has(Number(edge.targetNodeId)))
       nodeClusterById.set(Number(edge.targetNodeId), cluster);
   }
-
-  const nodes = Array.from(allNodeIds).map((nodeId) => {
-    const node =
+  const graphNodes = Array.from(allNodeIds).map(
+    (nodeId) =>
       fullNodes.get(Number(nodeId)) ||
       traversal.relatedNodes.find(
         (item) => Number(item.id) === Number(nodeId)
       ) ||
-      traversal.matchedNode;
+      traversal.matchedNode
+  );
+  enqueueChineseNodeBackfill({
+    workspaceId,
+    nodes: graphNodes,
+    reason: "graph_view",
+  });
+
+  const nodes = graphNodes.map((node) => {
+    const nodeId = Number(node.id);
     const score = importanceScore(node);
     const parent = parentEdges.get(Number(nodeId));
     const level = depths.get(Number(nodeId)) || 0;
@@ -474,7 +509,7 @@ async function graphMindMapFromConcept({
           };
     return {
       id: graphNodeId(nodeId),
-      label: node.displayNameZh || node.canonicalName,
+      label: nodeDisplayName(node),
       description: node.summary || node.entityType || "",
       icon: level === 0 ? "*" : level === 1 ? "o" : "-",
       level,
@@ -551,11 +586,11 @@ async function graphMindMapFromConcept({
 
   const schema = normalizeMindMapSchema(
     {
-      title: `知识图谱：${traversal.matchedNode.canonicalName}`,
+      title: `知识图谱：${nodeDisplayName(traversal.matchedNode)}`,
       layout: layout || DEFAULT_LAYOUT,
       recommendedLayout: layout || DEFAULT_LAYOUT,
       theme: GRAPH_THEME,
-      summary: `从知识图谱中围绕「${traversal.matchedNode.canonicalName}」展开的概念关系。`,
+      summary: `从知识图谱中围绕「${nodeDisplayName(traversal.matchedNode)}」展开的概念关系。`,
       nodes,
       edges,
     },
@@ -567,7 +602,7 @@ async function graphMindMapFromConcept({
       id: null,
       sourceType: "graph",
       sourceId: String(traversal.matchedNode.id),
-      sourceTitle: traversal.matchedNode.canonicalName,
+      sourceTitle: nodeDisplayName(traversal.matchedNode),
       title: schema.title,
       layout: schema.layout,
       theme: schema.theme,

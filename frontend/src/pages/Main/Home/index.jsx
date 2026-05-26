@@ -29,10 +29,12 @@ import { safeJsonParse } from "@/utils/request";
 import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import useUser from "@/hooks/useUser";
-import TextSizeMenu from "@/components/WorkspaceChat/ChatContainer/TextSizeMenu";
 import WorkspaceModelPicker from "@/components/WorkspaceChat/ChatContainer/WorkspaceModelPicker";
 import { ChatTooltips } from "@/components/WorkspaceChat/ChatContainer/ChatTooltips";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
+import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
+import useLoginMode from "@/hooks/useLoginMode";
 
 async function getTargetWorkspace() {
   const lastVisited = safeJsonParse(
@@ -224,6 +226,7 @@ export default function Home() {
 function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const loginMode = useLoginMode();
   const [loading, setLoading] = useState(false);
   const { files, parseAttachments } = useContext(DndUploaderContext);
   const { hasWorkspaceActivity, getRunningThread, getThreadPath } =
@@ -231,6 +234,7 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
   const runningThread = workspace?.slug
     ? getRunningThread(workspace.slug)
     : null;
+  const hasUserIcon = loginMode !== null;
 
   useEffect(() => {
     window.dispatchEvent(
@@ -343,7 +347,17 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
       className="transition-all duration-500 relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
     >
       {isMobile && <SidebarMobileHeader />}
-      <TextSizeMenu />
+      {!isMobile && workspace?.slug && (
+        <div
+          className={`absolute top-3 md:top-5 z-30 h-[40px] w-[40px] ${
+            hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"
+          }`}
+        >
+          <WorkspaceHealthProvider workspaceSlug={workspace.slug}>
+            <WorkspaceHealthBeacon workspaceSlug={workspace.slug} />
+          </WorkspaceHealthProvider>
+        </div>
+      )}
       <WorkspaceModelPicker workspaceSlug={workspace?.slug} />
       <DnDFileUploaderWrapper>
         <div className="flex flex-col h-full w-full items-center justify-center">

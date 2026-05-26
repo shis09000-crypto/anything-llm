@@ -167,7 +167,12 @@ function AssistantTurn({
                 </div>
               </Link>
             )}
-            <HistoricalOutputs outputs={turn.outputs || []} />
+            <HistoricalOutputs
+              outputs={turn.outputs || []}
+              workspace={workspace}
+              chatKey={chatKey}
+              turnId={turn.turnId}
+            />
           </div>
         )}
         {isFailed && (

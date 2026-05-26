@@ -985,6 +985,7 @@ const TRANSLATIONS = {
       "job-id": "Job ID",
       workspace: "Workspace",
       status: "Status",
+      graph: "Knowledge Graph",
       "retry-count": "Retries",
       "next-retry": "Next Retry",
       created: "Created",
@@ -997,6 +998,17 @@ const TRANSLATIONS = {
       working: "Retrying...",
       started: "Batch job polling resumed.",
       failed: "Failed to resume batch job polling.",
+    },
+    graph: {
+      status: {
+        not_started: "Not started",
+        pending: "Pending",
+        processing: "Processing",
+        completed: "Completed",
+        partial_failed: "Partial failed",
+        failed: "Failed",
+        unknown: "Unknown",
+      },
     },
   },
   text: {

@@ -92,6 +92,111 @@ model users {
   workspace_mind_maps          workspace_mind_maps[]
 }
 
+model workspace_quiz_attempts {
+  id                 Int      @id @default(autoincrement())
+  workspaceId        Int
+  userId             Int?
+  cacheUserKey       String   @default("anonymous")
+  quizId             String
+  quizChatId         Int
+  topic              String?
+  keywordsJson       String   @default("[]")
+  difficulty         String?
+  totalQuestions     Int      @default(0)
+  completedQuestions Int      @default(0)
+  score              Float?
+  accuracy           Float?
+  analysis           String?
+  questionResultsReliable Int      @default(1)
+  questionResultsParseError String?
+  submittedAt        DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @default(now())
+
+  @@unique([workspaceId, cacheUserKey, quizChatId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([quizChatId])
+}
+
+model workspace_quiz_question_results {
+  id                Int      @id @default(autoincrement())
+  attemptId         Int
+  questionId        String
+  questionType      String
+  difficulty        String?
+  question          String
+  optionsJson       String   @default("[]")
+  userAnswerJson    String?
+  correctAnswerJson String?
+  isCorrect         Int?
+  score             Float?
+  analysis          String?
+  mistakeReason     String?
+  weakConceptsJson  String   @default("[]")
+  sourceRefsJson    String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model workspace_quiz_wrong_questions {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int
+  userId            Int?
+  cacheUserKey      String   @default("anonymous")
+  attemptId         Int
+  questionResultId  Int
+  questionId        String
+  questionType      String
+  topic             String?
+  question          String
+  optionsJson       String   @default("[]")
+  userAnswerJson    String?
+  correctAnswerJson String?
+  analysis          String?
+  mistakeReason     String?
+  weakConceptsJson  String   @default("[]")
+  sourceRefsJson    String   @default("[]")
+  reviewCount       Int      @default(0)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@unique([workspaceId, cacheUserKey, questionResultId])
+  @@index([workspaceId])
+  @@index([attemptId])
+}
+
+model workspace_quiz_favorite_questions {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int
+  userId            Int?
+  cacheUserKey      String   @default("anonymous")
+  quizId            String
+  quizChatId        Int
+  attemptId         Int?
+  questionResultId  Int?
+  questionId        String
+  questionType      String
+  topic             String?
+  difficulty        String?
+  question          String
+  optionsJson       String   @default("[]")
+  correctAnswerJson String?
+  userAnswerJson    String?
+  analysis          String?
+  sourceRefsJson    String   @default("[]")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@unique([workspaceId, cacheUserKey, quizId, questionId])
+  @@index([workspaceId])
+  @@index([questionResultId])
+}
+
 model recovery_codes {
   id        Int      @id @default(autoincrement())
   user_id   Int
@@ -442,6 +547,35 @@ model KnowledgeNodeMetricsRecomputeRun {
   @@index([trigger])
   @@index([formulaVersion])
   @@index([createdAt])
+}
+
+model WorkspaceOverviewRecommendationUsage {
+  id                 Int       @id @default(autoincrement())
+  workspaceId        Int
+  userId             Int       @default(0)
+  recommendationId   String
+  type               String
+  targetType         String
+  targetId           String
+  formulaVersion     String
+  impressionCount    Int       @default(0)
+  clickCount         Int       @default(0)
+  dismissCount       Int       @default(0)
+  continueCount      Int       @default(0)
+  lastShownAt        DateTime?
+  lastInteractedAt   DateTime?
+  cooldownUntil      DateTime?
+  metadata           String    @default("{}")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, recommendationId])
+  @@index([workspaceId])
+  @@index([userId])
+  @@index([recommendationId])
+  @@index([workspaceId, cooldownUntil])
+  @@index([workspaceId, type])
+  @@index([workspaceId, targetType, targetId])
 }
 
 model workspaces {
