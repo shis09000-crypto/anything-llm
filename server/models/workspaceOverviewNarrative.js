@@ -1,7 +1,7 @@
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 
-const PROMPT_VERSION = "workspace-overview-tagline-v1";
+const PROMPT_VERSION = "workspace-overview-tagline-v2";
 let tableReady = false;
 
 function safeJSONStringify(value = {}, fallback = "{}") {

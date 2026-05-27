@@ -69,7 +69,7 @@ model WorkspaceOverviewNarrative {
   tagline          String?
   sourceHash       String    @default("")
   model            String?
-  promptVersion    String    @default("workspace-overview-tagline-v1")
+  promptVersion    String    @default("workspace-overview-tagline-v2")
   status           String    @default("empty")
   errorType        String?
   metadataJson     String    @default("{}")

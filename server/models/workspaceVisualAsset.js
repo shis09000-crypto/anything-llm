@@ -5,10 +5,14 @@ const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 const { normalizePath, isWithin } = require("../utils/files");
 const {
-  validateImageBuffer,
+  VISUAL_METADATA_KEYS,
+  analyzeImageBuffer,
+  fallbackVisualMetadata,
+  optimizeImageBuffer,
 } = require("../utils/visualAssets/imageMetadata");
 
 const VALID_SCOPES = new Set(["workspace", "node"]);
+const VALID_ROLES = new Set(["hero_background"]);
 const DEFAULT_ROLE = "hero_background";
 let tableReady = false;
 
@@ -28,6 +32,27 @@ function safeJSONStringify(value = {}, fallback = "{}") {
 
 function normalizeScopeType(value = "workspace") {
   return VALID_SCOPES.has(value) ? value : "workspace";
+}
+
+function normalizeRole(value = DEFAULT_ROLE) {
+  return VALID_ROLES.has(value) ? value : DEFAULT_ROLE;
+}
+
+function pickVisualMetadata(source = {}, { scopeType = "workspace" } = {}) {
+  const fallback = fallbackVisualMetadata({ scopeType });
+  return VISUAL_METADATA_KEYS.reduce((picked, key) => {
+    picked[key] =
+      source[key] === undefined || source[key] === null
+        ? fallback[key]
+        : source[key];
+    return picked;
+  }, {});
+}
+
+function hasCompleteVisualMetadata(metadata = {}) {
+  return VISUAL_METADATA_KEYS.every(
+    (key) => metadata[key] !== undefined && metadata[key] !== null
+  );
 }
 
 function publicUrl({ workspaceSlug, asset }) {
@@ -116,6 +141,56 @@ function safeUnlink(filename = "") {
   }
 }
 
+async function withFreshVisualMetadata(row = null) {
+  if (!row) return null;
+  const metadata = safeJsonParse(row.metadataJson || row.metadata, {});
+  if (hasCompleteVisualMetadata(metadata)) return row;
+
+  const scopeType = normalizeScopeType(row.scopeType);
+  const fallback = pickVisualMetadata(metadata, { scopeType });
+  let nextMetadata = {
+    ...fallback,
+    ...metadata,
+  };
+  let shouldPersist = false;
+
+  try {
+    const filePath = filepathFor(row.filename);
+    if (fs.existsSync(filePath)) {
+      const analyzed = await analyzeImageBuffer(fs.readFileSync(filePath), {
+        scopeType,
+      });
+      if (analyzed?.valid) {
+        nextMetadata = {
+          ...metadata,
+          ...pickVisualMetadata(analyzed, { scopeType }),
+          visualAnalysisFallback: Boolean(analyzed.visualAnalysisFallback),
+        };
+        shouldPersist = true;
+      }
+    }
+  } catch (error) {
+    console.warn("[WorkspaceVisualAsset] visual metadata refresh failed", {
+      id: row.id,
+      filename: row.filename,
+      error: error.message,
+    });
+  }
+
+  if (shouldPersist) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "WorkspaceVisualAsset" SET "metadataJson" = ? WHERE "id" = ?`,
+      safeJSONStringify(nextMetadata),
+      Number(row.id)
+    );
+  }
+
+  return {
+    ...row,
+    metadataJson: safeJSONStringify(nextMetadata),
+  };
+}
+
 async function currentAsset({
   workspaceId,
   scopeType = "workspace",
@@ -178,20 +253,23 @@ const WorkspaceVisualAsset = {
       ORDER BY "updatedAt" DESC, "id" DESC`,
       ...params
     );
-    return rows.map((row) => normalizeRow(row, { workspaceSlug }));
+    const freshRows = await Promise.all(
+      rows.map((row) => withFreshVisualMetadata(row))
+    );
+    return freshRows.map((row) => normalizeRow(row, { workspaceSlug }));
   },
 
   async forWorkspace({ workspaceId, workspaceSlug = null }) {
     await ensureTable();
     const row = await currentAsset({ workspaceId, scopeType: "workspace" });
-    return normalizeRow(row, { workspaceSlug });
+    return normalizeRow(await withFreshVisualMetadata(row), { workspaceSlug });
   },
 
   async forNode({ workspaceId, workspaceSlug = null, nodeKey = null }) {
     await ensureTable();
     if (!nodeKey) return null;
     const row = await currentAsset({ workspaceId, scopeType: "node", nodeKey });
-    return normalizeRow(row, { workspaceSlug });
+    return normalizeRow(await withFreshVisualMetadata(row), { workspaceSlug });
   },
 
   async upsertFromUpload({
@@ -211,23 +289,23 @@ const WorkspaceVisualAsset = {
     const normalizedScope = normalizeScopeType(scopeType);
     if (normalizedScope === "node" && !nodeKey)
       return { success: false, error: "nodeKey_required" };
+    const normalizedRole = normalizeRole(role);
 
-    const validation = validateImageBuffer(file.buffer, {
+    const optimized = await optimizeImageBuffer(file.buffer, {
       scopeType: normalizedScope,
     });
-    if (!validation.valid)
-      return { success: false, error: validation.error };
+    if (!optimized.valid) return { success: false, error: optimized.error };
 
     const existing = await currentAsset({
       workspaceId,
       scopeType: normalizedScope,
       nodeKey,
-      role,
+      role: normalizedRole,
     });
     const root = assetsRoot();
     fs.mkdirSync(root, { recursive: true });
-    const filename = `${uuidv4()}${validation.ext}`;
-    fs.writeFileSync(filepathFor(filename), file.buffer);
+    const filename = `${uuidv4()}${optimized.ext}`;
+    fs.writeFileSync(filepathFor(filename), optimized.buffer || file.buffer);
 
     if (existing) {
       await prisma.$executeRawUnsafe(
@@ -240,12 +318,18 @@ const WorkspaceVisualAsset = {
     }
 
     const metadata = {
-      imageWidth: validation.imageWidth,
-      imageHeight: validation.imageHeight,
-      dominantColor: validation.dominantColor,
+      imageWidth: optimized.imageWidth,
+      imageHeight: optimized.imageHeight,
+      ...pickVisualMetadata(optimized, { scopeType: normalizedScope }),
+      visualAnalysisFallback: Boolean(optimized.visualAnalysisFallback),
       uploadedBy: uploadedBy ? Number(uploadedBy) : null,
       replacedAssetId: existing?.id ? Number(existing.id) : null,
-      checksum: validation.checksum,
+      checksum: optimized.checksum,
+      optimized: Boolean(optimized.optimized),
+      originalMime: optimized.originalMime || optimized.mime,
+      originalImageWidth: optimized.originalWidth || optimized.imageWidth,
+      originalImageHeight: optimized.originalHeight || optimized.imageHeight,
+      originalSize: optimized.originalSize || file.size || file.buffer.length,
       originalName: file.originalname || null,
     };
     await prisma.$executeRawUnsafe(
@@ -258,17 +342,17 @@ const WorkspaceVisualAsset = {
       normalizedScope === "node" ? String(nodeKey) : null,
       normalizedScope === "node" ? String(nodeLabel || "") : null,
       normalizedScope === "node" ? String(nodeType || "concept") : null,
-      String(role || DEFAULT_ROLE),
+      normalizedRole,
       filename,
-      validation.mime,
-      Number(validation.size),
+      optimized.mime,
+      Number(optimized.size),
       safeJSONStringify(metadata)
     );
     const row = await currentAsset({
       workspaceId,
       scopeType: normalizedScope,
       nodeKey,
-      role,
+      role: normalizedRole,
     });
     return {
       success: true,
@@ -289,7 +373,7 @@ const WorkspaceVisualAsset = {
         Number(id)
       )
     )?.[0];
-    return normalizeRow(row, { workspaceSlug });
+    return normalizeRow(await withFreshVisualMetadata(row), { workspaceSlug });
   },
 
   async fileFor({ workspaceId, id }) {

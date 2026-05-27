@@ -5,6 +5,7 @@ const {
 } = require("../../models/workspaceOverviewNarrative");
 
 const activeGenerations = new Set();
+const PENDING_RETRY_MS = 60_000;
 
 function stableJson(value) {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
@@ -21,13 +22,13 @@ function sourcePayload({ workspaceSupplements = [], bookStructure = null }) {
   const structureSupplements = workspaceSupplements
     .filter((item) => item.supplementKind === "structure_json")
     .map((item) => ({
-      id: item.id,
-      documentId: item.documentId,
-      documentName: item.documentName,
-      updatedAt: item.updatedAt,
       parsedStructure: item.metadata?.parsedStructure || null,
       structureJsonValidation: item.metadata?.structureJsonValidation || null,
-    }));
+    }))
+    .filter(
+      (item) =>
+        item.parsedStructure || item.structureJsonValidation?.valid === true
+    );
   if (structureSupplements.length === 0)
     return { hasStructureSource: false, hash: "", payload: null };
   const payload = {
@@ -37,7 +38,6 @@ function sourcePayload({ workspaceSupplements = [], bookStructure = null }) {
           structureType: bookStructure.structureType,
           primaryAxis: bookStructure.primaryAxis,
           secondaryAxes: bookStructure.secondaryAxes || [],
-          updatedAt: bookStructure.updatedAt,
           structureVersion: bookStructure.structureVersion,
         }
       : null,
@@ -50,19 +50,80 @@ function sourcePayload({ workspaceSupplements = [], bookStructure = null }) {
 }
 
 function parseTagline(text = "") {
-  const raw = String(text || "").trim();
+  const raw = String(text || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .trim();
   try {
     const parsed = JSON.parse(raw);
-    return String(parsed.tagline || "").trim().slice(0, 120);
+    return String(parsed.tagline || "")
+      .trim()
+      .slice(0, 120);
   } catch {}
-  const match = raw.match(/\{[\s\S]*\}/);
-  if (match) {
+  const jsonObjects = [];
+  let depth = 0;
+  let start = -1;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") {
+      if (depth === 0) start = index;
+      depth += 1;
+    }
+    if (char === "}" && depth > 0) {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        jsonObjects.push(raw.slice(start, index + 1));
+        start = -1;
+      }
+    }
+  }
+  for (const jsonObject of jsonObjects) {
     try {
-      const parsed = JSON.parse(match[0]);
-      return String(parsed.tagline || "").trim().slice(0, 120);
+      const parsed = JSON.parse(jsonObject);
+      if (!parsed?.tagline) continue;
+      return String(parsed.tagline || "")
+        .trim()
+        .slice(0, 120);
     } catch {}
   }
-  return raw.replace(/^["“”]+|["“”]+$/g, "").trim().slice(0, 120);
+  return raw
+    .replace(/^["“”]+|["“”]+$/g, "")
+    .trim()
+    .slice(0, 120);
+}
+
+function isPendingStale(existing = null, now = Date.now()) {
+  if (!existing || existing.status !== "pending") return false;
+  const updatedAt = new Date(existing.updatedAt || existing.createdAt || 0);
+  const updatedAtMs = updatedAt.getTime();
+  if (!Number.isFinite(updatedAtMs)) return true;
+  return now - updatedAtMs > PENDING_RETRY_MS;
+}
+
+function invalidateOverviewCache(workspaceId) {
+  try {
+    const { invalidateWorkspaceOverviewCache } = require("./index");
+    invalidateWorkspaceOverviewCache({ workspaceId });
+  } catch (error) {
+    console.warn(
+      "[WorkspaceOverviewNarrative] overview cache invalidation skipped",
+      error.message
+    );
+  }
 }
 
 function scheduleGeneration({ workspace, sourceHash, payload }) {
@@ -74,9 +135,15 @@ function scheduleGeneration({ workspace, sourceHash, payload }) {
 
   setTimeout(async () => {
     try {
+      const provider =
+        workspace?.chatProvider || process.env.LLM_PROVIDER || null;
+      const model =
+        workspace?.chatModel ||
+        (provider === "deepseek" ? process.env.DEEPSEEK_MODEL_PREF : null) ||
+        null;
       const LLMConnector = getLLMProvider({
-        provider: workspace?.chatProvider,
-        model: workspace?.chatModel,
+        provider,
+        model,
       });
       if (!LLMConnector) throw new Error("llm_provider_unavailable");
       const prompt = `请根据工作区结构信息生成一句中文总览。
@@ -95,8 +162,7 @@ ${JSON.stringify(payload, null, 2)}
 {"tagline":"从古希腊理性开端到现代性批判，追踪主体、知识、自由与社会秩序的思想演进。"}`;
       const messages = await LLMConnector.compressMessages(
         {
-          systemPrompt:
-            "你为知识工作区生成极简中文总览。只输出严格 JSON。",
+          systemPrompt: "你为知识工作区生成极简中文总览。只输出严格 JSON。",
           userPrompt: prompt,
           contextTexts: [],
           chatHistory: [],
@@ -114,12 +180,18 @@ ${JSON.stringify(payload, null, 2)}
         workspaceId,
         tagline,
         sourceHash,
-        model: metrics?.model || workspace?.chatModel || null,
+        model: metrics?.model || model,
         status: "ready",
         errorType: null,
-        metadata: { source: "llm", tokenMetrics: metrics || null },
+        metadata: {
+          source: "llm",
+          provider,
+          model: metrics?.model || model,
+          tokenMetrics: metrics || null,
+        },
         markGenerated: true,
       });
+      invalidateOverviewCache(workspaceId);
     } catch (error) {
       console.warn("[WorkspaceOverviewNarrative] generation failed", {
         workspaceId,
@@ -132,9 +204,14 @@ ${JSON.stringify(payload, null, 2)}
         model: workspace?.chatModel || null,
         status: "failed",
         errorType: error.message || "generation_failed",
-        metadata: { source: "llm" },
+        metadata: {
+          source: "llm",
+          provider: workspace?.chatProvider || process.env.LLM_PROVIDER || null,
+          model: workspace?.chatModel || null,
+        },
         markGenerated: false,
       });
+      invalidateOverviewCache(workspaceId);
     } finally {
       activeGenerations.delete(key);
     }
@@ -163,9 +240,20 @@ async function getOrScheduleWorkspaceOverviewNarrative({
   const existing = await WorkspaceOverviewNarrative.get(workspaceId);
   if (
     existing?.sourceHash === source.hash &&
-    ["ready", "pending", "failed"].includes(existing.status)
+    existing.promptVersion === WorkspaceOverviewNarrative.PROMPT_VERSION &&
+    (existing.status === "ready" || existing.status === "failed")
   ) {
     return existing;
+  }
+  if (existing?.sourceHash === source.hash && existing.status === "pending") {
+    if (!isPendingStale(existing)) return existing;
+    console.warn(
+      "[WorkspaceOverviewNarrative] retrying stale pending tagline",
+      {
+        workspaceId,
+        updatedAt: existing.updatedAt,
+      }
+    );
   }
 
   const pending = await WorkspaceOverviewNarrative.upsert({
@@ -177,7 +265,11 @@ async function getOrScheduleWorkspaceOverviewNarrative({
     metadata: { reason: "source_hash_changed" },
     markGenerated: false,
   });
-  scheduleGeneration({ workspace, sourceHash: source.hash, payload: source.payload });
+  scheduleGeneration({
+    workspace,
+    sourceHash: source.hash,
+    payload: source.payload,
+  });
   return pending;
 }
 
@@ -196,7 +288,10 @@ function triggerWorkspaceOverviewNarrativeRefresh({
 }
 
 module.exports = {
+  PENDING_RETRY_MS,
   getOrScheduleWorkspaceOverviewNarrative,
+  isPendingStale,
+  parseTagline,
   triggerWorkspaceOverviewNarrativeRefresh,
   sourcePayload,
 };

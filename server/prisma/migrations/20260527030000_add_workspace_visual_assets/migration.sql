@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS "WorkspaceOverviewNarrative" (
   "tagline" TEXT,
   "sourceHash" TEXT NOT NULL DEFAULT '',
   "model" TEXT,
-  "promptVersion" TEXT NOT NULL DEFAULT 'workspace-overview-tagline-v1',
+  "promptVersion" TEXT NOT NULL DEFAULT 'workspace-overview-tagline-v2',
   "status" TEXT NOT NULL DEFAULT 'empty',
   "errorType" TEXT,
   "metadataJson" TEXT NOT NULL DEFAULT '{}',

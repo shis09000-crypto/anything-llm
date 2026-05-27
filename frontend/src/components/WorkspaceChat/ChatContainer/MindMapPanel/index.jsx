@@ -25,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import MindMap from "@/models/mindMap";
 import NodeSupplement from "@/models/nodeSupplement";
+import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import renderMarkdown from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
@@ -1720,6 +1721,7 @@ function NodeSupplementSection({
   sendCommand,
 }) {
   const inputRef = useRef(null);
+  const visualInputRef = useRef(null);
   const [resolvedIdentity, setResolvedIdentity] = useState(
     node?.nodeKey
       ? {
@@ -1741,6 +1743,8 @@ function NodeSupplementSection({
   const [graphContext, setGraphContext] = useState(null);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [visualSaving, setVisualSaving] = useState(false);
+  const [nodeBackground, setNodeBackground] = useState(null);
   const [textOpen, setTextOpen] = useState(false);
   const [textDraft, setTextDraft] = useState({ title: "", text: "" });
   const [savingText, setSavingText] = useState(false);
@@ -1860,6 +1864,28 @@ function NodeSupplementSection({
 
   useEffect(() => {
     let cancelled = false;
+    async function loadNodeBackground() {
+      setNodeBackground(null);
+      if (!workspaceSlug || !nodeKey) return;
+      const result = await WorkspaceOverviewModel.listVisualAssets(
+        workspaceSlug,
+        {
+          scopeType: "node",
+          nodeKey,
+        }
+      );
+      if (!cancelled && result?.success) {
+        setNodeBackground(result.assets?.[0] || null);
+      }
+    }
+    loadNodeBackground();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceSlug, nodeKey]);
+
+  useEffect(() => {
+    let cancelled = false;
     async function loadGraphContext() {
       if (!workspaceSlug || !nodeKey) return;
       const result = await MindMap.graphContext(workspaceSlug, {
@@ -1911,6 +1937,47 @@ function NodeSupplementSection({
     } finally {
       setUploading(false);
     }
+  };
+
+  const uploadNodeBackground = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !workspaceSlug || !nodeKey) return;
+    setVisualSaving(true);
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    formData.append("scopeType", "node");
+    formData.append("role", "hero_background");
+    formData.append("nodeKey", nodeKey);
+    formData.append("nodeLabel", nodeLabel);
+    formData.append("nodeType", nodeType);
+    const result = await WorkspaceOverviewModel.uploadVisualAsset(
+      workspaceSlug,
+      formData
+    );
+    setVisualSaving(false);
+    if (!result?.success) {
+      showToast(result?.error || "节点背景图上传失败。", "error");
+      return;
+    }
+    setNodeBackground(result.asset);
+    showToast(`已更新「${nodeLabel}」背景图。`, "success");
+  };
+
+  const removeNodeBackground = async () => {
+    if (!nodeBackground?.id || !workspaceSlug) return;
+    setVisualSaving(true);
+    const result = await WorkspaceOverviewModel.deleteVisualAsset(
+      workspaceSlug,
+      nodeBackground.id
+    );
+    setVisualSaving(false);
+    if (!result?.success) {
+      showToast(result?.error || "移除节点背景图失败。", "error");
+      return;
+    }
+    setNodeBackground(null);
+    showToast("已移除节点背景图。", "success");
   };
 
   const saveTextSupplement = async () => {
@@ -2025,6 +2092,24 @@ function NodeSupplementSection({
           </button>
           <button
             type="button"
+            onClick={() => visualInputRef.current?.click()}
+            disabled={visualSaving || !nodeKey}
+            className="rounded-lg border border-cyan-200 bg-cyan-50 px-2.5 py-1.5 text-[11px] font-semibold text-cyan-800 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {visualSaving ? "处理中..." : "上传节点背景图"}
+          </button>
+          {nodeBackground?.id && (
+            <button
+              type="button"
+              onClick={removeNodeBackground}
+              disabled={visualSaving || !nodeKey}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            >
+              移除背景图
+            </button>
+          )}
+          <button
+            type="button"
             onClick={() => setTextOpen((value) => !value)}
             disabled={!nodeKey}
             className="rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
@@ -2046,6 +2131,13 @@ function NodeSupplementSection({
         type="file"
         className="hidden"
         onChange={handleUpload}
+      />
+      <input
+        ref={visualInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp"
+        className="hidden"
+        onChange={uploadNodeBackground}
       />
       {textOpen && (
         <div className="mt-3 space-y-2 rounded-xl border border-blue-100 bg-white/70 p-2">

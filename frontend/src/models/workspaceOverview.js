@@ -162,6 +162,43 @@ const WorkspaceOverview = {
       .then((res) => res.json())
       .catch((error) => ({ success: false, error: error.message }));
   },
+
+  async listVisualAssets(slug, params = {}) {
+    if (!slug) return { success: false, assets: [] };
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await fetch(`${API_BASE}/workspace/${slug}/visual-assets${query}`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((error) => ({ success: false, assets: [], error: error.message }));
+  },
+
+  async uploadVisualAsset(slug, formData) {
+    if (!slug) return { success: false, error: "missing_workspace" };
+    return await fetch(`${API_BASE}/workspace/${slug}/visual-assets/upload`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: formData,
+    })
+      .then((res) => res.json())
+      .catch((error) => ({ success: false, error: error.message }));
+  },
+
+  async deleteVisualAsset(slug, id) {
+    if (!slug || !id) return { success: false, error: "missing_visual_asset" };
+    return await fetch(`${API_BASE}/workspace/${slug}/visual-assets/${id}`, {
+      method: "DELETE",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((error) => ({ success: false, error: error.message }));
+  },
 };
 
 export default WorkspaceOverview;

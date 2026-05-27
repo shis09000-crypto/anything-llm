@@ -4,6 +4,7 @@ const { safeJsonParse } = require("../http");
 const { healthBeacon, unknownBeacon } = require("../workspaceHealth/beacon");
 const { NodeSupplement } = require("../../models/nodeSupplement");
 const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
+const { WorkspaceVisualAsset } = require("../../models/workspaceVisualAsset");
 const { buildNodeKey } = require("../knowledgeGraph/nodeKey");
 const {
   buildWorkspaceKnowledgeProfile,
@@ -12,6 +13,7 @@ const { keyPathsForNode } = require("../knowledgeGraph/pathResolver");
 const {
   buildKnowledgeEngineRecommendations,
 } = require("../knowledgeGraph/recommendationAdapter");
+const { getOrScheduleWorkspaceOverviewNarrative } = require("./narrative");
 
 const FORMULA_VERSION = "overview-rec-v1";
 const DAY_MS = 86_400_000;
@@ -543,6 +545,48 @@ function selectStableCurrentFocus({
       recommendationId: selected.recommendationId,
       selectedAt: shouldKeepPrevious ? selectedAt : now,
     },
+  };
+}
+
+function buildCurrentFocusDetail({
+  focus = null,
+  nodeBackground = null,
+  workspaceBackground = null,
+} = {}) {
+  if (!focus) return null;
+  const target = focus.target || {};
+  const displayName =
+    target.displayName || target.concept || focus.title || "当前研究焦点";
+  const knowledgeBits = [
+    focus.mainlinePath,
+    focus.whyRecommended,
+    focus.nextAction,
+  ].filter(Boolean);
+  return {
+    recommendationId: focus.recommendationId,
+    title: focus.title,
+    displayName,
+    nodeKey: target.nodeKey || null,
+    nodeId: target.nodeId || target.targetId || null,
+    nodeType: target.nodeType || target.targetType || null,
+    nodeTypeLabel: focus.nodeTypeLabel || nodeTypeLabel(target.nodeType),
+    summary: focus.nodeSummary || focus.relationSummary || "",
+    mainlinePath: focus.mainlinePath || focus.pathSummary || "",
+    whyRecommended: focus.whyRecommended || "",
+    nextAction: focus.nextAction || "",
+    evidenceCount: Number(focus.evidenceCount || 0),
+    relationCount: Number(focus.relationCount || 0),
+    supplementCount: Number(
+      focus.supplementCount || target.supplementCount || 0
+    ),
+    knowledgeBits,
+    backgroundImageUrl: nodeBackground?.url || workspaceBackground?.url || null,
+    backgroundAsset: nodeBackground || workspaceBackground || null,
+    backgroundSource: nodeBackground
+      ? "node"
+      : workspaceBackground
+        ? "workspace"
+        : "default",
   };
 }
 
@@ -2130,6 +2174,33 @@ async function buildWorkspaceOverviewUncached({
     now,
   });
   const topFocus = stableFocus.focus;
+  const narrative = await getOrScheduleWorkspaceOverviewNarrative({
+    workspace,
+    workspaceSupplements: workspaceSupplementSummary.supplements,
+    bookStructure,
+  }).catch((error) => {
+    console.warn("[WorkspaceOverview] narrative unavailable:", error.message);
+    return null;
+  });
+  const focusNodeKey = topFocus?.[0]?.target?.nodeKey || null;
+  const [workspaceBackground, nodeBackground] = await Promise.all([
+    WorkspaceVisualAsset.forWorkspace({
+      workspaceId,
+      workspaceSlug: workspace.slug,
+    }).catch(() => null),
+    focusNodeKey
+      ? WorkspaceVisualAsset.forNode({
+          workspaceId,
+          workspaceSlug: workspace.slug,
+          nodeKey: focusNodeKey,
+        }).catch(() => null)
+      : null,
+  ]);
+  const currentFocusDetail = buildCurrentFocusDetail({
+    focus: topFocus?.[0] || null,
+    nodeBackground,
+    workspaceBackground,
+  });
   const hasAnyOverviewData =
     supplementedNodes.length > 0 ||
     recentDocuments.length > 0 ||
@@ -2144,6 +2215,17 @@ async function buildWorkspaceOverviewUncached({
     [FOCUS_STATE_SYMBOL]: stableFocus.state,
     generatedAt: new Date().toISOString(),
     formulaVersion: FORMULA_VERSION,
+    workspaceHero: {
+      title: workspace.name,
+      tagline: narrative?.status === "ready" ? narrative.tagline : "",
+      taglineStatus: narrative?.status || "empty",
+      backgroundImageUrl: workspaceBackground?.url || null,
+      backgroundAsset: workspaceBackground || null,
+    },
+    visualAssets: {
+      workspaceBackground,
+      currentFocusBackground: currentFocusDetail?.backgroundAsset || null,
+    },
     workspaceProfile,
     bookStructure,
     workspaceSupplements: workspaceSupplementSummary,
@@ -2190,6 +2272,7 @@ async function buildWorkspaceOverviewUncached({
       lastInteractionAt: chatData.chats?.[0]?.lastUpdatedAt || null,
     },
     currentFocus: topFocus,
+    currentFocusDetail,
     personalizedRecommendations,
     unfinishedExplorations,
     curiosityRecommendations: personalizedRecommendations.filter((item) =>

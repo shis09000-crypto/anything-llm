@@ -15,6 +15,9 @@ const { isStableNodeKey } = require("../utils/knowledgeGraph/nodeIdentity");
 const {
   resolveNodeIdentity,
 } = require("../utils/knowledgeGraph/nodeIdentityResolver");
+const {
+  invalidateWorkspaceOverviewCache,
+} = require("../utils/workspaceOverview");
 
 function nodeMetadata(body = {}) {
   return {
@@ -101,6 +104,7 @@ function nodeSupplementEndpoints(app) {
           response.status(400).json(result);
           return;
         }
+        invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(200).json(result);
       } catch (error) {
         console.error("[NodeSupplement] create failed", error);
@@ -158,6 +162,8 @@ function nodeSupplementEndpoints(app) {
           priority: body?.priority || 0,
           metadata,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 400).json({
           ...result,
           document: ingest.document,
@@ -219,6 +225,8 @@ function nodeSupplementEndpoints(app) {
           priority: body?.priority || 0,
           metadata: ingest.metadata || metadata,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 400).json({
           ...result,
           document: ingest.document,
@@ -244,6 +252,8 @@ function nodeSupplementEndpoints(app) {
           workspaceId: workspace.id,
           id: request.params.id,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 404).json(result);
       } catch (error) {
         console.error("[NodeSupplement] delete failed", error);

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import {
   ArrowRight,
   Brain,
+  Clock,
   Compass,
   FileText,
   Graph,
@@ -10,11 +11,15 @@ import {
   Lightning,
   Path,
   Sparkle,
+  Trash,
+  UploadSimple,
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
+import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
+import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const overviewCache = new Map();
@@ -33,27 +38,159 @@ function formatTime(value) {
   }
 }
 
-function statusStyle(status) {
-  switch (status) {
-    case "healthy":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "warning":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    case "degraded":
-      return "bg-orange-50 text-orange-700 border-orange-200";
-    case "critical":
-      return "bg-rose-50 text-rose-700 border-rose-200";
-    default:
-      return "bg-slate-100 text-slate-600 border-slate-200";
-  }
+function hexToRgb(hex, fallback = [219, 234, 254]) {
+  if (typeof hex !== "string") return fallback;
+  const clean = hex.replace("#", "").trim();
+  if (!/^[0-9a-f]{6}$/i.test(clean)) return fallback;
+  return [
+    parseInt(clean.slice(0, 2), 16),
+    parseInt(clean.slice(2, 4), 16),
+    parseInt(clean.slice(4, 6), 16),
+  ];
 }
 
-function scoreTone(score) {
-  if (score === null || score === undefined) return "text-slate-500";
-  if (score >= 90) return "text-emerald-600";
-  if (score >= 70) return "text-amber-600";
-  if (score >= 50) return "text-orange-600";
-  return "text-rose-600";
+function clampNumber(value, min, max, fallback) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return fallback;
+  return Math.min(max, Math.max(min, number));
+}
+
+function rgba([red, green, blue], alpha) {
+  return `rgb(${red} ${green} ${blue} / ${alpha})`;
+}
+
+function mixRgb(first, second, amount = 0.5) {
+  return first.map((channel, index) =>
+    Math.round(channel * (1 - amount) + second[index] * amount)
+  );
+}
+
+function getHeroTaglineDisplayStyle(tagline) {
+  const length = Array.from(tagline.trim()).length;
+  let fontSize = "15.5px";
+  let lineHeight = "1.45";
+  let maxLines = 5;
+
+  if (length <= 60) {
+    fontSize = "20px";
+    lineHeight = "1.6";
+    maxLines = 3;
+  } else if (length <= 100) {
+    fontSize = "18px";
+    lineHeight = "1.55";
+    maxLines = 5;
+  } else if (length <= 150) {
+    fontSize = "16.5px";
+    lineHeight = "1.5";
+    maxLines = 5;
+  }
+
+  return {
+    "--overview-tagline-font-size": fontSize,
+    "--overview-tagline-line-height": lineHeight,
+    "--overview-tagline-max-lines": maxLines,
+  };
+}
+
+function overviewThemeStyle(metadata = {}) {
+  const average = hexToRgb(metadata?.averageColor || metadata?.dominantColor);
+  const dominant = hexToRgb(metadata?.dominantColor, average);
+  const brightness = clampNumber(metadata?.brightness, 0, 1, 0.86);
+  const contrastHint =
+    metadata?.contrastHint ||
+    (brightness < 0.45 ? "dark" : brightness > 0.7 ? "light" : "mixed");
+  const temperatureHint = metadata?.temperatureHint || "cool";
+  const isDark = contrastHint === "dark" || brightness < 0.45;
+  const isMixed = contrastHint === "mixed";
+  const isWarm = temperatureHint === "warm";
+  const coolAccent = mixRgb(dominant, [37, 99, 235], isWarm ? 0.12 : 0.42);
+  const warmAccent = mixRgb(dominant, [214, 159, 92], 0.36);
+  const accent = isWarm ? warmAccent : coolAccent;
+  const overlayStrength = isDark ? 0.58 : isMixed ? 0.42 : 0.28;
+  const mistStrength = isDark ? 0.26 : isMixed ? 0.16 : 0.08;
+  const glassAlpha = isDark ? 0.36 : isMixed ? 0.52 : 0.44;
+  const textPrimary = isDark ? [248, 250, 252] : [15, 23, 42];
+  const textSecondary = isDark ? [226, 232, 240] : [71, 85, 105];
+  const neutralGlow = isWarm ? [255, 248, 237] : [219, 234, 254];
+
+  return {
+    "--overview-text-primary": rgba(textPrimary, isDark ? 0.98 : 0.96),
+    "--overview-text-secondary": rgba(textSecondary, isDark ? 0.84 : 0.82),
+    "--overview-glass-bg": isDark
+      ? rgba([15, 23, 42], glassAlpha)
+      : rgba([255, 255, 255], glassAlpha),
+    "--overview-glass-bg-strong": isDark
+      ? rgba([15, 23, 42], 0.48)
+      : rgba([255, 255, 255], 0.62),
+    "--overview-glass-border": isDark
+      ? rgba([255, 255, 255], 0.34)
+      : rgba([255, 255, 255], 0.72),
+    "--overview-accent": rgba(accent, isDark ? 0.88 : 0.82),
+    "--overview-accent-soft": rgba(accent, isDark ? 0.22 : 0.16),
+    "--overview-overlay-from": rgba([255, 255, 255], overlayStrength),
+    "--overview-overlay-mid": rgba(
+      isDark ? [255, 255, 255] : neutralGlow,
+      isDark ? 0.4 : 0.22
+    ),
+    "--overview-overlay-to": rgba([255, 255, 255], isDark ? 0.18 : 0.06),
+    "--overview-radial-glow": rgba(neutralGlow, isWarm ? 0.18 : 0.22),
+    "--overview-mist": rgba([255, 255, 255], mistStrength),
+    "--overview-bg-fallback": `linear-gradient(120deg, ${rgba(
+      mixRgb(average, [255, 255, 255], 0.84),
+      1
+    )}, ${rgba(mixRgb(dominant, [219, 234, 254], 0.72), 1)})`,
+  };
+}
+
+function healthToneStyle(status) {
+  const tones = {
+    healthy: [16, 185, 129],
+    warning: [217, 119, 6],
+    degraded: [234, 88, 12],
+    critical: [225, 29, 72],
+  };
+  const accent = tones[status] || [37, 99, 235];
+  return {
+    "--overview-health-accent": rgba(accent, 0.95),
+    "--overview-health-accent-soft": rgba(accent, 0.16),
+  };
+}
+
+function VisualBackground({
+  userUrl = null,
+  defaultUrl = null,
+  className = "",
+}) {
+  const [source, setSource] = useState(userUrl ? "user" : "default");
+  useEffect(() => {
+    setSource(userUrl ? "user" : "default");
+  }, [defaultUrl, userUrl]);
+
+  const src =
+    source === "user" && userUrl
+      ? userUrl
+      : source === "default" && defaultUrl
+        ? defaultUrl
+        : null;
+
+  return (
+    <div className={`overview-visual-background ${className}`}>
+      {src && (
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 h-full w-full object-cover"
+          onError={() => {
+            setSource((current) =>
+              current === "user" && defaultUrl ? "default" : "css"
+            );
+          }}
+        />
+      )}
+      <div className="overview-hero-overlay" />
+    </div>
+  );
 }
 
 export default function WorkspaceOverview({
@@ -296,80 +433,110 @@ export default function WorkspaceOverview({
     overview?.userCognitiveState?.currentFocusConcepts?.[0] ||
     overview?.userCognitiveState?.activeTopics?.[0] ||
     null;
-  const focus = focusTarget?.displayName || "等待新的研究焦点";
+  const hero = overview?.workspaceHero || {};
   const health = overview?.healthLite || {};
+  const recentActivity = overview?.recentActivity?.[0] || null;
+  const taglinePending = hero?.taglineStatus === "pending";
 
   return (
-    <div className="w-full h-full overflow-y-auto bg-slate-50 light:bg-slate-50">
-      <div className="w-full max-w-6xl mx-auto px-4 md:px-8 pt-7 md:pt-9 pb-72">
-        <section className="rounded-2xl border border-white/70 bg-white/80 p-5 md:p-6 shadow-sm backdrop-blur-xl">
-          <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold tracking-wide text-blue-600">
-                个性化知识推荐首页
-              </p>
-              <h1 className="mt-2 text-2xl md:text-3xl font-semibold text-slate-950">
-                {workspace?.name || "Workspace"}
-              </h1>
-              <p className="mt-3 text-sm md:text-base text-slate-600">
-                当前研究焦点：
-                <span className="font-semibold text-slate-900">{focus}</span>
-              </p>
-              {focusTarget?.nodeKey && (
-                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2 text-xs text-slate-600">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span>
-                      节点补充：
-                      <span className="font-semibold text-slate-900">
-                        已添加 {focusTarget.supplementCount || 0} 份
-                      </span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onOpenGraph?.({
-                          concept: focusTarget.concept || focus,
-                          displayName: focus,
-                          nodeKey: focusTarget.nodeKey,
-                          nodeId: focusTarget.nodeId || focusTarget.targetId,
-                        })
-                      }
-                      className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
-                    >
-                      打开节点详情
-                    </button>
+    <div
+      className="overview-themed-surface h-full w-full overflow-y-auto bg-slate-50 light:bg-slate-50"
+      style={overviewThemeStyle(hero?.backgroundAsset?.metadata)}
+    >
+      <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-7 md:pt-9 pb-72">
+        <section
+          className="overview-themed-surface grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(220px,2fr)]"
+          style={overviewThemeStyle(hero?.backgroundAsset?.metadata)}
+        >
+          <div className="relative min-h-[350px] overflow-hidden rounded-[28px] border border-[color:var(--overview-glass-border)] bg-white shadow-[0_24px_70px_rgb(15_23_42_/_0.10)]">
+            <VisualBackground
+              userUrl={hero?.backgroundImageUrl}
+              defaultUrl={defaultWorkspaceHeroBg}
+            />
+            <div className="relative grid min-h-[350px] gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:p-8 xl:p-9">
+              <div className="flex min-w-0 flex-col justify-between gap-6">
+                <div>
+                  <div className="overview-glass-pill inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold">
+                    <Compass size={17} />
+                    个性化知识推荐首页
                   </div>
-                  {!!focusTarget.supplementTitles?.length && (
-                    <div className="mt-1 truncate text-[11px] text-slate-500">
-                      {focusTarget.supplementTitles.slice(0, 3).join(" / ")}
-                    </div>
-                  )}
+                  <h1 className="overview-hero-title mt-5 max-w-2xl">
+                    {hero?.title || workspace?.name || "Workspace"}
+                  </h1>
+                  <div className="mt-5 flex items-center gap-3">
+                    <span className="h-px w-20 rounded-full bg-[color:var(--overview-accent)]" />
+                    <Sparkle
+                      size={18}
+                      weight="fill"
+                      className="text-[color:var(--overview-accent)]"
+                    />
+                  </div>
                 </div>
-              )}
-              <p className="mt-2 text-xs text-slate-500">
-                最近活动：{formatTime(overview?.recentActivity?.[0]?.createdAt)}
-              </p>
+                <div className="overview-glass-pill inline-flex w-fit items-center gap-2 px-4 py-2.5 text-sm">
+                  <Clock size={17} />
+                  <span>最近活动</span>
+                  <span className="h-4 w-px bg-[color:var(--overview-glass-border)]" />
+                  <span className="font-semibold">
+                    {formatTime(recentActivity?.createdAt)}
+                  </span>
+                  <span className="ml-1 h-2 w-2 rounded-full bg-[color:var(--overview-accent)]" />
+                </div>
+              </div>
+              <div className="flex min-w-0 items-center">
+                {hero?.tagline ? (
+                  <div className="overview-glass-card w-full rounded-[24px] p-5 lg:-ml-6 lg:w-[calc(100%+3rem)]">
+                    <div className="mb-2.5 flex items-center gap-2.5 text-[color:var(--overview-accent)]">
+                      <FileText size={18} />
+                      <div className="text-base font-semibold sm:text-lg">
+                        工作区总览
+                      </div>
+                    </div>
+                    <div className="mb-3 h-px w-14 bg-[color:var(--overview-accent)]" />
+                    <p
+                      className="overview-hero-tagline"
+                      style={getHeroTaglineDisplayStyle(hero.tagline)}
+                    >
+                      {hero.tagline}
+                    </p>
+                  </div>
+                ) : taglinePending ? (
+                  <p className="overview-glass-pill px-4 py-2 text-sm">
+                    总览生成中
+                  </p>
+                ) : null}
+              </div>
             </div>
-            <div
-              className={`rounded-xl border px-4 py-3 min-w-[180px] ${statusStyle(
-                health.status
-              )}`}
-            >
-              <div className="flex items-center gap-2 text-sm font-medium">
-                <Heartbeat size={18} />
-                工作区健康
+          </div>
+          <div
+            className="overview-glass-card min-h-[250px] rounded-[24px] p-6"
+            style={healthToneStyle(health.status)}
+          >
+            <div className="flex h-full flex-col justify-between gap-5">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--overview-health-accent)]">
+                  <Heartbeat size={18} />
+                  工作区健康
+                </div>
+                <div className="mt-5 text-5xl font-semibold leading-none text-[color:var(--overview-health-accent)]">
+                  {health.score ?? "未知"}
+                </div>
+                <p className="mt-4 text-sm leading-6 text-[color:var(--overview-text-secondary)]">
+                  {health.summary || "健康状态暂不可用"}
+                </p>
               </div>
-              <div
-                className={`mt-2 text-3xl font-semibold ${scoreTone(health.score)}`}
-              >
-                {health.score ?? "未知"}
-              </div>
-              <p className="mt-1 text-xs">
-                {health.summary || "健康状态暂不可用"}
+              <p className="text-xs leading-5 text-[color:var(--overview-text-secondary)]">
+                推荐、证据、关系与处理状态的综合读数
               </p>
             </div>
           </div>
         </section>
+
+        <CurrentFocusCard
+          detail={overview?.currentFocusDetail}
+          recentActivity={recentActivity}
+          focusTarget={focusTarget}
+          onOpenGraph={onOpenGraph}
+        />
 
         <KnowledgeProfilePanel
           profile={overview?.workspaceProfile}
@@ -385,6 +552,7 @@ export default function WorkspaceOverview({
           workspace={workspace}
           profile={overview?.workspaceProfile}
           summary={overview?.workspaceSupplements}
+          workspaceBackground={overview?.visualAssets?.workspaceBackground}
           onChanged={async () => {
             overviewCache.delete(cacheKey);
             await loadOverview({ force: true });
@@ -398,7 +566,7 @@ export default function WorkspaceOverview({
               title="继续上次研究"
               empty="暂无可恢复的研究路径。"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
                 {(overview?.unfinishedExplorations || [])
                   .slice(0, 4)
                   .map((item) => (
@@ -421,7 +589,7 @@ export default function WorkspaceOverview({
               title="为你推荐"
               empty="暂无推荐。继续查看概念或证据后，这里会变得更聪明。"
             >
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
                 {recommendations.slice(0, 8).map((item) => (
                   <RecommendationCard
                     key={item.recommendationId}
@@ -469,18 +637,124 @@ export default function WorkspaceOverview({
   );
 }
 
+function CurrentFocusCard({
+  detail = null,
+  recentActivity = null,
+  focusTarget = null,
+  onOpenGraph,
+}) {
+  if (!detail) return null;
+  const stats = [
+    ["证据", detail.evidenceCount],
+    ["关系", detail.relationCount],
+    ["补充", detail.supplementCount],
+  ];
+  const bits = [
+    detail.whyRecommended,
+    detail.nextAction,
+    ...(detail.knowledgeBits || []),
+  ].filter(
+    (bit) =>
+      Boolean(bit) && bit !== detail.summary && bit !== detail.mainlinePath
+  );
+
+  return (
+    <section
+      className="overview-themed-surface relative mt-5 min-h-[250px] overflow-hidden rounded-[26px] border border-[color:var(--overview-glass-border)] shadow-[0_18px_54px_rgb(15_23_42_/_0.08)]"
+      style={overviewThemeStyle(detail.backgroundAsset?.metadata)}
+    >
+      <VisualBackground
+        userUrl={detail.backgroundImageUrl}
+        defaultUrl={defaultNodeFocusBg}
+      />
+      <div className="relative p-6 md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0">
+            <p className="overview-glass-pill inline-flex px-3 py-1.5 text-xs font-semibold">
+              当前研究焦点
+            </p>
+            <h2 className="mt-4 text-2xl font-semibold leading-tight text-[color:var(--overview-text-primary)] md:text-3xl">
+              {detail.displayName || detail.title || "当前研究焦点"}
+            </h2>
+            {detail.nodeTypeLabel && (
+              <p className="mt-2 text-xs text-[color:var(--overview-text-secondary)]">
+                {detail.nodeTypeLabel}
+                {detail.nodeKey ? ` · ${detail.nodeKey}` : ""}
+              </p>
+            )}
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {stats.map(([label, value]) => (
+              <span
+                key={label}
+                className="overview-glass-pill px-3 py-1 text-xs font-semibold"
+              >
+                {label} {Number(value || 0)}
+              </span>
+            ))}
+          </div>
+        </div>
+        {detail.summary && (
+          <p className="mt-5 max-w-4xl text-sm leading-6 text-[color:var(--overview-text-secondary)]">
+            {detail.summary}
+          </p>
+        )}
+        {detail.mainlinePath && (
+          <div className="overview-glass-card mt-4 rounded-2xl px-4 py-3 text-xs leading-5 text-[color:var(--overview-text-secondary)]">
+            路径：{detail.mainlinePath}
+          </div>
+        )}
+        {bits.length > 0 && (
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {[...new Set(bits)].slice(0, 4).map((bit) => (
+              <div
+                key={bit}
+                className="overview-glass-card rounded-2xl px-4 py-3 text-xs leading-5 text-[color:var(--overview-text-secondary)]"
+              >
+                {bit}
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 text-xs text-[color:var(--overview-text-secondary)]">
+          <span>最近活动：{formatTime(recentActivity?.createdAt)}</span>
+          {detail.nodeKey && (
+            <button
+              type="button"
+              onClick={() =>
+                onOpenGraph?.({
+                  concept:
+                    focusTarget?.concept || detail.displayName || detail.title,
+                  displayName: detail.displayName || detail.title,
+                  nodeKey: detail.nodeKey,
+                  nodeId: detail.nodeId,
+                })
+              }
+              className="overview-action-button rounded-xl px-3 py-1.5 text-xs font-semibold"
+            >
+              打开节点详情
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function OverviewSection({ icon, title, empty, children }) {
   const hasContent = Boolean(children?.props?.children?.length ?? children);
   return (
-    <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
-      <div className="mb-3 flex items-center gap-2 text-slate-900 font-semibold">
-        <span className="text-blue-500">{icon}</span>
+    <section className="overview-glass-card rounded-[24px] p-5">
+      <div className="mb-4 flex items-center gap-2 font-semibold text-[color:var(--overview-text-primary)]">
+        <span className="text-[color:var(--overview-accent)]">{icon}</span>
         {title}
       </div>
       {hasContent ? (
         children
       ) : (
-        <p className="text-sm text-slate-500">{empty}</p>
+        <p className="text-sm text-[color:var(--overview-text-secondary)]">
+          {empty}
+        </p>
       )}
     </section>
   );
@@ -497,14 +771,22 @@ const workspaceSupplementKinds = [
   ["other", "其他补充"],
 ];
 
-function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
+function WorkspaceSupplementPanel({
+  workspace,
+  profile,
+  summary,
+  workspaceBackground = null,
+  onChanged,
+}) {
   const fileInputRef = useRef(null);
+  const visualInputRef = useRef(null);
   const triggerRef = useRef(null);
   const promptCacheRef = useRef({});
   const defaultScope = profile?.profileType === "book" ? "book" : "workspace";
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState("list");
   const [saving, setSaving] = useState(false);
+  const [visualSaving, setVisualSaving] = useState(false);
   const [supplements, setSupplements] = useState(summary?.supplements || []);
   const [structureError, setStructureError] = useState("");
   const [draft, setDraft] = useState({
@@ -617,6 +899,44 @@ function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
     await onChanged?.();
   };
 
+  const uploadWorkspaceBackground = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !workspace?.slug) return;
+    setVisualSaving(true);
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    formData.append("scopeType", "workspace");
+    formData.append("role", "hero_background");
+    const result = await WorkspaceOverviewModel.uploadVisualAsset(
+      workspace.slug,
+      formData
+    );
+    setVisualSaving(false);
+    if (!result?.success) {
+      showToast(result?.error || "工作区背景图上传失败。", "error");
+      return;
+    }
+    showToast("已更新工作区背景图。", "success");
+    await onChanged?.();
+  };
+
+  const removeWorkspaceBackground = async () => {
+    if (!workspaceBackground?.id || !workspace?.slug) return;
+    setVisualSaving(true);
+    const result = await WorkspaceOverviewModel.deleteVisualAsset(
+      workspace.slug,
+      workspaceBackground.id
+    );
+    setVisualSaving(false);
+    if (!result?.success) {
+      showToast(result?.error || "移除背景图失败。", "error");
+      return;
+    }
+    showToast("已移除工作区背景图。", "success");
+    await onChanged?.();
+  };
+
   const saveText = async () => {
     const isStructure = draft.supplementKind === "structure_json";
     const structureText =
@@ -711,14 +1031,17 @@ function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
   };
 
   return (
-    <section className="mt-5 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
+    <section className="overview-glass-card mt-5 rounded-[24px] p-5">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-            <FileText size={18} className="text-blue-500" />
+          <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--overview-text-primary)]">
+            <FileText
+              size={18}
+              className="text-[color:var(--overview-accent)]"
+            />
             全书补充
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-[color:var(--overview-text-secondary)]">
             已添加 {summary?.count || 0} 份，用于画像、书籍结构、路径和推荐。
           </p>
         </div>
@@ -729,6 +1052,13 @@ function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
             className="hidden"
             onChange={uploadFile}
           />
+          <input
+            ref={visualInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={uploadWorkspaceBackground}
+          />
           <button
             type="button"
             disabled={saving}
@@ -737,6 +1067,26 @@ function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
           >
             上传
           </button>
+          <button
+            type="button"
+            disabled={visualSaving}
+            onClick={() => visualInputRef.current?.click()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-60"
+          >
+            <UploadSimple size={13} />
+            上传工作区背景图
+          </button>
+          {workspaceBackground?.id && (
+            <button
+              type="button"
+              disabled={visualSaving}
+              onClick={removeWorkspaceBackground}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+            >
+              <Trash size={13} />
+              移除背景图
+            </button>
+          )}
           <button
             type="button"
             onClick={(event) => openModal("text", event)}
@@ -1070,11 +1420,14 @@ function KnowledgeProfilePanel({
   ].filter(Boolean);
 
   return (
-    <section className="mt-5 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
+    <section className="overview-glass-card mt-5 rounded-[24px] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
-            <Compass size={18} className="text-blue-500" />
+          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-[color:var(--overview-text-primary)]">
+            <Compass
+              size={18}
+              className="text-[color:var(--overview-accent)]"
+            />
             工作区知识画像
             {profile?.manualOverride && (
               <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
@@ -1082,27 +1435,27 @@ function KnowledgeProfilePanel({
               </span>
             )}
           </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-            <span className="rounded-lg bg-slate-50 px-2 py-1">
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-[color:var(--overview-text-secondary)]">
+            <span className="overview-glass-pill px-2 py-1">
               画像：{profileLabel}
             </span>
             {bookStructure && (
-              <span className="rounded-lg bg-slate-50 px-2 py-1">
+              <span className="overview-glass-pill px-2 py-1">
                 书籍结构：{structureLabel}
               </span>
             )}
             {!!axes.length && (
-              <span className="rounded-lg bg-slate-50 px-2 py-1">
+              <span className="overview-glass-chip px-2 py-1">
                 主轴/次轴：{axes.join(" / ")}
               </span>
             )}
-            <span className="rounded-lg bg-slate-50 px-2 py-1">
+            <span className="overview-glass-pill px-2 py-1">
               推荐来源：
               {engine?.primary === "knowledge_engine"
                 ? "知识引擎"
                 : "旧逻辑兜底"}
             </span>
-            <span className="rounded-lg bg-slate-50 px-2 py-1">
+            <span className="overview-glass-pill px-2 py-1">
               上次分析：{formatTime(profile?.lastAnalyzedAt)}
             </span>
           </div>
@@ -1415,65 +1768,63 @@ function RecommendationCard({
   return (
     <article
       ref={ref}
-      className="group relative rounded-xl border border-slate-200/80 bg-white/65 p-4 shadow-sm backdrop-blur hover:border-blue-200 hover:bg-blue-50/55 motion-hover"
+      className="overview-glass-card group relative flex h-full min-h-[248px] flex-col rounded-[22px] p-5 motion-hover hover:-translate-y-0.5"
     >
       {onDismiss && (
         <button
           type="button"
           onClick={() => onDismiss(recommendation)}
-          className="absolute right-2 top-2 rounded-md p-1 text-slate-400 hover:bg-white hover:text-slate-700"
+          className="absolute right-3 top-3 rounded-md p-1 text-[color:var(--overview-text-secondary)] hover:bg-[color:var(--overview-glass-bg-strong)] hover:text-[color:var(--overview-text-primary)]"
           aria-label="隐藏该推荐"
         >
           <X size={14} />
         </button>
       )}
-      <div className="flex items-center gap-2 text-xs text-blue-600">
-        <Brain size={15} />
-        推荐分 {recommendation.score}
-        {cardLabel && (
-          <span className="rounded-full border border-slate-200 bg-white/70 px-1.5 py-0.5 text-[10px] text-slate-600">
-            {cardLabel}
-          </span>
+      <div className="min-h-0 flex-1">
+        <div className="flex items-center gap-2 text-xs text-[color:var(--overview-accent)]">
+          <Brain size={15} />
+          推荐分 {recommendation.score}
+          {cardLabel && (
+            <span className="overview-glass-pill px-1.5 py-0.5 text-[10px]">
+              {cardLabel}
+            </span>
+          )}
+          {!cardLabel && recommendation.target?.hasSupplement && (
+            <span className="overview-glass-pill px-1.5 py-0.5 text-[10px]">
+              补充 {recommendation.target.supplementCount || 0}
+            </span>
+          )}
+        </div>
+        <h3 className="mt-3 line-clamp-2 pr-6 text-sm font-semibold leading-5 text-[color:var(--overview-text-primary)]">
+          {title}
+        </h3>
+        {primaryText && (
+          <p className="mt-3 line-clamp-2 text-xs leading-5 text-[color:var(--overview-text-secondary)]">
+            {primaryText}
+          </p>
         )}
-        {!cardLabel && recommendation.target?.hasSupplement && (
-          <span className="rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
-            补充 {recommendation.target.supplementCount || 0}
-          </span>
+        {supportLines.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {supportLines.slice(0, 3).map((line, index) => (
+              <p
+                key={`${line}-${index}`}
+                className="line-clamp-1 text-[11px] leading-5 text-[color:var(--overview-text-secondary)]"
+              >
+                {line}
+              </p>
+            ))}
+          </div>
+        )}
+        {stats.length > 0 && (
+          <div className="mt-3 line-clamp-1 text-[11px] font-medium text-[color:var(--overview-text-secondary)]">
+            {stats.join(" · ")}
+          </div>
         )}
       </div>
-      <h3 className="mt-2 pr-6 text-sm font-semibold leading-5 text-slate-950">
-        {title}
-      </h3>
-      {primaryText && (
-        <p
-          className={`mt-3 text-xs leading-5 text-slate-700 ${
-            cardType === "relation" || cardType === "path" ? "line-clamp-2" : ""
-          }`}
-        >
-          {primaryText}
-        </p>
-      )}
-      {supportLines.length > 0 && (
-        <div className="mt-2 space-y-1">
-          {supportLines.slice(0, 3).map((line, index) => (
-            <p
-              key={`${line}-${index}`}
-              className="text-[11px] leading-5 text-slate-500"
-            >
-              {line}
-            </p>
-          ))}
-        </div>
-      )}
-      {stats.length > 0 && (
-        <div className="mt-3 text-[11px] font-medium text-slate-500">
-          {stats.join(" · ")}
-        </div>
-      )}
       <button
         type="button"
         onClick={() => onActivate?.(recommendation)}
-        className="mt-4 inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm hover:border-blue-300 hover:bg-blue-100"
+        className="overview-action-button mt-auto inline-flex w-fit items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold"
       >
         {buttonLabel}
         <ArrowRight size={13} />
@@ -1487,13 +1838,15 @@ function SmallInsight({ item, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="text-left rounded-xl border border-slate-200 bg-slate-50 p-3 hover:border-blue-200 hover:bg-blue-50/50"
+      className="overview-glass-card rounded-[20px] p-4 text-left hover:-translate-y-0.5"
     >
-      <div className="text-xs text-slate-500">可信度 {item.confidence}</div>
-      <div className="mt-1 text-sm font-semibold text-slate-900">
+      <div className="text-xs text-[color:var(--overview-text-secondary)]">
+        可信度 {item.confidence}
+      </div>
+      <div className="mt-1 text-sm font-semibold text-[color:var(--overview-text-primary)]">
         {item.title}
       </div>
-      <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
+      <p className="mt-2 line-clamp-2 text-xs leading-5 text-[color:var(--overview-text-secondary)]">
         {item.reasonZh?.[0] || "来自真实图谱信号。"}
       </p>
     </button>
@@ -1503,9 +1856,9 @@ function SmallInsight({ item, onClick }) {
 function StatsPanel({ overview }) {
   const summary = overview?.todaySummary || {};
   return (
-    <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
-      <div className="flex items-center gap-2 text-slate-900 font-semibold">
-        <Lightning size={18} className="text-blue-500" />
+    <section className="overview-glass-card rounded-[24px] p-5">
+      <div className="flex items-center gap-2 font-semibold text-[color:var(--overview-text-primary)]">
+        <Lightning size={18} className="text-[color:var(--overview-accent)]" />
         今日知识变化
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2">
@@ -1517,9 +1870,12 @@ function StatsPanel({ overview }) {
         {(summary.recentDocuments || []).slice(0, 4).map((doc) => (
           <div
             key={doc.docId}
-            className="flex items-start gap-2 text-xs text-slate-600"
+            className="flex items-start gap-2 text-xs text-[color:var(--overview-text-secondary)]"
           >
-            <FileText size={14} className="mt-0.5 text-slate-400" />
+            <FileText
+              size={14}
+              className="mt-0.5 text-[color:var(--overview-accent)]"
+            />
             <span className="line-clamp-2">{doc.filename || doc.docpath}</span>
           </div>
         ))}
@@ -1530,33 +1886,37 @@ function StatsPanel({ overview }) {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-lg bg-slate-50 p-3 text-center">
-      <div className="text-lg font-semibold text-slate-900">{value}</div>
-      <div className="text-xs text-slate-500">{label}</div>
+    <div className="overview-glass-metric p-3 text-center">
+      <div className="text-lg font-semibold text-[color:var(--overview-text-primary)]">
+        {value}
+      </div>
+      <div className="text-xs text-[color:var(--overview-text-secondary)]">
+        {label}
+      </div>
     </div>
   );
 }
 
 function ActivityPanel({ activities }) {
   return (
-    <section className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
-      <div className="flex items-center gap-2 text-slate-900 font-semibold">
-        <Graph size={18} className="text-blue-500" />
+    <section className="overview-glass-card rounded-[24px] p-5">
+      <div className="flex items-center gap-2 font-semibold text-[color:var(--overview-text-primary)]">
+        <Graph size={18} className="text-[color:var(--overview-accent)]" />
         最近变化
       </div>
       <div className="mt-4 space-y-3">
         {activities.slice(0, 6).map((activity, index) => (
           <div
             key={`${activity.type}-${index}`}
-            className="border-l-2 border-blue-200 pl-3"
+            className="border-l-2 border-[color:var(--overview-accent)] pl-3"
           >
-            <div className="text-sm font-medium text-slate-900">
+            <div className="text-sm font-medium text-[color:var(--overview-text-primary)]">
               {activity.title}
             </div>
-            <div className="text-xs leading-5 text-slate-500">
+            <div className="text-xs leading-5 text-[color:var(--overview-text-secondary)]">
               {activity.detail}
             </div>
-            <div className="text-[11px] text-slate-400">
+            <div className="text-[11px] text-[color:var(--overview-text-secondary)]">
               {formatTime(activity.createdAt)}
             </div>
           </div>
@@ -1569,8 +1929,8 @@ function ActivityPanel({ activities }) {
 function DebugPanel({ debug }) {
   if (!debug || import.meta.env.PROD) return null;
   return (
-    <details className="min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
-      <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+    <details className="overview-glass-card min-w-0 overflow-hidden rounded-[24px] p-5">
+      <summary className="cursor-pointer text-sm font-semibold text-[color:var(--overview-text-primary)]">
         推荐调试信息
       </summary>
       <pre className="mt-3 block max-h-56 w-full max-w-full overflow-auto whitespace-pre rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">

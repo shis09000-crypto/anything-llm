@@ -23,6 +23,9 @@ const {
   ingestTextSupplement,
   parseStructureJsonFromMarkdown,
 } = require("../utils/knowledgeGraph/supplementIngestor");
+const {
+  invalidateWorkspaceOverviewCache,
+} = require("../utils/workspaceOverview");
 
 function bool(value) {
   return value === true || value === "true" || value === 1 || value === "1";
@@ -180,6 +183,8 @@ function workspaceSupplementEndpoints(app) {
           priority: body?.priority || 0,
           metadata,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 400).json(result);
       } catch (error) {
         console.error("[WorkspaceSupplement] bind failed", error);
@@ -229,6 +234,8 @@ function workspaceSupplementEndpoints(app) {
           priority: body.priority || 0,
           metadata,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 400).json({
           ...result,
           document: ingest.document,
@@ -282,6 +289,8 @@ function workspaceSupplementEndpoints(app) {
           priority: body?.priority || 0,
           metadata: ingest.metadata || metadata,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 400).json({
           ...result,
           document: ingest.document,
@@ -307,6 +316,8 @@ function workspaceSupplementEndpoints(app) {
           workspaceId: workspace.id,
           id: request.params.id,
         });
+        if (result.success)
+          invalidateWorkspaceOverviewCache({ workspaceId: workspace.id });
         response.status(result.success ? 200 : 404).json(result);
       } catch (error) {
         console.error("[WorkspaceSupplement] delete failed", error);
