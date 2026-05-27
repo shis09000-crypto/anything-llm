@@ -1,5 +1,8 @@
 const { getEmbeddingEngineSelection, getVectorDbClass } = require("../helpers");
 const { sourceIdentifier } = require("../chats");
+const {
+  resolveGraphContext,
+} = require("../knowledgeGraph/graphContextResolver");
 const { MAX_EVIDENCE_CHUNKS } = require("./constants");
 
 function scoreOf(source = {}) {
@@ -52,6 +55,9 @@ function toSourceRef(source = {}, id, score) {
         : Number(source.chunkIndex),
     score,
     published: source.published || null,
+    sourceType: source.sourceType || null,
+    nodeKey: source.nodeKey || null,
+    nodeLabel: source.nodeLabel || null,
   };
 }
 
@@ -82,17 +88,53 @@ function normalizeEvidenceSources(sources = []) {
     });
 }
 
-async function retrieveQuizEvidence({ workspace, plan }) {
+async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
   const VectorDb = getVectorDbClass();
   const EmbedderEngine = getEmbeddingEngineSelection();
   const LLMConnector = {
     embedTextInput: (input) => EmbedderEngine.embedTextInput(input),
   };
+  const queries = (
+    plan.searchQueries?.length ? plan.searchQueries : [plan.topic]
+  )
+    .map((query) => String(query || "").trim())
+    .filter(Boolean);
+  const graphContext =
+    nodeContext?.nodeKey || nodeContext?.nodeId
+      ? await resolveGraphContext({
+          workspace,
+          nodeKey: nodeContext.nodeKey,
+          nodeId: nodeContext.nodeId,
+          intent: "quiz",
+          query: [plan.topic, ...queries].filter(Boolean).join(" "),
+          budget: {
+            supplementChunks: Math.min(MAX_EVIDENCE_CHUNKS, 4),
+            originalChunks: Math.min(MAX_EVIDENCE_CHUNKS, 4),
+            vectorChunks: 0,
+            contextChars: 10_000,
+          },
+        })
+      : null;
+  const supplementSources = (graphContext?.evidenceChunks || []).map(
+    (chunk, index) => ({
+      ...chunk,
+      id: chunk.id || `graph-context-${index + 1}`,
+      text: chunk.text,
+    })
+  );
   const hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
   const embeddingsCount = hasVectorizedSpace
     ? await VectorDb.namespaceCount(workspace.slug)
     : 0;
   if (!hasVectorizedSpace || embeddingsCount === 0) {
+    if (supplementSources.length > 0) {
+      const evidenceChunks = normalizeEvidenceSources(supplementSources);
+      return {
+        evidenceChunks,
+        sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
+        error: null,
+      };
+    }
     return {
       evidenceChunks: [],
       sourceRefs: [],
@@ -100,12 +142,7 @@ async function retrieveQuizEvidence({ workspace, plan }) {
     };
   }
 
-  const queries = (
-    plan.searchQueries?.length ? plan.searchQueries : [plan.topic]
-  )
-    .map((query) => String(query || "").trim())
-    .filter(Boolean);
-  const sources = [];
+  const sources = [...supplementSources];
   for (const query of queries) {
     const result = await VectorDb.performSimilaritySearch({
       namespace: workspace.slug,

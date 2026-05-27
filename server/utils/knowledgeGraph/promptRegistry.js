@@ -97,7 +97,7 @@ function buildExtractionPrompt({ text, domain = "default" }) {
     {
       "source": "必须与上方实体 name 完全一致",
       "target": "必须与上方实体 name 完全一致",
-      "relation": "related_to | part_of | causes | depends_on | used_in | acts_at | regulates | contrasts_with | precedes | implements | references",
+      "relation": "influences | influenced_by | criticizes | develops | introduces_concept | belongs_to_school | answers_question | contrasts_with | prerequisite_of | often_confused_with | supports_claim | refutes_claim | related_to | part_of | depends_on | leads_to | open_question_for | evidence_for | causes | used_in | acts_at | regulates | precedes | implements | references",
       "confidence": 0.0,
       "snippet": "中文证据短语，可从片段摘录或紧贴片段改写"
     }

@@ -1,10 +1,12 @@
-const addDocumentToNamespace = jest.fn();
-const enqueueBatchDocuments = jest.fn();
-const isBatchMode = jest.fn();
-const emitProgress = jest.fn();
+const mockAddDocumentToNamespace = jest.fn();
+const mockEnqueueBatchDocuments = jest.fn();
+const mockIsBatchMode = jest.fn();
+const mockEmitProgress = jest.fn();
 
 jest.mock("../../utils/helpers", () => ({
-  getVectorDbClass: jest.fn(() => ({ addDocumentToNamespace })),
+  getVectorDbClass: jest.fn(() => ({
+    addDocumentToNamespace: mockAddDocumentToNamespace,
+  })),
 }));
 
 jest.mock("../../utils/prisma", () => ({
@@ -25,6 +27,16 @@ jest.mock("../../models/eventLogs", () => ({
   },
 }));
 
+jest.mock("../../models/documentIndexStatus", () => ({
+  DocumentIndexStatus: {
+    upsertPending: jest.fn(),
+    markIndexing: jest.fn(),
+    markFailed: jest.fn(),
+    markCompleted: jest.fn(),
+    markIndexed: jest.fn(),
+  },
+}));
+
 jest.mock("../../endpoints/utils", () => ({
   getModelTag: jest.fn(() => "test-model"),
 }));
@@ -38,12 +50,12 @@ jest.mock("../../utils/files", () => ({
 }));
 
 jest.mock("../../utils/EmbeddingWorkerManager", () => ({
-  emitProgress,
+  emitProgress: mockEmitProgress,
 }));
 
 jest.mock("../../utils/DocumentEmbeddingBatch", () => ({
-  isBatchMode,
-  enqueueBatchDocuments,
+  isBatchMode: mockIsBatchMode,
+  enqueueBatchDocuments: mockEnqueueBatchDocuments,
 }));
 
 const { Document } = require("../../models/documents");
@@ -53,14 +65,19 @@ describe("Document.addDocuments embeddingModeOverride", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    addDocumentToNamespace.mockResolvedValue({ vectorized: true, error: null });
-    enqueueBatchDocuments.mockResolvedValue({
+    mockAddDocumentToNamespace.mockResolvedValue({
+      vectorized: true,
+      error: null,
+    });
+    mockEnqueueBatchDocuments.mockResolvedValue({
       failedToEmbed: [],
       errors: [],
       embedded: ["custom-documents/a.json"],
       batchJob: { jobId: "job-1" },
     });
-    isBatchMode.mockImplementation((modeOverride) => modeOverride === "batch");
+    mockIsBatchMode.mockImplementation(
+      (modeOverride) => modeOverride === "batch"
+    );
   });
 
   it("routes batch overrides through the embedding batch queue", async () => {
@@ -71,13 +88,13 @@ describe("Document.addDocuments embeddingModeOverride", () => {
       { embeddingModeOverride: "batch" }
     );
 
-    expect(isBatchMode).toHaveBeenCalledWith("batch");
-    expect(enqueueBatchDocuments).toHaveBeenCalledWith({
+    expect(mockIsBatchMode).toHaveBeenCalledWith("batch");
+    expect(mockEnqueueBatchDocuments).toHaveBeenCalledWith({
       workspace,
       additions: ["custom-documents/a.json"],
       userId: 7,
     });
-    expect(addDocumentToNamespace).not.toHaveBeenCalled();
+    expect(mockAddDocumentToNamespace).not.toHaveBeenCalled();
     expect(result.batchJob.jobId).toBe("job-1");
   });
 
@@ -89,9 +106,9 @@ describe("Document.addDocuments embeddingModeOverride", () => {
       { embeddingModeOverride: "direct" }
     );
 
-    expect(isBatchMode).toHaveBeenCalledWith("direct");
-    expect(enqueueBatchDocuments).not.toHaveBeenCalled();
-    expect(addDocumentToNamespace).toHaveBeenCalledWith(
+    expect(mockIsBatchMode).toHaveBeenCalledWith("direct");
+    expect(mockEnqueueBatchDocuments).not.toHaveBeenCalled();
+    expect(mockAddDocumentToNamespace).toHaveBeenCalledWith(
       workspace.slug,
       expect.objectContaining({ pageContent: "hello" }),
       "custom-documents/a.json"
@@ -102,6 +119,6 @@ describe("Document.addDocuments embeddingModeOverride", () => {
   it("preserves default mode behavior when no override is supplied", async () => {
     await Document.addDocuments(workspace, ["custom-documents/a.json"], 7);
 
-    expect(isBatchMode).toHaveBeenCalledWith(undefined);
+    expect(mockIsBatchMode).toHaveBeenCalledWith(undefined);
   });
 });

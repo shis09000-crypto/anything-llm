@@ -7,6 +7,15 @@ const { safeJsonParse } = require("../utils/http");
 const { getModelTag } = require("../endpoints/utils");
 const { DocumentIndexStatus } = require("./documentIndexStatus");
 
+function documentDisplayName(docpath = "", metadata = {}) {
+  return (
+    metadata.documentName ||
+    metadata.displayTitle ||
+    metadata.title ||
+    docpath.split("/")[1]
+  );
+}
+
 const Document = {
   writable: ["pinned", "watched", "lastUpdatedAt"],
   /**
@@ -100,6 +109,7 @@ const Document = {
     const { fileData } = require("../utils/files");
     const { emitProgress } = require("../utils/EmbeddingWorkerManager");
     const embedded = [];
+    const documents = [];
     const failedToEmbed = [];
     const errors = new Set();
 
@@ -143,7 +153,7 @@ const Document = {
       const { pageContent: _pageContent, ...metadata } = data;
       const newDoc = {
         docId,
-        filename: path.split("/")[1],
+        filename: documentDisplayName(path, metadata),
         docpath: path,
         workspaceId: workspace.id,
         metadata: JSON.stringify(metadata),
@@ -212,6 +222,7 @@ const Document = {
           )
         );
         embedded.push(path);
+        documents.push(createdDocument);
         emitProgress(workspace.slug, {
           type: "doc_complete",
           ...docProgress,
@@ -258,7 +269,7 @@ const Document = {
       },
       userId
     );
-    return { failedToEmbed, errors: Array.from(errors), embedded };
+    return { failedToEmbed, errors: Array.from(errors), embedded, documents };
   },
 
   removeDocuments: async function (workspace, removals = [], userId = null) {
@@ -283,11 +294,28 @@ const Document = {
         await prisma.document_vectors.deleteMany({
           where: { docId: document.docId },
         });
+        const { NodeSupplement } = require("./nodeSupplement");
+        await NodeSupplement.deleteForDocument({
+          workspaceId: workspace.id,
+          documentId: document.docId,
+        });
+        const { WorkspaceSupplement } = require("./workspaceSupplement");
+        await WorkspaceSupplement.deleteForDocument({
+          workspaceId: workspace.id,
+          documentId: document.docId,
+        });
         const { KnowledgeGraph } = require("./knowledgeGraph");
         await KnowledgeGraph.deleteDocumentGraph({
           workspaceId: workspace.id,
           documentId: document.docId,
         });
+        await prisma
+          .$executeRawUnsafe(
+            `DELETE FROM "NodeChunkBinding" WHERE "workspaceId" = ? AND "documentId" = ?`,
+            Number(workspace.id),
+            String(document.docId)
+          )
+          .catch(() => null);
         await DocumentIndexStatus.markDeleted({
           workspaceId: workspace.id,
           docId: document.docId,

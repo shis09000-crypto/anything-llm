@@ -2,6 +2,16 @@ const crypto = require("crypto");
 const prisma = require("../prisma");
 const { safeJsonParse } = require("../http");
 const { healthBeacon, unknownBeacon } = require("../workspaceHealth/beacon");
+const { NodeSupplement } = require("../../models/nodeSupplement");
+const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
+const { buildNodeKey } = require("../knowledgeGraph/nodeKey");
+const {
+  buildWorkspaceKnowledgeProfile,
+} = require("../knowledgeGraph/workspaceProfileBuilder");
+const { keyPathsForNode } = require("../knowledgeGraph/pathResolver");
+const {
+  buildKnowledgeEngineRecommendations,
+} = require("../knowledgeGraph/recommendationAdapter");
 
 const FORMULA_VERSION = "overview-rec-v1";
 const DAY_MS = 86_400_000;
@@ -9,9 +19,112 @@ const DISMISS_COOLDOWN_DAYS = 7;
 const MAX_RECOMMENDATIONS = 18;
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const OVERVIEW_ERROR_CACHE_TTL_MS = 5_000;
+const CURRENT_FOCUS_MIN_DWELL_MS = 10 * 60_000;
+const CURRENT_FOCUS_SWITCH_THRESHOLD = 12;
+const CURRENT_FOCUS_CATEGORIES = new Set(["continue", "focus"]);
+const NODE_TARGET_TYPES = new Set(["node", "concept"]);
+const NODE_TYPE_LABELS = {
+  person: "人物",
+  concept: "概念",
+  school: "学派",
+  work: "著作",
+  era: "时代",
+  question: "问题",
+  claim: "论断",
+  argument: "论证",
+  topic: "主题",
+  problem: "问题",
+  decision: "决策",
+  task: "任务",
+  source: "来源",
+  note: "笔记",
+};
+const RELATION_TYPE_LABELS = {
+  influences: "影响",
+  influenced_by: "影响",
+  references: "引用",
+  cites: "引用",
+  includes: "包含",
+  contains: "包含",
+  proposes: "提出",
+  proposed: "提出",
+  "belongs to school": "所属学派",
+  belongs_to_school: "所属学派",
+  criticizes: "批判",
+  develops: "发展",
+  introduces_concept: "提出",
+  answers_question: "回答",
+  contrasts_with: "对比",
+  prerequisite_of: "前置",
+  often_confused_with: "易混淆",
+  supports_claim: "支持",
+  refutes_claim: "反驳",
+  related_to: "关联",
+  part_of: "组成",
+  depends_on: "依赖",
+  leads_to: "因果",
+  open_question_for: "开放问题",
+  evidence_for: "证据",
+};
+const RELATION_LABEL_ALIASES = {
+  reference: "引用",
+  references: "引用",
+  cites: "引用",
+  cite: "引用",
+  includes: "包含",
+  include: "包含",
+  contains: "包含",
+  contain: "包含",
+  proposes: "提出",
+  propose: "提出",
+  proposed: "提出",
+  "belongs to school": "所属学派",
+  belongs_to_school: "所属学派",
+  "belongs-to-school": "所属学派",
+  "belongs to": "属于",
+  belongs_to: "属于",
+  "part of": "组成",
+  part_of: "组成",
+  leads_to: "因果",
+  "leads to": "因果",
+  depends_on: "依赖",
+  "depends on": "依赖",
+};
+const CONTRAST_RELATION_TYPES = new Set([
+  "contrasts_with",
+  "often_confused_with",
+]);
+const MAIN_AXIS_PATH_TYPES = new Set([
+  "historical_lineage",
+  "conceptual_development",
+  "influence_chain",
+  "prerequisite_path",
+  "evidence_to_conclusion_path",
+  "chapter_or_topic_path",
+]);
+const RELATION_SEMANTIC_KEYWORDS = {
+  influences: ["影响", "继承", "启发"],
+  influenced_by: ["影响", "继承", "启发"],
+  criticizes: ["批判", "反驳", "质疑"],
+  develops: ["发展", "推进", "演变"],
+  introduces_concept: ["提出", "概念", "引入"],
+  belongs_to_school: ["属于", "学派", "传统"],
+  answers_question: ["回答", "问题", "回应"],
+  contrasts_with: ["对比", "相反", "差异", "张力"],
+  prerequisite_of: ["前置", "基础", "先于"],
+  often_confused_with: ["混淆", "易混", "区别"],
+  supports_claim: ["支持", "论证", "证明"],
+  refutes_claim: ["反驳", "批判", "否定"],
+  part_of: ["组成", "部分", "包含"],
+  depends_on: ["依赖", "前提", "基础"],
+  leads_to: ["导致", "因果", "引发"],
+  evidence_for: ["证据", "支持", "证明"],
+};
 
 const overviewCache = new Map();
 const overviewInflight = new Map();
+const overviewFocusState = new Map();
+const FOCUS_STATE_SYMBOL = Symbol("workspaceOverviewFocusState");
 
 function safeJSONStringify(value, fallback = "{}") {
   try {
@@ -82,6 +195,250 @@ function displayName(node = {}) {
   return node.displayNameZh || node.displayNameEn || node.canonicalName || "";
 }
 
+function nodeTypeLabel(entityType = "concept") {
+  return NODE_TYPE_LABELS[entityType] || "节点";
+}
+
+function compactText(value = "", max = 120) {
+  const text = String(value || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~[\]()-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+function firstSentence(value = "", max = 120) {
+  const text = compactText(value, Math.max(max * 2, 160));
+  if (!text) return "";
+  const match = text.match(/^(.+?[。！？!?；;])/);
+  return compactText(match?.[1] || text, max);
+}
+
+function relationTypeLabel(edge = {}) {
+  const candidates = [
+    edge.relationLabelZh,
+    edge.relationLabel,
+    edge.relationType,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const normalized = normalizeRelationLabel(candidate);
+    if (RELATION_LABEL_ALIASES[normalized])
+      return RELATION_LABEL_ALIASES[normalized];
+    if (RELATION_TYPE_LABELS[normalized])
+      return RELATION_TYPE_LABELS[normalized];
+  }
+  const zhLabel = candidates.find((candidate) => containsCjk(candidate));
+  return zhLabel ? compactText(zhLabel, 16) : "关联";
+}
+
+function normalizeRelationLabel(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function containsCjk(value = "") {
+  return /[\u3400-\u9fff]/.test(String(value || ""));
+}
+
+function relationDisplayLabel(edge = {}, max = 18) {
+  const rawLabel = edge.relationLabelZh || edge.relationLabel || "";
+  if (rawLabel && containsCjk(rawLabel)) return compactText(rawLabel, max);
+  return relationTypeLabel(edge);
+}
+
+function relationSemanticKeywords(edge = {}) {
+  const keywords = new Set([
+    relationTypeLabel(edge),
+    ...(RELATION_SEMANTIC_KEYWORDS[edge.relationType] || []),
+  ]);
+  const label = compactText(
+    edge.relationLabelZh || edge.relationLabel || "",
+    24
+  );
+  if (label) {
+    keywords.add(label);
+    for (const part of label.split(/[、，,/\s]+/).filter(Boolean))
+      keywords.add(part);
+  }
+  return [...keywords].filter((item) => item && item !== "关联");
+}
+
+function cleanEvidenceSnippet(value = "") {
+  return String(value || "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/第?\s*\d+\s*[页頁]/g, " ")
+    .replace(/\b[pP]\.?\s*\d+\b/g, " ")
+    .replace(/[「」『』《》“”"']/g, "")
+    .replace(/^[>\s\-—–·•]+/gm, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function relationSnippetMatches(edge = {}, snippet = "") {
+  const text = cleanEvidenceSnippet(snippet);
+  if (!text) return false;
+  const source = displayName({
+    displayNameZh: edge.sourceDisplayNameZh,
+    displayNameEn: edge.sourceDisplayNameEn,
+    canonicalName: edge.sourceName,
+  });
+  const target = displayName({
+    displayNameZh: edge.targetDisplayNameZh,
+    displayNameEn: edge.targetDisplayNameEn,
+    canonicalName: edge.targetName,
+  });
+  const hasEndpoint = [source, target]
+    .filter(Boolean)
+    .some((name) => text.includes(name));
+  const hasSemanticMatch = relationSemanticKeywords(edge).some((keyword) =>
+    text.includes(keyword)
+  );
+  return hasEndpoint && hasSemanticMatch;
+}
+
+function relationSummaryLimit(value = "", max = 110) {
+  const text = compactText(value, Math.max(max + 20, 140));
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}…`;
+}
+
+function sourceTargetLabels(edge = {}) {
+  const sourceNode = {
+    displayNameZh: edge.sourceDisplayNameZh,
+    displayNameEn: edge.sourceDisplayNameEn,
+    canonicalName: edge.sourceName,
+  };
+  const targetNode = {
+    displayNameZh: edge.targetDisplayNameZh,
+    displayNameEn: edge.targetDisplayNameEn,
+    canonicalName: edge.targetName,
+  };
+  return {
+    sourceNodeLabel: displayName(sourceNode),
+    targetNodeLabel: displayName(targetNode),
+  };
+}
+
+function buildRelationTitle(edge = {}) {
+  const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+  const label = relationDisplayLabel(edge, 18);
+  if (!sourceNodeLabel || !targetNodeLabel) return label || "关键关联";
+  const connector = CONTRAST_RELATION_TYPES.has(edge.relationType) ? "↔" : "→";
+  const suffix =
+    CONTRAST_RELATION_TYPES.has(edge.relationType) && label === "对比"
+      ? "对比关系"
+      : label;
+  return `${sourceNodeLabel} ${connector} ${targetNodeLabel}：${suffix}`;
+}
+
+function relationSummaryFromSupplement({
+  edge = {},
+  workspaceSupplements = [],
+}) {
+  const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+  if (!sourceNodeLabel || !targetNodeLabel) return "";
+  const strongKinds = new Set(["timeline", "person_map", "concept_index"]);
+  const matched = workspaceSupplements.find((supplement) => {
+    if (!strongKinds.has(supplement.supplementKind)) return false;
+    const parsed = supplement.metadata?.parsedStructure || {};
+    const text = JSON.stringify(parsed);
+    return text.includes(sourceNodeLabel) && text.includes(targetNodeLabel);
+  });
+  if (!matched) return "";
+  return `${sourceNodeLabel}与${targetNodeLabel}同时出现在高权重全书补充中，可作为理解${relationTypeLabel(edge)}关系的结构线索。`;
+}
+
+function buildRelationSummary({
+  edge = {},
+  evidenceSnippet = "",
+  workspaceSupplements = [],
+}) {
+  const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+  const evidence = firstSentence(cleanEvidenceSnippet(evidenceSnippet), 110);
+  if (evidence && relationSnippetMatches(edge, evidence)) {
+    return {
+      relationSummary: relationSummaryLimit(evidence),
+      summarySource: "edge_evidence",
+    };
+  }
+
+  const relationLabel = relationDisplayLabel(edge, 36);
+  if (relationLabel && sourceNodeLabel && targetNodeLabel) {
+    return {
+      relationSummary: relationSummaryLimit(
+        `${sourceNodeLabel}与${targetNodeLabel}的关系被标注为「${relationLabel}」，可用来理解两者在当前知识结构中的${relationTypeLabel(edge)}脉络。`
+      ),
+      summarySource: "edge_description",
+    };
+  }
+
+  const sourceSummary = firstSentence(edge.sourceSummary, 48);
+  const targetSummary = firstSentence(edge.targetSummary, 48);
+  if ((sourceSummary || targetSummary) && sourceNodeLabel && targetNodeLabel) {
+    return {
+      relationSummary: relationSummaryLimit(
+        `${sourceNodeLabel}侧重${sourceSummary || "相关问题"}，${targetNodeLabel}侧重${targetSummary || "相邻主题"}，两者构成${relationTypeLabel(edge)}关系。`
+      ),
+      summarySource: "node_summary",
+    };
+  }
+
+  const supplementSummary = relationSummaryFromSupplement({
+    edge,
+    workspaceSupplements,
+  });
+  if (supplementSummary) {
+    return {
+      relationSummary: relationSummaryLimit(supplementSummary),
+      summarySource: "supplement",
+    };
+  }
+
+  return {
+    relationSummary: relationSummaryLimit(
+      `${sourceNodeLabel || "起点节点"}与${targetNodeLabel || "终点节点"}通过${relationTypeLabel(edge)}关系连接，适合查看证据来确认这条关联在当前主题中的作用。`
+    ),
+    summarySource: "template",
+  };
+}
+
+function isHighConfidencePathRecommendation(recommendation = {}, edge = {}) {
+  if (recommendation.type !== "continue_path") return false;
+  if (recommendation.target?.edgeId) return false;
+  const confidence = Number(edge.confidence || 0);
+  const weight = Number(edge.weight || 0);
+  const pathType = recommendation.target?.pathType;
+  return (
+    (pathType && MAIN_AXIS_PATH_TYPES.has(pathType)) ||
+    confidence >= 0.78 ||
+    weight >= 3
+  );
+}
+
+function buildPathSummary({ edge = {}, relatedLabels = [] }) {
+  const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+  const middle = relatedLabels.find(
+    (label) => label && label !== sourceNodeLabel && label !== targetNodeLabel
+  );
+  const nodes = [sourceNodeLabel, middle, targetNodeLabel].filter(Boolean);
+  if (nodes.length < 2) return "";
+  return nodes.slice(0, 3).join(" → ");
+}
+
+function buildRelationNextAction({ cardType, edge = {}, pathSummary = "" }) {
+  const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+  if (cardType === "path" && pathSummary)
+    return `沿“${pathSummary}”查看证据，梳理这条路径如何推进当前主线。`;
+  if (Number(edge.evidenceCount || 0) > 0)
+    return `查看${sourceNodeLabel || "起点"}与${targetNodeLabel || "终点"}的证据片段，确认这条${relationTypeLabel(edge)}关系。`;
+  return `先补充或核对原文证据，再判断这条${relationTypeLabel(edge)}关系是否稳定。`;
+}
+
 function recommendationId({ workspaceId, type, targetType, targetId }) {
   return crypto
     .createHash("sha256")
@@ -128,12 +485,71 @@ function invalidateWorkspaceOverviewCache({ workspaceId, userId = null } = {}) {
   for (const key of overviewCache.keys()) {
     if (key.startsWith(prefix)) overviewCache.delete(key);
   }
+  for (const key of overviewFocusState.keys()) {
+    if (key.startsWith(prefix)) overviewFocusState.delete(key);
+  }
+}
+
+function focusCandidates(recommendations = []) {
+  return recommendations
+    .filter((item) => CURRENT_FOCUS_CATEGORIES.has(item.category))
+    .sort((a, b) => focusRankScore(b) - focusRankScore(a));
+}
+
+function focusRankScore(item = {}) {
+  return Number(item.score || 0) + (item.hasSupplement ? 3 : 0);
+}
+
+function selectStableCurrentFocus({
+  candidates = [],
+  previousState = null,
+  now = Date.now(),
+  minDwellMs = CURRENT_FOCUS_MIN_DWELL_MS,
+  switchThreshold = CURRENT_FOCUS_SWITCH_THRESHOLD,
+} = {}) {
+  const eligible = focusCandidates(candidates);
+  if (eligible.length === 0) return { focus: [], state: null };
+
+  const best = eligible[0];
+  const previousId = previousState?.recommendationId;
+  const previous = previousId
+    ? eligible.find((item) => item.recommendationId === previousId)
+    : null;
+
+  if (!previous) {
+    return {
+      focus: eligible.slice(0, 3),
+      state: {
+        recommendationId: best.recommendationId,
+        selectedAt: now,
+      },
+    };
+  }
+
+  const selectedAt = Number(previousState.selectedAt || now);
+  const withinDwell = now - selectedAt < minDwellMs;
+  const bestLeadsBy = focusRankScore(best) - focusRankScore(previous);
+  const shouldKeepPrevious =
+    best.recommendationId === previous.recommendationId ||
+    (withinDwell && bestLeadsBy < switchThreshold);
+  const selected = shouldKeepPrevious ? previous : best;
+  const rest = eligible.filter(
+    (item) => item.recommendationId !== selected.recommendationId
+  );
+
+  return {
+    focus: [selected, ...rest].slice(0, 3),
+    state: {
+      recommendationId: selected.recommendationId,
+      selectedAt: shouldKeepPrevious ? selectedAt : now,
+    },
+  };
 }
 
 async function getNodes(workspaceId) {
   const rows = await optionalQuery(
     `SELECT
-      n."id", n."canonicalName", n."displayNameZh", n."displayNameEn",
+      n."id", n."canonicalName", n."canonicalKey", n."displayNameZh", n."displayNameEn",
       n."aliases", n."entityType", n."summary",
       n."workspaceImportanceScore", n."recentImportanceScore",
       n."usageCount", n."recentUsageCount", n."lastReferencedAt",
@@ -194,6 +610,7 @@ async function getNodes(workspaceId) {
 
   return rows.map((row) => ({
     ...row,
+    nodeKey: buildNodeKey(row.entityType, row.canonicalKey),
     aliases: safeJsonParse(row.aliases, []),
     workspaceImportanceScore: Number(row.workspaceImportanceScore || 0),
     recentImportanceScore: Number(row.recentImportanceScore || 0),
@@ -384,9 +801,671 @@ function nodeTarget(node) {
     targetType: "concept",
     targetId: String(node.id),
     nodeId: node.id,
+    nodeKey: node.nodeKey || null,
+    canonicalKey: node.canonicalKey || null,
+    nodeType: node.entityType || "concept",
     concept: node.canonicalName,
     displayName: displayName(node),
+    hasSupplement: Boolean(node.hasSupplement),
+    supplementCount: Number(node.supplementCount || 0),
+    supplementTitles: node.supplementTitles || [],
+    supplementDocumentIds: node.supplementDocumentIds || [],
   };
+}
+
+function attachNodeSupplements(nodes = [], supplementsByNodeKey = new Map()) {
+  return nodes.map((node) => {
+    const supplements = node.nodeKey
+      ? supplementsByNodeKey.get(node.nodeKey) || []
+      : [];
+    return {
+      ...node,
+      hasSupplement: supplements.length > 0,
+      supplementCount: supplements.length,
+      supplementTitles: supplements
+        .map((item) => item.documentName)
+        .slice(0, 5),
+      supplementDocumentIds: supplements
+        .map((item) => item.documentId)
+        .slice(0, 12),
+    };
+  });
+}
+
+function nodeIdFromRecommendation(recommendation = {}) {
+  const target = recommendation.target || {};
+  if (
+    target.nodeId !== undefined &&
+    target.nodeId !== null &&
+    String(target.nodeId).trim() !== "" &&
+    Number.isFinite(Number(target.nodeId))
+  )
+    return Number(target.nodeId);
+  if (
+    NODE_TARGET_TYPES.has(target.targetType) &&
+    target.targetId !== undefined &&
+    target.targetId !== null &&
+    String(target.targetId).trim() !== "" &&
+    Number.isFinite(Number(target.targetId))
+  )
+    return Number(target.targetId);
+  return null;
+}
+
+function collectHydrationNodeIds(recommendations = []) {
+  return [
+    ...new Set(
+      recommendations
+        .map(nodeIdFromRecommendation)
+        .filter((id) => id !== null && Number.isFinite(Number(id)))
+        .map(Number)
+    ),
+  ];
+}
+
+function edgeIdFromRecommendation(recommendation = {}) {
+  const target = recommendation.target || {};
+  if (
+    target.edgeId !== undefined &&
+    target.edgeId !== null &&
+    Number.isFinite(Number(target.edgeId))
+  )
+    return Number(target.edgeId);
+  const ref = (recommendation.refs || []).find(
+    (item) => item?.type === "edge" && Number.isFinite(Number(item.id))
+  );
+  if (ref) return Number(ref.id);
+  const pathId = String(target.targetId || "");
+  const pathMatch = pathId.match(/^path-\d+-(\d+)$/);
+  if (pathMatch) return Number(pathMatch[1]);
+  return null;
+}
+
+function collectHydrationEdgeIds(recommendations = []) {
+  return [
+    ...new Set(
+      recommendations
+        .map(edgeIdFromRecommendation)
+        .filter((id) => id !== null && Number.isFinite(Number(id)))
+        .map(Number)
+    ),
+  ];
+}
+
+function placeholders(values = []) {
+  return values.map(() => "?").join(",");
+}
+
+function buildNodeSummary({ node, evidenceSnippet = "", neighbors = [] }) {
+  if (!node) return "";
+  const name = displayName(node);
+  const typeLabel = nodeTypeLabel(node.entityType);
+  const summary = firstSentence(node.summary, 120);
+  if (summary) return summary;
+
+  const evidence = firstSentence(evidenceSnippet, 120);
+  if (evidence) return `${name}：${evidence}`;
+
+  const neighborNames = neighbors
+    .map((item) => item.neighborName)
+    .filter(Boolean)
+    .slice(0, 3);
+  if (neighborNames.length)
+    return `${name}是当前知识图谱中的${typeLabel}节点，重点关联 ${neighborNames.join("、")}。`;
+
+  return `${name}是当前工作区知识图谱中的${typeLabel}节点。`;
+}
+
+function buildMainlinePath({ node, neighbors = [] }) {
+  if (!node || neighbors.length === 0) return "";
+  const names = [
+    displayName(node),
+    ...neighbors.map((item) => item.neighborName).filter(Boolean),
+  ].slice(0, 3);
+  if (names.length < 2) return "";
+  return `主线关联：${names.join(" → ")}`;
+}
+
+function buildWhyRecommended({
+  recommendation = {},
+  node,
+  neighbors = [],
+  learningState,
+}) {
+  const typeLabel = nodeTypeLabel(node?.entityType);
+  const hasSupplement =
+    Number(recommendation.supplementCount || node?.supplementCount || 0) > 0;
+  const hasPath = neighbors.length > 0;
+  if (recommendation.type === "repair_node")
+    return `该${typeLabel}存在学习薄弱信号，适合优先修复。`;
+  if (recommendation.type === "deep_dive_node" || hasSupplement)
+    return `该${typeLabel}已有补充资料，可进入证据层深挖。`;
+  if (recommendation.type === "review_node" || learningState?.viewedCount > 0)
+    return hasPath
+      ? `该${typeLabel}处在当前主线的高关联区域，适合继续巩固。`
+      : `该${typeLabel}已有学习记录，适合复习并补齐关键证据。`;
+  if (recommendation.category === "gap")
+    return `该${typeLabel}的结构价值较高，适合补齐证据和定义。`;
+  if (recommendation.category === "focus")
+    return `该${typeLabel}在工作区知识结构中连接了多个关键主题。`;
+  if (recommendation.category === "continue")
+    return `该${typeLabel}适合沿当前知识路径继续推进。`;
+  return `该${typeLabel}在当前知识图谱中具有继续整理价值。`;
+}
+
+function buildNextAction({ recommendation = {}, node, mainlinePath = "" }) {
+  const typeLabel = nodeTypeLabel(node?.entityType);
+  const hasSupplement =
+    Number(recommendation.supplementCount || node?.supplementCount || 0) > 0;
+  const evidenceCount = Number(
+    recommendation.evidenceCount || node?.evidenceCount || 0
+  );
+  if (mainlinePath)
+    return `沿“${mainlinePath.replace(/^主线关联：/, "")}”查看原文证据，并整理一句节点总结。`;
+  if (hasSupplement) return "先阅读补充资料，再生成节点测试或对比相邻节点。";
+  if (evidenceCount <= 2)
+    return `补充或核对原文证据，确认该${typeLabel}的关键定义。`;
+  return `查看证据片段，梳理该${typeLabel}的核心含义和相邻关系。`;
+}
+
+function buildRecommendationDisplayFields({
+  recommendation = {},
+  node,
+  neighbors = [],
+  evidenceSnippet = "",
+  evidenceCount = 0,
+  relationCount = 0,
+  chunkCount = 0,
+  supplementCount = 0,
+  learningState = null,
+}) {
+  if (!node) return {};
+  const sortedNeighbors = [...neighbors]
+    .sort(
+      (a, b) =>
+        Number(b.confidence || 0) - Number(a.confidence || 0) ||
+        Number(b.weight || 0) - Number(a.weight || 0)
+    )
+    .slice(0, 3);
+  const mainlinePath = buildMainlinePath({ node, neighbors: sortedNeighbors });
+  const visibleEvidenceCount = Math.max(
+    Number(evidenceCount || 0),
+    Number(chunkCount || 0)
+  );
+  const fields = {
+    nodeSummary: buildNodeSummary({
+      node,
+      evidenceSnippet,
+      neighbors: sortedNeighbors,
+    }),
+    mainlinePath,
+    whyRecommended: buildWhyRecommended({
+      recommendation,
+      node,
+      neighbors: sortedNeighbors,
+      learningState,
+    }),
+    nextAction: buildNextAction({ recommendation, node, mainlinePath }),
+    nodeTypeLabel: nodeTypeLabel(node.entityType),
+  };
+  if (visibleEvidenceCount > 0) fields.evidenceCount = visibleEvidenceCount;
+  if (Number(relationCount || 0) > 0)
+    fields.relationCount = Number(relationCount);
+  if (Number(supplementCount || 0) > 0)
+    fields.supplementCount = Number(supplementCount);
+  return fields;
+}
+
+async function hydrateRecommendationCards({
+  workspaceId,
+  userId = 0,
+  recommendations = [],
+  workspaceSupplements = [],
+}) {
+  const nodeIds = collectHydrationNodeIds(recommendations);
+  const edgeIds = collectHydrationEdgeIds(recommendations);
+  if (!nodeIds.length && !edgeIds.length) return recommendations;
+
+  try {
+    const nodeRows = nodeIds.length
+      ? await prisma.$queryRawUnsafe(
+          `SELECT "id", "canonicalName", "canonicalKey", "displayNameZh",
+            "displayNameEn", "entityType", "summary"
+          FROM "KnowledgeNode"
+          WHERE "workspaceId" = ? AND "id" IN (${placeholders(nodeIds)})`,
+          Number(workspaceId),
+          ...nodeIds
+        )
+      : [];
+    const nodesById = new Map(
+      nodeRows.map((row) => [
+        Number(row.id),
+        {
+          ...row,
+          id: Number(row.id),
+          nodeKey: buildNodeKey(row.entityType || "concept", row.canonicalKey),
+        },
+      ])
+    );
+    const nodeKeys = [...nodesById.values()].map((node) => node.nodeKey);
+
+    const [
+      relationCounts,
+      relationRows,
+      evidenceCounts,
+      evidenceSnippets,
+      chunkCounts,
+      supplementCounts,
+      learningRows,
+    ] = await Promise.all([
+      nodeIds.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT "nodeId", COUNT(*) AS "relationCount"
+        FROM (
+          SELECT "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          WHERE "workspaceId" = ?
+          UNION ALL
+          SELECT "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          WHERE "workspaceId" = ?
+        ) edge_nodes
+        WHERE "nodeId" IN (${placeholders(nodeIds)})
+        GROUP BY "nodeId"`,
+            Number(workspaceId),
+            Number(workspaceId),
+            ...nodeIds
+          )
+        : [],
+      nodeIds.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT e."sourceNodeId", e."targetNodeId", e."confidence", e."weight",
+          s."canonicalName" AS "sourceName",
+          s."displayNameZh" AS "sourceDisplayNameZh",
+          s."displayNameEn" AS "sourceDisplayNameEn",
+          t."canonicalName" AS "targetName",
+          t."displayNameZh" AS "targetDisplayNameZh",
+          t."displayNameEn" AS "targetDisplayNameEn"
+        FROM "KnowledgeEdge" e
+        JOIN "KnowledgeNode" s ON s."id" = e."sourceNodeId"
+        JOIN "KnowledgeNode" t ON t."id" = e."targetNodeId"
+        WHERE e."workspaceId" = ?
+          AND (e."sourceNodeId" IN (${placeholders(nodeIds)})
+            OR e."targetNodeId" IN (${placeholders(nodeIds)}))
+        ORDER BY e."confidence" DESC, e."weight" DESC
+        LIMIT ?`,
+            Number(workspaceId),
+            ...nodeIds,
+            ...nodeIds,
+            Math.max(30, nodeIds.length * 8)
+          )
+        : [],
+      nodeIds.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT x."nodeId", COUNT(ev."id") AS "evidenceCount"
+        FROM "KnowledgeEdge" e
+        JOIN (
+          SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          UNION ALL
+          SELECT "id", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+        ) x ON x."id" = e."id"
+        LEFT JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
+        WHERE e."workspaceId" = ? AND x."nodeId" IN (${placeholders(nodeIds)})
+        GROUP BY x."nodeId"`,
+            Number(workspaceId),
+            ...nodeIds
+          )
+        : [],
+      nodeIds.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT x."nodeId", ev."snippet", ev."confidence", ev."createdAt"
+        FROM "KnowledgeEdge" e
+        JOIN (
+          SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          UNION ALL
+          SELECT "id", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+        ) x ON x."id" = e."id"
+        JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
+        WHERE e."workspaceId" = ?
+          AND x."nodeId" IN (${placeholders(nodeIds)})
+          AND ev."snippet" IS NOT NULL
+          AND trim(ev."snippet") != ''
+        ORDER BY ev."confidence" DESC, ev."createdAt" DESC
+        LIMIT ?`,
+            Number(workspaceId),
+            ...nodeIds,
+            Math.max(20, nodeIds.length * 4)
+          )
+        : [],
+      nodeIds.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT "nodeId", COUNT(DISTINCT "chunkId") AS "chunkCount"
+        FROM "ConceptChunkMap"
+        WHERE "workspaceId" = ? AND "nodeId" IN (${placeholders(nodeIds)})
+        GROUP BY "nodeId"`,
+            Number(workspaceId),
+            ...nodeIds
+          )
+        : [],
+      nodeKeys.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT "nodeKey", COUNT(*) AS "supplementCount"
+            FROM "NodeSupplement"
+            WHERE "workspaceId" = ? AND "nodeKey" IN (${placeholders(nodeKeys)})
+            GROUP BY "nodeKey"`,
+            Number(workspaceId),
+            ...nodeKeys
+          )
+        : [],
+      nodeKeys.length
+        ? prisma.$queryRawUnsafe(
+            `SELECT * FROM "NodeLearningState"
+            WHERE "workspaceId" = ? AND "userId" = ?
+              AND "nodeKey" IN (${placeholders(nodeKeys)})`,
+            Number(workspaceId),
+            Number(userId || 0),
+            ...nodeKeys
+          )
+        : [],
+    ]);
+
+    const relationDisplayByEdgeId = new Map();
+    if (edgeIds.length) {
+      const edgeRows = await prisma.$queryRawUnsafe(
+        `SELECT e."id", e."sourceNodeId", e."targetNodeId",
+          e."relationType", e."relationLabel", e."relationLabelZh",
+          e."confidence", e."weight",
+          s."canonicalName" AS "sourceName",
+          s."displayNameZh" AS "sourceDisplayNameZh",
+          s."displayNameEn" AS "sourceDisplayNameEn",
+          s."summary" AS "sourceSummary",
+          t."canonicalName" AS "targetName",
+          t."displayNameZh" AS "targetDisplayNameZh",
+          t."displayNameEn" AS "targetDisplayNameEn",
+          t."summary" AS "targetSummary"
+        FROM "KnowledgeEdge" e
+        JOIN "KnowledgeNode" s ON s."id" = e."sourceNodeId"
+        JOIN "KnowledgeNode" t ON t."id" = e."targetNodeId"
+        WHERE e."workspaceId" = ? AND e."id" IN (${placeholders(edgeIds)})`,
+        Number(workspaceId),
+        ...edgeIds
+      );
+      const [edgeEvidenceCounts, edgeEvidenceSnippets] = await Promise.all([
+        prisma.$queryRawUnsafe(
+          `SELECT "edgeId", COUNT(*) AS "evidenceCount"
+          FROM "EdgeEvidence"
+          WHERE "workspaceId" = ? AND "edgeId" IN (${placeholders(edgeIds)})
+          GROUP BY "edgeId"`,
+          Number(workspaceId),
+          ...edgeIds
+        ),
+        prisma.$queryRawUnsafe(
+          `SELECT "edgeId", "snippet", "confidence", "createdAt"
+          FROM "EdgeEvidence"
+          WHERE "workspaceId" = ?
+            AND "edgeId" IN (${placeholders(edgeIds)})
+            AND "snippet" IS NOT NULL
+            AND trim("snippet") != ''
+          ORDER BY "confidence" DESC, "createdAt" DESC
+          LIMIT ?`,
+          Number(workspaceId),
+          ...edgeIds,
+          Math.max(20, edgeIds.length * 4)
+        ),
+      ]);
+      const evidenceCountByEdge = new Map(
+        edgeEvidenceCounts.map((row) => [
+          Number(row.edgeId),
+          Number(row.evidenceCount || 0),
+        ])
+      );
+      const snippetByEdge = new Map();
+      for (const row of edgeEvidenceSnippets) {
+        const id = Number(row.edgeId);
+        if (!snippetByEdge.has(id)) snippetByEdge.set(id, row.snippet);
+      }
+      const endpointIds = [
+        ...new Set(
+          edgeRows
+            .flatMap((row) => [
+              Number(row.sourceNodeId),
+              Number(row.targetNodeId),
+            ])
+            .filter((id) => Number.isFinite(id))
+        ),
+      ];
+      const endpointNeighborRows = endpointIds.length
+        ? await prisma.$queryRawUnsafe(
+            `SELECT e."sourceNodeId", e."targetNodeId", e."confidence", e."weight",
+              s."displayNameZh" AS "sourceDisplayNameZh",
+              s."displayNameEn" AS "sourceDisplayNameEn",
+              s."canonicalName" AS "sourceName",
+              t."displayNameZh" AS "targetDisplayNameZh",
+              t."displayNameEn" AS "targetDisplayNameEn",
+              t."canonicalName" AS "targetName"
+            FROM "KnowledgeEdge" e
+            JOIN "KnowledgeNode" s ON s."id" = e."sourceNodeId"
+            JOIN "KnowledgeNode" t ON t."id" = e."targetNodeId"
+            WHERE e."workspaceId" = ?
+              AND (e."sourceNodeId" IN (${placeholders(endpointIds)})
+                OR e."targetNodeId" IN (${placeholders(endpointIds)}))
+            ORDER BY e."confidence" DESC, e."weight" DESC
+            LIMIT ?`,
+            Number(workspaceId),
+            ...endpointIds,
+            ...endpointIds,
+            Math.max(40, endpointIds.length * 8)
+          )
+        : [];
+      const neighborLabelsByEndpoint = new Map();
+      for (const row of endpointNeighborRows) {
+        for (const id of [Number(row.sourceNodeId), Number(row.targetNodeId)]) {
+          if (!endpointIds.includes(id)) continue;
+          const isSource = Number(row.sourceNodeId) === id;
+          const neighborId = isSource
+            ? Number(row.targetNodeId)
+            : Number(row.sourceNodeId);
+          const neighborLabel =
+            (isSource ? row.targetDisplayNameZh : row.sourceDisplayNameZh) ||
+            (isSource ? row.targetDisplayNameEn : row.sourceDisplayNameEn) ||
+            (isSource ? row.targetName : row.sourceName);
+          if (!neighborLabelsByEndpoint.has(id))
+            neighborLabelsByEndpoint.set(id, new Map());
+          if (neighborLabel)
+            neighborLabelsByEndpoint.get(id).set(neighborId, neighborLabel);
+        }
+      }
+
+      for (const row of edgeRows) {
+        const edge = {
+          ...row,
+          id: Number(row.id),
+          sourceNodeId: Number(row.sourceNodeId),
+          targetNodeId: Number(row.targetNodeId),
+          confidence: Number(row.confidence || 0),
+          weight: Number(row.weight || 0),
+          evidenceCount: evidenceCountByEdge.get(Number(row.id)) || 0,
+        };
+        const sourceNeighbors =
+          neighborLabelsByEndpoint.get(edge.sourceNodeId) || new Map();
+        const targetNeighbors =
+          neighborLabelsByEndpoint.get(edge.targetNodeId) || new Map();
+        const relatedLabels = [
+          ...new Set([
+            ...sourceNeighbors.values(),
+            ...targetNeighbors.values(),
+          ]),
+        ].filter((label) => {
+          const { sourceNodeLabel, targetNodeLabel } = sourceTargetLabels(edge);
+          return (
+            label && label !== sourceNodeLabel && label !== targetNodeLabel
+          );
+        });
+        const summary = buildRelationSummary({
+          edge,
+          evidenceSnippet: snippetByEdge.get(edge.id) || "",
+          workspaceSupplements,
+        });
+        relationDisplayByEdgeId.set(edge.id, {
+          ...sourceTargetLabels(edge),
+          relationTypeLabel: relationTypeLabel(edge),
+          relationTitle: buildRelationTitle(edge),
+          ...summary,
+          pathSummary: buildPathSummary({ edge, relatedLabels }),
+          evidenceCount:
+            edge.evidenceCount > 0 ? edge.evidenceCount : undefined,
+          relatedNodeCount:
+            relatedLabels.length > 0 ? relatedLabels.length : undefined,
+          _edge: edge,
+        });
+      }
+    }
+
+    const relationCountByNode = new Map(
+      relationCounts.map((row) => [
+        Number(row.nodeId),
+        Number(row.relationCount || 0),
+      ])
+    );
+    const evidenceCountByNode = new Map(
+      evidenceCounts.map((row) => [
+        Number(row.nodeId),
+        Number(row.evidenceCount || 0),
+      ])
+    );
+    const chunkCountByNode = new Map(
+      chunkCounts.map((row) => [
+        Number(row.nodeId),
+        Number(row.chunkCount || 0),
+      ])
+    );
+    const supplementCountByNodeKey = new Map(
+      supplementCounts.map((row) => [
+        row.nodeKey,
+        Number(row.supplementCount || 0),
+      ])
+    );
+    const learningByNodeKey = new Map(
+      learningRows.map((row) => [row.nodeKey, row])
+    );
+    const snippetsByNode = new Map();
+    for (const row of evidenceSnippets) {
+      const id = Number(row.nodeId);
+      if (!snippetsByNode.has(id)) snippetsByNode.set(id, row.snippet);
+    }
+    const relationRowsByNode = new Map();
+    for (const row of relationRows) {
+      for (const id of [Number(row.sourceNodeId), Number(row.targetNodeId)]) {
+        if (!nodeIds.includes(id)) continue;
+        const isSource = Number(row.sourceNodeId) === id;
+        if (!relationRowsByNode.has(id)) relationRowsByNode.set(id, []);
+        relationRowsByNode.get(id).push({
+          neighborId: isSource
+            ? Number(row.targetNodeId)
+            : Number(row.sourceNodeId),
+          neighborName:
+            (isSource ? row.targetDisplayNameZh : row.sourceDisplayNameZh) ||
+            (isSource ? row.targetDisplayNameEn : row.sourceDisplayNameEn) ||
+            (isSource ? row.targetName : row.sourceName),
+          confidence: Number(row.confidence || 0),
+          weight: Number(row.weight || 0),
+        });
+      }
+    }
+
+    return recommendations.map((recommendation) => {
+      const nodeId = nodeIdFromRecommendation(recommendation);
+      const node = nodesById.get(Number(nodeId));
+      const edgeId = edgeIdFromRecommendation(recommendation);
+      const relationDisplay = relationDisplayByEdgeId.get(Number(edgeId));
+      let hydrated = recommendation;
+      if (node) {
+        if (!recommendation.target?.nodeKey) {
+          console.debug(
+            "[WorkspaceOverview] recommendation_nodekey_missing_fixed",
+            {
+              recommendationId: recommendation.recommendationId,
+              nodeId: node.id,
+              identitySource: "nodeId",
+            }
+          );
+        }
+        const supplementCount =
+          supplementCountByNodeKey.get(node.nodeKey) ||
+          Number(
+            recommendation.supplementCount ||
+              recommendation.target?.supplementCount ||
+              0
+          );
+        const displayFields = buildRecommendationDisplayFields({
+          recommendation: {
+            ...recommendation,
+            supplementCount,
+            evidenceCount: evidenceCountByNode.get(node.id),
+          },
+          node: {
+            ...node,
+            evidenceCount: evidenceCountByNode.get(node.id),
+            supplementCount,
+          },
+          neighbors: relationRowsByNode.get(node.id) || [],
+          evidenceSnippet: snippetsByNode.get(node.id) || "",
+          evidenceCount: evidenceCountByNode.get(node.id) || 0,
+          relationCount: relationCountByNode.get(node.id) || 0,
+          chunkCount: chunkCountByNode.get(node.id) || 0,
+          supplementCount,
+          learningState: learningByNodeKey.get(node.nodeKey) || null,
+        });
+        hydrated = {
+          ...hydrated,
+          ...displayFields,
+          target: {
+            ...hydrated.target,
+            nodeId: node.id,
+            nodeKey: node.nodeKey,
+            canonicalKey: node.canonicalKey,
+            nodeType: node.entityType,
+            displayName: displayName(node),
+            supplementCount,
+            hasSupplement:
+              Boolean(hydrated.target?.hasSupplement) || supplementCount > 0,
+          },
+          hasSupplement: Boolean(hydrated.hasSupplement) || supplementCount > 0,
+          supplementCount,
+        };
+      }
+      if (!relationDisplay) return hydrated;
+      const cardType = isHighConfidencePathRecommendation(
+        recommendation,
+        relationDisplay._edge
+      )
+        ? "path"
+        : "relation";
+      const pathSummary =
+        cardType === "path" ? relationDisplay.pathSummary : "";
+      const nextAction = buildRelationNextAction({
+        cardType,
+        edge: relationDisplay._edge,
+        pathSummary,
+      });
+      const {
+        _edge,
+        pathSummary: _pathSummary,
+        ...visibleRelationDisplay
+      } = relationDisplay;
+      return {
+        ...hydrated,
+        ...visibleRelationDisplay,
+        cardType,
+        pathSummary,
+        nextAction,
+      };
+    });
+  } catch (error) {
+    console.error(
+      "[WorkspaceOverview] recommendation card hydration failed:",
+      error
+    );
+    return recommendations;
+  }
 }
 
 function buildCandidate({
@@ -410,6 +1489,7 @@ function buildCandidate({
     unfinishedExploration: round(components.unfinishedExploration),
     novelty: round(components.novelty),
     curiosity: round(components.curiosity),
+    supplementBoost: round(components.supplementBoost || 0),
     ...(components.extra || {}),
   };
   const score =
@@ -419,6 +1499,10 @@ function buildCandidate({
     normalizedInputs.unfinishedExploration * 0.15 +
     normalizedInputs.novelty * 0.1 +
     normalizedInputs.curiosity * 0.1;
+  const supplementScoreBoost = Math.min(
+    4,
+    Math.round(clamp(normalizedInputs.supplementBoost) * 4)
+  );
   return {
     recommendationId: recommendationId({
       workspaceId,
@@ -431,11 +1515,15 @@ function buildCandidate({
     category: category || type,
     title,
     target: { ...target, targetType, targetId },
-    score: Math.round(clamp(score) * 100),
+    score: Math.min(100, Math.round(clamp(score) * 100) + supplementScoreBoost),
     confidence: Math.round(clamp(confidence) * 100),
     reasonCodes,
     reasonZh,
     normalizedInputs,
+    hasSupplement: Boolean(target?.hasSupplement),
+    supplementCount: Number(target?.supplementCount || 0),
+    supplementTitles: target?.supplementTitles || [],
+    supplementDocumentIds: target?.supplementDocumentIds || [],
     refs: refs || [],
   };
 }
@@ -556,6 +1644,7 @@ function buildRecommendations({
           unfinishedExploration: 0.15,
           novelty: clamp(node.recentEvidenceCount / 8),
           curiosity: clamp((node.bridgeValue || 0) / 100),
+          supplementBoost: node.hasSupplement ? 1 : 0,
           extra: {
             evidenceCount: node.evidenceCount,
             edgeCount: node.edgeCount,
@@ -593,6 +1682,7 @@ function buildRecommendations({
           unfinishedExploration: 0.3,
           novelty: clamp(1 - node.evidenceCount / 5),
           curiosity: 0.85,
+          supplementBoost: node.hasSupplement ? 1 : 0,
           extra: {
             evidenceCount: node.evidenceCount,
             documentCount: node.documentCount,
@@ -632,6 +1722,7 @@ function buildRecommendations({
           curiosity: clamp(
             (node.bridgeValue || 0) / 100 || node.relationTypeCount / 6
           ),
+          supplementBoost: node.hasSupplement ? 1 : 0,
           extra: {
             bridgeValue: node.bridgeValue,
             relationTypeCount: node.relationTypeCount,
@@ -665,6 +1756,7 @@ function buildRecommendations({
           unfinishedExploration: 0.2,
           novelty: 0.35,
           curiosity: clamp(1 - node.conflictSafety / 100),
+          supplementBoost: node.hasSupplement ? 1 : 0,
           extra: {
             conflictSafety: node.conflictSafety,
             warning: node.metricsWarning || null,
@@ -792,6 +1884,7 @@ function buildUnfinishedExplorations({
             unfinishedExploration: 0.9,
             novelty: clamp(node.recentEvidenceCount / 6),
             curiosity: clamp((node.bridgeValue || 0) / 100),
+            supplementBoost: node.hasSupplement ? 1 : 0,
             extra: {
               lastViewedAt: usageRows.find(
                 (row) => String(row.targetId) === String(node.id)
@@ -879,9 +1972,12 @@ async function buildWorkspaceOverviewUncached({
   workspace,
   user = null,
   threadSlug = null,
+  focusState = null,
+  now = Date.now(),
 }) {
   const workspaceId = Number(workspace.id);
   const userId = Number(user?.id || 0);
+  let knowledgeEngineFallbackReason = null;
   const [
     nodes,
     usageRows,
@@ -900,16 +1996,53 @@ async function buildWorkspaceOverviewUncached({
     getFeedback(workspaceId, userId),
   ]);
 
-  const sessionConcepts = conceptsFromChats(chatData.chats, nodes);
-  const unfinishedExplorations = buildUnfinishedExplorations({
+  const supplementsByNodeKey = await NodeSupplement.summariesByNodeKeys({
     workspaceId,
-    nodes,
+    nodeKeys: nodes.map((node) => node.nodeKey).filter(Boolean),
+  });
+  const supplementedNodes = attachNodeSupplements(nodes, supplementsByNodeKey);
+  const workspaceSupplementSummary = await WorkspaceSupplement.summary({
+    workspaceId,
+  }).catch((error) => {
+    console.error("[WorkspaceOverview] workspace supplements failed:", error);
+    return { count: 0, byKind: {}, supplements: [] };
+  });
+  let workspaceProfile = null;
+  let bookStructure = null;
+  try {
+    const profileResult = await buildWorkspaceKnowledgeProfile({ workspace });
+    workspaceProfile = profileResult.profile;
+    bookStructure = profileResult.bookStructure;
+  } catch (error) {
+    knowledgeEngineFallbackReason =
+      error?.message || "workspace_profile_failed";
+    console.error("[WorkspaceOverview] knowledge profile failed:", error);
+  }
+  const enginePaths = (
+    await Promise.all(
+      supplementedNodes.slice(0, 4).map((node) =>
+        keyPathsForNode({
+          workspaceId,
+          node,
+          profile: workspaceProfile,
+          bookStructure,
+          workspaceSupplements: workspaceSupplementSummary.supplements,
+          limit: 1,
+        }).catch(() => [])
+      )
+    )
+  ).flat();
+
+  const sessionConcepts = conceptsFromChats(chatData.chats, supplementedNodes);
+  const rawUnfinishedExplorations = buildUnfinishedExplorations({
+    workspaceId,
+    nodes: supplementedNodes,
     usageRows,
     feedback,
   });
   const recommendations = buildRecommendations({
     workspaceId,
-    nodes,
+    nodes: supplementedNodes,
     usageRows,
     recentEdges,
     feedback,
@@ -920,11 +2053,51 @@ async function buildWorkspaceOverviewUncached({
     chatData,
     feedback,
   });
-  const personalizedRecommendations = diversityPick([
-    ...unfinishedExplorations,
-    ...recommendations,
-    ...documentFallbackRecommendations,
-  ]);
+  const engineRecommendations = knowledgeEngineFallbackReason
+    ? []
+    : await buildKnowledgeEngineRecommendations({
+        workspaceId,
+        userId,
+        profile: workspaceProfile,
+        bookStructure,
+        nodes: supplementedNodes,
+        paths: enginePaths,
+        feedback,
+        workspaceSupplements: workspaceSupplementSummary.supplements,
+      }).catch((error) => {
+        knowledgeEngineFallbackReason =
+          error?.message || "recommendation_adapter_failed";
+        console.error(
+          "[WorkspaceOverview] recommendation adapter failed:",
+          error
+        );
+        return [];
+      });
+  const rawPersonalizedRecommendations = diversityPick(
+    engineRecommendations.length > 0
+      ? engineRecommendations
+      : [
+          ...rawUnfinishedExplorations,
+          ...recommendations,
+          ...documentFallbackRecommendations,
+        ]
+  );
+  const hydratedRecommendationCards = await hydrateRecommendationCards({
+    workspaceId,
+    userId,
+    workspaceSupplements: workspaceSupplementSummary.supplements,
+    recommendations: [
+      ...rawPersonalizedRecommendations,
+      ...rawUnfinishedExplorations,
+    ],
+  });
+  const personalizedRecommendations = hydratedRecommendationCards.slice(
+    0,
+    rawPersonalizedRecommendations.length
+  );
+  const unfinishedExplorations = hydratedRecommendationCards.slice(
+    rawPersonalizedRecommendations.length
+  );
   const todayEvidence = await optionalQuery(
     `SELECT COUNT(*) AS count FROM "EdgeEvidence"
     WHERE "workspaceId" = ? AND "createdAt" >= date('now')`,
@@ -951,11 +2124,14 @@ async function buildWorkspaceOverviewUncached({
     beacon = unknownBeacon(workspace.slug);
   }
 
-  const topFocus = personalizedRecommendations
-    .filter((item) => ["continue", "focus"].includes(item.category))
-    .slice(0, 3);
+  const stableFocus = selectStableCurrentFocus({
+    candidates: personalizedRecommendations,
+    previousState: focusState,
+    now,
+  });
+  const topFocus = stableFocus.focus;
   const hasAnyOverviewData =
-    nodes.length > 0 ||
+    supplementedNodes.length > 0 ||
     recentDocuments.length > 0 ||
     chatData.chats.length > 0 ||
     activity.length > 0;
@@ -965,8 +2141,24 @@ async function buildWorkspaceOverviewUncached({
       slug: workspace.slug,
       name: workspace.name,
     },
+    [FOCUS_STATE_SYMBOL]: stableFocus.state,
     generatedAt: new Date().toISOString(),
     formulaVersion: FORMULA_VERSION,
+    workspaceProfile,
+    bookStructure,
+    workspaceSupplements: workspaceSupplementSummary,
+    recommendationEngine: {
+      primary:
+        engineRecommendations.length > 0
+          ? "knowledge_engine"
+          : "legacy_fallback",
+      fallbackUsed: engineRecommendations.length === 0,
+      engineRecommendationCount: engineRecommendations.length,
+      fallbackReason:
+        engineRecommendations.length === 0
+          ? knowledgeEngineFallbackReason || "knowledge_engine_no_candidates"
+          : null,
+    },
     todaySummary: {
       evidenceAddedToday: countFrom(todayEvidence),
       relationsAddedToday: countFrom(todayRelations),
@@ -1005,7 +2197,7 @@ async function buildWorkspaceOverviewUncached({
     ),
     recommendedExploration: personalizedRecommendations,
     knowledgeMomentum: {
-      fastestGrowingConcepts: nodes
+      fastestGrowingConcepts: supplementedNodes
         .filter((node) => node.recentEvidenceCount > 0)
         .sort((a, b) => b.recentEvidenceCount - a.recentEvidenceCount)
         .slice(0, 6)
@@ -1053,10 +2245,15 @@ async function buildWorkspaceOverviewUncached({
       formulaVersion: FORMULA_VERSION,
       scoreFormula:
         "workspaceImportance*0.20 + personalFocus*0.25 + recentInterest*0.20 + unfinishedExploration*0.15 + novelty*0.10 + curiosity*0.10",
-      nodeCount: nodes.length,
+      nodeCount: supplementedNodes.length,
       documentFallbackCount: documentFallbackRecommendations.length,
       usageSignalCount: usageRows.length,
       feedbackCount: feedback.size,
+      fallbackUsed: engineRecommendations.length === 0,
+      fallbackReason:
+        engineRecommendations.length === 0
+          ? knowledgeEngineFallbackReason || "knowledge_engine_no_candidates"
+          : null,
     },
     emptyState: {
       show: !hasAnyOverviewData,
@@ -1075,8 +2272,16 @@ async function buildWorkspaceOverviewUncached({
 async function refreshWorkspaceOverviewCache(key, params) {
   if (overviewInflight.has(key)) return overviewInflight.get(key);
 
-  const promise = buildWorkspaceOverviewUncached(params)
+  const promise = buildWorkspaceOverviewUncached({
+    ...params,
+    focusState: overviewFocusState.get(key) || null,
+  })
     .then((overview) => {
+      if (overview[FOCUS_STATE_SYMBOL]) {
+        overviewFocusState.set(key, overview[FOCUS_STATE_SYMBOL]);
+      } else {
+        overviewFocusState.delete(key);
+      }
       overviewCache.set(key, {
         overview: {
           ...overview,
@@ -1276,4 +2481,14 @@ module.exports = {
   invalidateWorkspaceOverviewCache,
   recordRecommendationUsage,
   recommendationId,
+  selectStableCurrentFocus,
+  collectHydrationNodeIds,
+  collectHydrationEdgeIds,
+  buildNodeSummary,
+  buildMainlinePath,
+  buildRecommendationDisplayFields,
+  relationTypeLabel,
+  buildRelationTitle,
+  buildRelationSummary,
+  relationSnippetMatches,
 };

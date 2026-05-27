@@ -20,12 +20,11 @@ import {
   GitFork,
   ListBullets,
   MagnifyingGlass,
-  ShieldWarning,
   Sparkle,
-  Wrench,
   X,
 } from "@phosphor-icons/react";
 import MindMap from "@/models/mindMap";
+import NodeSupplement from "@/models/nodeSupplement";
 import showToast from "@/utils/toast";
 import renderMarkdown from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
@@ -136,7 +135,6 @@ function MindMapPanelInner({
   const [showGraphSuggestions, setShowGraphSuggestions] = useState(false);
   const [activeSuggestionIndex, setActiveSuggestionIndex] = useState(0);
   const [graphStatus, setGraphStatus] = useState(null);
-  const [repairStatus, setRepairStatus] = useState(null);
   const [graphEmptyReason, setGraphEmptyReason] = useState(null);
   const [hideWeakRelations, setHideWeakRelations] = useState(true);
   const [mainOnly, setMainOnly] = useState(false);
@@ -208,12 +206,8 @@ function MindMapPanelInner({
 
   const refreshGraphStatus = useCallback(async () => {
     if (!workspace?.slug) return;
-    const [stats, repair] = await Promise.all([
-      MindMap.graphStats(workspace.slug),
-      MindMap.repairStatus(workspace.slug),
-    ]);
+    const stats = await MindMap.graphStats(workspace.slug);
     setGraphStatus(stats);
-    setRepairStatus(repair);
   }, [workspace?.slug]);
 
   useEffect(() => {
@@ -512,7 +506,22 @@ function MindMapPanelInner({
     const body = request.body || {};
     async function handleRequest() {
       if (body.sourceType === "graph") {
-        await loadGraph(body.concept || body.text || body.source);
+        const result = await loadGraph(
+          body.concept || body.text || body.source
+        );
+        const targetNode = findGraphNode(result?.mindMap?.schema, body);
+        if (targetNode) {
+          setSelectedNode(targetNode);
+          setSelectedEdge(null);
+          if (targetNode.sourceNodeId) {
+            setEvidencePage(1);
+            setEvidenceTarget({
+              type: "node",
+              id: targetNode.sourceNodeId,
+              label: targetNode.label,
+            });
+          }
+        }
         return;
       }
       if (body.sourceType === "graphPath") {
@@ -689,33 +698,6 @@ function MindMapPanelInner({
     loadGraph(selectedNode.label);
   };
 
-  const runGraphRepair = async () => {
-    if (!workspace?.slug) return;
-    setLoading(true);
-    const result = await MindMap.repair(workspace.slug, {
-      batchSize: 25,
-      scanLimit: 100,
-    });
-    setLoading(false);
-    if (result?.error) {
-      showToast(result.error, "error");
-      return;
-    }
-    showToast("知识图谱自修复已完成一轮。", "success");
-    refreshGraphStatus();
-  };
-
-  const releaseQuarantine = async (issueId) => {
-    if (!workspace?.slug || !issueId) return;
-    const result = await MindMap.releaseQuarantine(workspace.slug, issueId);
-    if (result?.error) {
-      showToast(result.error, "error");
-      return;
-    }
-    showToast("已解除该修复项隔离。", "success");
-    refreshGraphStatus();
-  };
-
   const handleGraphKeyDown = (event) => {
     if (!showGraphSuggestions || graphSuggestions.length === 0) {
       if (event.key === "Enter") loadGraph();
@@ -797,8 +779,8 @@ function MindMapPanelInner({
   if (isCollapsed) {
     return (
       <div
-        className={`h-full flex-shrink-0 w-[56px] right-0 inset-y-0 bg-zinc-950/80 md:bg-transparent ${
-          floating ? "fixed z-30" : "fixed md:relative md:ml-3 z-30 md:z-auto"
+        className={`fixed right-0 inset-y-0 z-30 h-full flex-shrink-0 w-[56px] bg-zinc-950/80 md:bg-transparent ${
+          floating ? "" : "md:right-[16px]"
         }`}
       >
         <button
@@ -821,13 +803,11 @@ function MindMapPanelInner({
 
   return (
     <div
-      className={`h-full overflow-hidden motion-hover flex-shrink-0 w-full md:w-[720px] md:min-w-[680px] xl:w-[860px] 2xl:w-[980px] bg-zinc-950/80 md:bg-transparent ${
-        floating
-          ? "fixed right-0 inset-y-0 z-30"
-          : "fixed md:relative inset-0 md:ml-4 z-30 md:z-auto"
+      className={`fixed inset-y-0 right-0 z-30 h-full w-full overflow-hidden bg-zinc-950/45 motion-hover md:pointer-events-none md:flex md:justify-end md:bg-transparent ${
+        floating ? "" : "md:right-[16px]"
       }`}
     >
-      <div className="w-full md:w-[720px] md:min-w-[680px] xl:w-[860px] 2xl:w-[980px] h-full md:h-[calc(100%-32px)] md:mt-[16px] bg-[#f8fafc] light:bg-[#f8fafc] md:rounded-[16px] border border-slate-200 shadow-2xl flex flex-col overflow-hidden">
+      <div className="pointer-events-auto h-full w-full bg-[#f8fafc] light:bg-[#f8fafc] shadow-2xl flex flex-col overflow-hidden md:mt-[16px] md:h-[calc(100%-32px)] md:w-[720px] md:rounded-[16px] md:border md:border-slate-200 xl:w-[820px] 2xl:w-[900px]">
         <div className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-slate-900 font-semibold">
@@ -864,334 +844,338 @@ function MindMapPanelInner({
           </div>
         </div>
 
-        <div className="px-4 pt-3 bg-white border-b border-slate-200">
-          <div className="flex gap-2">
-            <ModeButton
-              active={mode === "ai"}
-              onClick={() => {
-                setMode("ai");
-                if (activeMap?.sourceType === "graph") setActiveMap(null);
-              }}
-              label="AI 思维导图"
-            />
-            <ModeButton
-              active={mode === "graph"}
-              onClick={() => {
-                setMode("graph");
-                if (activeMap?.sourceType !== "graph") setActiveMap(null);
-              }}
-              label="知识图谱"
-            />
-          </div>
-
-          {mode === "graph" && (
-            <div className="mt-3 space-y-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  {graphConceptSearchInput}
-                  <ToolbarButton
-                    label="展开关系"
-                    onClick={() => loadGraph()}
-                    Icon={GitFork}
-                  />
-                  <ToolbarButton
-                    label="适应视图"
-                    onClick={() => fitView({ padding: 0.18, duration: 260 })}
-                    Icon={ArrowsOut}
-                  />
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setGraphControlsCollapsed((previous) => !previous)
-                    }
-                    className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    {graphControlsCollapsed ? (
-                      <CaretDown size={14} weight="bold" />
-                    ) : (
-                      <CaretRight size={14} weight="bold" />
-                    )}
-                    {graphControlsCollapsed ? "展开工具" : "折叠工具"}
-                  </button>
-                  <span className="ml-auto rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
-                    {graphCompactStats}
-                  </span>
-                </div>
-                {!graphControlsCollapsed && (
-                  <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
-                    <GraphStatusBar status={graphStatus} />
-                    <RepairStatusBar
-                      repair={repairStatus}
-                      onRepair={runGraphRepair}
-                      onReleaseQuarantine={releaseQuarantine}
-                    />
-                    {graphStatus?.isSparse && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                        当前知识图谱数据较少，结果可能不完整。建议先运行
-                        Knowledge Graph backfill。
-                      </div>
-                    )}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setMainOnly((prev) => !prev)}
-                        className={`rounded-lg border px-2 py-1 text-xs ${
-                          mainOnly
-                            ? "border-blue-200 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700"
-                        }`}
-                      >
-                        只看主线
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHideWeakRelations((prev) => !prev)}
-                        className={`rounded-lg border px-2 py-1 text-xs ${
-                          hideWeakRelations
-                            ? "border-blue-200 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700"
-                        }`}
-                      >
-                        隐藏弱关系
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHideRelatedTo((prev) => !prev)}
-                        className={`rounded-lg border px-2 py-1 text-xs ${
-                          hideRelatedTo
-                            ? "border-blue-200 bg-blue-50 text-blue-700"
-                            : "border-slate-200 bg-white text-slate-700"
-                        }`}
-                      >
-                        隐藏“相关”
-                      </button>
-                      <select
-                        className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-                        value={relationTypeFilter}
-                        onChange={(event) =>
-                          setRelationTypeFilter(event.target.value)
-                        }
-                      >
-                        {relationFilterOptions.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            {item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-                        value={labelMode}
-                        onChange={(event) => setLabelMode(event.target.value)}
-                      >
-                        {labelModes.map((item) => (
-                          <option key={item.value} value={item.value}>
-                            标签：{item.label}
-                          </option>
-                        ))}
-                      </select>
-                      <ToolbarButton
-                        label="Focus Node"
-                        onClick={focusSelectedNode}
-                        Icon={ArrowsOut}
-                      />
-                    </div>
-                    {graphNeedsSimplification && (
-                      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
-                        已自动简化关系视图，可关闭过滤器手动展开全部关系。
-                      </div>
-                    )}
-                    <PathViewControls
-                      source={pathSource}
-                      setSource={setPathSource}
-                      target={pathTarget}
-                      setTarget={setPathTarget}
-                      defaultSource={graphConcept}
-                      selectedNode={selectedNode}
-                      loading={pathLoading}
-                      result={pathResult}
-                      selectedIndex={selectedPathIndex}
-                      setSelectedIndex={setSelectedPathIndex}
-                      onLoad={loadPath}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
+        <div className="flex-1 min-h-0 flex flex-col bg-[#f8fafc]">
           <div
-            className={`mt-3 flex flex-wrap gap-2 items-center ${
-              mode === "graph" && graphControlsCollapsed ? "hidden" : "pb-3"
+            className={`relative z-30 max-h-[45%] shrink-0 overscroll-contain border-b border-slate-200 bg-white px-4 pt-3 ${
+              showGraphSuggestions ? "overflow-visible" : "overflow-y-auto"
             }`}
           >
-            {mode === "ai" && (
-              <>
-                <select
-                  className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-                  value={!isGraphMap ? activeMap?.id || "" : ""}
-                  onChange={(e) => {
-                    const map = savedMaps.find(
-                      (item) => item.id === Number(e.target.value)
-                    );
-                    if (!map) return;
-                    setActiveMap(map);
-                    setLayout(map.schema?.layout || map.layout || "tree");
-                    setTheme(map.schema?.theme || map.theme || "napkin");
-                    setCollapsed(new Set());
-                  }}
-                >
-                  <option value="">历史导图</option>
-                  {savedMaps.map((map) => (
-                    <option key={map.id} value={map.id}>
-                      {map.title}
-                    </option>
-                  ))}
-                </select>
-                {documents.length > 0 && (
-                  <DocumentGenerateMenu
-                    documents={documents}
-                    show={showDocumentMenu}
-                    setShow={setShowDocumentMenu}
-                    menuRef={documentMenuRef}
-                    buttonRef={documentButtonRef}
-                    generate={generate}
-                  />
-                )}
-              </>
+            <div className="flex gap-2">
+              <ModeButton
+                active={mode === "ai"}
+                onClick={() => {
+                  setMode("ai");
+                  if (activeMap?.sourceType === "graph") setActiveMap(null);
+                }}
+                label="AI 思维导图"
+              />
+              <ModeButton
+                active={mode === "graph"}
+                onClick={() => {
+                  setMode("graph");
+                  if (activeMap?.sourceType !== "graph") setActiveMap(null);
+                }}
+                label="知识图谱"
+              />
+            </div>
+
+            {mode === "graph" && (
+              <div className="mt-3 space-y-3">
+                <div className="relative z-30 rounded-xl border border-slate-200 bg-slate-50/80 p-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {graphConceptSearchInput}
+                    <ToolbarButton
+                      label="展开关系"
+                      onClick={() => loadGraph()}
+                      Icon={GitFork}
+                    />
+                    <ToolbarButton
+                      label="适应视图"
+                      onClick={() => fitView({ padding: 0.18, duration: 260 })}
+                      Icon={ArrowsOut}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setGraphControlsCollapsed((previous) => !previous)
+                      }
+                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      {graphControlsCollapsed ? (
+                        <CaretDown size={14} weight="bold" />
+                      ) : (
+                        <CaretRight size={14} weight="bold" />
+                      )}
+                      {graphControlsCollapsed ? "展开工具" : "折叠工具"}
+                    </button>
+                    <span className="ml-auto rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
+                      {graphCompactStats}
+                    </span>
+                  </div>
+                  {!graphControlsCollapsed && (
+                    <div className="mt-3 space-y-3 border-t border-slate-200 pt-3">
+                      <GraphStatusBar status={graphStatus} />
+                      {graphStatus?.isSparse && (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                          当前知识图谱数据较少，结果可能不完整。建议先运行
+                          Knowledge Graph backfill。
+                        </div>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setMainOnly((prev) => !prev)}
+                          className={`rounded-lg border px-2 py-1 text-xs ${
+                            mainOnly
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-white text-slate-700"
+                          }`}
+                        >
+                          只看主线
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHideWeakRelations((prev) => !prev)}
+                          className={`rounded-lg border px-2 py-1 text-xs ${
+                            hideWeakRelations
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-white text-slate-700"
+                          }`}
+                        >
+                          隐藏弱关系
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setHideRelatedTo((prev) => !prev)}
+                          className={`rounded-lg border px-2 py-1 text-xs ${
+                            hideRelatedTo
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-slate-200 bg-white text-slate-700"
+                          }`}
+                        >
+                          隐藏“相关”
+                        </button>
+                        <select
+                          className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                          value={relationTypeFilter}
+                          onChange={(event) =>
+                            setRelationTypeFilter(event.target.value)
+                          }
+                        >
+                          {relationFilterOptions.map((item) => (
+                            <option key={item.value} value={item.value}>
+                              {item.label}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                          value={labelMode}
+                          onChange={(event) => setLabelMode(event.target.value)}
+                        >
+                          {labelModes.map((item) => (
+                            <option key={item.value} value={item.value}>
+                              标签：{item.label}
+                            </option>
+                          ))}
+                        </select>
+                        <ToolbarButton
+                          label="Focus Node"
+                          onClick={focusSelectedNode}
+                          Icon={ArrowsOut}
+                        />
+                      </div>
+                      {graphNeedsSimplification && (
+                        <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                          已自动简化关系视图，可关闭过滤器手动展开全部关系。
+                        </div>
+                      )}
+                      <PathViewControls
+                        source={pathSource}
+                        setSource={setPathSource}
+                        target={pathTarget}
+                        setTarget={setPathTarget}
+                        defaultSource={graphConcept}
+                        selectedNode={selectedNode}
+                        loading={pathLoading}
+                        result={pathResult}
+                        selectedIndex={selectedPathIndex}
+                        setSelectedIndex={setSelectedPathIndex}
+                        onLoad={loadPath}
+                      />
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
-            <select
-              className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-              value={layout}
-              onChange={(e) => setLayout(e.target.value)}
+
+            <div
+              className={`mt-3 flex flex-wrap gap-2 items-center ${
+                mode === "graph" && graphControlsCollapsed ? "hidden" : "pb-3"
+              }`}
             >
-              {layouts.map((item) => (
-                <option key={item} value={item}>
-                  {layoutLabels[item] || item}
-                </option>
-              ))}
-            </select>
-            <select
-              className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
-              value={theme}
-              onChange={(e) => setTheme(e.target.value)}
-            >
-              {themes.map((item) => (
-                <option key={item} value={item}>
-                  {themeLabels[item] || item}
-                </option>
-              ))}
-            </select>
-            <ToolbarButton
-              label="PNG"
-              onClick={exportPng}
-              Icon={DownloadSimple}
-            />
-            <ToolbarButton
-              label="Markdown"
-              onClick={exportMarkdown}
-              Icon={FileText}
-            />
-            <ToolbarButton
-              label="JSON"
-              onClick={exportJson}
-              Icon={ListBullets}
-            />
-            <ToolbarButton
-              label="适应视图"
-              onClick={() => fitView({ padding: 0.18, duration: 260 })}
-              Icon={ArrowsOut}
-            />
+              {mode === "ai" && (
+                <>
+                  <select
+                    className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                    value={!isGraphMap ? activeMap?.id || "" : ""}
+                    onChange={(e) => {
+                      const map = savedMaps.find(
+                        (item) => item.id === Number(e.target.value)
+                      );
+                      if (!map) return;
+                      setActiveMap(map);
+                      setLayout(map.schema?.layout || map.layout || "tree");
+                      setTheme(map.schema?.theme || map.theme || "napkin");
+                      setCollapsed(new Set());
+                    }}
+                  >
+                    <option value="">历史导图</option>
+                    {savedMaps.map((map) => (
+                      <option key={map.id} value={map.id}>
+                        {map.title}
+                      </option>
+                    ))}
+                  </select>
+                  {documents.length > 0 && (
+                    <DocumentGenerateMenu
+                      documents={documents}
+                      show={showDocumentMenu}
+                      setShow={setShowDocumentMenu}
+                      menuRef={documentMenuRef}
+                      buttonRef={documentButtonRef}
+                      generate={generate}
+                    />
+                  )}
+                </>
+              )}
+              <select
+                className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                value={layout}
+                onChange={(e) => setLayout(e.target.value)}
+              >
+                {layouts.map((item) => (
+                  <option key={item} value={item}>
+                    {layoutLabels[item] || item}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                value={theme}
+                onChange={(e) => setTheme(e.target.value)}
+              >
+                {themes.map((item) => (
+                  <option key={item} value={item}>
+                    {themeLabels[item] || item}
+                  </option>
+                ))}
+              </select>
+              <ToolbarButton
+                label="PNG"
+                onClick={exportPng}
+                Icon={DownloadSimple}
+              />
+              <ToolbarButton
+                label="Markdown"
+                onClick={exportMarkdown}
+                Icon={FileText}
+              />
+              <ToolbarButton
+                label="JSON"
+                onClick={exportJson}
+                Icon={ListBullets}
+              />
+              <ToolbarButton
+                label="适应视图"
+                onClick={() => fitView({ padding: 0.18, duration: 260 })}
+                Icon={ArrowsOut}
+              />
+            </div>
           </div>
-        </div>
 
-        {notice && (
-          <Notice
-            notice={notice}
-            pendingBody={pendingBody}
-            generate={generate}
-          />
-        )}
+          {notice && (
+            <Notice
+              notice={notice}
+              pendingBody={pendingBody}
+              generate={generate}
+            />
+          )}
 
-        <div className="relative flex-1 min-h-0" ref={flowRef}>
-          {loading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-slate-700 text-sm">
-              {mode === "graph" ? "正在加载知识图谱..." : "正在生成思维导图..."}
-            </div>
-          )}
-          {hoveredNode && mode === "graph" && (
-            <HoverPreview node={hoveredNode} />
-          )}
-          {activeMap ? (
-            <ReactFlow
-              nodes={nodes}
-              edges={edges}
-              nodeTypes={nodeTypes}
-              edgeTypes={edgeTypes}
-              fitView
-              minZoom={0.15}
-              maxZoom={2}
-              nodesDraggable={false}
-              onNodeClick={onNodeClick}
-              onNodeDoubleClick={onNodeDoubleClick}
-              onNodeMouseEnter={onNodeMouseEnter}
-              onNodeMouseLeave={onNodeMouseLeave}
-              onEdgeClick={onEdgeClick}
-              onMoveEnd={saveViewport}
-            >
-              <Background color="#cbd5e1" gap={24} size={1} />
-              <Controls showInteractive={false} />
-              <MiniMap pannable zoomable nodeColor="#bfdbfe" />
-            </ReactFlow>
-          ) : mode === "graph" && graphEmptyReason ? (
-            <GraphEmptyState status={graphStatus} />
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center px-8 text-slate-500">
-              <GitFork size={34} className="mb-3 text-blue-500" />
-              <p className="text-sm font-medium text-slate-700">
+          <div className="relative min-h-0 flex-1" ref={flowRef}>
+            {loading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-slate-700 text-sm">
                 {mode === "graph"
-                  ? "搜索一个概念，探索知识图谱中的关系。"
-                  : "从助手回复、选中文本或文档生成思维导图。"}
-              </p>
-            </div>
-          )}
-        </div>
+                  ? "正在加载知识图谱..."
+                  : "正在生成思维导图..."}
+              </div>
+            )}
+            {hoveredNode && mode === "graph" && (
+              <HoverPreview node={hoveredNode} />
+            )}
+            {activeMap ? (
+              <ReactFlow
+                nodes={nodes}
+                edges={edges}
+                nodeTypes={nodeTypes}
+                edgeTypes={edgeTypes}
+                fitView
+                minZoom={0.15}
+                maxZoom={2}
+                nodesDraggable={false}
+                onNodeClick={onNodeClick}
+                onNodeDoubleClick={onNodeDoubleClick}
+                onNodeMouseEnter={onNodeMouseEnter}
+                onNodeMouseLeave={onNodeMouseLeave}
+                onEdgeClick={onEdgeClick}
+                onMoveEnd={saveViewport}
+              >
+                <Background color="#cbd5e1" gap={24} size={1} />
+                <Controls showInteractive={false} />
+                <MiniMap pannable zoomable nodeColor="#bfdbfe" />
+              </ReactFlow>
+            ) : mode === "graph" && graphEmptyReason ? (
+              <GraphEmptyState status={graphStatus} />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center px-8 text-slate-500">
+                <GitFork size={34} className="mb-3 text-blue-500" />
+                <p className="text-sm font-medium text-slate-700">
+                  {mode === "graph"
+                    ? "搜索一个概念，探索知识图谱中的关系。"
+                    : "从助手回复、选中文本或文档生成思维导图。"}
+                </p>
+              </div>
+            )}
+          </div>
 
-        {(selectedNode || selectedEdge) &&
-          (isGraphMap ? (
-            <EvidencePanel
-              node={selectedNode}
-              edge={selectedEdge}
-              data={evidenceData}
-              loading={evidenceLoading}
-              sort={evidenceSort}
-              setSort={setEvidenceSort}
-              cluster={evidenceCluster}
-              setCluster={setEvidenceCluster}
-              page={evidencePage}
-              setPage={setEvidencePage}
-              expanded={expandedEvidence}
-              setExpanded={setExpandedEvidence}
-              onClose={() => {
-                setSelectedNode(null);
-                setSelectedEdge(null);
-                setEvidenceTarget(null);
-                setEvidenceData(null);
-                setNodeMetrics(null);
-                setExpandedEvidence(new Set());
-              }}
-              workspaceSlug={workspace?.slug}
-              setMessage={setMessage}
-              nodeMetrics={nodeMetrics}
-              nodeMetricsLoading={nodeMetricsLoading}
-            />
-          ) : (
-            <SelectionPanel
-              node={selectedNode}
-              edge={selectedEdge}
-              explainSelected={explainSelected}
-              setMessage={setMessage}
-            />
-          ))}
+          {(selectedNode || selectedEdge) &&
+            (isGraphMap ? (
+              <EvidencePanel
+                node={selectedNode}
+                edge={selectedEdge}
+                data={evidenceData}
+                loading={evidenceLoading}
+                sort={evidenceSort}
+                setSort={setEvidenceSort}
+                cluster={evidenceCluster}
+                setCluster={setEvidenceCluster}
+                page={evidencePage}
+                setPage={setEvidencePage}
+                expanded={expandedEvidence}
+                setExpanded={setExpandedEvidence}
+                onClose={() => {
+                  setSelectedNode(null);
+                  setSelectedEdge(null);
+                  setEvidenceTarget(null);
+                  setEvidenceData(null);
+                  setNodeMetrics(null);
+                  setExpandedEvidence(new Set());
+                }}
+                workspaceSlug={workspace?.slug}
+                setMessage={setMessage}
+                sendCommand={sendCommand}
+                nodeMetrics={nodeMetrics}
+                nodeMetricsLoading={nodeMetricsLoading}
+              />
+            ) : (
+              <SelectionPanel
+                node={selectedNode}
+                edge={selectedEdge}
+                explainSelected={explainSelected}
+                setMessage={setMessage}
+              />
+            ))}
+        </div>
       </div>
     </div>
   );
@@ -1381,110 +1365,6 @@ function GraphStatusBar({ status }) {
   );
 }
 
-function RepairStatusBar({ repair, onRepair, onReleaseQuarantine }) {
-  if (!repair) return null;
-  const latest = repair.latestRun;
-  const counts = repair.counts || {};
-  const hasAttention =
-    Number(counts.open || 0) > 0 ||
-    Number(counts.needsReembed || 0) > 0 ||
-    Number(counts.quarantined || 0) > 0;
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 font-medium text-slate-800">
-          {hasAttention ? (
-            <ShieldWarning size={16} className="text-amber-500" />
-          ) : (
-            <Wrench size={16} className="text-blue-500" />
-          )}
-          <span>自修复状态</span>
-          {latest?.createdAt && (
-            <span className="font-normal text-slate-400">
-              最近巡检 {formatRelativeTime(latest.createdAt)}
-            </span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={onRepair}
-          className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700 hover:bg-blue-100"
-        >
-          运行一轮修复
-        </button>
-      </div>
-      <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-        <StatusPill label="待修复" value={counts.open || 0} />
-        <StatusPill label="需重嵌入" value={counts.needsReembed || 0} />
-        <StatusPill label="隔离" value={counts.quarantined || 0} />
-        <StatusPill
-          label="成功率"
-          value={`${Math.round(Number(latest?.successRate || 0) * 100)}%`}
-        />
-      </div>
-      {latest && (
-        <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
-          <StatusPill
-            label="Provider失败"
-            value={`${Math.round(Number(latest.providerFailureRate || 0) * 100)}%`}
-          />
-          <StatusPill
-            label="低置信关系"
-            value={`${Math.round(Number(latest.lowConfidenceRelationRatio || 0) * 100)}%`}
-          />
-          <StatusPill
-            label="related_to"
-            value={`${Math.round(Number(latest.relatedToRatio || 0) * 100)}%`}
-          />
-          <StatusPill
-            label="耗时"
-            value={`${Math.round(Number(latest.durationMs || 0) / 1000)}s`}
-          />
-        </div>
-      )}
-      {!!repair.recentIssues?.length && (
-        <div className="mt-3 space-y-2">
-          {repair.recentIssues.slice(0, 3).map((issue) => (
-            <div
-              key={issue.id}
-              className="rounded-lg border border-slate-200 bg-white px-2 py-2"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-medium text-slate-700">
-                    {repairIssueLabel(issue)}
-                  </div>
-                  <div className="mt-1 break-words text-[11px] text-slate-500">
-                    {issue.quarantineReason ||
-                      issue.explainReason ||
-                      issue.lastError ||
-                      "等待下一轮自修复处理。"}
-                  </div>
-                  {(issue.repairMethod || issue.repairConfidence) && (
-                    <div className="mt-1 text-[11px] text-slate-400">
-                      方法 {issue.repairMethod || "待定"} · 置信度{" "}
-                      {issue.repairConfidence || "待定"}
-                    </div>
-                  )}
-                </div>
-                {issue.status === "quarantined" && (
-                  <button
-                    type="button"
-                    onClick={() => onReleaseQuarantine(issue.id)}
-                    className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-700 hover:bg-amber-100"
-                  >
-                    解除隔离
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function StatusPill({ label, value }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-slate-50 px-2 py-1">
@@ -1492,38 +1372,6 @@ function StatusPill({ label, value }) {
       <span className="ml-1 font-semibold text-slate-700">{value}</span>
     </div>
   );
-}
-
-function repairIssueLabel(issue = {}) {
-  const labels = {
-    missing_vector_cache: "缺少 vector-cache",
-    missing_graph_job: "缺少图谱任务",
-    stale_processing_job: "任务卡住",
-    failed_graph_job: "抽取失败",
-    missing_graph_text: "缺少可恢复文本",
-    suspicious_relation_density: "关系密度异常",
-  };
-  const statusLabels = {
-    open: "待修复",
-    repaired: "已修复",
-    needs_reembed: "需手动重嵌入",
-    quarantined: "已隔离",
-    unrecoverable: "不可恢复",
-  };
-  return `${labels[issue.issueType] || issue.issueType} · ${
-    statusLabels[issue.status] || issue.status
-  }`;
-}
-
-function formatRelativeTime(value) {
-  const time = new Date(value).getTime();
-  if (!Number.isFinite(time)) return "";
-  const minutes = Math.max(0, Math.round((Date.now() - time) / 60_000));
-  if (minutes < 1) return "刚刚";
-  if (minutes < 60) return `${minutes} 分钟前`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours} 小时前`;
-  return `${Math.round(hours / 24)} 天前`;
 }
 
 function Notice({ notice, pendingBody, generate }) {
@@ -1617,6 +1465,7 @@ function EvidencePanel({
   onClose,
   workspaceSlug,
   setMessage,
+  sendCommand,
 }) {
   const [showFullRadar, setShowFullRadar] = useState(false);
   const [showMetricBasis, setShowMetricBasis] = useState(false);
@@ -1746,6 +1595,14 @@ function EvidencePanel({
           </div>
         ) : (
           <>
+            {!edge && (
+              <NodeSupplementSection
+                workspaceSlug={workspaceSlug}
+                node={node}
+                setMessage={setMessage}
+                sendCommand={sendCommand}
+              />
+            )}
             <EvidenceSummary data={data} />
             {!edge && (
               <ImportanceRadar
@@ -1785,6 +1642,491 @@ function EvidencePanel({
               setPage={setPage}
             />
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MissingNodeKeyNotice({ node, reason }) {
+  const nodeLabel = node?.label || node?.canonicalName || "当前节点";
+  const reasonText =
+    {
+      ambiguous_node_identity:
+        "当前名称匹配到多个图谱节点，需要先选择具体节点。",
+      low_confidence_node_identity:
+        "当前名称只能低置信匹配，系统不会自动绑定。",
+      node_identity_not_found: "未在当前工作区图谱中找到可绑定的稳定节点。",
+    }[reason] || "该节点暂时缺少可确认的稳定身份。";
+  return (
+    <div className="mb-3 rounded-2xl border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-900">
+      <div className="font-semibold">该节点暂不能添加节点补充</div>
+      <div className="mt-1 leading-5 text-amber-800">
+        「{nodeLabel}」还没有被唯一解析为当前工作区内的稳定图谱节点。
+        {reasonText}
+        请从图谱中的具体节点打开详情，或先重建/修复图谱身份后再添加节点补充。
+      </div>
+    </div>
+  );
+}
+
+function identitySourceLabel(source = "") {
+  return (
+    {
+      nodeId: "节点 ID",
+      nodeKey: "nodeKey",
+      canonicalKey: "规范键",
+      alias: "别名",
+      label_exact: "名称精确匹配",
+      label_fuzzy: "名称高置信匹配",
+    }[source] || "自动解析"
+  );
+}
+
+function findGraphNode(schema, target = {}) {
+  const nodes = Array.isArray(schema?.nodes) ? schema.nodes : [];
+  if (!nodes.length) return null;
+  const nodeKey = String(target.nodeKey || "").trim();
+  const nodeId = String(target.nodeId || "").trim();
+  const concept = String(
+    target.concept || target.displayName || target.label || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    nodes.find((node) => nodeKey && node.nodeKey === nodeKey) ||
+    nodes.find(
+      (node) =>
+        nodeId &&
+        [node.sourceNodeId, node.nodeId, node.id].some(
+          (value) => String(value || "") === nodeId
+        )
+    ) ||
+    nodes.find((node) => {
+      const label = String(node.label || node.canonicalName || "")
+        .trim()
+        .toLowerCase();
+      return concept && label === concept;
+    }) ||
+    null
+  );
+}
+
+function NodeSupplementSection({
+  workspaceSlug,
+  node,
+  setMessage,
+  sendCommand,
+}) {
+  const inputRef = useRef(null);
+  const [resolvedIdentity, setResolvedIdentity] = useState(
+    node?.nodeKey
+      ? {
+          node: {
+            nodeId: node?.sourceNodeId || node?.nodeId || node?.id || null,
+            nodeKey: node.nodeKey,
+            canonicalKey: node?.canonicalKey || null,
+            nodeLabel: node?.label || node?.canonicalName || "当前节点",
+            nodeType: node?.entityType || node?.type || "concept",
+            identitySource: "nodeKey",
+          },
+        }
+      : null
+  );
+  const [identityLoading, setIdentityLoading] = useState(false);
+  const [identityCandidates, setIdentityCandidates] = useState([]);
+  const [identityReason, setIdentityReason] = useState("");
+  const [supplements, setSupplements] = useState([]);
+  const [graphContext, setGraphContext] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
+  const [textDraft, setTextDraft] = useState({ title: "", text: "" });
+  const [savingText, setSavingText] = useState(false);
+  const identityNode = resolvedIdentity?.node || null;
+  const effectiveNode = identityNode
+    ? {
+        ...node,
+        sourceNodeId: identityNode.nodeId,
+        nodeKey: identityNode.nodeKey,
+        canonicalKey: identityNode.canonicalKey,
+        label: identityNode.nodeLabel,
+        entityType: identityNode.nodeType,
+      }
+    : node;
+  const nodeKey = effectiveNode?.nodeKey;
+  const nodeLabel =
+    effectiveNode?.label || effectiveNode?.canonicalName || "当前节点";
+  const nodeType =
+    effectiveNode?.entityType || effectiveNode?.type || "concept";
+  const nodeContext = useMemo(
+    () => ({
+      nodeKey,
+      nodeId: effectiveNode?.sourceNodeId || effectiveNode?.id || null,
+      nodeLabel,
+      nodeType,
+    }),
+    [
+      effectiveNode?.id,
+      effectiveNode?.sourceNodeId,
+      nodeKey,
+      nodeLabel,
+      nodeType,
+    ]
+  );
+
+  useEffect(() => {
+    setResolvedIdentity(
+      node?.nodeKey
+        ? {
+            node: {
+              nodeId: node?.sourceNodeId || node?.nodeId || node?.id || null,
+              nodeKey: node.nodeKey,
+              canonicalKey: node?.canonicalKey || null,
+              nodeLabel: node?.label || node?.canonicalName || "当前节点",
+              nodeType: node?.entityType || node?.type || "concept",
+              identitySource: "nodeKey",
+            },
+          }
+        : null
+    );
+    setIdentityCandidates([]);
+    setIdentityReason("");
+  }, [
+    node?.nodeKey,
+    node?.sourceNodeId,
+    node?.nodeId,
+    node?.id,
+    node?.canonicalKey,
+    node?.label,
+    node?.canonicalName,
+    node?.entityType,
+    node?.type,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function resolveIdentity() {
+      if (!workspaceSlug || node?.nodeKey) return;
+      const label = node?.label || node?.canonicalName || "";
+      if (!node?.sourceNodeId && !node?.nodeId && !node?.canonicalKey && !label)
+        return;
+      setIdentityLoading(true);
+      const result = await MindMap.resolveNode(workspaceSlug, {
+        nodeId: node?.sourceNodeId || node?.nodeId || null,
+        canonicalKey: node?.canonicalKey || null,
+        label,
+      });
+      if (cancelled) return;
+      setIdentityLoading(false);
+      if (result?.success && result.node) {
+        setResolvedIdentity({ node: result.node });
+        setIdentityCandidates([]);
+        setIdentityReason("");
+        return;
+      }
+      setIdentityCandidates(result?.candidates || []);
+      setIdentityReason(
+        result?.reason || result?.error || "node_identity_not_found"
+      );
+    }
+    resolveIdentity();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    workspaceSlug,
+    node?.nodeKey,
+    node?.sourceNodeId,
+    node?.nodeId,
+    node?.canonicalKey,
+    node?.label,
+    node?.canonicalName,
+  ]);
+
+  const loadSupplements = useCallback(async () => {
+    if (!workspaceSlug || !nodeKey) return;
+    setLoading(true);
+    const result = await NodeSupplement.list(workspaceSlug, nodeKey);
+    setSupplements(result?.supplements || []);
+    if (result?.error) showToast(result.error, "error");
+    setLoading(false);
+  }, [workspaceSlug, nodeKey]);
+
+  useEffect(() => {
+    loadSupplements();
+  }, [loadSupplements]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadGraphContext() {
+      if (!workspaceSlug || !nodeKey) return;
+      const result = await MindMap.graphContext(workspaceSlug, {
+        nodeKey,
+        nodeId: effectiveNode?.sourceNodeId || null,
+        intent: "detail",
+        recordView: true,
+        budget: {
+          supplementChunks: 2,
+          originalChunks: 3,
+          paths: 2,
+          neighbors: 5,
+          vectorChunks: 0,
+          contextChars: 5000,
+        },
+      });
+      if (!cancelled && !result?.error) setGraphContext(result);
+    }
+    loadGraphContext();
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceSlug, nodeKey, effectiveNode?.sourceNodeId]);
+
+  const handleUpload = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !workspaceSlug || !nodeKey) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      formData.append("nodeKey", nodeKey);
+      formData.append("nodeId", effectiveNode?.sourceNodeId || "");
+      formData.append("canonicalKey", effectiveNode?.canonicalKey || "");
+      formData.append("nodeLabel", nodeLabel);
+      formData.append("nodeType", nodeType);
+      const result = await NodeSupplement.upload(workspaceSlug, formData);
+      if (!result?.success) {
+        throw new Error(result?.error || "补充文档上传失败。");
+      }
+      setSupplements((prev) => {
+        const rest = prev.filter((item) => item.id !== result.supplement.id);
+        return [result.supplement, ...rest];
+      });
+      showToast(`已为「${nodeLabel}」添加补充文档。`, "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const saveTextSupplement = async () => {
+    if (!textDraft.text.trim()) {
+      showToast("请先输入节点补充文本。", "error");
+      return;
+    }
+    setSavingText(true);
+    const result = await NodeSupplement.createText(workspaceSlug, {
+      nodeKey,
+      nodeId: effectiveNode?.sourceNodeId || null,
+      canonicalKey: effectiveNode?.canonicalKey || null,
+      nodeLabel,
+      nodeType,
+      title: textDraft.title || `节点补充 - ${nodeLabel}`,
+      text: textDraft.text,
+    });
+    setSavingText(false);
+    if (!result?.success) {
+      showToast(result?.error || "节点补充文本保存失败。", "error");
+      return;
+    }
+    setSupplements((prev) => {
+      const rest = prev.filter((item) => item.id !== result.supplement.id);
+      return [result.supplement, ...rest];
+    });
+    setTextDraft({ title: "", text: "" });
+    setTextOpen(false);
+    showToast(`已为「${nodeLabel}」添加文本补充。`, "success");
+  };
+
+  const removeSupplement = async (supplement) => {
+    const result = await NodeSupplement.delete(workspaceSlug, supplement.id);
+    if (!result?.success) {
+      showToast(result?.error || "解除绑定失败。", "error");
+      return;
+    }
+    setSupplements((prev) => prev.filter((item) => item.id !== supplement.id));
+    showToast("已解除节点补充绑定，原文档仍保留在知识库。", "success");
+  };
+
+  const explainWithSupplement = () => {
+    const prompt = `请围绕知识节点「${nodeLabel}」做一段讲解。优先使用该节点绑定的补充文档，再结合原书主线和已有证据，不要脱离来源。`;
+    if (sendCommand) {
+      sendCommand({ text: prompt, autoSubmit: true, nodeContext });
+      return;
+    }
+    setMessage?.(prompt);
+  };
+
+  return (
+    <div className="mb-3 rounded-2xl border border-blue-100 bg-blue-50/45 p-3 text-xs text-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 font-semibold text-slate-900">
+            <FileText size={14} className="text-blue-500" />
+            节点补充
+          </div>
+          <div className="mt-1 text-[11px] text-slate-500">
+            为「{nodeLabel}」上传补充文档，上传后会正常入库并绑定到该节点。
+          </div>
+          {nodeKey ? (
+            <>
+              <div className="mt-1 text-[11px] font-medium text-blue-700">
+                {node?.nodeKey ? "稳定身份" : "已自动解析"} ·{" "}
+                {identitySourceLabel(identityNode?.identitySource || "nodeKey")}
+              </div>
+              <div className="mt-1 max-w-full truncate rounded-md bg-white/70 px-2 py-1 font-mono text-[10px] text-slate-500">
+                nodeKey: {nodeKey}
+              </div>
+            </>
+          ) : identityLoading ? (
+            <div className="mt-1 text-[11px] text-slate-500">
+              正在解析节点身份...
+            </div>
+          ) : identityCandidates.length > 0 ? (
+            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50/80 p-2 text-[11px] text-amber-900">
+              <div className="font-semibold">需要选择具体图谱节点</div>
+              <div className="mt-1 text-amber-800">
+                当前名称匹配到多个候选，选择一个后才能添加节点补充。
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {identityCandidates.slice(0, 6).map((candidate) => (
+                  <button
+                    key={candidate.nodeKey}
+                    type="button"
+                    onClick={() => {
+                      setResolvedIdentity({ node: candidate });
+                      setIdentityCandidates([]);
+                      setIdentityReason("");
+                    }}
+                    className="rounded-lg border border-amber-200 bg-white px-2 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    {candidate.nodeLabel} ·{" "}
+                    {identitySourceLabel(candidate.identitySource)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <MissingNodeKeyNotice node={node} reason={identityReason} />
+          )}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading || !nodeKey}
+            className="rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {uploading ? "上传中..." : "上传补充文档"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setTextOpen((value) => !value)}
+            disabled={!nodeKey}
+            className="rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+          >
+            输入补充文本
+          </button>
+          <button
+            type="button"
+            onClick={explainWithSupplement}
+            disabled={!nodeKey}
+            className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            基于补充讲解
+          </button>
+        </div>
+      </div>
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={handleUpload}
+      />
+      {textOpen && (
+        <div className="mt-3 space-y-2 rounded-xl border border-blue-100 bg-white/70 p-2">
+          <input
+            value={textDraft.title}
+            onChange={(event) =>
+              setTextDraft((prev) => ({ ...prev, title: event.target.value }))
+            }
+            placeholder="标题，例如：柏拉图理念论补充"
+            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px]"
+          />
+          <textarea
+            value={textDraft.text}
+            onChange={(event) =>
+              setTextDraft((prev) => ({ ...prev, text: event.target.value }))
+            }
+            rows={5}
+            placeholder="输入与该节点直接相关的补充说明、摘录、例子或解析。"
+            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] leading-5"
+          />
+          <button
+            type="button"
+            disabled={savingText}
+            onClick={saveTextSupplement}
+            className="rounded-lg bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {savingText ? "保存中..." : "生成 Markdown 并绑定"}
+          </button>
+        </div>
+      )}
+      <div className="mt-3">
+        {graphContext?.workspaceProfile && (
+          <div className="mb-2 flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+            <span className="rounded-full bg-white/80 px-2 py-0.5">
+              画像 {graphContext.workspaceProfile.profileType}
+            </span>
+            {graphContext.bookStructure?.structureType && (
+              <span className="rounded-full bg-white/80 px-2 py-0.5">
+                结构 {graphContext.bookStructure.structureType}
+              </span>
+            )}
+            <span className="rounded-full bg-white/80 px-2 py-0.5">
+              掌握度{" "}
+              {Number(graphContext.learningState?.masteryScore || 0).toFixed(2)}
+            </span>
+          </div>
+        )}
+        {!!graphContext?.keyPaths?.length && (
+          <div className="mb-2 rounded-lg bg-white/70 px-2 py-1.5 text-[11px] text-slate-600">
+            关键路径：
+            {graphContext.keyPaths
+              .slice(0, 2)
+              .map((path) => path.summary)
+              .join(" / ")}
+          </div>
+        )}
+        <div className="text-[11px] font-medium text-slate-600">
+          {loading
+            ? "正在加载补充文档..."
+            : `已添加 ${supplements.length} 份补充文档`}
+        </div>
+        {supplements.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {supplements.map((supplement) => (
+              <div
+                key={supplement.id}
+                className="flex items-center justify-between gap-2 rounded-lg border border-white/80 bg-white/80 px-2 py-1.5"
+              >
+                <span className="min-w-0 truncate text-[11px] text-slate-700">
+                  {supplement.documentName || supplement.documentId}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeSupplement(supplement)}
+                  className="shrink-0 rounded-md px-1.5 py-1 text-[11px] text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                >
+                  解除绑定
+                </button>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     </div>

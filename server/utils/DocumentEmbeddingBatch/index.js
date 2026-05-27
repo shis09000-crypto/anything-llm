@@ -56,6 +56,19 @@ function isBatchMode(modeOverride = null) {
   return documentEmbeddingMode(modeOverride) === "batch";
 }
 
+function publicBatchDocuments(docs = []) {
+  return docs.map(({ data: _data, ...doc }) => doc);
+}
+
+function documentDisplayName(docpath = "", metadata = {}) {
+  return (
+    metadata.documentName ||
+    metadata.displayTitle ||
+    metadata.title ||
+    docpath.split("/")[1]
+  );
+}
+
 function batchSupportError() {
   if (process.env.EMBEDDING_ENGINE !== "generic-openai")
     return "batch_not_supported_for_provider";
@@ -178,7 +191,7 @@ async function createWorkspaceDocuments({ workspace, additions, jobId }) {
     const { pageContent: _pageContent, ...metadata } = data;
     const newDoc = {
       docId,
-      filename: docpath.split("/")[1],
+      filename: documentDisplayName(docpath, metadata),
       docpath,
       workspaceId: workspace.id,
       metadata: JSON.stringify(metadata),
@@ -216,7 +229,12 @@ async function enqueueBatchDocuments({
 }) {
   const supportError = batchSupportError();
   if (supportError)
-    return { failedToEmbed: additions, errors: [supportError], embedded: [] };
+    return {
+      failedToEmbed: additions,
+      errors: [supportError],
+      embedded: [],
+      documents: [],
+    };
 
   const jobId = uuidv4();
   const { docs, failedToEmbed, errors } = await createWorkspaceDocuments({
@@ -226,7 +244,13 @@ async function enqueueBatchDocuments({
   });
 
   if (docs.length === 0)
-    return { failedToEmbed, errors, embedded: [], batchJob: null };
+    return {
+      failedToEmbed,
+      errors,
+      embedded: [],
+      documents: [],
+      batchJob: null,
+    };
 
   const { job, error } = await EmbeddingBatchJob.create({
     jobId,
@@ -258,7 +282,12 @@ async function enqueueBatchDocuments({
         })
       )
     );
-    return { failedToEmbed: additions, errors: [error], embedded: [] };
+    return {
+      failedToEmbed: additions,
+      errors: [error],
+      embedded: [],
+      documents: publicBatchDocuments(docs),
+    };
   }
 
   const { emitProgress } = require("../EmbeddingWorkerManager");
@@ -285,6 +314,7 @@ async function enqueueBatchDocuments({
     failedToEmbed,
     errors,
     embedded: docs.map((doc) => doc.docpath),
+    documents: publicBatchDocuments(docs),
     batchJob: job,
   };
 }

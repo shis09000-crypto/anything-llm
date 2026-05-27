@@ -28,7 +28,11 @@ function quizEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const { message = "", threadSlug = null } = reqBody(request);
+        const {
+          message = "",
+          threadSlug = null,
+          nodeContext = null,
+        } = reqBody(request);
         if (typeof message !== "string" || message.trim().length === 0) {
           response
             .status(400)
@@ -40,6 +44,7 @@ function quizEndpoints(app) {
           user,
           message: message.trim(),
           threadSlug,
+          nodeContext,
         });
         response.status(200).json(result);
       } catch (error) {

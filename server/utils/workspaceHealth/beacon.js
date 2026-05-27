@@ -101,36 +101,58 @@ async function optionalQuery(query, ...params) {
 }
 
 async function metricsSummary(workspaceId) {
-  const [stale, total, warnings, latestRun, latestMetricsUpdate] =
-    await Promise.all([
-      optionalQuery(
-        `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ? AND "stale" = 1`,
-        Number(workspaceId)
-      ),
-      optionalQuery(
-        `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ?`,
-        Number(workspaceId)
-      ),
-      optionalQuery(
-        `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
-       WHERE "workspaceId" = ? AND "warning" IS NOT NULL AND "warning" != ''`,
-        Number(workspaceId)
-      ),
-      optionalQuery(
-        `SELECT * FROM "KnowledgeNodeMetricsRecomputeRun"
+  const [
+    stale,
+    total,
+    warnings,
+    staleWarnings,
+    locked,
+    latestRun,
+    latestMetricsUpdate,
+  ] = await Promise.all([
+    optionalQuery(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ? AND "stale" = 1`,
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ?`,
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
+       WHERE "workspaceId" = ? AND "stale" = 0
+         AND "warning" IS NOT NULL AND "warning" != ''`,
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
+       WHERE "workspaceId" = ? AND "stale" = 1
+         AND "warning" IS NOT NULL AND "warning" != ''`,
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
+       WHERE "workspaceId" = ? AND "lockedAt" IS NOT NULL
+         AND "lockedAt" >= datetime('now', '-15 minutes')`,
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT * FROM "KnowledgeNodeMetricsRecomputeRun"
        WHERE "workspaceId" = ? ORDER BY "createdAt" DESC LIMIT 1`,
-        Number(workspaceId)
-      ),
-      optionalQuery(
-        `SELECT MAX("updatedAt") AS "latestAt" FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ?`,
-        Number(workspaceId)
-      ),
-    ]);
+      Number(workspaceId)
+    ),
+    optionalQuery(
+      `SELECT MAX("updatedAt") AS "latestAt" FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ?`,
+      Number(workspaceId)
+    ),
+  ]);
 
   return {
     total: countFrom(total),
     stale: countFrom(stale),
     warnings: countFrom(warnings),
+    staleWarningCount: countFrom(staleWarnings),
+    locked: countFrom(locked),
     latestRun: latestRun?.[0] || null,
     latestAt: latestMetricsUpdate?.[0]?.latestAt || null,
   };
@@ -219,6 +241,11 @@ async function latestGraphActivities(workspaceId) {
     .slice(0, 5);
 }
 
+function metricsWorkerActive(metrics = {}) {
+  if (Number(metrics.locked || 0) > 0) return true;
+  return false;
+}
+
 function buildScore({ graph, repair, metrics, cache }) {
   let score = 100;
   const topIssues = [];
@@ -260,7 +287,6 @@ function buildScore({ graph, repair, metrics, cache }) {
         "warning"
       )
     );
-    processingMessages.push(`正在处理 ${graph.pendingJobs} 个 KG 任务`);
   }
   if (graph.processingJobs > 0) {
     processingMessages.push(
@@ -402,13 +428,15 @@ function buildScore({ graph, repair, metrics, cache }) {
     applyDeduction(
       deduction(
         "staleMetrics",
-        "存在过期节点指标",
+        "节点指标待刷新",
         Math.min(15, Math.ceil(metrics.stale / 10) * 2),
         `${metrics.stale} 个重要性指标等待重新计算。`,
         "warning"
       )
     );
-    processingMessages.push(`正在重新计算 ${metrics.stale} 个重要性指标`);
+    if (metricsWorkerActive(metrics)) {
+      processingMessages.push(`正在重新计算 ${metrics.stale} 个重要性指标`);
+    }
   }
   if (metrics.warnings > 0) {
     const points = Math.min(12, metrics.warnings * 3);
@@ -442,6 +470,7 @@ function buildScore({ graph, repair, metrics, cache }) {
       expiredTraversalCacheEntries: cache.staleGraphTraversalEntries || 0,
       cacheNote:
         "Graph traversal 缓存过期是正常 TTL 行为，会按需重建，不影响健康分数。",
+      staleWarningCount: metrics.staleWarningCount || 0,
     },
   };
 }
@@ -511,6 +540,8 @@ async function aggregateBeacon({ workspaceId, workspaceSlug }) {
         total: metrics.total,
         stale: metrics.stale,
         warnings: metrics.warnings,
+        staleWarningCount: metrics.staleWarningCount,
+        locked: metrics.locked,
         latestRun: metrics.latestRun,
       },
       provider: {
@@ -590,5 +621,7 @@ module.exports = {
   refreshHealthBeacon,
   unknownBeacon,
   statusForScore,
+  buildScore,
+  metricsWorkerActive,
   REFRESH_COOLDOWN_MS,
 };

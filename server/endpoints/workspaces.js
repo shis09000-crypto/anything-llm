@@ -481,11 +481,9 @@ function workspaceEndpoints(app) {
             : {}),
         };
         const history = historyOptions.enabled
-          ? await WorkspaceChats.where(
-              whereClause,
-              historyOptions.limit,
-              { id: "desc" }
-            )
+          ? await WorkspaceChats.where(whereClause, historyOptions.limit, {
+              id: "desc",
+            })
           : multiUserMode(response)
             ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
             : await WorkspaceChats.forWorkspace(workspace.id);
@@ -501,7 +499,9 @@ function workspaceEndpoints(app) {
           : null;
         response.status(200).json({
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
-          ...(page ? { page: { ...page, lightChatIds: [...lightChatIds] } } : {}),
+          ...(page
+            ? { page: { ...page, lightChatIds: [...lightChatIds] } }
+            : {}),
         });
       } catch (e) {
         console.error(e.message, e);
@@ -1089,7 +1089,12 @@ function workspaceEndpoints(app) {
         );
 
         const document = documents[0];
-        const { failedToEmbed = [], errors = [] } = await Document.addDocuments(
+        const {
+          failedToEmbed = [],
+          errors = [],
+          documents: embeddedDocuments = [],
+          batchJob = null,
+        } = await Document.addDocuments(
           currWorkspace,
           [document.location],
           response.locals?.user?.id
@@ -1100,10 +1105,32 @@ function workspaceEndpoints(app) {
             .status(200)
             .json({ success: false, error: errors?.[0], document: null });
 
+        const embeddedDocument = embeddedDocuments[0] || null;
+        if (!embeddedDocument)
+          return response.status(200).json({
+            success: false,
+            error: batchJob
+              ? "document_embedding_is_async"
+              : "document_embedding_record_not_available",
+            document: {
+              id: document.id,
+              location: document.location,
+              embeddingStatus: batchJob ? "pending" : "unknown",
+            },
+            batchJob: batchJob || null,
+          });
+
         response.status(200).json({
           success: true,
           error: null,
-          document: { id: document.id, location: document.location },
+          document: {
+            id: document.id,
+            location: document.location,
+            docId: embeddedDocument.docId,
+            filename: embeddedDocument.filename,
+            docpath: embeddedDocument.docpath,
+          },
+          batchJob: null,
         });
       } catch (e) {
         console.error(e.message, e);

@@ -4,6 +4,7 @@ const {
   getGraphRetrievalCache,
   setGraphRetrievalCache,
 } = require("./retrievalCache");
+const { buildNodeKey } = require("./nodeIdentity");
 
 const DEFAULT_TRAVERSAL = {
   maxDepth: 2,
@@ -44,8 +45,15 @@ function boundedTraversalOptions(options = {}) {
 }
 
 function toNode(row = {}) {
+  const nodeKey = buildNodeKey({
+    entityType: row.entityType || "concept",
+    canonicalKey: row.canonicalKey,
+  });
   return {
     id: row.id,
+    nodeId: row.id,
+    sourceNodeId: row.id,
+    nodeKey,
     canonicalName: row.canonicalName,
     canonicalKey: row.canonicalKey,
     displayNameZh: row.displayNameZh || null,

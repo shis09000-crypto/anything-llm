@@ -143,4 +143,20 @@ describe("knowledge graph Chinese extraction/backfill", () => {
       })
     ).toHaveLength(1);
   });
+
+  test("backfill JSON parser ignores model thinking blocks", () => {
+    const items = normalizeBackfillItems(
+      `<think>{"items":[{"id":1,"displayNameZh":"bad","summaryZh":"bad"}]}</think>
+      {"items":[{"id":2,"displayNameZh":"基因","summaryZh":"编码功能性产物的DNA片段。"}]}`
+    );
+
+    expect(items).toEqual([
+      {
+        id: 2,
+        displayNameZh: "基因",
+        summaryZh: "编码功能性产物的DNA片段。",
+        aliases: [],
+      },
+    ]);
+  });
 });

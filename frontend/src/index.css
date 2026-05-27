@@ -519,6 +519,60 @@
   color: var(--glass-muted-text);
 }
 
+.overview-input-fade {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 20;
+  padding: 4rem 1rem 1rem;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+.overview-input-fade::before,
+.overview-input-fade::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.overview-input-fade::before {
+  background: linear-gradient(
+    to top,
+    rgb(255 255 255 / 0.9) 0%,
+    rgb(255 255 255 / 0.74) 34%,
+    rgb(255 255 255 / 0.36) 67%,
+    rgb(255 255 255 / 0) 100%
+  );
+}
+
+.overview-input-fade::after {
+  inset-block-start: 0.75rem;
+  -webkit-backdrop-filter: blur(3px) saturate(1.05);
+  backdrop-filter: blur(3px) saturate(1.05);
+  -webkit-mask-image: linear-gradient(
+    to top,
+    rgb(0 0 0 / 0.95) 0%,
+    rgb(0 0 0 / 0.72) 42%,
+    rgb(0 0 0 / 0.18) 78%,
+    rgb(0 0 0 / 0) 100%
+  );
+  mask-image: linear-gradient(
+    to top,
+    rgb(0 0 0 / 0.95) 0%,
+    rgb(0 0 0 / 0.72) 42%,
+    rgb(0 0 0 / 0.18) 78%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+.overview-input-fade > * {
+  position: relative;
+  z-index: 1;
+}
+
 .liquid-glass-health {
   box-shadow:
     var(--glass-shadow),

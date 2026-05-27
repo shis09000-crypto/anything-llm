@@ -1,5 +1,6 @@
 const prisma = require("../prisma");
 const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const { buildNodeKey } = require("./nodeIdentity");
 
 const DEFAULT_PATH_OPTIONS = {
   maxDepth: 4,
@@ -40,9 +41,17 @@ function boundedPathOptions(options = {}) {
 }
 
 function nodeDto(row = {}) {
+  const nodeKey = buildNodeKey({
+    entityType: row.entityType || "concept",
+    canonicalKey: row.canonicalKey,
+  });
   return {
     id: Number(row.id),
+    nodeId: Number(row.id),
+    sourceNodeId: Number(row.id),
+    nodeKey,
     canonicalName: row.canonicalName,
+    canonicalKey: row.canonicalKey,
     displayNameZh: row.displayNameZh || null,
     displayNameEn: row.displayNameEn || row.canonicalName,
     entityType: row.entityType || null,

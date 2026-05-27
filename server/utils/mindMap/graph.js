@@ -12,6 +12,7 @@ const {
 const {
   enqueueChineseNodeBackfill,
 } = require("../knowledgeGraph/chineseBackfill");
+const { buildNodeKey } = require("../knowledgeGraph/nodeKey");
 
 const GRAPH_THEME = "napkin";
 const DEFAULT_GRAPH_LAYOUT = "tree";
@@ -517,6 +518,9 @@ async function graphMindMapFromConcept({
       parentId: parent ? graphNodeId(parent.parent) : null,
       sourceType: "graph",
       sourceNodeId: Number(node.id),
+      nodeKey: buildNodeKey(node.entityType, node.canonicalKey),
+      canonicalKey: node.canonicalKey,
+      entityType: node.entityType || "concept",
       canonicalName: node.canonicalName,
       displayNameZh: node.displayNameZh || null,
       displayNameEn: node.displayNameEn || node.canonicalName,

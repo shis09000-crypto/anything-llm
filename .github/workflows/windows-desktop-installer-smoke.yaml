@@ -1,0 +1,79 @@
+name: Windows Desktop Installer Smoke
+
+concurrency:
+  group: windows-desktop-installer-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - ".github/workflows/windows-desktop-installer-smoke.yaml"
+      - "desktop/**"
+      - "server/**"
+      - "collector/**"
+      - "frontend/**"
+      - "package.json"
+
+jobs:
+  windows-installer-smoke:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install frontend dependencies
+        shell: pwsh
+        run: |
+          cd frontend
+          yarn install --frozen-lockfile
+
+      - name: Install server dependencies
+        shell: pwsh
+        run: |
+          cd server
+          yarn install --frozen-lockfile
+
+      - name: Install collector dependencies
+        shell: pwsh
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+          SHARP_IGNORE_GLOBAL_LIBVIPS: "true"
+        run: |
+          cd collector
+          yarn install --frozen-lockfile
+
+      - name: Install desktop dependencies
+        shell: pwsh
+        run: |
+          cd desktop
+          npm ci
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          yarn desktop:dist:win
+
+      - name: Smoke test silent install and desktop shortcut
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist-desktop -Filter "*.exe" | Where-Object { $_.Name -like "*Setup*" } | Select-Object -First 1
+          if (-not $installer) {
+            throw "Windows installer was not produced."
+          }
+          ./desktop/scripts/windows-installer-smoke.ps1 -InstallerPath $installer.FullName
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vector-knowledge-windows-installer
+          path: |
+            dist-desktop/*.exe
+            dist-desktop/*.blockmap

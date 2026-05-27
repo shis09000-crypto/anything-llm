@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowRight,
   Brain,
@@ -13,6 +14,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
+import showToast from "@/utils/toast";
 
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const overviewCache = new Map();
@@ -67,6 +69,15 @@ export default function WorkspaceOverview({
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState(new Set());
+  const [profileDraft, setProfileDraft] = useState({
+    open: false,
+    userDescription: "",
+    profileType: "",
+    bookStructureType: "",
+    primaryAxis: "",
+    secondaryAxes: "",
+    saving: false,
+  });
   const [pageSessionId, setPageSessionId] = useState(null);
   const cacheKey = useMemo(
     () => `${workspace?.slug || "workspace"}:${threadSlug || "default"}`,
@@ -124,6 +135,23 @@ export default function WorkspaceOverview({
     [cacheKey, isVisible, threadSlug, workspace?.slug]
   );
 
+  const refreshKnowledgeProfile = useCallback(
+    async (body = {}) => {
+      if (!workspace?.slug) return;
+      setProfileDraft((prev) => ({ ...prev, saving: true }));
+      const result = await WorkspaceOverviewModel.updateKnowledgeProfile(
+        workspace.slug,
+        { refresh: true, ...body }
+      );
+      setProfileDraft((prev) => ({ ...prev, saving: false, open: false }));
+      if (result?.success) {
+        overviewCache.delete(cacheKey);
+        await loadOverview({ force: true });
+      }
+    },
+    [cacheKey, loadOverview, workspace?.slug]
+  );
+
   useEffect(() => {
     if (!isVisible) return;
     loadOverview();
@@ -178,9 +206,12 @@ export default function WorkspaceOverview({
         onOpenDocument?.(target);
         return;
       }
-      onOpenGraph?.(
-        target.concept || target.displayName || recommendation.title
-      );
+      onOpenGraph?.({
+        concept: target.concept || target.displayName || recommendation.title,
+        displayName: target.displayName || recommendation.title,
+        nodeKey: target.nodeKey,
+        nodeId: target.nodeId || target.targetId,
+      });
     },
     [onOpenDocument, onOpenEvidence, onOpenGraph, onOpenPath, recordUsage]
   );
@@ -261,10 +292,11 @@ export default function WorkspaceOverview({
     );
   }
 
-  const focus =
-    overview?.userCognitiveState?.currentFocusConcepts?.[0]?.displayName ||
-    overview?.userCognitiveState?.activeTopics?.[0]?.displayName ||
-    "等待新的研究焦点";
+  const focusTarget =
+    overview?.userCognitiveState?.currentFocusConcepts?.[0] ||
+    overview?.userCognitiveState?.activeTopics?.[0] ||
+    null;
+  const focus = focusTarget?.displayName || "等待新的研究焦点";
   const health = overview?.healthLite || {};
 
   return (
@@ -283,6 +315,37 @@ export default function WorkspaceOverview({
                 当前研究焦点：
                 <span className="font-semibold text-slate-900">{focus}</span>
               </p>
+              {focusTarget?.nodeKey && (
+                <div className="mt-3 rounded-xl border border-blue-100 bg-blue-50/55 px-3 py-2 text-xs text-slate-600">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      节点补充：
+                      <span className="font-semibold text-slate-900">
+                        已添加 {focusTarget.supplementCount || 0} 份
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenGraph?.({
+                          concept: focusTarget.concept || focus,
+                          displayName: focus,
+                          nodeKey: focusTarget.nodeKey,
+                          nodeId: focusTarget.nodeId || focusTarget.targetId,
+                        })
+                      }
+                      className="rounded-lg border border-blue-200 bg-white px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+                    >
+                      打开节点详情
+                    </button>
+                  </div>
+                  {!!focusTarget.supplementTitles?.length && (
+                    <div className="mt-1 truncate text-[11px] text-slate-500">
+                      {focusTarget.supplementTitles.slice(0, 3).join(" / ")}
+                    </div>
+                  )}
+                </div>
+              )}
               <p className="mt-2 text-xs text-slate-500">
                 最近活动：{formatTime(overview?.recentActivity?.[0]?.createdAt)}
               </p>
@@ -308,8 +371,28 @@ export default function WorkspaceOverview({
           </div>
         </section>
 
-        <div className="mt-5 grid grid-cols-1 xl:grid-cols-[1.35fr_0.65fr] gap-5">
-          <main className="space-y-5">
+        <KnowledgeProfilePanel
+          profile={overview?.workspaceProfile}
+          bookStructure={overview?.bookStructure}
+          engine={overview?.recommendationEngine}
+          draft={profileDraft}
+          setDraft={setProfileDraft}
+          onRefresh={() => refreshKnowledgeProfile()}
+          onSave={(body) => refreshKnowledgeProfile(body)}
+        />
+
+        <WorkspaceSupplementPanel
+          workspace={workspace}
+          profile={overview?.workspaceProfile}
+          summary={overview?.workspaceSupplements}
+          onChanged={async () => {
+            overviewCache.delete(cacheKey);
+            await loadOverview({ force: true });
+          }}
+        />
+
+        <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+          <main className="min-w-0 space-y-5">
             <OverviewSection
               icon={<Path size={18} />}
               title="继续上次研究"
@@ -375,7 +458,7 @@ export default function WorkspaceOverview({
             </OverviewSection>
           </main>
 
-          <aside className="space-y-5">
+          <aside className="min-w-0 space-y-5">
             <StatsPanel overview={overview} />
             <ActivityPanel activities={overview?.recentActivity || []} />
             <DebugPanel debug={overview?.recommendationDebug} />
@@ -403,6 +486,824 @@ function OverviewSection({ icon, title, empty, children }) {
   );
 }
 
+const workspaceSupplementKinds = [
+  ["structure_json", "结构说明"],
+  ["reading_guide", "阅读导引"],
+  ["chapter_overview", "章节总览"],
+  ["timeline", "时间线"],
+  ["person_map", "人物关系"],
+  ["concept_index", "概念索引"],
+  ["summary_standard", "总结标准"],
+  ["other", "其他补充"],
+];
+
+function WorkspaceSupplementPanel({ workspace, profile, summary, onChanged }) {
+  const fileInputRef = useRef(null);
+  const triggerRef = useRef(null);
+  const promptCacheRef = useRef({});
+  const defaultScope = profile?.profileType === "book" ? "book" : "workspace";
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("list");
+  const [saving, setSaving] = useState(false);
+  const [supplements, setSupplements] = useState(summary?.supplements || []);
+  const [structureError, setStructureError] = useState("");
+  const [draft, setDraft] = useState({
+    title: "",
+    text: "",
+    structureJsonText: "",
+    documentId: "",
+    scopeType: defaultScope,
+    supplementKind: "reading_guide",
+    allowDowngrade: false,
+  });
+
+  useEffect(() => {
+    setSupplements(summary?.supplements || []);
+  }, [summary]);
+
+  useEffect(() => {
+    promptCacheRef.current = {};
+  }, [workspace?.slug]);
+
+  useEffect(() => {
+    setDraft((prev) => ({
+      ...prev,
+      scopeType: prev.scopeType || defaultScope,
+    }));
+  }, [defaultScope]);
+
+  const closeModal = useCallback(() => {
+    setOpen(false);
+    setStructureError("");
+    window.setTimeout(() => triggerRef.current?.focus?.(), 0);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") closeModal();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [closeModal, open]);
+
+  const refreshList = useCallback(async () => {
+    if (!workspace?.slug) return;
+    const result = await WorkspaceOverviewModel.listWorkspaceSupplements(
+      workspace.slug
+    );
+    if (result?.success) setSupplements(result.supplements || []);
+  }, [workspace?.slug]);
+
+  const openModal = async (nextMode, event) => {
+    triggerRef.current = event?.currentTarget || document.activeElement;
+    setStructureError("");
+    setMode(nextMode);
+    setOpen(true);
+    if (nextMode === "list") await refreshList();
+  };
+
+  const copyPrompt = async () => {
+    const kind = draft.supplementKind || "reading_guide";
+    const cacheKey = `${workspace?.slug || "workspace"}:${kind}`;
+    let cached = promptCacheRef.current[cacheKey];
+    if (!cached) {
+      const result = await WorkspaceOverviewModel.workspaceSupplementPrompt(
+        workspace.slug,
+        { supplementKind: kind }
+      );
+      if (!result?.success || !result.prompt) {
+        showToast("复制 Prompt 失败，请稍后重试。", "error");
+        return;
+      }
+      cached = {
+        prompt: result.prompt,
+        label: result.supplementKindLabel || supplementKindLabel(kind),
+      };
+      promptCacheRef.current[cacheKey] = cached;
+    }
+    await navigator.clipboard?.writeText(cached.prompt);
+    showToast(`已复制${cached.label} Prompt`, "success");
+  };
+
+  const uploadFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !workspace?.slug) return;
+    setSaving(true);
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+    formData.append("scopeType", draft.scopeType || defaultScope);
+    formData.append("supplementKind", draft.supplementKind || "other");
+    const result = await WorkspaceOverviewModel.uploadWorkspaceSupplement(
+      workspace.slug,
+      formData
+    );
+    setSaving(false);
+    if (!result?.success) {
+      showToast(
+        result?.message || result?.error || "全书补充上传失败。",
+        "error"
+      );
+      return;
+    }
+    showToast("已添加全书补充。", "success");
+    await refreshList();
+    await onChanged?.();
+  };
+
+  const saveText = async () => {
+    const isStructure = draft.supplementKind === "structure_json";
+    const structureText =
+      isStructure && draft.structureJsonText.trim()
+        ? `${draft.text.trim() || "## 结构说明"}\n\n\`\`\`json\n${draft.structureJsonText.trim()}\n\`\`\``
+        : draft.text;
+    if (!String(structureText || "").trim()) {
+      showToast("请先输入全书补充文本。", "error");
+      return;
+    }
+    setSaving(true);
+    setStructureError("");
+    const result = await WorkspaceOverviewModel.createWorkspaceSupplementText(
+      workspace.slug,
+      {
+        title: draft.title || "全书补充资料",
+        text: structureText,
+        scopeType: draft.scopeType || defaultScope,
+        supplementKind: draft.supplementKind,
+        allowDowngrade: isStructure && draft.allowDowngrade,
+      }
+    );
+    setSaving(false);
+    if (!result?.success) {
+      if (
+        draft.supplementKind === "structure_json" &&
+        result?.error === "invalid_structure_json"
+      ) {
+        setStructureError(
+          result?.message || "JSON 校验失败，可修改内容后重试。"
+        );
+      }
+      showToast(
+        result?.message || "全书补充保存失败，请检查内容后重试。",
+        "error"
+      );
+      return;
+    }
+    showToast("已保存全书补充。", "success");
+    setDraft((prev) => ({
+      ...prev,
+      title: "",
+      text: "",
+      structureJsonText: "",
+      allowDowngrade: false,
+    }));
+    await refreshList();
+    await onChanged?.();
+  };
+
+  const bindDocument = async () => {
+    if (!draft.documentId.trim()) {
+      showToast("请输入已有文档的 docId。", "error");
+      return;
+    }
+    setSaving(true);
+    const result = await WorkspaceOverviewModel.bindWorkspaceSupplement(
+      workspace.slug,
+      {
+        documentId: draft.documentId.trim(),
+        scopeType: draft.scopeType || defaultScope,
+        supplementKind: draft.supplementKind,
+        allowDowngrade: draft.allowDowngrade,
+      }
+    );
+    setSaving(false);
+    if (!result?.success) {
+      showToast(
+        result?.message || result?.error || "绑定已有文档失败。",
+        "error"
+      );
+      return;
+    }
+    showToast("已绑定为全书补充。", "success");
+    setDraft((prev) => ({ ...prev, documentId: "" }));
+    await refreshList();
+    await onChanged?.();
+  };
+
+  const removeSupplement = async (supplement) => {
+    const result = await WorkspaceOverviewModel.deleteWorkspaceSupplement(
+      workspace.slug,
+      supplement.id
+    );
+    if (!result?.success) {
+      showToast(result?.error || "解除绑定失败。", "error");
+      return;
+    }
+    setSupplements((prev) => prev.filter((item) => item.id !== supplement.id));
+    showToast("已解除全书补充绑定，原文档仍保留在知识库。", "success");
+    await onChanged?.();
+  };
+
+  return (
+    <section className="mt-5 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
+      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+            <FileText size={18} className="text-blue-500" />
+            全书补充
+          </div>
+          <p className="mt-1 text-xs text-slate-500">
+            已添加 {summary?.count || 0} 份，用于画像、书籍结构、路径和推荐。
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={uploadFile}
+          />
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+          >
+            上传
+          </button>
+          <button
+            type="button"
+            onClick={(event) => openModal("text", event)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            输入文本
+          </button>
+          <button
+            type="button"
+            onClick={(event) => openModal("bind", event)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            绑定已有文档
+          </button>
+          <button
+            type="button"
+            onClick={(event) => openModal("list", event)}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            查看全部
+          </button>
+        </div>
+      </div>
+      {open &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950/40 p-3 md:p-6"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeModal();
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={
+                mode === "text"
+                  ? "输入全书补充文本"
+                  : mode === "bind"
+                    ? "绑定已有文档"
+                    : "全部全书补充"
+              }
+              className="flex max-h-[calc(100dvh-24px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
+                <div className="font-semibold text-slate-900">
+                  {mode === "text"
+                    ? "输入全书补充文本"
+                    : mode === "bind"
+                      ? "绑定已有文档"
+                      : "全部全书补充"}
+                </div>
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-lg p-1 text-slate-500 hover:bg-slate-100"
+                  aria-label="关闭弹窗"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                {mode !== "list" && (
+                  <SupplementControls
+                    draft={draft}
+                    setDraft={setDraft}
+                    onCopyPrompt={copyPrompt}
+                    structureError={structureError}
+                  />
+                )}
+                {mode === "text" && (
+                  <div className="flex min-h-[48vh] flex-col gap-3">
+                    <input
+                      value={draft.title}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          title: event.target.value,
+                        }))
+                      }
+                      placeholder="标题，例如：西方哲学史阅读导引"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    />
+                    {draft.supplementKind === "structure_json" ? (
+                      <div className="grid min-h-[300px] flex-1 gap-3 lg:grid-cols-2">
+                        <label className="flex min-h-0 flex-col gap-2">
+                          <span className="text-xs font-semibold text-slate-600">
+                            Markdown 说明
+                          </span>
+                          <textarea
+                            value={draft.text}
+                            onChange={(event) =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                text: event.target.value,
+                              }))
+                            }
+                            placeholder="写这份结构说明的用途、阅读方式、主线判断依据。这里不需要粘贴 JSON。"
+                            className="min-h-[260px] flex-1 resize-none overflow-y-auto rounded-xl border border-slate-200 p-3 text-sm leading-6 focus:border-blue-500 focus:outline-none"
+                          />
+                        </label>
+                        <label className="flex min-h-0 flex-col gap-2">
+                          <span className="text-xs font-semibold text-slate-600">
+                            结构 JSON
+                          </span>
+                          <textarea
+                            value={draft.structureJsonText}
+                            onChange={(event) =>
+                              setDraft((prev) => ({
+                                ...prev,
+                                structureJsonText: event.target.value,
+                              }))
+                            }
+                            placeholder={`只粘贴 JSON 对象，例如：\n{\n  "资料类型": "书籍",\n  "主轴": "哲学家",\n  "次轴": ["概念", "学派"]\n}`}
+                            className="min-h-[260px] flex-1 resize-none overflow-y-auto rounded-xl border border-slate-200 bg-slate-950 p-3 font-mono text-xs leading-5 text-slate-50 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+                          />
+                        </label>
+                      </div>
+                    ) : (
+                      <textarea
+                        value={draft.text}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            text: event.target.value,
+                          }))
+                        }
+                        placeholder="粘贴中文 Markdown。"
+                        className="min-h-[240px] flex-1 resize-none overflow-y-auto rounded-xl border border-slate-200 p-3 text-sm leading-6 focus:border-blue-500 focus:outline-none"
+                      />
+                    )}
+                  </div>
+                )}
+                {mode === "bind" && (
+                  <div className="space-y-3">
+                    <input
+                      value={draft.documentId}
+                      onChange={(event) =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          documentId: event.target.value,
+                        }))
+                      }
+                      placeholder="已有文档 ID"
+                      className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                    />
+                  </div>
+                )}
+                {mode === "list" && (
+                  <div className="space-y-2">
+                    {supplements.length === 0 ? (
+                      <p className="text-sm text-slate-500">暂无全书补充。</p>
+                    ) : (
+                      supplements.map((supplement) => (
+                        <div
+                          key={supplement.id}
+                          className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium text-slate-800">
+                              {supplement.documentName || supplement.documentId}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {`${supplementKindLabel(
+                                supplement.supplementKind
+                              )} · ${scopeTypeLabel(supplement.scopeType)}`}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeSupplement(supplement)}
+                            className="shrink-0 rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                          >
+                            解除绑定
+                          </button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="sticky bottom-0 flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-slate-100 bg-white px-5 py-4">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                >
+                  取消
+                </button>
+                {mode === "text" && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={saveText}
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Sparkle size={14} weight="fill" />
+                    保存为{scopeTypeLabel(draft.scopeType)}
+                  </button>
+                )}
+                {mode === "bind" && (
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={bindDocument}
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:from-blue-700 hover:to-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Sparkle size={14} weight="fill" />
+                    保存为{scopeTypeLabel(draft.scopeType)}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </section>
+  );
+}
+
+function SupplementControls({
+  draft,
+  setDraft,
+  onCopyPrompt,
+  structureError = "",
+}) {
+  const isStructure = draft.supplementKind === "structure_json";
+  return (
+    <div className="mb-3 space-y-3">
+      <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+        <label className="space-y-1 text-xs font-medium text-slate-600">
+          <span>补充范围</span>
+          <select
+            value={draft.scopeType}
+            onChange={(event) =>
+              setDraft((prev) => ({ ...prev, scopeType: event.target.value }))
+            }
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+          >
+            <option value="book">全书补充</option>
+            <option value="workspace">工作区补充</option>
+          </select>
+        </label>
+        <label className="space-y-1 text-xs font-medium text-slate-600">
+          <span>当前补充类型</span>
+          <select
+            value={draft.supplementKind}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                supplementKind: event.target.value,
+                allowDowngrade: false,
+              }))
+            }
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs"
+          >
+            {workspaceSupplementKinds.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          type="button"
+          onClick={onCopyPrompt}
+          className="self-end rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+        >
+          复制当前类型 Prompt
+        </button>
+      </div>
+      {!isStructure && (
+        <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+          该类型不会参与强结构判断。
+        </p>
+      )}
+      {isStructure && structureError && (
+        <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <p>JSON 校验失败，可修改内容后重试。</p>
+          <p>{structureError}</p>
+          <label className="flex items-center gap-2 font-medium">
+            <input
+              type="checkbox"
+              checked={draft.allowDowngrade}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  allowDowngrade: event.target.checked,
+                }))
+              }
+            />
+            降级保存为阅读导引
+          </label>
+        </div>
+      )}
+      {isStructure && !structureError && (
+        <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+          结构说明会参与画像、书籍结构、主轴次轴和节点解析标准判断，请粘贴包含中文
+          JSON 代码块的 Markdown。
+        </p>
+      )}
+    </div>
+  );
+}
+
+function scopeTypeLabel(scopeType) {
+  if (scopeType === "book") return "全书补充";
+  return "工作区补充";
+}
+
+function supplementKindLabel(kind) {
+  return (
+    Object.fromEntries(workspaceSupplementKinds)[kind] || kind || "未知类型"
+  );
+}
+
+function KnowledgeProfilePanel({
+  profile,
+  bookStructure,
+  engine,
+  draft,
+  setDraft,
+  onRefresh,
+  onSave,
+}) {
+  const profileLabel = profileTypeLabel(profile?.profileType);
+  const structureLabel = bookStructureTypeLabel(bookStructure?.structureType);
+  const axes = [
+    bookStructure?.primaryAxis,
+    ...(bookStructure?.secondaryAxes || []),
+  ].filter(Boolean);
+
+  return (
+    <section className="mt-5 rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
+            <Compass size={18} className="text-blue-500" />
+            工作区知识画像
+            {profile?.manualOverride && (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">
+                手动覆盖
+              </span>
+            )}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+            <span className="rounded-lg bg-slate-50 px-2 py-1">
+              画像：{profileLabel}
+            </span>
+            {bookStructure && (
+              <span className="rounded-lg bg-slate-50 px-2 py-1">
+                书籍结构：{structureLabel}
+              </span>
+            )}
+            {!!axes.length && (
+              <span className="rounded-lg bg-slate-50 px-2 py-1">
+                主轴/次轴：{axes.join(" / ")}
+              </span>
+            )}
+            <span className="rounded-lg bg-slate-50 px-2 py-1">
+              推荐来源：
+              {engine?.primary === "knowledge_engine"
+                ? "知识引擎"
+                : "旧逻辑兜底"}
+            </span>
+            <span className="rounded-lg bg-slate-50 px-2 py-1">
+              上次分析：{formatTime(profile?.lastAnalyzedAt)}
+            </span>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            手动刷新
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setDraft((prev) => ({
+                ...prev,
+                open: !prev.open,
+                userDescription:
+                  prev.userDescription || profile?.userDescription || "",
+                profileType: prev.profileType || profile?.profileType || "",
+                bookStructureType:
+                  prev.bookStructureType || bookStructure?.structureType || "",
+                primaryAxis:
+                  prev.primaryAxis || bookStructure?.primaryAxis || "",
+                secondaryAxes:
+                  prev.secondaryAxes ||
+                  (bookStructure?.secondaryAxes || []).join(", "),
+              }))
+            }
+            className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            高级修正
+          </button>
+        </div>
+      </div>
+      {draft.open && (
+        <div className="mt-4 grid gap-3 border-t border-slate-100 pt-4 lg:grid-cols-2">
+          <textarea
+            value={draft.userDescription}
+            onChange={(event) =>
+              setDraft((prev) => ({
+                ...prev,
+                userDescription: event.target.value,
+              }))
+            }
+            rows={8}
+            placeholder={[
+              "资料类型：书籍 / 课程 / 研究资料 / 项目资料 / 零散笔记 / 混合资料",
+              "主文档：哪一个文档是核心文本，或说明没有主文档",
+              "主题范围：这批资料主要讨论什么，也请说明不讨论什么",
+              "组织方式：按人物、概念、时间、问题、方法、章节、论证，还是混合",
+              "学习目标、重要对象、推荐偏好、禁止误判、语言偏好",
+            ].join("\n")}
+            className="min-h-[180px] rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700 outline-none focus:border-blue-300"
+          />
+          <div className="space-y-3">
+            <select
+              value={draft.profileType}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  profileType: event.target.value,
+                }))
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+            >
+              <option value="">自动判断画像类型</option>
+              {[
+                "book",
+                "course",
+                "research",
+                "project",
+                "loose_notes",
+                "mixed",
+              ].map((type) => (
+                <option key={type} value={type}>
+                  {profileTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+            <select
+              value={draft.bookStructureType}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  bookStructureType: event.target.value,
+                }))
+              }
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+            >
+              <option value="">自动判断书籍结构</option>
+              {[
+                "person_driven",
+                "concept_driven",
+                "chronology_driven",
+                "problem_driven",
+                "method_driven",
+                "chapter_driven",
+                "argument_driven",
+                "mixed_structure",
+              ].map((type) => (
+                <option key={type} value={type}>
+                  {bookStructureTypeLabel(type)}
+                </option>
+              ))}
+            </select>
+            <input
+              value={draft.primaryAxis}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  primaryAxis: event.target.value,
+                }))
+              }
+              placeholder="主轴，例如：概念 / 时间线 / 方法 / 论证"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+            />
+            <input
+              value={draft.secondaryAxes}
+              onChange={(event) =>
+                setDraft((prev) => ({
+                  ...prev,
+                  secondaryAxes: event.target.value,
+                }))
+              }
+              placeholder="次轴，用逗号分隔，例如：问题, 章节, 对比"
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+            />
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={draft.saving}
+                onClick={() =>
+                  onSave({
+                    userDescription: draft.userDescription,
+                    profileType: draft.profileType || undefined,
+                    bookStructureType: draft.bookStructureType || undefined,
+                    primaryAxis: draft.primaryAxis || undefined,
+                    secondaryAxes: draft.secondaryAxes
+                      ? draft.secondaryAxes
+                          .split(/[,，]/)
+                          .map((item) => item.trim())
+                          .filter(Boolean)
+                      : undefined,
+                    overrideReason: "用户在工作区首页高级入口修正",
+                  })
+                }
+                className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                保存并刷新
+              </button>
+              <button
+                type="button"
+                disabled={draft.saving}
+                onClick={() =>
+                  onSave({
+                    refresh: true,
+                    userDescription: draft.userDescription,
+                  })
+                }
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                恢复自动判断
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function profileTypeLabel(type) {
+  return (
+    {
+      book: "书籍",
+      course: "课程",
+      research: "研究",
+      project: "项目",
+      loose_notes: "零散笔记",
+      mixed: "混合资料",
+    }[type] || "未分析"
+  );
+}
+
+function bookStructureTypeLabel(type) {
+  return (
+    {
+      person_driven: "人物驱动",
+      concept_driven: "概念驱动",
+      chronology_driven: "时间驱动",
+      problem_driven: "问题驱动",
+      method_driven: "方法驱动",
+      chapter_driven: "章节驱动",
+      argument_driven: "论证驱动",
+      mixed_structure: "混合结构",
+    }[type] || "未分析"
+  );
+}
+
 function RecommendationCard({
   recommendation,
   isVisible = true,
@@ -412,6 +1313,92 @@ function RecommendationCard({
   actionLabel = "打开",
 }) {
   const ref = useRef(null);
+  const cardType =
+    recommendation.cardType ||
+    (recommendation.target?.targetType === "document"
+      ? "document"
+      : recommendation.type === "organize_cluster"
+        ? "cluster"
+        : "node");
+  const lowValueReasons = new Set([
+    "你最近查看过这个概念，但还可以继续展开相关关系或证据。",
+    "它还有可继续探索的关联节点。",
+    "你最近查看过这个概念或相关证据。",
+    "该路径由知识图谱结构解析产生，不依赖旧首页的零散活动信号。",
+    "适合按当前工作区主导脉络继续推进。",
+  ]);
+  const fallbackReasons = (recommendation.reasonZh || []).filter(
+    (reason) => reason && !lowValueReasons.has(reason)
+  );
+  const sourceTargetLine =
+    recommendation.sourceNodeLabel && recommendation.targetNodeLabel
+      ? `关键关联：${[
+          recommendation.sourceNodeLabel,
+          recommendation.targetNodeLabel,
+        ].join(" / ")}`
+      : "";
+  const cardLabel =
+    cardType === "relation"
+      ? recommendation.relationTypeLabel || "关键关联"
+      : cardType === "path"
+        ? "路径"
+        : cardType === "document"
+          ? "文档"
+          : cardType === "cluster"
+            ? "主题簇"
+            : recommendation.nodeTypeLabel;
+  const title =
+    recommendation.relationTitle ||
+    (cardType === "path" && recommendation.pathSummary
+      ? `继续路径：${recommendation.pathSummary}`
+      : recommendation.title);
+  const primaryText =
+    cardType === "relation" || cardType === "path"
+      ? recommendation.relationSummary || fallbackReasons[0] || ""
+      : recommendation.nodeSummary || fallbackReasons[0] || "";
+  const supportLines =
+    cardType === "relation"
+      ? [sourceTargetLine, recommendation.nextAction].filter(Boolean)
+      : cardType === "path"
+        ? [
+            recommendation.pathSummary
+              ? `路径：${recommendation.pathSummary}`
+              : "",
+            recommendation.nextAction,
+          ].filter(Boolean)
+        : [
+            recommendation.mainlinePath,
+            recommendation.whyRecommended || fallbackReasons[1],
+            recommendation.nextAction,
+          ].filter(Boolean);
+  const stats = [
+    recommendation.evidenceCount > 0
+      ? `证据 ${recommendation.evidenceCount} 条`
+      : null,
+    (cardType === "relation" || cardType === "path") &&
+    recommendation.relatedNodeCount > 0
+      ? `相关节点 ${recommendation.relatedNodeCount} 个`
+      : null,
+    cardType !== "relation" &&
+    cardType !== "path" &&
+    recommendation.relationCount > 0
+      ? `关系 ${recommendation.relationCount} 个`
+      : null,
+    recommendation.supplementCount > 0 ||
+    recommendation.target?.supplementCount > 0
+      ? `补充 ${
+          recommendation.supplementCount ||
+          recommendation.target?.supplementCount
+        } 份`
+      : null,
+  ].filter(Boolean);
+  const buttonLabel =
+    cardType === "relation"
+      ? "打开关系"
+      : cardType === "path"
+        ? "查看路径"
+        : actionLabel;
+
   useEffect(() => {
     if (!ref.current) return;
     const observer = new IntersectionObserver(
@@ -443,23 +1430,52 @@ function RecommendationCard({
       <div className="flex items-center gap-2 text-xs text-blue-600">
         <Brain size={15} />
         推荐分 {recommendation.score}
+        {cardLabel && (
+          <span className="rounded-full border border-slate-200 bg-white/70 px-1.5 py-0.5 text-[10px] text-slate-600">
+            {cardLabel}
+          </span>
+        )}
+        {!cardLabel && recommendation.target?.hasSupplement && (
+          <span className="rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-700">
+            补充 {recommendation.target.supplementCount || 0}
+          </span>
+        )}
       </div>
       <h3 className="mt-2 pr-6 text-sm font-semibold leading-5 text-slate-950">
-        {recommendation.title}
+        {title}
       </h3>
-      <ul className="mt-3 space-y-1.5">
-        {(recommendation.reasonZh || []).slice(0, 3).map((reason, index) => (
-          <li key={index} className="text-xs leading-5 text-slate-600">
-            {reason}
-          </li>
-        ))}
-      </ul>
+      {primaryText && (
+        <p
+          className={`mt-3 text-xs leading-5 text-slate-700 ${
+            cardType === "relation" || cardType === "path" ? "line-clamp-2" : ""
+          }`}
+        >
+          {primaryText}
+        </p>
+      )}
+      {supportLines.length > 0 && (
+        <div className="mt-2 space-y-1">
+          {supportLines.slice(0, 3).map((line, index) => (
+            <p
+              key={`${line}-${index}`}
+              className="text-[11px] leading-5 text-slate-500"
+            >
+              {line}
+            </p>
+          ))}
+        </div>
+      )}
+      {stats.length > 0 && (
+        <div className="mt-3 text-[11px] font-medium text-slate-500">
+          {stats.join(" · ")}
+        </div>
+      )}
       <button
         type="button"
         onClick={() => onActivate?.(recommendation)}
         className="mt-4 inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm hover:border-blue-300 hover:bg-blue-100"
       >
-        {actionLabel}
+        {buttonLabel}
         <ArrowRight size={13} />
       </button>
     </article>
@@ -553,11 +1569,11 @@ function ActivityPanel({ activities }) {
 function DebugPanel({ debug }) {
   if (!debug || import.meta.env.PROD) return null;
   return (
-    <details className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
+    <details className="min-w-0 overflow-hidden rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur-xl">
       <summary className="cursor-pointer text-sm font-semibold text-slate-900">
         推荐调试信息
       </summary>
-      <pre className="mt-3 max-h-56 overflow-auto rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
+      <pre className="mt-3 block max-h-56 w-full max-w-full overflow-auto whitespace-pre rounded-lg bg-slate-950 p-3 text-[11px] leading-5 text-slate-100">
         {JSON.stringify(debug, null, 2)}
       </pre>
     </details>

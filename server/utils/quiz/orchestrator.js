@@ -427,6 +427,7 @@ async function generateQuiz({
   user = null,
   message,
   threadSlug = null,
+  nodeContext = null,
 }) {
   const thread = await resolveThread({ workspace, user, threadSlug });
   if (threadSlug && !thread) throw new Error("quiz_thread_not_found");
@@ -438,6 +439,7 @@ async function generateQuiz({
   const { evidenceChunks, sourceRefs, error } = await retrieveQuizEvidence({
     workspace,
     plan,
+    nodeContext,
   });
   if (error || evidenceChunks.length === 0) {
     return {

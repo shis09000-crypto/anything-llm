@@ -1,0 +1,79 @@
+{
+  "name": "vector-knowledge-desktop",
+  "version": "1.12.1",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "prepare:desktop": "node prepare-desktop.cjs",
+    "icon:generate": "python3 scripts/generate-icon-assets.py",
+    "start": "electron .",
+    "dist:win": "npm run prepare:desktop && electron-builder --win nsis --x64"
+  },
+  "devDependencies": {
+    "electron": "^35.2.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.shijie.vector-knowledge",
+    "productName": "向量知识库",
+    "directories": {
+      "output": "../dist-desktop",
+      "buildResources": "build"
+    },
+    "asar": false,
+    "files": [
+      {
+        "from": ".",
+        "to": ".",
+        "filter": [
+          "**/*",
+          "!build/**/*"
+        ]
+      },
+      {
+        "from": "../server",
+        "to": "server",
+        "filter": [
+          "**/*",
+          "!storage/**/*",
+          "!*.env",
+          "!*.env.*",
+          "!node_modules/.cache/**/*"
+        ]
+      },
+      {
+        "from": "../collector",
+        "to": "collector",
+        "filter": [
+          "**/*",
+          "!hotdir/**/*",
+          "!*.env",
+          "!*.env.*",
+          "!node_modules/.cache/**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "shortcutName": "向量知识库"
+    }
+  }
+}

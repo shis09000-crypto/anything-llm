@@ -224,6 +224,44 @@ const MindMap = {
       .catch((error) => ({ error: error.message }));
   },
 
+  async graphContext(slug, body = {}) {
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/knowledge/graph-context`,
+      {
+        method: "POST",
+        headers: {
+          ...baseHeaders(),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    )
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "加载节点上下文失败。");
+        return data.context;
+      })
+      .catch((error) => ({ error: error.message }));
+  },
+
+  async resolveNode(slug, body = {}) {
+    return await fetch(`${API_BASE}/workspace/${slug}/knowledge/resolve-node`, {
+      method: "POST",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok && !data?.candidates)
+          throw new Error(data.error || data.reason || "解析节点身份失败。");
+        return data;
+      })
+      .catch((error) => ({ success: false, error: error.message }));
+  },
+
   async recomputeNodeMetrics(slug, body = {}) {
     return await fetch(
       `${API_BASE}/workspace/${slug}/knowledge/node-metrics/recompute`,

@@ -20,6 +20,13 @@ const { systemEndpoints } = require("./endpoints/system");
 const { workspaceEndpoints } = require("./endpoints/workspaces");
 const { workspaceHealthEndpoints } = require("./endpoints/workspaceHealth");
 const { workspaceOverviewEndpoints } = require("./endpoints/workspaceOverview");
+const { nodeSupplementEndpoints } = require("./endpoints/nodeSupplements");
+const {
+  workspaceSupplementEndpoints,
+} = require("./endpoints/workspaceSupplements");
+const {
+  workspaceVisualAssetEndpoints,
+} = require("./endpoints/workspaceVisualAssets");
 const { mindMapEndpoints } = require("./endpoints/mindMaps");
 const { quizEndpoints } = require("./endpoints/quiz");
 const { knowledgeGraphEndpoints } = require("./endpoints/knowledgeGraph");
@@ -99,6 +106,9 @@ extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
 workspaceHealthEndpoints(apiRouter);
 workspaceOverviewEndpoints(apiRouter);
+nodeSupplementEndpoints(apiRouter);
+workspaceSupplementEndpoints(apiRouter);
+workspaceVisualAssetEndpoints(apiRouter);
 mindMapEndpoints(apiRouter);
 quizEndpoints(apiRouter);
 knowledgeGraphEndpoints(apiRouter);

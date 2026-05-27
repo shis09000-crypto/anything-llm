@@ -1739,10 +1739,11 @@ const KnowledgeGraph = {
     for (const nodeId of ids) {
       await prisma.$executeRawUnsafe(
         `INSERT INTO "KnowledgeNodeMetrics" (
-          "workspaceId", "nodeId", "formulaVersion", "stale", "lastError"
-        ) VALUES (?, ?, 'metrics-v1', true, NULL)
+          "workspaceId", "nodeId", "formulaVersion", "stale", "lastError", "warning"
+        ) VALUES (?, ?, 'metrics-v1', true, NULL, NULL)
         ON CONFLICT("workspaceId", "nodeId") DO UPDATE SET
           "stale" = true,
+          "warning" = NULL,
           "lastError" = NULL,
           "updatedAt" = CURRENT_TIMESTAMP`,
         Number(workspaceId),
@@ -1769,7 +1770,10 @@ const KnowledgeGraph = {
     );
     await prisma.$executeRawUnsafe(
       `UPDATE "KnowledgeNodeMetrics"
-      SET "stale" = true, "lastError" = NULL, "updatedAt" = CURRENT_TIMESTAMP
+      SET "stale" = true,
+        "warning" = NULL,
+        "lastError" = NULL,
+        "updatedAt" = CURRENT_TIMESTAMP
       WHERE "workspaceId" = ?`,
       Number(workspaceId)
     );
@@ -1813,39 +1817,52 @@ const KnowledgeGraph = {
     const lockSeconds = Math.max(60, Math.round(Number(lockTtlMs) / 1000));
     const workspaceClause = workspaceId ? `AND n."workspaceId" = ?` : "";
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT m.*, n."workspaceImportanceScore", n."recentImportanceScore",
-        n."usageCount", n."recentUsageCount",
-        COALESCE(edgeStats."edgeCount", 0) AS "edgeCount",
-        COALESCE(evidenceStats."evidenceCount", 0) AS "evidenceCount"
-      FROM "KnowledgeNodeMetrics" m
-      JOIN "KnowledgeNode" n ON n."id" = m."nodeId" AND n."workspaceId" = m."workspaceId"
-      LEFT JOIN (
-        SELECT "workspaceId", "nodeId", COUNT(*) AS "edgeCount" FROM (
-          SELECT "workspaceId", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
-          UNION ALL
-          SELECT "workspaceId", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
-        ) GROUP BY "workspaceId", "nodeId"
-      ) edgeStats ON edgeStats."workspaceId" = m."workspaceId" AND edgeStats."nodeId" = m."nodeId"
-      LEFT JOIN (
-        SELECT e."workspaceId", ids."nodeId", COUNT(ev."id") AS "evidenceCount"
-        FROM "KnowledgeEdge" e
-        JOIN (
-          SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
-          UNION ALL
-          SELECT "id", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
-        ) ids ON ids."id" = e."id"
-        LEFT JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
-        GROUP BY e."workspaceId", ids."nodeId"
-      ) evidenceStats ON evidenceStats."workspaceId" = m."workspaceId" AND evidenceStats."nodeId" = m."nodeId"
-      WHERE (m."stale" = true OR m."formulaVersion" != ?)
-        ${workspaceClause}
-        AND (m."lockedAt" IS NULL OR m."lockedAt" < datetime('now', '-' || ? || ' seconds'))
+      `WITH ranked_metrics AS (
+        SELECT m.*, n."workspaceImportanceScore", n."recentImportanceScore",
+          n."usageCount", n."recentUsageCount",
+          COALESCE(edgeStats."edgeCount", 0) AS "edgeCount",
+          COALESCE(evidenceStats."evidenceCount", 0) AS "evidenceCount",
+          ROW_NUMBER() OVER (
+            PARTITION BY m."workspaceId"
+            ORDER BY
+              n."recentUsageCount" DESC,
+              n."workspaceImportanceScore" DESC,
+              COALESCE(evidenceStats."evidenceCount", 0) DESC,
+              COALESCE(edgeStats."edgeCount", 0) DESC,
+              n."updatedAt" DESC
+          ) AS "workspaceRank"
+        FROM "KnowledgeNodeMetrics" m
+        JOIN "KnowledgeNode" n ON n."id" = m."nodeId" AND n."workspaceId" = m."workspaceId"
+        LEFT JOIN (
+          SELECT "workspaceId", "nodeId", COUNT(*) AS "edgeCount" FROM (
+            SELECT "workspaceId", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+            UNION ALL
+            SELECT "workspaceId", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          ) GROUP BY "workspaceId", "nodeId"
+        ) edgeStats ON edgeStats."workspaceId" = m."workspaceId" AND edgeStats."nodeId" = m."nodeId"
+        LEFT JOIN (
+          SELECT e."workspaceId", ids."nodeId", COUNT(ev."id") AS "evidenceCount"
+          FROM "KnowledgeEdge" e
+          JOIN (
+            SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
+            UNION ALL
+            SELECT "id", "targetNodeId" AS "nodeId" FROM "KnowledgeEdge"
+          ) ids ON ids."id" = e."id"
+          LEFT JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
+          GROUP BY e."workspaceId", ids."nodeId"
+        ) evidenceStats ON evidenceStats."workspaceId" = m."workspaceId" AND evidenceStats."nodeId" = m."nodeId"
+        WHERE (m."stale" = true OR m."formulaVersion" != ?)
+          ${workspaceClause}
+          AND (m."lockedAt" IS NULL OR m."lockedAt" < datetime('now', '-' || ? || ' seconds'))
+      )
+      SELECT * FROM ranked_metrics
       ORDER BY
-        n."recentUsageCount" DESC,
-        n."workspaceImportanceScore" DESC,
-        evidenceStats."evidenceCount" DESC,
-        edgeStats."edgeCount" DESC,
-        n."updatedAt" DESC
+        "workspaceRank" ASC,
+        "workspaceId" ASC,
+        "recentUsageCount" DESC,
+        "workspaceImportanceScore" DESC,
+        "evidenceCount" DESC,
+        "edgeCount" DESC
       LIMIT ?`,
       formulaVersion,
       ...(workspaceId ? [Number(workspaceId)] : []),

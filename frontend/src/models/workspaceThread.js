@@ -169,7 +169,8 @@ const WorkspaceThread = {
     message,
     handleChat,
     attachments = [],
-    fileAccessMode = null
+    fileAccessMode = null,
+    nodeContext = null
   ) {
     const ctrl = new AbortController();
 
@@ -192,6 +193,7 @@ const WorkspaceThread = {
             message,
             attachments,
             fileAccess: { mode: fileAccessMode },
+            nodeContext,
           }),
           headers: baseHeaders(),
           signal: ctrl.signal,

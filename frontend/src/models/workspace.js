@@ -189,6 +189,7 @@ const Workspace = {
     chatHandler,
     attachments = [],
     fileAccessMode = null,
+    nodeContext = null,
   }) {
     if (!!threadSlug)
       return this.threads.streamChat(
@@ -196,14 +197,16 @@ const Workspace = {
         prompt,
         chatHandler,
         attachments,
-        fileAccessMode
+        fileAccessMode,
+        nodeContext
       );
     return this.streamChat(
       { slug: workspaceSlug },
       prompt,
       chatHandler,
       attachments,
-      fileAccessMode
+      fileAccessMode,
+      nodeContext
     );
   },
   streamChat: async function (
@@ -211,7 +214,8 @@ const Workspace = {
     message,
     handleChat,
     attachments = [],
-    fileAccessMode = null
+    fileAccessMode = null,
+    nodeContext = null
   ) {
     const ctrl = new AbortController();
 
@@ -232,6 +236,7 @@ const Workspace = {
           message,
           attachments,
           fileAccess: { mode: fileAccessMode },
+          nodeContext,
         }),
         headers: baseHeaders(),
         signal: ctrl.signal,
@@ -659,11 +664,14 @@ const Workspace = {
     return response;
   },
 
-  generateQuiz: async function (slug, { message, threadSlug = null } = {}) {
+  generateQuiz: async function (
+    slug,
+    { message, threadSlug = null, nodeContext = null } = {}
+  ) {
     return await fetch(`${API_BASE}/workspace/${slug}/quiz/generate`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ message, threadSlug }),
+      body: JSON.stringify({ message, threadSlug, nodeContext }),
     })
       .then((res) => res.json())
       .catch((e) => ({ success: false, error: e.message }));

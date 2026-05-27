@@ -144,9 +144,16 @@ export default function ChatContainer({
     setMindMapRequest({ id: Date.now(), body });
   }
 
-  function openGraphOverviewConcept(concept) {
-    if (!concept) return;
-    openMindMap({ sourceType: "graph", concept });
+  function openGraphOverviewConcept(target) {
+    if (!target) return;
+    const graphTarget =
+      typeof target === "object" ? target : { concept: String(target) };
+    openMindMap({
+      sourceType: "graph",
+      ...graphTarget,
+      concept:
+        graphTarget.concept || graphTarget.displayName || graphTarget.label,
+    });
   }
 
   function openGraphOverviewPath(path = {}) {
@@ -240,7 +247,7 @@ export default function ChatContainer({
     return true;
   }
 
-  async function submitQuizMessage(message = "") {
+  async function submitQuizMessage(message = "", nodeContext = null) {
     clearPromptInputDraft(threadSlug ?? workspace.slug);
     setMessageEmit("");
     setQuizModeActive(false);
@@ -258,6 +265,7 @@ export default function ChatContainer({
     const result = await Workspace.generateQuiz(workspace.slug, {
       message,
       threadSlug,
+      nodeContext,
     });
     appendTimelineEvent(localTurn.chatKey, localTurn.turnId, {
       type: "thought",
@@ -435,6 +443,7 @@ export default function ChatContainer({
     autoSubmit = false,
     history = [],
     attachments = [],
+    nodeContext = null,
     writeMode = "replace",
   } = {}) => {
     // If we are not auto-submitting, we can just emit the text to the prompt input.
@@ -460,7 +469,7 @@ export default function ChatContainer({
     if (!text || text === "") return false;
 
     if (quizModeActive) {
-      await submitQuizMessage(text);
+      await submitQuizMessage(text, nodeContext);
       return false;
     }
 
@@ -486,6 +495,7 @@ export default function ChatContainer({
       prompt: text,
       attachments,
       fileAccessMode: currentFileAccessMode(),
+      nodeContext,
       history: history.length > 0 ? history : knownHistory,
       parseAttachments,
       sendToExistingAgent: !!draft?.isAgentRunning,
@@ -610,7 +620,7 @@ export default function ChatContainer({
                 />
               </div>
             </div>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-4 pb-4 pt-16 bg-gradient-to-t from-white/85 via-white/55 to-transparent backdrop-blur-[2px]">
+            <div className="overview-input-fade">
               <div className="pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
                 <PromptInput
                   workspace={workspace}

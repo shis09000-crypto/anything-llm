@@ -12,7 +12,7 @@ const {
     const result = await recomputeStaleNodeMetrics({
       trigger: "worker",
       batchSize: Number(
-        process.env.KNOWLEDGE_NODE_METRICS_RECOMPUTE_BATCH_SIZE || 50
+        process.env.KNOWLEDGE_NODE_METRICS_RECOMPUTE_BATCH_SIZE || 200
       ),
       lockTtlMs: Number(
         process.env.KNOWLEDGE_NODE_METRICS_LOCK_TTL_MS || 900000

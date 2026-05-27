@@ -1895,6 +1895,7 @@ export function ChatThreadDraftProvider({ children }) {
       prompt,
       attachments = [],
       fileAccessMode = null,
+      nodeContext = null,
       history = [],
       parseAttachments = () => [],
       sendToExistingAgent = false,
@@ -1955,6 +1956,7 @@ export function ChatThreadDraftProvider({ children }) {
             feedback: prompt,
             attachments: preparedAttachments,
             fileAccess: { mode: fileAccessMode },
+            nodeContext,
           })
         );
         appendTimelineEvent(chatKey, turnId, {
@@ -1989,6 +1991,7 @@ export function ChatThreadDraftProvider({ children }) {
           },
           attachments: preparedAttachments,
           fileAccessMode,
+          nodeContext,
         });
         setTimeout(
           () => confirmPersisted(chatKey, turnId, completedChatId),

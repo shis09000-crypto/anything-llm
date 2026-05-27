@@ -1,4 +1,5 @@
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const { reqBody, userFromSession } = require("../utils/http");
 const {
   ROLES,
   flexUserRoleValid,
@@ -16,9 +17,150 @@ const {
   edgeEvidence,
 } = require("../utils/knowledgeGraph/evidence");
 const { KnowledgeGraph } = require("../models/knowledgeGraph");
+const {
+  USER_DESCRIPTION_TEMPLATE,
+  buildWorkspaceKnowledgeProfile,
+} = require("../utils/knowledgeGraph/workspaceProfileBuilder");
+const {
+  analyzeBookStructure,
+} = require("../utils/knowledgeGraph/bookStructureAnalyzer");
+const {
+  resolveGraphContext,
+} = require("../utils/knowledgeGraph/graphContextResolver");
+const {
+  resolveNodeIdentity,
+} = require("../utils/knowledgeGraph/nodeIdentityResolver");
 
 function knowledgeGraphEndpoints(app) {
   if (!app) return;
+
+  app.get(
+    "/workspace/:slug/knowledge/profile",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const result = await buildWorkspaceKnowledgeProfile({
+          workspace,
+          force:
+            request.query.refresh === "true" || request.query.refresh === true,
+          userDescription: request.query.userDescription || "",
+        });
+        response.status(200).json({
+          success: true,
+          profile: result.profile,
+          bookStructure: result.bookStructure,
+          userDescriptionTemplate: USER_DESCRIPTION_TEMPLATE,
+        });
+      } catch (error) {
+        console.error(error);
+        response.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/knowledge/profile",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      validWorkspaceSlug,
+    ],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const body = reqBody(request);
+        const profileResult = await buildWorkspaceKnowledgeProfile({
+          workspace,
+          force: body?.refresh === true,
+          userDescription: body?.userDescription || "",
+          override: body?.profileType
+            ? {
+                profileType: body.profileType,
+                source: body.overrideSource || "user",
+                reason: body.overrideReason || "",
+              }
+            : null,
+        });
+        let bookStructure = profileResult.bookStructure;
+        if (
+          body?.bookStructureType ||
+          body?.primaryAxis ||
+          body?.secondaryAxes
+        ) {
+          bookStructure = await analyzeBookStructure({
+            workspace,
+            profile: profileResult.profile,
+            force: true,
+            override: {
+              structureType: body.bookStructureType,
+              primaryAxis: body.primaryAxis,
+              secondaryAxes: body.secondaryAxes,
+              source: body.overrideSource || "user",
+              reason: body.overrideReason || "",
+            },
+          });
+        }
+        response.status(200).json({
+          success: true,
+          profile: profileResult.profile,
+          bookStructure,
+          userDescriptionTemplate: USER_DESCRIPTION_TEMPLATE,
+        });
+      } catch (error) {
+        console.error(error);
+        response.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/knowledge/resolve-node",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const body = reqBody(request);
+        const result = await resolveNodeIdentity({
+          workspaceId: workspace.id,
+          nodeId: body?.nodeId,
+          nodeKey: body?.nodeKey,
+          canonicalKey: body?.canonicalKey,
+          label: body?.label,
+        });
+        response.status(result.success ? 200 : 409).json(result);
+      } catch (error) {
+        console.error("[KnowledgeGraph] resolve-node failed:", error);
+        response.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/knowledge/graph-context",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const user = await userFromSession(request, response);
+        const body = reqBody(request);
+        const context = await resolveGraphContext({
+          workspace,
+          user,
+          nodeKey: body?.nodeKey,
+          nodeId: body?.nodeId,
+          intent: body?.intent || "explain",
+          query: body?.query || "",
+          budget: body?.budget || {},
+          recordView: body?.recordView === true,
+        });
+        response.status(200).json({ success: true, context });
+      } catch (error) {
+        console.error(error);
+        response.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
 
   app.get(
     "/workspace/:slug/knowledge/related",

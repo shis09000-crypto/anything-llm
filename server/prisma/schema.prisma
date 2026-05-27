@@ -40,6 +40,184 @@ model workspace_documents {
   lastUpdatedAt        DateTime              @default(now())
   workspace            workspaces            @relation(fields: [workspaceId], references: [id])
   document_sync_queues document_sync_queues?
+  node_supplements     NodeSupplement[]
+  workspace_supplements WorkspaceSupplement[]
+}
+
+model WorkspaceVisualAsset {
+  id           Int      @id @default(autoincrement())
+  workspaceId  Int
+  scopeType    String   @default("workspace")
+  nodeKey      String?
+  nodeLabel    String?
+  nodeType     String?
+  role         String   @default("hero_background")
+  filename     String
+  mime         String
+  size         Int      @default(0)
+  metadataJson String   @default("{}")
+  deletedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([workspaceId, scopeType, role])
+}
+
+model WorkspaceOverviewNarrative {
+  id              Int       @id @default(autoincrement())
+  workspaceId      Int       @unique
+  tagline          String?
+  sourceHash       String    @default("")
+  model            String?
+  promptVersion    String    @default("workspace-overview-tagline-v1")
+  status           String    @default("empty")
+  errorType        String?
+  metadataJson     String    @default("{}")
+  lastGeneratedAt  DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([workspaceId])
+  @@index([status])
+}
+
+model NodeSupplement {
+  id           Int                 @id @default(autoincrement())
+  workspaceId  Int
+  nodeId       Int?
+  nodeKey      String
+  nodeLabel    String
+  nodeType     String              @default("concept")
+  documentId   String
+  documentName String
+  priority     Int                 @default(0)
+  metadata     String              @default("{}")
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  document     workspace_documents @relation(fields: [documentId], references: [docId], onDelete: Cascade)
+
+  @@unique([workspaceId, nodeKey, documentId])
+  @@index([workspaceId, nodeKey])
+  @@index([workspaceId, documentId])
+  @@index([workspaceId, nodeId])
+}
+
+model WorkspaceSupplement {
+  id                Int                 @id @default(autoincrement())
+  workspaceId       Int
+  scopeType         String              @default("workspace")
+  primaryDocumentId String              @default("__workspace__")
+  documentId        String
+  documentName      String
+  supplementKind    String              @default("other")
+  priority          Int                 @default(0)
+  metadata          String              @default("{}")
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  document          workspace_documents @relation(fields: [documentId], references: [docId], onDelete: Cascade)
+
+  @@unique([workspaceId, scopeType, primaryDocumentId, documentId])
+  @@index([workspaceId, scopeType, supplementKind])
+  @@index([workspaceId, documentId])
+}
+
+model WorkspaceKnowledgeProfile {
+  id                    Int      @id @default(autoincrement())
+  workspaceId           Int      @unique
+  profileType           String   @default("mixed")
+  confidence            Float    @default(0)
+  primaryDocumentIdsJson String  @default("[]")
+  mainTopic             String?
+  detectedStructureJson String   @default("{}")
+  suggestedGraphStrategy String?
+  profileVersion        String   @default("workspace-profile-v1")
+  manualOverride        Boolean  @default(false)
+  overrideSource        String?
+  overrideReason        String?
+  originalProfileType   String?
+  originalConfidence    Float?
+  userDescription       String?
+  metadataJson          String   @default("{}")
+  lastAnalyzedAt        DateTime?
+  nextRefreshAfter      DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([profileType])
+  @@index([nextRefreshAfter])
+}
+
+model BookStructureAnalysis {
+  id                       Int      @id @default(autoincrement())
+  workspaceId              Int      @unique
+  structureType            String   @default("mixed_structure")
+  confidence               Float    @default(0)
+  primaryAxis              String?
+  secondaryAxesJson        String   @default("[]")
+  recommendedNodeTypesJson String   @default("[]")
+  recommendedPathTypesJson String   @default("[]")
+  extractionFocusJson      String   @default("[]")
+  recommendationFocusJson  String   @default("[]")
+  structureVersion         String   @default("book-structure-v1")
+  manualOverride           Boolean  @default(false)
+  overrideSource           String?
+  overrideReason           String?
+  originalStructureType    String?
+  originalConfidence       Float?
+  metadataJson             String   @default("{}")
+  lastAnalyzedAt           DateTime?
+  nextRefreshAfter         DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([workspaceId])
+  @@index([structureType])
+  @@index([nextRefreshAfter])
+}
+
+model NodeChunkBinding {
+  id             Int      @id @default(autoincrement())
+  workspaceId    Int
+  nodeKey        String
+  documentId     String
+  chunkId        String
+  relevanceScore Float    @default(0)
+  evidenceType   String   @default("original")
+  metadataJson   String   @default("{}")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([workspaceId, nodeKey, documentId, chunkId, evidenceType])
+  @@index([workspaceId, nodeKey])
+  @@index([workspaceId, documentId])
+  @@index([workspaceId, chunkId])
+}
+
+model NodeLearningState {
+  id                  Int       @id @default(autoincrement())
+  workspaceId          Int
+  userId              Int       @default(0)
+  nodeKey             String
+  viewedCount         Int       @default(0)
+  lastViewedAt        DateTime?
+  quizAttemptCount    Int       @default(0)
+  wrongCount          Int       @default(0)
+  correctCount        Int       @default(0)
+  masteryScore        Float     @default(0)
+  confusionScore      Float     @default(0)
+  supplementCount     Int       @default(0)
+  hasUserSupplement   Boolean   @default(false)
+  recommendedCount    Int       @default(0)
+  dismissedCount      Int       @default(0)
+  lastRecommendedAt   DateTime?
+  userMarkedImportant Boolean   @default(false)
+  metadataJson        String    @default("{}")
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([workspaceId, userId, nodeKey])
+  @@index([workspaceId, nodeKey])
+  @@index([workspaceId, userId])
 }
 
 model invites {

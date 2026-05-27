@@ -12,6 +12,9 @@ const {
   recentChatHistory,
   sourceIdentifier,
 } = require("./index");
+const {
+  resolveGraphContext,
+} = require("../knowledgeGraph/graphContextResolver");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -149,6 +152,26 @@ async function streamChatWithWorkspace(
       ...metadata,
     });
   });
+
+  if (options.nodeContext?.nodeKey || options.nodeContext?.nodeId) {
+    const graphContext = await resolveGraphContext({
+      workspace,
+      user,
+      nodeKey: options.nodeContext?.nodeKey,
+      nodeId: options.nodeContext?.nodeId,
+      intent: "explain",
+      query: updatedMessage,
+      budget: {
+        supplementChunks: Math.min(4, workspace?.topN || 4),
+        originalChunks: Math.min(4, workspace?.topN || 4),
+        vectorChunks: 0,
+        contextChars: 8_000,
+      },
+    });
+    if (graphContext.contextText)
+      contextTexts.unshift(graphContext.contextText);
+    sources = [...(graphContext.sourceRefs || []), ...sources];
+  }
 
   const vectorSearchResults =
     embeddingsCount !== 0

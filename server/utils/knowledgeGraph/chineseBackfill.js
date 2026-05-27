@@ -22,7 +22,9 @@ function needsChineseNodeBackfill(node = {}) {
 
 function parseBackfillJson(raw = "") {
   if (raw && typeof raw === "object") return raw;
-  const text = String(raw || "").trim();
+  const text = String(raw || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .trim();
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const candidate = fenced ? fenced[1] : text;
   const firstBrace = candidate.indexOf("{");
