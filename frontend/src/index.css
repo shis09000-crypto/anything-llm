@@ -536,7 +536,17 @@
   --overview-radial-glow: rgb(219 234 254 / 0.22);
   --overview-mist: rgb(255 255 255 / 0.1);
   --overview-bg-fallback: linear-gradient(120deg, #f8fafc, #eaf4ff);
+  --overview-glass-card-blur: 26px;
+  --overview-glass-pill-blur: 20px;
+  --overview-glass-metric-blur: 18px;
   color: var(--overview-text-primary);
+}
+
+.overview-high-load,
+.overview-high-load .overview-themed-surface {
+  --overview-glass-card-blur: 10px;
+  --overview-glass-pill-blur: 8px;
+  --overview-glass-metric-blur: 8px;
 }
 
 .overview-visual-background {
@@ -586,8 +596,8 @@
     0 18px 54px rgb(15 23 42 / 0.1),
     inset 0 1px 0 rgb(255 255 255 / 0.58),
     inset 0 -1px 0 rgb(15 23 42 / 0.06);
-  -webkit-backdrop-filter: blur(26px) saturate(1.35);
-  backdrop-filter: blur(26px) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--overview-glass-card-blur)) saturate(1.35);
+  backdrop-filter: blur(var(--overview-glass-card-blur)) saturate(1.35);
 }
 
 .overview-glass-pill {
@@ -599,8 +609,8 @@
   box-shadow:
     0 10px 28px rgb(15 23 42 / 0.08),
     inset 0 1px 0 rgb(255 255 255 / 0.62);
-  -webkit-backdrop-filter: blur(20px) saturate(1.24);
-  backdrop-filter: blur(20px) saturate(1.24);
+  -webkit-backdrop-filter: blur(var(--overview-glass-pill-blur)) saturate(1.24);
+  backdrop-filter: blur(var(--overview-glass-pill-blur)) saturate(1.24);
 }
 
 .overview-glass-chip {
@@ -612,8 +622,8 @@
   box-shadow:
     0 10px 28px rgb(15 23 42 / 0.08),
     inset 0 1px 0 rgb(255 255 255 / 0.62);
-  -webkit-backdrop-filter: blur(20px) saturate(1.24);
-  backdrop-filter: blur(20px) saturate(1.24);
+  -webkit-backdrop-filter: blur(var(--overview-glass-pill-blur)) saturate(1.24);
+  backdrop-filter: blur(var(--overview-glass-pill-blur)) saturate(1.24);
 }
 
 .overview-hero-title {
@@ -655,8 +665,8 @@
   box-shadow:
     0 10px 26px rgb(15 23 42 / 0.07),
     inset 0 1px 0 rgb(255 255 255 / 0.58);
-  -webkit-backdrop-filter: blur(18px) saturate(1.2);
-  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(var(--overview-glass-metric-blur)) saturate(1.2);
+  backdrop-filter: blur(var(--overview-glass-metric-blur)) saturate(1.2);
 }
 
 .overview-action-button {
@@ -747,8 +757,8 @@
 
 .overview-input-fade::after {
   inset-block-start: 0.75rem;
-  -webkit-backdrop-filter: blur(3px) saturate(1.05);
-  backdrop-filter: blur(3px) saturate(1.05);
+  -webkit-backdrop-filter: blur(1.2px) saturate(1.03);
+  backdrop-filter: blur(1.2px) saturate(1.03);
   -webkit-mask-image: linear-gradient(
     to top,
     rgb(0 0 0 / 0.95) 0%,

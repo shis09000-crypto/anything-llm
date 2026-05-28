@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useContext,
-  useRef,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useContext, useRef, useMemo, useState } from "react";
 import ChatHistory from "./ChatHistory";
 import { DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -54,21 +47,10 @@ function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
 }
 
-const OVERVIEW_ANIMATION_MS = 700;
-const OVERVIEW_SHOW_DEBOUNCE_MS = 300;
 const QUIZ_INTENT_PATTERN =
   /(出|生成|来|做|练|考|测).{0,8}(题|测试|测验|quiz|question)|(?:quiz|test)\s*(me|questions?)|(?:单选|多选|填空|选择题|练习题|测试题|测验题|考考我|自测)/i;
 const NON_QUIZ_TEST_PATTERN =
   /(测试连接|测试接口|测试功能|测试代码|test connection|unit test|integration test|e2e test|jest|vitest|pytest)/i;
-const EMPTY_COMPOSE_STATE = {
-  hasDraftInput: false,
-  isComposing: false,
-  slashMenuOpen: false,
-  hasAttachments: false,
-  isVoiceInputActive: false,
-  isStreaming: false,
-};
-
 function setSidebarForMindMap(open) {
   window.dispatchEvent(
     new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
@@ -109,17 +91,11 @@ export default function ChatContainer({
   const [mindMapRequest, setMindMapRequest] = useState(null);
   const [quizModeActive, setQuizModeActive] = useState(false);
   const [quizIntentPrompt, setQuizIntentPrompt] = useState(null);
-  const { files, dragging, parseAttachments } = useContext(DndUploaderContext);
+  const { files, parseAttachments } = useContext(DndUploaderContext);
   const { chatHistoryRef } = useChatContainerQuickScroll();
   const pendingMessageChecked = useRef(false);
   const mindMapSidebarStateRef = useRef(null);
-  const overviewShowTimerRef = useRef(null);
-  const overviewHideTimerRef = useRef(null);
   const quizIntentResolverRef = useRef(null);
-  const [composeState, setComposeState] = useState(EMPTY_COMPOSE_STATE);
-  const [overviewVisible, setOverviewVisible] = useState(true);
-  const [overviewVisibilityHidden, setOverviewVisibilityHidden] =
-    useState(false);
 
   const { listening, resetTranscript } = useSpeechRecognition({
     clearTranscriptOnListen: true,
@@ -173,17 +149,6 @@ export default function ChatContainer({
       targetId: evidence.targetId,
     });
   }
-
-  const handleComposeStateChange = useCallback((nextState = {}) => {
-    setComposeState((previous) => {
-      const next = { ...previous, ...nextState };
-      return Object.keys(EMPTY_COMPOSE_STATE).every(
-        (key) => previous[key] === next[key]
-      )
-        ? previous
-        : next;
-    });
-  }, []);
 
   function handleMindMapCommand(message = "") {
     if (!/^\/mindmap(\s|$)/i.test(message.trim())) return false;
@@ -522,56 +487,14 @@ export default function ChatContainer({
   const hasMessages = chatItems.length > 0;
   const hasPendingHomeMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const isEmptyThread = !hasMessages && !hasPendingHomeMessage;
-  const hasAttachments =
-    (files?.length || 0) > 0 || Boolean(composeState.hasAttachments);
-  const isDraggingFile = Boolean(dragging);
-  const shouldShowOverview =
-    isEmptyThread &&
-    !composeState.isComposing &&
-    !composeState.hasDraftInput &&
-    !composeState.slashMenuOpen &&
-    !hasAttachments &&
-    !composeState.isVoiceInputActive &&
-    !loadingResponse;
-  const overviewIsVisible =
-    shouldShowOverview &&
-    !isDraggingFile &&
-    overviewVisible &&
-    !overviewVisibilityHidden;
+  const overviewIsVisible = isEmptyThread && !loadingResponse;
 
   useEffect(() => {
     return () => {
-      clearTimeout(overviewShowTimerRef.current);
-      clearTimeout(overviewHideTimerRef.current);
       quizIntentResolverRef.current?.(false);
       quizIntentResolverRef.current = null;
     };
   }, []);
-
-  useEffect(() => {
-    clearTimeout(overviewShowTimerRef.current);
-    clearTimeout(overviewHideTimerRef.current);
-
-    if (!isEmptyThread || loadingResponse) {
-      setOverviewVisible(false);
-      setOverviewVisibilityHidden(true);
-      return;
-    }
-
-    if (!shouldShowOverview || isDraggingFile) {
-      setOverviewVisible(false);
-      setOverviewVisibilityHidden(false);
-      overviewHideTimerRef.current = setTimeout(() => {
-        setOverviewVisibilityHidden(true);
-      }, OVERVIEW_ANIMATION_MS);
-      return;
-    }
-
-    overviewShowTimerRef.current = setTimeout(() => {
-      setOverviewVisibilityHidden(false);
-      requestAnimationFrame(() => setOverviewVisible(true));
-    }, OVERVIEW_SHOW_DEBOUNCE_MS);
-  }, [isDraggingFile, isEmptyThread, loadingResponse, shouldShowOverview]);
 
   if (isEmptyThread && !loadingResponse) {
     return (
@@ -590,21 +513,16 @@ export default function ChatContainer({
           <div className="flex flex-col h-full w-full">
             <div className="flex-1 min-h-0 overflow-hidden">
               <div
-                className={`h-full transform-gpu transition-[opacity,transform,filter] ease-[cubic-bezier(0.22,1,0.36,1)] ${
-                  overviewVisible && !isDraggingFile
-                    ? "translate-y-0 scale-100 opacity-100 blur-0"
-                    : "translate-y-8 scale-[0.985] opacity-0 blur-[5px]"
-                } ${
+                className={`motion-hover h-full transform-gpu ${
                   overviewIsVisible
-                    ? "visible pointer-events-auto"
-                    : overviewVisibilityHidden
-                      ? "invisible pointer-events-none"
-                      : "visible pointer-events-none"
+                    ? "translate-y-0 opacity-100 pointer-events-auto"
+                    : "translate-y-3 opacity-0 pointer-events-none"
                 }`}
               >
                 <WorkspaceOverview
                   workspace={workspace}
                   threadSlug={threadSlug}
+                  shouldLoad={isEmptyThread}
                   isVisible={overviewIsVisible}
                   onOpenGraph={openGraphOverviewConcept}
                   onOpenPath={openGraphOverviewPath}
@@ -632,7 +550,6 @@ export default function ChatContainer({
                   glass={true}
                   workspaceSlug={workspace.slug}
                   threadSlug={threadSlug}
-                  onComposeStateChange={handleComposeStateChange}
                   quizModeActive={quizModeActive}
                   onToggleQuizMode={() =>
                     setQuizModeActive((active) => !active)

@@ -196,6 +196,7 @@ function VisualBackground({
 export default function WorkspaceOverview({
   workspace,
   threadSlug = null,
+  shouldLoad = true,
   isVisible = true,
   onOpenGraph,
   onOpenPath,
@@ -234,7 +235,7 @@ export default function WorkspaceOverview({
 
   const loadOverview = useCallback(
     async ({ force = false } = {}) => {
-      if (!workspace?.slug || (!isVisible && !force)) return;
+      if (!workspace?.slug || (!shouldLoad && !force)) return;
       const cached = overviewCache.get(cacheKey);
       if (cached?.overview && !force) {
         setOverview(cached.overview);
@@ -269,7 +270,7 @@ export default function WorkspaceOverview({
       setOverview(result);
       setLoading(false);
     },
-    [cacheKey, isVisible, threadSlug, workspace?.slug]
+    [cacheKey, shouldLoad, threadSlug, workspace?.slug]
   );
 
   const refreshKnowledgeProfile = useCallback(
@@ -290,10 +291,10 @@ export default function WorkspaceOverview({
   );
 
   useEffect(() => {
-    if (!isVisible) return;
+    if (!shouldLoad) return;
     loadOverview();
     return () => requestRef.current.controller?.abort();
-  }, [isVisible, loadOverview]);
+  }, [shouldLoad, loadOverview]);
 
   const recordUsage = useCallback(
     (recommendation, action) => {
@@ -437,10 +438,22 @@ export default function WorkspaceOverview({
   const health = overview?.healthLite || {};
   const recentActivity = overview?.recentActivity?.[0] || null;
   const taglinePending = hero?.taglineStatus === "pending";
+  const overviewRenderLoad =
+    (overview?.personalizedRecommendations?.length || 0) +
+    (overview?.unfinishedExplorations?.length || 0) +
+    (overview?.curiosityRecommendations?.length || 0) +
+    (overview?.recentActivity?.length || 0) +
+    (overview?.bookStructure?.secondaryAxes?.length || 0);
+  const axesTextLength = (overview?.bookStructure?.secondaryAxes || []).join(
+    ""
+  ).length;
+  const isRenderHeavy = overviewRenderLoad >= 18 || axesTextLength > 420;
 
   return (
     <div
-      className="overview-themed-surface h-full w-full overflow-y-auto bg-slate-50 light:bg-slate-50"
+      className={`overview-themed-surface h-full w-full overflow-y-auto bg-slate-50 light:bg-slate-50 ${
+        isRenderHeavy ? "overview-high-load" : ""
+      }`}
       style={overviewThemeStyle(hero?.backgroundAsset?.metadata)}
     >
       <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-7 md:pt-9 pb-72">

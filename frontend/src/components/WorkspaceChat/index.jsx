@@ -201,13 +201,21 @@ export default function WorkspaceChat({ loading, workspace }) {
           threadSlug,
           history: cached?.history || [],
         });
-      } else {
-        setLoadedIfChanged({
-          key,
-          workspace,
-          threadSlug,
-          history: cached?.history || [],
+      } else if (cached) {
+        const cachedHistory = cached.history || [];
+        setLoaded((prev) => {
+          const canTrustEmptyCache =
+            !threadSlug || prev?.key === key || cachedHistory.length > 0;
+          if (!canTrustEmptyCache) return prev?.history?.length ? prev : null;
+          return {
+            key,
+            workspace,
+            threadSlug,
+            history: cachedHistory,
+          };
         });
+      } else {
+        setLoaded((prev) => (prev?.history?.length ? prev : null));
       }
       setHistoryState({
         page: cached?.page || null,
