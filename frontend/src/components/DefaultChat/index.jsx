@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import paths from "@/utils/paths";
 import { isMobile } from "react-device-detect";
 import useUser from "@/hooks/useUser";
 import Appearance from "@/models/appearance";
@@ -9,6 +8,7 @@ import { NavLink } from "react-router-dom";
 import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import { safeJsonParse } from "@/utils/request";
+import { pathForLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 
 export default function DefaultChatContainer() {
   const { t } = useTranslation();
@@ -87,7 +87,7 @@ export default function DefaultChatContainer() {
         </p>
         {hasWorkspaces && (
           <NavLink
-            to={paths.workspace.chat(
+            to={pathForLastVisitedThread(
               lastVisitedWorkspace?.slug || workspaces[0].slug
             )}
             className="text-sm font-medium mt-[10px] w-fit px-4 h-[34px] flex items-center justify-center rounded-lg cursor-pointer bg-theme-home-button-secondary hover:bg-theme-home-button-secondary-hover text-theme-home-button-secondary-text hover:text-theme-home-button-secondary-hover-text motion-hover"

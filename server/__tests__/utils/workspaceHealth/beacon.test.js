@@ -1,4 +1,7 @@
-const { buildScore, metricsWorkerActive } = require("../../../utils/workspaceHealth/beacon");
+const {
+  buildScore,
+  metricsWorkerActive,
+} = require("../../../utils/workspaceHealth/beacon");
 
 function baseGraph(overrides = {}) {
   return {
@@ -32,7 +35,7 @@ function baseCache(overrides = {}) {
 }
 
 describe("workspace health beacon scoring", () => {
-  it("does not mark stale metrics as actively processing without active worker evidence", () => {
+  it("treats stale metrics as maintenance rather than a health deduction", () => {
     const score = buildScore({
       graph: baseGraph(),
       repair: baseRepair(),
@@ -53,14 +56,8 @@ describe("workspace health beacon scoring", () => {
 
     expect(score.processing).toBe(false);
     expect(score.processingMessages).toEqual([]);
-    expect(score.scoreBreakdown).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          key: "staleMetrics",
-          title: "节点指标待刷新",
-        }),
-      ])
-    );
+    expect(score.score).toBe(100);
+    expect(score.scoreBreakdown).toEqual([]);
     expect(score.maintenanceInfo.staleWarningCount).toBe(6);
   });
 
@@ -134,6 +131,7 @@ describe("workspace health beacon scoring", () => {
       },
     });
 
+    expect(staleOnly.score).toBe(100);
     expect(
       staleOnly.scoreBreakdown.find((item) => item.key === "metricsWarnings")
     ).toBeUndefined();

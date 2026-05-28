@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GitFork } from "@phosphor-icons/react";
+import { GitBranch, GitFork } from "@phosphor-icons/react";
 import { isMobile } from "react-device-detect";
 import useLoginMode from "@/hooks/useLoginMode";
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
@@ -12,6 +12,8 @@ const FADE_OUT_MS = 700;
 export default function TopRightActionZone({
   isMindMapOpen = false,
   onMindMap,
+  onDualThreadFork,
+  dualThreadMode = false,
   workspaceSlug,
 }) {
   const mode = useLoginMode();
@@ -70,13 +72,13 @@ export default function TopRightActionZone({
     }, HIDE_DELAY_MS);
   }
 
-  if (isMobile) return null;
+  if (isMobile || dualThreadMode) return null;
 
   const hiddenOpacity = isMindMapOpen ? "opacity-0" : "opacity-25";
 
   return (
     <div
-      className={`absolute top-3 md:top-5 z-30 h-[84px] w-[40px] ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`}
+      className={`absolute top-3 md:top-5 z-30 h-[126px] w-[40px] ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`}
       onPointerEnter={() => reveal({ delayed: isMindMapOpen })}
       onPointerLeave={scheduleHide}
       onFocusCapture={() => reveal()}
@@ -99,6 +101,7 @@ export default function TopRightActionZone({
         }}
       >
         <MindMapQuickEntry onOpen={onMindMap} />
+        <DualThreadQuickEntry onOpen={onDualThreadFork} />
       </div>
     </div>
   );
@@ -114,6 +117,23 @@ function MindMapQuickEntry({ onOpen }) {
       className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
     >
       <GitFork
+        size={18}
+        className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
+      />
+    </button>
+  );
+}
+
+function DualThreadQuickEntry({ onOpen }) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title="双线程分支模式"
+      aria-label="双线程分支模式"
+      className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
+    >
+      <GitBranch
         size={18}
         className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
       />

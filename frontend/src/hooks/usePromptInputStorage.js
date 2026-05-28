@@ -38,19 +38,24 @@ export function clearPromptInputDraft(storageKey) {
   } catch {}
 }
 
-export default function usePromptInputStorage({ promptInput, setPromptInput }) {
+export default function usePromptInputStorage({
+  promptInput,
+  setPromptInput,
+  storageKey = null,
+}) {
   const { threadSlug = null, slug: workspaceSlug } = useParams();
+  const scopedStorageKey = storageKey || threadSlug || workspaceSlug;
   useEffect(() => {
     const serializedPromptInputMap =
       localStorage.getItem(USER_PROMPT_INPUT_MAP) || "{}";
 
     const promptInputMap = safeJsonParse(serializedPromptInputMap, {});
 
-    const userPromptInputValue = promptInputMap[threadSlug ?? workspaceSlug];
+    const userPromptInputValue = promptInputMap[scopedStorageKey];
     if (userPromptInputValue) {
       setPromptInput(userPromptInputValue);
     }
-  }, []);
+  }, [scopedStorageKey, setPromptInput]);
 
   const debouncedWriteToStorage = useMemo(
     () =>
@@ -68,10 +73,10 @@ export default function usePromptInputStorage({ promptInput, setPromptInput }) {
   );
 
   useEffect(() => {
-    debouncedWriteToStorage(promptInput, threadSlug ?? workspaceSlug);
+    debouncedWriteToStorage(promptInput, scopedStorageKey);
 
     return () => {
       debouncedWriteToStorage.cancel();
     };
-  }, [promptInput, threadSlug, workspaceSlug, debouncedWriteToStorage]);
+  }, [promptInput, scopedStorageKey, debouncedWriteToStorage]);
 }

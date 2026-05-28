@@ -11,7 +11,9 @@ import {
   useThreadActivitySnapshot,
 } from "@/contexts/ChatThreadDraftProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 export const THREAD_RENAME_EVENT = "renameThread";
+export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 
 export default function ThreadContainer({
   workspace,
@@ -56,6 +58,21 @@ export default function ThreadContainer({
     fetchThreads();
   }, [workspace.slug]);
 
+  useEffect(() => {
+    async function refreshThreads(event) {
+      if (event?.detail?.workspaceSlug !== workspace.slug) return;
+      const { threads } = await Workspace.threads.all(workspace.slug);
+      setThreads(threads);
+    }
+
+    window.addEventListener(WORKSPACE_THREADS_REFRESH_EVENT, refreshThreads);
+    return () =>
+      window.removeEventListener(
+        WORKSPACE_THREADS_REFRESH_EVENT,
+        refreshThreads
+      );
+  }, [workspace.slug]);
+
   // Enable toggling of bulk-deletion by holding meta-key (ctrl on win and cmd/fn on others)
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -98,7 +115,10 @@ export default function ThreadContainer({
 
   const handleDeleteAll = async () => {
     const slugs = threads.filter((t) => t.deleted === true).map((t) => t.slug);
-    await Workspace.threads.deleteBulk(workspace.slug, slugs);
+    const success = await Workspace.threads.deleteBulk(workspace.slug, slugs);
+    if (success) {
+      slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
+    }
     setThreads((prev) => prev.filter((t) => !t.deleted));
 
     // Only redirect if current thread is being deleted

@@ -5,7 +5,14 @@ const truncate = require("truncate");
 
 const WorkspaceThread = {
   defaultName: "Thread",
-  writable: ["name"],
+  writable: [
+    "name",
+    "parent_thread_id",
+    "thread_type",
+    "created_from",
+    "forked_at_message_id",
+    "forked_at",
+  ],
 
   /**
    * The default Slugify module requires some additional mapping to prevent downstream issues
@@ -42,6 +49,19 @@ const WorkspaceThread = {
             : uuidv4(),
           user_id: userId ? Number(userId) : null,
           workspace_id: workspace.id,
+          ...(data.parent_thread_id
+            ? { parent_thread_id: Number(data.parent_thread_id) }
+            : {}),
+          ...(data.thread_type
+            ? { thread_type: String(data.thread_type) }
+            : {}),
+          ...(data.created_from
+            ? { created_from: String(data.created_from) }
+            : {}),
+          ...(data.forked_at_message_id
+            ? { forked_at_message_id: Number(data.forked_at_message_id) }
+            : {}),
+          ...(data.forked_at ? { forked_at: data.forked_at } : {}),
         },
       });
 

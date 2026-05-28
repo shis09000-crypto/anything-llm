@@ -886,6 +886,27 @@ const KEY_MAPPING = {
     envKey: "AGENT_SKILL_RERANKER_TOP_N",
     checks: [nonZero],
   },
+  RerankProvider: {
+    envKey: "RERANK_PROVIDER",
+    checks: [
+      (input) =>
+        ["native", "alibaba"].includes(input)
+          ? null
+          : "Invalid rerank provider.",
+    ],
+  },
+  RerankApiKey: {
+    envKey: "RERANK_API_KEY",
+    checks: [isNotEmpty],
+  },
+  RerankBaseUrl: {
+    envKey: "RERANK_BASE_URL",
+    checks: [isNotEmpty, isValidURL],
+  },
+  RerankModelPref: {
+    envKey: "RERANK_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
 };
 
 const PROVIDER_SETTING_KEYS = [
@@ -1037,6 +1058,10 @@ const PROVIDER_SETTING_KEYS = [
   "LemonadeLLMApiKey",
   "LemonadeLLMModelPref",
   "LemonadeLLMModelTokenLimit",
+  "RerankProvider",
+  "RerankApiKey",
+  "RerankBaseUrl",
+  "RerankModelPref",
 ];
 
 const EXTRA_PROVIDER_ENV_KEYS = [
@@ -1559,6 +1584,7 @@ async function logChangesToEventLog(newValues = {}, userId = null) {
     LLMProvider: "update_llm_provider",
     EmbeddingEngine: "update_embedding_engine",
     VectorDB: "update_vector_db",
+    RerankProvider: "update_rerank_provider",
   };
 
   for (const [key, eventName] of Object.entries(eventMapping)) {

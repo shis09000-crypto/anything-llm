@@ -425,15 +425,6 @@ function buildScore({ graph, repair, metrics, cache }) {
   }
 
   if (metrics.stale > 0) {
-    applyDeduction(
-      deduction(
-        "staleMetrics",
-        "节点指标待刷新",
-        Math.min(15, Math.ceil(metrics.stale / 10) * 2),
-        `${metrics.stale} 个重要性指标等待重新计算。`,
-        "warning"
-      )
-    );
     if (metricsWorkerActive(metrics)) {
       processingMessages.push(`正在重新计算 ${metrics.stale} 个重要性指标`);
     }

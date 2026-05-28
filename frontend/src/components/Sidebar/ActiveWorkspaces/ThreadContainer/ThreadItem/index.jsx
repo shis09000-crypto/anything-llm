@@ -15,8 +15,24 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
+import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
+
+function displayThreadName(thread = {}) {
+  const name = thread.name || "";
+  const isBranch =
+    thread.thread_type === "branch" || Number(thread.parent_thread_id) > 0;
+  if (!isBranch) return name;
+  if (/^分支(?:\s+\d+)?\s*·\s*/u.test(name)) return name;
+
+  const suffixMatch = name.match(/\s*·\s*分支(?:\s+(\d+))?$/u);
+  if (!suffixMatch) return `分支 · ${name}`;
+
+  const suffix = suffixMatch[1] ? ` ${suffixMatch[1]}` : "";
+  const baseName = name.replace(/\s*·\s*分支(?:\s+\d+)?$/u, "").trim();
+  return `分支${suffix} · ${baseName}`;
+}
 
 export default function ThreadItem({
   idx,
@@ -41,6 +57,7 @@ export default function ThreadItem({
     : !thread.slug
       ? paths.workspace.chat(workspaceSlug)
       : paths.workspace.thread(workspaceSlug, thread.slug);
+  const threadName = displayThreadName(thread);
 
   useEffect(() => {
     debugChatTurn("ThreadItem:activity", {
@@ -135,7 +152,7 @@ export default function ThreadItem({
               prefetchThreadHistory(workspaceSlug, thread.slug || null)
             }
             data-tooltip-id="workspace-thread-name"
-            data-tooltip-content={threadStatusLabel(thread.name, activity, t)}
+            data-tooltip-content={threadStatusLabel(threadName, activity, t)}
             className="w-full pl-2 py-1 overflow-hidden"
             aria-current={isActive ? "page" : ""}
             state={{ userSelectedThread: true }}
@@ -149,7 +166,7 @@ export default function ThreadItem({
                     : "text-theme-text-primary font-medium light:text-slate-800"
                 }`}
               >
-                {thread.name}
+                {threadName}
               </p>
             </div>
           </Link>
@@ -320,6 +337,7 @@ function OptionsMenu({
     }
     if (success) {
       showToast("Thread deleted successfully!", "success", { clear: true });
+      clearLastVisitedThread(workspace.slug, thread.slug);
       onRemove(thread.id);
       // Redirect if deleting the active thread
       if (currentThreadSlug === thread.slug) {

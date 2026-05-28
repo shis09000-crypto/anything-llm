@@ -10,6 +10,10 @@ const { PGVector } = require("../utils/vectorDbProviders/pgvector");
 const { NativeEmbedder } = require("../utils/EmbeddingEngines/native");
 const { getBaseLLMProviderModel } = require("../utils/helpers");
 const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_RERANK_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_RERANK_MODEL,
+} = require("../utils/EmbeddingRerankers/alibaba");
+const {
   ConnectionStringParser,
 } = require("../utils/agents/aibitat/plugins/sql-agent/SQLConnectors/utils");
 
@@ -482,6 +486,16 @@ const SystemSettings = {
       LLMProvider: llmProvider,
       LLMModel: getBaseLLMProviderModel({ provider: llmProvider }) || null,
       ...this.llmPreferenceKeys(),
+
+      // --------------------------------------------------------
+      // Rerank Provider Selection Settings & Configs
+      // --------------------------------------------------------
+      RerankProvider: process.env.RERANK_PROVIDER || "native",
+      RerankApiKey: !!process.env.RERANK_API_KEY,
+      RerankBaseUrl:
+        process.env.RERANK_BASE_URL || DEFAULT_ALIBABA_RERANK_BASE_URL,
+      RerankModelPref:
+        process.env.RERANK_MODEL_PREF || DEFAULT_ALIBABA_RERANK_MODEL,
 
       // --------------------------------------------------------
       // Whisper (Audio transcription) Selection Settings & Configs

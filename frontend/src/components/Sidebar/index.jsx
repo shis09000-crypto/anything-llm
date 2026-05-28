@@ -15,6 +15,17 @@ import { useSidebarToggle, ToggleSidebarButton } from "./SidebarToggle";
 import SearchBox from "./SearchBox";
 import { Tooltip } from "react-tooltip";
 import { createPortal } from "react-dom";
+import {
+  getLastVisitedWorkspace,
+  pathForLastVisitedThread,
+} from "@/utils/lastVisitedWorkspace";
+
+function homeLinkPath() {
+  const lastVisited = getLastVisitedWorkspace();
+  return lastVisited?.slug
+    ? pathForLastVisitedThread(lastVisited.slug)
+    : paths.home();
+}
 
 export default function Sidebar() {
   const { t } = useTranslation();
@@ -49,7 +60,7 @@ export default function Sidebar() {
           <div className="flex shrink-0 w-full justify-center my-[18px]">
             <div className="flex w-[250px] min-w-[250px] items-center gap-x-2">
               <Link
-                to={paths.home()}
+                to={homeLinkPath()}
                 aria-label="Home"
                 className="flex items-center gap-x-2"
               >

@@ -530,20 +530,29 @@ const Workspace = {
         return { success: false, error: e.message };
       });
   },
-  forkThread: async function (slug = "", threadSlug = null, chatId = null) {
+  forkThread: async function (
+    slug = "",
+    threadSlug = null,
+    chatId = null,
+    options = {}
+  ) {
     return await fetch(`${API_BASE}/workspace/${slug}/thread/fork`, {
       method: "POST",
       headers: baseHeaders(),
-      body: JSON.stringify({ threadSlug, chatId }),
+      body: JSON.stringify({ threadSlug, chatId, ...options }),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to fork thread.");
-        return res.json();
+      .then(async (res) => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok)
+          throw new Error(
+            data.message || data.error || "Failed to fork thread."
+          );
+        return data;
       })
-      .then((data) => data.newThreadSlug)
+      .then((data) => (options.returnFull ? data : data.newThreadSlug))
       .catch((e) => {
         console.error("Error forking thread:", e);
-        return null;
+        return options.returnFull ? { error: e.message } : null;
       });
   },
   /**

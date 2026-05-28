@@ -47,6 +47,9 @@ const FILE_ACCESS_MODE_OPTIONS = [
  * @param {boolean} [props.glass] - uses a translucent shell for overlay-style home pages
  * @param {string} [props.workspaceSlug] - workspace slug for home page context
  * @param {string} [props.threadSlug] - thread slug for home page context
+ * @param {string} [props.inputId] - DOM id for this prompt input
+ * @param {string|null} [props.targetThreadSlug] - event target scope for this prompt input
+ * @param {string|null} [props.promptStorageKey] - local draft storage scope
  * @param {function} [props.onComposeStateChange] - reports local compose state to the parent
  * @param {boolean} [props.quizModeActive] - next submission generates a quiz
  * @param {function} [props.onToggleQuizMode] - toggles quiz mode
@@ -61,6 +64,9 @@ export default function PromptInput({
   glass = false,
   workspaceSlug = null,
   threadSlug = null,
+  inputId = PROMPT_INPUT_ID,
+  targetThreadSlug = threadSlug,
+  promptStorageKey = targetThreadSlug ?? threadSlug ?? workspaceSlug,
   onComposeStateChange,
   quizModeActive = false,
   onToggleQuizMode,
@@ -87,6 +93,7 @@ export default function PromptInput({
   usePromptInputStorage({
     promptInput,
     setPromptInput,
+    storageKey: promptStorageKey,
   });
 
   /*
@@ -105,11 +112,41 @@ export default function PromptInput({
    * To prevent too many re-renders we remotely listen for updates from the parent
    * via an event cycle. Otherwise, using message as a prop leads to a re-render every
    * change on the input.
-   * @param {{detail: {messageContent: string, writeMode: 'replace' | 'append'}}} e
+   * @param {{detail: {messageContent: string, writeMode: 'replace' | 'append' | 'prepend' | 'insert', targetInputId?: string, targetThreadSlug?: string|null}}} e
    */
   function handlePromptUpdate(e) {
-    const { messageContent, writeMode = "replace" } = e?.detail ?? {};
-    if (writeMode === "append") setPromptInput((prev) => prev + messageContent);
+    const {
+      messageContent,
+      writeMode = "replace",
+      targetInputId = null,
+      targetThreadSlug: eventThreadSlug,
+    } = e?.detail ?? {};
+    const hasThreadTarget = Object.prototype.hasOwnProperty.call(
+      e?.detail ?? {},
+      "targetThreadSlug"
+    );
+    if (targetInputId && targetInputId !== inputId) return;
+    if (hasThreadTarget && eventThreadSlug !== targetThreadSlug) return;
+    if (!targetInputId && !hasThreadTarget && inputId !== PROMPT_INPUT_ID)
+      return;
+
+    if (writeMode === "insert") {
+      const textarea = textareaRef.current;
+      setPromptInput((prev) => {
+        const start = textarea?.selectionStart ?? prev.length;
+        const end = textarea?.selectionEnd ?? start;
+        const next =
+          prev.substring(0, start) + messageContent + prev.substring(end);
+        setTimeout(() => {
+          if (!textarea) return;
+          const nextCursor = start + String(messageContent ?? "").length;
+          textarea.selectionStart = textarea.selectionEnd = nextCursor;
+          adjustTextArea({ target: textarea });
+        }, 0);
+        return next;
+      });
+    } else if (writeMode === "append")
+      setPromptInput((prev) => prev + messageContent);
     else if (writeMode === "prepend")
       setPromptInput((prev) => messageContent + " " + prev);
     else setPromptInput(messageContent ?? "");
@@ -120,7 +157,7 @@ export default function PromptInput({
       window.addEventListener(PROMPT_INPUT_EVENT, handlePromptUpdate);
     return () =>
       window?.removeEventListener(PROMPT_INPUT_EVENT, handlePromptUpdate);
-  }, []);
+  }, [inputId, targetThreadSlug]);
 
   useEffect(() => {
     onComposeStateChange?.({
@@ -150,6 +187,7 @@ export default function PromptInput({
     debugChatTurn("PromptInput:renderState", {
       workspaceSlug: workspaceSlug || workspace?.slug || null,
       threadSlug,
+      inputId,
       isStreaming: !!isStreaming,
       isDisabled: !!isDisabled,
       agentSessionActive: !!agentSessionActive,
@@ -161,6 +199,7 @@ export default function PromptInput({
     agentSessionActive,
     isDisabled,
     isStreaming,
+    inputId,
     promptInput.length,
     threadSlug,
     workspace?.slug,
@@ -422,7 +461,7 @@ export default function PromptInput({
               <AttachmentManager attachments={attachments} />
               <div className="flex items-center">
                 <textarea
-                  id={PROMPT_INPUT_ID}
+                  id={inputId}
                   ref={textareaRef}
                   onChange={handleChange}
                   onKeyDown={captureEnterOrUndo}

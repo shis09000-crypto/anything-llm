@@ -5,7 +5,7 @@ const { SystemSettings } = require("../../../models/systemSettings");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
-const { NativeEmbeddingReranker } = require("../../EmbeddingRerankers/native");
+const { getEmbeddingReranker } = require("../../EmbeddingRerankers");
 const { VectorDatabase } = require("../base");
 const path = require("path");
 
@@ -133,7 +133,7 @@ class LanceDb extends VectorDatabase {
     similarityThreshold = 0.25,
     filterIdentifiers = [],
   }) {
-    const reranker = new NativeEmbeddingReranker();
+    const reranker = getEmbeddingReranker();
     const collection = await client.openTable(namespace);
     const totalEmbeddings = await this.namespaceCount(namespace);
     const result = {

@@ -12,8 +12,10 @@ import useUser from "@/hooks/useUser";
 import ThreadContainer from "./ThreadContainer";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import showToast from "@/utils/toast";
-import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
-import { safeJsonParse } from "@/utils/request";
+import {
+  getLastVisitedWorkspace,
+  pathForLastVisitedThread,
+} from "@/utils/lastVisitedWorkspace";
 
 export default function ActiveWorkspaces() {
   const navigate = useNavigate();
@@ -73,17 +75,19 @@ export default function ActiveWorkspaces() {
     reorderWorkspaces(result.source.index, result.destination.index);
   };
 
+  const lastVisitedWorkspace = isHomePage ? getLastVisitedWorkspace() : null;
+  const hasValidLastVisitedWorkspace =
+    !!lastVisitedWorkspace?.slug &&
+    workspaces.some((ws) => ws.slug === lastVisitedWorkspace.slug);
+
   // When on the home page, resolve which workspace should be virtually active
   const virtualActiveSlug = (() => {
     if (!isHomePage || workspaces.length === 0) return null;
-    const lastVisited = safeJsonParse(
-      localStorage.getItem(LAST_VISITED_WORKSPACE)
-    );
     if (
-      lastVisited?.slug &&
-      workspaces.some((ws) => ws.slug === lastVisited.slug)
+      lastVisitedWorkspace?.slug &&
+      workspaces.some((ws) => ws.slug === lastVisitedWorkspace.slug)
     )
-      return lastVisited.slug;
+      return lastVisitedWorkspace.slug;
     return workspaces[0]?.slug ?? null;
   })();
 
@@ -118,7 +122,7 @@ export default function ActiveWorkspaces() {
                     >
                       <div className="flex gap-x-2 items-center justify-between">
                         <Link
-                          to={paths.workspace.chat(workspace.slug)}
+                          to={pathForLastVisitedThread(workspace.slug)}
                           aria-current={isActive ? "page" : ""}
                           className={`
                             motion-hover duration-[200ms]
@@ -209,7 +213,9 @@ export default function ActiveWorkspaces() {
                         <ThreadContainer
                           workspace={workspace}
                           isActive={isActive}
-                          isVirtualThread={isVirtuallyActive}
+                          isVirtualThread={
+                            isVirtuallyActive && !hasValidLastVisitedWorkspace
+                          }
                         />
                       )}
                     </div>

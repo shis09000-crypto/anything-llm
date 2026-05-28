@@ -29,6 +29,7 @@ function AssistantTurn({
   saveEditedMessage,
   forkThread,
   isLastMessage = false,
+  readOnly = false,
 }) {
   const { t } = useTranslation();
   const { isEditing } = useEditMessage({
@@ -137,7 +138,7 @@ function AssistantTurn({
         {errorEvents.map((event) => (
           <ToolEvent key={event.id} event={event} />
         ))}
-        {isEditing ? (
+        {isEditing && !readOnly ? (
           <EditMessageForm
             role="assistant"
             chatId={turn.chatId}
@@ -197,26 +198,28 @@ function AssistantTurn({
             )}
           </div>
         )}
-        <div className="flex items-start md:items-center gap-x-1">
-          <TTSMessage
-            slug={workspace?.slug}
-            chatId={turn.chatId}
-            message={turn.finalContent}
-          />
-          <Actions
-            message={turn.finalContent}
-            feedbackScore={turn.feedbackScore}
-            chatId={turn.chatId}
-            slug={workspace?.slug}
-            isLastMessage={isLastMessage}
-            regenerateMessage={regenerateMessage}
-            isEditing={isEditing}
-            role="assistant"
-            forkThread={forkThread}
-            metrics={turn.metrics}
-            onGenerateMindMap={onGenerateMindMap}
-          />
-        </div>
+        {!readOnly && (
+          <div className="flex items-start md:items-center gap-x-1">
+            <TTSMessage
+              slug={workspace?.slug}
+              chatId={turn.chatId}
+              message={turn.finalContent}
+            />
+            <Actions
+              message={turn.finalContent}
+              feedbackScore={turn.feedbackScore}
+              chatId={turn.chatId}
+              slug={workspace?.slug}
+              isLastMessage={isLastMessage}
+              regenerateMessage={regenerateMessage}
+              isEditing={isEditing}
+              role="assistant"
+              forkThread={forkThread}
+              metrics={turn.metrics}
+              onGenerateMindMap={onGenerateMindMap}
+            />
+          </div>
+        )}
         <Citations sources={turn.sources} />
       </div>
     </div>

@@ -130,6 +130,9 @@ export default {
       modelPreference: () => "/settings/embedding-preference",
       chunkingPreference: () => "/settings/text-splitter-preference",
     },
+    rerankPreference: () => {
+      return "/settings/rerank-preference";
+    },
     embeddingPreference: () => {
       return "/settings/embedding-preference";
     },

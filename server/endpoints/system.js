@@ -77,6 +77,10 @@ const { VALID_COMMANDS } = require("../utils/chats");
 const { AgentSkillWhitelist } = require("../models/agentSkillWhitelist");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
+const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_RERANK_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_RERANK_MODEL,
+} = require("../utils/EmbeddingRerankers/alibaba");
 
 const PROVIDER_PRESETS = {
   SHIJIE_DEEPSEEK_ALI_V1: {
@@ -744,6 +748,10 @@ function systemEndpoints(app) {
             EmbeddingModelPref: preset.embedder.model,
             EmbeddingModelMaxChunkLength: "5000",
             GenericOpenAiEmbeddingApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
+            RerankProvider: "alibaba",
+            RerankApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
+            RerankBaseUrl: DEFAULT_ALIBABA_RERANK_BASE_URL,
+            RerankModelPref: DEFAULT_ALIBABA_RERANK_MODEL,
           },
           false,
           response?.locals?.user?.id

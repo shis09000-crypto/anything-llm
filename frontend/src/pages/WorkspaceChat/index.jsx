@@ -6,8 +6,8 @@ import Workspace from "@/models/workspace";
 import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
 import { isMobile } from "react-device-detect";
 import { FullScreenLoader } from "@/components/Preloader";
-import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
 import { warmWorkspaceChat } from "@/utils/chat/workspaceChatPrefetch";
+import { rememberLastVisitedWorkspace } from "@/utils/lastVisitedWorkspace";
 
 export default function WorkspaceChat() {
   const { loading, requiresAuth, mode } = usePasswordModal();
@@ -26,7 +26,7 @@ export default function WorkspaceChat() {
 }
 
 function ShowWorkspaceChat() {
-  const { slug } = useParams();
+  const { slug, threadSlug = null } = useParams();
   const [workspace, setWorkspace] = useState(null);
   // Tracks which workspace `workspace` belongs to. While a new workspace's
   // data is in flight, we keep the previous workspace's chat mounted
@@ -53,17 +53,15 @@ function ShowWorkspaceChat() {
         showAgentCommand,
       });
       setLoadedSlug(slug);
-      localStorage.setItem(
-        LAST_VISITED_WORKSPACE,
-        JSON.stringify({
-          slug: _workspace.slug,
-          name: _workspace.name,
-        })
-      );
       warmWorkspaceChat(_workspace.slug);
     }
     getWorkspace();
   }, [slug]);
+
+  useEffect(() => {
+    if (!workspace?.slug || workspace.slug !== slug) return;
+    rememberLastVisitedWorkspace(workspace, threadSlug);
+  }, [slug, threadSlug, workspace]);
 
   return (
     <WorkspaceChatContainer

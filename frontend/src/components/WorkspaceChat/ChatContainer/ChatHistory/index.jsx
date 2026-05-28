@@ -36,6 +36,8 @@ export default forwardRef(function (
     approvalState = null,
     onToolApprovalResponse,
     onGenerateMindMap,
+    readOnly = false,
+    activeThreadSlug = undefined,
     hasMoreHistory = false,
     isLoadingOlderHistory = false,
     onLoadOlderHistory = null,
@@ -49,6 +51,8 @@ export default forwardRef(function (
   const previousScrollHeightRef = useRef(0);
   const previousFirstItemIdRef = useRef(null);
   const { threadSlug = null } = useParams();
+  const effectiveThreadSlug =
+    activeThreadSlug === undefined ? threadSlug : activeThreadSlug;
   const navigate = useNavigate();
   const { showing, hideModal } = useManageWorkspaceModal();
   const [isAtBottom, setIsAtBottom] = useState(true);
@@ -204,7 +208,7 @@ export default forwardRef(function (
       updateUserItem(chatKey, chatId, { content: editedMessage });
       await Workspace.updateChat(
         workspace.slug,
-        threadSlug,
+        effectiveThreadSlug,
         chatId,
         editedMessage,
         "user"
@@ -214,7 +218,11 @@ export default forwardRef(function (
 
     if (role === "user") {
       updateUserItem(chatKey, chatId, { content: editedMessage });
-      await Workspace.deleteEditedChats(workspace.slug, threadSlug, chatId);
+      await Workspace.deleteEditedChats(
+        workspace.slug,
+        effectiveThreadSlug,
+        chatId
+      );
       sendCommand({
         text: editedMessage,
         autoSubmit: true,
@@ -234,7 +242,7 @@ export default forwardRef(function (
       });
       await Workspace.updateChat(
         workspace.slug,
-        threadSlug,
+        effectiveThreadSlug,
         chatId,
         editedMessage
       );
@@ -244,7 +252,7 @@ export default forwardRef(function (
   const forkThread = async (chatId) => {
     const newThreadSlug = await Workspace.forkThread(
       workspace.slug,
-      threadSlug,
+      effectiveThreadSlug,
       chatId
     );
     navigate(paths.workspace.thread(workspace.slug, newThreadSlug));
@@ -271,6 +279,7 @@ export default forwardRef(function (
         regenerateAssistantMessage={regenerateAssistantMessage}
         saveEditedMessage={saveEditedMessage}
         forkThread={forkThread}
+        readOnly={readOnly}
         isLastAssistantTurn={item.id === lastAssistantTurnId}
       />
     ),
@@ -282,6 +291,7 @@ export default forwardRef(function (
       lastAssistantTurnId,
       onGenerateMindMap,
       onToolApprovalResponse,
+      readOnly,
       regenerateAssistantMessage,
       saveEditedMessage,
       workspace,
@@ -417,6 +427,7 @@ const MessageRow = memo(
     regenerateAssistantMessage,
     saveEditedMessage,
     forkThread,
+    readOnly,
     isLastAssistantTurn,
   }) {
     if (item.type === "user") {
@@ -431,6 +442,7 @@ const MessageRow = memo(
           hydrationStatus={item.hydrationStatus}
           saveEditedMessage={saveEditedMessage}
           forkThread={forkThread}
+          readOnly={readOnly}
         />
       );
     }
@@ -448,6 +460,7 @@ const MessageRow = memo(
           regenerateMessage={regenerateAssistantMessage}
           saveEditedMessage={saveEditedMessage}
           forkThread={forkThread}
+          readOnly={readOnly}
           isLastMessage={isLastAssistantTurn}
         />
       );
@@ -460,5 +473,6 @@ const MessageRow = memo(
     prevProps.workspace === nextProps.workspace &&
     prevProps.chatKey === nextProps.chatKey &&
     prevProps.approvalState === nextProps.approvalState &&
+    prevProps.readOnly === nextProps.readOnly &&
     prevProps.isLastAssistantTurn === nextProps.isLastAssistantTurn
 );

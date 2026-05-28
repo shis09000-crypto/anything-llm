@@ -1834,14 +1834,16 @@ function RecommendationCard({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        onClick={() => onActivate?.(recommendation)}
-        className="overview-action-button mt-auto inline-flex w-fit items-center gap-1 rounded-xl px-3 py-1.5 text-xs font-semibold"
-      >
-        {buttonLabel}
-        <ArrowRight size={13} />
-      </button>
+      <div className="mt-auto flex justify-center pt-3">
+        <button
+          type="button"
+          onClick={() => onActivate?.(recommendation)}
+          className="overview-action-button overview-card-action-button inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold"
+        >
+          {buttonLabel}
+          <ArrowRight size={12} />
+        </button>
+      </div>
     </article>
   );
 }

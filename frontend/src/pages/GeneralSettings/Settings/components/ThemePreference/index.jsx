@@ -4,6 +4,11 @@ import { useTranslation } from "react-i18next";
 export default function ThemePreference() {
   const { t } = useTranslation();
   const { theme, setTheme, availableThemes } = useTheme();
+  const themeLabels = {
+    system: t("customization.items.theme.options.system"),
+    light: t("customization.items.theme.options.light"),
+    dark: t("customization.items.theme.options.dark"),
+  };
 
   return (
     <div className="flex flex-col gap-y-0.5 my-4">
@@ -21,7 +26,7 @@ export default function ThemePreference() {
         >
           {Object.entries(availableThemes).map(([key, value]) => (
             <option key={key} value={key}>
-              {value}
+              {themeLabels[key] || value}
             </option>
           ))}
         </select>

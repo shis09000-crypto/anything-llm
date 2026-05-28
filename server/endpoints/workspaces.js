@@ -65,6 +65,47 @@ function parseHistoryQuery(request) {
   };
 }
 
+const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
+
+function branchBaseName(sourceThread = null) {
+  const sourceName = sourceThread?.name || "Default";
+  return String(sourceName)
+    .replace(/^分支(?:\s+\d+)?\s*·\s*/u, "")
+    .replace(/\s*·\s*分支(?:\s+\d+)?$/u, "")
+    .trim();
+}
+
+function displayBranchThreadName(name = "") {
+  const sourceName = String(name);
+  if (/^分支(?:\s+\d+)?\s*·\s*/u.test(sourceName)) return sourceName;
+  const suffixMatch = sourceName.match(/\s*·\s*分支(?:\s+(\d+))?$/u);
+  if (!suffixMatch) return sourceName;
+
+  const suffix = suffixMatch[1] ? ` ${suffixMatch[1]}` : "";
+  const baseName = sourceName.replace(/\s*·\s*分支(?:\s+\d+)?$/u, "").trim();
+  return `分支${suffix} · ${baseName}`;
+}
+
+async function uniqueBranchThreadName({ workspace, user, sourceThread }) {
+  const baseName = branchBaseName(sourceThread);
+  const branchName = `分支 · ${baseName}`;
+  const threads = await WorkspaceThread.where({
+    workspace_id: workspace.id,
+    user_id: user?.id || null,
+  });
+  const existingNames = new Set(
+    threads.flatMap((thread) => [
+      thread.name,
+      displayBranchThreadName(thread.name),
+    ])
+  );
+  if (!existingNames.has(branchName)) return branchName;
+
+  let suffix = 2;
+  while (existingNames.has(`${branchName} ${suffix}`)) suffix += 1;
+  return `${branchName} ${suffix}`;
+}
+
 function lightChatIdsForHistory(history = [], options = {}) {
   if (!options.enabled || options.detail !== "light") return new Set();
   const fullStart = Math.max(history.length - options.priorityWindow, 0);
@@ -940,35 +981,79 @@ function workspaceEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const { chatId, threadSlug } = reqBody(request);
-        if (!chatId)
-          return response.status(400).json({ message: "chatId is required" });
+        const {
+          chatId,
+          threadSlug,
+          openMode = null,
+          createdFrom = "thread_fork",
+        } = reqBody(request);
+        const isDualThreadFork = openMode === DUAL_THREAD_FORK_MODE;
 
         // Get threadId we are branching from if that request body is sent
         // and is a valid thread slug.
-        const threadId = !!threadSlug
-          ? (
-              await WorkspaceThread.get({
-                slug: String(threadSlug),
-                workspace_id: workspace.id,
-              })
-            )?.id ?? null
+        const sourceThread = !!threadSlug
+          ? await WorkspaceThread.get({
+              slug: String(threadSlug),
+              workspace_id: workspace.id,
+            })
           : null;
-        const chatsToFork = await WorkspaceChats.where(
-          {
-            workspaceId: workspace.id,
-            user_id: user?.id,
-            include: true, // only duplicate visible chats
-            thread_id: threadId,
-            api_session_id: null, // Do not include API session chats.
-            id: { lte: Number(chatId) },
-          },
-          null,
-          { id: "asc" }
-        );
+        const threadId = sourceThread?.id ?? null;
+        const forkedAtMessageId = isDualThreadFork
+          ? (
+              await WorkspaceChats.get(
+                {
+                  workspaceId: workspace.id,
+                  user_id: user?.id,
+                  include: true,
+                  thread_id: threadId,
+                  api_session_id: null,
+                },
+                null,
+                { id: "desc" }
+              )
+            )?.id
+          : Number(chatId);
 
+        if (!forkedAtMessageId)
+          return response.status(400).json({
+            message: isDualThreadFork
+              ? "当前线程暂无可分支的消息"
+              : "chatId is required",
+          });
+
+        const forkWhereClause = {
+          workspaceId: workspace.id,
+          user_id: user?.id,
+          include: true, // only duplicate visible chats
+          thread_id: threadId,
+          api_session_id: null, // Preserve legacy fork behavior.
+          id: { lte: Number(forkedAtMessageId) },
+        };
+        const chatsToFork = await WorkspaceChats.where(forkWhereClause, null, {
+          id: "asc",
+        });
+
+        if (isDualThreadFork && chatsToFork.length === 0)
+          return response
+            .status(400)
+            .json({ message: "当前线程暂无可分支的消息" });
+
+        const branchName = isDualThreadFork
+          ? await uniqueBranchThreadName({ workspace, user, sourceThread })
+          : undefined;
         const { thread: newThread, message: threadError } =
-          await WorkspaceThread.new(workspace, user?.id);
+          await WorkspaceThread.new(workspace, user?.id, {
+            ...(branchName ? { name: branchName } : {}),
+            ...(isDualThreadFork
+              ? {
+                  parent_thread_id: threadId,
+                  thread_type: "branch",
+                  created_from: DUAL_THREAD_FORK_MODE,
+                  forked_at_message_id: Number(forkedAtMessageId),
+                  forked_at: new Date(),
+                }
+              : {}),
+          });
         if (threadError)
           return response.status(500).json({ error: threadError });
 
@@ -983,24 +1068,45 @@ function workspaceEndpoints(app) {
             response: JSON.stringify(chatResponse),
             user_id: user?.id,
             thread_id: newThread.id,
+            ...(isDualThreadFork
+              ? {
+                  original_thread_id: threadId,
+                  original_message_id: chat.id,
+                  created_from: createdFrom || DUAL_THREAD_FORK_MODE,
+                }
+              : {}),
           };
         });
-        await WorkspaceChats.bulkCreate(chatsData);
-        await WorkspaceThread.update(newThread, {
-          name: !!lastMessageText
-            ? truncate(lastMessageText, 22)
-            : "Forked Thread",
-        });
+        const { chats: copiedChats, message: copyError } =
+          await WorkspaceChats.bulkCreate(chatsData);
+        if (copyError) return response.status(500).json({ error: copyError });
+        const { thread: updatedThread } = isDualThreadFork
+          ? { thread: newThread }
+          : await WorkspaceThread.update(newThread, {
+              name: !!lastMessageText
+                ? truncate(lastMessageText, 22)
+                : "Forked Thread",
+            });
 
         await EventLogs.logEvent(
           "thread_forked",
           {
             workspaceName: workspace?.name || "Unknown Workspace",
-            threadName: newThread.name,
+            threadName: updatedThread?.name || newThread.name,
           },
           user?.id
         );
-        response.status(200).json({ newThreadSlug: newThread.slug });
+        response.status(200).json({
+          newThreadSlug: newThread.slug,
+          ...(isDualThreadFork
+            ? {
+                newThread: updatedThread || newThread,
+                sourceThread,
+                forkedAtMessageId: Number(forkedAtMessageId),
+                copiedChatCount: copiedChats?.length || chatsToFork.length,
+              }
+            : {}),
+        });
       } catch (e) {
         console.error(e.message, e);
         response.status(500).json({ message: "Internal server error" });

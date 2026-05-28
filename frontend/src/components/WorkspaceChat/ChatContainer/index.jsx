@@ -42,6 +42,7 @@ import {
   previousSidebarState,
   SIDEBAR_SET_STATE_EVENT,
 } from "@/components/Sidebar/SidebarToggle";
+import { X } from "@phosphor-icons/react";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -51,6 +52,10 @@ const QUIZ_INTENT_PATTERN =
   /(出|生成|来|做|练|考|测).{0,8}(题|测试|测验|quiz|question)|(?:quiz|test)\s*(me|questions?)|(?:单选|多选|填空|选择题|练习题|测试题|测验题|考考我|自测)/i;
 const NON_QUIZ_TEST_PATTERN =
   /(测试连接|测试接口|测试功能|测试代码|test connection|unit test|integration test|e2e test|jest|vitest|pytest)/i;
+const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
+const BRANCH_PROMPT_INPUT_ID = "branch-prompt-input";
+const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
+const SELECTION_COPY_MIN_LENGTH = 8;
 function setSidebarForMindMap(open) {
   window.dispatchEvent(
     new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
@@ -96,6 +101,53 @@ export default function ChatContainer({
   const pendingMessageChecked = useRef(false);
   const mindMapSidebarStateRef = useRef(null);
   const quizIntentResolverRef = useRef(null);
+  const sourcePanelRef = useRef(null);
+  const selectionDebounceRef = useRef(null);
+  const lastSelectionSignatureRef = useRef("");
+  const [dualThreadFork, setDualThreadFork] = useState({
+    enabled: false,
+    sourceThreadSlug: null,
+    sourceThreadId: null,
+    branchThreadSlug: null,
+    branchThreadId: null,
+    forkedAtMessageId: null,
+    sourcePanelVisible: false,
+    branchPanelVisible: false,
+  });
+  const [dualThreadLoading, setDualThreadLoading] = useState(false);
+  const [branchHistory, setBranchHistory] = useState([]);
+  const [sourceHistory, setSourceHistory] = useState(null);
+  const [closeMenuOpen, setCloseMenuOpen] = useState(false);
+  const branchChatKey = getChatKey(
+    workspace?.slug,
+    dualThreadFork.branchThreadSlug
+  );
+  const branchDraft = useChatDraft(
+    workspace?.slug,
+    dualThreadFork.branchThreadSlug
+  );
+  const branchKnownItems = useMemo(
+    () =>
+      mergeServerHistoryIntoTurns(branchHistory, [], {
+        chatKey: branchChatKey,
+      }),
+    [branchHistory, branchChatKey]
+  );
+  const branchItems = branchDraft?.items || branchKnownItems;
+  const branchLoadingResponse = !!branchDraft?.isStreaming;
+  const sourceChatKey = getChatKey(
+    workspace?.slug,
+    dualThreadFork.sourceThreadSlug
+  );
+  const sourceItems = useMemo(
+    () =>
+      sourceHistory
+        ? mergeServerHistoryIntoTurns(sourceHistory, [], {
+            chatKey: sourceChatKey,
+          })
+        : chatItems,
+    [chatItems, sourceChatKey, sourceHistory]
+  );
 
   const { listening, resetTranscript } = useSpeechRecognition({
     clearTranscriptOnListen: true,
@@ -107,10 +159,14 @@ export default function ChatContainer({
    * @param {string} messageContent - The message content to set
    * @param {'replace' | 'append'} writeMode - Replace current text or append to existing text (default: replace)
    */
-  function setMessageEmit(messageContent = "", writeMode = "replace") {
+  function setMessageEmit(
+    messageContent = "",
+    writeMode = "replace",
+    target = {}
+  ) {
     window.dispatchEvent(
       new CustomEvent(PROMPT_INPUT_EVENT, {
-        detail: { messageContent, writeMode },
+        detail: { messageContent, writeMode, ...target },
       })
     );
   }
@@ -324,6 +380,262 @@ export default function ChatContainer({
     loadingResponse,
   ]);
 
+  async function loadFullThreadHistory(activeThreadSlug = null) {
+    if (!workspace?.slug) return [];
+    return activeThreadSlug
+      ? await Workspace.threads.chatHistory(workspace.slug, activeThreadSlug)
+      : await Workspace.chatHistory(workspace.slug);
+  }
+
+  function refreshWorkspaceThreads() {
+    window.dispatchEvent(
+      new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
+        detail: { workspaceSlug: workspace.slug },
+      })
+    );
+  }
+
+  function resetDualThreadFork() {
+    clearTimeout(selectionDebounceRef.current);
+    lastSelectionSignatureRef.current = "";
+    setCloseMenuOpen(false);
+    setDualThreadFork({
+      enabled: false,
+      sourceThreadSlug: null,
+      sourceThreadId: null,
+      branchThreadSlug: null,
+      branchThreadId: null,
+      forkedAtMessageId: null,
+      sourcePanelVisible: false,
+      branchPanelVisible: false,
+    });
+    setBranchHistory([]);
+    setSourceHistory(null);
+  }
+
+  async function startDualThreadFork() {
+    if (dualThreadLoading || dualThreadFork.enabled) return;
+    const lastVisibleChatId = [...chatItems]
+      .reverse()
+      .find((item) => item.chatId)?.chatId;
+    if (!lastVisibleChatId) {
+      showToast("当前线程暂无可分支的消息", "info");
+      return;
+    }
+
+    setDualThreadLoading(true);
+    try {
+      const result = await Workspace.forkThread(
+        workspace.slug,
+        threadSlug,
+        lastVisibleChatId,
+        {
+          openMode: DUAL_THREAD_FORK_MODE,
+          createdFrom: DUAL_THREAD_FORK_MODE,
+          returnFull: true,
+        }
+      );
+      const branchThreadSlug = result?.newThread?.slug || result?.newThreadSlug;
+      if (!branchThreadSlug || result?.error) {
+        throw new Error(result?.message || result?.error || "Fork failed");
+      }
+
+      const branchHistoryFromServer =
+        await loadFullThreadHistory(branchThreadSlug);
+      if (!Array.isArray(branchHistoryFromServer)) {
+        throw new Error("Branch history failed to load");
+      }
+
+      setBranchHistory(branchHistoryFromServer);
+      mergeServerHistory({
+        workspaceSlug: workspace.slug,
+        threadSlug: branchThreadSlug,
+        history: branchHistoryFromServer,
+      });
+      setSourceHistory(null);
+      setDualThreadFork({
+        enabled: true,
+        sourceThreadSlug: threadSlug,
+        sourceThreadId: result?.sourceThread?.id || null,
+        branchThreadSlug,
+        branchThreadId: result?.newThread?.id || null,
+        forkedAtMessageId: result?.forkedAtMessageId || lastVisibleChatId,
+        sourcePanelVisible: true,
+        branchPanelVisible: true,
+      });
+      refreshWorkspaceThreads();
+    } catch (error) {
+      resetDualThreadFork();
+      const message =
+        error?.message === "Failed to fork thread."
+          ? "双线程分支创建失败"
+          : error?.message || "双线程分支创建失败";
+      showToast(message, "error");
+    } finally {
+      setDualThreadLoading(false);
+    }
+  }
+
+  async function reloadSourceHistoryIfNeeded() {
+    if (!dualThreadFork.enabled || sourceHistory !== null) return;
+    if (sourceItems.length > 0) return;
+    const sourceHistoryFromServer = await loadFullThreadHistory(
+      dualThreadFork.sourceThreadSlug
+    );
+    setSourceHistory(sourceHistoryFromServer);
+  }
+
+  function branchFileAccessMode() {
+    return FileAccessPolicy.getSessionMode(
+      workspace?.slug,
+      dualThreadFork.branchThreadSlug
+    );
+  }
+
+  function branchMessageEmit(messageContent = "", writeMode = "replace") {
+    setMessageEmit(messageContent, writeMode, {
+      targetInputId: BRANCH_PROMPT_INPUT_ID,
+      targetThreadSlug: dualThreadFork.branchThreadSlug,
+    });
+  }
+
+  async function handleBranchSubmit(event) {
+    event.preventDefault();
+    const currentMessage =
+      document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value || "";
+    if (!currentMessage || !dualThreadFork.branchThreadSlug) return false;
+    clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+    branchMessageEmit("");
+    startStream({
+      workspaceSlug: workspace.slug,
+      threadSlug: dualThreadFork.branchThreadSlug,
+      prompt: currentMessage,
+      attachments: parseAttachments(),
+      fileAccessMode: branchFileAccessMode(),
+      history: branchHistory,
+      parseAttachments,
+      sendToExistingAgent: !!branchDraft?.isAgentRunning,
+    });
+  }
+
+  const sendBranchCommand = async ({
+    text = "",
+    autoSubmit = false,
+    history = [],
+    attachments = [],
+    nodeContext = null,
+    writeMode = "replace",
+  } = {}) => {
+    if (!autoSubmit) {
+      branchMessageEmit(text, writeMode);
+      return;
+    }
+
+    if (writeMode === "prepend") {
+      const currentText =
+        document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value ?? "";
+      text = currentText + " " + text;
+    }
+    if (writeMode === "append") {
+      const currentText =
+        document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value ?? "";
+      text = currentText + text;
+    }
+    if (!text || !dualThreadFork.branchThreadSlug) return false;
+
+    clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+    branchMessageEmit("");
+    startStream({
+      workspaceSlug: workspace.slug,
+      threadSlug: dualThreadFork.branchThreadSlug,
+      prompt: text,
+      attachments,
+      fileAccessMode: branchFileAccessMode(),
+      nodeContext,
+      history: history.length > 0 ? history : branchHistory,
+      parseAttachments,
+      sendToExistingAgent: !!branchDraft?.isAgentRunning,
+    });
+  };
+
+  function closeSourceThreadPanel() {
+    const branchThreadSlug = dualThreadFork.branchThreadSlug;
+    resetDualThreadFork();
+    if (branchThreadSlug)
+      navigate(paths.workspace.thread(workspace.slug, branchThreadSlug));
+  }
+
+  function closeBranchThreadPanel() {
+    const sourceThreadSlug = dualThreadFork.sourceThreadSlug;
+    resetDualThreadFork();
+    navigate(
+      sourceThreadSlug
+        ? paths.workspace.thread(workspace.slug, sourceThreadSlug)
+        : paths.workspace.chat(workspace.slug)
+    );
+  }
+
+  useEffect(() => {
+    reloadSourceHistoryIfNeeded().catch((error) => {
+      console.error(error);
+      showToast("旧线程历史恢复失败", "error");
+      resetDualThreadFork();
+    });
+  }, [
+    dualThreadFork.enabled,
+    dualThreadFork.sourceThreadSlug,
+    sourceItems.length,
+  ]);
+
+  useEffect(() => {
+    if (!dualThreadFork.enabled || !sourcePanelRef.current) return;
+    const panel = sourcePanelRef.current;
+
+    function selectionBelongsToSource(selection) {
+      if (!selection || selection.rangeCount === 0) return false;
+      const anchorNode = selection.anchorNode;
+      const focusNode = selection.focusNode;
+      return (
+        (!anchorNode || panel.contains(anchorNode)) &&
+        (!focusNode || panel.contains(focusNode))
+      );
+    }
+
+    function handleSelection() {
+      clearTimeout(selectionDebounceRef.current);
+      selectionDebounceRef.current = setTimeout(() => {
+        const selection = window.getSelection?.();
+        if (!selectionBelongsToSource(selection)) return;
+        const selectedText = selection?.toString?.().trim?.() || "";
+        if (selectedText.length < SELECTION_COPY_MIN_LENGTH) return;
+        const range = selection.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        const signature = [
+          selectedText,
+          Math.round(rect.left),
+          Math.round(rect.top),
+          Math.round(rect.right),
+          Math.round(rect.bottom),
+        ].join(":");
+        if (signature === lastSelectionSignatureRef.current) return;
+        lastSelectionSignatureRef.current = signature;
+        branchMessageEmit(
+          `\n> 来自右侧旧线程：\n> ${selectedText}\n`,
+          "insert"
+        );
+        showToast("已复制到左侧输入框", "success");
+      }, 180);
+    }
+
+    panel.addEventListener("mouseup", handleSelection);
+    panel.addEventListener("keyup", handleSelection);
+    return () => {
+      clearTimeout(selectionDebounceRef.current);
+      panel.removeEventListener("mouseup", handleSelection);
+      panel.removeEventListener("keyup", handleSelection);
+    };
+  }, [dualThreadFork.enabled, dualThreadFork.branchThreadSlug]);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     const currentMessage =
@@ -491,10 +803,137 @@ export default function ChatContainer({
 
   useEffect(() => {
     return () => {
+      clearTimeout(selectionDebounceRef.current);
+      lastSelectionSignatureRef.current = "";
       quizIntentResolverRef.current?.(false);
       quizIntentResolverRef.current = null;
     };
   }, []);
+
+  if (dualThreadFork.enabled) {
+    return (
+      <SourcesSidebarProvider>
+        <div
+          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+          className="relative flex gap-4 md:gap-5 md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3"
+        >
+          <div className="flex-[1.08] min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70">
+            {isMobile && <SidebarMobileHeader />}
+            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <DnDFileUploaderWrapper>
+              <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                <div className="px-5 pt-4 pb-2 border-b border-white/10 light:border-slate-200">
+                  <p className="m-0 text-xs uppercase tracking-wide text-sky-300 light:text-sky-600">
+                    分支线程
+                  </p>
+                  <p className="m-0 text-sm text-white/70 light:text-slate-600">
+                    fork 后的新线程，消息写入当前分支
+                  </p>
+                </div>
+                <MetricsProvider>
+                  <ChatHistory
+                    ref={chatHistoryRef}
+                    items={branchItems}
+                    workspace={workspace}
+                    sendCommand={sendBranchCommand}
+                    regenerateAssistantMessage={() => null}
+                    chatKey={branchChatKey}
+                    approvalState={branchDraft?.pendingApproval}
+                    onToolApprovalResponse={respondToApproval}
+                    onGenerateMindMap={openMindMap}
+                    activeThreadSlug={dualThreadFork.branchThreadSlug}
+                  />
+                </MetricsProvider>
+                <PromptInput
+                  workspace={workspace}
+                  submit={handleBranchSubmit}
+                  isStreaming={branchLoadingResponse}
+                  sendCommand={sendBranchCommand}
+                  attachments={files}
+                  centered={false}
+                  glass={true}
+                  workspaceSlug={workspace.slug}
+                  threadSlug={dualThreadFork.branchThreadSlug}
+                  inputId={BRANCH_PROMPT_INPUT_ID}
+                  targetThreadSlug={dualThreadFork.branchThreadSlug}
+                  promptStorageKey={dualThreadFork.branchThreadSlug}
+                  quizModeActive={false}
+                />
+              </div>
+            </DnDFileUploaderWrapper>
+            <ChatTooltips />
+          </div>
+          <div className="hidden md:flex w-3 shrink-0 items-center justify-center">
+            <div className="h-[82%] w-[1px] rounded-full bg-white/10 light:bg-slate-300/45" />
+          </div>
+          <div
+            ref={sourcePanelRef}
+            className="flex-1 min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-950 light:bg-slate-50 text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.24)] light:shadow-[0_18px_42px_rgba(15,23,42,0.12)] ring-1 ring-white/5 light:ring-slate-200/70"
+          >
+            <div className="flex items-center justify-between px-5 pt-4 pb-2 border-b border-white/10 light:border-slate-200">
+              <div>
+                <p className="m-0 text-xs uppercase tracking-wide text-white/50 light:text-slate-500">
+                  旧线程
+                </p>
+                <p className="m-0 text-sm text-white/70 light:text-slate-600">
+                  MVP 只读查看区
+                </p>
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setCloseMenuOpen((open) => !open)}
+                  className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
+                  aria-label="关闭双线程面板"
+                >
+                  <X
+                    size={18}
+                    className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
+                  />
+                </button>
+                {closeMenuOpen && (
+                  <div className="absolute right-0 top-11 z-50 w-[150px] rounded-lg border border-white/10 light:border-slate-200 bg-zinc-900 light:bg-white shadow-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={closeSourceThreadPanel}
+                      className="w-full border-none text-left px-3 py-2 text-sm text-white light:text-slate-900 hover:bg-zinc-800 light:hover:bg-slate-100"
+                    >
+                      关闭旧线程
+                    </button>
+                    <button
+                      type="button"
+                      onClick={closeBranchThreadPanel}
+                      className="w-full border-none text-left px-3 py-2 text-sm text-white light:text-slate-900 hover:bg-zinc-800 light:hover:bg-slate-100"
+                    >
+                      关闭新线程
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCloseMenuOpen(false)}
+                      className="w-full border-none text-left px-3 py-2 text-sm text-white/70 light:text-slate-600 hover:bg-zinc-800 light:hover:bg-slate-100"
+                    >
+                      取消
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <MetricsProvider>
+              <ChatHistory
+                items={sourceItems}
+                workspace={workspace}
+                sendCommand={() => null}
+                regenerateAssistantMessage={() => null}
+                chatKey={sourceChatKey}
+                activeThreadSlug={dualThreadFork.sourceThreadSlug}
+                readOnly
+              />
+            </MetricsProvider>
+          </div>
+        </div>
+      </SourcesSidebarProvider>
+    );
+  }
 
   if (isEmptyThread && !loadingResponse) {
     return (
@@ -506,6 +945,8 @@ export default function ChatContainer({
         <TopRightActionZone
           isMindMapOpen={mindMapOpen}
           onMindMap={() => setMindMapOpen(true)}
+          onDualThreadFork={startDualThreadFork}
+          dualThreadMode={dualThreadFork.enabled}
           workspaceSlug={workspace.slug}
         />
         <WorkspaceModelPicker workspaceSlug={workspace.slug} />
@@ -608,6 +1049,8 @@ export default function ChatContainer({
           <TopRightActionZone
             isMindMapOpen={mindMapOpen}
             onMindMap={() => setMindMapOpen(true)}
+            onDualThreadFork={startDualThreadFork}
+            dualThreadMode={dualThreadFork.enabled}
             workspaceSlug={workspace.slug}
           />
           <WorkspaceModelPicker workspaceSlug={workspace.slug} />

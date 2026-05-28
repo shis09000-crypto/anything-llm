@@ -18,14 +18,10 @@ import DnDFileUploaderWrapper, {
   PASTE_ATTACHMENT_EVENT,
 } from "@/components/WorkspaceChat/ChatContainer/DnDWrapper";
 import { useTranslation } from "react-i18next";
-import {
-  LAST_VISITED_WORKSPACE,
-  PENDING_HOME_MESSAGE,
-} from "@/utils/constants";
+import { PENDING_HOME_MESSAGE } from "@/utils/constants";
 import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import showToast from "@/utils/toast";
-import { safeJsonParse } from "@/utils/request";
 import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import useUser from "@/hooks/useUser";
@@ -38,18 +34,44 @@ import {
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
 import useLoginMode from "@/hooks/useLoginMode";
+import {
+  clearLastVisitedThread,
+  getLastVisitedThreadSlug,
+  getLastVisitedWorkspace,
+  pathForLastVisitedThread,
+} from "@/utils/lastVisitedWorkspace";
 
 async function getTargetWorkspace() {
-  const lastVisited = safeJsonParse(
-    localStorage.getItem(LAST_VISITED_WORKSPACE)
-  );
+  const lastVisited = getLastVisitedWorkspace();
   if (lastVisited?.slug) {
     const workspace = await Workspace.bySlug(lastVisited.slug);
-    if (workspace) return workspace;
+    if (workspace) {
+      const threadSlug = getLastVisitedThreadSlug(workspace.slug);
+      if (threadSlug) {
+        const { threads } = await Workspace.threads.all(workspace.slug);
+        const threadExists = threads.some(
+          (thread) => thread.slug === threadSlug
+        );
+        if (!threadExists) {
+          clearLastVisitedThread(workspace.slug, threadSlug);
+          return {
+            workspace,
+            redirectPath: paths.workspace.chat(workspace.slug),
+          };
+        }
+      }
+      return {
+        workspace,
+        redirectPath: pathForLastVisitedThread(workspace.slug),
+      };
+    }
   }
 
   const workspaces = await Workspace.all();
-  return workspaces.length > 0 ? workspaces[0] : null;
+  return {
+    workspace: workspaces.length > 0 ? workspaces[0] : null,
+    redirectPath: null,
+  };
 }
 
 async function createDefaultWorkspace(workspaceName = "My Workspace") {
@@ -88,8 +110,12 @@ export default function Home() {
 
   useEffect(() => {
     async function init() {
-      const ws = await getTargetWorkspace();
+      const { workspace: ws, redirectPath } = await getTargetWorkspace();
       if (ws) {
+        if (redirectPath) {
+          navigate(redirectPath, { replace: true });
+          return;
+        }
         const [suggestedMessages, { showAgentCommand }] = await Promise.all([
           Workspace.getSuggestedMessages(ws.slug),
           Workspace.agentCommandAvailable(ws.slug),
@@ -103,7 +129,7 @@ export default function Home() {
       setWorkspaceLoading(false);
     }
     init();
-  }, []);
+  }, [navigate]);
 
   // When workspace/thread becomes available and we have pending files, trigger upload
   useEffect(() => {

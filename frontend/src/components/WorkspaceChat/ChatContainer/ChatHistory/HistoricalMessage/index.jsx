@@ -38,6 +38,7 @@ const HistoricalMessage = ({
   metrics = {},
   outputs = [],
   hydrationStatus = null,
+  readOnly = false,
 }) => {
   // Freeze uuid on first render. User messages arrive without a uuid and this value
   // is used as the wrapper div's `key` — a default param fallback would regenerate
@@ -79,7 +80,7 @@ const HistoricalMessage = ({
   }
 
   if (role === "user") {
-    if (isEditing) {
+    if (isEditing && !readOnly) {
       return (
         <div key={uuid} className="flex justify-end w-full py-4 px-4">
           <EditMessageForm
@@ -111,18 +112,20 @@ const HistoricalMessage = ({
               <ChatAttachments attachments={attachments} />
             </TruncatableContent>
           </div>
-          <Actions
-            message={message}
-            feedbackScore={feedbackScore}
-            chatId={chatId}
-            slug={workspace?.slug}
-            isLastMessage={isLastMessage}
-            regenerateMessage={regenerateMessage}
-            isEditing={isEditing}
-            role={role}
-            forkThread={forkThread}
-            metrics={metrics}
-          />
+          {!readOnly && (
+            <Actions
+              message={message}
+              feedbackScore={feedbackScore}
+              chatId={chatId}
+              slug={workspace?.slug}
+              isLastMessage={isLastMessage}
+              regenerateMessage={regenerateMessage}
+              isEditing={isEditing}
+              role={role}
+              forkThread={forkThread}
+              metrics={metrics}
+            />
+          )}
         </div>
       </div>
     );
@@ -135,7 +138,7 @@ const HistoricalMessage = ({
       className={`${isDeleted ? "animate-remove" : ""} flex justify-start w-full group`}
     >
       <div className="py-4 px-4 md:pl-0 flex flex-col w-full">
-        {isEditing ? (
+        {isEditing && !readOnly ? (
           <EditMessageForm
             role={role}
             chatId={chatId}
@@ -173,25 +176,27 @@ const HistoricalMessage = ({
             <HistoricalOutputs outputs={outputs} workspace={workspace} />
           </div>
         )}
-        <div className="flex items-start md:items-center gap-x-1">
-          <TTSMessage
-            slug={workspace?.slug}
-            chatId={chatId}
-            message={message}
-          />
-          <Actions
-            message={message}
-            feedbackScore={feedbackScore}
-            chatId={chatId}
-            slug={workspace?.slug}
-            isLastMessage={isLastMessage}
-            regenerateMessage={regenerateMessage}
-            isEditing={isEditing}
-            role={role}
-            forkThread={forkThread}
-            metrics={metrics}
-          />
-        </div>
+        {!readOnly && (
+          <div className="flex items-start md:items-center gap-x-1">
+            <TTSMessage
+              slug={workspace?.slug}
+              chatId={chatId}
+              message={message}
+            />
+            <Actions
+              message={message}
+              feedbackScore={feedbackScore}
+              chatId={chatId}
+              slug={workspace?.slug}
+              isLastMessage={isLastMessage}
+              regenerateMessage={regenerateMessage}
+              isEditing={isEditing}
+              role={role}
+              forkThread={forkThread}
+              metrics={metrics}
+            />
+          </div>
+        )}
         {role === "assistant" && <Citations sources={sources} />}
       </div>
     </div>
@@ -213,7 +218,8 @@ export default memo(
       prevProps.chatId === nextProps.chatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
-      prevProps.hydrationStatus === nextProps.hydrationStatus
+      prevProps.hydrationStatus === nextProps.hydrationStatus &&
+      prevProps.readOnly === nextProps.readOnly
     );
   }
 );

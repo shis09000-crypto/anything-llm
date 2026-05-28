@@ -97,6 +97,7 @@ const TRANSLATIONS = {
     llm: "LLM",
     transcription: "Transcription",
     embedder: "Embedder",
+    reranker: "Rerank Model",
     "text-splitting": "Text Splitter & Chunking",
     "batch-jobs": "Batch Jobs",
     "voice-speech": "Voice & Speech",
@@ -819,6 +820,44 @@ const TRANSLATIONS = {
       theme: {
         title: "Theme",
         description: "Select your preferred color theme for the application.",
+        options: {
+          system: "System",
+          light: "Light",
+          dark: "Dark",
+        },
+      },
+      "motion-density": {
+        title: "Motion density",
+        description:
+          "Controls animation strength and pacing across route, panel, modal, and micro interactions.",
+        guide: {
+          title: "Speed guide",
+          description:
+            "The moving dot previews the rhythm: shorter travel feels calmer and faster, longer travel feels fuller and more visible.",
+        },
+        options: {
+          minimal: {
+            label: "Minimal",
+            description:
+              "Shorter, calmer motion for the most restrained interface.",
+            speed: "Fast and restrained",
+            duration: "about 0.28s",
+          },
+          balanced: {
+            label: "Balanced",
+            description:
+              "The default product rhythm: polished, stable, and quiet.",
+            speed: "Standard rhythm",
+            duration: "about 0.36s",
+          },
+          expressive: {
+            label: "Expressive",
+            description:
+              "Slightly fuller motion while staying within performance budgets.",
+            speed: "Slower and fuller",
+            duration: "about 0.48s",
+          },
+        },
       },
       "show-scrollbar": {
         title: "Show Scrollbar",
@@ -913,6 +952,32 @@ const TRANSLATIONS = {
       by: "Created By",
       created: "Created",
     },
+  },
+  rerank: {
+    title: "Rerank Model Preference",
+    description:
+      "Configure the provider and model used to rerank vector search results. When a workspace uses accuracy optimized retrieval, these rerank settings are applied.",
+    provider: "Rerank Provider",
+    providerHint:
+      "Use the built-in reranker by default. Select Alibaba Cloud DashScope only after you have a DashScope API key and want hosted qwen3 rerank.",
+    providers: {
+      native: {
+        name: "Built-in Reranker",
+        description:
+          "Use the local system reranker included with AnythingLLM. No API key or hosted endpoint is required.",
+      },
+      alibaba: {
+        name: "Alibaba DashScope",
+        description:
+          "Use Alibaba Cloud DashScope qwen3 rerank to reorder vector search results.",
+      },
+    },
+    model: "Rerank Model",
+    nativeHelp:
+      "The built-in reranker runs locally through the system native rerank model, so API Key, Base URL, and model fields are not needed. This is the default mode before Alibaba DashScope rerank is configured.",
+    help: "Alibaba DashScope rerank sends vector-search candidates to the DashScope rerank endpoint and reorders them by query relevance. Provide your DashScope API Key, Base URL, and model name.",
+    save: "Save changes",
+    saving: "Saving...",
   },
   llm: {
     title: "LLM Preference",

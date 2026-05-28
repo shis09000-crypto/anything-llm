@@ -88,6 +88,7 @@ const TRANSLATIONS = {
     llm: "大语言模型（LLM）",
     transcription: "转录模型",
     embedder: "嵌入器（Embedder）",
+    reranker: "重排模型（Rerank）",
     "text-splitting": "文本分割",
     "batch-jobs": "批处理任务",
     "voice-speech": "语音和讲话",
@@ -773,6 +774,40 @@ const TRANSLATIONS = {
       theme: {
         title: "主题",
         description: "选择您偏好的应用配色主题。",
+        options: {
+          system: "跟随系统",
+          light: "浅色",
+          dark: "深色",
+        },
+      },
+      "motion-density": {
+        title: "动效强度",
+        description: "控制页面切换、面板、弹窗和微交互的动画速度与幅度。",
+        guide: {
+          title: "速度指引",
+          description:
+            "小圆点会预览当前档位的节奏：移动距离越短越克制快速，移动距离越长越完整明显。",
+        },
+        options: {
+          minimal: {
+            label: "轻量",
+            description: "动画更短、更安静，适合希望界面稳定少动的使用方式。",
+            speed: "快速、克制",
+            duration: "约 0.28 秒",
+          },
+          balanced: {
+            label: "平衡",
+            description: "默认产品节奏，兼顾精致感、稳定性和安静观感。",
+            speed: "标准节奏",
+            duration: "约 0.36 秒",
+          },
+          expressive: {
+            label: "丰富",
+            description: "动画幅度更完整、更有层次，但仍控制在性能预算内。",
+            speed: "更慢、更明显",
+            duration: "约 0.48 秒",
+          },
+        },
       },
       "show-scrollbar": {
         title: "显示滚动条",
@@ -858,6 +893,31 @@ const TRANSLATIONS = {
       by: "创建者",
       created: "创建时间",
     },
+  },
+  rerank: {
+    title: "重排模型首选项",
+    description:
+      "配置用于向量检索结果重排的提供商和模型。开启工作区的准确率优化检索后，会使用这里的重排设置。",
+    provider: "重排提供商",
+    providerHint:
+      "默认使用系统自带重排模型。只有在已准备好 DashScope API Key，并希望使用托管 qwen3 重排时，再切换到阿里百炼。",
+    providers: {
+      native: {
+        name: "系统自带重排",
+        description:
+          "使用向量知识库内置的本地重排模型，不需要 API Key 或托管接口。",
+      },
+      alibaba: {
+        name: "阿里百炼 DashScope",
+        description: "使用阿里云 DashScope qwen3 rerank 重排向量检索结果。",
+      },
+    },
+    model: "重排模型",
+    nativeHelp:
+      "系统自带重排会使用本地内置模型完成候选片段排序，因此不需要填写 API Key、Base URL 或模型名。在未配置阿里百炼重排前，会优先使用这个默认模式。",
+    help: "阿里百炼重排会把向量搜索召回的候选片段发送到 DashScope rerank 接口，根据查询相关性重新排序。请填写 DashScope API Key、Base URL 和模型名。",
+    save: "保存更改",
+    saving: "正在保存...",
   },
   llm: {
     title: "LLM 首选项",

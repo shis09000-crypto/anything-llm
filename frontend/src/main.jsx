@@ -105,6 +105,17 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/rerank-preference",
+        lazy: async () => {
+          const { default: GeneralRerankPreference } = await import(
+            "@/pages/GeneralSettings/RerankPreference"
+          );
+          return {
+            element: <AdminRoute Component={GeneralRerankPreference} />,
+          };
+        },
+      },
+      {
         path: "/settings/text-splitter-preference",
         lazy: async () => {
           const { default: EmbeddingTextSplitterPreference } = await import(
