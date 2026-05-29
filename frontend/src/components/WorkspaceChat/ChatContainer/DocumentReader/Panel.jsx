@@ -160,8 +160,15 @@ function ReaderDrawer({
         <div className="absolute -right-20 bottom-10 h-80 w-80 rounded-full bg-blue-200/24 blur-3xl" />
         <div className="absolute inset-x-0 bottom-0 h-28 bg-[linear-gradient(180deg,transparent,rgba(255,255,255,0.65))]" />
       </div>
-      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[190px_minmax(0,1fr)] gap-5">
-        <div className="flex min-h-0 flex-col rounded-[22px] border border-white/70 bg-white/42 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_18px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+      <div className="relative z-10 grid min-h-0 flex-1 grid-cols-[190px_minmax(0,1fr)] gap-5 overflow-visible">
+        <div
+          className={[
+            "relative flex min-h-0 flex-col overflow-visible rounded-[22px] border border-white/70 bg-white/42 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.88),0_18px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl",
+            workspacePickerOpen ? "z-[90]" : "z-20",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -181,7 +188,7 @@ function ReaderDrawer({
             </span>
           </button>
           <div
-            className={["relative mt-3", workspacePickerOpen ? "z-50" : ""]
+            className={["relative mt-3", workspacePickerOpen ? "z-[100]" : ""]
               .filter(Boolean)
               .join(" ")}
           >
@@ -204,7 +211,7 @@ function ReaderDrawer({
               </span>
             </button>
             {workspacePickerOpen && (
-              <div className="absolute left-0 top-full z-[80] mt-3 max-h-[260px] w-[min(340px,calc(100vw-64px))] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_46px_rgba(15,23,42,0.18)]">
+              <div className="absolute left-0 top-full z-[110] mt-3 max-h-[260px] w-[min(340px,calc(100vw-64px))] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_46px_rgba(15,23,42,0.18)]">
                 <div className="border-b border-slate-200/80 px-4 py-3">
                   <p className="m-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Workspace 解析文本
@@ -251,7 +258,7 @@ function ReaderDrawer({
             </span>
           </div>
         </div>
-        <div className="flex min-h-0 flex-col rounded-[22px] border border-white/70 bg-white/52 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_18px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+        <div className="relative z-10 flex min-h-0 flex-col rounded-[22px] border border-white/70 bg-white/52 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_18px_44px_rgba(15,23,42,0.08)] backdrop-blur-xl">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-slate-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)]">
