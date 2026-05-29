@@ -10,6 +10,7 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
+import AppButton from "@/components/lib/AppButton";
 import { useDocumentReader } from "./Provider";
 import ReaderMarkdownRenderer from "./ReaderMarkdownRenderer";
 import XlsxReader from "./XlsxReader";
@@ -179,7 +180,11 @@ function ReaderDrawer({
               </span>
             </span>
           </button>
-          <div className="relative mt-3">
+          <div
+            className={["relative mt-3", workspacePickerOpen ? "z-50" : ""]
+              .filter(Boolean)
+              .join(" ")}
+          >
             <button
               type="button"
               onClick={() => setWorkspacePickerOpen((open) => !open)}
@@ -199,14 +204,14 @@ function ReaderDrawer({
               </span>
             </button>
             {workspacePickerOpen && (
-              <div className="absolute left-0 top-full z-30 mt-3 max-h-[260px] w-[min(340px,calc(100vw-64px))] overflow-hidden rounded-2xl border border-white/80 bg-white/94 shadow-[0_18px_46px_rgba(15,23,42,0.18)] backdrop-blur-xl">
+              <div className="absolute left-0 top-full z-[80] mt-3 max-h-[260px] w-[min(340px,calc(100vw-64px))] overflow-hidden rounded-2xl border border-slate-200/90 bg-white shadow-[0_18px_46px_rgba(15,23,42,0.18)]">
                 <div className="border-b border-slate-200/80 px-4 py-3">
                   <p className="m-0 text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Workspace 解析文本
                   </p>
                 </div>
                 {documents.length > 0 ? (
-                  <div className="max-h-[204px] overflow-y-auto p-2">
+                  <div className="max-h-[204px] divide-y divide-slate-100 overflow-y-auto">
                     {documents.map((doc) => {
                       const docPath = doc.docpath || doc.name;
                       return (
@@ -217,7 +222,7 @@ function ReaderDrawer({
                             setWorkspacePickerOpen(false);
                             onOpenWorkspaceDoc(docPath);
                           }}
-                          className="block w-full truncate rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700"
+                          className="block w-full truncate px-4 py-3 text-left text-sm font-medium text-slate-700 hover:bg-sky-50 hover:text-sky-700 focus:bg-sky-50 focus:outline-none"
                         >
                           {doc.title || doc.name || docPath}
                         </button>
@@ -261,15 +266,15 @@ function ReaderDrawer({
                 </p>
               </div>
             </div>
-            <button
-              type="button"
+            <AppButton
+              size="sm"
               onClick={onClearHistory}
               disabled={!hasHistory}
-              className="motion-hover flex h-9 shrink-0 items-center gap-1.5 rounded-lg border border-white/70 bg-white/70 px-3 text-xs font-semibold text-slate-500 shadow-[0_10px_24px_rgba(15,23,42,0.08)] hover:-translate-y-0.5 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:translate-y-0"
+              leftIcon={<Trash size={15} />}
+              className="reader-clear-history-button shrink-0"
             >
-              <Trash size={15} />
               清空记录
-            </button>
+            </AppButton>
           </div>
           <div className="mt-6 min-h-0 flex-1 overflow-y-auto pr-1">
             {hasHistory ? (

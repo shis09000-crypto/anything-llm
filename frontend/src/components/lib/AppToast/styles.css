@@ -7,20 +7,35 @@
   gap: 14px;
 }
 
+.app-toast-host {
+  position: fixed;
+  right: max(20px, env(safe-area-inset-right));
+  bottom: max(20px, env(safe-area-inset-bottom));
+  left: max(20px, env(safe-area-inset-left));
+  z-index: 9999;
+  width: min(var(--app-toast-width, 400px), calc(100vw - 40px));
+  margin-inline: auto;
+  pointer-events: none;
+}
+
+.app-toast-host .app-toast {
+  pointer-events: auto;
+}
+
 .app-toast {
   --app-toast-width-local: var(--app-toast-width, 400px);
   --app-toast-radius-local: var(--app-toast-radius, 22px);
-  --app-toast-padding-x-local: var(--app-toast-padding-x, 16px);
-  --app-toast-padding-y-local: var(--app-toast-padding-y, 15px);
-  --app-toast-bg-alpha-local: var(--app-toast-bg-alpha, 0.78);
-  --app-toast-border-alpha-local: var(--app-toast-border-alpha, 0.78);
-  --app-toast-shadow-alpha-local: var(--app-toast-shadow-alpha, 0.14);
-  --app-toast-blur-local: var(--app-toast-blur, 20px);
+  --app-toast-padding-x-local: var(--app-toast-padding-x, 18px);
+  --app-toast-padding-y-local: var(--app-toast-padding-y, 16px);
+  --app-toast-bg-alpha-local: var(--app-toast-bg-alpha, 0.73);
+  --app-toast-border-alpha-local: var(--app-toast-border-alpha, 0.45);
+  --app-toast-shadow-alpha-local: var(--app-toast-shadow-alpha, 0.13);
+  --app-toast-blur-local: var(--app-toast-blur, 13px);
   --app-toast-progress-height-local: var(--app-toast-progress-height, 4px);
-  --app-toast-icon-size-local: var(--app-toast-icon-size, 36px);
+  --app-toast-icon-size-local: var(--app-toast-icon-size, 35px);
   --app-toast-title-size-local: var(--app-toast-title-size, 15px);
   --app-toast-description-size-local: var(--app-toast-description-size, 13px);
-  --app-toast-motion-duration-local: var(--app-toast-motion-duration, 420ms);
+  --app-toast-motion-duration-local: var(--app-toast-motion-duration, 320ms);
   --app-toast-type-color: var(--app-toast-info-color, #3b82f6);
   --app-toast-type-tint-alpha: var(--app-toast-info-tint-alpha, 0.12);
   position: relative;
@@ -117,6 +132,8 @@
   font-weight: 800;
   line-height: 1.25;
   letter-spacing: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .app-toast-description {
@@ -126,6 +143,8 @@
   font-weight: 500;
   line-height: 1.45;
   letter-spacing: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .app-toast-close {

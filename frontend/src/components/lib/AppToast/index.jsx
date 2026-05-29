@@ -6,6 +6,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
+import { dismissToast, subscribeToToasts } from "@/utils/toast";
 import "./styles.css";
 
 const TYPE_CONFIG = {
@@ -32,14 +33,14 @@ const TYPE_CONFIG = {
 };
 
 function motionDurationOf(node) {
-  if (!node) return 420;
+  if (!node) return 320;
   const value = getComputedStyle(node)
     .getPropertyValue("--app-toast-motion-duration")
     .trim();
-  if (!value) return 420;
-  if (value.endsWith("ms")) return Number.parseFloat(value) || 420;
-  if (value.endsWith("s")) return (Number.parseFloat(value) || 0.42) * 1_000;
-  return Number.parseFloat(value) || 420;
+  if (!value) return 320;
+  if (value.endsWith("ms")) return Number.parseFloat(value) || 320;
+  if (value.endsWith("s")) return (Number.parseFloat(value) || 0.32) * 1_000;
+  return Number.parseFloat(value) || 320;
 }
 
 export function AppToastViewport({ children, className = "", ...props }) {
@@ -53,11 +54,42 @@ export function AppToastViewport({ children, className = "", ...props }) {
   );
 }
 
+export function AppToastHost() {
+  const [toasts, setToasts] = useState([]);
+
+  useEffect(() => subscribeToToasts(setToasts), []);
+
+  if (toasts.length === 0) return null;
+
+  return (
+    <AppToastViewport
+      className="app-toast-host"
+      aria-live="polite"
+      aria-relevant="additions removals"
+    >
+      {toasts.map((toast) => (
+        <AppToast
+          key={toast.id}
+          type={toast.type}
+          title={toast.title}
+          description={toast.description}
+          duration={toast.duration}
+          closable={toast.closable}
+          dismissOnClick={toast.dismissOnClick}
+          pauseOnHover={toast.pauseOnHover}
+          className={toast.className}
+          onClose={() => dismissToast(toast.id)}
+        />
+      ))}
+    </AppToastViewport>
+  );
+}
+
 export function AppToast({
   type = "info",
   title,
   description,
-  duration = 4_000,
+  duration = 2_600,
   closable = true,
   dismissOnClick = true,
   pauseOnHover = true,

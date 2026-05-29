@@ -1925,10 +1925,6 @@ dialog::backdrop {
   @apply !bg-black !text-white !py-2 !px-3 !rounded-md !z-10;
 }
 
-.Toastify__toast-body {
-  white-space: pre-line;
-}
-
 @keyframes slideDown {
   from {
     opacity: 0;

@@ -2,8 +2,6 @@ import React, { Suspense, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { AuthProvider } from "@/AuthContext";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
 import i18n from "./i18n";
 
 import { PfpProvider } from "./PfpContext";
@@ -19,6 +17,7 @@ import { ChatThreadDraftProvider } from "@/contexts/ChatThreadDraftProvider";
 import { MotionProvider } from "@/contexts/MotionProvider";
 import MotionRouteOutlet from "@/components/MotionRouteOutlet";
 import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
+import { AppToastHost } from "@/components/lib/AppToast";
 
 export default function App() {
   const location = useLocation();
@@ -43,7 +42,7 @@ export default function App() {
                       <ChatThreadDraftProvider>
                         <DefaultDocumentTitle />
                         <MotionRouteOutlet />
-                        <ToastContainer />
+                        <AppToastHost />
                         <KeyboardShortcutsHelp />
                         <ImageLightbox />
                       </ChatThreadDraftProvider>

@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import Sidebar from "@/components/SettingsSidebar";
 import AppButton from "@/components/lib/AppButton";
 import AppToast, { AppToastViewport } from "@/components/lib/AppToast";
+import showToast from "@/utils/toast";
 import { isMobile } from "react-device-detect";
 import {
   ArrowDown,
@@ -40,165 +41,35 @@ const SECONDARY_FIXED_TOKENS = [
   "--app-button-secondary-highlight-opacity: 0.62",
 ];
 
-const DEFAULT_TOAST_PARAMS = {
-  width: 400,
-  radius: 22,
-  paddingX: 16,
-  paddingY: 15,
-  bgAlpha: 0.78,
-  borderAlpha: 0.78,
-  shadowAlpha: 0.14,
-  blur: 20,
-  progressHeight: 4,
-  iconSize: 36,
-  titleSize: 15,
-  descriptionSize: 13,
-  successColor: "#22c55e",
-  infoColor: "#3b82f6",
-  warningColor: "#f59e0b",
-  errorColor: "#ef4444",
-  successTintAlpha: 0.12,
-  infoTintAlpha: 0.12,
-  warningTintAlpha: 0.13,
-  errorTintAlpha: 0.13,
-  duration: 4_000,
+const TOAST_FIXED_TOKENS = [
+  "--app-toast-width: 400px",
+  "--app-toast-radius: 22px",
+  "--app-toast-padding-x: 18px",
+  "--app-toast-padding-y: 16px",
+  "--app-toast-bg-alpha: 0.73",
+  "--app-toast-border-alpha: 0.45",
+  "--app-toast-shadow-alpha: 0.13",
+  "--app-toast-blur: 13px",
+  "--app-toast-progress-height: 4px",
+  "--app-toast-icon-size: 35px",
+  "--app-toast-title-size: 15px",
+  "--app-toast-description-size: 13px",
+  "--app-toast-success-color: #22c55e",
+  "--app-toast-info-color: #3b82f6",
+  "--app-toast-warning-color: #f59e0b",
+  "--app-toast-error-color: #ef4444",
+  "--app-toast-success-tint-alpha: 0.12",
+  "--app-toast-info-tint-alpha: 0.12",
+  "--app-toast-warning-tint-alpha: 0.13",
+  "--app-toast-error-tint-alpha: 0.13",
+  "--app-toast-motion-duration: 320ms",
+];
+
+const TOAST_RUNTIME_PROPS = {
+  duration: 2_600,
   dismissOnClick: true,
   pauseOnHover: true,
-  motionDuration: 420,
 };
-
-const TOAST_RANGE_CONTROLS = [
-  {
-    key: "width",
-    label: "通知宽度",
-    min: 300,
-    max: 520,
-    step: 1,
-    unit: "px",
-  },
-  { key: "radius", label: "圆角", min: 8, max: 32, step: 1, unit: "px" },
-  {
-    key: "paddingX",
-    label: "横向内边距",
-    min: 10,
-    max: 28,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "paddingY",
-    label: "纵向内边距",
-    min: 10,
-    max: 28,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "bgAlpha",
-    label: "背景透明度",
-    min: 0.45,
-    max: 0.98,
-    step: 0.01,
-  },
-  {
-    key: "borderAlpha",
-    label: "边框透明度",
-    min: 0,
-    max: 1,
-    step: 0.01,
-  },
-  {
-    key: "shadowAlpha",
-    label: "阴影强度",
-    min: 0,
-    max: 0.35,
-    step: 0.01,
-  },
-  { key: "blur", label: "背景模糊", min: 0, max: 32, step: 1, unit: "px" },
-  {
-    key: "progressHeight",
-    label: "进度条高度",
-    min: 2,
-    max: 8,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "iconSize",
-    label: "图标尺寸",
-    min: 24,
-    max: 48,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "titleSize",
-    label: "标题字号",
-    min: 13,
-    max: 20,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "descriptionSize",
-    label: "描述字号",
-    min: 11,
-    max: 16,
-    step: 1,
-    unit: "px",
-  },
-  {
-    key: "successTintAlpha",
-    label: "成功背景晕染强度",
-    min: 0,
-    max: 0.25,
-    step: 0.01,
-  },
-  {
-    key: "infoTintAlpha",
-    label: "信息背景晕染强度",
-    min: 0,
-    max: 0.25,
-    step: 0.01,
-  },
-  {
-    key: "warningTintAlpha",
-    label: "警告背景晕染强度",
-    min: 0,
-    max: 0.25,
-    step: 0.01,
-  },
-  {
-    key: "errorTintAlpha",
-    label: "错误背景晕染强度",
-    min: 0,
-    max: 0.25,
-    step: 0.01,
-  },
-  {
-    key: "motionDuration",
-    label: "动画速度",
-    min: 160,
-    max: 900,
-    step: 10,
-    unit: "ms",
-  },
-  {
-    key: "duration",
-    label: "自动关闭时长",
-    min: 1_000,
-    max: 10_000,
-    step: 100,
-    unit: "ms",
-  },
-];
-
-const TOAST_COLOR_CONTROLS = [
-  { key: "successColor", label: "成功色" },
-  { key: "infoColor", label: "信息色" },
-  { key: "warningColor", label: "警告色" },
-  { key: "errorColor", label: "错误色" },
-];
 
 const TOAST_EXAMPLES = [
   {
@@ -243,21 +114,12 @@ const LAB_TABS = [
 
 export default function ButtonLab() {
   const [activeLab, setActiveLab] = useState("primary");
-  const [toastParams, setToastParams] = useState(DEFAULT_TOAST_PARAMS);
   const [liveToasts, setLiveToasts] = useState(() =>
     TOAST_EXAMPLES.map((toast, index) => ({
       ...toast,
       id: `initial-${index}`,
     }))
   );
-
-  function setToastParam(key, value) {
-    setToastParams((current) => ({ ...current, [key]: value }));
-  }
-
-  function resetToastParams() {
-    setToastParams(DEFAULT_TOAST_PARAMS);
-  }
 
   function pushToast(type) {
     const example = TOAST_EXAMPLES.find((item) => item.type === type);
@@ -270,17 +132,18 @@ export default function ButtonLab() {
     ]);
   }
 
+  function pushRealToast(type) {
+    const example = TOAST_EXAMPLES.find((item) => item.type === type);
+    showToast(example.title, type, {
+      clear: true,
+      description: `真实业务 showToast 调用：${example.description}`,
+      toastId: `button-lab-real-${type}`,
+    });
+  }
+
   function removeToast(id) {
     setLiveToasts((current) => current.filter((toast) => toast.id !== id));
   }
-
-  const toastStyle = buildToastStyle(toastParams);
-  const toastVariables = buildToastVariables(toastParams);
-  const toastRuntimeProps = {
-    duration: toastParams.duration,
-    dismissOnClick: toastParams.dismissOnClick,
-    pauseOnHover: toastParams.pauseOnHover,
-  };
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
@@ -328,12 +191,9 @@ export default function ButtonLab() {
             {activeLab === "secondary" && <SecondaryPanel />}
             {activeLab === "toast" && (
               <ToastPanel
-                params={toastParams}
-                variables={toastVariables}
                 onPushToast={pushToast}
+                onPushRealToast={pushRealToast}
                 onClearToasts={() => setLiveToasts([])}
-                onChange={setToastParam}
-                onReset={resetToastParams}
               />
             )}
 
@@ -344,7 +204,6 @@ export default function ButtonLab() {
               ]
                 .filter(Boolean)
                 .join(" ")}
-              style={activeLab === "toast" ? toastStyle : undefined}
             >
               <div className="rounded-2xl border border-white/70 bg-white/42 p-5 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.72),0_18px_54px_rgb(37_99_235_/_0.10)] backdrop-blur-2xl">
                 {activeLab === "primary" ? (
@@ -357,7 +216,7 @@ export default function ButtonLab() {
                     onPushToast={pushToast}
                     onRemoveToast={removeToast}
                     onClearToasts={() => setLiveToasts([])}
-                    toastProps={toastRuntimeProps}
+                    toastProps={TOAST_RUNTIME_PROPS}
                   />
                 )}
               </div>
@@ -467,14 +326,7 @@ function SecondaryPanel() {
   );
 }
 
-function ToastPanel({
-  params,
-  variables,
-  onPushToast,
-  onClearToasts,
-  onChange,
-  onReset,
-}) {
+function ToastPanel({ onPushToast, onPushRealToast, onClearToasts }) {
   return (
     <section className="max-h-none overflow-y-visible rounded-2xl border border-white/15 bg-white/10 p-4 shadow-[0_18px_54px_rgb(0_0_0_/_0.18)] backdrop-blur-2xl light:border-white/70 light:bg-white/65 light:shadow-[0_18px_54px_rgb(15_23_42_/_0.10)] xl:max-h-[calc(100vh-180px)] xl:overflow-y-auto xl:pr-3">
       <div className="rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
@@ -518,71 +370,48 @@ function ToastPanel({
           <AppButton variant="secondary" fullWidth onClick={onClearToasts}>
             清空通知
           </AppButton>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-xs font-semibold text-white light:text-slate-800">
-            通知参数微调
-          </div>
-          <button
-            type="button"
-            onClick={onReset}
-            className="rounded-full border border-sky-300/60 px-3 py-1 text-[11px] font-semibold text-sky-100 transition hover:bg-sky-400/10 light:text-sky-700"
+          <AppButton fullWidth onClick={() => onPushRealToast("success")}>
+            真实成功通知
+          </AppButton>
+          <AppButton
+            variant="secondary"
+            fullWidth
+            onClick={() => onPushRealToast("info")}
           >
-            重置通知参数
-          </button>
-        </div>
-
-        <div className="mt-4 space-y-4">
-          {TOAST_RANGE_CONTROLS.map((control) => (
-            <ToastRangeControl
-              key={control.key}
-              label={control.label}
-              min={control.min}
-              max={control.max}
-              step={control.step}
-              unit={control.unit}
-              value={params[control.key]}
-              onChange={(value) => onChange(control.key, value)}
-            />
-          ))}
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-          {TOAST_COLOR_CONTROLS.map((control) => (
-            <ToastColorControl
-              key={control.key}
-              label={control.label}
-              value={params[control.key]}
-              onChange={(value) => onChange(control.key, value)}
-            />
-          ))}
-        </div>
-
-        <div className="mt-5 space-y-3">
-          <ToastToggleControl
-            label="点击本体关闭"
-            checked={params.dismissOnClick}
-            onChange={(checked) => onChange("dismissOnClick", checked)}
-          />
-          <ToastToggleControl
-            label="悬停暂停"
-            checked={params.pauseOnHover}
-            onChange={(checked) => onChange("pauseOnHover", checked)}
-          />
+            真实信息通知
+          </AppButton>
+          <AppButton
+            variant="secondary"
+            fullWidth
+            onClick={() => onPushRealToast("warning")}
+          >
+            真实警告通知
+          </AppButton>
+          <AppButton
+            variant="secondary"
+            fullWidth
+            onClick={() => onPushRealToast("error")}
+          >
+            真实错误通知
+          </AppButton>
         </div>
       </div>
 
       <div className="mt-5 rounded-2xl border border-white/15 bg-slate-950/70 p-4 light:border-slate-200 light:bg-slate-950">
         <div className="text-xs font-semibold text-sky-200">
-          当前 CSS 变量预览区
+          当前固定视觉参数
         </div>
+        <p className="mt-2 text-[11px] leading-5 text-sky-100/70">
+          通知组件参数已固化到 AppToast 默认样式中。此处只保留最终展示与全局
+          showToast 接入检查。
+        </p>
         <div className="mt-3 grid gap-1 rounded-xl bg-black/35 p-3 text-[11px] leading-5 text-sky-50">
-          {variables.map((item) => (
+          {TOAST_FIXED_TOKENS.map((item) => (
             <code key={item}>{item};</code>
           ))}
+          <code>默认自动关闭时长: 2600ms;</code>
+          <code>点击本体关闭: true;</code>
+          <code>悬停暂停: true;</code>
         </div>
       </div>
     </section>
@@ -864,143 +693,6 @@ function ToastPreviewSection({ title, children }) {
       {children}
     </div>
   );
-}
-
-function ToastRangeControl({
-  label,
-  value,
-  min,
-  max,
-  step,
-  unit = "",
-  onChange,
-}) {
-  function updateValue(nextValue) {
-    const numeric = Number(nextValue);
-    if (!Number.isFinite(numeric)) return;
-    onChange(Math.min(max, Math.max(min, numeric)));
-  }
-
-  return (
-    <label className="block">
-      <div className="mb-2 flex items-center justify-between gap-3 text-xs font-semibold text-white/70 light:text-slate-600">
-        <span>{label}</span>
-        <span className="text-white/45 light:text-slate-400">
-          {value}
-          {unit}
-        </span>
-      </div>
-      <div className="grid grid-cols-[minmax(0,1fr)_88px] items-center gap-3">
-        <input
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => updateValue(event.target.value)}
-          className="h-2 accent-sky-400"
-        />
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value}
-          onChange={(event) => updateValue(event.target.value)}
-          className="h-9 rounded-xl border border-white/15 bg-white/10 px-2 text-xs font-semibold text-white outline-none focus:border-sky-300 light:border-slate-200 light:bg-white light:text-slate-700"
-        />
-      </div>
-    </label>
-  );
-}
-
-function ToastColorControl({ label, value, onChange }) {
-  return (
-    <label className="flex items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/5 px-3 py-2 light:border-slate-200 light:bg-white/70">
-      <span className="text-xs font-semibold text-white/70 light:text-slate-600">
-        {label}
-      </span>
-      <div className="flex items-center gap-2">
-        <code className="text-[11px] text-white/45 light:text-slate-400">
-          {value}
-        </code>
-        <input
-          type="color"
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          className="h-8 w-10 rounded-lg border border-white/20 bg-transparent p-0 light:border-slate-200"
-        />
-      </div>
-    </label>
-  );
-}
-
-function ToastToggleControl({ label, checked, onChange }) {
-  return (
-    <label className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/15 bg-white/5 px-3 py-2 light:border-slate-200 light:bg-white/70">
-      <span className="text-xs font-semibold text-white/70 light:text-slate-600">
-        {label}
-      </span>
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 accent-sky-500"
-      />
-    </label>
-  );
-}
-
-function buildToastStyle(params) {
-  return {
-    "--app-toast-width": `${params.width}px`,
-    "--app-toast-radius": `${params.radius}px`,
-    "--app-toast-padding-x": `${params.paddingX}px`,
-    "--app-toast-padding-y": `${params.paddingY}px`,
-    "--app-toast-bg-alpha": params.bgAlpha,
-    "--app-toast-border-alpha": params.borderAlpha,
-    "--app-toast-shadow-alpha": params.shadowAlpha,
-    "--app-toast-blur": `${params.blur}px`,
-    "--app-toast-progress-height": `${params.progressHeight}px`,
-    "--app-toast-icon-size": `${params.iconSize}px`,
-    "--app-toast-title-size": `${params.titleSize}px`,
-    "--app-toast-description-size": `${params.descriptionSize}px`,
-    "--app-toast-success-color": params.successColor,
-    "--app-toast-info-color": params.infoColor,
-    "--app-toast-warning-color": params.warningColor,
-    "--app-toast-error-color": params.errorColor,
-    "--app-toast-success-tint-alpha": params.successTintAlpha,
-    "--app-toast-info-tint-alpha": params.infoTintAlpha,
-    "--app-toast-warning-tint-alpha": params.warningTintAlpha,
-    "--app-toast-error-tint-alpha": params.errorTintAlpha,
-    "--app-toast-motion-duration": `${params.motionDuration}ms`,
-  };
-}
-
-function buildToastVariables(params) {
-  return [
-    `--app-toast-width: ${params.width}px`,
-    `--app-toast-radius: ${params.radius}px`,
-    `--app-toast-padding-x: ${params.paddingX}px`,
-    `--app-toast-padding-y: ${params.paddingY}px`,
-    `--app-toast-bg-alpha: ${params.bgAlpha}`,
-    `--app-toast-border-alpha: ${params.borderAlpha}`,
-    `--app-toast-shadow-alpha: ${params.shadowAlpha}`,
-    `--app-toast-blur: ${params.blur}px`,
-    `--app-toast-progress-height: ${params.progressHeight}px`,
-    `--app-toast-icon-size: ${params.iconSize}px`,
-    `--app-toast-title-size: ${params.titleSize}px`,
-    `--app-toast-description-size: ${params.descriptionSize}px`,
-    `--app-toast-success-color: ${params.successColor}`,
-    `--app-toast-info-color: ${params.infoColor}`,
-    `--app-toast-warning-color: ${params.warningColor}`,
-    `--app-toast-error-color: ${params.errorColor}`,
-    `--app-toast-success-tint-alpha: ${params.successTintAlpha}`,
-    `--app-toast-info-tint-alpha: ${params.infoTintAlpha}`,
-    `--app-toast-warning-tint-alpha: ${params.warningTintAlpha}`,
-    `--app-toast-error-tint-alpha: ${params.errorTintAlpha}`,
-    `--app-toast-motion-duration: ${params.motionDuration}ms`,
-  ];
 }
 
 function PreviewItem({ label, children }) {
