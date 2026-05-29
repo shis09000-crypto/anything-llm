@@ -9,9 +9,13 @@ const {
   grepCommand,
   VALID_COMMANDS,
   chatPrompt,
-  recentChatHistory,
   sourceIdentifier,
 } = require("./index");
+const {
+  injectCompactionIntoSystemPrompt,
+  maybeAutoCompact,
+  recentChatHistoryWithCompaction,
+} = require("./threadCompaction");
 const {
   resolveGraphContext,
 } = require("../knowledgeGraph/graphContextResolver");
@@ -105,12 +109,13 @@ async function streamChatWithWorkspace(
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  const { rawHistory, chatHistory } = await recentChatHistory({
-    user,
-    workspace,
-    thread,
-    messageLimit,
-  });
+  let { rawHistory, chatHistory, compaction } =
+    await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+    });
 
   // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
   // as pinning is a supplemental tool but it should be used with caution since it can easily blow up a context window.
@@ -254,9 +259,34 @@ async function streamChatWithWorkspace(
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+  const systemPrompt = await chatPrompt(workspace, user);
+  const autoCompaction = await maybeAutoCompact({
+    workspace,
+    user,
+    thread,
+    llm: LLMConnector,
+    systemPrompt,
+    chatHistory,
+    userPrompt: updatedMessage,
+    contextTexts,
+    attachments,
+    compaction,
+  });
+  if (autoCompaction?.compactionId) {
+    const nextHistory = await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+    });
+    rawHistory = nextHistory.rawHistory;
+    chatHistory = nextHistory.chatHistory;
+    compaction = nextHistory.compaction;
+  }
+
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(workspace, user),
+      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
@@ -314,6 +344,28 @@ async function streamChatWithWorkspace(
       threadId: thread?.id || null,
       user,
     });
+    maybeAutoCompact({
+      workspace,
+      user,
+      thread,
+      llm: LLMConnector,
+      systemPrompt,
+      chatHistory: [
+        ...chatHistory,
+        { role: "user", content: updatedMessage },
+        { role: "assistant", content: completeText },
+      ],
+      userPrompt: "",
+      contextTexts,
+      attachments,
+      compaction,
+      phase: "turn_end",
+    }).catch((error) =>
+      console.warn(
+        "[ThreadCompaction] turn-end auto compact failed",
+        error.message
+      )
+    );
 
     writeResponseChunk(response, {
       uuid,

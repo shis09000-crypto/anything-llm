@@ -15,6 +15,12 @@ function animationModeClass(prefix, mode) {
   return "motion-route-static";
 }
 
+function isSameRouteOutlet(left, right) {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  return left.type === right.type && left.key === right.key;
+}
+
 export default function MotionRouteOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
@@ -93,9 +99,14 @@ export default function MotionRouteOutlet() {
 
   useEffect(() => {
     const activeRoute = currentRef.current;
-    if (activeRoute.key !== routeId || activeRoute.outlet === outlet) return;
+    if (
+      activeRoute.key !== routeId ||
+      isSameRouteOutlet(activeRoute.outlet, outlet)
+    )
+      return;
     setCurrent((prev) => {
-      if (prev.key !== routeId || prev.outlet === outlet) return prev;
+      if (prev.key !== routeId || isSameRouteOutlet(prev.outlet, outlet))
+        return prev;
       return { ...prev, outlet };
     });
   }, [outlet, routeId]);

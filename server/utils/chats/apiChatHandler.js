@@ -6,9 +6,13 @@ const { writeResponseChunk } = require("../helpers/chat/responses");
 const {
   chatPrompt,
   sourceIdentifier,
-  recentChatHistory,
   grepAllSlashCommands,
 } = require("./index");
+const {
+  injectCompactionIntoSystemPrompt,
+  maybeAutoCompact,
+  recentChatHistoryWithCompaction,
+} = require("./threadCompaction");
 const {
   EphemeralAgentHandler,
   EphemeralEventListener,
@@ -262,13 +266,14 @@ async function chatSync({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  const { rawHistory, chatHistory } = await recentChatHistory({
-    user,
-    workspace,
-    thread,
-    messageLimit,
-    apiSessionId: sessionId,
-  });
+  let { rawHistory, chatHistory, compaction } =
+    await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+      apiSessionId: sessionId,
+    });
 
   await new DocumentManager({
     workspace,
@@ -388,9 +393,36 @@ async function chatSync({
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+  const systemPrompt = await chatPrompt(workspace, user);
+  const autoCompaction = await maybeAutoCompact({
+    workspace,
+    user,
+    thread,
+    apiSessionId: sessionId,
+    llm: LLMConnector,
+    systemPrompt,
+    chatHistory,
+    userPrompt: message,
+    contextTexts,
+    attachments,
+    compaction,
+  });
+  if (autoCompaction?.compactionId) {
+    const nextHistory = await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+      apiSessionId: sessionId,
+    });
+    rawHistory = nextHistory.rawHistory;
+    chatHistory = nextHistory.chatHistory;
+    compaction = nextHistory.compaction;
+  }
+
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(workspace, user),
+      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -432,6 +464,29 @@ async function chatSync({
     apiSessionId: sessionId,
     user,
   });
+  maybeAutoCompact({
+    workspace,
+    user,
+    thread,
+    apiSessionId: sessionId,
+    llm: LLMConnector,
+    systemPrompt,
+    chatHistory: [
+      ...chatHistory,
+      { role: "user", content: message },
+      { role: "assistant", content: textResponse },
+    ],
+    userPrompt: "",
+    contextTexts,
+    attachments,
+    compaction,
+    phase: "turn_end",
+  }).catch((error) =>
+    console.warn(
+      "[ThreadCompaction] turn-end auto compact failed",
+      error.message
+    )
+  );
 
   return {
     id: uuid,
@@ -615,13 +670,14 @@ async function streamChat({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  const { rawHistory, chatHistory } = await recentChatHistory({
-    user,
-    workspace,
-    thread,
-    messageLimit,
-    apiSessionId: sessionId,
-  });
+  let { rawHistory, chatHistory, compaction } =
+    await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+      apiSessionId: sessionId,
+    });
 
   // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
   // as pinning is a supplemental tool but it should be used with caution since it can easily blow up a context window.
@@ -748,9 +804,36 @@ async function streamChat({
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
+  const systemPrompt = await chatPrompt(workspace, user);
+  const autoCompaction = await maybeAutoCompact({
+    workspace,
+    user,
+    thread,
+    apiSessionId: sessionId,
+    llm: LLMConnector,
+    systemPrompt,
+    chatHistory,
+    userPrompt: message,
+    contextTexts,
+    attachments,
+    compaction,
+  });
+  if (autoCompaction?.compactionId) {
+    const nextHistory = await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit,
+      apiSessionId: sessionId,
+    });
+    rawHistory = nextHistory.rawHistory;
+    chatHistory = nextHistory.chatHistory;
+    compaction = nextHistory.compaction;
+  }
+
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: await chatPrompt(workspace, user),
+      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
       userPrompt: message,
       contextTexts,
       chatHistory,
@@ -805,6 +888,29 @@ async function streamChat({
       apiSessionId: sessionId,
       user,
     });
+    maybeAutoCompact({
+      workspace,
+      user,
+      thread,
+      apiSessionId: sessionId,
+      llm: LLMConnector,
+      systemPrompt,
+      chatHistory: [
+        ...chatHistory,
+        { role: "user", content: message },
+        { role: "assistant", content: completeText },
+      ],
+      userPrompt: "",
+      contextTexts,
+      attachments,
+      compaction,
+      phase: "turn_end",
+    }).catch((error) =>
+      console.warn(
+        "[ThreadCompaction] turn-end auto compact failed",
+        error.message
+      )
+    );
 
     writeResponseChunk(response, {
       uuid,

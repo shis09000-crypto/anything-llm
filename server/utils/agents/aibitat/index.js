@@ -801,7 +801,9 @@ ${this.getHistory({ to: route.to })
 
     const messages = [
       {
-        content: fromConfig.role,
+        content: [fromConfig.role, this.handlerProps?.compactedThreadMemory]
+          .filter(Boolean)
+          .join("\n\n"),
         role: "system",
       },
       ...chatHistory,

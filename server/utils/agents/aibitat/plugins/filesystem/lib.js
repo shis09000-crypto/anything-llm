@@ -18,6 +18,7 @@ const {
 class FilesystemManager {
   static FILE_READ_CHUNK_SIZE = 1024;
   static CONTEXT_RESERVE_RATIO = 0.25;
+  static WRITE_VERIFY_ATTEMPTS = 2;
   static IMAGE_EXTENSIONS = [
     ".png",
     ".jpg",
@@ -187,23 +188,67 @@ class FilesystemManager {
     return text.replace(/\r\n/g, "\n");
   }
 
+  async #syncDirectory(dirPath) {
+    let dirHandle = null;
+    try {
+      dirHandle = await fs.open(dirPath, "r");
+      await dirHandle.sync();
+    } catch {
+      // Directory fsync is not supported on every filesystem.
+    } finally {
+      if (dirHandle) await dirHandle.close();
+    }
+  }
+
   /**
-   * Writes content to a file atomically using a temp file and rename.
+   * Writes content to a file atomically using a same-directory temp file and rename.
    * @param {string} filePath - Path to the file
    * @param {string} content - Content to write
    * @returns {Promise<void>}
    */
   async #atomicWrite(filePath, content) {
-    const tempPath = `${filePath}.${randomBytes(16).toString("hex")}.tmp`;
+    const parentDir = path.dirname(filePath);
+    const tempPath = path.join(
+      parentDir,
+      `.${path.basename(filePath)}.${randomBytes(16).toString("hex")}.tmp`
+    );
+    let fileHandle = null;
     try {
-      await fs.writeFile(tempPath, content, "utf-8");
+      await fs.mkdir(parentDir, { recursive: true });
+      fileHandle = await fs.open(tempPath, "w");
+      await fileHandle.writeFile(content, "utf-8");
+      await fileHandle.sync();
+      await fileHandle.close();
+      fileHandle = null;
       await fs.rename(tempPath, filePath);
+      await this.#syncDirectory(parentDir);
     } catch (error) {
+      if (fileHandle) {
+        try {
+          await fileHandle.close();
+        } catch {}
+      }
       try {
         await fs.unlink(tempPath);
       } catch {}
       throw error;
     }
+  }
+
+  async #verifyTextFileContent(filePath, expectedContent) {
+    const actualContent = await fs.readFile(filePath, "utf-8");
+    const expectedBytes = Buffer.byteLength(expectedContent, "utf-8");
+    const actualBytes = Buffer.byteLength(actualContent, "utf-8");
+    if (actualContent !== expectedContent) {
+      throw new Error(
+        `Write verification failed for ${filePath}: expected ${expectedBytes} bytes but read ${actualBytes} bytes.`
+      );
+    }
+    return {
+      path: filePath,
+      bytes: actualBytes,
+      verified: true,
+    };
   }
 
   /**
@@ -402,8 +447,8 @@ class FilesystemManager {
     return [...this.#allowedDirectories];
   }
 
-  async getPolicyAllowedDirectories(context = {}) {
-    const dirs = await getAllowedDirectories(context, "read");
+  async getPolicyAllowedDirectories(context = {}, operation = "read") {
+    const dirs = await getAllowedDirectories(context, operation);
     const result = dirs
       .map((dir) => dir?.resolvedPath || dir?.path)
       .filter(Boolean);
@@ -531,7 +576,19 @@ class FilesystemManager {
       return await validator(requestedPath, context);
     }
 
-    const allowedDirs = await this.getPolicyAllowedDirectories(context);
+    if (operation === "write") {
+      const candidate = path.resolve(
+        this.#getDefaultFilesystemRoot(),
+        requestedPath
+      );
+      const result = await validator(candidate, context);
+      if (result.allowed) return result;
+    }
+
+    const allowedDirs = await this.getPolicyAllowedDirectories(
+      context,
+      operation
+    );
     for (const dir of allowedDirs) {
       const candidate = path.resolve(dir, requestedPath);
       const result = await validator(candidate, context);
@@ -577,18 +634,25 @@ class FilesystemManager {
    * Writes content to a file securely.
    * @param {string} filePath - Path to the file
    * @param {string} content - Content to write
-   * @returns {Promise<void>}
+   * @returns {Promise<{path: string, bytes: number, verified: boolean}>}
    */
   async writeFileContent(filePath, content) {
-    try {
-      await fs.writeFile(filePath, content, { encoding: "utf-8", flag: "wx" });
-    } catch (error) {
-      if (error.code === "EEXIST") {
-        await this.#atomicWrite(filePath, content);
-      } else {
-        throw error;
+    const textContent = String(content ?? "");
+    let lastError = null;
+    for (
+      let attempt = 1;
+      attempt <= FilesystemManager.WRITE_VERIFY_ATTEMPTS;
+      attempt++
+    ) {
+      try {
+        await this.#atomicWrite(filePath, textContent);
+        return await this.#verifyTextFileContent(filePath, textContent);
+      } catch (error) {
+        lastError = error;
+        if (attempt >= FilesystemManager.WRITE_VERIFY_ATTEMPTS) break;
       }
     }
+    throw lastError;
   }
 
   /**

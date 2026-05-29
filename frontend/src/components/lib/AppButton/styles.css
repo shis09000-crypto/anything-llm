@@ -1,0 +1,429 @@
+.app-button {
+  --app-button-size-height: 40px;
+  --app-button-size-px: 24px;
+  --app-button-size-font: 14px;
+  --app-button-size-icon: 16px;
+  --app-button-size-gap: 8px;
+  --app-button-radius: 999px;
+  --app-button-gradient-start: #9ccaff;
+  --app-button-gradient-middle: #60a5fa;
+  --app-button-gradient-end: #2f6df6;
+  --app-button-highlight-opacity: 0.62;
+  --app-button-border-opacity: 0.58;
+  --app-button-shadow-strength: 0.22;
+  --app-button-glow-blur: 30px;
+  --app-button-hover-lift: 2px;
+  --app-button-active-scale: 0.97;
+  --app-button-font-weight: 700;
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--app-button-size-height);
+  height: var(--app-button-size-height);
+  padding: 0 var(--app-button-size-px);
+  overflow: hidden;
+  border-radius: var(--app-button-radius);
+  border: 1px solid transparent;
+  font-size: var(--app-button-size-font);
+  font-weight: var(--app-button-font-weight);
+  line-height: 1;
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+  transform: translateY(0) scale(1);
+  transition:
+    filter 180ms var(--motion-ease-standard, ease),
+    opacity 180ms var(--motion-ease-standard, ease),
+    transform 180ms var(--motion-ease-standard, ease);
+}
+
+.app-button::before,
+.app-button::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.app-button::before {
+  z-index: 0;
+}
+
+.app-button::after {
+  z-index: 1;
+}
+
+.app-button > * {
+  position: relative;
+  z-index: 2;
+}
+
+.app-button-size-sm {
+  --app-button-size-height: var(--app-button-sm-height, 32px);
+  --app-button-size-px: var(--app-button-sm-px, 18px);
+  --app-button-size-font: var(--app-button-sm-font-size, 13px);
+  --app-button-size-icon: var(--app-button-sm-icon-size, 14px);
+  --app-button-size-gap: var(--app-button-sm-icon-gap, 6px);
+}
+
+.app-button-size-md {
+  --app-button-size-height: var(--app-button-md-height, 40px);
+  --app-button-size-px: var(--app-button-md-px, 24px);
+  --app-button-size-font: var(--app-button-md-font-size, 14px);
+  --app-button-size-icon: var(--app-button-md-icon-size, 16px);
+  --app-button-size-gap: var(--app-button-md-icon-gap, 8px);
+}
+
+.app-button-size-lg {
+  --app-button-size-height: var(--app-button-lg-height, 48px);
+  --app-button-size-px: var(--app-button-lg-px, 30px);
+  --app-button-size-font: var(--app-button-lg-font-size, 15px);
+  --app-button-size-icon: var(--app-button-lg-icon-size, 18px);
+  --app-button-size-gap: var(--app-button-lg-icon-gap, 10px);
+}
+
+.app-button-full-width {
+  width: 100%;
+}
+
+.app-button-primary {
+  color: #ffffff;
+  border-color: rgb(255 255 255 / var(--app-button-border-opacity));
+  background:
+    linear-gradient(
+      140deg,
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.34)) 0%,
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.1)) 38%,
+      rgb(255 255 255 / 0) 100%
+    ),
+    linear-gradient(
+      135deg,
+      var(--app-button-gradient-start) 0%,
+      var(--app-button-gradient-middle) 48%,
+      var(--app-button-gradient-end) 100%
+    );
+  box-shadow:
+    0 14px 28px rgb(37 99 235 / var(--app-button-shadow-strength)),
+    0 0 var(--app-button-glow-blur)
+      rgb(96 165 250 / calc(var(--app-button-shadow-strength) * 0.85)),
+    inset 0 1px 0
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.92)),
+    inset 0 -1px 0 rgb(30 64 175 / 0.24);
+  text-shadow: 0 1px 1px rgb(30 64 175 / 0.28);
+}
+
+.app-button-primary::before {
+  background:
+    radial-gradient(
+      circle at 85% 18%,
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.9)),
+      transparent 12%
+    ),
+    linear-gradient(
+      132deg,
+      transparent 0%,
+      transparent 34%,
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.38)) 35%,
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.18)) 55%,
+      transparent 56%,
+      transparent 100%
+    );
+  opacity: 0.9;
+}
+
+.app-button-primary::after {
+  box-shadow:
+    inset 1px 1px 1px
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.88)),
+    inset -1px -1px 1px rgb(30 64 175 / 0.24);
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.24)),
+    transparent 44%
+  );
+  mix-blend-mode: screen;
+}
+
+.app-button-primary:not(:disabled):hover,
+.app-button-primary[data-preview-state="hover"] {
+  border-color: rgb(255 255 255 / calc(var(--app-button-border-opacity) + 0.18));
+  filter: saturate(1.08) brightness(1.04);
+  transform: translateY(calc(var(--app-button-hover-lift) * -1)) scale(1);
+  box-shadow:
+    0 18px 34px rgb(37 99 235 / calc(var(--app-button-shadow-strength) * 1.15)),
+    0 0 calc(var(--app-button-glow-blur) * 1.12)
+      rgb(96 165 250 / calc(var(--app-button-shadow-strength) * 0.96)),
+    inset 0 1px 0
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 1)),
+    inset 0 -1px 0 rgb(30 64 175 / 0.22);
+}
+
+.app-button-primary:not(:disabled):active,
+.app-button-primary[data-preview-state="active"] {
+  filter: saturate(1.04) brightness(0.98);
+  transform: translateY(0) scale(var(--app-button-active-scale));
+  box-shadow:
+    0 9px 20px rgb(37 99 235 / calc(var(--app-button-shadow-strength) * 0.85)),
+    0 0 calc(var(--app-button-glow-blur) * 0.72)
+      rgb(96 165 250 / calc(var(--app-button-shadow-strength) * 0.7)),
+    inset 0 2px 4px rgb(30 64 175 / 0.18),
+    inset 0 1px 0
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.5));
+}
+
+.app-button-primary:focus-visible,
+.app-button-primary[data-preview-state="focus"] {
+  outline: 2px solid rgb(37 99 235 / 0.74);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 6px rgb(96 165 250 / 0.18),
+    0 14px 28px rgb(37 99 235 / var(--app-button-shadow-strength)),
+    0 0 var(--app-button-glow-blur)
+      rgb(96 165 250 / calc(var(--app-button-shadow-strength) * 0.85)),
+    inset 0 1px 0
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.92)),
+    inset 0 -1px 0 rgb(30 64 175 / 0.24);
+}
+
+.app-button-primary[data-selected] {
+  border-color: rgb(255 255 255 / calc(var(--app-button-border-opacity) + 0.24));
+  filter: saturate(1.12) brightness(1.03);
+  box-shadow:
+    0 0 0 2px rgb(37 99 235 / 0.18),
+    0 16px 34px rgb(37 99 235 / calc(var(--app-button-shadow-strength) * 1.18)),
+    0 0 calc(var(--app-button-glow-blur) * 1.08)
+      rgb(96 165 250 / calc(var(--app-button-shadow-strength) * 0.95)),
+    inset 0 1px 0
+      rgb(255 255 255 / calc(var(--app-button-highlight-opacity) * 0.95)),
+    inset 0 -1px 0 rgb(30 64 175 / 0.2);
+}
+
+.app-button-secondary {
+  color: var(--app-button-secondary-text, #334155);
+  border-color: rgb(148 163 184 / var(--app-button-secondary-border-alpha, 0.78));
+  background:
+    linear-gradient(
+      142deg,
+      rgb(
+          255 255 255 /
+            calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.24)
+        )
+        0%,
+      rgb(
+          255 255 255 /
+            calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.06)
+        )
+        34%,
+      rgb(255 255 255 / 0) 100%
+    ),
+    linear-gradient(
+      135deg,
+      var(--app-button-secondary-start, #ffffff) 0%,
+      var(--app-button-secondary-mid, #f8fafc) 48%,
+      var(--app-button-secondary-end, #e2e8f0) 100%
+    );
+  box-shadow:
+    0 10px 24px rgb(51 65 85 / var(--app-button-secondary-shadow-alpha, 0.1)),
+    inset 0 1px 0
+      rgb(255 255 255 / var(--app-button-secondary-highlight-opacity, 0.62)),
+    inset 0 -1px 0 rgb(148 163 184 / 0.1);
+  text-shadow: none;
+}
+
+.app-button-secondary::before {
+  background:
+    radial-gradient(
+      circle at 18% 0%,
+      rgb(
+          255 255 255 /
+            calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.38)
+        ),
+      transparent 34%
+    ),
+    linear-gradient(
+      128deg,
+      transparent 0%,
+      rgb(
+          255 255 255 /
+            calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.22)
+        )
+        34%,
+      transparent 58%
+    );
+  opacity: 0.68;
+}
+
+.app-button-secondary::after {
+  background: linear-gradient(
+    180deg,
+      rgb(
+        255 255 255 /
+          calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.16)
+      ),
+    transparent 48%
+  );
+  box-shadow:
+    inset 1px 1px 1px
+      rgb(
+        255 255 255 /
+          calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.78)
+      ),
+    inset -1px -1px 1px rgb(148 163 184 / 0.16);
+}
+
+.app-button-secondary:not(:disabled):hover,
+.app-button-secondary[data-preview-state="hover"] {
+  border-color: rgb(
+    96 165 250 / calc(var(--app-button-secondary-border-alpha, 0.78) * 0.68)
+  );
+  filter: brightness(1.03) saturate(1.03);
+  transform: translateY(calc(var(--app-button-hover-lift) * -0.55)) scale(1);
+  box-shadow:
+    0 12px 26px
+      rgb(51 65 85 / calc(var(--app-button-secondary-shadow-alpha, 0.1) * 1.15)),
+    0 0 18px rgb(147 197 253 / 0.18),
+    inset 0 1px 0
+      rgb(
+        255 255 255 /
+          calc(var(--app-button-secondary-highlight-opacity, 0.62) * 1.08)
+      ),
+    inset 0 -1px 0 rgb(148 163 184 / 0.1);
+}
+
+.app-button-secondary:not(:disabled):active,
+.app-button-secondary[data-preview-state="active"] {
+  filter: brightness(0.99) saturate(0.98);
+  transform: translateY(0) scale(var(--app-button-active-scale));
+  box-shadow:
+    0 5px 14px
+      rgb(51 65 85 / calc(var(--app-button-secondary-shadow-alpha, 0.1) * 0.74)),
+    inset 0 2px 4px rgb(148 163 184 / 0.12),
+    inset 0 1px 0
+      rgb(
+        255 255 255 /
+          calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.62)
+      );
+}
+
+.app-button-secondary:focus-visible,
+.app-button-secondary[data-preview-state="focus"] {
+  outline: 2px solid rgb(96 165 250 / 0.58);
+  outline-offset: 3px;
+  box-shadow:
+    0 0 0 6px rgb(147 197 253 / 0.2),
+    0 10px 24px rgb(51 65 85 / var(--app-button-secondary-shadow-alpha, 0.1)),
+    inset 0 1px 0
+      rgb(255 255 255 / var(--app-button-secondary-highlight-opacity, 0.62)),
+    inset 0 -1px 0 rgb(148 163 184 / 0.1);
+}
+
+.app-button-secondary[data-selected] {
+  border-color: rgb(96 165 250 / 0.72);
+  background:
+    linear-gradient(
+      142deg,
+      rgb(
+          255 255 255 /
+            calc(var(--app-button-secondary-highlight-opacity, 0.62) * 0.22)
+        )
+        0%,
+      rgb(219 234 254 / 0.22) 48%,
+      rgb(255 255 255 / 0) 100%
+    ),
+    linear-gradient(
+      135deg,
+      var(--app-button-secondary-start, #ffffff) 0%,
+      var(--app-button-secondary-mid, #f8fafc) 52%,
+      var(--app-button-secondary-end, #e2e8f0) 100%
+    );
+  box-shadow:
+    0 0 0 2px rgb(147 197 253 / 0.16),
+    0 11px 24px
+      rgb(51 65 85 / calc(var(--app-button-secondary-shadow-alpha, 0.1) * 1.04)),
+    inset 0 1px 0
+      rgb(255 255 255 / var(--app-button-secondary-highlight-opacity, 0.62)),
+    inset 0 0 18px rgb(147 197 253 / 0.16);
+}
+
+.app-button:disabled:not([data-loading]) {
+  cursor: not-allowed;
+  opacity: 0.58;
+  transform: none;
+  filter: saturate(0.72);
+}
+
+.app-button-primary:disabled:not([data-loading]) {
+  color: rgb(255 255 255 / 0.78);
+  background:
+    linear-gradient(135deg, rgb(219 234 254 / 0.8), rgb(191 219 254 / 0.7)),
+    linear-gradient(135deg, #bfdbfe, #93c5fd);
+  border-color: rgb(255 255 255 / 0.52);
+  box-shadow:
+    0 8px 18px rgb(96 165 250 / 0.12),
+    inset 0 1px 0 rgb(255 255 255 / 0.52);
+  text-shadow: none;
+}
+
+.app-button-secondary:disabled:not([data-loading]) {
+  color: rgb(100 116 139 / 0.52);
+  background:
+    linear-gradient(180deg, rgb(248 250 252 / 0.54), rgb(226 232 240 / 0.36)),
+    rgb(248 250 252 / 0.48);
+  border-color: rgb(148 163 184 / 0.28);
+  box-shadow:
+    0 5px 12px rgb(51 65 85 / 0.04),
+    inset 0 1px 0 rgb(255 255 255 / 0.42);
+}
+
+.app-button[data-loading] {
+  cursor: progress;
+}
+
+.app-button-content {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--app-button-size-gap);
+  min-width: 0;
+}
+
+.app-button[data-loading] .app-button-content {
+  opacity: 0;
+}
+
+.app-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.app-button-icon svg {
+  width: var(--app-button-size-icon);
+  height: var(--app-button-size-icon);
+}
+
+.app-button-spinner {
+  position: absolute;
+  z-index: 3;
+  width: var(--app-button-size-icon);
+  height: var(--app-button-size-icon);
+  border-radius: 999px;
+  border: 2px solid rgb(255 255 255 / 0.42);
+  border-top-color: rgb(255 255 255 / 0.95);
+  animation: app-button-spin 760ms linear infinite;
+}
+
+.app-button-secondary .app-button-spinner {
+  border-color: rgb(100 116 139 / 0.28);
+  border-top-color: rgb(71 85 105 / 0.86);
+}
+
+@keyframes app-button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

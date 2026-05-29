@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import debounce from "lodash.debounce";
 import {
   ArrowUp,
   At,
   CaretDown,
+  CircleNotch,
+  ClockCounterClockwise,
   Question,
   Shield,
 } from "@phosphor-icons/react";
@@ -27,6 +29,7 @@ import { useSearchParams } from "react-router-dom";
 import { useIsAgentSessionActive } from "@/utils/chat/agent";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
+import { nFormatter } from "@/utils/numbers";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -51,8 +54,10 @@ const FILE_ACCESS_MODE_OPTIONS = [
  * @param {string|null} [props.targetThreadSlug] - event target scope for this prompt input
  * @param {string|null} [props.promptStorageKey] - local draft storage scope
  * @param {function} [props.onComposeStateChange] - reports local compose state to the parent
+ * @param {function} [props.onHeightChange] - reports non-centered prompt input height changes
  * @param {boolean} [props.quizModeActive] - next submission generates a quiz
  * @param {function} [props.onToggleQuizMode] - toggles quiz mode
+ * @param {Object|null} [props.memoryCompaction] - cached thread compaction status and actions
  */
 export default function PromptInput({
   workspace = {},
@@ -68,8 +73,10 @@ export default function PromptInput({
   targetThreadSlug = threadSlug,
   promptStorageKey = targetThreadSlug ?? threadSlug ?? workspaceSlug,
   onComposeStateChange,
+  onHeightChange,
   quizModeActive = false,
   onToggleQuizMode,
+  memoryCompaction = null,
 }) {
   const { t } = useTranslation();
   const { showAgentCommand = true } = workspace ?? {};
@@ -81,6 +88,7 @@ export default function PromptInput({
   const [isVoiceInputActive, setIsVoiceInputActive] = useState(false);
   const autoOpenedToolsRef = useRef(false);
   const toolsHighlightRef = useRef(-1);
+  const containerRef = useRef(null);
   const formRef = useRef(null);
   const textareaRef = useRef(null);
   const [_, setFocused] = useState(false);
@@ -177,6 +185,47 @@ export default function PromptInput({
     promptInput,
     showTools,
   ]);
+
+  const reportInputHeight = useCallback(() => {
+    if (centered || !onHeightChange || !containerRef.current) return;
+    onHeightChange(
+      Math.ceil(containerRef.current.getBoundingClientRect().height)
+    );
+  }, [centered, onHeightChange]);
+
+  useEffect(() => {
+    reportInputHeight();
+  }, [
+    attachments.length,
+    isStreaming,
+    promptInput,
+    quizModeActive,
+    reportInputHeight,
+  ]);
+
+  useEffect(() => {
+    if (centered || !onHeightChange || !containerRef.current) return;
+    const element = containerRef.current;
+    let frame = null;
+    const scheduleReport = () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(reportInputHeight);
+    };
+
+    scheduleReport();
+    window.addEventListener("resize", scheduleReport);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleReport);
+    resizeObserver?.observe(element);
+
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleReport);
+      resizeObserver?.disconnect();
+    };
+  }, [centered, onHeightChange, reportInputHeight]);
 
   useEffect(() => {
     if (!isStreaming && textareaRef.current) textareaRef.current.focus();
@@ -424,6 +473,7 @@ export default function PromptInput({
 
   return (
     <div
+      ref={containerRef}
       className={
         centered
           ? "w-full relative flex justify-center items-center"
@@ -522,6 +572,9 @@ export default function PromptInput({
                   />
                 </div>
                 <div className="flex gap-x-2 items-center">
+                  <MemoryCompactionControl
+                    memoryCompaction={memoryCompaction}
+                  />
                   <SpeechToText
                     sendCommand={sendCommand}
                     onListeningChange={setIsVoiceInputActive}
@@ -546,6 +599,262 @@ export default function PromptInput({
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function clampRatio(value) {
+  const ratio = Number(value);
+  if (!Number.isFinite(ratio)) return 0;
+  return Math.min(1, Math.max(0, ratio));
+}
+
+function MemoryCompactionControl({ memoryCompaction = null }) {
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const [popoverStyle, setPopoverStyle] = useState({});
+  const buttonRef = useRef(null);
+  const popoverRef = useRef(null);
+  const showTimerRef = useRef(null);
+  const hideTimerRef = useRef(null);
+  const status = memoryCompaction?.status || null;
+  const pending = !!memoryCompaction?.pending;
+  const loading = !!memoryCompaction?.loading;
+  const canCompactAtRatio = Number(status?.canCompactAtRatio || 0.8);
+  const usedTokens = Number(status?.usedTokens || 0);
+  const limitTokens = Number(status?.limitTokens || 0);
+  const safeRatio = clampRatio(status?.ratio);
+  const compactableMessageCount = Number(status?.compactableMessageCount || 0);
+  const targetCompactableMessageCount = Number(
+    status?.targetCompactableMessageCount ?? compactableMessageCount
+  );
+  const latestTargetResult = status?.latestTargetResult || null;
+  const cannotReachTargetReason =
+    latestTargetResult?.cannotReachTargetReason ||
+    status?.cannotReachTargetReason ||
+    null;
+  const hasLimit = limitTokens > 0;
+  const ringDegrees = Math.round(safeRatio * 360);
+  const ringTone =
+    safeRatio >= 0.9
+      ? "rgb(248 113 113)"
+      : safeRatio >= 0.72
+        ? "rgb(251 191 36)"
+        : "rgb(56 189 248)";
+
+  useEffect(() => {
+    return () => {
+      clearTimeout(showTimerRef.current);
+      clearTimeout(hideTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onPointerDown(event) {
+      if (buttonRef.current?.contains(event.target)) return;
+      if (popoverRef.current?.contains(event.target)) return;
+      closeNow();
+    }
+
+    function onEscape(event) {
+      if (event.key === "Escape") closeNow();
+    }
+
+    positionPopover();
+    window.addEventListener("resize", positionPopover);
+    window.addEventListener("scroll", positionPopover, true);
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onEscape);
+    return () => {
+      window.removeEventListener("resize", positionPopover);
+      window.removeEventListener("scroll", positionPopover, true);
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onEscape);
+    };
+  }, [open]);
+
+  if (!memoryCompaction?.visible) return null;
+
+  function positionPopover() {
+    const rect = buttonRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const width = 260;
+    const gap = 10;
+    setPopoverStyle({
+      position: "fixed",
+      width: `${width}px`,
+      left: `${Math.min(
+        Math.max(8, rect.right - width),
+        window.innerWidth - width - 8
+      )}px`,
+      top: `${Math.max(8, rect.top - 190 - gap)}px`,
+      zIndex: 9999,
+    });
+  }
+
+  function openAfter(delay = 800) {
+    clearTimeout(hideTimerRef.current);
+    clearTimeout(showTimerRef.current);
+    showTimerRef.current = setTimeout(() => {
+      setOpen(true);
+      setPinned(false);
+      setTimeout(positionPopover, 0);
+    }, delay);
+  }
+
+  function closeAfter(delay = 200) {
+    if (pinned) return;
+    clearTimeout(showTimerRef.current);
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setOpen(false), delay);
+  }
+
+  function closeNow() {
+    clearTimeout(showTimerRef.current);
+    clearTimeout(hideTimerRef.current);
+    setPinned(false);
+    setOpen(false);
+  }
+
+  function togglePinned() {
+    clearTimeout(showTimerRef.current);
+    clearTimeout(hideTimerRef.current);
+    setOpen((current) => {
+      const next = !current || !pinned;
+      setPinned(next);
+      setTimeout(positionPopover, 0);
+      return next;
+    });
+  }
+
+  const disabledReason = pending
+    ? "上下文记忆正在压缩"
+    : targetCompactableMessageCount <= 0
+      ? "暂无可压缩记忆"
+      : safeRatio < canCompactAtRatio
+        ? "达到 80% 后可压缩"
+        : null;
+  const canCompact = !disabledReason;
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="线程记忆占用"
+        onPointerEnter={() => openAfter(800)}
+        onPointerLeave={() => closeAfter(200)}
+        onFocus={() => openAfter(180)}
+        onBlur={() => closeAfter(200)}
+        onClick={togglePinned}
+        className="group relative border-none flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full hover:bg-zinc-700 light:hover:bg-slate-200"
+        style={{
+          backgroundImage: `conic-gradient(${ringTone} ${ringDegrees}deg, rgba(113,113,122,0.35) 0deg)`,
+        }}
+      >
+        <span className="flex h-[26px] w-[26px] items-center justify-center rounded-full bg-zinc-900 light:bg-white">
+          {loading ? (
+            <CircleNotch
+              size={15}
+              className="animate-spin text-zinc-300 light:text-slate-600"
+            />
+          ) : (
+            <ClockCounterClockwise
+              size={15}
+              className="text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-slate-800"
+            />
+          )}
+        </span>
+      </button>
+      {open &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={popoverStyle}
+            onPointerEnter={() => {
+              clearTimeout(hideTimerRef.current);
+              clearTimeout(showTimerRef.current);
+            }}
+            onPointerLeave={() => closeAfter(200)}
+            className="motion-hover rounded-xl border border-white/10 light:border-slate-200 bg-zinc-950/95 light:bg-white p-3 text-white light:text-slate-900 shadow-2xl backdrop-blur"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="m-0 text-sm font-semibold">线程记忆占用</p>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-sm font-semibold text-sky-300 light:text-sky-600">
+                  {hasLimit ? `${Math.round(safeRatio * 100)}%` : "--"}
+                </div>
+                <div className="text-[10px] text-white/45 light:text-slate-400">
+                  memory
+                </div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <MemoryStat label="已用" value={nFormatter(usedTokens)} />
+              <MemoryStat
+                label="上限"
+                value={hasLimit ? nFormatter(limitTokens) : "--"}
+              />
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs text-white/55 light:text-slate-500">
+              <span>目标可压缩消息</span>
+              <span>{targetCompactableMessageCount}</span>
+            </div>
+            {latestTargetResult?.targetReached === false &&
+              latestTargetResult?.ratioAfterCompact !== undefined && (
+                <p className="m-0 mt-2 text-xs leading-5 text-amber-300 light:text-amber-600">
+                  为了保留高质量接力摘要，本次未强行压到目标。当前压缩后占用：
+                  {Math.round(
+                    clampRatio(latestTargetResult.ratioAfterCompact) * 100
+                  )}
+                  %，目标：
+                  {Math.round(
+                    Number(latestTargetResult.targetRatio || 0) * 100
+                  )}
+                  %。
+                </p>
+              )}
+            {cannotReachTargetReason && (
+              <p className="m-0 mt-2 truncate text-xs text-white/45 light:text-slate-500">
+                原因：{cannotReachTargetReason}
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={!canCompact}
+              onClick={() => {
+                if (!canCompact) return;
+                memoryCompaction?.onCompact?.();
+              }}
+              className={`mt-3 w-full rounded-lg border-none px-3 py-2 text-sm font-semibold motion-hover ${
+                canCompact
+                  ? "cursor-pointer bg-sky-500 text-white hover:bg-sky-400"
+                  : "cursor-not-allowed bg-zinc-800 text-white/45 light:bg-slate-100 light:text-slate-400"
+              }`}
+            >
+              {disabledReason || "立即压缩记忆"}
+            </button>
+          </div>,
+          document.body
+        )}
+    </>
+  );
+}
+
+function MemoryStat({ label, value }) {
+  return (
+    <div className="rounded-lg bg-white/5 px-2 py-2 light:bg-slate-100">
+      <div className="text-[10px] text-white/45 light:text-slate-500">
+        {label}
+      </div>
+      <div className="mt-0.5 truncate text-xs font-semibold text-white light:text-slate-900">
+        {value}
+      </div>
     </div>
   );
 }

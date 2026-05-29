@@ -121,6 +121,9 @@ const memory = {
               if (!content || String(content).trim().length === 0)
                 return "The content was not embedded because it was empty.";
 
+              // Thread compaction is deterministic per-thread state and must
+              // not be stored here. rag-memory.store remains only for explicit
+              // user requests to remember/save long-term vector memories.
               const workspace = this.super.handlerProps.invocation.workspace;
               const vectorDB = getVectorDbClass();
               this.super.handlerProps.log("memory.store: direct memory write");

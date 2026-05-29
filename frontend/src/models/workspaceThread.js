@@ -164,6 +164,69 @@ const WorkspaceThread = {
       hydratedChatIds: payload.hydratedChatIds || [],
     };
   },
+  compactionStatus: async function (
+    workspaceSlug,
+    threadSlug,
+    { userId = undefined, apiSessionId = undefined, signal } = {}
+  ) {
+    if (!workspaceSlug || !threadSlug)
+      return { success: false, status: null, error: "Missing thread." };
+    const params = new URLSearchParams();
+    if (userId !== undefined)
+      params.set("userId", userId === null ? "null" : String(userId));
+    if (apiSessionId !== undefined)
+      params.set(
+        "apiSessionId",
+        apiSessionId === null ? "null" : String(apiSessionId)
+      );
+    const query = params.toString();
+    return await fetch(
+      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/compact/status${query ? `?${query}` : ""}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+        signal,
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { success: false, status: null, error: error.message };
+      });
+  },
+  compact: async function (
+    workspaceSlug,
+    threadSlug,
+    {
+      userId = undefined,
+      apiSessionId = undefined,
+      mode = undefined,
+      targetRatio = undefined,
+      signal,
+    } = {}
+  ) {
+    if (!workspaceSlug || !threadSlug)
+      return { success: false, error: "Missing thread." };
+    const body = {};
+    if (userId !== undefined) body.userId = userId;
+    if (apiSessionId !== undefined) body.apiSessionId = apiSessionId;
+    if (mode !== undefined) body.mode = mode;
+    if (targetRatio !== undefined) body.targetRatio = targetRatio;
+    return await fetch(
+      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/compact`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+        body: JSON.stringify(body),
+        signal,
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { success: false, error: error.message };
+      });
+  },
   streamChat: async function (
     { workspaceSlug, threadSlug },
     message,

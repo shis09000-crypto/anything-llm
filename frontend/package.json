@@ -13,6 +13,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@cyntler/react-doc-viewer": "1.17.1",
     "@lobehub/icons": "^4.0.3",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mintplex-labs/piper-tts-web": "^1.0.4",
@@ -32,6 +33,7 @@
     "js-levenshtein": "^1.1.6",
     "katex": "^0.6.0",
     "lodash.debounce": "^4.0.8",
+    "mammoth": "1.12.0",
     "markdown-it": "^13.0.1",
     "moment": "^2.30.1",
     "onnxruntime-web": "^1.18.0",
@@ -47,6 +49,7 @@
     "react-highlight-words": "^0.21.0",
     "react-i18next": "^14.1.1",
     "react-loading-skeleton": "^3.1.0",
+    "react-pdf-highlighter": "6.0.0",
     "react-router-dom": "^6.3.0",
     "react-speech-recognition": "^3.10.0",
     "react-tag-input-component": "^2.0.2",
@@ -56,7 +59,8 @@
     "recharts-to-png": "^2.3.1",
     "text-case": "^1.0.9",
     "truncate": "^3.0.0",
-    "uuid": "^9.0.0"
+    "uuid": "^9.0.0",
+    "xlsx": "0.18.5"
   },
   "devDependencies": {
     "@esbuild-plugins/node-globals-polyfill": "^0.1.1",

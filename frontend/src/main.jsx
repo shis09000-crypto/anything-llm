@@ -235,6 +235,15 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/button-lab",
+        lazy: async () => {
+          const { default: ButtonLab } = await import(
+            "@/pages/GeneralSettings/Settings/ButtonLab"
+          );
+          return { element: <ManagerRoute Component={ButtonLab} /> };
+        },
+      },
+      {
         path: "/settings/default-system-prompt",
         lazy: async () => {
           const { default: DefaultSystemPrompt } = await import(

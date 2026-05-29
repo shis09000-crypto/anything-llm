@@ -14,6 +14,7 @@ const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
+const { compactThread } = require("../../../utils/chats/threadCompaction");
 
 function apiWorkspaceThreadEndpoints(app) {
   if (!app) return;
@@ -459,6 +460,95 @@ function apiWorkspaceThreadEndpoints(app) {
           sources: [],
           close: true,
           error: e.message,
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/v1/workspace/:slug/thread/:threadSlug/compact",
+    [validApiKey],
+    async (request, response) => {
+      try {
+        const { slug, threadSlug } = request.params;
+        const {
+          userId = null,
+          apiSessionId = null,
+          force = false,
+          mode = "target",
+          targetRatio = undefined,
+          compactInstructions = "",
+        } = reqBody(request);
+        const workspace = await Workspace.get({ slug });
+        const thread = workspace
+          ? await WorkspaceThread.get({
+              slug: threadSlug,
+              workspace_id: workspace.id,
+            })
+          : null;
+
+        if (!workspace || !thread) {
+          response.status(400).json({
+            success: false,
+            error: `Workspace ${slug} or thread ${threadSlug} is not valid.`,
+            compactionId: null,
+            coveredMessageCount: 0,
+            tokenBefore: 0,
+            tokenAfter: 0,
+          });
+          return;
+        }
+
+        const user =
+          userId === null ? null : await User.get({ id: Number(userId) });
+        const result = await compactThread({
+          workspace,
+          user,
+          thread,
+          apiSessionId,
+          force: Boolean(force),
+          reason: "manual",
+          mode,
+          targetRatio,
+          compactInstructions,
+        });
+
+        response.status(200).json({
+          success: !!result.success,
+          compactionId: result.compactionId || null,
+          coveredMessageCount: result.coveredMessageCount || 0,
+          tokenBefore: result.tokenBefore || 0,
+          tokenAfter: result.tokenAfter || 0,
+          mode: result.mode,
+          provider: result.provider,
+          model: result.model,
+          compactionInputLimit: result.compactionInputLimit,
+          chatInjectionLimit: result.chatInjectionLimit,
+          targetBase: result.targetBase,
+          targetReached: result.targetReached,
+          targetRatio: result.targetRatio,
+          targetTokens: result.targetTokens,
+          estimatedSummaryBudget: result.estimatedSummaryBudget,
+          recentRawBudget: result.recentRawBudget,
+          usedTokensAfterCompact: result.usedTokensAfterCompact,
+          ratioAfterCompact: result.ratioAfterCompact,
+          retainedRecentMessageCount: result.retainedRecentMessageCount,
+          targetCompactableMessageCount: result.targetCompactableMessageCount,
+          cannotReachTargetReason: result.cannotReachTargetReason,
+          rollingCompactionUsed: result.rollingCompactionUsed,
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.skipped ? { skipped: result.skipped } : {}),
+          ...(result.reason ? { reason: result.reason } : {}),
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({
+          success: false,
+          error: e.message,
+          compactionId: null,
+          coveredMessageCount: 0,
+          tokenBefore: 0,
+          tokenAfter: 0,
         });
       }
     }

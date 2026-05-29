@@ -3,6 +3,7 @@ import { CircleNotch, Star, XCircle } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import showToast from "@/utils/toast";
+import AppButton from "@/components/lib/AppButton";
 
 function mergeQuestions(existing = [], incoming = []) {
   const byId = new Map();
@@ -622,30 +623,26 @@ export default function QuizCard({
       )}
 
       <div className="mt-5 flex items-center justify-between gap-3">
-        <button
-          type="button"
+        <AppButton
+          variant="secondary"
           onClick={goPrevious}
           disabled={safeIndex === 0 || submitting}
-          className={quizButtonSecondaryClass}
         >
           上一题
-        </button>
+        </AppButton>
 
-        <button
-          type="button"
+        <AppButton
+          variant="primary"
           onClick={() => goNext()}
           disabled={
-            submitting ||
             (isLastGenerated && generating) ||
             (submitted && safeIndex >= questions.length - 1)
           }
-          className={`${quizButtonPrimaryClass} inline-flex items-center gap-2 px-5`}
+          loading={submitting || (waitingForMore && generating)}
+          className="px-5"
         >
-          {(submitting || (waitingForMore && generating)) && (
-            <CircleNotch size={14} className="animate-spin" />
-          )}
           {canSubmit ? "提交" : "下一题"}
-        </button>
+        </AppButton>
       </div>
 
       {quiz.analysisStatus === "failed" && (

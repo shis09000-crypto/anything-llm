@@ -39,6 +39,9 @@ const { purgeDocument } = require("../utils/files/purgeDocument");
 const { getModelTag } = require("./utils");
 const { searchWorkspaceAndThreads } = require("../utils/helpers/search");
 const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
+const {
+  workspaceReaderDocumentsEndpoints,
+} = require("./workspaceReaderDocuments");
 
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
@@ -1436,6 +1439,7 @@ function workspaceEndpoints(app) {
 
   // Parsed Files in separate endpoint just to keep the workspace endpoints clean
   workspaceParsedFilesEndpoints(app);
+  workspaceReaderDocumentsEndpoints(app);
 }
 
 module.exports = { workspaceEndpoints };

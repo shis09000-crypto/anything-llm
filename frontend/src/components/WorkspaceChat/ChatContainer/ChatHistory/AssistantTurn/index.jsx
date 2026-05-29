@@ -17,6 +17,7 @@ import MarkdownOutput from "./MarkdownOutput";
 import ThoughtTimeline from "./ThoughtTimeline";
 import ToolEvent from "./ToolEvent";
 import { debugChatTurn } from "@/utils/chat/debug";
+import DocumentSourceChips from "../../DocumentReader/DocumentSourceChips";
 
 function AssistantTurn({
   turn,
@@ -221,6 +222,7 @@ function AssistantTurn({
           </div>
         )}
         <Citations sources={turn.sources} />
+        <DocumentSourceChips chatKey={chatKey} turn={turn} />
       </div>
     </div>
   );

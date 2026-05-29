@@ -75,9 +75,17 @@ module.exports.FilesystemWriteTextFile = {
                 }
               }
 
-              await filesystem.writeFileContent(validPath, content);
-              this.super.introspect(`Successfully wrote to ${filePath}`);
-              return `Successfully wrote to ${filePath}`;
+              const writeResult = await filesystem.writeFileContent(
+                validPath,
+                content
+              );
+              this.super.handlerProps.log(
+                `filesystem-write-text-file verified: path=${writeResult.path}, bytes=${writeResult.bytes}`
+              );
+              this.super.introspect(
+                `Successfully wrote to ${filePath} (${writeResult.bytes} bytes verified)`
+              );
+              return `Successfully wrote to ${filePath} (${writeResult.bytes} bytes verified at ${writeResult.path})`;
             } catch (e) {
               this.super.handlerProps.log(
                 `filesystem-write-text-file error: ${e.message}`

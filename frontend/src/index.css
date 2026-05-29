@@ -762,6 +762,15 @@
     inset 0 1px 0 rgb(255 255 255 / 0.66);
 }
 
+.overview-card-primary-action {
+  --app-button-sm-height: 28px;
+  --app-button-sm-px: 16px;
+  --app-button-sm-font-size: 11px;
+  --app-button-sm-icon-size: 12px;
+  --app-button-sm-icon-gap: 5px;
+  min-width: 4.75rem;
+}
+
 @media (min-width: 1024px) {
   .overview-hero-title {
     font-size: clamp(44px, 4.4vw, 64px);

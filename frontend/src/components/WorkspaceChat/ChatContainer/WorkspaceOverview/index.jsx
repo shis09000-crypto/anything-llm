@@ -16,6 +16,7 @@ import {
   WarningCircle,
   X,
 } from "@phosphor-icons/react";
+import AppButton from "@/components/lib/AppButton";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
@@ -1835,14 +1836,15 @@ function RecommendationCard({
         )}
       </div>
       <div className="mt-auto flex justify-center pt-3">
-        <button
+        <AppButton
           type="button"
           onClick={() => onActivate?.(recommendation)}
-          className="overview-action-button overview-card-action-button inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold"
+          size="sm"
+          className="overview-card-primary-action"
+          rightIcon={<ArrowRight weight="bold" />}
         >
           {buttonLabel}
-          <ArrowRight size={12} />
-        </button>
+        </AppButton>
       </div>
     </article>
   );

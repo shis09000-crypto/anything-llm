@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { GitBranch, GitFork } from "@phosphor-icons/react";
+import { BookOpenText, GitBranch, GitFork } from "@phosphor-icons/react";
 import { isMobile } from "react-device-detect";
 import useLoginMode from "@/hooks/useLoginMode";
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
@@ -12,6 +12,7 @@ const FADE_OUT_MS = 700;
 export default function TopRightActionZone({
   isMindMapOpen = false,
   onMindMap,
+  onDocumentReader,
   onDualThreadFork,
   dualThreadMode = false,
   workspaceSlug,
@@ -78,7 +79,7 @@ export default function TopRightActionZone({
 
   return (
     <div
-      className={`absolute top-3 md:top-5 z-30 h-[126px] w-[40px] ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`}
+      className={`absolute top-3 md:top-5 z-30 h-[169px] w-[40px] ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`}
       onPointerEnter={() => reveal({ delayed: isMindMapOpen })}
       onPointerLeave={scheduleHide}
       onFocusCapture={() => reveal()}
@@ -91,7 +92,7 @@ export default function TopRightActionZone({
         <WorkspaceHealthBeacon workspaceSlug={workspaceSlug} />
       </WorkspaceHealthProvider>
       <div
-        className={`mt-2 flex flex-col items-center gap-2 motion-hover ${
+        className={`mt-2 flex flex-col items-center motion-hover ${
           isRevealed
             ? "opacity-100 translate-y-0"
             : `${hiddenOpacity} translate-y-1`
@@ -100,43 +101,79 @@ export default function TopRightActionZone({
           transitionDuration: isRevealed ? "200ms" : `${FADE_OUT_MS}ms`,
         }}
       >
-        <MindMapQuickEntry onOpen={onMindMap} />
-        <DualThreadQuickEntry onOpen={onDualThreadFork} />
+        <ActionRail>
+          <MindMapQuickEntry onOpen={onMindMap} />
+          <DocumentReaderQuickEntry onOpen={onDocumentReader} />
+          <DualThreadQuickEntry onOpen={onDualThreadFork} />
+        </ActionRail>
       </div>
     </div>
   );
 }
 
-function MindMapQuickEntry({ onOpen }) {
+function ActionRail({ children }) {
+  return (
+    <div className="liquid-glass-control flex w-[35px] flex-col items-center overflow-hidden rounded-full p-0">
+      {children}
+    </div>
+  );
+}
+
+function ActionRailButton({ children, onClick, title, label }) {
   return (
     <button
       type="button"
-      onClick={onOpen}
-      title="进入思维导图"
-      aria-label="进入思维导图"
-      className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
+      onClick={onClick}
+      title={title}
+      aria-label={label || title}
+      className="group flex h-[35px] w-[35px] cursor-pointer items-center justify-center border-none bg-transparent p-0 motion-hover hover:bg-white/10 light:hover:bg-slate-200/70"
     >
+      {children}
+    </button>
+  );
+}
+
+function ActionDivider() {
+  return (
+    <div className="h-px w-5 bg-white/10 light:bg-slate-300/70" aria-hidden />
+  );
+}
+
+function DocumentReaderQuickEntry({ onOpen }) {
+  return (
+    <>
+      <ActionDivider />
+      <ActionRailButton onClick={onOpen} title="伴读文档">
+        <BookOpenText
+          size={18}
+          className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
+        />
+      </ActionRailButton>
+    </>
+  );
+}
+
+function MindMapQuickEntry({ onOpen }) {
+  return (
+    <ActionRailButton onClick={onOpen} title="进入思维导图">
       <GitFork
         size={18}
         className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
       />
-    </button>
+    </ActionRailButton>
   );
 }
 
 function DualThreadQuickEntry({ onOpen }) {
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      title="双线程分支模式"
-      aria-label="双线程分支模式"
-      className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
-    >
-      <GitBranch
-        size={18}
-        className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
-      />
-    </button>
+    <>
+      <ActionDivider />
+      <ActionRailButton onClick={onOpen} title="双线程分支模式">
+        <GitBranch
+          size={18}
+          className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
+        />
+      </ActionRailButton>
+    </>
   );
 }

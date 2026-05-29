@@ -1299,6 +1299,7 @@ export function ChatThreadDraftProvider({ children }) {
       const draft = draftsRef.current[chatKey];
       const turn = findAssistantTurn(draft?.items || [], turnId);
       if (!turn) return;
+      let completedChatId = patch.chatId || null;
       settledTurnRefs.current[turnRefKey(chatKey, turnId)] =
         TURN_STATUSES.completed;
       debugChatTurn("assistant_final:before", {
@@ -1327,6 +1328,7 @@ export function ChatThreadDraftProvider({ children }) {
                 chatId: pendingDelta.chatId || patch.chatId,
               }
             : patch;
+        completedChatId = finalPatch.chatId || completedChatId;
         const nextItems = updateAssistantTurnInItems(
           current.items,
           turnId,
@@ -1357,7 +1359,14 @@ export function ChatThreadDraftProvider({ children }) {
         return next;
       });
       markThreadCompleted(chatKey, turnId);
-      if (patch.chatId) emitAssistantMessageCompleteEvent(patch.chatId);
+      if (completedChatId) {
+        window.dispatchEvent(
+          new CustomEvent("anythingllm-document-reader-turn-completed", {
+            detail: { chatKey, turnId, chatId: completedChatId },
+          })
+        );
+      }
+      if (completedChatId) emitAssistantMessageCompleteEvent(completedChatId);
     },
     [debugRuntime, markThreadCompleted, updateDraft]
   );
@@ -1899,6 +1908,7 @@ export function ChatThreadDraftProvider({ children }) {
       history = [],
       parseAttachments = () => [],
       sendToExistingAgent = false,
+      clientGeneratedTurnId = null,
     }) => {
       const chatKey = ensureDraft({
         workspaceSlug,
@@ -1919,6 +1929,7 @@ export function ChatThreadDraftProvider({ children }) {
         prompt,
         attachments: preparedAttachments,
         chatKey,
+        turnId: clientGeneratedTurnId || undefined,
       });
       delete settledTurnRefs.current[turnRefKey(chatKey, turnId)];
       debugRuntime("createTurn:created", {
@@ -1944,6 +1955,11 @@ export function ChatThreadDraftProvider({ children }) {
         sendToExistingAgent,
       });
       markThreadRunning(chatKey, turnId);
+      window.dispatchEvent(
+        new CustomEvent("anythingllm-document-reader-associate-selection", {
+          detail: { chatKey, clientGeneratedTurnId: turnId, turnId },
+        })
+      );
 
       if (sendToExistingAgent && socket?.readyState === WebSocket.OPEN) {
         debugRuntime("startStream:sendToExistingAgent", {

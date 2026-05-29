@@ -20,6 +20,10 @@ const {
 const { WorkspaceChats } = require("../models/workspaceChats");
 const { convertToChatHistory } = require("../utils/helpers/chat/responses");
 const { getModelTag } = require("./utils");
+const {
+  compactThread,
+  getThreadCompactionStatus,
+} = require("../utils/chats/threadCompaction");
 
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
@@ -44,6 +48,12 @@ function parseHistoryQuery(request) {
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
   };
+}
+
+function compactionUserFromInput(sessionUser, userId = undefined) {
+  if (userId === undefined) return sessionUser ? { id: sessionUser.id } : null;
+  if (userId === null || userId === "" || userId === "null") return null;
+  return { id: Number(userId) };
 }
 
 function lightChatIdsForHistory(history = [], options = {}) {
@@ -222,7 +232,9 @@ function workspaceThreadEndpoints(app) {
 
         response.status(200).json({
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
-          ...(page ? { page: { ...page, lightChatIds: [...lightChatIds] } } : {}),
+          ...(page
+            ? { page: { ...page, lightChatIds: [...lightChatIds] } }
+            : {}),
         });
       } catch (e) {
         console.error(e.message, e);
@@ -299,6 +311,118 @@ function workspaceThreadEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/compact",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const {
+          userId = undefined,
+          apiSessionId = null,
+          force = false,
+          mode = "target",
+          targetRatio = undefined,
+          compactInstructions = "",
+        } = reqBody(request);
+        const workspace = response.locals.workspace;
+        const thread = response.locals.thread;
+        const user = compactionUserFromInput(sessionUser, userId);
+
+        const result = await compactThread({
+          workspace,
+          user,
+          thread,
+          apiSessionId,
+          force: Boolean(force),
+          reason: "manual",
+          mode,
+          targetRatio,
+          compactInstructions,
+        });
+
+        response.status(200).json({
+          success: !!result.success,
+          compactionId: result.compactionId || null,
+          coveredMessageCount: result.coveredMessageCount || 0,
+          tokenBefore: result.tokenBefore || 0,
+          tokenAfter: result.tokenAfter || 0,
+          mode: result.mode,
+          provider: result.provider,
+          model: result.model,
+          compactionInputLimit: result.compactionInputLimit,
+          chatInjectionLimit: result.chatInjectionLimit,
+          targetBase: result.targetBase,
+          targetReached: result.targetReached,
+          targetRatio: result.targetRatio,
+          targetTokens: result.targetTokens,
+          estimatedSummaryBudget: result.estimatedSummaryBudget,
+          recentRawBudget: result.recentRawBudget,
+          usedTokensAfterCompact: result.usedTokensAfterCompact,
+          ratioAfterCompact: result.ratioAfterCompact,
+          retainedRecentMessageCount: result.retainedRecentMessageCount,
+          targetCompactableMessageCount: result.targetCompactableMessageCount,
+          cannotReachTargetReason: result.cannotReachTargetReason,
+          rollingCompactionUsed: result.rollingCompactionUsed,
+          ...(result.error ? { error: result.error } : {}),
+          ...(result.skipped ? { skipped: result.skipped } : {}),
+          ...(result.reason ? { reason: result.reason } : {}),
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/compact/status",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const query = queryParams(request);
+        const userId = Object.prototype.hasOwnProperty.call(query, "userId")
+          ? query.userId
+          : undefined;
+        const apiSessionId = Object.prototype.hasOwnProperty.call(
+          query,
+          "apiSessionId"
+        )
+          ? query.apiSessionId || null
+          : null;
+        const workspace = response.locals.workspace;
+        const thread = response.locals.thread;
+        const user = compactionUserFromInput(sessionUser, userId);
+        const status = await getThreadCompactionStatus({
+          workspace,
+          user,
+          thread,
+          apiSessionId,
+        });
+
+        response.status(200).json({
+          success: true,
+          status,
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({
+          success: false,
+          error: e.message,
+        });
       }
     }
   );

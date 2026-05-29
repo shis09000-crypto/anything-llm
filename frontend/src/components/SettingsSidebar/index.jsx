@@ -386,6 +386,12 @@ const SidebarOptions = ({ user = null, t }) => (
               roles: ["admin", "manager"],
             },
             {
+              btnText: "按钮实验 / Button Lab",
+              href: paths.settings.buttonLab(),
+              flex: true,
+              roles: ["admin", "manager"],
+            },
+            {
               btnText: t("settings.chat"),
               href: paths.settings.chat(),
               flex: true,

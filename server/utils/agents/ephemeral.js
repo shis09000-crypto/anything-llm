@@ -6,10 +6,13 @@ const { AgentFlows } = require("../agentFlows");
 const { httpSocket } = require("./aibitat/plugins/http-socket.js");
 const { User } = require("../../models/user");
 const { Workspace } = require("../../models/workspace");
-const { WorkspaceChats } = require("../../models/workspaceChats");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { DocumentManager } = require("../DocumentManager");
 const { safeJsonParse } = require("../http");
+const {
+  agentThreadMemory,
+  recentChatHistoryWithCompaction,
+} = require("../chats/threadCompaction");
 const {
   USER_AGENT,
   WORKSPACE_AGENT,
@@ -105,19 +108,13 @@ class EphemeralAgentHandler extends AgentHandler {
     if (!this.#workspace) return [];
 
     try {
-      const rawHistory = (
-        await WorkspaceChats.where(
-          {
-            workspaceId: this.#workspace.id,
-            user_id: this.#userId || null,
-            thread_id: this.#threadId || null,
-            api_session_id: this.#sessionId,
-            include: true,
-          },
-          limit,
-          { id: "desc" }
-        )
-      ).reverse();
+      const { rawHistory } = await recentChatHistoryWithCompaction({
+        workspace: this.#workspace,
+        user: this.#userId ? { id: this.#userId } : null,
+        thread: this.#threadId ? { id: this.#threadId } : null,
+        messageLimit: limit,
+        apiSessionId: this.#sessionId,
+      });
 
       const agentHistory = [];
       rawHistory.forEach((chatLog) => {
@@ -468,6 +465,13 @@ class EphemeralAgentHandler extends AgentHandler {
       toolOverrides: null,
     }
   ) {
+    const compactedThreadMemory = await agentThreadMemory({
+      workspace: this.#workspace,
+      user: this.#userId ? { id: this.#userId } : null,
+      thread: this.#threadId ? { id: this.#threadId } : null,
+      apiSessionId: this.#sessionId,
+    });
+
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
       model: this.model ?? "gpt-4o",
@@ -493,6 +497,7 @@ class EphemeralAgentHandler extends AgentHandler {
             thread_id: this.#threadId || null,
           },
         },
+        compactedThreadMemory,
       },
     });
 

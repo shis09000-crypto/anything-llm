@@ -1,4 +1,11 @@
-import { useEffect, useContext, useRef, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useContext,
+  useRef,
+  useMemo,
+  useState,
+} from "react";
 import ChatHistory from "./ChatHistory";
 import { DndUploaderContext } from "./DnDWrapper";
 import PromptInput, {
@@ -26,18 +33,23 @@ import WorkspaceModelPicker from "./WorkspaceModelPicker";
 import SourcesSidebar, { SourcesSidebarProvider } from "./SourcesSidebar";
 import MindMapPanel from "./MindMapPanel";
 import TopRightActionZone from "./TopRightActionZone";
+import DocumentReaderPanel from "./DocumentReader/Panel";
+import { DocumentReaderProvider } from "./DocumentReader/Provider";
+import { READER_EVENT_OPEN_DRAWER } from "./DocumentReader/storage";
 import WorkspaceOverview from "./WorkspaceOverview";
 import {
   useChatDraft,
   useChatThreadDrafts,
 } from "@/contexts/ChatThreadDraftProvider";
 import {
+  createTurnId,
   isAssistantTurn,
   mergeServerHistoryIntoTurns,
 } from "@/utils/chat/turns";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import showToast from "@/utils/toast";
+import useUser from "@/hooks/useUser";
 import {
   previousSidebarState,
   SIDEBAR_SET_STATE_EVENT,
@@ -56,10 +68,30 @@ const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
 const BRANCH_PROMPT_INPUT_ID = "branch-prompt-input";
 const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const SELECTION_COPY_MIN_LENGTH = 8;
+const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 120;
+const CHAT_HISTORY_INPUT_GAP = 16;
+const DUAL_THREAD_CONTENT_PADDING = "px-4 md:px-6";
+const READER_DEFAULT_SPLIT_PERCENT = 50;
+const READER_MIN_SPLIT_PERCENT = (4 / 11) * 100;
+const READER_MAX_SPLIT_PERCENT = (7 / 11) * 100;
+const MEMORY_COMPACTION_STATUS_REFRESH_MS = 900;
+const MEMORY_COMPACTION_TIMEOUT_MS = 60_000;
+const MEMORY_COMPACTION_SUCCESS_MS = 2_800;
+const MEMORY_COMPACTION_ERROR_MS = 4_500;
+const DUAL_THREAD_RESUME_PROMPT =
+  "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
 function setSidebarForMindMap(open) {
   window.dispatchEvent(
     new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
       detail: { open, source: "mind-map-panel" },
+    })
+  );
+}
+
+function setSidebarForReader(open) {
+  window.dispatchEvent(
+    new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
+      detail: { open, source: "document-reader" },
     })
   );
 }
@@ -73,6 +105,7 @@ export default function ChatContainer({
   onLoadOlderHistory = null,
 }) {
   const navigate = useNavigate();
+  const { user } = useUser();
   const {
     mergeServerHistory,
     startStream,
@@ -100,6 +133,8 @@ export default function ChatContainer({
   const { chatHistoryRef } = useChatContainerQuickScroll();
   const pendingMessageChecked = useRef(false);
   const mindMapSidebarStateRef = useRef(null);
+  const readerSidebarStateRef = useRef(null);
+  const readerLayoutRef = useRef(null);
   const quizIntentResolverRef = useRef(null);
   const sourcePanelRef = useRef(null);
   const selectionDebounceRef = useRef(null);
@@ -118,6 +153,38 @@ export default function ChatContainer({
   const [branchHistory, setBranchHistory] = useState([]);
   const [sourceHistory, setSourceHistory] = useState(null);
   const [closeMenuOpen, setCloseMenuOpen] = useState(false);
+  const [promptBottomInset, setPromptBottomInset] = useState(
+    DEFAULT_CHAT_HISTORY_BOTTOM_INSET
+  );
+  const [branchPromptBottomInset, setBranchPromptBottomInset] = useState(
+    DEFAULT_CHAT_HISTORY_BOTTOM_INSET
+  );
+  const [emptyThreadComposeActive, setEmptyThreadComposeActive] =
+    useState(false);
+  const [readerActive, setReaderActive] = useState(false);
+  const [readerPanelPercent, setReaderPanelPercent] = useState(
+    READER_DEFAULT_SPLIT_PERCENT
+  );
+  const [memoryCompactionStatus, setMemoryCompactionStatus] = useState(null);
+  const [memoryCompactionLoading, setMemoryCompactionLoading] = useState(false);
+  const [memoryCompactionPending, setMemoryCompactionPending] = useState(false);
+  const [memoryCompactionDivider, setMemoryCompactionDivider] = useState(null);
+  const memoryStatusRequestRef = useRef({ id: 0, controller: null });
+  const memoryStreamRefreshTimerRef = useRef(null);
+  const memoryDividerTimerRef = useRef(null);
+  const memoryCompactRef = useRef({ controller: null, timeout: null });
+  const compactionUserId = user?.id ?? undefined;
+  const compactionApiSessionId = undefined;
+  const memoryCompactionScopeKey = useMemo(
+    () =>
+      [
+        workspace?.slug || "workspace",
+        threadSlug || "default",
+        compactionUserId === undefined ? "session" : compactionUserId,
+        compactionApiSessionId === undefined ? "null" : compactionApiSessionId,
+      ].join(":"),
+    [workspace?.slug, threadSlug, compactionUserId, compactionApiSessionId]
+  );
   const branchChatKey = getChatKey(
     workspace?.slug,
     dualThreadFork.branchThreadSlug
@@ -153,6 +220,299 @@ export default function ChatContainer({
     clearTranscriptOnListen: true,
   });
 
+  const clearMemoryCompactionDivider = useCallback(() => {
+    clearTimeout(memoryDividerTimerRef.current);
+    memoryDividerTimerRef.current = null;
+    setMemoryCompactionDivider(null);
+  }, []);
+
+  const showMemoryCompactionDivider = useCallback(
+    (type) => {
+      const text = {
+        pending: "上下文记忆正在压缩",
+        success: "上下文记忆压缩完成",
+        error: "上下文记忆压缩失败，请手动重试",
+      }[type];
+      if (!text) return;
+      clearTimeout(memoryDividerTimerRef.current);
+      setMemoryCompactionDivider({
+        scopeKey: memoryCompactionScopeKey,
+        type,
+        text,
+      });
+      if (type === "success" || type === "error") {
+        memoryDividerTimerRef.current = setTimeout(
+          () => {
+            setMemoryCompactionDivider((current) =>
+              current?.scopeKey === memoryCompactionScopeKey ? null : current
+            );
+          },
+          type === "success"
+            ? MEMORY_COMPACTION_SUCCESS_MS
+            : MEMORY_COMPACTION_ERROR_MS
+        );
+      }
+    },
+    [memoryCompactionScopeKey]
+  );
+
+  const refreshMemoryCompactionStatus = useCallback(
+    async ({ preserveOnError = false } = {}) => {
+      if (!workspace?.slug || !threadSlug) {
+        setMemoryCompactionStatus(null);
+        setMemoryCompactionLoading(false);
+        return;
+      }
+
+      memoryStatusRequestRef.current.controller?.abort();
+      const controller = new AbortController();
+      const requestId = memoryStatusRequestRef.current.id + 1;
+      memoryStatusRequestRef.current = { id: requestId, controller };
+      setMemoryCompactionLoading(true);
+
+      try {
+        const result = await Workspace.threads.compactionStatus(
+          workspace.slug,
+          threadSlug,
+          {
+            userId: compactionUserId,
+            apiSessionId: compactionApiSessionId,
+            signal: controller.signal,
+          }
+        );
+        if (memoryStatusRequestRef.current.id !== requestId) return;
+        if (result?.success) {
+          setMemoryCompactionStatus(result.status || null);
+        } else if (!preserveOnError) {
+          setMemoryCompactionStatus(null);
+        }
+      } catch (error) {
+        if (error?.name !== "AbortError" && !preserveOnError) {
+          setMemoryCompactionStatus(null);
+        }
+      } finally {
+        if (memoryStatusRequestRef.current.id === requestId) {
+          setMemoryCompactionLoading(false);
+        }
+      }
+    },
+    [workspace?.slug, threadSlug, compactionUserId, compactionApiSessionId]
+  );
+
+  const scheduleMemoryStatusRefresh = useCallback(() => {
+    clearTimeout(memoryStreamRefreshTimerRef.current);
+    memoryStreamRefreshTimerRef.current = setTimeout(() => {
+      refreshMemoryCompactionStatus({ preserveOnError: true });
+    }, MEMORY_COMPACTION_STATUS_REFRESH_MS);
+  }, [refreshMemoryCompactionStatus]);
+
+  const compactThreadMemory = useCallback(async () => {
+    if (!workspace?.slug || !threadSlug || memoryCompactionPending) return;
+    setMemoryCompactionPending(true);
+    showMemoryCompactionDivider("pending");
+    const controller = new AbortController();
+    memoryCompactRef.current.controller = controller;
+    clearTimeout(memoryCompactRef.current.timeout);
+    memoryCompactRef.current.timeout = setTimeout(() => {
+      controller.abort();
+      setMemoryCompactionPending(false);
+      showMemoryCompactionDivider("error");
+    }, MEMORY_COMPACTION_TIMEOUT_MS);
+
+    try {
+      const result = await Workspace.threads.compact(
+        workspace.slug,
+        threadSlug,
+        {
+          userId: compactionUserId,
+          apiSessionId: compactionApiSessionId,
+          mode: "target",
+          targetRatio: memoryCompactionStatus?.targetRatio,
+          signal: controller.signal,
+        }
+      );
+      clearTimeout(memoryCompactRef.current.timeout);
+      if (controller.signal.aborted) return;
+      setMemoryCompactionPending(false);
+      if (result?.success && !result?.error) {
+        showMemoryCompactionDivider("success");
+        await refreshMemoryCompactionStatus({ preserveOnError: true });
+        return;
+      }
+      showMemoryCompactionDivider("error");
+    } catch (error) {
+      clearTimeout(memoryCompactRef.current.timeout);
+      if (error?.name === "AbortError") return;
+      setMemoryCompactionPending(false);
+      showMemoryCompactionDivider("error");
+    }
+  }, [
+    workspace?.slug,
+    threadSlug,
+    compactionUserId,
+    compactionApiSessionId,
+    memoryCompactionPending,
+    memoryCompactionStatus?.targetRatio,
+    refreshMemoryCompactionStatus,
+    showMemoryCompactionDivider,
+  ]);
+
+  useEffect(() => {
+    clearMemoryCompactionDivider();
+    setMemoryCompactionPending(false);
+    setMemoryCompactionStatus(null);
+    clearTimeout(memoryCompactRef.current.timeout);
+    memoryCompactRef.current.controller?.abort();
+    refreshMemoryCompactionStatus({ preserveOnError: false });
+
+    return () => {
+      memoryStatusRequestRef.current.controller?.abort();
+      clearTimeout(memoryStreamRefreshTimerRef.current);
+      clearTimeout(memoryCompactRef.current.timeout);
+      memoryCompactRef.current.controller?.abort();
+    };
+  }, [
+    memoryCompactionScopeKey,
+    clearMemoryCompactionDivider,
+    refreshMemoryCompactionStatus,
+  ]);
+
+  const wasLoadingResponseRef = useRef(false);
+  useEffect(() => {
+    if (loadingResponse) {
+      wasLoadingResponseRef.current = true;
+      return;
+    }
+    if (!wasLoadingResponseRef.current) return;
+    wasLoadingResponseRef.current = false;
+    scheduleMemoryStatusRefresh();
+  }, [loadingResponse, scheduleMemoryStatusRefresh]);
+
+  const updatePromptBottomInset = useCallback((height) => {
+    setPromptBottomInset(
+      Math.max(
+        DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
+        Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
+      )
+    );
+  }, []);
+
+  const updateBranchPromptBottomInset = useCallback((height) => {
+    setBranchPromptBottomInset(
+      Math.max(
+        DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
+        Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
+      )
+    );
+  }, []);
+
+  const updateEmptyThreadComposeState = useCallback((state = {}) => {
+    setEmptyThreadComposeActive(
+      !!(
+        state.hasDraftInput ||
+        state.hasAttachments ||
+        state.isComposing ||
+        state.slashMenuOpen ||
+        state.isVoiceInputActive
+      )
+    );
+  }, []);
+
+  const startReaderResize = useCallback(
+    (event) => {
+      event.preventDefault();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      const layoutRect = readerLayoutRef.current?.getBoundingClientRect();
+      if (!layoutRect?.width) return;
+      const startX = event.clientX;
+      const startPercent = readerPanelPercent;
+
+      function clampPercent(value) {
+        return Math.max(
+          READER_MIN_SPLIT_PERCENT,
+          Math.min(READER_MAX_SPLIT_PERCENT, value)
+        );
+      }
+
+      function onPointerMove(moveEvent) {
+        const deltaPercent =
+          ((moveEvent.clientX - startX) / layoutRect.width) * 100;
+        setReaderPanelPercent(clampPercent(startPercent - deltaPercent));
+      }
+
+      function stopResize() {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        window.removeEventListener("pointermove", onPointerMove);
+        window.removeEventListener("pointerup", stopResize);
+        window.removeEventListener("pointercancel", stopResize);
+      }
+
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("pointermove", onPointerMove);
+      window.addEventListener("pointerup", stopResize);
+      window.addEventListener("pointercancel", stopResize);
+    },
+    [readerPanelPercent]
+  );
+
+  function chatItemComparableText(item) {
+    if (item?.type === "user") return `user:${item.content || ""}`;
+    if (item?.type === "assistant_turn") {
+      if (item.status === "running") return "assistant:__running__";
+      return `assistant:${item.finalContent || ""}`;
+    }
+    return null;
+  }
+
+  function comparableChatItems(items = []) {
+    return items.map(chatItemComparableText).filter(Boolean);
+  }
+
+  function branchHasUnsentDraft() {
+    return (
+      document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value?.trim?.()?.length >
+      0
+    );
+  }
+
+  function branchMatchesSourcePrefix() {
+    const branchComparable = comparableChatItems(branchItems);
+    const sourceComparable = comparableChatItems(sourceItems);
+    if (branchComparable.some((item) => item.endsWith(":__running__")))
+      return false;
+    if (branchComparable.length > sourceComparable.length) return false;
+
+    return branchComparable.every(
+      (item, index) => item === sourceComparable[index]
+    );
+  }
+
+  async function deleteDisposableBranchIfNeeded() {
+    if (
+      !dualThreadFork.branchThreadSlug ||
+      branchLoadingResponse ||
+      branchHasUnsentDraft() ||
+      !branchMatchesSourcePrefix()
+    ) {
+      return false;
+    }
+
+    const deleted = await Workspace.threads.delete(
+      workspace.slug,
+      dualThreadFork.branchThreadSlug
+    );
+    if (deleted) {
+      clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+      refreshWorkspaceThreads();
+      showToast("未改动的分支线程已自动取消", "success");
+    } else {
+      showToast("未改动的分支线程取消失败", "error");
+    }
+    return deleted;
+  }
+
   /**
    * Emit an update to the state of the prompt input without directly
    * passing a prop in so that it does not re-render constantly.
@@ -175,6 +535,11 @@ export default function ChatContainer({
     setMindMapOpen(true);
     setMindMapRequest({ id: Date.now(), body });
   }
+
+  const openDocumentReader = useCallback(() => {
+    setReaderActive(true);
+    window.dispatchEvent(new CustomEvent(READER_EVENT_OPEN_DRAWER));
+  }, []);
 
   function openGraphOverviewConcept(target) {
     if (!target) return;
@@ -352,6 +717,30 @@ export default function ChatContainer({
   }, []);
 
   useEffect(() => {
+    if (isMobile) return;
+
+    if (readerActive) {
+      if (readerSidebarStateRef.current === null)
+        readerSidebarStateRef.current = previousSidebarState();
+      setSidebarForReader(false);
+      return;
+    }
+
+    if (readerSidebarStateRef.current === null) return;
+    const shouldRestoreOpen = readerSidebarStateRef.current;
+    readerSidebarStateRef.current = null;
+    setSidebarForReader(shouldRestoreOpen);
+  }, [readerActive]);
+
+  useEffect(() => {
+    return () => {
+      if (isMobile || readerSidebarStateRef.current === null) return;
+      setSidebarForReader(readerSidebarStateRef.current);
+      readerSidebarStateRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!workspace?.slug || !chatKey) return;
     mergeServerHistory({
       workspaceSlug: workspace.slug,
@@ -413,6 +802,54 @@ export default function ChatContainer({
     setSourceHistory(null);
   }
 
+  function latestReusableDualThreadBranch(threads = [], sourceThreadId = null) {
+    const candidates = threads.filter((thread) => {
+      const isDualThreadBranch =
+        thread.created_from === DUAL_THREAD_FORK_MODE ||
+        (thread.thread_type === "branch" &&
+          thread.forked_at_message_id &&
+          thread.forked_at);
+      if (!isDualThreadBranch || !thread.slug) return false;
+      return (thread.parent_thread_id ?? null) === (sourceThreadId ?? null);
+    });
+
+    return candidates.sort((a, b) => {
+      const aTime = Date.parse(a.forked_at || a.lastUpdatedAt || a.createdAt);
+      const bTime = Date.parse(b.forked_at || b.lastUpdatedAt || b.createdAt);
+      return (
+        (Number.isNaN(bTime) ? 0 : bTime) - (Number.isNaN(aTime) ? 0 : aTime)
+      );
+    })[0];
+  }
+
+  async function openDualThreadBranch(branchThread, sourceThreadId = null) {
+    const branchHistoryFromServer = await loadFullThreadHistory(
+      branchThread.slug
+    );
+    if (!Array.isArray(branchHistoryFromServer)) {
+      throw new Error("Branch history failed to load");
+    }
+
+    setBranchHistory(branchHistoryFromServer);
+    mergeServerHistory({
+      workspaceSlug: workspace.slug,
+      threadSlug: branchThread.slug,
+      history: branchHistoryFromServer,
+    });
+    setSourceHistory(null);
+    setDualThreadFork({
+      enabled: true,
+      sourceThreadSlug: threadSlug,
+      sourceThreadId,
+      branchThreadSlug: branchThread.slug,
+      branchThreadId: branchThread.id || null,
+      forkedAtMessageId: branchThread.forked_at_message_id || null,
+      sourcePanelVisible: true,
+      branchPanelVisible: true,
+    });
+    refreshWorkspaceThreads();
+  }
+
   async function startDualThreadFork() {
     if (dualThreadLoading || dualThreadFork.enabled) return;
     const lastVisibleChatId = [...chatItems]
@@ -425,6 +862,20 @@ export default function ChatContainer({
 
     setDualThreadLoading(true);
     try {
+      const { threads = [] } = await Workspace.threads.all(workspace.slug);
+      const sourceThread = threadSlug
+        ? threads.find((thread) => thread.slug === threadSlug)
+        : null;
+      const sourceThreadId = sourceThread?.id || null;
+      const previousBranch =
+        !threadSlug || sourceThread
+          ? latestReusableDualThreadBranch(threads, sourceThreadId)
+          : null;
+      if (previousBranch && window.confirm(DUAL_THREAD_RESUME_PROMPT)) {
+        await openDualThreadBranch(previousBranch, sourceThreadId);
+        return;
+      }
+
       const result = await Workspace.forkThread(
         workspace.slug,
         threadSlug,
@@ -456,7 +907,7 @@ export default function ChatContainer({
       setDualThreadFork({
         enabled: true,
         sourceThreadSlug: threadSlug,
-        sourceThreadId: result?.sourceThread?.id || null,
+        sourceThreadId: result?.sourceThread?.id || sourceThreadId,
         branchThreadSlug,
         branchThreadId: result?.newThread?.id || null,
         forkedAtMessageId: result?.forkedAtMessageId || lastVisibleChatId,
@@ -510,6 +961,7 @@ export default function ChatContainer({
       workspaceSlug: workspace.slug,
       threadSlug: dualThreadFork.branchThreadSlug,
       prompt: currentMessage,
+      clientGeneratedTurnId: createTurnId(),
       attachments: parseAttachments(),
       fileAccessMode: branchFileAccessMode(),
       history: branchHistory,
@@ -549,6 +1001,7 @@ export default function ChatContainer({
       workspaceSlug: workspace.slug,
       threadSlug: dualThreadFork.branchThreadSlug,
       prompt: text,
+      clientGeneratedTurnId: createTurnId(),
       attachments,
       fileAccessMode: branchFileAccessMode(),
       nodeContext,
@@ -558,15 +1011,26 @@ export default function ChatContainer({
     });
   };
 
-  function closeSourceThreadPanel() {
+  async function closeSourceThreadPanel() {
     const branchThreadSlug = dualThreadFork.branchThreadSlug;
+    const deletedDisposableBranch = await deleteDisposableBranchIfNeeded();
+    const sourceThreadSlug = dualThreadFork.sourceThreadSlug;
     resetDualThreadFork();
+    if (deletedDisposableBranch) {
+      navigate(
+        sourceThreadSlug
+          ? paths.workspace.thread(workspace.slug, sourceThreadSlug)
+          : paths.workspace.chat(workspace.slug)
+      );
+      return;
+    }
     if (branchThreadSlug)
       navigate(paths.workspace.thread(workspace.slug, branchThreadSlug));
   }
 
-  function closeBranchThreadPanel() {
+  async function closeBranchThreadPanel() {
     const sourceThreadSlug = dualThreadFork.sourceThreadSlug;
+    await deleteDisposableBranchIfNeeded();
     resetDualThreadFork();
     navigate(
       sourceThreadSlug
@@ -619,10 +1083,7 @@ export default function ChatContainer({
         ].join(":");
         if (signature === lastSelectionSignatureRef.current) return;
         lastSelectionSignatureRef.current = signature;
-        branchMessageEmit(
-          `\n> 来自右侧旧线程：\n> ${selectedText}\n`,
-          "insert"
-        );
+        branchMessageEmit(`\n> 来自前文本：\n> ${selectedText}\n`, "insert");
         showToast("已复制到左侧输入框", "success");
       }, 180);
     }
@@ -671,6 +1132,7 @@ export default function ChatContainer({
       workspaceSlug: workspace.slug,
       threadSlug,
       prompt: currentMessage,
+      clientGeneratedTurnId: createTurnId(),
       attachments,
       fileAccessMode: currentFileAccessMode(),
       history: knownHistory,
@@ -770,6 +1232,7 @@ export default function ChatContainer({
       workspaceSlug: workspace.slug,
       threadSlug,
       prompt: text,
+      clientGeneratedTurnId: createTurnId(),
       attachments,
       fileAccessMode: currentFileAccessMode(),
       nodeContext,
@@ -799,7 +1262,34 @@ export default function ChatContainer({
   const hasMessages = chatItems.length > 0;
   const hasPendingHomeMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const isEmptyThread = !hasMessages && !hasPendingHomeMessage;
-  const overviewIsVisible = isEmptyThread && !loadingResponse;
+  const emptyThreadReaderShellActive = isEmptyThread && readerActive;
+  const emptyThreadComposeShellActive =
+    isEmptyThread && emptyThreadComposeActive;
+  const emptyThreadShellActive =
+    emptyThreadReaderShellActive || emptyThreadComposeShellActive;
+  const overviewIsVisible =
+    isEmptyThread && !loadingResponse && !emptyThreadShellActive;
+  const memoryCompactionControl = useMemo(
+    () => ({
+      visible: !!threadSlug && !dualThreadFork.enabled,
+      status: memoryCompactionStatus,
+      loading: memoryCompactionLoading,
+      pending: memoryCompactionPending,
+      onCompact: compactThreadMemory,
+    }),
+    [
+      threadSlug,
+      dualThreadFork.enabled,
+      memoryCompactionStatus,
+      memoryCompactionLoading,
+      memoryCompactionPending,
+      compactThreadMemory,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isEmptyThread) setEmptyThreadComposeActive(false);
+  }, [isEmptyThread]);
 
   useEffect(() => {
     return () => {
@@ -842,6 +1332,8 @@ export default function ChatContainer({
                     onToolApprovalResponse={respondToApproval}
                     onGenerateMindMap={openMindMap}
                     activeThreadSlug={dualThreadFork.branchThreadSlug}
+                    contentClassName={DUAL_THREAD_CONTENT_PADDING}
+                    bottomInset={branchPromptBottomInset}
                   />
                 </MetricsProvider>
                 <PromptInput
@@ -857,7 +1349,9 @@ export default function ChatContainer({
                   inputId={BRANCH_PROMPT_INPUT_ID}
                   targetThreadSlug={dualThreadFork.branchThreadSlug}
                   promptStorageKey={dualThreadFork.branchThreadSlug}
+                  onHeightChange={updateBranchPromptBottomInset}
                   quizModeActive={false}
+                  memoryCompaction={null}
                 />
               </div>
             </DnDFileUploaderWrapper>
@@ -926,6 +1420,7 @@ export default function ChatContainer({
                 regenerateAssistantMessage={() => null}
                 chatKey={sourceChatKey}
                 activeThreadSlug={dualThreadFork.sourceThreadSlug}
+                contentClassName={DUAL_THREAD_CONTENT_PADDING}
                 readOnly
               />
             </MetricsProvider>
@@ -937,179 +1432,397 @@ export default function ChatContainer({
 
   if (isEmptyThread && !loadingResponse) {
     return (
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
-      >
-        {isMobile && <SidebarMobileHeader />}
-        <TopRightActionZone
-          isMindMapOpen={mindMapOpen}
-          onMindMap={() => setMindMapOpen(true)}
-          onDualThreadFork={startDualThreadFork}
-          dualThreadMode={dualThreadFork.enabled}
-          workspaceSlug={workspace.slug}
-        />
-        <WorkspaceModelPicker workspaceSlug={workspace.slug} />
-        <DnDFileUploaderWrapper>
-          <div className="flex flex-col h-full w-full">
-            <div className="flex-1 min-h-0 overflow-hidden">
-              <div
-                className={`motion-hover h-full transform-gpu ${
-                  overviewIsVisible
-                    ? "translate-y-0 opacity-100 pointer-events-auto"
-                    : "translate-y-3 opacity-0 pointer-events-none"
-                }`}
-              >
-                <WorkspaceOverview
-                  workspace={workspace}
-                  threadSlug={threadSlug}
-                  shouldLoad={isEmptyThread}
-                  isVisible={overviewIsVisible}
-                  onOpenGraph={openGraphOverviewConcept}
-                  onOpenPath={openGraphOverviewPath}
-                  onOpenEvidence={openGraphOverviewEvidence}
-                  onOpenDocument={() =>
-                    navigate(
-                      paths.workspace.settings.vectorDatabase(workspace.slug)
-                    )
-                  }
-                  onUploadDocument={() =>
-                    document.getElementById("dnd-chat-file-uploader")?.click()
-                  }
-                />
-              </div>
-            </div>
-            <div className="overview-input-fade">
-              <div className="pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
-                <PromptInput
-                  workspace={workspace}
-                  submit={handleSubmit}
-                  isStreaming={loadingResponse}
-                  sendCommand={sendCommand}
-                  attachments={files}
-                  centered={true}
-                  glass={true}
-                  workspaceSlug={workspace.slug}
-                  threadSlug={threadSlug}
-                  quizModeActive={quizModeActive}
-                  onToggleQuizMode={() =>
-                    setQuizModeActive((active) => !active)
-                  }
-                />
-                <QuizIntentConfirmation
-                  prompt={quizIntentPrompt}
-                  onConfirm={() => resolveQuizIntentPrompt(true)}
-                  onCancel={() => resolveQuizIntentPrompt(false)}
-                />
-                <QuickActions
-                  hasAvailableWorkspace={!!workspace}
-                  onCreateAgent={() => navigate(paths.settings.agentSkills())}
-                  onEditWorkspace={() =>
-                    navigate(
-                      paths.workspace.settings.generalAppearance(workspace.slug)
-                    )
-                  }
-                  onUploadDocument={() =>
-                    document.getElementById("dnd-chat-file-uploader")?.click()
-                  }
-                />
-              </div>
-            </div>
-            <div className="hidden">
-              <SuggestedMessages
-                suggestedMessages={workspace?.suggestedMessages}
-                sendCommand={sendCommand}
-              />
-            </div>
-          </div>
-        </DnDFileUploaderWrapper>
-        <ChatTooltips />
-        <MindMapPanel
+      <SourcesSidebarProvider>
+        <DocumentReaderProvider
           workspace={workspace}
           threadSlug={threadSlug}
-          isOpen={mindMapOpen}
-          request={mindMapRequest}
-          onClose={() => setMindMapOpen(false)}
-          sendCommand={sendCommand}
-          setMessage={(message) => setMessageEmit(message)}
-          floating
-        />
-      </div>
+          setMessage={(message, mode = "append") =>
+            setMessageEmit(message, mode)
+          }
+        >
+          {emptyThreadShellActive ? (
+            <div
+              ref={readerLayoutRef}
+              style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+              className={`relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
+                readerActive ? "gap-0" : "gap-4 md:gap-5"
+              }`}
+            >
+              <div
+                className="min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70"
+                style={{
+                  flex: readerActive
+                    ? `${100 - readerPanelPercent} 1 0%`
+                    : "1 1 0%",
+                }}
+              >
+                {isMobile && <SidebarMobileHeader />}
+                {!readerActive && (
+                  <TopRightActionZone
+                    isMindMapOpen={mindMapOpen}
+                    onMindMap={() => setMindMapOpen(true)}
+                    onDocumentReader={openDocumentReader}
+                    onDualThreadFork={startDualThreadFork}
+                    dualThreadMode={dualThreadFork.enabled}
+                    workspaceSlug={workspace.slug}
+                  />
+                )}
+                <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+                <DnDFileUploaderWrapper>
+                  <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                    <div className="contents">
+                      <MetricsProvider>
+                        <ChatHistory
+                          ref={chatHistoryRef}
+                          items={chatItems}
+                          workspace={workspace}
+                          sendCommand={sendCommand}
+                          regenerateAssistantMessage={
+                            regenerateAssistantMessage
+                          }
+                          chatKey={chatKey}
+                          approvalState={draft?.pendingApproval}
+                          onToolApprovalResponse={respondToApproval}
+                          onGenerateMindMap={openMindMap}
+                          contentClassName={DUAL_THREAD_CONTENT_PADDING}
+                          bottomInset={promptBottomInset}
+                        />
+                      </MetricsProvider>
+                      <MemoryCompactionDivider
+                        divider={memoryCompactionDivider}
+                        scopeKey={memoryCompactionScopeKey}
+                        bottomInset={promptBottomInset}
+                      />
+                      <PromptInput
+                        workspace={workspace}
+                        submit={handleSubmit}
+                        isStreaming={loadingResponse}
+                        sendCommand={sendCommand}
+                        attachments={files}
+                        centered={false}
+                        glass={true}
+                        workspaceSlug={workspace.slug}
+                        threadSlug={threadSlug}
+                        onComposeStateChange={updateEmptyThreadComposeState}
+                        onHeightChange={updatePromptBottomInset}
+                        quizModeActive={quizModeActive}
+                        onToggleQuizMode={() =>
+                          setQuizModeActive((active) => !active)
+                        }
+                        memoryCompaction={memoryCompactionControl}
+                      />
+                      <QuizIntentConfirmation
+                        prompt={quizIntentPrompt}
+                        onConfirm={() => resolveQuizIntentPrompt(true)}
+                        onCancel={() => resolveQuizIntentPrompt(false)}
+                      />
+                    </div>
+                  </div>
+                </DnDFileUploaderWrapper>
+                <ChatTooltips />
+              </div>
+              {readerActive && (
+                <ReaderSplitResizeHandle onResizeStart={startReaderResize} />
+              )}
+              <DocumentReaderPanel
+                percent={readerPanelPercent}
+                onActiveChange={setReaderActive}
+              />
+              <MindMapPanel
+                workspace={workspace}
+                threadSlug={threadSlug}
+                isOpen={mindMapOpen}
+                request={mindMapRequest}
+                onClose={() => setMindMapOpen(false)}
+                sendCommand={sendCommand}
+                setMessage={(message) => setMessageEmit(message)}
+              />
+              <SourcesSidebar />
+            </div>
+          ) : (
+            <div
+              style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+              className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+            >
+              {isMobile && <SidebarMobileHeader />}
+              <TopRightActionZone
+                isMindMapOpen={mindMapOpen}
+                onMindMap={() => setMindMapOpen(true)}
+                onDocumentReader={openDocumentReader}
+                onDualThreadFork={startDualThreadFork}
+                dualThreadMode={dualThreadFork.enabled}
+                workspaceSlug={workspace.slug}
+              />
+              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+              <DnDFileUploaderWrapper>
+                <div className="flex flex-col h-full w-full">
+                  <div className="flex-1 min-h-0 overflow-hidden">
+                    <div
+                      className={`motion-hover h-full transform-gpu ${
+                        overviewIsVisible
+                          ? "translate-y-0 opacity-100 pointer-events-auto"
+                          : "translate-y-3 opacity-0 pointer-events-none"
+                      }`}
+                    >
+                      <WorkspaceOverview
+                        workspace={workspace}
+                        threadSlug={threadSlug}
+                        shouldLoad={isEmptyThread}
+                        isVisible={overviewIsVisible}
+                        onOpenGraph={openGraphOverviewConcept}
+                        onOpenPath={openGraphOverviewPath}
+                        onOpenEvidence={openGraphOverviewEvidence}
+                        onOpenDocument={() =>
+                          navigate(
+                            paths.workspace.settings.vectorDatabase(
+                              workspace.slug
+                            )
+                          )
+                        }
+                        onUploadDocument={() =>
+                          document
+                            .getElementById("dnd-chat-file-uploader")
+                            ?.click()
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="overview-input-fade">
+                    <div className="pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
+                      <PromptInput
+                        workspace={workspace}
+                        submit={handleSubmit}
+                        isStreaming={loadingResponse}
+                        sendCommand={sendCommand}
+                        attachments={files}
+                        centered={true}
+                        glass={true}
+                        workspaceSlug={workspace.slug}
+                        threadSlug={threadSlug}
+                        onComposeStateChange={updateEmptyThreadComposeState}
+                        quizModeActive={quizModeActive}
+                        onToggleQuizMode={() =>
+                          setQuizModeActive((active) => !active)
+                        }
+                        memoryCompaction={memoryCompactionControl}
+                      />
+                      <QuizIntentConfirmation
+                        prompt={quizIntentPrompt}
+                        onConfirm={() => resolveQuizIntentPrompt(true)}
+                        onCancel={() => resolveQuizIntentPrompt(false)}
+                      />
+                      <QuickActions
+                        hasAvailableWorkspace={!!workspace}
+                        onCreateAgent={() =>
+                          navigate(paths.settings.agentSkills())
+                        }
+                        onEditWorkspace={() =>
+                          navigate(
+                            paths.workspace.settings.generalAppearance(
+                              workspace.slug
+                            )
+                          )
+                        }
+                        onUploadDocument={() =>
+                          document
+                            .getElementById("dnd-chat-file-uploader")
+                            ?.click()
+                        }
+                      />
+                    </div>
+                  </div>
+                  <div className="hidden">
+                    <SuggestedMessages
+                      suggestedMessages={workspace?.suggestedMessages}
+                      sendCommand={sendCommand}
+                    />
+                  </div>
+                </div>
+              </DnDFileUploaderWrapper>
+              <ChatTooltips />
+              <MindMapPanel
+                workspace={workspace}
+                threadSlug={threadSlug}
+                isOpen={mindMapOpen}
+                request={mindMapRequest}
+                onClose={() => setMindMapOpen(false)}
+                sendCommand={sendCommand}
+                setMessage={(message) => setMessageEmit(message)}
+                floating
+              />
+            </div>
+          )}
+        </DocumentReaderProvider>
+      </SourcesSidebarProvider>
     );
   }
 
   return (
     <SourcesSidebarProvider>
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2]"
+      <DocumentReaderProvider
+        workspace={workspace}
+        threadSlug={threadSlug}
+        setMessage={(message, mode = "append") => setMessageEmit(message, mode)}
       >
-        <div className="flex-1 min-w-0 motion-hover relative md:rounded-[16px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border">
-          {isMobile && <SidebarMobileHeader />}
-          <TopRightActionZone
-            isMindMapOpen={mindMapOpen}
-            onMindMap={() => setMindMapOpen(true)}
-            onDualThreadFork={startDualThreadFork}
-            dualThreadMode={dualThreadFork.enabled}
-            workspaceSlug={workspace.slug}
-          />
-          <WorkspaceModelPicker workspaceSlug={workspace.slug} />
-          <DnDFileUploaderWrapper>
-            <div className="flex flex-col h-full w-full pb-20 md:pb-0">
-              <div className="contents">
-                <MetricsProvider>
-                  <ChatHistory
-                    ref={chatHistoryRef}
-                    items={chatItems}
-                    workspace={workspace}
-                    sendCommand={sendCommand}
-                    regenerateAssistantMessage={regenerateAssistantMessage}
-                    chatKey={chatKey}
-                    approvalState={draft?.pendingApproval}
-                    onToolApprovalResponse={respondToApproval}
-                    onGenerateMindMap={openMindMap}
-                    hasMoreHistory={hasMoreHistory}
-                    isLoadingOlderHistory={isLoadingOlderHistory}
-                    onLoadOlderHistory={onLoadOlderHistory}
+        <div
+          ref={readerLayoutRef}
+          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+          className={`relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
+            readerActive ? "gap-0" : "gap-4 md:gap-5"
+          }`}
+        >
+          <div
+            className="min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70"
+            style={{
+              flex: readerActive
+                ? `${100 - readerPanelPercent} 1 0%`
+                : "1 1 0%",
+            }}
+          >
+            {isMobile && <SidebarMobileHeader />}
+            {!readerActive && (
+              <TopRightActionZone
+                isMindMapOpen={mindMapOpen}
+                onMindMap={() => setMindMapOpen(true)}
+                onDocumentReader={openDocumentReader}
+                onDualThreadFork={startDualThreadFork}
+                dualThreadMode={dualThreadFork.enabled}
+                workspaceSlug={workspace.slug}
+              />
+            )}
+            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <DnDFileUploaderWrapper>
+              <div className="flex flex-col h-full w-full pb-20 md:pb-0">
+                <div className="contents">
+                  <MetricsProvider>
+                    <ChatHistory
+                      ref={chatHistoryRef}
+                      items={chatItems}
+                      workspace={workspace}
+                      sendCommand={sendCommand}
+                      regenerateAssistantMessage={regenerateAssistantMessage}
+                      chatKey={chatKey}
+                      approvalState={draft?.pendingApproval}
+                      onToolApprovalResponse={respondToApproval}
+                      onGenerateMindMap={openMindMap}
+                      hasMoreHistory={hasMoreHistory}
+                      isLoadingOlderHistory={isLoadingOlderHistory}
+                      onLoadOlderHistory={onLoadOlderHistory}
+                      contentClassName={DUAL_THREAD_CONTENT_PADDING}
+                      bottomInset={promptBottomInset}
+                    />
+                  </MetricsProvider>
+                  <MemoryCompactionDivider
+                    divider={memoryCompactionDivider}
+                    scopeKey={memoryCompactionScopeKey}
+                    bottomInset={promptBottomInset}
                   />
-                </MetricsProvider>
-                <PromptInput
-                  workspace={workspace}
-                  submit={handleSubmit}
-                  isStreaming={loadingResponse}
-                  sendCommand={sendCommand}
-                  attachments={files}
-                  centered={false}
-                  glass={true}
-                  workspaceSlug={workspace.slug}
-                  threadSlug={threadSlug}
-                  quizModeActive={quizModeActive}
-                  onToggleQuizMode={() =>
-                    setQuizModeActive((active) => !active)
-                  }
-                />
-                <QuizIntentConfirmation
-                  prompt={quizIntentPrompt}
-                  onConfirm={() => resolveQuizIntentPrompt(true)}
-                  onCancel={() => resolveQuizIntentPrompt(false)}
-                />
+                  <PromptInput
+                    workspace={workspace}
+                    submit={handleSubmit}
+                    isStreaming={loadingResponse}
+                    sendCommand={sendCommand}
+                    attachments={files}
+                    centered={false}
+                    glass={true}
+                    workspaceSlug={workspace.slug}
+                    threadSlug={threadSlug}
+                    onHeightChange={updatePromptBottomInset}
+                    quizModeActive={quizModeActive}
+                    onToggleQuizMode={() =>
+                      setQuizModeActive((active) => !active)
+                    }
+                    memoryCompaction={memoryCompactionControl}
+                  />
+                  <QuizIntentConfirmation
+                    prompt={quizIntentPrompt}
+                    onConfirm={() => resolveQuizIntentPrompt(true)}
+                    onCancel={() => resolveQuizIntentPrompt(false)}
+                  />
+                </div>
               </div>
-            </div>
-          </DnDFileUploaderWrapper>
-          <ChatTooltips />
+            </DnDFileUploaderWrapper>
+            <ChatTooltips />
+          </div>
+          {readerActive && (
+            <ReaderSplitResizeHandle onResizeStart={startReaderResize} />
+          )}
+          <DocumentReaderPanel
+            percent={readerPanelPercent}
+            onActiveChange={setReaderActive}
+          />
+          <MindMapPanel
+            workspace={workspace}
+            threadSlug={threadSlug}
+            isOpen={mindMapOpen}
+            request={mindMapRequest}
+            onClose={() => setMindMapOpen(false)}
+            sendCommand={sendCommand}
+            setMessage={(message) => setMessageEmit(message)}
+          />
+          <SourcesSidebar />
         </div>
-        <MindMapPanel
-          workspace={workspace}
-          threadSlug={threadSlug}
-          isOpen={mindMapOpen}
-          request={mindMapRequest}
-          onClose={() => setMindMapOpen(false)}
-          sendCommand={sendCommand}
-          setMessage={(message) => setMessageEmit(message)}
-        />
-        <SourcesSidebar />
-      </div>
+      </DocumentReaderProvider>
     </SourcesSidebarProvider>
+  );
+}
+
+function ReaderSplitResizeHandle({ onResizeStart }) {
+  return (
+    <button
+      type="button"
+      aria-label="调整伴读分屏比例"
+      title="拖动调整左右区域"
+      onPointerDown={onResizeStart}
+      className="group relative hidden h-full w-10 shrink-0 cursor-col-resize items-center justify-center border-none bg-transparent p-0 md:flex"
+    >
+      <span className="pointer-events-none absolute inset-y-8 left-1/2 w-px -translate-x-1/2 rounded-full bg-slate-200/70 group-hover:bg-sky-300/80" />
+      <span className="motion-hover relative flex h-16 w-7 items-center justify-center rounded-full border border-white/80 bg-white/90 shadow-[0_14px_34px_rgba(15,23,42,0.2)] backdrop-blur-xl group-hover:-translate-y-0.5 group-hover:scale-105 group-hover:border-sky-200 group-hover:bg-white light:border-slate-200">
+        <span className="flex flex-col gap-1">
+          <span className="h-1 w-1 rounded-full bg-slate-300 group-hover:bg-sky-400" />
+          <span className="h-1 w-1 rounded-full bg-slate-300 group-hover:bg-sky-400" />
+          <span className="h-1 w-1 rounded-full bg-slate-300 group-hover:bg-sky-400" />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function MemoryCompactionDivider({
+  divider = null,
+  scopeKey = "",
+  bottomInset = DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
+}) {
+  if (!divider || divider.scopeKey !== scopeKey) return null;
+  const tone =
+    divider.type === "error"
+      ? "text-red-300 light:text-red-600"
+      : divider.type === "success"
+        ? "text-emerald-300 light:text-emerald-600"
+        : "text-sky-300 light:text-sky-600";
+  const lineTone =
+    divider.type === "error"
+      ? "bg-red-400/30 light:bg-red-400/35"
+      : divider.type === "success"
+        ? "bg-emerald-400/30 light:bg-emerald-400/35"
+        : "bg-sky-400/30 light:bg-sky-400/35";
+
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-6 z-20 flex justify-center"
+      style={{ bottom: `${Math.max(96, Number(bottomInset || 0))}px` }}
+      aria-live="polite"
+    >
+      <div className="flex w-full max-w-[620px] items-center gap-3">
+        <div className={`h-px flex-1 ${lineTone}`} />
+        <div
+          className={`rounded-full border border-white/10 bg-zinc-950/85 px-3 py-1 text-xs font-medium shadow-lg backdrop-blur light:border-slate-200 light:bg-white/90 ${tone}`}
+        >
+          {divider.text}
+        </div>
+        <div className={`h-px flex-1 ${lineTone}`} />
+      </div>
+    </div>
   );
 }
 

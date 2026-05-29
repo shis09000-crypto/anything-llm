@@ -118,7 +118,7 @@ export const getConfigurableSkills = (
   "shell-agent": {
     title: "Shell",
     description:
-      "Execute local shell commands. Only available in Open file access mode and always requires approval.",
+      "执行本地 Shell 命令。仅在开放（Open）文件访问模式下可用，并且每次执行都需要用户批准。",
     component: GenericSkillPanel,
     skill: "shell-agent",
     icon: Terminal,

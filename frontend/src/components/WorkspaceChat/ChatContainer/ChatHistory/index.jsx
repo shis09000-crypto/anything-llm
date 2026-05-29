@@ -41,6 +41,8 @@ export default forwardRef(function (
     hasMoreHistory = false,
     isLoadingOlderHistory = false,
     onLoadOlderHistory = null,
+    contentClassName = "",
+    bottomInset = null,
   },
   ref
 ) {
@@ -64,6 +66,12 @@ export default forwardRef(function (
   const { textSizeClass } = useTextSize();
   const { updateAssistantTurn, updateUserItem } = useChatThreadDrafts();
   const shouldVirtualize = items.length > 80;
+  const normalizedBottomInset =
+    Number.isFinite(bottomInset) && bottomInset >= 0 ? bottomInset : null;
+  const scrollContainerStyle =
+    normalizedBottomInset === null
+      ? undefined
+      : { paddingBottom: `${normalizedBottomInset}px` };
   const rowVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => chatHistoryRef.current,
@@ -306,8 +314,9 @@ export default forwardRef(function (
           id="chat-history"
           ref={chatHistoryRef}
           onScroll={handleScroll}
+          style={scrollContainerStyle}
         >
-          <div className="w-full max-w-[750px]">
+          <div className={`w-full max-w-[750px] ${contentClassName}`}>
             {isLoadingOlderHistory && (
               <div className="motion-skeleton h-12 rounded-md mb-2" />
             )}

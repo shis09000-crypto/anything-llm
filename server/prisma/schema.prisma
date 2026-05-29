@@ -839,6 +839,29 @@ model workspace_chats {
   users          users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
 
+model workspace_chat_compactions {
+  id                    Int      @id @default(autoincrement())
+  workspace_id          Int
+  user_id               Int?
+  thread_id             Int?
+  api_session_id        String?
+  summary               String
+  summary_format        String   @default("thread-compact-markdown-v1")
+  covered_chat_ids      String   @default("[]")
+  covered_from_chat_id  Int?
+  covered_to_chat_id    Int?
+  covered_message_count Int      @default(0)
+  token_before          Int      @default(0)
+  token_after           Int      @default(0)
+  metadata_json         String   @default("{}")
+  reason                String?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @default(now())
+
+  @@index([workspace_id, user_id, thread_id, api_session_id, created_at])
+  @@index([workspace_id, thread_id, api_session_id, covered_to_chat_id])
+}
+
 model workspace_mind_maps {
   id             Int        @id @default(autoincrement())
   workspaceId    Int

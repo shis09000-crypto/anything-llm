@@ -148,6 +148,9 @@ export default {
     branding: () => {
       return "/settings/branding";
     },
+    buttonLab: () => {
+      return "/settings/button-lab";
+    },
     agentSkills: () => {
       return "/settings/agents";
     },

@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs/promises");
 const fsSync = require("fs");
+const { randomBytes } = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 
 /**
@@ -9,6 +10,8 @@ const { v4: uuidv4 } = require("uuid");
  * All generated files are saved to storage/generated-files directory.
  */
 class CreateFilesManager {
+  static WRITE_VERIFY_ATTEMPTS = 2;
+
   #outputDirectory = null;
   #isInitialized = false;
 
@@ -68,14 +71,71 @@ class CreateFilesManager {
     return this.#outputDirectory;
   }
 
+  async #syncDirectory(dirPath) {
+    let dirHandle = null;
+    try {
+      dirHandle = await fs.open(dirPath, "r");
+      await dirHandle.sync();
+    } catch {
+      // Directory fsync is not supported on every filesystem.
+    } finally {
+      if (dirHandle) await dirHandle.close();
+    }
+  }
+
+  async #atomicWriteBuffer(filePath, buffer) {
+    const parentDir = path.dirname(filePath);
+    const tempPath = path.join(
+      parentDir,
+      `.${path.basename(filePath)}.${randomBytes(16).toString("hex")}.tmp`
+    );
+    let fileHandle = null;
+    try {
+      await fs.mkdir(parentDir, { recursive: true });
+      fileHandle = await fs.open(tempPath, "w");
+      await fileHandle.writeFile(buffer);
+      await fileHandle.sync();
+      await fileHandle.close();
+      fileHandle = null;
+      await fs.rename(tempPath, filePath);
+      await this.#syncDirectory(parentDir);
+    } catch (error) {
+      if (fileHandle) {
+        try {
+          await fileHandle.close();
+        } catch {}
+      }
+      try {
+        await fs.unlink(tempPath);
+      } catch {}
+      throw error;
+    }
+  }
+
+  async #verifyBinaryFile(filePath, expectedBuffer) {
+    const actualBuffer = await fs.readFile(filePath);
+    if (
+      !Buffer.isBuffer(actualBuffer) ||
+      !actualBuffer.equals(expectedBuffer)
+    ) {
+      throw new Error(
+        `Write verification failed for ${filePath}: expected ${expectedBuffer.length} bytes but read ${actualBuffer?.length ?? 0} bytes.`
+      );
+    }
+    return {
+      path: filePath,
+      bytes: actualBuffer.length,
+      verified: true,
+    };
+  }
+
   /**
    * Writes binary content (Buffer) to a file.
    * @param {string} filePath - Validated absolute path to write to
    * @param {Buffer} buffer - Binary content to write
-   * @returns {Promise<void>}
+   * @returns {Promise<{path: string, bytes: number, verified: boolean}>}
    */
   async writeBinaryFile(filePath, buffer) {
-    const parentDir = path.dirname(filePath);
     const fileSizeBytes = buffer.length;
     const fileSizeKB = (fileSizeBytes / 1024).toFixed(2);
     const fileSizeMB = (fileSizeBytes / (1024 * 1024)).toFixed(2);
@@ -84,12 +144,26 @@ class CreateFilesManager {
       `[CreateFilesManager] writeBinaryFile starting - path: ${filePath}, size: ${fileSizeKB}KB (${fileSizeMB}MB)`
     );
 
-    await fs.mkdir(parentDir, { recursive: true });
-    await fs.writeFile(filePath, buffer);
+    let lastError = null;
+    for (
+      let attempt = 1;
+      attempt <= CreateFilesManager.WRITE_VERIFY_ATTEMPTS;
+      attempt++
+    ) {
+      try {
+        await this.#atomicWriteBuffer(filePath, buffer);
+        const result = await this.#verifyBinaryFile(filePath, buffer);
 
-    console.log(
-      `[CreateFilesManager] writeBinaryFile completed - file saved to: ${filePath}`
-    );
+        console.log(
+          `[CreateFilesManager] writeBinaryFile completed - file saved to: ${filePath}, verified=${result.verified}, bytes=${result.bytes}`
+        );
+        return result;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= CreateFilesManager.WRITE_VERIFY_ATTEMPTS) break;
+      }
+    }
+    throw lastError;
   }
 
   /**
@@ -216,10 +290,10 @@ class CreateFilesManager {
     const filename = this.generateFilename(fileType, extension);
     const storagePath = path.join(this.#outputDirectory, filename);
 
-    await this.writeBinaryFile(storagePath, buffer);
+    const writeResult = await this.writeBinaryFile(storagePath, buffer);
 
     console.log(
-      `[CreateFilesManager] saveGeneratedFile - saved ${filename} (${(buffer.length / 1024).toFixed(2)}KB)`
+      `[CreateFilesManager] saveGeneratedFile - saved ${filename} (${(buffer.length / 1024).toFixed(2)}KB), verified=${writeResult.verified}`
     );
 
     return {

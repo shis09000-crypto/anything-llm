@@ -6,8 +6,11 @@ const {
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { User } = require("../../models/user");
 const { Workspace } = require("../../models/workspace");
-const { WorkspaceChats } = require("../../models/workspaceChats");
 const { safeJsonParse } = require("../http");
+const {
+  agentThreadMemory,
+  recentChatHistoryWithCompaction,
+} = require("../chats/threadCompaction");
 const {
   USER_AGENT,
   WORKSPACE_AGENT,
@@ -84,19 +87,19 @@ class AgentHandler {
 
   async #chatHistory(limit = 10) {
     try {
-      const rawHistory = (
-        await WorkspaceChats.where(
-          {
-            workspaceId: this.invocation.workspace_id,
-            user_id: this.invocation.user_id || null,
-            thread_id: this.invocation.thread_id || null,
-            api_session_id: null,
-            include: true,
-          },
-          limit,
-          { id: "desc" }
-        )
-      ).reverse();
+      const user = this.invocation.user_id
+        ? { id: this.invocation.user_id }
+        : null;
+      const thread = this.invocation.thread_id
+        ? { id: this.invocation.thread_id }
+        : null;
+      const { rawHistory } = await recentChatHistoryWithCompaction({
+        workspace: this.invocation.workspace,
+        user,
+        thread,
+        messageLimit: limit,
+        apiSessionId: null,
+      });
 
       const agentHistory = [];
       rawHistory.forEach((chatLog) => {
@@ -741,6 +744,15 @@ class AgentHandler {
       socket: null,
     }
   ) {
+    const compactedThreadMemory = await agentThreadMemory({
+      workspace: this.invocation.workspace,
+      user: this.invocation.user_id ? { id: this.invocation.user_id } : null,
+      thread: this.invocation.thread_id
+        ? { id: this.invocation.thread_id }
+        : null,
+      apiSessionId: null,
+    });
+
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
       model: this.model ?? "gpt-4o",
@@ -749,6 +761,7 @@ class AgentHandler {
         invocation: this.invocation,
         log: this.log,
         fileAccessContext: this.fileAccessContext,
+        compactedThreadMemory,
       },
     });
 
