@@ -6,6 +6,7 @@ import { titleCase } from "text-case";
 import MCPServers from "@/models/mcpServers";
 import { SimpleToggleSwitch } from "@/components/lib/Toggle";
 import { useTranslation, Trans } from "react-i18next";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 function ManageServerMenu({ server, toggleServer, onDelete }) {
   const { t } = useTranslation();
@@ -15,9 +16,12 @@ function ManageServerMenu({ server, toggleServer, onDelete }) {
 
   async function deleteServer() {
     if (
-      !window.confirm(
-        "Are you sure you want to delete this MCP server? It will be removed from your config file and you will need to add it back manually."
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除 MCP 服务器？",
+        description: "它将从配置文件中移除，之后如需使用必须手动重新添加。",
+        confirmText: "删除",
+      }))
     )
       return;
     const { success, error } = await MCPServers.deleteServer(server.name);
@@ -31,11 +35,14 @@ function ManageServerMenu({ server, toggleServer, onDelete }) {
 
   async function handleToggleServer() {
     if (
-      !window.confirm(
-        running
-          ? "Are you sure you want to stop this MCP server? It will be started automatically when you next start the server."
-          : "Are you sure you want to start this MCP server? It will be started automatically when you next start the server."
-      )
+      !(await showAppConfirm({
+        tone: "warning",
+        title: running ? "停止 MCP 服务器？" : "启动 MCP 服务器？",
+        description: running
+          ? "停止后，下次启动服务时它会自动启动。"
+          : "启动后，下次启动服务时它也会自动启动。",
+        confirmText: running ? "停止" : "启动",
+      }))
     )
       return;
 

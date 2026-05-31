@@ -2,12 +2,21 @@ import { useState } from "react";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { useTranslation } from "react-i18next";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function ResetDatabase({ workspace }) {
   const [deleting, setDeleting] = useState(false);
   const { t } = useTranslation();
   const resetVectorDatabase = async () => {
-    if (!window.confirm(`${t("vector-workspace.reset.confirm")}`)) return false;
+    if (
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "重置向量数据库？",
+        description: `${t("vector-workspace.reset.confirm")}`,
+        confirmText: "重置",
+      }))
+    )
+      return false;
 
     setDeleting(true);
     const success = await Workspace.wipeVectorDb(workspace.slug);

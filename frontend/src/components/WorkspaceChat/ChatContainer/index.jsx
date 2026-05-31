@@ -35,7 +35,11 @@ import MindMapPanel from "./MindMapPanel";
 import TopRightActionZone from "./TopRightActionZone";
 import DocumentReaderPanel from "./DocumentReader/Panel";
 import { DocumentReaderProvider } from "./DocumentReader/Provider";
-import { READER_EVENT_OPEN_DRAWER } from "./DocumentReader/storage";
+import {
+  promptWithTempTextSources,
+  READER_EVENT_CONSUME_TEXT_SOURCES,
+  READER_EVENT_OPEN_DRAWER,
+} from "./DocumentReader/storage";
 import WorkspaceOverview from "./WorkspaceOverview";
 import {
   useChatDraft,
@@ -54,7 +58,8 @@ import {
   previousSidebarState,
   SIDEBAR_SET_STATE_EVENT,
 } from "@/components/Sidebar/SidebarToggle";
-import { X } from "@phosphor-icons/react";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import AppIcon from "@/components/lib/AppIcon";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -68,18 +73,44 @@ const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
 const BRANCH_PROMPT_INPUT_ID = "branch-prompt-input";
 const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const SELECTION_COPY_MIN_LENGTH = 8;
-const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 120;
-const CHAT_HISTORY_INPUT_GAP = 16;
+const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 104;
+const CHAT_HISTORY_INPUT_GAP = 8;
 const DUAL_THREAD_CONTENT_PADDING = "px-4 md:px-6";
-const READER_DEFAULT_SPLIT_PERCENT = 50;
-const READER_MIN_SPLIT_PERCENT = (4 / 11) * 100;
-const READER_MAX_SPLIT_PERCENT = (7 / 11) * 100;
+const READER_DEFAULT_SPLIT_PERCENT = 70;
+const READER_MIN_SPLIT_PERCENT = 30;
+const READER_MAX_SPLIT_PERCENT = READER_DEFAULT_SPLIT_PERCENT;
+const READER_SPLIT_PERCENT_STORAGE_KEY = "anythingllm_reader_split_percent";
 const MEMORY_COMPACTION_STATUS_REFRESH_MS = 900;
 const MEMORY_COMPACTION_TIMEOUT_MS = 60_000;
 const MEMORY_COMPACTION_SUCCESS_MS = 2_800;
 const MEMORY_COMPACTION_ERROR_MS = 4_500;
 const DUAL_THREAD_RESUME_PROMPT =
   "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
+
+function clampReaderSplitPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return READER_DEFAULT_SPLIT_PERCENT;
+  return Math.max(
+    READER_MIN_SPLIT_PERCENT,
+    Math.min(READER_MAX_SPLIT_PERCENT, numeric)
+  );
+}
+
+function readReaderSplitPercent() {
+  if (typeof window === "undefined") return READER_DEFAULT_SPLIT_PERCENT;
+  return clampReaderSplitPercent(
+    window.localStorage.getItem(READER_SPLIT_PERCENT_STORAGE_KEY)
+  );
+}
+
+function writeReaderSplitPercent(value) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(
+    READER_SPLIT_PERCENT_STORAGE_KEY,
+    String(clampReaderSplitPercent(value))
+  );
+}
+
 function setSidebarForMindMap(open) {
   window.dispatchEvent(
     new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
@@ -162,8 +193,8 @@ export default function ChatContainer({
   const [emptyThreadComposeActive, setEmptyThreadComposeActive] =
     useState(false);
   const [readerActive, setReaderActive] = useState(false);
-  const [readerPanelPercent, setReaderPanelPercent] = useState(
-    READER_DEFAULT_SPLIT_PERCENT
+  const [readerPanelPercent, setReaderPanelPercent] = useState(() =>
+    readReaderSplitPercent()
   );
   const [memoryCompactionStatus, setMemoryCompactionStatus] = useState(null);
   const [memoryCompactionLoading, setMemoryCompactionLoading] = useState(false);
@@ -407,14 +438,15 @@ export default function ChatContainer({
   }, []);
 
   const updateEmptyThreadComposeState = useCallback((state = {}) => {
-    setEmptyThreadComposeActive(
-      !!(
-        state.hasDraftInput ||
-        state.hasAttachments ||
-        state.isComposing ||
-        state.slashMenuOpen ||
-        state.isVoiceInputActive
-      )
+    const nextActive = !!(
+      state.hasDraftInput ||
+      state.hasAttachments ||
+      state.isComposing ||
+      state.slashMenuOpen ||
+      state.isVoiceInputActive
+    );
+    setEmptyThreadComposeActive((current) =>
+      current === nextActive ? current : nextActive
     );
   }, []);
 
@@ -427,17 +459,14 @@ export default function ChatContainer({
       const startX = event.clientX;
       const startPercent = readerPanelPercent;
 
-      function clampPercent(value) {
-        return Math.max(
-          READER_MIN_SPLIT_PERCENT,
-          Math.min(READER_MAX_SPLIT_PERCENT, value)
-        );
-      }
-
       function onPointerMove(moveEvent) {
         const deltaPercent =
           ((moveEvent.clientX - startX) / layoutRect.width) * 100;
-        setReaderPanelPercent(clampPercent(startPercent - deltaPercent));
+        const nextPercent = clampReaderSplitPercent(
+          startPercent - deltaPercent
+        );
+        setReaderPanelPercent(nextPercent);
+        writeReaderSplitPercent(nextPercent);
       }
 
       function stopResize() {
@@ -540,6 +569,29 @@ export default function ChatContainer({
     setReaderActive(true);
     window.dispatchEvent(new CustomEvent(READER_EVENT_OPEN_DRAWER));
   }, []);
+
+  function consumeReaderTempTextSources() {
+    let sources = [];
+    window.dispatchEvent(
+      new CustomEvent(READER_EVENT_CONSUME_TEXT_SOURCES, {
+        detail: {
+          reply: (payload) => {
+            sources = payload?.sources || [];
+          },
+        },
+      })
+    );
+    return sources;
+  }
+
+  function readerPromptPayload(prompt, includeReaderTempTextSources = true) {
+    if (!includeReaderTempTextSources) return { prompt, readerTextSources: [] };
+    const readerTextSources = consumeReaderTempTextSources();
+    return {
+      prompt: promptWithTempTextSources(prompt, readerTextSources),
+      readerTextSources,
+    };
+  }
 
   function openGraphOverviewConcept(target) {
     if (!target) return;
@@ -871,7 +923,16 @@ export default function ChatContainer({
         !threadSlug || sourceThread
           ? latestReusableDualThreadBranch(threads, sourceThreadId)
           : null;
-      if (previousBranch && window.confirm(DUAL_THREAD_RESUME_PROMPT)) {
+      if (
+        previousBranch &&
+        (await showAppConfirm({
+          tone: "info",
+          title: "继续上一次双线程分支？",
+          description: DUAL_THREAD_RESUME_PROMPT,
+          confirmText: "继续",
+          cancelText: "新建",
+        }))
+      ) {
         await openDualThreadBranch(previousBranch, sourceThreadId);
         return;
       }
@@ -1127,11 +1188,14 @@ export default function ChatContainer({
       // Stop the mic if the send button is clicked
       endSTTSession();
     }
+    const readerPayload = readerPromptPayload(currentMessage);
     setMessageEmit("");
     startStream({
       workspaceSlug: workspace.slug,
       threadSlug,
-      prompt: currentMessage,
+      prompt: readerPayload.prompt,
+      displayPrompt: currentMessage,
+      readerTextSources: readerPayload.readerTextSources,
       clientGeneratedTurnId: createTurnId(),
       attachments,
       fileAccessMode: currentFileAccessMode(),
@@ -1162,6 +1226,7 @@ export default function ChatContainer({
           autoSubmit: true,
           history: knownHistory,
           attachments: lastUserMessage?.attachments,
+          includeReaderTempTextSources: false,
         })
       )
       .catch((e) => console.error(e));
@@ -1184,6 +1249,7 @@ export default function ChatContainer({
     attachments = [],
     nodeContext = null,
     writeMode = "replace",
+    includeReaderTempTextSources = true,
   } = {}) => {
     // If we are not auto-submitting, we can just emit the text to the prompt input.
     if (!autoSubmit) {
@@ -1227,11 +1293,17 @@ export default function ChatContainer({
     // it won't restore stale text.
     clearPromptInputDraft(threadSlug ?? workspace.slug);
 
+    const readerPayload = readerPromptPayload(
+      text,
+      includeReaderTempTextSources
+    );
     setMessageEmit("");
     startStream({
       workspaceSlug: workspace.slug,
       threadSlug,
-      prompt: text,
+      prompt: readerPayload.prompt,
+      displayPrompt: text,
+      readerTextSources: readerPayload.readerTextSources,
       clientGeneratedTurnId: createTurnId(),
       attachments,
       fileAccessMode: currentFileAccessMode(),
@@ -1262,13 +1334,12 @@ export default function ChatContainer({
   const hasMessages = chatItems.length > 0;
   const hasPendingHomeMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const isEmptyThread = !hasMessages && !hasPendingHomeMessage;
-  const emptyThreadReaderShellActive = isEmptyThread && readerActive;
-  const emptyThreadComposeShellActive =
-    isEmptyThread && emptyThreadComposeActive;
-  const emptyThreadShellActive =
-    emptyThreadReaderShellActive || emptyThreadComposeShellActive;
+  const emptyThreadShellActive = isEmptyThread && readerActive;
   const overviewIsVisible =
-    isEmptyThread && !loadingResponse && !emptyThreadShellActive;
+    isEmptyThread &&
+    !loadingResponse &&
+    !readerActive &&
+    !emptyThreadComposeActive;
   const memoryCompactionControl = useMemo(
     () => ({
       visible: !!threadSlug && !dualThreadFork.enabled,
@@ -1377,13 +1448,10 @@ export default function ChatContainer({
                 <button
                   type="button"
                   onClick={() => setCloseMenuOpen((open) => !open)}
-                  className="liquid-glass-control group cursor-pointer flex items-center justify-center w-[35px] h-[35px] rounded-full"
+                  className="motion-hover flex h-10 w-10 items-center justify-center rounded-full border-none bg-transparent p-0 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
                   aria-label="关闭双线程面板"
                 >
-                  <X
-                    size={18}
-                    className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"
-                  />
+                  <AppIcon name="close" size="md" tone="muted" weight="bold" />
                 </button>
                 {closeMenuOpen && (
                   <div className="absolute right-0 top-11 z-50 w-[150px] rounded-lg border border-white/10 light:border-slate-200 bg-zinc-900 light:bg-white shadow-xl overflow-hidden">

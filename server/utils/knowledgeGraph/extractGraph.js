@@ -1,13 +1,12 @@
-const { DeepSeekLLM } = require("../AiProviders/deepseek");
+const { getTaskConnector } = require("../llmTasks");
 const { clipChunkText, normalizeExtractionResult } = require("./schema");
 const { buildExtractionPrompt } = require("./promptRegistry");
-const { DEFAULT_EXTRACTION_MODEL } = require("./constants");
 
 async function extractGraphFromChunk({ chunkText, domain = "default" }) {
   const startedAt = Date.now();
-  const model =
-    process.env.KNOWLEDGE_GRAPH_DEEPSEEK_MODEL || DEFAULT_EXTRACTION_MODEL;
-  const LLMConnector = new DeepSeekLLM(null, model);
+  const { connector: LLMConnector } = getTaskConnector(
+    "knowledge_graph_extract"
+  );
   const prompt = buildExtractionPrompt({
     text: clipChunkText(chunkText),
     domain,

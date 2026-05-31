@@ -8,6 +8,7 @@ import LogRow from "./LogRow";
 import showToast from "@/utils/toast";
 import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function AdminLogs() {
   const query = useQuery();
@@ -29,9 +30,12 @@ export default function AdminLogs() {
 
   const handleResetLogs = async () => {
     if (
-      !window.confirm(
-        "Are you sure you want to clear all event logs? This action is irreversible."
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "清空事件日志？",
+        description: "此操作无法撤销。",
+        confirmText: "清空",
+      }))
     )
       return;
     const { success, error } = await System.clearEventLogs();

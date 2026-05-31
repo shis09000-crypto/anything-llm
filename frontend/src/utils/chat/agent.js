@@ -20,11 +20,17 @@ export function websocketURI() {
 }
 
 function dispatchThreadRename(content = {}) {
-  const { slug, name } = content || {};
+  const { slug, name, title, titleVersion, animate } = content || {};
   if (!slug || !name) return;
   window.dispatchEvent(
     new CustomEvent(THREAD_RENAME_EVENT, {
-      detail: { threadSlug: slug, newName: name },
+      detail: {
+        threadSlug: slug,
+        newName: name,
+        title: title || name,
+        titleVersion,
+        animate: !!animate,
+      },
     })
   );
 }

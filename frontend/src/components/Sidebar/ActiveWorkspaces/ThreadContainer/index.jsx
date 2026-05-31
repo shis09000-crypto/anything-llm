@@ -2,7 +2,7 @@ import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import showToast from "@/utils/toast";
 import { Plus, CircleNotch, Trash } from "@phosphor-icons/react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ThreadItem from "./ThreadItem";
 import { useNavigate, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -24,29 +24,113 @@ export default function ThreadContainer({
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ctrlPressed, setCtrlPressed] = useState(false);
+  const titleAnimationTimers = useRef(new Map());
+  const lastAnimatedTitle = useRef(new Map());
+  const threadsRef = useRef([]);
   const { t } = useTranslation();
   const { hasThreadActivity, clearThreadActivity } = useChatThreadDrafts();
   useThreadActivitySnapshot();
 
   useEffect(() => {
-    const chatHandler = (event) => {
-      const { threadSlug, newName } = event.detail;
-      setThreads((prevThreads) =>
-        prevThreads.map((thread) => {
-          if (thread.slug === threadSlug) {
-            return { ...thread, name: newName };
-          }
-          return thread;
-        })
+    threadsRef.current = threads;
+  }, [threads]);
+
+  const clearTitleAnimation = useCallback((threadSlug) => {
+    const timers = titleAnimationTimers.current.get(threadSlug) || [];
+    timers.forEach((timer) => clearTimeout(timer));
+    titleAnimationTimers.current.delete(threadSlug);
+  }, []);
+
+  const updateThreadTitle = useCallback((threadSlug, title) => {
+    setThreads((prevThreads) =>
+      prevThreads.map((thread) => {
+        if (thread.slug !== threadSlug) return thread;
+        return { ...thread, name: title, title };
+      })
+    );
+  }, []);
+
+  const animateThreadTitle = useCallback(
+    (threadSlug, title) => {
+      clearTitleAnimation(threadSlug);
+      updateThreadTitle(threadSlug, "");
+
+      const chars = Array.from(title);
+      if (chars.length === 0) return;
+
+      const timers = chars.map((_, index) =>
+        setTimeout(
+          () => {
+            updateThreadTitle(threadSlug, chars.slice(0, index + 1).join(""));
+            if (index === chars.length - 1) {
+              titleAnimationTimers.current.delete(threadSlug);
+            }
+          },
+          45 * (index + 1)
+        )
       );
+      titleAnimationTimers.current.set(threadSlug, timers);
+    },
+    [clearTitleAnimation, updateThreadTitle]
+  );
+
+  useEffect(() => {
+    const chatHandler = (event) => {
+      const { threadSlug, newName, title, animate } = event.detail;
+      const nextTitle = title || newName;
+      if (!threadSlug || !nextTitle) return;
+
+      if (animate) {
+        if (lastAnimatedTitle.current.get(threadSlug) === nextTitle) return;
+        lastAnimatedTitle.current.set(threadSlug, nextTitle);
+        animateThreadTitle(threadSlug, nextTitle);
+        return;
+      }
+
+      lastAnimatedTitle.current.set(threadSlug, nextTitle);
+      clearTitleAnimation(threadSlug);
+      updateThreadTitle(threadSlug, nextTitle);
     };
 
     window.addEventListener(THREAD_RENAME_EVENT, chatHandler);
 
     return () => {
       window.removeEventListener(THREAD_RENAME_EVENT, chatHandler);
+      titleAnimationTimers.current.forEach((timers) =>
+        timers.forEach((timer) => clearTimeout(timer))
+      );
+      titleAnimationTimers.current.clear();
     };
-  }, []);
+  }, [animateThreadTitle, clearTitleAnimation, updateThreadTitle]);
+
+  useEffect(() => {
+    if (!workspace.slug) return;
+    const ctrl = new AbortController();
+
+    Workspace.threads
+      .titleEvents(workspace.slug, {
+        signal: ctrl.signal,
+        onThreadRename: (thread) => {
+          window.dispatchEvent(
+            new CustomEvent(THREAD_RENAME_EVENT, {
+              detail: {
+                threadSlug: thread.slug,
+                newName: thread.name,
+                title: thread.title || thread.name,
+                titleVersion: thread.titleVersion,
+                animate: !!thread.animate,
+              },
+            })
+          );
+        },
+      })
+      .catch((error) => {
+        if (ctrl.signal.aborted) return;
+        console.warn("[ThreadTitle] event stream closed", error.message);
+      });
+
+    return () => ctrl.abort();
+  }, [workspace.slug]);
 
   useEffect(() => {
     async function fetchThreads() {
@@ -61,8 +145,32 @@ export default function ThreadContainer({
   useEffect(() => {
     async function refreshThreads(event) {
       if (event?.detail?.workspaceSlug !== workspace.slug) return;
-      const { threads } = await Workspace.threads.all(workspace.slug);
-      setThreads(threads);
+      const { threads: refreshedThreads } = await Workspace.threads.all(
+        workspace.slug
+      );
+      const currentBySlug = new Map(
+        threadsRef.current.map((thread) => [thread.slug, thread])
+      );
+      const animations = [];
+      const nextThreads = refreshedThreads.map((thread) => {
+        const currentThread = currentBySlug.get(thread.slug);
+        const currentTitle = currentThread?.title || currentThread?.name || "";
+        const nextTitle = thread.title || thread.name || "";
+        const shouldAnimateTitle =
+          currentThread &&
+          currentTitle !== nextTitle &&
+          thread.titleSource !== "manual" &&
+          lastAnimatedTitle.current.get(thread.slug) !== nextTitle &&
+          !thread.deleted;
+
+        if (!shouldAnimateTitle) return thread;
+
+        lastAnimatedTitle.current.set(thread.slug, nextTitle);
+        animations.push({ slug: thread.slug, title: nextTitle });
+        return { ...thread, name: "", title: "" };
+      });
+      setThreads(nextThreads);
+      animations.forEach(({ slug, title }) => animateThreadTitle(slug, title));
     }
 
     window.addEventListener(WORKSPACE_THREADS_REFRESH_EVENT, refreshThreads);
@@ -71,7 +179,7 @@ export default function ThreadContainer({
         WORKSPACE_THREADS_REFRESH_EVENT,
         refreshThreads
       );
-  }, [workspace.slug]);
+  }, [animateThreadTitle, workspace.slug]);
 
   // Enable toggling of bulk-deletion by holding meta-key (ctrl on win and cmd/fn on others)
   useEffect(() => {
@@ -140,6 +248,14 @@ export default function ThreadContainer({
     setTimeout(() => {
       setThreads((prev) => prev.filter((t) => !t.deleted));
     }, 500);
+  }
+
+  function handleThreadCreated(thread) {
+    if (!thread?.slug) return;
+    setThreads((prev) => [
+      ...prev.filter((existing) => existing.slug !== thread.slug),
+      thread,
+    ]);
   }
 
   function getActiveThreadIdx() {
@@ -237,7 +353,10 @@ export default function ThreadContainer({
         threads={threads}
         onDelete={handleDeleteAll}
       />
-      <NewThreadButton workspace={workspace} />
+      <NewThreadButton
+        workspace={workspace}
+        onThreadCreated={handleThreadCreated}
+      />
     </div>
   );
 }
@@ -270,24 +389,42 @@ function getSortedThreadRows(threads, workspaceSlug, hasThreadActivity) {
     });
 }
 
-function NewThreadButton({ workspace }) {
+function NewThreadButton({ workspace, onThreadCreated }) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const onClick = async () => {
-    setLoading(true);
-    const { thread, error } = await Workspace.threads.new(workspace.slug);
-    if (!!error) {
-      showToast(`Could not create thread - ${error}`, "error", { clear: true });
+    if (loading || !workspace?.slug) return;
+    try {
+      setLoading(true);
+      const { thread, error } = await Workspace.threads.new(workspace.slug);
+      if (!!error || !thread?.slug) {
+        showToast(
+          `Could not create thread - ${error || "Invalid thread response"}`,
+          "error",
+          { clear: true }
+        );
+        return;
+      }
+
+      onThreadCreated?.(thread);
+      navigate(paths.workspace.thread(workspace.slug, thread.slug), {
+        state: { userSelectedThread: true },
+      });
+    } catch (error) {
+      showToast(`Could not create thread - ${error.message}`, "error", {
+        clear: true,
+      });
+    } finally {
       setLoading(false);
-      return;
     }
-    navigate(paths.workspace.thread(workspace.slug, thread.slug));
   };
 
   return (
     <button
       onClick={onClick}
-      className="w-full relative flex h-[40px] items-center border-none hover:bg-[var(--theme-sidebar-thread-selected)] light:hover:bg-slate-300 hover:light:bg-theme-sidebar-subitem-hover rounded-lg"
+      disabled={loading}
+      aria-busy={loading}
+      className="w-full relative flex h-[40px] items-center border-none hover:bg-[var(--theme-sidebar-thread-selected)] light:hover:bg-slate-300 hover:light:bg-theme-sidebar-subitem-hover rounded-lg disabled:cursor-not-allowed disabled:opacity-70"
     >
       <div className="flex w-full gap-x-2 items-center pl-4">
         <div className="bg-zinc-800 light:bg-slate-50 p-2 rounded-lg h-[24px] w-[24px] flex items-center justify-center">

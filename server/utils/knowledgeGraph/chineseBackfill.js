@@ -1,4 +1,4 @@
-const { DeepSeekLLM } = require("../AiProviders/deepseek");
+const { getTaskConnector, resolveTaskProviderModel } = require("../llmTasks");
 const { KnowledgeGraph } = require("../../models/knowledgeGraph");
 const { invalidateGraphRetrievalCache } = require("./retrievalCache");
 const { normalizeAliasPairs, firstChineseAlias } = require("./bilingualLabels");
@@ -6,8 +6,9 @@ const { safeJsonParse } = require("../http");
 
 const activeBackfillKeys = new Set();
 const MAX_NODES_PER_BATCH = 30;
-const BACKFILL_MODEL =
-  process.env.KNOWLEDGE_GRAPH_CHINESE_BACKFILL_MODEL || "deepseek-v4-flash";
+const BACKFILL_MODEL = resolveTaskProviderModel(
+  "knowledge_graph_chinese_backfill"
+).model;
 
 function hasChinese(value = "") {
   return /[\u3400-\u9fff]/.test(String(value || ""));
@@ -110,7 +111,7 @@ async function backfillChineseNodeFields({ workspaceId, nodes = [] }) {
   const targets = nodes.filter(needsChineseNodeBackfill);
   if (!workspaceId || targets.length === 0) return { updated: 0, total: 0 };
 
-  const connector = new DeepSeekLLM(null, BACKFILL_MODEL);
+  const { connector } = getTaskConnector("knowledge_graph_chinese_backfill");
   let updated = 0;
   for (let i = 0; i < targets.length; i += MAX_NODES_PER_BATCH) {
     const batch = targets.slice(i, i + MAX_NODES_PER_BATCH);

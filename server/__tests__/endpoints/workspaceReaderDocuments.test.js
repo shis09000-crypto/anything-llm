@@ -2,7 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 
-function loadEndpoint(storageDir) {
+function loadEndpoint(storageDir, helpersMock = null) {
   jest.resetModules();
   process.env.NODE_ENV = "production";
   process.env.STORAGE_DIR = storageDir;
@@ -18,6 +18,9 @@ function loadEndpoint(storageDir) {
     },
     normalizePath: (value = "") => path.normalize(String(value).trim()),
   }));
+  jest.doMock("../../utils/fileAccessPolicy", () => ({
+    validateReadPath: jest.fn(),
+  }));
   jest.doMock("../../utils/middleware/multiUserProtected", () => ({
     flexUserRoleValid: () => (_request, _response, next) => next(),
     ROLES: { all: "all" },
@@ -31,6 +34,13 @@ function loadEndpoint(storageDir) {
       next();
     },
   }));
+  jest.doMock(
+    "../../utils/helpers",
+    () =>
+      helpersMock || {
+        getLLMProvider: jest.fn(),
+      }
+  );
   return require("../../endpoints/workspaceReaderDocuments")._private;
 }
 
@@ -89,9 +99,9 @@ describe("workspace reader documents", () => {
       assertAllowedUpload({
         originalname: "huge.md",
         mimetype: "text/plain",
-        size: 51 * 1024 * 1024,
+        size: 501 * 1024 * 1024,
       })
-    ).toThrow("Reader document exceeds the 50MB limit.");
+    ).toThrow("Reader document exceeds the 500MB limit.");
   });
 
   it("resolves reader document roots inside the reader namespace", () => {
@@ -108,5 +118,202 @@ describe("workspace reader documents", () => {
         "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a"
       )
     );
+  });
+
+  it("caps classification samples before model use", () => {
+    const { cappedClassificationSamples, classificationSampleCharCount } =
+      loadEndpoint(storageDir);
+    const samples = [{ text: "a".repeat(2_000) }, { text: "b".repeat(2_000) }];
+    const capped = cappedClassificationSamples(samples);
+    expect(classificationSampleCharCount(capped)).toBe(3_000);
+    expect(capped[1].text).toHaveLength(1_000);
+  });
+
+  it("builds server-side samples without exceeding the LLM payload cap", () => {
+    const { buildReaderClassificationSamples, classificationSampleCharCount } =
+      loadEndpoint(storageDir);
+    const result = buildReaderClassificationSamples("哲学思想".repeat(30_000));
+    expect(result.ok).toBe(true);
+    expect(result.totalChars).toBeGreaterThanOrEqual(100_000);
+    expect(result.sampleCount).toBe(5);
+    expect(result.sampleStrategy).toBe("balanced-5x500");
+    expect(classificationSampleCharCount(result.samples)).toBeLessThanOrEqual(
+      3_000
+    );
+  });
+
+  it("caps server-side markdown extraction at the classification text limit", async () => {
+    const { extractReaderClassificationText } = loadEndpoint(storageDir);
+    const filePath = path.join(storageDir, "large.md");
+    fs.writeFileSync(filePath, "正文".repeat(60_000));
+    const text = await extractReaderClassificationText({
+      documentType: "markdown",
+      originalPath: filePath,
+    });
+    expect(text.length).toBeLessThanOrEqual(100_000);
+  });
+
+  it("sanitizes postprocess task requests", () => {
+    const { sanitizedPostprocessTasks } = loadEndpoint(storageDir);
+    expect(
+      sanitizedPostprocessTasks(["thumbnail", "bad", "classification"])
+    ).toEqual(["thumbnail", "classification"]);
+    expect(sanitizedPostprocessTasks([])).toEqual([
+      "thumbnail",
+      "classification",
+    ]);
+  });
+
+  it("parses classification JSON from thinking and wrapped responses", () => {
+    const { parseClassificationJson } = loadEndpoint(storageDir);
+    expect(
+      parseClassificationJson(
+        '<think>推理过程</think>{"primaryCategoryId":"philosophy"}'
+      )
+    ).toEqual({ primaryCategoryId: "philosophy" });
+    expect(
+      parseClassificationJson(
+        '```json\n{"primaryCategoryId":"history"}\n```'
+      )
+    ).toEqual({ primaryCategoryId: "history" });
+    expect(
+      parseClassificationJson(
+        '分类结果如下："书籍分类" {"primaryCategoryId":"economics","confidence":0.9}。'
+      )
+    ).toEqual({ primaryCategoryId: "economics", confidence: 0.9 });
+  });
+
+  it("falls back when DeepSeek key is missing", async () => {
+    delete process.env.DEEPSEEK_API_KEY;
+    const { classifyReaderDocumentWithDeepSeek } = loadEndpoint(storageDir);
+    const result = await classifyReaderDocumentWithDeepSeek({
+      categories: [{ id: "philosophy", name: "哲学思想" }],
+      samples: [{ text: "哲学思想与理性传统。" }],
+    });
+    expect(result.categoryStatus).toBe("unknown");
+    expect(result.reason).toBe("分类模型未配置，已归入未知分类。");
+    expect(result.reason).not.toMatch(/DEEPSEEK|API_KEY|stack/i);
+  });
+
+  it("uses fixed DeepSeek flash model and validates category ids", async () => {
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const getChatCompletion = jest.fn(async () => ({
+      textResponse: JSON.stringify({
+        primaryCategoryId: "invented",
+        primaryCategoryName: "自创分类",
+        confidence: 0.9,
+        tags: ["测试"],
+        evidence: ["测试"],
+        reason: "测试",
+      }),
+      metrics: { duration: 0.01 },
+    }));
+    const getLLMProvider = jest.fn(() => ({
+      compressMessages: jest.fn(async ({ userPrompt }) => [
+        { role: "user", content: userPrompt },
+      ]),
+      getChatCompletion,
+    }));
+    const { classifyReaderDocumentWithDeepSeek } = loadEndpoint(storageDir, {
+      getLLMProvider,
+    });
+    const result = await classifyReaderDocumentWithDeepSeek({
+      title: "book",
+      documentType: "epub",
+      categories: [{ id: "philosophy", name: "哲学思想" }],
+      samples: [{ text: "哲学思想与理性传统。" }],
+      sampleStrategy: "balanced-2x200",
+      totalChars: 500,
+    });
+    expect(getLLMProvider).toHaveBeenCalledWith({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+    expect(getChatCompletion).toHaveBeenCalledWith(expect.any(Array), {
+      temperature: 0.1,
+      responseFormat: { type: "json_object" },
+    });
+    expect(result.categoryStatus).toBe("unknown");
+    expect(result.reason).toBe("分类模型选择了不存在的分类，已归入未知分类。");
+  });
+
+  it("classifies valid DeepSeek JSON responses with reasoning content", async () => {
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const getChatCompletion = jest.fn(async () => ({
+      textResponse:
+        '<think>这本书讨论理性、存在和知识传统。</think>{"primaryCategoryId":"philosophy","primaryCategoryName":"哲学思想","secondaryCategory":"西方哲学","confidence":0.88,"tags":["哲学"],"evidence":["理性、存在和知识传统"],"reason":"文本明显讨论哲学思想。"}',
+      metrics: { duration: 0.02 },
+    }));
+    const getLLMProvider = jest.fn(() => ({
+      compressMessages: jest.fn(async ({ userPrompt }) => [
+        { role: "user", content: userPrompt },
+      ]),
+      getChatCompletion,
+    }));
+    const { classifyReaderDocumentWithDeepSeek } = loadEndpoint(storageDir, {
+      getLLMProvider,
+    });
+    const result = await classifyReaderDocumentWithDeepSeek({
+      title: "西方哲学史",
+      documentType: "epub",
+      categories: [
+        { id: "unknown", name: "未知分类" },
+        { id: "philosophy", name: "哲学思想" },
+      ],
+      samples: [{ text: "理性、存在和知识传统构成了哲学史的主要线索。" }],
+      sampleStrategy: "balanced-2x200",
+      totalChars: 500,
+    });
+
+    expect(result.categoryStatus).toBe("classified");
+    expect(result.category.primaryCategoryId).toBe("philosophy");
+    expect(result.category.source).toBe("llm");
+    expect(getChatCompletion).toHaveBeenCalledWith(expect.any(Array), {
+      temperature: 0.1,
+      responseFormat: { type: "json_object" },
+    });
+  });
+
+  it("falls back on invalid classification JSON", async () => {
+    process.env.DEEPSEEK_API_KEY = "test-key";
+    const getLLMProvider = jest.fn(() => ({
+      compressMessages: jest.fn(async ({ userPrompt }) => [
+        { role: "user", content: userPrompt },
+      ]),
+      getChatCompletion: jest.fn(async () => ({
+        textResponse: "<think>推理</think>不是 JSON",
+        metrics: { duration: 0.01 },
+      })),
+    }));
+    const { classifyReaderDocumentWithDeepSeek } = loadEndpoint(storageDir, {
+      getLLMProvider,
+    });
+    const result = await classifyReaderDocumentWithDeepSeek({
+      title: "book",
+      documentType: "pdf",
+      categories: [{ id: "philosophy", name: "哲学思想" }],
+      samples: [{ text: "哲学思想与理性传统。" }],
+      sampleStrategy: "balanced-2x200",
+      totalChars: 500,
+    });
+    expect(result.categoryStatus).toBe("unknown");
+    expect(result.reason).toBe("分类模型返回格式异常，已归入未知分类。");
+  });
+
+  it("falls back on low confidence", () => {
+    const { validateClassificationResult } = loadEndpoint(storageDir);
+    const result = validateClassificationResult({
+      result: {
+        primaryCategoryId: "philosophy",
+        confidence: 0.4,
+      },
+      categories: [
+        { id: "unknown", name: "未知分类" },
+        { id: "philosophy", name: "哲学思想" },
+      ],
+      sampleStrategy: "balanced-2x200",
+    });
+    expect(result.categoryStatus).toBe("unknown");
+    expect(result.reason).toBe("分类置信度较低，已归入未知分类。");
   });
 });

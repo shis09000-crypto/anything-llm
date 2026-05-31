@@ -18,6 +18,7 @@ import { MotionProvider } from "@/contexts/MotionProvider";
 import MotionRouteOutlet from "@/components/MotionRouteOutlet";
 import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
 import { AppToastHost } from "@/components/lib/AppToast";
+import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function App() {
   const location = useLocation();
@@ -42,6 +43,7 @@ export default function App() {
                       <ChatThreadDraftProvider>
                         <DefaultDocumentTitle />
                         <MotionRouteOutlet />
+                        <AppConfirmDialogHost />
                         <AppToastHost />
                         <KeyboardShortcutsHelp />
                         <ImageLightbox />

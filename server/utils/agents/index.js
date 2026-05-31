@@ -26,6 +26,7 @@ const {
 } = require("../chats/agents");
 const { DocumentManager } = require("../DocumentManager");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
+const { resolveTaskProviderModel } = require("../llmTasks");
 
 class AgentHandler {
   #invocationUUID;
@@ -448,6 +449,13 @@ class AgentHandler {
   #providerSetupAndCheck() {
     this.provider = this.invocation.workspace.agentProvider ?? null; // set provider to workspace agent provider if it exists
     this.model = this.#fetchModel();
+    const resolved = resolveTaskProviderModel("agent_task", {
+      workspace: this.invocation.workspace,
+      provider: this.provider,
+      model: this.model,
+    });
+    this.provider = resolved.provider;
+    this.model = resolved.model;
 
     if (!this.provider)
       throw new Error("No valid provider found for the agent.");

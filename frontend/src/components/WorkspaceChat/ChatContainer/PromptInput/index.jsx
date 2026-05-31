@@ -30,6 +30,9 @@ import { useIsAgentSessionActive } from "@/utils/chat/agent";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import { nFormatter } from "@/utils/numbers";
+import ReaderTextSourceCards from "../DocumentReader/ReaderTextSourceCards";
+import { useDocumentReader } from "../DocumentReader/Provider";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -79,6 +82,7 @@ export default function PromptInput({
   memoryCompaction = null,
 }) {
   const { t } = useTranslation();
+  const readerContext = useDocumentReader();
   const { showAgentCommand = true } = workspace ?? {};
   const { isDisabled } = useIsDisabled();
   const agentSessionActive = useIsAgentSessionActive();
@@ -94,7 +98,7 @@ export default function PromptInput({
   const [_, setFocused] = useState(false);
   const undoStack = useRef([]);
   const redoStack = useRef([]);
-  const { textSizeClass } = useTextSize();
+  const { textSizeClass, textSizeStyle } = useTextSize();
   const [searchParams] = useSearchParams();
 
   // Synchronizes prompt input value with localStorage, scoped to the current thread.
@@ -489,9 +493,9 @@ export default function PromptInput({
         }
       >
         <div
-          className={`flex items-center rounded-lg md:w-full ${centered ? "mb-0" : "mb-4"}`}
+          className={`flex items-center rounded-lg md:w-full ${centered ? "mb-0" : "mb-2"}`}
         >
-          <div className="relative w-[95vw] md:w-[750px]">
+          <div className="chat-prompt-feather relative w-[95vw] md:w-[750px]">
             <ToolsMenu
               workspace={workspace}
               showing={showTools}
@@ -502,13 +506,20 @@ export default function PromptInput({
               highlightedIndexRef={toolsHighlightRef}
             />
             <div
-              className={`rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden ${
+              className={`relative z-10 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden ${
                 glass
                   ? "liquid-glass liquid-glass-strong"
                   : "bg-zinc-800 light:bg-white light:border light:border-slate-300"
               }`}
             >
               <AttachmentManager attachments={attachments} />
+              <ReaderTextSourceCards
+                sources={readerContext?.pendingReaderTextSources || []}
+                focusedSignal={readerContext?.focusedReaderTextSource}
+                onRemove={readerContext?.removePendingReaderTextSource}
+                removable
+                className="mt-2 mb-3"
+              />
               <div className="flex items-center">
                 <textarea
                   id={inputId}
@@ -537,6 +548,7 @@ export default function PromptInput({
                       ? "liquid-glass-input"
                       : "text-white light:text-slate-600 placeholder:text-white/60 light:placeholder:text-slate-400"
                   } ${textSizeClass}`}
+                  style={textSizeStyle}
                   placeholder={t("chat_window.send_message")}
                 />
               </div>
@@ -1005,9 +1017,13 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
     const normalized = FileAccessPolicy.normalizeMode(nextMode);
     if (
       normalized === FileAccessPolicy.modes.open &&
-      !window.confirm(
-        "Open mode grants broad local file access and enables shell commands after approval. Continue?"
-      )
+      !(await showAppConfirm({
+        tone: "warning",
+        title: "开启开放文件访问？",
+        description:
+          "开放模式会授予较宽的本地文件访问权限，并允许在批准后执行 shell 命令。",
+        confirmText: "继续",
+      }))
     ) {
       return;
     }

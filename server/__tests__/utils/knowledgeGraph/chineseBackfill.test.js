@@ -4,14 +4,16 @@ const mockGetChatCompletion = jest.fn();
 const mockCompressMessages = jest.fn(async ({ userPrompt }) => [
   { role: "user", content: userPrompt },
 ]);
+const mockGetTaskConnector = jest.fn();
 const mockUpdateNodeChineseFields = jest.fn(async (node) => node);
 const mockInvalidateGraphRetrievalCache = jest.fn(async () => null);
 
-jest.mock("../../../utils/AiProviders/deepseek", () => ({
-  DeepSeekLLM: jest.fn().mockImplementation(() => ({
-    compressMessages: mockCompressMessages,
-    getChatCompletion: mockGetChatCompletion,
+jest.mock("../../../utils/llmTasks", () => ({
+  resolveTaskProviderModel: jest.fn(() => ({
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
   })),
+  getTaskConnector: (...args) => mockGetTaskConnector(...args),
 }));
 
 jest.mock("../../../models/knowledgeGraph", () => ({
@@ -43,6 +45,14 @@ const {
 describe("knowledge graph Chinese extraction/backfill", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetTaskConnector.mockReturnValue({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      connector: {
+        compressMessages: mockCompressMessages,
+        getChatCompletion: mockGetChatCompletion,
+      },
+    });
   });
 
   test("extraction prompt requires Chinese-first graph fields and string aliases", () => {

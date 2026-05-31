@@ -11,11 +11,13 @@ import AddVariableModal from "./AddVariableModal";
 import { useModal } from "@/hooks/useModal";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import { useTranslation } from "react-i18next";
 
 export default function SystemPromptVariables() {
   const [variables, setVariables] = useState([]);
   const [loading, setLoading] = useState(true);
   const { isOpen, openModal, closeModal } = useModal();
+  const { t } = useTranslation();
 
   useEffect(() => {
     fetchVariables();
@@ -28,7 +30,7 @@ export default function SystemPromptVariables() {
       setVariables(variables || []);
     } catch (error) {
       console.error("Error fetching variables:", error);
-      showToast("No variables found", "error");
+      showToast(t("system-prompt-variables.noVariables"), "error");
     } finally {
       setLoading(false);
     }
@@ -45,13 +47,11 @@ export default function SystemPromptVariables() {
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="items-center flex gap-x-4">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">
-                System Prompt Variables
+                {t("system-prompt-variables.title")}
               </p>
             </div>
             <p className="text-xs leading-[18px] font-base text-theme-text-secondary">
-              System prompt variables are used to store configuration values
-              that can be referenced in your system prompt to enable dynamic
-              content in your prompts.
+              {t("system-prompt-variables.description")}
             </p>
           </div>
 
@@ -60,7 +60,8 @@ export default function SystemPromptVariables() {
               onClick={openModal}
               className="mt-3 mr-0 mb-4 md:-mb-6 z-10"
             >
-              <Plus className="h-4 w-4" weight="bold" /> Add Variable
+              <Plus className="h-4 w-4" weight="bold" />{" "}
+              {t("system-prompt-variables.addVariable")}
             </CTAButton>
           </div>
 
@@ -77,23 +78,23 @@ export default function SystemPromptVariables() {
               />
             ) : variables.length === 0 ? (
               <div className="text-center py-4 text-theme-text-secondary">
-                No variables found
+                {t("system-prompt-variables.noVariables")}
               </div>
             ) : (
               <table className="w-full text-sm text-left rounded-lg min-w-[640px] border-spacing-0">
                 <thead className="text-theme-text-secondary text-xs leading-[18px] font-bold uppercase border-white/10 border-b">
                   <tr>
                     <th scope="col" className="px-4 py-2 rounded-tl-lg">
-                      Key
+                      {t("system-prompt-variables.columns.key")}
                     </th>
                     <th scope="col" className="px-4 py-2">
-                      Value
+                      {t("system-prompt-variables.columns.value")}
                     </th>
                     <th scope="col" className="px-4 py-2">
-                      Description
+                      {t("system-prompt-variables.columns.description")}
                     </th>
                     <th scope="col" className="px-4 py-2">
-                      Type
+                      {t("system-prompt-variables.columns.type")}
                     </th>
                   </tr>
                 </thead>

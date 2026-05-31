@@ -18,12 +18,18 @@ const {
   validWorkspaceAndThreadSlug,
 } = require("../utils/middleware/validWorkspace");
 const { WorkspaceChats } = require("../models/workspaceChats");
-const { convertToChatHistory } = require("../utils/helpers/chat/responses");
+const {
+  convertToChatHistory,
+  writeResponseChunk,
+} = require("../utils/helpers/chat/responses");
 const { getModelTag } = require("./utils");
 const {
   compactThread,
   getThreadCompactionStatus,
 } = require("../utils/chats/threadCompaction");
+const {
+  subscribeToThreadTitleUpdates,
+} = require("../utils/chats/threadTitleEvents");
 
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
@@ -143,6 +149,68 @@ function workspaceThreadEndpoints(app) {
         console.error(e.message, e);
         response.sendStatus(500).end();
       }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread-title-events",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      const user = await userFromSession(request, response);
+      const workspace = response.locals.workspace;
+      const userId = user?.id ?? null;
+
+      response.setHeader("Cache-Control", "no-cache");
+      response.setHeader("Content-Type", "text/event-stream");
+      response.setHeader("Access-Control-Allow-Origin", "*");
+      response.setHeader("Connection", "keep-alive");
+      response.flushHeaders?.();
+
+      writeResponseChunk(response, {
+        type: "thread_title_events_ready",
+        workspaceSlug: workspace.slug,
+      });
+
+      const heartbeat = setInterval(() => {
+        if (response.destroyed || response.writableEnded) return;
+        writeResponseChunk(response, { type: "heartbeat" });
+      }, 25_000);
+
+      const unsubscribe = subscribeToThreadTitleUpdates((titleUpdate) => {
+        if (Number(titleUpdate.workspaceId) !== Number(workspace.id)) return;
+        if ((titleUpdate.userId ?? null) !== userId) return;
+        if (response.destroyed || response.writableEnded) return;
+
+        writeResponseChunk(response, {
+          action: "rename_thread",
+          thread: {
+            slug: titleUpdate.slug,
+            name: titleUpdate.name,
+            title: titleUpdate.title || titleUpdate.name,
+            titleVersion: titleUpdate.titleVersion,
+            animate: true,
+          },
+        });
+
+        if (process.env.THREAD_TITLE_DEBUG === "true") {
+          console.log(
+            "[ThreadTitle] sse:delivered",
+            JSON.stringify({
+              workspaceId: workspace.id,
+              threadId: titleUpdate.threadId,
+              slug: titleUpdate.slug,
+              title: titleUpdate.title || titleUpdate.name,
+            })
+          );
+        }
+      });
+
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      };
+      request.once("close", cleanup);
+      response.once("close", cleanup);
     }
   );
 

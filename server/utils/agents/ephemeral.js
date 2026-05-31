@@ -9,6 +9,7 @@ const { Workspace } = require("../../models/workspace");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { DocumentManager } = require("../DocumentManager");
 const { safeJsonParse } = require("../http");
+const { resolveTaskProviderModel } = require("../llmTasks");
 const {
   agentThreadMemory,
   recentChatHistoryWithCompaction,
@@ -199,6 +200,13 @@ class EphemeralAgentHandler extends AgentHandler {
   #providerSetupAndCheck() {
     this.provider = this.#workspace?.agentProvider ?? null;
     this.model = this.#fetchModel();
+    const resolved = resolveTaskProviderModel("ephemeral_agent_task", {
+      workspace: this.#workspace,
+      provider: this.provider,
+      model: this.model,
+    });
+    this.provider = resolved.provider;
+    this.model = resolved.model;
 
     if (!this.provider)
       throw new Error("No valid provider found for the agent.");

@@ -43,6 +43,7 @@ export function assistantItemId(turnId) {
 export function createTurn({
   prompt,
   attachments = [],
+  readerTextSources = [],
   chatKey = null,
   chatId = null,
   turnId = createTurnId(),
@@ -55,6 +56,7 @@ export function createTurn({
     turnId,
     content: prompt,
     attachments,
+    readerTextSources,
     chatId,
     createdAt,
   };
@@ -197,6 +199,9 @@ export function normalizeTurnItem(item = {}) {
       role: "user",
       turnId,
       attachments: Array.isArray(item.attachments) ? item.attachments : [],
+      readerTextSources: Array.isArray(item.readerTextSources)
+        ? item.readerTextSources
+        : [],
       createdAt,
       hydrationStatus: item.hydrationStatus || null,
     };
@@ -299,6 +304,7 @@ function serverGroupToItems(group, chatKey = null) {
     turnId,
     content: group.user?.content || "",
     attachments: group.user?.attachments || [],
+    readerTextSources: group.user?.readerTextSources || [],
     chatId: group.chatId,
     createdAt,
     hydrationStatus: group.user?.hydrationStatus || null,

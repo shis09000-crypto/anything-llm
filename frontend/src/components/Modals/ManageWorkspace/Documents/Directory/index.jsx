@@ -16,6 +16,7 @@ import { filterFileSearchResults } from "./utils";
 import ContextMenu from "./ContextMenu";
 import { Tooltip } from "react-tooltip";
 import { safeJsonParse } from "@/utils/request";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 function Directory({
   files,
@@ -52,7 +53,14 @@ function Directory({
 
   const deleteFiles = async (event) => {
     event.stopPropagation();
-    if (!window.confirm(t("connectors.directory.delete-confirmation"))) {
+    if (
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除所选文档？",
+        description: t("connectors.directory.delete-confirmation"),
+        confirmText: "删除",
+      }))
+    ) {
       return false;
     }
 

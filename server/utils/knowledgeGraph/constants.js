@@ -1,3 +1,5 @@
+const { resolveTaskProviderModel } = require("../llmTasks");
+
 const GRAPH_VERSION = "knowledge-graph-v1";
 const EXTRACTION_PROMPT_VERSION = "kg-extraction-v1";
 const MERGE_LOGIC_VERSION = "kg-merge-v1";
@@ -5,8 +7,9 @@ const RELATION_ONTOLOGY_VERSION = "relation-ontology-v1";
 const NODE_EMBEDDING_VERSION = "kg-node-embedding-v1";
 const LABEL_TRANSLATION_PROMPT_VERSION = "kg-label-translation-v1";
 
-const DEFAULT_EXTRACTION_MODEL =
-  process.env.KNOWLEDGE_GRAPH_DEEPSEEK_MODEL || "deepseek-v4-flash";
+const DEFAULT_EXTRACTION_MODEL = resolveTaskProviderModel(
+  "knowledge_graph_extract"
+).model;
 const ENABLE_NODE_EMBEDDINGS =
   process.env.KNOWLEDGE_GRAPH_ENABLE_NODE_EMBEDDINGS === "true";
 

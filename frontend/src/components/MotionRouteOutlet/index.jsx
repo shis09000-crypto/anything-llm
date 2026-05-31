@@ -4,9 +4,34 @@ import { useMotion } from "@/contexts/MotionProvider";
 
 const ROUTE_DURATION = 700;
 const ROUTE_FALLBACK_DURATION = 180;
+const WORKSPACE_CHAT_ROUTE_PATTERN = /^\/workspace\/([^/]+)(?:\/t\/[^/]+)?\/?$/;
+const WORKSPACE_CHAT_SURFACE_KEY = "/workspace-chat-surface";
 
-function routeKey(location) {
+function rawRouteKey(location) {
   return `${location.pathname}${location.search}`;
+}
+
+function motionRouteKey(location) {
+  if (WORKSPACE_CHAT_ROUTE_PATTERN.test(location.pathname))
+    return WORKSPACE_CHAT_SURFACE_KEY;
+  return rawRouteKey(location);
+}
+
+function threadSwitchFlickerDebugEnabled() {
+  try {
+    return (
+      import.meta.env.DEV &&
+      (window.localStorage.getItem("threadSwitchFlickerDebug") === "true" ||
+        window.localStorage.getItem("workspaceSwitchFlickerDebug") === "true")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function debugThreadSwitchFlicker(label, payload = {}) {
+  if (!threadSwitchFlickerDebugEnabled()) return;
+  console.debug("[thread-switch-flicker]", label, payload);
 }
 
 function animationModeClass(prefix, mode) {
@@ -24,10 +49,12 @@ function isSameRouteOutlet(left, right) {
 export default function MotionRouteOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
-  const routeId = routeKey(location);
+  const rawKey = rawRouteKey(location);
+  const motionKey = motionRouteKey(location);
   const { reducedMotion, requestMotion, reportRouteMotion } = useMotion();
   const [current, setCurrent] = useState(() => ({
-    key: routeId,
+    rawKey,
+    motionKey,
     outlet,
     mode: "static",
   }));
@@ -49,10 +76,49 @@ export default function MotionRouteOutlet() {
   }, []);
 
   useEffect(() => {
-    const nextKey = routeId;
+    const nextRawKey = rawKey;
+    const nextMotionKey = motionKey;
     const previous = currentRef.current;
 
-    if (previous.key === nextKey) {
+    if (previous.rawKey === nextRawKey) {
+      return;
+    }
+
+    if (previous.motionKey === nextMotionKey) {
+      const reason =
+        nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
+          ? "workspace-chat-surface"
+          : "same-motion-surface";
+      debugThreadSwitchFlicker("MotionRouteOutlet:skip", {
+        animated: false,
+        reason,
+        previousRawKey: previous.rawKey,
+        previousMotionKey: previous.motionKey,
+        nextRawKey,
+        nextMotionKey,
+        routeCategory:
+          nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
+            ? "workspace-chat"
+            : "default",
+        exitingLayerCount: document.querySelectorAll(".motion-route-exiting")
+          .length,
+      });
+      reportRouteMotion({
+        animated: false,
+        duration: 0,
+        mode: "static",
+        phase: "same-surface-skip",
+        reason,
+        routeKey: nextRawKey,
+        motionRouteKey: nextMotionKey,
+        token: "motion-route-transition",
+      });
+      setCurrent({
+        rawKey: nextRawKey,
+        motionKey: nextMotionKey,
+        outlet,
+        mode: "static",
+      });
       return;
     }
 
@@ -61,7 +127,7 @@ export default function MotionRouteOutlet() {
       token: "motion-route-transition",
       duration: ROUTE_DURATION,
     });
-    const exitId = `${previous.key}:${Date.now()}`;
+    const exitId = `${previous.rawKey}:${Date.now()}`;
     const mode = reducedMotion
       ? "static"
       : routeMotion.allowed
@@ -76,8 +142,25 @@ export default function MotionRouteOutlet() {
       duration,
       mode,
       phase: "transitioning",
-      routeKey: nextKey,
+      routeKey: nextRawKey,
+      motionRouteKey: nextMotionKey,
       token: "motion-route-transition",
+    });
+    debugThreadSwitchFlicker("MotionRouteOutlet:animate", {
+      animated: mode !== "static",
+      budgetReason: routeMotion.reason,
+      duration,
+      mode,
+      previousRawKey: previous.rawKey,
+      previousMotionKey: previous.motionKey,
+      nextRawKey,
+      nextMotionKey,
+      routeCategory:
+        nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
+          ? "workspace-chat"
+          : "default",
+      exitingLayerCount: document.querySelectorAll(".motion-route-exiting")
+        .length,
     });
 
     if (mode !== "static") {
@@ -85,7 +168,8 @@ export default function MotionRouteOutlet() {
         ...items,
         {
           id: exitId,
-          key: previous.key,
+          rawKey: previous.rawKey,
+          motionKey: previous.motionKey,
           outlet: previous.outlet,
           mode,
         },
@@ -94,22 +178,34 @@ export default function MotionRouteOutlet() {
       exitTimersRef.current.set(exitId, timeout);
     }
 
-    setCurrent({ key: nextKey, outlet, mode });
-  }, [routeId, outlet, reducedMotion, requestMotion, reportRouteMotion]);
+    setCurrent({
+      rawKey: nextRawKey,
+      motionKey: nextMotionKey,
+      outlet,
+      mode,
+    });
+  }, [
+    rawKey,
+    motionKey,
+    outlet,
+    reducedMotion,
+    requestMotion,
+    reportRouteMotion,
+  ]);
 
   useEffect(() => {
     const activeRoute = currentRef.current;
     if (
-      activeRoute.key !== routeId ||
+      activeRoute.rawKey !== rawKey ||
       isSameRouteOutlet(activeRoute.outlet, outlet)
     )
       return;
     setCurrent((prev) => {
-      if (prev.key !== routeId || isSameRouteOutlet(prev.outlet, outlet))
+      if (prev.rawKey !== rawKey || isSameRouteOutlet(prev.outlet, outlet))
         return prev;
       return { ...prev, outlet };
     });
-  }, [outlet, routeId]);
+  }, [outlet, rawKey]);
 
   function removeExiting(exitId) {
     const timeout = exitTimersRef.current.get(exitId);
@@ -120,7 +216,8 @@ export default function MotionRouteOutlet() {
       duration: 0,
       mode: "static",
       phase: "settled",
-      routeKey: currentRef.current.key,
+      routeKey: currentRef.current.rawKey,
+      motionRouteKey: currentRef.current.motionKey,
       token: "motion-route-transition",
     });
   }
@@ -134,7 +231,8 @@ export default function MotionRouteOutlet() {
             "exit",
             route.mode
           )}`}
-          data-motion-route-key={route.key}
+          data-motion-route-key={route.rawKey}
+          data-motion-route-motion-key={route.motionKey}
           data-motion-route-phase="exit"
           aria-hidden="true"
           inert=""
@@ -146,12 +244,13 @@ export default function MotionRouteOutlet() {
         </div>
       ))}
       <div
-        key={current.key}
+        key={current.motionKey}
         className={`motion-route-layer motion-route-current ${animationModeClass(
           "enter",
           current.mode
         )}`}
-        data-motion-route-key={current.key}
+        data-motion-route-key={current.rawKey}
+        data-motion-route-motion-key={current.motionKey}
         data-motion-route-phase={current.mode === "static" ? "static" : "enter"}
       >
         {current.outlet}

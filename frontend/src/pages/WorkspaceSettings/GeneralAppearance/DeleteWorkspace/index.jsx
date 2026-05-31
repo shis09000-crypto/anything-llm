@@ -4,6 +4,7 @@ import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
 import showToast from "@/utils/toast";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function DeleteWorkspace({ workspace }) {
   const { slug } = useParams();
@@ -13,11 +14,14 @@ export default function DeleteWorkspace({ workspace }) {
 
   const deleteWorkspace = async () => {
     if (
-      !window.confirm(
-        `${t("general.delete.confirm-start")} ${workspace.name} ${t(
+      !(await showAppConfirm({
+        tone: "danger",
+        title: t("general.delete.title"),
+        description: `${t("general.delete.confirm-start")} ${workspace.name} ${t(
           "general.delete.confirm-end"
-        )}`
-      )
+        )}`,
+        confirmText: t("general.delete.delete"),
+      }))
     )
       return false;
 

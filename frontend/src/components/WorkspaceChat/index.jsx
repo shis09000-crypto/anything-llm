@@ -26,6 +26,23 @@ import { WorkspaceChatPerfMarks } from "@/utils/chat/performanceBudget";
 const FIRST_PAGE_LIMIT = 20;
 const PRIORITY_FULL_WINDOW = 5;
 
+function threadSwitchFlickerDebugEnabled() {
+  try {
+    return (
+      import.meta.env.DEV &&
+      (window.localStorage.getItem("threadSwitchFlickerDebug") === "true" ||
+        window.localStorage.getItem("workspaceSwitchFlickerDebug") === "true")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function debugThreadSwitchFlicker(label, payload = {}) {
+  if (!threadSwitchFlickerDebugEnabled()) return;
+  console.debug("[thread-switch-flicker]", label, payload);
+}
+
 function mergeHistoryMessages(existing = [], incoming = [], mode = "replace") {
   if (mode === "replace") return incoming;
   const next =
@@ -186,6 +203,15 @@ export default function WorkspaceChat({ loading, workspace }) {
         cursor: "latest",
       });
       if (historySeqRef.current !== seq) return;
+      debugThreadSwitchFlicker("WorkspaceChat:historyCache", {
+        key,
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        cacheStatus: cached ? "hit" : "miss",
+        cachedHistoryLength: cached?.history?.length || 0,
+        hasDraft: !!draft,
+        needsServerHistoryRefresh,
+      });
       if (draft) {
         if (needsServerHistoryRefresh) {
           debugChatTurn("WorkspaceChat:needsServerHistoryRefresh", {
@@ -229,6 +255,7 @@ export default function WorkspaceChat({ loading, workspace }) {
       );
 
       const client = historyClient(threadSlug);
+      const firstPageStartedAt = performance.now();
       const payload = await requestPriorityQueue.schedule(
         () =>
           client.page(workspace.slug, {
@@ -244,8 +271,25 @@ export default function WorkspaceChat({ loading, workspace }) {
           dedupeKey: `history:first:${key}`,
         }
       );
-      if (!payload || historySeqRef.current !== seq) return;
+      if (!payload || historySeqRef.current !== seq) {
+        debugThreadSwitchFlicker("WorkspaceChat:firstPageSkipped", {
+          key,
+          workspaceSlug: workspace.slug,
+          threadSlug,
+          durationMs: Math.round(performance.now() - firstPageStartedAt),
+          reason: !payload ? "empty-or-aborted" : "stale-sequence",
+        });
+        return;
+      }
       const chatHistory = payload.history || [];
+      debugThreadSwitchFlicker("WorkspaceChat:firstPageLoaded", {
+        key,
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        durationMs: Math.round(performance.now() - firstPageStartedAt),
+        historyLength: chatHistory.length,
+        lightChatIds: payload.page?.lightChatIds?.length || 0,
+      });
       const latestDraft = getDraft(workspace.slug, threadSlug);
       const latestDraftNeedsRefresh =
         draftNeedsServerHistoryRefresh(latestDraft);
@@ -407,6 +451,17 @@ export default function WorkspaceChat({ loading, workspace }) {
   }, [workspace?.slug, threadSlug, getThreadActivity, clearThreadActivity]);
 
   const hasPendingMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
+  useEffect(() => {
+    debugThreadSwitchFlicker("WorkspaceChat:loadingShell", {
+      workspaceSlug: workspace?.slug || null,
+      threadSlug,
+      loading,
+      loadedKey: loaded?.key || null,
+      skeletonVisible: loaded === null && !hasPendingMessage,
+      pendingMessageShellVisible: loaded === null && hasPendingMessage,
+    });
+  }, [hasPendingMessage, loaded, loading, threadSlug, workspace?.slug]);
+
   if (loaded === null) {
     if (hasPendingMessage) {
       return (

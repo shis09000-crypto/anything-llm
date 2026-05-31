@@ -1,7 +1,11 @@
-const QUIZ_PLAN_MODEL = "deepseek-v4-flash";
-const QUIZ_GENERATION_MODEL = "deepseek-v4-pro";
-const QUIZ_GENERATION_FALLBACK_MODEL = "deepseek-v4-flash";
-const QUIZ_ANALYSIS_MODEL = "deepseek-v4-pro";
+const { resolveTaskProviderModel } = require("../llmTasks");
+
+const QUIZ_PLAN_MODEL = resolveTaskProviderModel("quiz_plan").model;
+const QUIZ_GENERATION_MODEL = resolveTaskProviderModel("quiz_generation").model;
+const QUIZ_GENERATION_FALLBACK_MODEL = resolveTaskProviderModel(
+  "quiz_generation_fallback"
+).model;
+const QUIZ_ANALYSIS_MODEL = resolveTaskProviderModel("quiz_analysis").model;
 const QUIZ_JSON_RESPONSE_FORMAT = { type: "json_object" };
 const QUIZ_TYPES = ["single_choice", "multiple_choice", "fill_blank"];
 const QUIZ_DIFFICULTIES = ["easy", "medium", "high", "extreme"];

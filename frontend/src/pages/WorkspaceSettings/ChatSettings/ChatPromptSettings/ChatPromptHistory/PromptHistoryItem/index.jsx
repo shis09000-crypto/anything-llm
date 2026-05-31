@@ -4,6 +4,7 @@ import PromptHistory from "@/models/promptHistory";
 import { useTranslation } from "react-i18next";
 import moment from "moment";
 import truncate from "truncate";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 const MAX_PROMPT_LENGTH = 200; // chars
 
@@ -23,7 +24,14 @@ export default function PromptHistoryItem({
   const [expanded, setExpanded] = useState(false);
 
   const deleteHistory = async (id) => {
-    if (window.confirm(t("chat.prompt.history.deleteConfirm"))) {
+    if (
+      await showAppConfirm({
+        tone: "danger",
+        title: "删除提示词历史？",
+        description: t("chat.prompt.history.deleteConfirm"),
+        confirmText: "删除",
+      })
+    ) {
       const { success } = await PromptHistory.delete(id);
       if (success) {
         setHistory((prevHistory) =>

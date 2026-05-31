@@ -5,6 +5,7 @@ import ModalWrapper from "@/components/ModalWrapper";
 import { useModal } from "@/hooks/useModal";
 import MarkdownRenderer from "../MarkdownRenderer";
 import { safeJsonParse } from "@/utils/request";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function ChatRow({ chat, onDelete }) {
   const {
@@ -20,9 +21,12 @@ export default function ChatRow({ chat, onDelete }) {
 
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to delete this chat?\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除聊天？",
+        description: "此操作无法撤销。",
+        confirmText: "删除",
+      }))
     )
       return false;
     await System.deleteChat(chat.id);

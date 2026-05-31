@@ -20,6 +20,7 @@ const AppButton = forwardRef(function AppButton(
     disabled = false,
     loading = false,
     selected = false,
+    iconOnly = false,
     leftIcon = null,
     rightIcon = null,
     fullWidth = false,
@@ -58,6 +59,7 @@ const AppButton = forwardRef(function AppButton(
         variantClass,
         sizeClass,
         fullWidth ? "app-button-full-width" : "",
+        iconOnly ? "app-button-icon-only" : "",
         className,
       ]
         .filter(Boolean)
@@ -65,7 +67,7 @@ const AppButton = forwardRef(function AppButton(
     >
       <span className="app-button-content">
         {leftIcon && <span className="app-button-icon">{leftIcon}</span>}
-        {children}
+        {!iconOnly && children}
         {rightIcon && <span className="app-button-icon">{rightIcon}</span>}
       </span>
       {loading && <span className="app-button-spinner" aria-hidden="true" />}

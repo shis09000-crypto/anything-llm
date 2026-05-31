@@ -200,7 +200,7 @@ function AssistantTurn({
           </div>
         )}
         {!readOnly && (
-          <div className="flex items-start md:items-center gap-x-1">
+          <div className="flex items-start gap-x-1">
             <TTSMessage
               slug={workspace?.slug}
               chatId={turn.chatId}

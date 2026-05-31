@@ -20,14 +20,21 @@ import { Link } from "react-router-dom";
 import { chatQueryRefusalResponse } from "@/utils/chat";
 import HistoricalOutputs from "./HistoricalOutputs";
 import { openImageLightbox } from "@/components/ImageLightbox";
+import ReaderTextSourceCards, {
+  readerSourcesForTurn,
+} from "../../DocumentReader/ReaderTextSourceCards";
+import { useDocumentReader } from "../../DocumentReader/Provider";
 
 const HistoricalMessage = ({
   uuid: uuidProp,
   message,
   role,
   workspace,
+  chatKey = null,
+  turnId = null,
   sources = [],
   attachments = [],
+  readerTextSources = [],
   error = false,
   feedbackScore = null,
   chatId = null,
@@ -45,6 +52,7 @@ const HistoricalMessage = ({
   // on every render and remount the subtree, wiping TruncatableContent state.
   const [uuid] = useState(() => uuidProp ?? v4());
   const { t } = useTranslation();
+  const readerContext = useDocumentReader();
   const { isEditing } = useEditMessage({ chatId, role });
   const { isDeleted, completeDelete, onEndAnimation } = useWatchDeleteMessage({
     chatId,
@@ -58,6 +66,13 @@ const HistoricalMessage = ({
 
   const isRefusalMessage =
     role === "assistant" && message === chatQueryRefusalResponse(workspace);
+  const documentReaderTextSources =
+    readerTextSources.length > 0
+      ? readerTextSources
+      : readerSourcesForTurn(readerContext?.sourcesByTurn, chatKey, {
+          turnId,
+          chatId,
+        });
 
   if (completeDelete) return null;
 
@@ -102,8 +117,13 @@ const HistoricalMessage = ({
         className={`${isDeleted ? "animate-remove" : ""} flex justify-end w-full group`}
       >
         <div className="py-4 px-4 flex flex-col items-end">
-          <div className="bg-zinc-800 light:bg-slate-100 rounded-[20px] rounded-br-none px-4 py-3.5 max-w-[600px] [&_p]:m-0">
+          <div className="bg-zinc-800 light:bg-slate-100 rounded-[20px] rounded-br-none px-4 py-3.5 max-w-[720px] [&_p]:m-0">
             <TruncatableContent>
+              <ReaderTextSourceCards
+                sources={documentReaderTextSources}
+                className="mb-3 max-w-[540px]"
+                itemClassName="bg-white/95 light:bg-white"
+              />
               <RenderChatContent
                 role={role}
                 message={message}
@@ -177,7 +197,7 @@ const HistoricalMessage = ({
           </div>
         )}
         {!readOnly && (
-          <div className="flex items-start md:items-center gap-x-1">
+          <div className="flex items-start gap-x-1">
             <TTSMessage
               slug={workspace?.slug}
               chatId={chatId}
@@ -218,6 +238,8 @@ export default memo(
       prevProps.chatId === nextProps.chatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
+      JSON.stringify(prevProps.readerTextSources) ===
+        JSON.stringify(nextProps.readerTextSources) &&
       prevProps.hydrationStatus === nextProps.hydrationStatus &&
       prevProps.readOnly === nextProps.readOnly
     );

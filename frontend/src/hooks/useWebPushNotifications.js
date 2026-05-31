@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 const PUSH_PUBKEY_URL = `${API_BASE}/web-push/pubkey`;
 const PUSH_USER_SUBSCRIBE_URL = `${API_BASE}/web-push/subscribe`;
@@ -62,7 +63,7 @@ export async function subscribeToPushNotifications(askToEnable = true) {
       const newWorker = swReg.installing;
       log("Service worker update found");
 
-      newWorker.addEventListener("statechange", () => {
+      newWorker.addEventListener("statechange", async () => {
         if (
           newWorker.state === "installed" &&
           navigator.serviceWorker.controller
@@ -71,7 +72,14 @@ export async function subscribeToPushNotifications(askToEnable = true) {
           log("New service worker installed, ready to activate");
 
           // Optionally show a notification to the user
-          if (confirm("A new version is available. Reload to update?")) {
+          if (
+            await showAppConfirm({
+              tone: "info",
+              title: "发现新版本",
+              description: "是否立即重新加载以完成更新？",
+              confirmText: "重新加载",
+            })
+          ) {
             window.location.reload();
           }
         }

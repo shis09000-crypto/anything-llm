@@ -50,6 +50,7 @@ const MAX_SOURCE_FIELD_CHARS = 300;
 const MAX_RETAINED_INACTIVE_DRAFTS = 4;
 const MAX_COMPACT_INACTIVE_ITEMS = 40;
 const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
+const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 
 export function getChatThreadKey(workspaceSlug, threadSlug = null) {
   if (!workspaceSlug) return null;
@@ -1902,6 +1903,8 @@ export function ChatThreadDraftProvider({ children }) {
       workspaceSlug,
       threadSlug = null,
       prompt,
+      displayPrompt = null,
+      readerTextSources = [],
       attachments = [],
       fileAccessMode = null,
       nodeContext = null,
@@ -1926,8 +1929,9 @@ export function ChatThreadDraftProvider({ children }) {
       const socket = websocketRefs.current[chatKey];
       const preparedAttachments = attachments || parseAttachments();
       const { turnId, items: turnItems } = createTurn({
-        prompt,
+        prompt: displayPrompt || prompt,
         attachments: preparedAttachments,
+        readerTextSources,
         chatKey,
         turnId: clientGeneratedTurnId || undefined,
       });
@@ -2013,6 +2017,17 @@ export function ChatThreadDraftProvider({ children }) {
           () => confirmPersisted(chatKey, turnId, completedChatId),
           500
         );
+        if (threadSlug) {
+          [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
+                  detail: { workspaceSlug },
+                })
+              );
+            }, delay);
+          });
+        }
         debugRuntime("startStream:streamResolved", {
           chatKey,
           turnId,

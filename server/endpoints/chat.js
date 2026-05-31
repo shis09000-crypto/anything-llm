@@ -4,6 +4,9 @@ const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { Telemetry } = require("../models/telemetry");
 const { streamChatWithWorkspace } = require("../utils/chats/stream");
 const {
+  subscribeToThreadTitleUpdates,
+} = require("../utils/chats/threadTitleEvents");
+const {
   ROLES,
   flexUserRoleValid,
 } = require("../utils/middleware/multiUserProtected");
@@ -13,9 +16,37 @@ const {
   validWorkspaceSlug,
 } = require("../utils/middleware/validWorkspace");
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
-const { WorkspaceThread } = require("../models/workspaceThread");
 const { User } = require("../models/user");
 const { getModelTag } = require("./utils");
+
+function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
+  if (!workspace?.id || !thread?.id) return () => {};
+
+  const unsubscribe = subscribeToThreadTitleUpdates((titleUpdate) => {
+    if (Number(titleUpdate.workspaceId) !== Number(workspace.id)) return;
+    if (Number(titleUpdate.threadId) !== Number(thread.id)) return;
+    if (response.destroyed || response.writableEnded) return;
+
+    writeResponseChunk(response, {
+      id: uuidv4(),
+      action: "rename_thread",
+      thread: {
+        slug: titleUpdate.slug,
+        name: titleUpdate.name,
+        title: titleUpdate.title || titleUpdate.name,
+        titleVersion: titleUpdate.titleVersion,
+        animate: true,
+      },
+    });
+  });
+  const detach = () => unsubscribe();
+
+  response.once("close", detach);
+  return () => {
+    response.off("close", detach);
+    detach();
+  };
+}
 
 function chatEndpoints(app) {
   if (!app) return;
@@ -144,6 +175,10 @@ function chatEndpoints(app) {
         response.setHeader("Access-Control-Allow-Origin", "*");
         response.setHeader("Connection", "keep-alive");
         response.flushHeaders();
+        const detachTitleUpdates = attachThreadTitleUpdateStream(response, {
+          workspace,
+          thread,
+        });
 
         if (multiUserMode(response) && !(await User.canSendChat(user))) {
           writeResponseChunk(response, {
@@ -154,6 +189,7 @@ function chatEndpoints(app) {
             close: true,
             error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
           });
+          detachTitleUpdates();
           return;
         }
 
@@ -167,23 +203,6 @@ function chatEndpoints(app) {
           attachments,
           { fileAccess, nodeContext }
         );
-
-        // If thread was renamed emit event to frontend via special `action` response.
-        await WorkspaceThread.autoRenameThread({
-          thread,
-          workspace,
-          user,
-          prompt: message,
-          onRename: (thread) => {
-            writeResponseChunk(response, {
-              action: "rename_thread",
-              thread: {
-                slug: thread.slug,
-                name: thread.name,
-              },
-            });
-          },
-        });
 
         await Telemetry.sendTelemetry("sent_chat", {
           multiUserMode: multiUserMode(response),

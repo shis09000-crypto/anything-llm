@@ -10,6 +10,7 @@ import EditEmbedModal from "./EditEmbedModal";
 import CodeSnippetModal from "./CodeSnippetModal";
 import moment from "moment";
 import { safeJsonParse } from "@/utils/request";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function EmbedRow({ embed }) {
   const rowRef = useRef(null);
@@ -27,9 +28,14 @@ export default function EmbedRow({ embed }) {
 
   const handleSuspend = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to disabled this embed?\nOnce disabled the embed will no longer respond to any chat requests.`
-      )
+      !(await showAppConfirm({
+        tone: "warning",
+        title: enabled ? "停用嵌入组件？" : "启用嵌入组件？",
+        description: enabled
+          ? "停用后，该嵌入组件将不再响应任何聊天请求。"
+          : "启用后，该嵌入组件将重新响应聊天请求。",
+        confirmText: enabled ? "停用" : "启用",
+      }))
     )
       return false;
 
@@ -48,9 +54,13 @@ export default function EmbedRow({ embed }) {
   };
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to delete this embed?\nOnce deleted this embed will no longer respond to chats or be active.\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除嵌入组件？",
+        description:
+          "删除后该嵌入组件将不再响应聊天，也不会继续生效。此操作无法撤销。",
+        confirmText: "删除",
+      }))
     )
       return false;
     const { success, error } = await Embed.deleteEmbed(embed.id);

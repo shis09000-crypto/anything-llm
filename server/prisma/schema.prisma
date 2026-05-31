@@ -791,6 +791,13 @@ model workspaces {
 model workspace_threads {
   id                     Int                      @id @default(autoincrement())
   name                   String
+  title                  String?
+  titleSource            String?
+  titleGeneratedAt       DateTime?
+  titleHash              String?
+  titleVersion           Int                      @default(0)
+  titleMessageScope      String?
+  titleGenerationStatus  String                   @default("idle")
   slug                   String                   @unique
   workspace_id           Int
   user_id                Int?

@@ -6,16 +6,7 @@ import { CaretUpDown, MagnifyingGlass, X } from "@phosphor-icons/react";
 import CTAButton from "@/components/lib/CTAButton";
 import AnythingLLMIcon from "@/media/logo/anything-llm-icon.png";
 import BrowserNative from "@/components/SpeechToText/BrowserNative";
-
-const PROVIDERS = [
-  {
-    name: "System native",
-    value: "native",
-    logo: AnythingLLMIcon,
-    options: (settings) => <BrowserNative settings={settings} />,
-    description: "Uses your browser's built in STT service if supported.",
-  },
-];
+import { useTranslation } from "react-i18next";
 
 export default function SpeechToTextProvider({ settings }) {
   const [saving, setSaving] = useState(false);
@@ -27,10 +18,20 @@ export default function SpeechToTextProvider({ settings }) {
   );
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
   const searchInputRef = useRef(null);
+  const { t } = useTranslation();
+  const providers = [
+    {
+      name: t("audio-preference.providers.native.name"),
+      value: "native",
+      logo: AnythingLLMIcon,
+      options: (settings) => <BrowserNative settings={settings} />,
+      description: t("audio-preference.providers.native.sttDescription"),
+    },
+  ];
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    const form = e.target;
+    e?.preventDefault();
+    const form = e?.target;
     const data = { SpeechToTextProvider: selectedProvider };
     const formData = new FormData(form);
 
@@ -39,9 +40,9 @@ export default function SpeechToTextProvider({ settings }) {
     setSaving(true);
 
     if (error) {
-      showToast(`Failed to save preferences: ${error}`, "error");
+      showToast(t("audio-preference.toasts.sttSaveFailed", { error }), "error");
     } else {
-      showToast("Speech-to-text preferences saved successfully.", "success");
+      showToast(t("audio-preference.toasts.sttSaved"), "success");
     }
     setSaving(false);
     setHasChanges(!!error);
@@ -64,13 +65,13 @@ export default function SpeechToTextProvider({ settings }) {
   };
 
   useEffect(() => {
-    const filtered = PROVIDERS.filter((provider) =>
+    const filtered = providers.filter((provider) =>
       provider.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
     setFilteredProviders(filtered);
   }, [searchQuery, selectedProvider]);
 
-  const selectedProviderObject = PROVIDERS.find(
+  const selectedProviderObject = providers.find(
     (provider) => provider.value === selectedProvider
   );
 
@@ -80,27 +81,23 @@ export default function SpeechToTextProvider({ settings }) {
         <div className="w-full flex flex-col gap-y-1 pb-6 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10">
           <div className="flex gap-x-4 items-center">
             <p className="text-lg leading-6 font-bold text-white">
-              Speech-to-text Preference
+              {t("audio-preference.stt.title")}
             </p>
           </div>
           <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-            Here you can specify what kind of text-to-speech and speech-to-text
-            providers you would want to use in your AnythingLLM experience. By
-            default, we use the browser's built in support for these services,
-            but you may want to use others.
+            {t("audio-preference.stt.description")}
           </p>
         </div>
         <div className="w-full justify-end flex">
           {hasChanges && (
-            <CTAButton
-              onClick={() => handleSubmit()}
-              className="mt-3 mr-0 -mb-14 z-10"
-            >
-              {saving ? "Saving..." : "Save changes"}
+            <CTAButton className="mt-3 mr-0 -mb-14 z-10">
+              {saving ? t("common.saving") : t("common.save")}
             </CTAButton>
           )}
         </div>
-        <div className="text-base font-bold text-white mt-6 mb-4">Provider</div>
+        <div className="text-base font-bold text-white mt-6 mb-4">
+          {t("audio-preference.provider")}
+        </div>
         <div className="relative">
           {searchMenuOpen && (
             <div
@@ -121,7 +118,7 @@ export default function SpeechToTextProvider({ settings }) {
                     type="text"
                     name="stt-provider-search"
                     autoComplete="off"
-                    placeholder="Search speech to text providers"
+                    placeholder={t("audio-preference.stt.searchPlaceholder")}
                     className="border-none -ml-4 my-2 bg-transparent z-20 pl-12 h-[38px] w-full px-4 py-1 text-sm outline-none text-theme-text-primary placeholder:text-theme-text-primary placeholder:font-medium"
                     onChange={(e) => setSearchQuery(e.target.value)}
                     ref={searchInputRef}
@@ -181,9 +178,9 @@ export default function SpeechToTextProvider({ settings }) {
           className="mt-4 flex flex-col gap-y-1"
         >
           {selectedProvider &&
-            PROVIDERS.find(
-              (provider) => provider.value === selectedProvider
-            )?.options(settings)}
+            providers
+              .find((provider) => provider.value === selectedProvider)
+              ?.options(settings)}
         </div>
       </div>
     </form>

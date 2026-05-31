@@ -11,6 +11,7 @@ import {
 } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
 import { useWorkspaceHealth } from "@/contexts/WorkspaceHealthProvider";
+import { useTranslation } from "react-i18next";
 
 const CLOSE_DELAY_MS = 400;
 const SEVERITY_RANK = {
@@ -19,17 +20,23 @@ const SEVERITY_RANK = {
   info: 1,
 };
 
-function formatTime(value) {
-  if (!value) return "暂无";
+function dateLocale(language = "zh") {
+  if (String(language).startsWith("ja")) return "ja-JP";
+  if (String(language).startsWith("en")) return "en-US";
+  return "zh-CN";
+}
+
+function formatTime(value, locale, fallback) {
+  if (!value) return fallback;
   try {
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(locale, {
       month: "2-digit",
       day: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
     }).format(new Date(value));
   } catch {
-    return "暂无";
+    return fallback;
   }
 }
 
@@ -95,6 +102,15 @@ function statusIcon(beacon, score) {
   return <WarningCircle size={16} weight="fill" />;
 }
 
+function statusLabel(beacon, score, t) {
+  if (!beacon || beacon.unknown) return t("workspace-health.unknown");
+  if (beacon.processing) return t("workspace-health.processing");
+  if (score >= 90) return t("workspace-health.healthy");
+  if (score >= 70) return t("workspace-health.attention");
+  if (score >= 50) return t("workspace-health.degraded");
+  return t("workspace-health.critical");
+}
+
 function eventTone(severity = "info") {
   if (severity === "critical") {
     return "border-red-400/40 bg-red-500/10 shadow-[0_0_18px_rgba(248,113,113,0.22)] light:bg-red-50 light:border-red-200";
@@ -111,16 +127,17 @@ function eventTextTone(severity = "info") {
   return "text-white/80 light:text-slate-700";
 }
 
-function severityLabel(severity = "info") {
-  if (severity === "critical") return "严重";
-  if (severity === "warning") return "警告";
-  return "信息";
+function severityLabel(severity = "info", t) {
+  if (severity === "critical") return t("workspace-health.critical");
+  if (severity === "warning") return t("workspace-health.warning");
+  return t("workspace-health.info");
 }
 
 export default function WorkspaceHealthBeacon({
   workspaceSlug,
   className = "",
 }) {
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const health = useWorkspaceHealth();
   const closeTimer = useRef(null);
@@ -158,8 +175,13 @@ export default function WorkspaceHealthBeacon({
     return () => clearTimeout(closeTimer.current);
   }, []);
 
-  const ariaScore = beacon?.unknown ? "未知" : `${score ?? "--"} 分`;
-  const ariaStatus = beacon?.statusLabel || "Unknown";
+  const locale = dateLocale(i18n.language);
+  const fallbackTime = t("workspace-health.unavailable");
+  const ariaScore = beacon?.unknown
+    ? t("workspace-health.unknown")
+    : `${score ?? "--"} ${t("workspace-health.scoreUnit")}`;
+  const localizedStatus = statusLabel(beacon, score, t);
+  const ariaStatus = localizedStatus;
   const abnormalEvents = useMemo(() => {
     const issues = (beacon?.topIssues || []).map((item) => ({
       ...item,
@@ -198,8 +220,11 @@ export default function WorkspaceHealthBeacon({
     >
       <button
         type="button"
-        aria-label={`工作区健康状态：${ariaScore}，${ariaStatus}，按 Enter 打开健康中心`}
-        title="工作区健康状态"
+        aria-label={t("workspace-health.ariaOpen", {
+          score: ariaScore,
+          status: ariaStatus,
+        })}
+        title={t("workspace-health.title")}
         onClick={openHealthCenter}
         onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -225,53 +250,75 @@ export default function WorkspaceHealthBeacon({
         <div
           ref={popoverRef}
           role="dialog"
-          aria-label="工作区健康摘要"
+          aria-label={t("workspace-health.title")}
           className="absolute right-0 top-[43px] z-50 flex max-h-[430px] w-[330px] flex-col overflow-hidden rounded-xl border border-white/10 light:border-slate-200 bg-zinc-900/95 light:bg-white shadow-2xl backdrop-blur text-white light:text-slate-800"
           onPointerEnter={showPopover}
           onPointerLeave={scheduleClose}
         >
           <div className="flex items-start justify-between gap-3 border-b border-white/10 light:border-slate-100 p-4 pb-3">
             <div>
-              <div className="text-sm font-semibold">工作区健康摘要</div>
+              <div className="text-sm font-semibold">
+                {t("workspace-health.title")}
+              </div>
               <div className="mt-1 text-xs text-white/60 light:text-slate-500">
-                最后更新时间：{formatTime(beacon?.lastUpdatedAt)}
+                {t("workspace-health.lastUpdated", {
+                  time: formatTime(beacon?.lastUpdatedAt, locale, fallbackTime),
+                })}
               </div>
             </div>
             <span
               className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold ${tone.bg} ${tone.text}`}
             >
               {statusIcon(beacon, score)}
-              {beacon?.unknown ? "Unknown" : beacon?.statusLabel}
+              {localizedStatus}
             </span>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 pr-3">
             <p className="text-sm leading-5 text-white/80 light:text-slate-700">
-              {beacon?.summary || "健康状态暂时不可用"}
+              {beacon?.summary || t("workspace-health.summaryFallback")}
             </p>
 
             <div className="mt-3 rounded-lg bg-white/5 light:bg-slate-50 p-3 text-xs">
               <div className="font-semibold text-white/80 light:text-slate-700">
-                数据来源时间
+                {t("workspace-health.dataSourceTimes")}
               </div>
               <div className="mt-2 grid grid-cols-1 gap-1 text-white/55 light:text-slate-500">
                 <span>
-                  摘要缓存：
-                  {formatTime(beacon?.sourceTimes?.summaryCacheUpdatedAt)}
+                  {t("workspace-health.summaryCache", {
+                    time: formatTime(
+                      beacon?.sourceTimes?.summaryCacheUpdatedAt,
+                      locale,
+                      fallbackTime
+                    ),
+                  })}
                 </span>
                 <span>
-                  最新活动：{formatTime(beacon?.sourceTimes?.latestActivityAt)}
+                  {t("workspace-health.latestActivity", {
+                    time: formatTime(
+                      beacon?.sourceTimes?.latestActivityAt,
+                      locale,
+                      fallbackTime
+                    ),
+                  })}
                 </span>
                 <span>
-                  Worker 心跳：
-                  {formatTime(beacon?.sourceTimes?.latestWorkerHeartbeatAt)}
+                  {t("workspace-health.workerHeartbeat", {
+                    time: formatTime(
+                      beacon?.sourceTimes?.latestWorkerHeartbeatAt,
+                      locale,
+                      fallbackTime
+                    ),
+                  })}
                 </span>
               </div>
             </div>
 
             {beacon?.processingMessages?.length > 0 && (
               <div className="mt-3 rounded-lg border border-sky-400/20 bg-sky-500/10 p-3 text-xs text-sky-100 light:text-sky-700">
-                <div className="font-semibold">正在处理</div>
+                <div className="font-semibold">
+                  {t("workspace-health.processingTitle")}
+                </div>
                 <ul className="mt-2 space-y-1">
                   {beacon.processingMessages.map((message) => (
                     <li key={message}>- {message}</li>
@@ -284,7 +331,7 @@ export default function WorkspaceHealthBeacon({
               <div className="mt-3">
                 <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-yellow-100 light:text-yellow-700">
                   <WarningCircle size={14} weight="fill" />
-                  异常事件
+                  {t("workspace-health.abnormalEvents")}
                 </div>
                 <div className="space-y-2">
                   {abnormalEvents.map((item) => (
@@ -297,13 +344,13 @@ export default function WorkspaceHealthBeacon({
                       >
                         <span>{item.title}</span>
                         <span className="shrink-0 rounded-full bg-black/20 light:bg-white/70 px-1.5 py-0.5 text-[10px]">
-                          {severityLabel(item.severity)}
+                          {severityLabel(item.severity, t)}
                         </span>
                       </div>
                       <div className="mt-1 text-white/55 light:text-slate-500">
                         {item.detail}
                         {item.createdAt
-                          ? ` · ${formatTime(item.createdAt)}`
+                          ? ` · ${formatTime(item.createdAt, locale, fallbackTime)}`
                           : ""}
                       </div>
                     </div>
@@ -315,7 +362,7 @@ export default function WorkspaceHealthBeacon({
             <div className="mt-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-white/70 light:text-slate-600">
                 <Activity size={14} />
-                最近活动
+                {t("workspace-health.recentActivity")}
               </div>
               <div className="space-y-2">
                 {normalActivities.slice(0, 5).map((activity) => (
@@ -329,13 +376,14 @@ export default function WorkspaceHealthBeacon({
                       {activity.title}
                     </div>
                     <div className="mt-1 text-white/50 light:text-slate-500">
-                      {activity.detail} · {formatTime(activity.createdAt)}
+                      {activity.detail} ·{" "}
+                      {formatTime(activity.createdAt, locale, fallbackTime)}
                     </div>
                   </div>
                 ))}
                 {normalActivities.length === 0 && (
                   <div className="text-xs text-white/45 light:text-slate-500">
-                    暂无最近活动。
+                    {t("workspace-health.noRecentActivity")}
                   </div>
                 )}
               </div>
@@ -346,7 +394,7 @@ export default function WorkspaceHealthBeacon({
               onClick={() => setShowAdvanced((current) => !current)}
               className="mt-3 flex w-full items-center justify-between rounded-lg border border-white/10 light:border-slate-200 px-3 py-2 text-xs text-white/70 light:text-slate-600 hover:bg-white/5 light:hover:bg-slate-50"
             >
-              高级信息
+              {t("workspace-health.advancedInfo")}
               <CaretDown
                 size={14}
                 className={`motion-hover ${showAdvanced ? "rotate-180" : ""}`}
@@ -366,7 +414,7 @@ export default function WorkspaceHealthBeacon({
                 }
                 className="mt-2 w-full rounded-lg px-3 py-2 text-xs text-white/55 light:text-slate-500 hover:bg-white/5 light:hover:bg-slate-50"
               >
-                调整阅读工具与字体大小
+                {t("workspace-health.adjustReadingTools")}
               </button>
             )}
           </div>
@@ -382,14 +430,16 @@ export default function WorkspaceHealthBeacon({
               className="flex items-center gap-1 rounded-lg border border-white/10 light:border-slate-200 px-3 py-2 text-xs font-semibold text-white/75 light:text-slate-700 hover:bg-white/5 light:hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <ArrowClockwise size={14} />
-              {cooldownSeconds > 0 ? `${cooldownSeconds}s` : "刷新"}
+              {cooldownSeconds > 0
+                ? `${cooldownSeconds}s`
+                : t("common.refresh")}
             </button>
             <button
               type="button"
               onClick={openHealthCenter}
               className="flex-1 rounded-lg bg-sky-500 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-400"
             >
-              查看完整诊断
+              {t("workspace-health.fullDiagnostics")}
             </button>
           </div>
         </div>

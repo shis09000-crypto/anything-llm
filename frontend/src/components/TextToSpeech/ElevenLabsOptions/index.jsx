@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
 import System from "@/models/system";
+import { useTranslation } from "react-i18next";
 
 export default function ElevenLabsOptions({ settings }) {
   const [inputValue, setInputValue] = useState(settings?.TTSElevenLabsKey);
   const [elevenLabsKey, setElevenLabsKey] = useState(
     settings?.TTSElevenLabsKey
   );
+  const { t } = useTranslation();
 
   return (
     <div className="flex gap-x-4">
       <div className="flex flex-col w-60">
         <label className="text-white text-sm font-semibold block mb-3">
-          API Key
+          {t("audio-preference.fields.apiKey")}
         </label>
         <input
           type="password"
@@ -36,6 +38,7 @@ export default function ElevenLabsOptions({ settings }) {
 function ElevenLabsModelSelection({ apiKey, settings }) {
   const [groupedModels, setGroupedModels] = useState({});
   const [loading, setLoading] = useState(true);
+  const { t } = useTranslation();
 
   useEffect(() => {
     async function findCustomModels() {
@@ -63,7 +66,7 @@ function ElevenLabsModelSelection({ apiKey, settings }) {
     return (
       <div className="flex flex-col w-60">
         <label className="text-white text-sm font-semibold block mb-3">
-          Chat Model Selection
+          {t("audio-preference.fields.voiceModelSelection")}
         </label>
         <select
           name="TTSElevenLabsVoiceModel"
@@ -71,7 +74,7 @@ function ElevenLabsModelSelection({ apiKey, settings }) {
           className="border-none bg-theme-settings-input-bg border-gray-500 text-white text-sm rounded-lg block w-full p-2.5"
         >
           <option disabled={true} selected={true}>
-            -- loading available models --
+            {t("audio-preference.loadingModels")}
           </option>
         </select>
       </div>
@@ -81,7 +84,7 @@ function ElevenLabsModelSelection({ apiKey, settings }) {
   return (
     <div className="flex flex-col w-60">
       <label className="text-white text-sm font-semibold block mb-3">
-        Chat Model Selection
+        {t("audio-preference.fields.voiceModelSelection")}
       </label>
       <select
         name="TTSElevenLabsVoiceModel"

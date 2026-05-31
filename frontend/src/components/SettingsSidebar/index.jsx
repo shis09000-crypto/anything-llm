@@ -316,7 +316,7 @@ const SidebarOptions = ({ user = null, t }) => (
               roles: ["admin", "manager"],
             },
             {
-              btnText: "Default System Prompt",
+              btnText: t("settings.default-system-prompt"),
               href: paths.settings.defaultSystemPrompt(),
               flex: true,
               roles: ["admin"],

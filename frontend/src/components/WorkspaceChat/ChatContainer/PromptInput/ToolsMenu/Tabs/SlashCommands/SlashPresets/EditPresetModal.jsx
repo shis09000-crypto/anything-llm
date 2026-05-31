@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { X } from "@phosphor-icons/react";
 import ModalWrapper from "@/components/ModalWrapper";
 import { CMD_REGEX } from "./constants";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function EditPresetModal({
   isOpen,
@@ -37,7 +38,15 @@ export default function EditPresetModal({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Are you sure you want to delete this preset?")) return;
+    if (
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除预设？",
+        description: "此斜杠命令预设将被移除。",
+        confirmText: "删除",
+      }))
+    )
+      return;
 
     setDeleting(true);
     await onDelete(preset.id);

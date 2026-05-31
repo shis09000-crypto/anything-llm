@@ -3,6 +3,14 @@ import { TextT } from "@phosphor-icons/react";
 import { Tooltip } from "react-tooltip";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  CUSTOM_TEXT_SIZE,
+  TEXT_SIZE_PRESETS,
+  TEXT_SIZE_RANGE,
+  clampCustomTextSize,
+  getTextSizePreference,
+  saveTextSizePreference,
+} from "@/utils/textSize";
 
 export default function TextSizeButton() {
   const tooltipRef = useRef(null);
@@ -54,66 +62,64 @@ export default function TextSizeButton() {
 
 function TextSizeMenu({ tooltipRef }) {
   const { t } = useTranslation();
-  const [selectedSize, setSelectedSize] = useState(
-    window.localStorage.getItem("anythingllm_text_size") || "normal"
+  const [selectedSize, setSelectedSize] = useState(() =>
+    getTextSizePreference()
   );
+  const [customPx, setCustomPx] = useState(() => selectedSize.customPx);
 
   const handleTextSizeChange = (size) => {
-    setSelectedSize(size);
-    window.localStorage.setItem("anythingllm_text_size", size);
-    window.dispatchEvent(new CustomEvent("textSizeChange", { detail: size }));
+    setSelectedSize(saveTextSizePreference(size));
     tooltipRef.current?.close();
+  };
+
+  const handleCustomTextSizeChange = (value) => {
+    const nextPx = clampCustomTextSize(value);
+    setCustomPx(nextPx);
+    setSelectedSize(saveTextSizePreference(CUSTOM_TEXT_SIZE, nextPx));
   };
 
   return (
     <div className="flex flex-col justify-start items-stretch gap-1 p-2">
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          handleTextSizeChange("small");
-        }}
-        className={`border-none w-full hover:cursor-pointer px-2 py-2 rounded-md flex items-center group ${
-          selectedSize === "small"
+      {TEXT_SIZE_PRESETS.map(({ value, textClass }) => (
+        <button
+          key={value}
+          onClick={(e) => {
+            e.preventDefault();
+            handleTextSizeChange(value);
+          }}
+          className={`border-none w-full hover:cursor-pointer px-2 py-2 rounded-md flex items-center group ${
+            selectedSize.value === value
+              ? "bg-theme-action-menu-item-hover"
+              : "hover:bg-theme-action-menu-item-hover"
+          }`}
+        >
+          <div className={`text-theme-text-primary ${textClass}`}>
+            {t(`chat_window.${value}`)}
+          </div>
+        </button>
+      ))}
+      <div
+        className={`rounded-md px-2 py-2 ${
+          selectedSize.isCustom
             ? "bg-theme-action-menu-item-hover"
-            : "hover:bg-theme-action-menu-item-hover"
+            : "bg-theme-action-menu-item-hover/40"
         }`}
       >
-        <div className="text-theme-text-primary text-xs">
-          {t("chat_window.small")}
+        <div className="flex items-center justify-between text-theme-text-primary">
+          <span className="text-sm">{t("chat_window.custom")}</span>
+          <span className="text-[11px] opacity-70">{customPx}px</span>
         </div>
-      </button>
-
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          handleTextSizeChange("normal");
-        }}
-        className={`border-none w-full hover:cursor-pointer px-2 py-2 rounded-md flex items-center group ${
-          selectedSize === "normal"
-            ? "bg-theme-action-menu-item-hover"
-            : "hover:bg-theme-action-menu-item-hover"
-        }`}
-      >
-        <div className="text-theme-text-primary text-sm">
-          {t("chat_window.normal")}
-        </div>
-      </button>
-
-      <button
-        onClick={(e) => {
-          e.preventDefault();
-          handleTextSizeChange("large");
-        }}
-        className={`border-none w-full hover:cursor-pointer px-2 py-2 rounded-md flex items-center group ${
-          selectedSize === "large"
-            ? "bg-theme-action-menu-item-hover"
-            : "hover:bg-theme-action-menu-item-hover"
-        }`}
-      >
-        <div className="text-theme-text-primary text-[16px]">
-          {t("chat_window.large")}
-        </div>
-      </button>
+        <input
+          type="range"
+          min={TEXT_SIZE_RANGE.min}
+          max={TEXT_SIZE_RANGE.max}
+          step={TEXT_SIZE_RANGE.step}
+          value={customPx}
+          aria-label={t("chat_window.custom_text_size")}
+          onChange={(event) => handleCustomTextSizeChange(event.target.value)}
+          className="mt-2 h-2 w-full cursor-pointer accent-sky-400"
+        />
+      </div>
     </div>
   );
 }

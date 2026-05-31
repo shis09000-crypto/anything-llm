@@ -1,5 +1,5 @@
 const crypto = require("crypto");
-const { getLLMProvider } = require("../helpers");
+const { getTaskConnector } = require("../llmTasks");
 const {
   WorkspaceOverviewNarrative,
 } = require("../../models/workspaceOverviewNarrative");
@@ -135,16 +135,11 @@ function scheduleGeneration({ workspace, sourceHash, payload }) {
 
   setTimeout(async () => {
     try {
-      const provider =
-        workspace?.chatProvider || process.env.LLM_PROVIDER || null;
-      const model =
-        workspace?.chatModel ||
-        (provider === "deepseek" ? process.env.DEEPSEEK_MODEL_PREF : null) ||
-        null;
-      const LLMConnector = getLLMProvider({
+      const {
+        connector: LLMConnector,
         provider,
         model,
-      });
+      } = getTaskConnector("workspace_overview_narrative", { workspace });
       if (!LLMConnector) throw new Error("llm_provider_unavailable");
       const prompt = `请根据工作区结构信息生成一句中文总览。
 

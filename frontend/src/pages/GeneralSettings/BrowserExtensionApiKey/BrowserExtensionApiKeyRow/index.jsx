@@ -3,6 +3,7 @@ import BrowserExtensionApiKey from "@/models/browserExtensionApiKey";
 import showToast from "@/utils/toast";
 import { Trash, Copy, Check, Plug } from "@phosphor-icons/react";
 import { POPUP_BROWSER_EXTENSION_EVENT } from "@/utils/constants";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function BrowserExtensionApiKeyRow({
   apiKey,
@@ -15,9 +16,12 @@ export default function BrowserExtensionApiKeyRow({
 
   const handleRevoke = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to revoke this browser extension API key?\nAfter you do this it will no longer be useable.\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "撤销浏览器扩展 API Key？",
+        description: "撤销后该密钥将不再可用，且此操作无法撤销。",
+        confirmText: "撤销",
+      }))
     )
       return false;
 

@@ -89,6 +89,12 @@
   width: 100%;
 }
 
+.app-button-icon-only {
+  width: var(--app-button-size-height);
+  min-width: var(--app-button-size-height);
+  padding: 0;
+}
+
 .app-button-primary {
   color: #ffffff;
   border-color: rgb(255 255 255 / var(--app-button-border-opacity));

@@ -131,6 +131,83 @@ describe("generateMindMap", () => {
     );
   });
 
+  it("requests JSON response format when generating the schema", async () => {
+    await generateMindMap({
+      workspace,
+      user,
+      body: { sourceType: "text", text: complexText, force: true },
+    });
+
+    expect(mockGetChatCompletion).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.objectContaining({
+        temperature: 0.2,
+        user,
+        responseFormat: { type: "json_object" },
+      })
+    );
+  });
+
+  it("retries transient LLM transport errors before creating a mind map", async () => {
+    mockGetChatCompletion
+      .mockRejectedValueOnce(new Error("Premature close"))
+      .mockResolvedValueOnce({
+        textResponse: JSON.stringify({
+          title: "Retried",
+          layout: "tree",
+          theme: "napkin",
+          nodes: [
+            { id: "root", label: "Root", level: 0 },
+            { id: "child", label: "Child", parentId: "root", level: 1 },
+          ],
+          edges: [{ source: "root", target: "child" }],
+        }),
+      });
+
+    const result = await generateMindMap({
+      workspace,
+      user,
+      body: { sourceType: "text", text: complexText, force: true },
+    });
+
+    expect(mockGetChatCompletion).toHaveBeenCalledTimes(2);
+    expect(result.mindMap.title).toBe("Retried");
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry non-transient LLM errors", async () => {
+    mockGetChatCompletion.mockRejectedValueOnce(new Error("invalid_api_key"));
+
+    await expect(
+      generateMindMap({
+        workspace,
+        user,
+        body: { sourceType: "text", text: complexText, force: true },
+      })
+    ).rejects.toThrow("invalid_api_key");
+
+    expect(mockGetChatCompletion).toHaveBeenCalledTimes(1);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("throws the last transient error after exhausting retries", async () => {
+    mockGetChatCompletion
+      .mockRejectedValueOnce(new Error("Premature close"))
+      .mockRejectedValueOnce(new Error("fetch failed"))
+      .mockRejectedValueOnce(new Error("Invalid response body"));
+
+    await expect(
+      generateMindMap({
+        workspace,
+        user,
+        body: { sourceType: "text", text: complexText, force: true },
+      })
+    ).rejects.toThrow("Invalid response body");
+
+    expect(mockGetChatCompletion).toHaveBeenCalledTimes(3);
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
   it("warns when a document index status is failed", async () => {
     DocumentIndexStatus.where.mockResolvedValueOnce([
       {

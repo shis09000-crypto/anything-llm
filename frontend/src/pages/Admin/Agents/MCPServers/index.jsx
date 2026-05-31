@@ -6,6 +6,7 @@ import MCPLogo from "@/media/agents/mcp-logo.svg";
 import MCPServers from "@/models/mcpServers";
 import showToast from "@/utils/toast";
 import { useTranslation } from "react-i18next";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export function MCPServerHeader({
   setMcpServers,
@@ -25,11 +26,14 @@ export function MCPServerHeader({
   }, []);
 
   // Refresh the list of MCP servers
-  const refreshMCPServers = () => {
+  const refreshMCPServers = async () => {
     if (
-      window.confirm(
-        "Are you sure you want to refresh the list of MCP servers? This will restart all MCP servers and reload their tools."
-      )
+      await showAppConfirm({
+        tone: "warning",
+        title: "刷新 MCP 服务器？",
+        description: "这会重启所有 MCP 服务器并重新加载它们的工具。",
+        confirmText: "刷新",
+      })
     ) {
       setLoadingMcpServers(true);
       MCPServers.forceReload()

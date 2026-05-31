@@ -94,6 +94,7 @@ const TRANSLATIONS = {
     admin: "管理者",
     tools: "ツール",
     "system-prompt-variables": "システムプロンプト変数",
+    "default-system-prompt": "デフォルトシステムプロンプト",
     "experimental-features": "実験的機能",
     contact: "サポートに連絡",
     "browser-extension": "ブラウザ拡張",
@@ -140,8 +141,377 @@ const TRANSLATIONS = {
     general: "一般設定",
     chat: "チャット設定",
     vector: "ベクターデータベース",
+    health: "ヘルスセンター",
+    reading: "読書ツール",
     members: "メンバー",
     agent: "エージェント構成",
+  },
+  "reading-tools": {
+    eyebrow: "読書ツール",
+    title: "文字サイズと読書プレビュー",
+    description:
+      "文字サイズはこのブラウザのローカルな読書設定です。現在の端末でのチャット読書体験にのみ影響し、ワークスペース設定には保存されません。",
+    sizeTitle: "文字サイズ",
+    previewTitle: "ライブプレビュー",
+    currentSelection: "現在の選択：{{label}}",
+    customSliderLabel: "カスタム文字サイズ",
+    customRange: "{{min}}px から {{max}}px",
+    userPreview:
+      "ユーザーメッセージのプレビュー：この資料をわかりやすい知識構造に整理してください。",
+    options: {
+      small: {
+        label: "小",
+        description:
+          "よりコンパクトで、長い会話を素早く確認するのに適しています。",
+      },
+      normal: {
+        label: "標準",
+        description: "AnythingLLM の標準的な読書サイズです。",
+      },
+      large: {
+        label: "大",
+        description: "長時間の読書やデモに適した、より快適なサイズです。",
+      },
+      custom: {
+        label: "カスタム",
+        labelWithSize: "カスタム {{size}}px",
+        description: "スライダーを 1px 単位で調整します。",
+      },
+    },
+    previewMarkdown: `### アシスタント回答プレビュー
+
+これは文字サイズ、行間、強調表示の読みやすさを確認するための **Markdown の太字テキスト** です。
+
+- リスト項目は読みやすい間隔を保ちます
+- 日本語と English text を一緒に表示できます
+
+> 引用ブロックは出典の抜粋や推論メモを表示します。
+
+\`\`\`js
+const readable = true;
+\`\`\`
+`,
+  },
+  "workspace-health": {
+    unavailable: "なし",
+    unknown: "不明",
+    unknownEyebrow: "状態を利用できません",
+    processing: "処理中",
+    processingEyebrow: "バックグラウンドタスクが実行中です",
+    healthy: "正常",
+    healthyEyebrow: "ワークスペースは正常に動作しています",
+    attention: "要確認",
+    attentionEyebrow: "軽微なリスクがあります",
+    degraded: "低下",
+    degradedEyebrow: "調査が必要です",
+    critical: "重大",
+    criticalEyebrow: "直ちに対応が必要です",
+    warning: "警告",
+    info: "情報",
+    scoreUnit: "点",
+    ariaOpen:
+      "ワークスペースのヘルス状態：{{score}}、{{status}}。Enter キーでヘルスセンターを開きます",
+    title: "ワークスペースヘルスセンター",
+    eyebrow: "ワークスペースの可観測性",
+    description:
+      "ナレッジグラフ、修復タスク、ノード指標、バックグラウンド Worker、キュー、モデルサービス、キャッシュの軽量な可観測状態を表示します。更新はヘルス集計キャッシュのみを更新し、埋め込み、ベクトル再構築、グラフ抽出、修復タスクは実行しません。",
+    refresh: "ヘルス状態を更新",
+    refreshAfter: "{{seconds}}秒後に更新可能",
+    healthScore: "ワークスペースヘルススコア",
+    lastUpdated: "最終更新：{{time}}",
+    summaryCache: "要約キャッシュ：{{time}}",
+    latestActivity: "最新アクティビティ：{{time}}",
+    workerHeartbeat: "Worker ハートビート：{{time}}",
+    summaryFallback: "ヘルス状態は一時的に利用できません",
+    currentIssues: "現在の問題",
+    scoreSources: "スコア減点の要因",
+    noScoreSources:
+      "現在有効な減点項目はありません。この問題は最新のヘルス集計で回復している可能性があります。",
+    pointsLost: "-{{points}} 点",
+    severity: "重大度：{{severity}}",
+    cacheNote:
+      "キャッシュ情報：期限切れの traversal キャッシュが {{count}} 件あります。キャッシュは必要に応じて再構築され、ヘルススコアには影響しません。",
+    noIssues: "直ちに対応が必要な問題はありません。",
+    processingTitle: "処理中",
+    noProcessing: "現在処理中のヘルスタスクはありません。",
+    timeline: "最近のアクティビティタイムライン",
+    recentActivity: "最近のアクティビティ",
+    abnormalEvents: "異常イベント",
+    noRecentActivity: "最近のアクティビティはありません。",
+    advancedInfo: "詳細情報",
+    advancedDiagnostics: "高度な診断データ",
+    dataSourceTimes: "データソース時刻",
+    adjustReadingTools: "読書ツールと文字サイズを調整",
+    fullDiagnostics: "完全な診断を表示",
+    activityTitles: {
+      nodeMetrics: "ノード指標",
+      kgExtraction: "ナレッジグラフ抽出",
+      graphRepair: "グラフ修復",
+      recomputeNodeMetrics: "ノード指標を再計算",
+    },
+    activityDetails: {
+      processed: "処理",
+      succeeded: "成功",
+      failed: "失敗",
+      skipped: "スキップ",
+    },
+  },
+  "workspace-overview": {
+    workspaceOverview: "ワークスペース概要",
+    overviewGenerating: "概要を生成中",
+    workspaceHealth: "ワークスペースヘルス",
+    unknown: "不明",
+    healthUnavailable: "ヘルス状態は利用できません",
+    healthNote: "おすすめ、証拠、関係、処理状態を組み合わせた総合的な読み取り",
+    continueLast: "前回の研究を続ける",
+    noContinue: "再開できる研究パスはありません。",
+    recommended: "おすすめ",
+    noRecommendations:
+      "まだおすすめはありません。概念や証拠を確認し続けると、ここがより賢くなります。",
+    knowledgeGaps: "知識ギャップ",
+  },
+  "system-prompt-variables": {
+    title: "システムプロンプト変数",
+    description:
+      "システムプロンプト変数は設定値を保存するために使用され、システムプロンプト内で参照して動的な内容をプロンプトに含められます。",
+    addVariable: "変数を追加",
+    noVariables: "変数が見つかりません",
+    edit: "編集",
+    columns: {
+      key: "キー",
+      value: "値",
+      description: "説明",
+      type: "種類",
+    },
+    types: {
+      system: "システム",
+      user: "ユーザー",
+      workspace: "ワークスペース",
+      static: "静的",
+    },
+    variableDescriptions: {
+      time: "現在時刻",
+      date: "現在の日付",
+      datetime: "現在の日付と時刻",
+      "user.id": "現在のユーザー ID",
+      "user.name": "現在のユーザー名",
+      "user.bio": "現在のユーザープロフィールの自己紹介項目",
+      "workspace.id": "現在のワークスペース ID",
+      "workspace.name": "現在のワークスペース名",
+    },
+    form: {
+      addTitle: "新しい変数を追加",
+      editTitle: "{{key}} を編集",
+      keyPlaceholder: "例: company_name",
+      valuePlaceholder: "例: Acme Corp",
+      descriptionPlaceholder: "任意の説明",
+      keyHint:
+        "キーは一意である必要があり、プロンプト内では {key} として使用されます。使用できるのは英字、数字、アンダースコアのみです。",
+      cancel: "キャンセル",
+      create: "変数を作成",
+      update: "変数を更新",
+    },
+    deleteConfirm: {
+      title: "変数を削除しますか？",
+      description: "変数「{{key}}」を削除します。この操作は元に戻せません。",
+      confirm: "削除",
+    },
+    toasts: {
+      created: "変数を作成しました",
+      updated: "変数を更新しました",
+      deleted: "変数を削除しました",
+    },
+    errors: {
+      prefix: "エラー",
+      required: "キーと値は必須です",
+      create: "変数の作成に失敗しました",
+      update: "変数の更新に失敗しました",
+      delete: "変数の削除に失敗しました",
+    },
+  },
+  "experimental-features": {
+    title: "実験的機能",
+    selectFeature: "実験的機能を選択",
+    status: {
+      on: "オン",
+      off: "オフ",
+    },
+    toasts: {
+      enabledSet:
+        "実験的機能セットを有効にしました。ページを再読み込みします。",
+    },
+    tos: {
+      title: "実験的機能の利用条件",
+      introStart: "AnythingLLM の実験的機能は試験運用中の機能であり、利用には",
+      introSeparator: "",
+      optIn: "明示的な有効化",
+      optInSuffix: "が必要です。",
+      introEnd:
+        "機能の承認前に潜在的な懸念がある場合は、条件や警告を事前に提示します。",
+      risksIntro: "このページの機能を使用すると、以下を含む可能性があります。",
+      risks: {
+        dataLoss: "データの損失。",
+        qualityChange: "結果品質の変化。",
+        storageIncrease: "ストレージ使用量の増加。",
+        resourceIncrease: "リソース消費量の増加。",
+        cost: "接続済みの LLM または埋め込みプロバイダーの費用や使用量の増加。",
+        bugs: "AnythingLLM 使用時のバグや問題の発生。",
+      },
+      conditionsIntro: "実験的機能の使用には、以下の非網羅的な条件も伴います。",
+      conditions: {
+        futureRemoval: "今後の更新でこの機能が存在しなくなる場合があります。",
+        unstable: "使用中の機能は現在安定版ではありません。",
+        availability:
+          "今後のバージョン、構成、または AnythingLLM のサブスクリプションで利用できない場合があります。",
+        privacyStart: "ベータ機能の使用時も、プライバシー設定は",
+        privacySeparator: "",
+        privacyBold: "尊重されます",
+        privacyEnd: "。",
+        mayChange: "これらの条件は今後の更新で変更される場合があります。",
+      },
+      moreInfoPrefix:
+        "機能にアクセスするには、このモーダルでの承認が必要です。詳しく読むには",
+      moreInfoOrEmail: "を参照するか、メールでお問い合わせください:",
+      reject: "拒否して閉じる",
+      accept: "理解しました",
+    },
+    liveSync: {
+      navTitle: "ライブドキュメント同期",
+      title: "ドキュメント内容の自動同期",
+      description:
+        "ドキュメントを「監視」対象として指定できるようにします。監視中のドキュメント内容は定期的に取得され、AnythingLLM に更新されます。",
+      workspaceUpdate:
+        "監視中のドキュメントは、参照されているすべてのワークスペースで同時に自動更新されます。",
+      webOnly:
+        "この機能は、Web サイト、Confluence、YouTube、GitHub ファイルなどの Web ベースのコンテンツにのみ適用されます。",
+      docsLink: "機能ドキュメントと警告",
+      manageLink: "監視中のドキュメントを管理",
+      toasts: {
+        enabled: "ライブドキュメント内容同期を有効にしました。",
+        disabled: "ライブドキュメント内容同期を無効にしました。",
+      },
+      errors: {
+        update: "機能ステータスの更新に失敗しました。",
+      },
+      manage: {
+        title: "監視中のドキュメント",
+        description:
+          "現在このインスタンスで監視されているすべてのドキュメントです。これらのドキュメントの内容は定期的に同期されます。",
+        columns: {
+          documentName: "ドキュメント名",
+          lastSynced: "最終同期",
+          nextRefresh: "次回更新までの時間",
+          createdOn: "作成日",
+        },
+      },
+    },
+  },
+  "audio-preference": {
+    stt: {
+      title: "音声入力設定",
+      description:
+        "ここでは、AnythingLLM で使用するテキスト読み上げおよび音声入力プロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
+      searchPlaceholder: "音声入力プロバイダーを検索",
+    },
+    tts: {
+      title: "テキスト読み上げ設定",
+      description:
+        "ここでは、AnythingLLM で使用するテキスト読み上げプロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
+      searchPlaceholder: "テキスト読み上げプロバイダーを検索",
+    },
+    provider: "プロバイダー",
+    noConfiguration: "このプロバイダーに必要な設定はありません。",
+    loadingModels: "-- 利用可能なモデルを読み込み中 --",
+    providers: {
+      native: {
+        name: "システム標準",
+        sttDescription:
+          "対応している場合、ブラウザ内蔵の STT サービスを使用します。",
+        ttsDescription:
+          "対応している場合、ブラウザ内蔵の TTS サービスを使用します。",
+      },
+      openai: {
+        description: "OpenAI のテキスト読み上げ音声を使用します。",
+      },
+      elevenlabs: {
+        description: "ElevenLabs のテキスト読み上げ音声と技術を使用します。",
+      },
+      piper: {
+        description: "TTS モデルをブラウザ内でローカルかつ非公開に実行します。",
+      },
+      openaiCompatible: {
+        name: "OpenAI 互換",
+        description:
+          "ローカルまたはリモートで動作する OpenAI 互換 TTS サービスに接続します。",
+      },
+    },
+    fields: {
+      apiKey: "API キー",
+      baseUrl: "ベース URL",
+      ttsModel: "TTS モデル",
+      voiceModel: "音声モデル",
+      voiceModelSelection: "音声モデル選択",
+    },
+    toasts: {
+      sttSaved: "音声入力設定を保存しました。",
+      sttSaveFailed: "設定の保存に失敗しました: {{error}}",
+      ttsSaved: "テキスト読み上げ設定を保存しました。",
+      ttsSaveFailed: "設定の保存に失敗しました: {{error}}",
+    },
+    piper: {
+      description:
+        "すべての PiperTTS モデルはブラウザ内でローカル実行されます。低スペックの端末ではリソースを多く消費する場合があります。",
+      storedModelHint:
+        "「✔」は、このモデルがすでにローカルに保存されており、実行時にダウンロード不要であることを示します。",
+      flushCache: "音声キャッシュをクリア",
+      stopDemo: "デモを停止",
+      loadingVoice: "音声を読み込み中",
+      playSample: "サンプルを再生",
+      toasts: {
+        flushed: "ブラウザストレージからすべての音声をクリアしました",
+      },
+    },
+    openaiCompatible: {
+      baseUrlHint:
+        "TTS 応答の生成に使用する OpenAI 互換 TTS サービスのベース URL を指定します。",
+      apiKeyHint:
+        "一部の TTS サービスでは応答生成に API キーが必要です。サービスがキーを要求しない場合、この項目は任意です。",
+      ttsPlaceholder: "TTS モデル識別子",
+      voicePlaceholder: "音声モデル識別子",
+      ttsModelHintStart:
+        "多くの TTS サービスには複数のモデルがあります。これは使用するモデルを選択するための",
+      ttsModelHintEnd: "パラメーターです。注: これは音声モデルとは異なります。",
+      voiceModelHint:
+        "多くの TTS サービスには複数の音声モデルがあります。ここには使用したい音声モデルの識別子を指定します。",
+    },
+  },
+  "default-system-prompt": {
+    title: "デフォルトシステムプロンプト",
+    description:
+      "これは新しいワークスペースで使用されるデフォルトのシステムプロンプトです。",
+    form: {
+      label: "システムプロンプト",
+      helpStart:
+        "システムプロンプトは、AI の応答と動作を形作る指示を提供します。このプロンプトは、新しく作成されるすべてのワークスペースに自動的に適用されます。",
+      helpStartSeparator: "",
+      specificWorkspace: "特定のワークスペース",
+      helpMiddle: "のシステムプロンプトを変更するには、",
+      helpMiddleSeparator: "",
+      workspaceSettings: "ワークスペース設定",
+      helpEnd:
+        "でプロンプトを編集します。システムプロンプトを標準のデフォルトに戻すには、このフィールドを空にして変更を保存してください。",
+      variablesPrefix: "挿入できるもの:",
+      variablesLink: "システムプロンプト変数",
+      variablesLike: "例:",
+      moreVariables: "+{{count}} 件以上...",
+      placeholder:
+        "あなたは質問に答え、タスクを手伝うことができる AI アシスタントです。",
+    },
+    toasts: {
+      updated: "デフォルトシステムプロンプトを更新しました。",
+      updateFailed:
+        "デフォルトシステムプロンプトの更新に失敗しました: {{error}}",
+    },
   },
   general: {
     vector: {
@@ -1108,6 +1478,10 @@ const TRANSLATIONS = {
     good_response: "良い反応",
     more_actions:
       "さらに詳細な情報が必要な場合は、お気軽にお問い合わせください。",
+    metrics_visibility: {
+      hover_only: "クリックするとモデル情報をホバー時のみ表示します",
+      always_show: "クリックするとモデル情報を常に表示します",
+    },
     fork: "フォーク",
     delete: "削除",
     cancel: "キャンセル",
@@ -1125,6 +1499,8 @@ const TRANSLATIONS = {
     small: "小さい",
     normal: "通常",
     large: "大規模",
+    custom: "カスタム",
+    custom_text_size: "カスタム文字サイズ",
     workspace_llm_manager: {
       search: "LLMプロバイダーを検索する",
       loading_workspace_settings: "作業スペースの設定を読み込んでいます...",

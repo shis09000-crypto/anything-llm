@@ -113,12 +113,12 @@ function ShowWorkspaceChat() {
               to={paths.workspace.settings.vectorDatabase(slug)}
             />
             <TabItem
-              title="健康中心"
+              title={t("workspaces—settings.health")}
               icon={<Heartbeat className="h-6 w-6" />}
               to={paths.workspace.settings.healthCenter(slug)}
             />
             <TabItem
-              title="阅读工具"
+              title={t("workspaces—settings.reading")}
               icon={<TextAa className="h-6 w-6" />}
               to={paths.workspace.settings.readingTools(slug)}
             />

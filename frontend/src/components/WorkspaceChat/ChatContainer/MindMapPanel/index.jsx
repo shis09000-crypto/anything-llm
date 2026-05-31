@@ -29,6 +29,9 @@ import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import renderMarkdown from "@/utils/chat/markdown";
 import DOMPurify from "@/utils/chat/purify";
+import AppButton from "@/components/lib/AppButton";
+import AppDropdownButton from "@/components/lib/AppDropdownButton";
+import AppToggleButton from "@/components/lib/AppToggleButton";
 import MindMapNode from "./MindMapNode";
 import GraphMindMapEdge from "./GraphMindMapEdge";
 import { layoutMindMap } from "./layout";
@@ -107,8 +110,6 @@ function MindMapPanelInner({
   floating = false,
 }) {
   const flowRef = useRef(null);
-  const documentMenuRef = useRef(null);
-  const documentButtonRef = useRef(null);
   const lastRequestId = useRef(null);
   const saveViewportTimer = useRef(null);
   const suggestionTimer = useRef(null);
@@ -317,21 +318,6 @@ function MindMapPanelInner({
       cancelled = true;
     };
   }, [evidenceTarget, isGraphMap, workspace?.slug]);
-
-  useEffect(() => {
-    if (!showDocumentMenu) return;
-    function handleClickOutside(event) {
-      if (
-        documentMenuRef.current?.contains(event.target) ||
-        documentButtonRef.current?.contains(event.target)
-      ) {
-        return;
-      }
-      setShowDocumentMenu(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showDocumentMenu]);
 
   useEffect(() => {
     if (
@@ -825,23 +811,23 @@ function MindMapPanelInner({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
+            <AppButton
+              variant="secondary"
+              size="sm"
               onClick={() => setIsCollapsed(true)}
-              className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:bg-slate-50"
+              leftIcon={<CaretRight weight="bold" />}
               aria-label="收起思维导图"
             >
-              <CaretRight size={14} weight="bold" />
               收起
-            </button>
-            <button
-              type="button"
+            </AppButton>
+            <AppButton
+              variant="secondary"
+              size="sm"
+              iconOnly
               onClick={onClose}
-              className="text-slate-500 hover:text-slate-900"
+              leftIcon={<X weight="bold" />}
               aria-label="关闭思维导图"
-            >
-              <X size={18} weight="bold" />
-            </button>
+            />
           </div>
         </div>
 
@@ -885,20 +871,22 @@ function MindMapPanelInner({
                       onClick={() => fitView({ padding: 0.18, duration: 260 })}
                       Icon={ArrowsOut}
                     />
-                    <button
-                      type="button"
+                    <AppButton
+                      variant="secondary"
+                      size="sm"
                       onClick={() =>
                         setGraphControlsCollapsed((previous) => !previous)
                       }
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                      leftIcon={
+                        graphControlsCollapsed ? (
+                          <CaretDown weight="bold" />
+                        ) : (
+                          <CaretRight weight="bold" />
+                        )
+                      }
                     >
-                      {graphControlsCollapsed ? (
-                        <CaretDown size={14} weight="bold" />
-                      ) : (
-                        <CaretRight size={14} weight="bold" />
-                      )}
                       {graphControlsCollapsed ? "展开工具" : "折叠工具"}
-                    </button>
+                    </AppButton>
                     <span className="ml-auto rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">
                       {graphCompactStats}
                     </span>
@@ -913,63 +901,45 @@ function MindMapPanelInner({
                         </div>
                       )}
                       <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
+                        <AppToggleButton
+                          size="sm"
+                          selected={mainOnly}
                           onClick={() => setMainOnly((prev) => !prev)}
-                          className={`rounded-lg border px-2 py-1 text-xs ${
-                            mainOnly
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-white text-slate-700"
-                          }`}
+                          className="app-toggle-button-compact"
                         >
                           只看主线
-                        </button>
-                        <button
-                          type="button"
+                        </AppToggleButton>
+                        <AppToggleButton
+                          size="sm"
+                          selected={hideWeakRelations}
                           onClick={() => setHideWeakRelations((prev) => !prev)}
-                          className={`rounded-lg border px-2 py-1 text-xs ${
-                            hideWeakRelations
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-white text-slate-700"
-                          }`}
+                          className="app-toggle-button-compact"
                         >
                           隐藏弱关系
-                        </button>
-                        <button
-                          type="button"
+                        </AppToggleButton>
+                        <AppToggleButton
+                          size="sm"
+                          selected={hideRelatedTo}
                           onClick={() => setHideRelatedTo((prev) => !prev)}
-                          className={`rounded-lg border px-2 py-1 text-xs ${
-                            hideRelatedTo
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-slate-200 bg-white text-slate-700"
-                          }`}
+                          className="app-toggle-button-compact"
                         >
                           隐藏“相关”
-                        </button>
-                        <select
-                          className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                        </AppToggleButton>
+                        <MindMapDropdown
+                          label="关系筛选"
                           value={relationTypeFilter}
-                          onChange={(event) =>
-                            setRelationTypeFilter(event.target.value)
-                          }
-                        >
-                          {relationFilterOptions.map((item) => (
-                            <option key={item.value} value={item.value}>
-                              {item.label}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                          options={relationFilterOptions}
+                          onSelect={setRelationTypeFilter}
+                        />
+                        <MindMapDropdown
+                          label="标签"
                           value={labelMode}
-                          onChange={(event) => setLabelMode(event.target.value)}
-                        >
-                          {labelModes.map((item) => (
-                            <option key={item.value} value={item.value}>
-                              标签：{item.label}
-                            </option>
-                          ))}
-                        </select>
+                          options={labelModes.map((item) => ({
+                            ...item,
+                            label: `标签：${item.label}`,
+                          }))}
+                          onSelect={setLabelMode}
+                        />
                         <ToolbarButton
                           label="Focus Node"
                           onClick={focusSelectedNode}
@@ -1007,12 +977,19 @@ function MindMapPanelInner({
             >
               {mode === "ai" && (
                 <>
-                  <select
-                    className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                  <MindMapDropdown
+                    label="历史导图"
                     value={!isGraphMap ? activeMap?.id || "" : ""}
-                    onChange={(e) => {
+                    options={[
+                      { value: "", label: "历史导图", disabled: true },
+                      ...savedMaps.map((map) => ({
+                        value: map.id,
+                        label: map.title,
+                      })),
+                    ]}
+                    onSelect={(value) => {
                       const map = savedMaps.find(
-                        (item) => item.id === Number(e.target.value)
+                        (item) => item.id === Number(value)
                       );
                       if (!map) return;
                       setActiveMap(map);
@@ -1020,48 +997,36 @@ function MindMapPanelInner({
                       setTheme(map.schema?.theme || map.theme || "napkin");
                       setCollapsed(new Set());
                     }}
-                  >
-                    <option value="">历史导图</option>
-                    {savedMaps.map((map) => (
-                      <option key={map.id} value={map.id}>
-                        {map.title}
-                      </option>
-                    ))}
-                  </select>
+                    menuWidth={280}
+                  />
                   {documents.length > 0 && (
                     <DocumentGenerateMenu
                       documents={documents}
                       show={showDocumentMenu}
                       setShow={setShowDocumentMenu}
-                      menuRef={documentMenuRef}
-                      buttonRef={documentButtonRef}
                       generate={generate}
                     />
                   )}
                 </>
               )}
-              <select
-                className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+              <MindMapDropdown
+                label="布局"
                 value={layout}
-                onChange={(e) => setLayout(e.target.value)}
-              >
-                {layouts.map((item) => (
-                  <option key={item} value={item}>
-                    {layoutLabels[item] || item}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="text-xs rounded-lg border border-slate-200 bg-white px-2 py-1 text-slate-700"
+                options={layouts.map((item) => ({
+                  value: item,
+                  label: layoutLabels[item] || item,
+                }))}
+                onSelect={setLayout}
+              />
+              <MindMapDropdown
+                label="主题"
                 value={theme}
-                onChange={(e) => setTheme(e.target.value)}
-              >
-                {themes.map((item) => (
-                  <option key={item} value={item}>
-                    {themeLabels[item] || item}
-                  </option>
-                ))}
-              </select>
+                options={themes.map((item) => ({
+                  value: item,
+                  label: themeLabels[item] || item,
+                }))}
+                onSelect={setTheme}
+              />
               <ToolbarButton
                 label="PNG"
                 onClick={exportPng}
@@ -1182,66 +1147,102 @@ function MindMapPanelInner({
   );
 }
 
-function DocumentGenerateMenu({
-  documents,
-  show,
-  setShow,
-  menuRef,
-  buttonRef,
-  generate,
-}) {
-  return (
-    <div className="relative">
-      <button
-        ref={buttonRef}
-        type="button"
-        onClick={() => setShow((prev) => !prev)}
-        className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
-        aria-expanded={show}
-      >
-        从文档生成
-        <CaretDown size={12} weight="bold" />
-      </button>
-      {show && (
-        <div
-          ref={menuRef}
-          className="absolute left-0 top-[calc(100%+6px)] z-40 w-[280px] max-w-[72vw] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl"
-        >
-          <div className="max-h-[320px] overflow-y-auto overscroll-contain py-1">
-            {documents.map((doc) => {
-              const docId = doc.docId || doc.id;
-              const docPath = doc.docpath || doc.filePath;
-              const title = documentTitle(doc);
-              const subtitle = documentSubtitle(doc, title);
-              return (
-                <button
-                  key={docId || docPath || title}
-                  type="button"
-                  onClick={() => {
-                    if (!docId && !docPath) return;
-                    setShow(false);
-                    generate({
-                      sourceType: "document",
-                      ...(docId ? { docId } : { docPath }),
-                    });
-                  }}
-                  className="w-full border-b border-slate-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-slate-50 focus:bg-slate-50 focus:outline-none"
-                >
-                  <span className="block whitespace-normal break-words text-xs font-medium leading-5 text-slate-800">
-                    {title}
-                  </span>
-                  {subtitle && (
-                    <span className="mt-0.5 block whitespace-normal break-words text-[11px] leading-4 text-slate-500">
-                      {subtitle}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+function DocumentGenerateMenu({ documents, show, setShow, generate }) {
+  const menu = (
+    <div className="max-h-[320px] overflow-y-auto overscroll-contain py-1">
+      {documents.map((doc) => {
+        const docId = doc.docId || doc.id;
+        const docPath = doc.docpath || doc.filePath;
+        const title = documentTitle(doc);
+        const subtitle = documentSubtitle(doc, title);
+        return (
+          <AppDropdownButton.Item
+            key={docId || docPath || title}
+            disabled={!docId && !docPath}
+            onClick={() => {
+              if (!docId && !docPath) return;
+              setShow(false);
+              generate({
+                sourceType: "document",
+                ...(docId ? { docId } : { docPath }),
+              });
+            }}
+            className="min-h-0 !items-start !rounded-lg !px-3 !py-2.5"
+          >
+            <span className="block min-w-0">
+              <span className="block whitespace-normal break-words text-xs font-medium leading-5 text-slate-800">
+                {title}
+              </span>
+              {subtitle && (
+                <span className="mt-0.5 block whitespace-normal break-words text-[11px] leading-4 text-slate-500">
+                  {subtitle}
+                </span>
+              )}
+            </span>
+          </AppDropdownButton.Item>
+        );
+      })}
     </div>
+  );
+
+  return (
+    <AppDropdownButton
+      size="sm"
+      open={show}
+      onOpenChange={setShow}
+      onClick={() => setShow((prev) => !prev)}
+      menu={menu}
+      menuWidth={280}
+      portalMenu
+      className="app-dropdown-button-compact"
+    >
+      从文档生成
+    </AppDropdownButton>
+  );
+}
+
+function MindMapDropdown({
+  label,
+  value,
+  options,
+  onSelect,
+  menuWidth = 190,
+  disabled = false,
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((item) => String(item.value) === String(value));
+  const menu = (
+    <>
+      {options.map((item) => (
+        <AppDropdownButton.Item
+          key={item.value}
+          disabled={item.disabled}
+          onClick={() => {
+            setOpen(false);
+            onSelect(item.value, item);
+          }}
+        >
+          {item.label}
+        </AppDropdownButton.Item>
+      ))}
+    </>
+  );
+
+  return (
+    <AppDropdownButton
+      size="sm"
+      open={open}
+      onOpenChange={setOpen}
+      onClick={() => setOpen((previous) => !previous)}
+      menu={menu}
+      menuWidth={menuWidth}
+      portalMenu
+      disabled={disabled}
+      className="app-dropdown-button-compact"
+      aria-label={label}
+    >
+      {selected?.label || label}
+    </AppDropdownButton>
   );
 }
 
@@ -1330,17 +1331,14 @@ function PathViewControls({
 
 function ModeButton({ active, onClick, label }) {
   return (
-    <button
-      type="button"
+    <AppToggleButton
+      size="sm"
+      selected={active}
       onClick={onClick}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium ${
-        active
-          ? "border border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
-          : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-      }`}
+      className="app-toggle-button-compact"
     >
       {label}
-    </button>
+    </AppToggleButton>
   );
 }
 
@@ -2801,14 +2799,14 @@ function EvidenceList({ evidence = [], chunks = [], chunkIds = [] }) {
 
 function ToolbarButton({ label, onClick, Icon }) {
   return (
-    <button
-      type="button"
+    <AppButton
+      variant="secondary"
+      size="sm"
       onClick={onClick}
-      className="inline-flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50"
+      leftIcon={<Icon />}
     >
-      <Icon size={14} />
       {label}
-    </button>
+    </AppButton>
   );
 }
 

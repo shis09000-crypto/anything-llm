@@ -68,14 +68,18 @@ export async function parseDocxFile(file, readerDocumentId) {
   const arrayBuffer = await file.arrayBuffer();
   const result = await mammoth.convertToHtml({ arrayBuffer });
   const doc = new DOMParser().parseFromString(result.value || "", "text/html");
-  const nodes = [...doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li")];
+  const nodes = [...doc.body.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,table")];
   const blocks = nodes
     .map((node, index) => {
       const text = node.textContent?.trim();
       if (!text) return null;
       return {
         blockId: stableBlockId(text, index),
-        type: /^H\d$/.test(node.tagName) ? "heading" : "paragraph",
+        type: /^H\d$/.test(node.tagName)
+          ? "heading"
+          : node.tagName === "TABLE"
+            ? "table"
+            : "paragraph",
         level: /^H\d$/.test(node.tagName)
           ? node.tagName.replace("H", "")
           : null,
@@ -87,6 +91,8 @@ export async function parseDocxFile(file, readerDocumentId) {
     schemaVersion: READER_SCHEMA_VERSION,
     readerDocumentId,
     documentType: "docx",
+    html: result.value || "",
+    previewMode: "html-fallback",
     blocks,
   };
 }
@@ -129,6 +135,15 @@ export async function parsePdfFile(_file, readerDocumentId) {
     readerDocumentId,
     documentType: "pdf",
     pages: [],
+  };
+}
+
+export async function parseEpubFile(_file, readerDocumentId) {
+  return {
+    schemaVersion: READER_SCHEMA_VERSION,
+    readerDocumentId,
+    documentType: "epub",
+    toc: [],
   };
 }
 

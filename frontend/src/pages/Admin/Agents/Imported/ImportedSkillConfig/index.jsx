@@ -4,6 +4,7 @@ import { Gear, Plug } from "@phosphor-icons/react";
 import { useEffect, useState, useRef } from "react";
 import { sentenceCase } from "text-case";
 import Toggle from "@/components/lib/Toggle";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 /**
  * Converts setup_args to inputs for the form builder
@@ -195,9 +196,12 @@ function ManageSkillMenu({ config, setImportedSkills }) {
 
   async function deleteSkill() {
     if (
-      !window.confirm(
-        "Are you sure you want to delete this skill? This action cannot be undone."
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除技能？",
+        description: "此操作无法撤销。",
+        confirmText: "删除",
+      }))
     )
       return;
     const success = await System.experimentalFeatures.agentPlugins.deletePlugin(

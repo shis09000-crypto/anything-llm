@@ -1,7 +1,6 @@
 const prisma = require("../utils/prisma");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
-const truncate = require("truncate");
 
 const WorkspaceThread = {
   defaultName: "Thread",
@@ -13,6 +12,15 @@ const WorkspaceThread = {
     "forked_at_message_id",
     "forked_at",
   ],
+
+  withDisplayTitle: function (thread = null) {
+    if (!thread) return null;
+    return {
+      ...thread,
+      name: thread.title || thread.name,
+      displayTitle: thread.title || thread.name,
+    };
+  },
 
   /**
    * The default Slugify module requires some additional mapping to prevent downstream issues
@@ -65,7 +73,7 @@ const WorkspaceThread = {
         },
       });
 
-      return { thread, message: null };
+      return { thread: this.withDisplayTitle(thread), message: null };
     } catch (error) {
       console.error(error.message);
       return { thread: null, message: error.message };
@@ -78,18 +86,29 @@ const WorkspaceThread = {
     const validData = {};
     Object.entries(data).forEach(([key, value]) => {
       if (!this.writable.includes(key)) return;
-      validData[key] = value;
+      validData[key] = key === "name" ? String(value) : value;
     });
 
     if (Object.keys(validData).length === 0)
-      return { thread: prevThread, message: "No valid fields to update!" };
+      return {
+        thread: this.withDisplayTitle(prevThread),
+        message: "No valid fields to update!",
+      };
+
+    if (validData.hasOwnProperty("name")) {
+      validData.title = validData.name;
+      validData.titleSource = "manual";
+      validData.titleGenerationStatus = "idle";
+      validData.titleGeneratedAt = new Date();
+      validData.titleVersion = { increment: 1 };
+    }
 
     try {
       const thread = await prisma.workspace_threads.update({
         where: { id: prevThread.id },
-        data: validData,
+        data: { ...validData, lastUpdatedAt: new Date() },
       });
-      return { thread, message: null };
+      return { thread: this.withDisplayTitle(thread), message: null };
     } catch (error) {
       console.error(error.message);
       return { thread: null, message: error.message };
@@ -102,7 +121,7 @@ const WorkspaceThread = {
         where: clause,
       });
 
-      return thread || null;
+      return this.withDisplayTitle(thread) || null;
     } catch (error) {
       console.error(error.message);
       return null;
@@ -134,37 +153,87 @@ const WorkspaceThread = {
         ...(orderBy !== null ? { orderBy } : {}),
         ...(include !== null ? { include } : {}),
       });
-      return results;
+      return results.map((thread) => this.withDisplayTitle(thread));
     } catch (error) {
       console.error(error.message);
       return [];
     }
   },
 
-  // Will fire on first message (included or not) for a thread and rename the thread based on the prompt.
-  autoRenameThread: async function ({
-    workspace = null,
-    thread = null,
-    user = null,
-    prompt = null,
-    onRename = null,
-  }) {
-    if (!workspace || !thread || !prompt) return false;
-    if (thread.name !== this.defaultName) return false; // don't rename if already named.
+  markTitleGenerationPending: async function (threadId = null, scope = null) {
+    if (!threadId || !scope) return false;
+    try {
+      const result = await prisma.workspace_threads.updateMany({
+        where: {
+          id: Number(threadId),
+          OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+        },
+        data: {
+          titleGenerationStatus: "pending",
+          titleMessageScope: String(scope),
+          lastUpdatedAt: new Date(),
+        },
+      });
+      return result.count > 0;
+    } catch (error) {
+      console.error(error.message);
+      return false;
+    }
+  },
 
-    const { WorkspaceChats } = require("./workspaceChats");
-    const chatCount = await WorkspaceChats.count({
-      workspaceId: workspace.id,
-      user_id: user?.id || null,
-      thread_id: thread.id,
-    });
-    if (chatCount !== 1) return { renamed: false, thread };
-    const { thread: updatedThread } = await this.update(thread, {
-      name: truncate(prompt, 22),
-    });
+  markTitleGenerationFailed: async function (threadId = null, scope = null) {
+    if (!threadId) return false;
+    try {
+      const result = await prisma.workspace_threads.updateMany({
+        where: {
+          id: Number(threadId),
+          OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+          ...(scope ? { titleMessageScope: String(scope) } : {}),
+        },
+        data: {
+          titleGenerationStatus: "failed",
+          lastUpdatedAt: new Date(),
+        },
+      });
+      return result.count > 0;
+    } catch (error) {
+      console.error(error.message);
+      return false;
+    }
+  },
 
-    onRename?.(updatedThread);
-    return true;
+  updateAutomaticTitle: async function ({
+    threadId = null,
+    title = null,
+    titleSource = "llm",
+    titleHash = null,
+    titleMessageScope = null,
+  } = {}) {
+    if (!threadId || !title || !titleMessageScope) return null;
+    try {
+      const result = await prisma.workspace_threads.updateMany({
+        where: {
+          id: Number(threadId),
+          OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+        },
+        data: {
+          name: String(title),
+          title: String(title),
+          titleSource,
+          titleHash,
+          titleMessageScope,
+          titleGenerationStatus: "idle",
+          titleGeneratedAt: new Date(),
+          titleVersion: { increment: 1 },
+          lastUpdatedAt: new Date(),
+        },
+      });
+      if (result.count === 0) return null;
+      return await this.get({ id: Number(threadId) });
+    } catch (error) {
+      console.error(error.message);
+      return null;
+    }
   },
 };
 

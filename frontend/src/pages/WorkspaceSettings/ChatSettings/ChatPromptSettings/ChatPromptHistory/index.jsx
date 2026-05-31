@@ -5,6 +5,7 @@ import PromptHistory from "@/models/promptHistory";
 import PromptHistoryItem from "./PromptHistoryItem";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default forwardRef(function ChatPromptHistory(
   { show, workspaceSlug, onRestore, onClose, onPublishClick },
@@ -29,9 +30,16 @@ export default forwardRef(function ChatPromptHistory(
       });
   }
 
-  function handleClearAll() {
+  async function handleClearAll() {
     if (!workspaceSlug) return;
-    if (window.confirm(t("chat.prompt.history.clearAllConfirm"))) {
+    if (
+      await showAppConfirm({
+        tone: "danger",
+        title: "清空提示词历史？",
+        description: t("chat.prompt.history.clearAllConfirm"),
+        confirmText: "清空",
+      })
+    ) {
       PromptHistory.clearAll(workspaceSlug)
         .then(({ success }) => {
           if (success) setHistory([]);

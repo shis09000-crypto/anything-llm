@@ -350,6 +350,7 @@ function adminEndpoints(app) {
           "support_email",
           "meta_page_title",
           "meta_page_favicon",
+          "button_lab_app_icon_params",
         ];
 
         for (const label of labels) {
@@ -440,6 +441,9 @@ function adminEndpoints(app) {
               requestedSettings[label] =
                 await SystemSettings.getValueOrFallback({ label }, null);
               break;
+            case "button_lab_app_icon_params":
+              requestedSettings[label] = setting?.value || null;
+              break;
             default:
               break;
           }
@@ -471,6 +475,7 @@ function adminEndpoints(app) {
             "support_email",
             "meta_page_title",
             "meta_page_favicon",
+            "button_lab_app_icon_params",
           ];
           const filteredUpdates = {};
           for (const key of Object.keys(updates)) {

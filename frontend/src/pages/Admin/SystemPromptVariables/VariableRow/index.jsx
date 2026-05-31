@@ -7,6 +7,8 @@ import EditVariableModal from "./EditVariableModal";
 import { titleCase } from "text-case";
 import truncate from "truncate";
 import { Trash } from "@phosphor-icons/react";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { useTranslation } from "react-i18next";
 
 /**
  * A row component for displaying a system prompt variable
@@ -17,24 +19,34 @@ import { Trash } from "@phosphor-icons/react";
 export default function VariableRow({ variable, onRefresh }) {
   const rowRef = useRef(null);
   const { isOpen, openModal, closeModal } = useModal();
+  const { t } = useTranslation();
 
   const handleDelete = async () => {
     if (!variable.id) return;
     if (
-      !window.confirm(
-        `Are you sure you want to delete the variable "${variable.key}"?\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: t("system-prompt-variables.deleteConfirm.title"),
+        description: t("system-prompt-variables.deleteConfirm.description", {
+          key: variable.key,
+        }),
+        confirmText: t("system-prompt-variables.deleteConfirm.confirm"),
+      }))
     )
       return false;
 
     try {
       await System.promptVariables.delete(variable.id);
       rowRef?.current?.remove();
-      showToast("Variable deleted successfully", "success", { clear: true });
+      showToast(t("system-prompt-variables.toasts.deleted"), "success", {
+        clear: true,
+      });
       if (onRefresh) onRefresh();
     } catch (error) {
       console.error("Error deleting variable:", error);
-      showToast("Failed to delete variable", "error", { clear: true });
+      showToast(t("system-prompt-variables.errors.delete"), "error", {
+        clear: true,
+      });
     }
   };
 
@@ -64,6 +76,18 @@ export default function VariableRow({ variable, onRefresh }) {
   };
 
   const colorTheme = getTypeColorTheme(variable.type);
+  const description =
+    variable.type === "static"
+      ? variable.description || "-"
+      : t(`system-prompt-variables.variableDescriptions.${variable.key}`, {
+          defaultValue: variable.description || "-",
+        });
+  const typeLabel = t(
+    `system-prompt-variables.types.${variable?.type ?? "static"}`,
+    {
+      defaultValue: titleCase(variable?.type ?? "static"),
+    }
+  );
 
   return (
     <>
@@ -79,14 +103,12 @@ export default function VariableRow({ variable, onRefresh }) {
             ? variable.value()
             : truncate(variable.value, 50)}
         </td>
-        <td className="px-4 py-2">
-          {truncate(variable.description || "-", 50)}
-        </td>
+        <td className="px-4 py-2">{truncate(description, 50)}</td>
         <td className="px-4 py-2">
           <span
             className={`rounded-full ${colorTheme.bg} px-2 py-0.5 text-xs leading-5 font-semibold ${colorTheme.text} shadow-sm`}
           >
-            {titleCase(variable?.type ?? "static")}
+            {typeLabel}
           </span>
         </td>
         <td className="px-4 py-2 flex items-center justify-end gap-x-4">
@@ -96,7 +118,7 @@ export default function VariableRow({ variable, onRefresh }) {
                 onClick={openModal}
                 className="text-xs font-medium text-white/80 light:text-black/80 rounded-lg hover:text-white hover:light:text-gray-500 px-2 py-1 hover:bg-white hover:bg-opacity-10"
               >
-                Edit
+                {t("system-prompt-variables.edit")}
               </button>
               <button
                 onClick={handleDelete}

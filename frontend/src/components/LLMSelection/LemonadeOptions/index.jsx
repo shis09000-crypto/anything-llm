@@ -12,6 +12,7 @@ import ModelTableLayout from "@/components/lib/ModelTable/layout";
 import ModelTableLoadingSkeleton from "@/components/lib/ModelTable/loading";
 import showToast from "@/utils/toast";
 import LemonadeUtils from "@/models/utils/lemonadeUtils";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export function cleanBasePath(basePath = "") {
   try {
@@ -265,9 +266,12 @@ function LemonadeModelSelection({
   async function uninstallModel(modelId) {
     try {
       if (
-        !window.confirm(
-          `Are you sure you want to uninstall this model? You will need to download it again to use it.`
-        )
+        !(await showAppConfirm({
+          tone: "danger",
+          title: "卸载模型？",
+          description: "卸载后若要再次使用，需要重新下载该模型。",
+          confirmText: "卸载",
+        }))
       )
         return;
       const { success, error } = await LemonadeUtils.deleteModel(
@@ -301,9 +305,12 @@ function LemonadeModelSelection({
   async function downloadModel(modelId, fileSize, progressCallback) {
     try {
       if (
-        !window.confirm(
-          `Are you sure you want to download this model? It is ${fileSize} in size and may take a while to download.`
-        )
+        !(await showAppConfirm({
+          tone: "warning",
+          title: "下载模型？",
+          description: `该模型大小为 ${fileSize}，下载可能需要一些时间。`,
+          confirmText: "下载",
+        }))
       )
         return;
       const { success, error } = await LemonadeUtils.downloadModel(

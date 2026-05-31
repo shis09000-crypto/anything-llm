@@ -9,6 +9,7 @@ import Highlighter from "react-highlight-words";
 import SystemPromptVariable from "@/models/systemPromptVariable";
 import { Link } from "react-router-dom";
 import paths from "@/utils/paths";
+import { useTranslation } from "react-i18next";
 
 export default function DefaultSystemPrompt() {
   const [systemPromptForm, setSystemPromptForm] = useState({
@@ -21,6 +22,7 @@ export default function DefaultSystemPrompt() {
   });
   const [saneDefaultSystemPrompt, setSaneDefaultSystemPrompt] = useState("");
   const [availableVariables, setAvailableVariables] = useState([]);
+  const { t } = useTranslation();
   useEffect(() => {
     async function setupVariableHighlighting() {
       const { variables } = await SystemPromptVariable.getAll();
@@ -88,7 +90,7 @@ export default function DefaultSystemPrompt() {
           }));
         }
 
-        showToast("Default system prompt updated successfully.", "success");
+        showToast(t("default-system-prompt.toasts.updated"), "success");
         setSystemPromptForm((prev) => ({
           ...prev,
           default: newSystemPrompt,
@@ -98,7 +100,9 @@ export default function DefaultSystemPrompt() {
       })
       .catch((error) => {
         showToast(
-          `Failed to update default system prompt: ${error.message}`,
+          t("default-system-prompt.toasts.updateFailed", {
+            error: error.message,
+          }),
           "error"
         );
         setSystemPromptForm((prev) => ({
@@ -119,12 +123,11 @@ export default function DefaultSystemPrompt() {
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="items-center flex gap-x-4">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">
-                Default System Prompt
+                {t("default-system-prompt.title")}
               </p>
             </div>
             <p className="text-xs leading-[18px] font-base text-theme-text-secondary">
-              This is the default system prompt that will be used for new
-              workspaces.
+              {t("default-system-prompt.description")}
             </p>
           </div>
           <div>
@@ -157,29 +160,31 @@ export default function DefaultSystemPrompt() {
                     htmlFor="default-system-prompt"
                     className=" text-base font-bold text-white"
                   >
-                    System Prompt
+                    {t("default-system-prompt.form.label")}
                   </label>
                   <div className="space-y-1">
                     <p className="text-white text-opacity-60 text-xs font-medium">
-                      A system prompt provides instructions that shape the AI’s
-                      responses and behavior. This prompt will be automatically
-                      applied to all newly created workspaces. To change the
-                      system prompt of a{" "}
-                      <span className="font-bold">specific workspace</span>,
-                      edit the prompt in the{" "}
-                      <span className="font-bold">workspace settings</span>. To
-                      restore the system prompt to our sane default, leave this
-                      field empty and save changes.
+                      {t("default-system-prompt.form.helpStart")}
+                      {t("default-system-prompt.form.helpStartSeparator")}
+                      <span className="font-bold">
+                        {t("default-system-prompt.form.specificWorkspace")}
+                      </span>
+                      {t("default-system-prompt.form.helpMiddle")}
+                      {t("default-system-prompt.form.helpMiddleSeparator")}
+                      <span className="font-bold">
+                        {t("default-system-prompt.form.workspaceSettings")}
+                      </span>
+                      {t("default-system-prompt.form.helpEnd")}
                     </p>
                     <p className="text-white text-opacity-60 text-xs font-medium mb-2">
-                      You can insert{" "}
+                      {t("default-system-prompt.form.variablesPrefix")}{" "}
                       <Link
                         to={paths.settings.systemPromptVariables()}
                         className="text-primary-button"
                       >
-                        system prompt variables
+                        {t("default-system-prompt.form.variablesLink")}
                       </Link>{" "}
-                      like:{" "}
+                      {t("default-system-prompt.form.variablesLike")}{" "}
                       {availableVariables.slice(0, 3).map((v, i) => (
                         <Fragment key={v.key}>
                           <span className="bg-theme-settings-input-bg px-1 py-0.5 rounded">
@@ -193,7 +198,9 @@ export default function DefaultSystemPrompt() {
                           to={paths.settings.systemPromptVariables()}
                           className="text-primary-button"
                         >
-                          +{availableVariables.length - 3} more...
+                          {t("default-system-prompt.form.moreVariables", {
+                            count: availableVariables.length - 3,
+                          })}
                         </Link>
                       )}
                     </p>
@@ -212,8 +219,8 @@ export default function DefaultSystemPrompt() {
                       }
                       placeholder={
                         systemPromptForm.isLoading
-                          ? "Loading..."
-                          : "You are an AI assistant that can answer questions and help with tasks."
+                          ? t("common.loading")
+                          : t("default-system-prompt.form.placeholder")
                       }
                       rows={5}
                       style={{
@@ -257,7 +264,7 @@ export default function DefaultSystemPrompt() {
                     className={`enabled:hover:bg-secondary enabled:hover:text-white rounded-lg bg-primary-button w-fit py-2 px-4 font-semibold text-xs disabled:opacity-20 disabled:cursor-not-allowed`}
                     type="submit"
                   >
-                    Save Changes
+                    {t("common.save")}
                   </button>
                 </form>
               </div>

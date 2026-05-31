@@ -21,6 +21,7 @@ import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
+import { useTranslation } from "react-i18next";
 
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const overviewCache = new Map();
@@ -205,6 +206,7 @@ export default function WorkspaceOverview({
   onOpenDocument,
   onUploadDocument,
 }) {
+  const { t } = useTranslation();
   const [overview, setOverview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState(new Set());
@@ -502,7 +504,7 @@ export default function WorkspaceOverview({
                     <div className="mb-2.5 flex items-center gap-2.5 text-[color:var(--overview-accent)]">
                       <FileText size={18} />
                       <div className="text-base font-semibold sm:text-lg">
-                        工作区总览
+                        {t("workspace-overview.workspaceOverview")}
                       </div>
                     </div>
                     <div className="mb-3 h-px w-14 bg-[color:var(--overview-accent)]" />
@@ -515,7 +517,7 @@ export default function WorkspaceOverview({
                   </div>
                 ) : taglinePending ? (
                   <p className="overview-glass-pill px-4 py-2 text-sm">
-                    总览生成中
+                    {t("workspace-overview.overviewGenerating")}
                   </p>
                 ) : null}
               </div>
@@ -529,17 +531,17 @@ export default function WorkspaceOverview({
               <div>
                 <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--overview-health-accent)]">
                   <Heartbeat size={18} />
-                  工作区健康
+                  {t("workspace-overview.workspaceHealth")}
                 </div>
                 <div className="mt-5 text-5xl font-semibold leading-none text-[color:var(--overview-health-accent)]">
-                  {health.score ?? "未知"}
+                  {health.score ?? t("workspace-overview.unknown")}
                 </div>
                 <p className="mt-4 text-sm leading-6 text-[color:var(--overview-text-secondary)]">
-                  {health.summary || "健康状态暂不可用"}
+                  {health.summary || t("workspace-overview.healthUnavailable")}
                 </p>
               </div>
               <p className="text-xs leading-5 text-[color:var(--overview-text-secondary)]">
-                推荐、证据、关系与处理状态的综合读数
+                {t("workspace-overview.healthNote")}
               </p>
             </div>
           </div>
@@ -577,8 +579,8 @@ export default function WorkspaceOverview({
           <main className="min-w-0 space-y-5">
             <OverviewSection
               icon={<Path size={18} />}
-              title="继续上次研究"
-              empty="暂无可恢复的研究路径。"
+              title={t("workspace-overview.continueLast")}
+              empty={t("workspace-overview.noContinue")}
             >
               <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
                 {(overview?.unfinishedExplorations || [])
@@ -600,8 +602,8 @@ export default function WorkspaceOverview({
 
             <OverviewSection
               icon={<Sparkle size={18} />}
-              title="为你推荐"
-              empty="暂无推荐。继续查看概念或证据后，这里会变得更聪明。"
+              title={t("workspace-overview.recommended")}
+              empty={t("workspace-overview.noRecommendations")}
             >
               <div className="grid grid-cols-1 items-stretch gap-3 md:grid-cols-2">
                 {recommendations.slice(0, 8).map((item) => (
@@ -624,7 +626,7 @@ export default function WorkspaceOverview({
 
             <OverviewSection
               icon={<WarningCircle size={18} />}
-              title="知识缺口"
+              title={t("workspace-overview.knowledgeGaps")}
             >
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 {(overview?.curiosityRecommendations || [])

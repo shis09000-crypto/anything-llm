@@ -1,6 +1,8 @@
-import { Image, PaperPlaneTilt, Trash, X } from "@phosphor-icons/react";
+import { Image, PaperPlaneTilt, Trash } from "@phosphor-icons/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import AppButton from "@/components/lib/AppButton";
+import AppIcon from "@/components/lib/AppIcon";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
 const DB_NAME = "vector-knowledge-feedback";
@@ -143,11 +145,11 @@ export default function FeedbackModal({ onClose }) {
           </div>
           <button
             type="button"
-            className="motion-hover inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5 text-theme-text-secondary hover:bg-white/10 hover:text-theme-text-primary light:border-slate-200 light:bg-white light:hover:bg-slate-100"
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition hover:scale-[1.02] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300/70"
             onClick={onClose}
             aria-label="关闭反馈"
           >
-            <X size={18} />
+            <AppIcon name="close" size="md" tone="muted" weight="bold" />
           </button>
         </div>
         <div className="space-y-5 px-6 py-5">
@@ -218,22 +220,17 @@ export default function FeedbackModal({ onClose }) {
           </div>
         </div>
         <div className="flex justify-end gap-3 border-t border-white/10 bg-white/[0.02] px-6 py-4 light:border-slate-200 light:bg-slate-50">
-          <button
-            type="button"
-            className="motion-hover rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-theme-text-primary hover:bg-white/15 light:border-slate-200 light:bg-white light:hover:bg-slate-100"
-            onClick={onClose}
-          >
+          <AppButton variant="secondary" size="md" onClick={onClose}>
             稍后再说
-          </button>
-          <button
-            type="button"
-            disabled={submitting}
+          </AppButton>
+          <AppButton
+            size="md"
+            loading={submitting}
             onClick={submit}
-            className="motion-hover flex items-center gap-2 rounded-xl bg-primary-button px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_24px_rgba(14,165,233,0.22)] hover:bg-sky-500 disabled:cursor-wait disabled:opacity-60"
+            leftIcon={<PaperPlaneTilt size={16} weight="fill" />}
           >
-            <PaperPlaneTilt size={16} weight="fill" />
             {submitting ? "正在提交..." : "提交"}
-          </button>
+          </AppButton>
         </div>
       </div>
     </div>,

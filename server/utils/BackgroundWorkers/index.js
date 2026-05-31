@@ -45,6 +45,11 @@ class BackgroundService {
       timeout: "10m",
       interval: process.env.KNOWLEDGE_NODE_METRICS_RECOMPUTE_INTERVAL || "1hr",
     },
+    {
+      name: "thread-title-refresh",
+      timeout: "20m",
+      interval: process.env.THREAD_TITLE_REFRESH_INTERVAL || "14d",
+    },
   ];
 
   #documentSyncJobs = [

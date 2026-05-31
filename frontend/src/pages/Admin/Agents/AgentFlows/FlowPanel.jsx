@@ -5,6 +5,7 @@ import { FlowArrow, Gear } from "@phosphor-icons/react";
 import { useNavigate } from "react-router-dom";
 import paths from "@/utils/paths";
 import Toggle from "@/components/lib/Toggle";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 function ManageFlowMenu({ flow, onDelete }) {
   const [open, setOpen] = useState(false);
@@ -14,9 +15,12 @@ function ManageFlowMenu({ flow, onDelete }) {
   async function deleteFlow() {
     setOpen(false);
     if (
-      !window.confirm(
-        "Are you sure you want to delete this flow? This action cannot be undone."
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除流程？",
+        description: "此操作无法撤销。",
+        confirmText: "删除",
+      }))
     )
       return;
     const { success, error } = await AgentFlows.deleteFlow(flow.uuid);

@@ -5,6 +5,7 @@ import EditUserModal from "./EditUserModal";
 import showToast from "@/utils/toast";
 import { useModal } from "@/hooks/useModal";
 import ModalWrapper from "@/components/ModalWrapper";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 const ModMap = {
   admin: ["admin", "manager", "default"],
@@ -19,9 +20,14 @@ export default function UserRow({ currUser, user }) {
   const { isOpen, openModal, closeModal } = useModal();
   const handleSuspend = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to suspend ${user.username}?\nAfter you do this they will be logged out and unable to log back into this instance of AnythingLLM until unsuspended by an admin.`
-      )
+      !(await showAppConfirm({
+        tone: "warning",
+        title: suspended ? "恢复用户？" : "暂停用户？",
+        description: suspended
+          ? `${user.username} 将可以重新登录此实例。`
+          : `${user.username} 将被登出，并且在管理员恢复前无法重新登录。`,
+        confirmText: suspended ? "恢复" : "暂停",
+      }))
     )
       return false;
 
@@ -40,9 +46,12 @@ export default function UserRow({ currUser, user }) {
   };
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to delete ${user.username}?\nAfter you do this they will be logged out and unable to use this instance of AnythingLLM.\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除用户？",
+        description: `${user.username} 将被登出，并且无法继续使用此 AnythingLLM 实例。此操作无法撤销。`,
+        confirmText: "删除",
+      }))
     )
       return false;
     const { success, error } = await Admin.deleteUser(user.id);

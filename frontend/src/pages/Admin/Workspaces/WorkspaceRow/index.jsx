@@ -3,14 +3,18 @@ import Admin from "@/models/admin";
 import paths from "@/utils/paths";
 import { LinkSimple, Trash } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function WorkspaceRow({ workspace, users: _users }) {
   const rowRef = useRef(null);
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to delete ${workspace.name}?\nAfter you do this it will be unavailable in this instance of AnythingLLM.\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除工作区？",
+        description: `${workspace.name} 将无法在此 AnythingLLM 实例中继续使用。此操作无法撤销。`,
+        confirmText: "删除",
+      }))
     )
       return false;
     rowRef?.current?.remove();

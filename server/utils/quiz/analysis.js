@@ -357,7 +357,7 @@ async function streamAnalyzeQuizResults({
   answers = {},
   uuid,
 }) {
-  const LLMConnector = quizLLM(QUIZ_ANALYSIS_MODEL);
+  const LLMConnector = quizLLM(QUIZ_ANALYSIS_MODEL, "quiz_analysis");
   const userPrompt = analysisPrompt({ quiz, answers });
   const parser = createTaggedAnalysisStreamParser({
     onMarkdown: (text) =>

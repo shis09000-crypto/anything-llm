@@ -1,0 +1,269 @@
+.app-confirm-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 0.28);
+  backdrop-filter: blur(8px);
+  animation: appConfirmDialogOverlayIn 220ms
+    cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-confirm-dialog {
+  --app-confirm-dialog-tone-color: var(
+    --app-confirm-dialog-default-color,
+    #7ea7ff
+  );
+  position: relative;
+  isolation: isolate;
+  width: min(var(--app-confirm-dialog-width, 460px), calc(100vw - 48px));
+  max-height: min(80vh, 680px);
+  overflow: hidden;
+  border-radius: var(--app-confirm-dialog-radius, 24px);
+  border: 1px solid
+    rgb(255 255 255 / var(--app-confirm-dialog-border-alpha, 0.62));
+  padding: var(--app-confirm-dialog-padding, 24px);
+  color: #0f172a;
+  text-align: center;
+  background:
+    radial-gradient(
+      circle at 50% 0%,
+      color-mix(in srgb, var(--app-confirm-dialog-tone-color) 20%, transparent),
+      transparent 44%
+    ),
+    linear-gradient(
+      135deg,
+      rgb(255 255 255 / var(--app-confirm-dialog-bg-alpha, 0.72)) 0%,
+      rgb(239 246 255 / calc(var(--app-confirm-dialog-bg-alpha, 0.72) * 0.88))
+        48%,
+      rgb(255 255 255 / calc(var(--app-confirm-dialog-bg-alpha, 0.72) * 0.72))
+        100%
+    );
+  box-shadow:
+    0 24px 70px rgb(15 23 42 / var(--app-confirm-dialog-shadow-alpha, 0.22)),
+    inset 0 1px 0 rgb(255 255 255 / 0.68),
+    inset 0 -1px 0 rgb(148 163 184 / 0.14);
+  backdrop-filter: blur(var(--app-confirm-dialog-blur, 20px)) saturate(180%);
+  outline: none;
+  animation: appConfirmDialogIn 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-confirm-dialog::before,
+.app-confirm-dialog::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.app-confirm-dialog::before {
+  background:
+    radial-gradient(
+      circle at 18% 18%,
+      rgb(255 255 255 / 0.66),
+      transparent 18%
+    ),
+    linear-gradient(
+      140deg,
+      rgb(255 255 255 / 0.34),
+      transparent 38%,
+      rgb(255 255 255 / 0.18)
+    );
+  opacity: 0.72;
+}
+
+.app-confirm-dialog::after {
+  border: 1px solid
+    color-mix(in srgb, var(--app-confirm-dialog-tone-color) 38%, transparent);
+  box-shadow:
+    0 0 0 1px rgb(255 255 255 / 0.24) inset,
+    0 0 42px
+      color-mix(in srgb, var(--app-confirm-dialog-tone-color) 16%, transparent);
+  opacity: 0.88;
+}
+
+.app-confirm-dialog-sheen {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      128deg,
+      transparent 0%,
+      transparent 32%,
+      rgb(255 255 255 / 0.3) 44%,
+      transparent 62%,
+      transparent 100%
+    ),
+    radial-gradient(
+      circle at 80% 12%,
+      rgb(255 255 255 / 0.54),
+      transparent 10%
+    );
+  opacity: 0.76;
+}
+
+.app-confirm-dialog-icon {
+  display: inline-flex;
+  width: var(--app-confirm-dialog-icon-size, 56px);
+  height: var(--app-confirm-dialog-icon-size, 56px);
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 16px;
+  border-radius: 999px;
+  border: 1px solid
+    color-mix(in srgb, var(--app-confirm-dialog-tone-color) 34%, white);
+  color: var(--app-confirm-dialog-tone-color);
+  background:
+    radial-gradient(circle at 36% 28%, rgb(255 255 255 / 0.72), transparent 36%),
+    color-mix(in srgb, var(--app-confirm-dialog-tone-color) 14%, white);
+  box-shadow:
+    0 12px 28px
+      color-mix(in srgb, var(--app-confirm-dialog-tone-color) 18%, transparent),
+    inset 0 1px 0 rgb(255 255 255 / 0.76);
+}
+
+.app-confirm-dialog-icon svg {
+  width: calc(var(--app-confirm-dialog-icon-size, 56px) * 0.46);
+  height: calc(var(--app-confirm-dialog-icon-size, 56px) * 0.46);
+}
+
+.app-confirm-dialog-title {
+  margin: 0;
+  color: #0f172a;
+  font-size: var(--app-confirm-dialog-title-size, 22px);
+  font-weight: 800;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.app-confirm-dialog-title::after {
+  content: "";
+  display: block;
+  width: min(160px, 54%);
+  height: 1px;
+  margin: 14px auto 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--app-confirm-dialog-tone-color) 48%, transparent),
+    transparent
+  );
+}
+
+.app-confirm-dialog-description {
+  max-width: 34em;
+  margin: 18px auto 0;
+  color: rgb(51 65 85 / 0.86);
+  font-size: var(--app-confirm-dialog-description-size, 14px);
+  font-weight: 600;
+  line-height: 1.8;
+}
+
+.app-confirm-dialog-body {
+  margin-top: 18px;
+  color: rgb(51 65 85 / 0.82);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.app-confirm-dialog-footer {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 160px;
+  margin: calc(var(--app-confirm-dialog-padding, 24px) * 0.92)
+    calc(var(--app-confirm-dialog-padding, 24px) * -1)
+    calc(var(--app-confirm-dialog-padding, 24px) * -1);
+  padding: 18px var(--app-confirm-dialog-padding, 24px);
+  border-top: 1px solid rgb(255 255 255 / 0.58);
+  background: linear-gradient(
+    180deg,
+    rgb(255 255 255 / 0.2),
+    rgb(226 232 240 / 0.18)
+  );
+}
+
+.app-confirm-dialog[data-loading] {
+  filter: saturate(0.82);
+}
+
+.app-confirm-dialog[data-loading] .app-confirm-dialog-body,
+.app-confirm-dialog[data-loading] .app-confirm-dialog-description,
+.app-confirm-dialog[data-loading] .app-confirm-dialog-footer {
+  opacity: 0.58;
+}
+
+.app-confirm-dialog-default {
+  --app-confirm-dialog-tone-color: var(
+    --app-confirm-dialog-default-color,
+    #7ea7ff
+  );
+}
+
+.app-confirm-dialog-info {
+  --app-confirm-dialog-tone-color: var(
+    --app-confirm-dialog-info-color,
+    #60a5fa
+  );
+}
+
+.app-confirm-dialog-warning {
+  --app-confirm-dialog-tone-color: var(
+    --app-confirm-dialog-warning-color,
+    #f59e0b
+  );
+}
+
+.app-confirm-dialog-danger {
+  --app-confirm-dialog-tone-color: var(
+    --app-confirm-dialog-danger-color,
+    #ef4444
+  );
+}
+
+.app-confirm-dialog-danger-action {
+  border-color: rgb(248 113 113 / 0.42) !important;
+  color: #fff !important;
+  background: linear-gradient(135deg, #fb7185, #dc2626) !important;
+  box-shadow:
+    0 16px 34px rgb(220 38 38 / 0.24),
+    inset 0 1px 0 rgb(255 255 255 / 0.28) !important;
+}
+
+.app-confirm-dialog-danger-action:hover {
+  background: linear-gradient(135deg, #fb7185, #ef4444) !important;
+}
+
+@keyframes appConfirmDialogOverlayIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes appConfirmDialogIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-confirm-dialog-overlay,
+  .app-confirm-dialog {
+    animation: none;
+  }
+}

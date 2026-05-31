@@ -1,5 +1,7 @@
 const { WorkspaceChats } = require("../../../../models/workspaceChats");
-const { WorkspaceThread } = require("../../../../models/workspaceThread");
+const {
+  maybeEnqueueTitleGenerationAfterChat,
+} = require("../../../chats/threadTitleGeneration");
 const { sanitizeAgentEvent } = require("../../toolResultStore.js");
 
 /**
@@ -189,26 +191,23 @@ const chatHistory = {
         this._cleanup(aibitat);
       },
 
-      _autoRenameThread: async function (aibitat, prompt) {
+      _autoRenameThread: async function (aibitat) {
         const invocation = aibitat.handlerProps.invocation;
         if (!invocation?.thread_id) return true;
 
-        const thread = await WorkspaceThread.get({ id: invocation.thread_id });
-        if (!thread) return true;
-
-        const { Workspace } = require("../../../../models/workspace");
-        const workspace = await Workspace.get({ id: invocation.workspace_id });
-        if (!workspace) return true;
-
-        await WorkspaceThread.autoRenameThread({
-          thread,
-          workspace,
-          user: invocation.user_id ? { id: invocation.user_id } : null,
-          prompt,
-          onRename: (updatedThread) => {
+        await maybeEnqueueTitleGenerationAfterChat({
+          workspaceId: invocation.workspace_id,
+          threadId: invocation.thread_id,
+          userId: invocation.user_id || null,
+          include: true,
+          apiSessionId: null,
+          onTitle: (updatedThread) => {
             aibitat.socket?.send("rename_thread", {
               slug: updatedThread.slug,
               name: updatedThread.name,
+              title: updatedThread.title || updatedThread.name,
+              titleVersion: updatedThread.titleVersion,
+              animate: true,
             });
           },
         });

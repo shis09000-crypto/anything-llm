@@ -8,7 +8,8 @@ const { WorkspaceThread } = require("../../models/workspaceThread");
 const { Document } = require("../../models/documents");
 const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
-const { getLLMProvider, getBaseLLMProviderModel } = require("../helpers");
+const { getBaseLLMProviderModel } = require("../helpers");
+const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");
 const { documentsPath, directUploadsPath } = require("../files");
 const { mindMapSuitability } = require("./suitability");
@@ -23,6 +24,37 @@ const {
   mindMapToMarkdown,
 } = require("./schema");
 
+const MIND_MAP_LLM_RETRY_DELAYS_MS = [800, 1600];
+const TRANSIENT_LLM_ERROR_PATTERNS = [
+  /Premature close/i,
+  /Invalid response body/i,
+  /fetch failed/i,
+  /ECONNRESET/i,
+  /ETIMEDOUT/i,
+  /ENOTFOUND/i,
+  /EAI_AGAIN/i,
+  /socket hang up/i,
+  /\bterminated\b/i,
+  /network timeout/i,
+  /\b429\b/i,
+  /\b5\d{2}\b/i,
+];
+
+function isMindMapDebugEnabled() {
+  return process.env.MIND_MAP_DEBUG === "1";
+}
+
+function mindMapDebugLog(requestId, event, metadata = {}) {
+  if (!isMindMapDebugEnabled()) return;
+  console.log(
+    `[MindMapDebug] ${JSON.stringify({
+      requestId,
+      event,
+      ...metadata,
+    })}`
+  );
+}
+
 function normalizeSourceText(text = "") {
   return String(text || "")
     .replace(/\r\n/g, "\n")
@@ -33,6 +65,35 @@ function normalizeSourceText(text = "") {
 
 function sha256(value = "") {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
+}
+
+function compactHash(value = "") {
+  return sha256(value).slice(0, 12);
+}
+
+function isTransientLLMError(error) {
+  const status = Number(error?.status || error?.statusCode || 0);
+  if (status === 429 || (status >= 500 && status < 600)) return true;
+
+  const message = [
+    error?.message,
+    error?.code,
+    error?.type,
+    error?.cause?.message,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  return TRANSIENT_LLM_ERROR_PATTERNS.some((pattern) => pattern.test(message));
+}
+
+function llmRetryDelays() {
+  return process.env.NODE_ENV === "test"
+    ? [0, 0]
+    : MIND_MAP_LLM_RETRY_DELAYS_MS;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function generationModelForWorkspace(workspace) {
@@ -239,10 +300,10 @@ async function generateSchemaWithLLM({
   layout,
   theme,
   sourceTitle,
+  requestId,
 }) {
-  const LLMConnector = getLLMProvider({
-    provider: workspace?.chatProvider,
-    model: workspace?.chatModel,
+  const { connector: LLMConnector } = getTaskConnector("mindmap_generation", {
+    workspace,
   });
   const systemPrompt =
     "You are a diagram information architect. You output strict JSON only.";
@@ -262,14 +323,61 @@ async function generateSchemaWithLLM({
     },
     []
   );
-  const { textResponse } = await LLMConnector.getChatCompletion(messages, {
-    temperature: 0.2,
-    user,
-  });
-  return textResponse;
+  const delays = llmRetryDelays();
+  const maxAttempts = delays.length + 1;
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const startedAt = Date.now();
+    mindMapDebugLog(requestId, "llm_attempt_start", {
+      attempt,
+      maxAttempts,
+      messageCount: messages.length,
+      sourceLength: sourceText.length,
+      sourceHash: compactHash(sourceText),
+      promptLength: prompt.length,
+    });
+
+    try {
+      const { textResponse } = await LLMConnector.getChatCompletion(messages, {
+        temperature: 0.2,
+        user,
+        responseFormat: { type: "json_object" },
+      });
+      mindMapDebugLog(requestId, "llm_attempt_success", {
+        attempt,
+        durationMs: Date.now() - startedAt,
+        responseLength: String(textResponse || "").length,
+      });
+      return textResponse;
+    } catch (error) {
+      lastError = error;
+      const transient = isTransientLLMError(error);
+      const shouldRetry = transient && attempt < maxAttempts;
+      mindMapDebugLog(requestId, "llm_attempt_failed", {
+        attempt,
+        durationMs: Date.now() - startedAt,
+        transient,
+        retry: shouldRetry,
+        errorName: error?.name || null,
+        errorCode: error?.code || null,
+        errorStatus: error?.status || error?.statusCode || null,
+        errorMessage: error?.message || String(error),
+      });
+
+      if (!shouldRetry) break;
+      await sleep(delays[attempt - 1]);
+    }
+  }
+
+  throw lastError;
 }
 
 async function generateMindMap({ workspace, user = null, body = {} }) {
+  const requestId =
+    typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : compactHash(`${Date.now()}-${Math.random()}`);
   const layout = VALID_LAYOUTS.includes(body.layout)
     ? body.layout
     : DEFAULT_LAYOUT;
@@ -279,8 +387,25 @@ async function generateMindMap({ workspace, user = null, body = {} }) {
   const source = await resolveSource({ workspace, user, body });
   const suitability = mindMapSuitability(source.sourceText);
   const generationModel = generationModelForWorkspace(workspace);
+  mindMapDebugLog(requestId, "generate_start", {
+    workspaceId: workspace?.id || null,
+    workspaceSlug: workspace?.slug || null,
+    provider: workspace?.chatProvider || process.env.LLM_PROVIDER || "openai",
+    model: generationModel,
+    sourceType: source.sourceType,
+    sourceId: source.sourceId,
+    sourceLength: source.sourceText.length,
+    sourceHash: compactHash(source.sourceText),
+    layout,
+    theme,
+    force,
+    suitabilityStatus: suitability.status,
+  });
 
   if (suitability.status === "not_recommended" && !force) {
+    mindMapDebugLog(requestId, "not_recommended", {
+      suitabilityStatus: suitability.status,
+    });
     return {
       mindMap: null,
       cached: false,
@@ -301,6 +426,10 @@ async function generateMindMap({ workspace, user = null, body = {} }) {
     sourceHash: hash,
   });
   if (cached) {
+    mindMapDebugLog(requestId, "cache_hit", {
+      sourceHash: compactHash(hash),
+      mindMapId: cached.id || null,
+    });
     return {
       mindMap: cached,
       cached: true,
@@ -308,6 +437,7 @@ async function generateMindMap({ workspace, user = null, body = {} }) {
       documentStatusWarning: source.documentStatusWarning,
     };
   }
+  mindMapDebugLog(requestId, "cache_miss", { sourceHash: compactHash(hash) });
 
   const rawSchema = await generateSchemaWithLLM({
     workspace,
@@ -316,11 +446,21 @@ async function generateMindMap({ workspace, user = null, body = {} }) {
     layout,
     theme,
     sourceTitle: source.sourceTitle,
+    requestId,
+  });
+  mindMapDebugLog(requestId, "schema_normalize_start", {
+    rawSchemaLength: String(rawSchema || "").length,
   });
   const schema = normalizeMindMapSchema(rawSchema, {
     layout,
     theme,
     title: source.sourceTitle,
+  });
+  mindMapDebugLog(requestId, "schema_normalize_success", {
+    nodeCount: schema.nodes.length,
+    edgeCount: schema.edges.length,
+    layout: schema.layout,
+    theme: schema.theme,
   });
   const markdown = mindMapToMarkdown(schema);
   const { mindMap, error } = await WorkspaceMindMaps.create({
@@ -342,6 +482,10 @@ async function generateMindMap({ workspace, user = null, body = {} }) {
     suitability,
   });
   if (error) throw new Error(error);
+  mindMapDebugLog(requestId, "mind_map_create_success", {
+    mindMapId: mindMap?.id || null,
+    markdownLength: markdown.length,
+  });
 
   return {
     mindMap,

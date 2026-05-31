@@ -12,6 +12,7 @@ import ModelTableLayout from "@/components/lib/ModelTable/layout";
 import ModelTableLoadingSkeleton from "@/components/lib/ModelTable/loading";
 import DMRUtils from "@/models/utils/dmrUtils";
 import showToast from "@/utils/toast";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function DockerModelRunnerOptions({ settings }) {
   const {
@@ -242,9 +243,12 @@ function DockerModelRunnerModelSelection({
   async function downloadModel(modelId, fileSize, progressCallback) {
     try {
       if (
-        !window.confirm(
-          `Are you sure you want to download this model? It is ${fileSize} in size and may take a while to download.`
-        )
+        !(await showAppConfirm({
+          tone: "warning",
+          title: "下载模型？",
+          description: `该模型大小为 ${fileSize}，下载可能需要一些时间。`,
+          confirmText: "下载",
+        }))
       )
         return;
       const { success, error } = await DMRUtils.downloadModel(

@@ -3,13 +3,21 @@ import { SlidersHorizontal } from "@phosphor-icons/react";
 import useLoginMode from "@/hooks/useLoginMode";
 import { useTranslation } from "react-i18next";
 import { isMobile } from "react-device-detect";
+import {
+  CUSTOM_TEXT_SIZE,
+  TEXT_SIZE_PRESETS,
+  TEXT_SIZE_RANGE,
+  clampCustomTextSize,
+  getTextSizePreference,
+  saveTextSizePreference,
+} from "@/utils/textSize";
 
 function getTextSizes(t) {
-  return [
-    { key: "small", label: t("chat_window.small"), textClass: "text-xs" },
-    { key: "normal", label: t("chat_window.normal"), textClass: "text-sm" },
-    { key: "large", label: t("chat_window.large"), textClass: "text-base" },
-  ];
+  return TEXT_SIZE_PRESETS.map(({ value, textClass }) => ({
+    key: value,
+    label: t(`chat_window.${value}`),
+    textClass,
+  }));
 }
 
 export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
@@ -17,9 +25,10 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   const TEXT_SIZES = useMemo(() => getTextSizes(t), [t]);
   const mode = useLoginMode();
   const [showMenu, setShowMenu] = useState(false);
-  const [selectedSize, setSelectedSize] = useState(
-    window.localStorage.getItem("anythingllm_text_size") || "normal"
+  const [selectedSize, setSelectedSize] = useState(() =>
+    getTextSizePreference()
   );
+  const [customPx, setCustomPx] = useState(() => selectedSize.customPx);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
 
@@ -44,9 +53,13 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   }, [showMenu, onOpenChange]);
 
   function handleTextSizeChange(size) {
-    setSelectedSize(size);
-    window.localStorage.setItem("anythingllm_text_size", size);
-    window.dispatchEvent(new CustomEvent("textSizeChange", { detail: size }));
+    setSelectedSize(saveTextSizePreference(size));
+  }
+
+  function handleCustomTextSizeChange(value) {
+    const nextPx = clampCustomTextSize(value);
+    setCustomPx(nextPx);
+    setSelectedSize(saveTextSizePreference(CUSTOM_TEXT_SIZE, nextPx));
   }
 
   // User icon is visible when login mode is active (single with password or multi-user)
@@ -92,7 +105,7 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
               key={key}
               onClick={() => handleTextSizeChange(key)}
               className={`flex items-center px-2 py-1 rounded cursor-pointer ${
-                selectedSize === key
+                selectedSize.value === key
                   ? "bg-zinc-700 light:bg-slate-200"
                   : "hover:bg-zinc-700/50 light:hover:bg-slate-100"
               }`}
@@ -102,6 +115,32 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
               </span>
             </div>
           ))}
+          <div
+            className={`mt-1 rounded px-2 py-2 ${
+              selectedSize.isCustom
+                ? "bg-zinc-700 light:bg-slate-200"
+                : "bg-zinc-900/40 light:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center justify-between text-white light:text-slate-900">
+              <span className="text-sm">{t("chat_window.custom")}</span>
+              <span className="text-[11px] text-zinc-300 light:text-slate-500">
+                {customPx}px
+              </span>
+            </div>
+            <input
+              type="range"
+              min={TEXT_SIZE_RANGE.min}
+              max={TEXT_SIZE_RANGE.max}
+              step={TEXT_SIZE_RANGE.step}
+              value={customPx}
+              aria-label={t("chat_window.custom_text_size")}
+              onChange={(event) =>
+                handleCustomTextSizeChange(event.target.value)
+              }
+              className="mt-2 h-2 w-full cursor-pointer accent-sky-400"
+            />
+          </div>
         </div>
       )}
     </div>

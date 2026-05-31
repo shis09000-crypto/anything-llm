@@ -29,6 +29,7 @@ const {
   snapshotFromChatResponse,
   snapshotFromQuiz,
 } = require("./snapshot");
+const { QUIZ_GENERATION_MODEL } = require("./constants");
 
 const activeQuizGenerations = new Set();
 const chatWriteQueues = new Map();
@@ -334,7 +335,7 @@ async function runOneBackgroundJob({ chatId, job, concurrencySlot }) {
     type: job.type,
     count: job.count,
     generator: job.generator,
-    model: "deepseek-v4-pro",
+    model: QUIZ_GENERATION_MODEL,
     concurrencySlot,
   });
   try {

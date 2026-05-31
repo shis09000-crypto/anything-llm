@@ -118,6 +118,7 @@ const TRANSLATIONS = {
     admin: "Admin",
     tools: "Tools",
     "system-prompt-variables": "System Prompt Variables",
+    "default-system-prompt": "Default System Prompt",
     "experimental-features": "Experimental Features",
     contact: "Contact Support",
     "browser-extension": "Browser Extension",
@@ -165,8 +166,380 @@ const TRANSLATIONS = {
     general: "General Settings",
     chat: "Chat Settings",
     vector: "Vector Database",
+    health: "Health Center",
+    reading: "Reading Tools",
     members: "Members",
     agent: "Agent Configuration",
+  },
+  "reading-tools": {
+    eyebrow: "Reading tools",
+    title: "Font size and reading preview",
+    description:
+      "Font size is a local browser reading preference. It only affects chat reading on this device and is not saved to workspace settings.",
+    sizeTitle: "Font size",
+    previewTitle: "Live preview",
+    currentSelection: "Current selection: {{label}}",
+    customSliderLabel: "Custom font size",
+    customRange: "{{min}}px to {{max}}px",
+    userPreview:
+      "User message preview: Please organize this material into a clear knowledge structure.",
+    options: {
+      small: {
+        label: "Small",
+        description: "More compact, useful for scanning long conversations.",
+      },
+      normal: {
+        label: "Standard",
+        description: "The default AnythingLLM reading size.",
+      },
+      large: {
+        label: "Large",
+        description: "More comfortable for long reading sessions and demos.",
+      },
+      custom: {
+        label: "Custom",
+        labelWithSize: "Custom {{size}}px",
+        description: "Drag the slider in 1px steps.",
+      },
+    },
+    previewMarkdown: `### Assistant response preview
+
+This is a piece of **bold Markdown text** for checking whether font size, line height, and emphasis feel comfortable.
+
+- List items keep clear spacing
+- English and 中文 text can appear together
+
+> Block quotes show source excerpts or reasoning notes.
+
+\`\`\`js
+const readable = true;
+\`\`\`
+`,
+  },
+  "workspace-health": {
+    unavailable: "N/A",
+    unknown: "Unknown",
+    unknownEyebrow: "Status unavailable",
+    processing: "Processing",
+    processingEyebrow: "Background tasks are running",
+    healthy: "Healthy",
+    healthyEyebrow: "Workspace is running well",
+    attention: "Needs attention",
+    attentionEyebrow: "Minor risks detected",
+    degraded: "Degraded",
+    degradedEyebrow: "Needs investigation",
+    critical: "Critical",
+    criticalEyebrow: "Needs immediate action",
+    warning: "Warning",
+    info: "Info",
+    scoreUnit: "pts",
+    ariaOpen:
+      "Workspace health status: {{score}}, {{status}}. Press Enter to open the health center.",
+    title: "Workspace Health Center",
+    eyebrow: "Workspace observability",
+    description:
+      "A lightweight observability view for graph data, repair jobs, node metrics, background workers, queues, model services, and caches. Refreshing only updates the health aggregation cache and will not trigger embedding, vector rebuilds, graph extraction, or repair jobs.",
+    refresh: "Refresh health",
+    refreshAfter: "Refresh in {{seconds}}s",
+    healthScore: "Workspace health score",
+    lastUpdated: "Last updated: {{time}}",
+    summaryCache: "Summary cache: {{time}}",
+    latestActivity: "Latest activity: {{time}}",
+    workerHeartbeat: "Worker heartbeat: {{time}}",
+    summaryFallback: "Health status is temporarily unavailable",
+    currentIssues: "Current issues",
+    scoreSources: "Score impact sources",
+    noScoreSources:
+      "There are no active score deductions. This issue may have recovered in the latest health aggregation.",
+    pointsLost: "-{{points}} pts",
+    severity: "Severity: {{severity}}",
+    cacheNote:
+      "Cache note: {{count}} stale traversal cache entries are present. Caches rebuild on demand and do not affect the health score.",
+    noIssues: "No issues need immediate attention.",
+    processingTitle: "Processing",
+    noProcessing: "No health tasks are currently processing.",
+    timeline: "Recent activity timeline",
+    recentActivity: "Recent activity",
+    abnormalEvents: "Abnormal events",
+    noRecentActivity: "No recent activity.",
+    advancedInfo: "Advanced info",
+    advancedDiagnostics: "Advanced diagnostics",
+    dataSourceTimes: "Data source times",
+    adjustReadingTools: "Adjust reading tools and font size",
+    fullDiagnostics: "View full diagnostics",
+    activityTitles: {
+      nodeMetrics: "node metrics",
+      kgExtraction: "KG extraction",
+      graphRepair: "graph repair",
+      recomputeNodeMetrics: "recompute node metrics",
+    },
+    activityDetails: {
+      processed: "processed",
+      succeeded: "succeeded",
+      failed: "failed",
+      skipped: "skipped",
+    },
+  },
+  "workspace-overview": {
+    workspaceOverview: "Workspace overview",
+    overviewGenerating: "Generating overview",
+    workspaceHealth: "Workspace health",
+    unknown: "Unknown",
+    healthUnavailable: "Health status unavailable",
+    healthNote:
+      "A combined reading of recommendations, evidence, relationships, and processing status",
+    continueLast: "Continue last research",
+    noContinue: "No research path is ready to resume.",
+    recommended: "Recommended for you",
+    noRecommendations:
+      "No recommendations yet. Keep exploring concepts or evidence and this area will get smarter.",
+    knowledgeGaps: "Knowledge gaps",
+  },
+  "system-prompt-variables": {
+    title: "System Prompt Variables",
+    description:
+      "System prompt variables are used to store configuration values that can be referenced in your system prompt to enable dynamic content in your prompts.",
+    addVariable: "Add Variable",
+    noVariables: "No variables found",
+    edit: "Edit",
+    columns: {
+      key: "Key",
+      value: "Value",
+      description: "Description",
+      type: "Type",
+    },
+    types: {
+      system: "System",
+      user: "User",
+      workspace: "Workspace",
+      static: "Static",
+    },
+    variableDescriptions: {
+      time: "Current time",
+      date: "Current date",
+      datetime: "Current date and time",
+      "user.id": "Current user's ID",
+      "user.name": "Current user's username",
+      "user.bio": "Current user's bio field from their profile",
+      "workspace.id": "Current workspace's ID",
+      "workspace.name": "Current workspace's name",
+    },
+    form: {
+      addTitle: "Add New Variable",
+      editTitle: "Edit {{key}}",
+      keyPlaceholder: "e.g., company_name",
+      valuePlaceholder: "e.g., Acme Corp",
+      descriptionPlaceholder: "Optional description",
+      keyHint:
+        "Key must be unique and will be used in prompts as {key}. Only letters, numbers and underscores are allowed.",
+      cancel: "Cancel",
+      create: "Create variable",
+      update: "Update variable",
+    },
+    deleteConfirm: {
+      title: "Delete variable?",
+      description:
+        'This will delete the variable "{{key}}". This action cannot be undone.',
+      confirm: "Delete",
+    },
+    toasts: {
+      created: "Variable created successfully",
+      updated: "Variable updated successfully",
+      deleted: "Variable deleted successfully",
+    },
+    errors: {
+      prefix: "Error",
+      required: "Key and value are required",
+      create: "Failed to create variable",
+      update: "Failed to update variable",
+      delete: "Failed to delete variable",
+    },
+  },
+  "experimental-features": {
+    title: "Experimental Features",
+    selectFeature: "Select an experimental feature",
+    status: {
+      on: "On",
+      off: "Off",
+    },
+    toasts: {
+      enabledSet: "Experimental Feature set enabled. Reloading the page.",
+    },
+    tos: {
+      title: "Terms of use for experimental features",
+      introStart:
+        "Experimental features of AnythingLLM are features that we are piloting and are",
+      introSeparator: " ",
+      optIn: "opt-in",
+      optInSuffix: ".",
+      introEnd:
+        "We proactively will condition or warn you on any potential concerns should any exist prior to approval of any feature.",
+      risksIntro:
+        "Use of any feature on this page can result in, but not limited to, the following possibilities.",
+      risks: {
+        dataLoss: "Loss of data.",
+        qualityChange: "Change in quality of results.",
+        storageIncrease: "Increased storage.",
+        resourceIncrease: "Increased resource consumption.",
+        cost: "Increased cost or use of any connected LLM or embedding provider.",
+        bugs: "Potential bugs or issues using AnythingLLM.",
+      },
+      conditionsIntro:
+        "Use of an experimental feature also comes with the following list of non-exhaustive conditions.",
+      conditions: {
+        futureRemoval: "Feature may not exist in future updates.",
+        unstable: "The feature being used is not currently stable.",
+        availability:
+          "The feature may not be available in future versions, configurations, or subscriptions of AnythingLLM.",
+        privacyStart: "Your privacy settings",
+        privacySeparator: " ",
+        privacyBold: "will be honored",
+        privacyEnd: "with use of any beta feature.",
+        mayChange: "These conditions may change in future updates.",
+      },
+      moreInfoPrefix:
+        "Access to any features requires approval of this modal. If you would like to read more you can refer to",
+      moreInfoOrEmail: "or email",
+      reject: "Reject & close",
+      accept: "I understand",
+    },
+    liveSync: {
+      navTitle: "Live Document Sync",
+      title: "Automatic Document Content Sync",
+      description:
+        'Enable the ability to specify a document to be "watched". Watched document\'s content will be regularly fetched and updated in AnythingLLM.',
+      workspaceUpdate:
+        "Watched documents will automatically update in all workspaces they are referenced in at the same time of update.",
+      webOnly:
+        "This feature only applies to web-based content, such as websites, Confluence, YouTube, and GitHub files.",
+      docsLink: "Feature Documentation and Warnings",
+      manageLink: "Manage Watched Documents",
+      toasts: {
+        enabled: "Live document content sync has been enabled.",
+        disabled: "Live document content sync has been disabled.",
+      },
+      errors: {
+        update: "Failed to update status of feature.",
+      },
+      manage: {
+        title: "Watched documents",
+        description:
+          "These are all the documents that are currently being watched in your instance. The content of these documents will be periodically synced.",
+        columns: {
+          documentName: "Document Name",
+          lastSynced: "Last Synced",
+          nextRefresh: "Time until next refresh",
+          createdOn: "Created On",
+        },
+      },
+    },
+  },
+  "audio-preference": {
+    stt: {
+      title: "Speech-to-text Preference",
+      description:
+        "Here you can specify what kind of text-to-speech and speech-to-text providers you would want to use in your AnythingLLM experience. By default, we use the browser's built in support for these services, but you may want to use others.",
+      searchPlaceholder: "Search speech to text providers",
+    },
+    tts: {
+      title: "Text-to-speech Preference",
+      description:
+        "Here you can specify what kind of text-to-speech providers you would want to use in your AnythingLLM experience. By default, we use the browser's built in support for these services, but you may want to use others.",
+      searchPlaceholder: "Search text to speech providers",
+    },
+    provider: "Provider",
+    noConfiguration: "There is no configuration needed for this provider.",
+    loadingModels: "-- loading available models --",
+    providers: {
+      native: {
+        name: "System native",
+        sttDescription:
+          "Uses your browser's built in STT service if supported.",
+        ttsDescription:
+          "Uses your browser's built in TTS service if supported.",
+      },
+      openai: {
+        description: "Use OpenAI's text to speech voices.",
+      },
+      elevenlabs: {
+        description: "Use ElevenLabs's text to speech voices and technology.",
+      },
+      piper: {
+        description: "Run TTS models locally in your browser privately.",
+      },
+      openaiCompatible: {
+        name: "OpenAI Compatible",
+        description:
+          "Connect to an OpenAI compatible TTS service running locally or remotely.",
+      },
+    },
+    fields: {
+      apiKey: "API Key",
+      baseUrl: "Base URL",
+      ttsModel: "TTS Model",
+      voiceModel: "Voice Model",
+      voiceModelSelection: "Voice Model Selection",
+    },
+    toasts: {
+      sttSaved: "Speech-to-text preferences saved successfully.",
+      sttSaveFailed: "Failed to save preferences: {{error}}",
+      ttsSaved: "Text-to-speech preferences saved successfully.",
+      ttsSaveFailed: "Failed to save preferences: {{error}}",
+    },
+    piper: {
+      description:
+        "All PiperTTS models will run in your browser locally. This can be resource intensive on lower-end devices.",
+      storedModelHint:
+        'The "✔" indicates this model is already stored locally and does not need to be downloaded when run.',
+      flushCache: "Flush voice cache",
+      stopDemo: "Stop demo",
+      loadingVoice: "Loading voice",
+      playSample: "Play sample",
+      toasts: {
+        flushed: "All voices flushed from browser storage",
+      },
+    },
+    openaiCompatible: {
+      baseUrlHint:
+        "This should be the base URL of the OpenAI compatible TTS service you will generate TTS responses from.",
+      apiKeyHint:
+        "Some TTS services require an API key to generate TTS responses - this is optional if your service does not require one.",
+      ttsPlaceholder: "Your TTS model identifier",
+      voicePlaceholder: "Your voice model identifier",
+      ttsModelHintStart:
+        "Most TTS services will have several models available. This is the",
+      ttsModelHintEnd:
+        "parameter you will use to select the model you want to use. Note: This is not the same as the voice model.",
+      voiceModelHint:
+        "Most TTS services will have several voice models available, this is the identifier for the voice model you want to use.",
+    },
+  },
+  "default-system-prompt": {
+    title: "Default System Prompt",
+    description:
+      "This is the default system prompt that will be used for new workspaces.",
+    form: {
+      label: "System Prompt",
+      helpStart:
+        "A system prompt provides instructions that shape the AI's responses and behavior. This prompt will be automatically applied to all newly created workspaces. To change the system prompt of a",
+      helpStartSeparator: " ",
+      specificWorkspace: "specific workspace",
+      helpMiddle: ", edit the prompt in the",
+      helpMiddleSeparator: " ",
+      workspaceSettings: "workspace settings",
+      helpEnd:
+        ". To restore the system prompt to our sane default, leave this field empty and save changes.",
+      variablesPrefix: "You can insert",
+      variablesLink: "system prompt variables",
+      variablesLike: "like:",
+      moreVariables: "+{{count}} more...",
+      placeholder:
+        "You are an AI assistant that can answer questions and help with tasks.",
+    },
+    toasts: {
+      updated: "Default system prompt updated successfully.",
+      updateFailed: "Failed to update default system prompt: {{error}}",
+    },
   },
   general: {
     vector: {
@@ -1533,6 +1906,10 @@ const TRANSLATIONS = {
     regenerate_response: "Regenerate response",
     good_response: "Good response",
     more_actions: "More actions",
+    metrics_visibility: {
+      hover_only: "Click to show model info only when hovering",
+      always_show: "Click to always show model info",
+    },
     sources: "Sources",
     source_count_one: "{{count}} reference",
     source_count_other: "{{count}} references",
@@ -1567,6 +1944,8 @@ const TRANSLATIONS = {
     small: "Small",
     normal: "Normal",
     large: "Large",
+    custom: "Custom",
+    custom_text_size: "Custom text size",
     tools: "Tools",
     text_size_label: "Text Size",
     select_model: "Select Model",

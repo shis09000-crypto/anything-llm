@@ -8,11 +8,18 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 import { useWorkspaceHealth } from "@/contexts/WorkspaceHealthProvider";
+import { useTranslation } from "react-i18next";
 
-function formatTime(value) {
-  if (!value) return "暂无";
+function dateLocale(language = "zh") {
+  if (String(language).startsWith("ja")) return "ja-JP";
+  if (String(language).startsWith("en")) return "en-US";
+  return "zh-CN";
+}
+
+function formatTime(value, locale, fallback) {
+  if (!value) return fallback;
   try {
-    return new Intl.DateTimeFormat("zh-CN", {
+    return new Intl.DateTimeFormat(locale, {
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -20,15 +27,15 @@ function formatTime(value) {
       minute: "2-digit",
     }).format(new Date(value));
   } catch {
-    return "暂无";
+    return fallback;
   }
 }
 
-function statusMeta(beacon) {
+function statusMeta(beacon, t) {
   if (!beacon || beacon.unknown) {
     return {
-      label: "未知",
-      eyebrow: "状态暂不可用",
+      label: t("workspace-health.unknown"),
+      eyebrow: t("workspace-health.unknownEyebrow"),
       accent: "from-slate-400 to-slate-500",
       badge:
         "bg-slate-500/10 text-slate-200 light:bg-slate-100 light:text-slate-700",
@@ -38,8 +45,8 @@ function statusMeta(beacon) {
   }
   if (beacon.processing) {
     return {
-      label: "处理中",
-      eyebrow: "后台任务运行中",
+      label: t("workspace-health.processing"),
+      eyebrow: t("workspace-health.processingEyebrow"),
       accent: "from-sky-400 to-blue-500",
       badge: "bg-sky-500/10 text-sky-100 light:bg-sky-50 light:text-sky-700",
       ring: "border-sky-400/30",
@@ -48,8 +55,8 @@ function statusMeta(beacon) {
   }
   if (beacon.score >= 90) {
     return {
-      label: "健康",
-      eyebrow: "运行状态良好",
+      label: t("workspace-health.healthy"),
+      eyebrow: t("workspace-health.healthyEyebrow"),
       accent: "from-emerald-400 to-teal-500",
       badge:
         "bg-emerald-500/10 text-emerald-100 light:bg-emerald-50 light:text-emerald-700",
@@ -59,8 +66,8 @@ function statusMeta(beacon) {
   }
   if (beacon.score >= 70) {
     return {
-      label: "需关注",
-      eyebrow: "存在轻微风险",
+      label: t("workspace-health.attention"),
+      eyebrow: t("workspace-health.attentionEyebrow"),
       accent: "from-yellow-300 to-amber-500",
       badge:
         "bg-yellow-500/10 text-yellow-100 light:bg-yellow-50 light:text-yellow-700",
@@ -70,8 +77,8 @@ function statusMeta(beacon) {
   }
   if (beacon.score >= 50) {
     return {
-      label: "降级",
-      eyebrow: "需要排查",
+      label: t("workspace-health.degraded"),
+      eyebrow: t("workspace-health.degradedEyebrow"),
       accent: "from-orange-400 to-amber-600",
       badge:
         "bg-orange-500/10 text-orange-100 light:bg-orange-50 light:text-orange-700",
@@ -80,8 +87,8 @@ function statusMeta(beacon) {
     };
   }
   return {
-    label: "严重",
-    eyebrow: "需要立即处理",
+    label: t("workspace-health.critical"),
+    eyebrow: t("workspace-health.criticalEyebrow"),
     accent: "from-red-400 to-rose-600",
     badge: "bg-red-500/10 text-red-100 light:bg-red-50 light:text-red-700",
     ring: "border-red-400/30",
@@ -89,34 +96,43 @@ function statusMeta(beacon) {
   };
 }
 
-function localizeActivityTitle(title = "") {
+function localizeActivityTitle(title = "", t) {
   return String(title)
-    .replace(/node metrics/g, "节点指标")
-    .replace(/KG extraction/g, "知识图谱提取")
-    .replace(/graph repair/g, "图谱修复")
-    .replace(/重新计算 节点指标/g, "重新计算节点指标");
+    .replace(/node metrics/g, t("workspace-health.activityTitles.nodeMetrics"))
+    .replace(
+      /KG extraction/g,
+      t("workspace-health.activityTitles.kgExtraction")
+    )
+    .replace(/graph repair/g, t("workspace-health.activityTitles.graphRepair"))
+    .replace(
+      /重新计算 节点指标/g,
+      t("workspace-health.activityTitles.recomputeNodeMetrics")
+    );
 }
 
-function localizeActivityDetail(detail = "") {
+function localizeActivityDetail(detail = "", t) {
   return String(detail)
-    .replace(/processed/gi, "处理")
-    .replace(/succeeded/gi, "成功")
-    .replace(/failed/gi, "失败")
-    .replace(/skipped/gi, "跳过");
+    .replace(/processed/gi, t("workspace-health.activityDetails.processed"))
+    .replace(/succeeded/gi, t("workspace-health.activityDetails.succeeded"))
+    .replace(/failed/gi, t("workspace-health.activityDetails.failed"))
+    .replace(/skipped/gi, t("workspace-health.activityDetails.skipped"));
 }
 
-function severityLabel(severity = "warning") {
-  if (severity === "critical") return "严重";
-  if (severity === "warning") return "警告";
-  return "信息";
+function severityLabel(severity = "warning", t) {
+  if (severity === "critical") return t("workspace-health.critical");
+  if (severity === "warning") return t("workspace-health.warning");
+  return t("workspace-health.info");
 }
 
 export default function HealthCenter() {
+  const { t, i18n } = useTranslation();
   const health = useWorkspaceHealth();
   const beacon = health?.beacon;
   const [expandedIssue, setExpandedIssue] = useState(null);
   const cooldownSeconds = Math.ceil((health?.cooldownRemainingMs || 0) / 1000);
-  const meta = statusMeta(beacon);
+  const locale = dateLocale(i18n.language);
+  const fallbackTime = t("workspace-health.unavailable");
+  const meta = statusMeta(beacon, t);
   const score = beacon?.unknown ? "--" : (beacon?.score ?? "--");
   const scoreBreakdown = beacon?.scoreBreakdown || [];
   const expiredTraversalCache =
@@ -127,14 +143,13 @@ export default function HealthCenter() {
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-wide text-sky-400">
-            工作区可观察性
+            {t("workspace-health.eyebrow")}
           </p>
           <h1 className="mt-2 text-2xl font-semibold text-white light:text-slate-900">
-            工作区健康中心
+            {t("workspace-health.title")}
           </h1>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-white/60 light:text-slate-500">
-            这里展示知识图谱、修复任务、节点指标、后台
-            Worker、队列、模型服务与缓存的轻量可观察状态。刷新只更新健康聚合缓存，不会触发嵌入、向量重建、知识图谱提取或修复任务。
+            {t("workspace-health.description")}
           </p>
         </div>
         <button
@@ -145,8 +160,10 @@ export default function HealthCenter() {
         >
           <ArrowClockwise size={16} />
           {cooldownSeconds > 0
-            ? `${cooldownSeconds}s 后可刷新`
-            : "刷新健康状态"}
+            ? t("workspace-health.refreshAfter", {
+                seconds: cooldownSeconds,
+              })
+            : t("workspace-health.refresh")}
         </button>
       </div>
 
@@ -158,7 +175,7 @@ export default function HealthCenter() {
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
               <div className="text-sm font-semibold text-white/60 light:text-slate-500">
-                工作区健康分数
+                {t("workspace-health.healthScore")}
               </div>
               <div className="mt-2 flex items-end gap-3">
                 <span className="text-6xl font-bold tracking-tight text-white light:text-slate-950">
@@ -176,22 +193,42 @@ export default function HealthCenter() {
               </div>
             </div>
             <div className="rounded-xl border border-white/10 light:border-slate-100 bg-black/10 light:bg-slate-50/80 px-4 py-3 text-sm leading-6 text-white/65 light:text-slate-600">
-              <div>最后更新时间：{formatTime(beacon?.lastUpdatedAt)}</div>
               <div>
-                摘要缓存：
-                {formatTime(beacon?.sourceTimes?.summaryCacheUpdatedAt)}
+                {t("workspace-health.lastUpdated", {
+                  time: formatTime(beacon?.lastUpdatedAt, locale, fallbackTime),
+                })}
               </div>
               <div>
-                最新活动：{formatTime(beacon?.sourceTimes?.latestActivityAt)}
+                {t("workspace-health.summaryCache", {
+                  time: formatTime(
+                    beacon?.sourceTimes?.summaryCacheUpdatedAt,
+                    locale,
+                    fallbackTime
+                  ),
+                })}
               </div>
               <div>
-                Worker 心跳：
-                {formatTime(beacon?.sourceTimes?.latestWorkerHeartbeatAt)}
+                {t("workspace-health.latestActivity", {
+                  time: formatTime(
+                    beacon?.sourceTimes?.latestActivityAt,
+                    locale,
+                    fallbackTime
+                  ),
+                })}
+              </div>
+              <div>
+                {t("workspace-health.workerHeartbeat", {
+                  time: formatTime(
+                    beacon?.sourceTimes?.latestWorkerHeartbeatAt,
+                    locale,
+                    fallbackTime
+                  ),
+                })}
               </div>
             </div>
           </div>
           <p className="mt-5 max-w-3xl text-sm leading-6 text-white/68 light:text-slate-600">
-            {beacon?.summary || "健康状态暂时不可用"}
+            {beacon?.summary || t("workspace-health.summaryFallback")}
           </p>
         </div>
       </div>
@@ -200,7 +237,7 @@ export default function HealthCenter() {
         <section className="rounded-xl border border-white/10 light:border-slate-200 bg-white/[0.04] light:bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-white light:text-slate-800">
             <WarningCircle size={18} />
-            当前问题
+            {t("workspace-health.currentIssues")}
           </div>
           <div className="mt-4 space-y-3">
             {(beacon?.topIssues || []).map((item, index) => {
@@ -236,7 +273,7 @@ export default function HealthCenter() {
                   {isOpen && (
                     <div className="mt-3 rounded-lg border border-white/10 light:border-yellow-100 bg-black/15 light:bg-white/70 p-3 text-xs leading-5 text-white/62 light:text-slate-600">
                       <div className="font-semibold text-white/80 light:text-slate-700">
-                        具体扣分来源
+                        {t("workspace-health.scoreSources")}
                       </div>
                       {scoreBreakdown.length > 0 ? (
                         <div className="mt-2 space-y-2">
@@ -248,26 +285,31 @@ export default function HealthCenter() {
                               <div className="flex items-center justify-between gap-2 font-semibold text-white/80 light:text-slate-700">
                                 <span>{entry.title}</span>
                                 <span className="rounded-full bg-yellow-500/10 px-2 py-0.5 text-yellow-100 light:text-yellow-700">
-                                  -{entry.points} 分
+                                  {t("workspace-health.pointsLost", {
+                                    points: entry.points,
+                                  })}
                                 </span>
                               </div>
                               <div className="mt-1 text-white/55 light:text-slate-500">
                                 {entry.detail}
                               </div>
                               <div className="mt-1 text-white/45 light:text-slate-400">
-                                严重程度：{severityLabel(entry.severity)}
+                                {t("workspace-health.severity", {
+                                  severity: severityLabel(entry.severity, t),
+                                })}
                               </div>
                             </div>
                           ))}
                         </div>
                       ) : (
                         <div className="mt-1">
-                          当前没有实际扣分项。该问题可能已在最新健康聚合中恢复。
+                          {t("workspace-health.noScoreSources")}
                         </div>
                       )}
                       <div className="mt-3 rounded-lg border border-sky-400/15 bg-sky-500/10 p-2 text-sky-100 light:bg-sky-50 light:text-sky-700">
-                        缓存说明：当前有 {expiredTraversalCache} 条过期
-                        traversal 缓存。缓存会按需重建，不影响健康分数。
+                        {t("workspace-health.cacheNote", {
+                          count: expiredTraversalCache,
+                        })}
                       </div>
                     </div>
                   )}
@@ -276,7 +318,7 @@ export default function HealthCenter() {
             })}
             {(!beacon?.topIssues || beacon.topIssues.length === 0) && (
               <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/[0.06] light:bg-emerald-50/70 p-3 text-sm text-emerald-100 light:text-emerald-700">
-                暂无需要立即处理的问题。
+                {t("workspace-health.noIssues")}
               </div>
             )}
           </div>
@@ -285,7 +327,7 @@ export default function HealthCenter() {
         <section className="rounded-xl border border-white/10 light:border-slate-200 bg-white/[0.04] light:bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-white light:text-slate-800">
             <Pulse size={18} />
-            正在处理
+            {t("workspace-health.processingTitle")}
           </div>
           <div className="mt-4 space-y-2 text-sm text-white/65 light:text-slate-600">
             {(beacon?.processingMessages || []).map((message) => (
@@ -299,7 +341,7 @@ export default function HealthCenter() {
             {(!beacon?.processingMessages ||
               beacon.processingMessages.length === 0) && (
               <div className="rounded-xl border border-white/10 light:border-slate-100 bg-black/10 light:bg-slate-50/80 p-3">
-                当前没有正在处理的健康任务。
+                {t("workspace-health.noProcessing")}
               </div>
             )}
           </div>
@@ -308,7 +350,7 @@ export default function HealthCenter() {
         <section className="rounded-xl border border-white/10 light:border-slate-200 bg-white/[0.04] light:bg-white p-4 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-white light:text-slate-800">
             <Activity size={18} />
-            最近活动时间线
+            {t("workspace-health.timeline")}
           </div>
           <div className="mt-4 space-y-3">
             {(beacon?.latestActivities || []).map((activity) => (
@@ -317,18 +359,18 @@ export default function HealthCenter() {
                 className="border-l-2 border-sky-400/50 pl-3"
               >
                 <div className="text-sm font-medium text-white/80 light:text-slate-700">
-                  {localizeActivityTitle(activity.title)}
+                  {localizeActivityTitle(activity.title, t)}
                 </div>
                 <div className="mt-1 text-xs text-white/50 light:text-slate-500">
-                  {localizeActivityDetail(activity.detail)} ·{" "}
-                  {formatTime(activity.createdAt)}
+                  {localizeActivityDetail(activity.detail, t)} ·{" "}
+                  {formatTime(activity.createdAt, locale, fallbackTime)}
                 </div>
               </div>
             ))}
             {(!beacon?.latestActivities ||
               beacon.latestActivities.length === 0) && (
               <div className="text-sm text-white/50 light:text-slate-500">
-                暂无最近活动。
+                {t("workspace-health.noRecentActivity")}
               </div>
             )}
           </div>
@@ -337,7 +379,7 @@ export default function HealthCenter() {
 
       <section className="mt-6 rounded-xl border border-white/10 light:border-slate-200 bg-white/[0.04] light:bg-white p-4 shadow-sm">
         <div className="text-sm font-semibold text-white light:text-slate-800">
-          高级诊断数据
+          {t("workspace-health.advancedDiagnostics")}
         </div>
         <pre className="mt-4 max-h-[420px] overflow-auto rounded-lg bg-black/25 light:bg-slate-100 p-4 text-xs leading-6 text-white/65 light:text-slate-600">
           {JSON.stringify(beacon?.advanced || {}, null, 2)}

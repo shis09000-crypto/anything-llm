@@ -1,10 +1,7 @@
-const { DeepSeekLLM } = require("../AiProviders/deepseek");
+const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");
 const { KnowledgeGraph } = require("../../models/knowledgeGraph");
-const {
-  DEFAULT_EXTRACTION_MODEL,
-  LABEL_TRANSLATION_PROMPT_VERSION,
-} = require("./constants");
+const { LABEL_TRANSLATION_PROMPT_VERSION } = require("./constants");
 
 function parseLabelJson(raw = "") {
   if (raw && typeof raw === "object") return raw;
@@ -95,9 +92,9 @@ async function translateNodeLabels({ workspaceId, node, LLMConnector = null }) {
     });
   }
 
-  const model =
-    process.env.KNOWLEDGE_GRAPH_DEEPSEEK_MODEL || DEFAULT_EXTRACTION_MODEL;
-  const connector = LLMConnector || new DeepSeekLLM(null, model);
+  const connector =
+    LLMConnector ||
+    getTaskConnector("knowledge_graph_bilingual_labels").connector;
   const prompt = `Translate this knowledge graph concept label for display only.
 
 Rules:

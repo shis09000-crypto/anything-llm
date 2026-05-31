@@ -205,7 +205,9 @@ describe("Thread compaction memory", () => {
 
   it("does not auto compact when auto is disabled", async () => {
     process.env.THREAD_COMPACTION_AUTO_ENABLED = "false";
-    const { maybeAutoCompact } = require("../../../utils/chats/threadCompaction");
+    const {
+      maybeAutoCompact,
+    } = require("../../../utils/chats/threadCompaction");
 
     const result = await maybeAutoCompact({
       workspace,
@@ -221,7 +223,9 @@ describe("Thread compaction memory", () => {
 
   it("skips auto compaction before the turn has finished", async () => {
     process.env.THREAD_COMPACTION_AUTO_ENABLED = "true";
-    const { maybeAutoCompact } = require("../../../utils/chats/threadCompaction");
+    const {
+      maybeAutoCompact,
+    } = require("../../../utils/chats/threadCompaction");
 
     const result = await maybeAutoCompact({
       workspace,
@@ -267,7 +271,9 @@ describe("Thread compaction memory", () => {
 
   it("skips auto compaction when latest scope compaction is recent", async () => {
     process.env.THREAD_COMPACTION_AUTO_ENABLED = "true";
-    const { maybeAutoCompact } = require("../../../utils/chats/threadCompaction");
+    const {
+      maybeAutoCompact,
+    } = require("../../../utils/chats/threadCompaction");
 
     const result = await maybeAutoCompact({
       workspace,
@@ -312,9 +318,7 @@ describe("Thread compaction memory", () => {
       ),
     ];
     mockCompactionWhere.mockResolvedValue(rows);
-    const {
-      compactThread,
-    } = require("../../../utils/chats/threadCompaction");
+    const { compactThread } = require("../../../utils/chats/threadCompaction");
     const { TokenManager } = require("../../../utils/helpers/tiktoken");
     const {
       convertToPromptHistory,
@@ -454,8 +458,8 @@ describe("Thread compaction memory", () => {
     });
 
     expect(budgets.targetBase).toBe("compaction_window");
-    expect(budgets.chatInjectionLimit).toBe(1_000_000);
-    expect(budgets.targetTokens).toBe(150_000);
+    expect(budgets.chatInjectionLimit).toBe(400_000);
+    expect(budgets.targetTokens).toBe(60_000);
   });
 
   it("target mode can compact history even when keep-10 would retain it", async () => {
@@ -463,9 +467,7 @@ describe("Thread compaction memory", () => {
       chat(index + 1, `prompt ${index + 1}`, "long answer ".repeat(500))
     );
     mockCompactionWhere.mockResolvedValue(rows);
-    const {
-      compactThread,
-    } = require("../../../utils/chats/threadCompaction");
+    const { compactThread } = require("../../../utils/chats/threadCompaction");
 
     const result = await compactThread({
       workspace,

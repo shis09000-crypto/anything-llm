@@ -11,6 +11,7 @@ import { CaretDown, Download, Trash } from "@phosphor-icons/react";
 import { saveAs } from "file-saver";
 import { useTranslation } from "react-i18next";
 import { CanViewChatHistory } from "@/components/CanViewChatHistory";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 const exportOptions = {
   csv: {
@@ -73,9 +74,12 @@ export default function WorkspaceChats() {
 
   const handleClearAllChats = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to clear all chats?\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "清空所有聊天？",
+        description: "此操作无法撤销。",
+        confirmText: "清空",
+      }))
     )
       return false;
     await System.deleteChat(-1);

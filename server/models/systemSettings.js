@@ -68,6 +68,7 @@ const SystemSettings = {
     "feature_flags",
     "meta_page_title",
     "meta_page_favicon",
+    "button_lab_app_icon_params",
   ],
   supportedFields: [
     "logo_filename",
@@ -93,6 +94,7 @@ const SystemSettings = {
     "file_access_authorized_directories",
     "file_access_open_blacklist",
     "custom_app_name",
+    "button_lab_app_icon_params",
     "default_system_prompt",
 
     // Meta page customization

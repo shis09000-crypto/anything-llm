@@ -2,6 +2,7 @@ import { formatDateTimeAsMoment } from "@/utils/directories";
 import { formatDuration, numberWithCommas } from "@/utils/numbers";
 import React, { useEffect, useState, useContext } from "react";
 import { isMobile } from "react-device-detect";
+import { useTranslation } from "react-i18next";
 const MetricsContext = React.createContext();
 const SHOW_METRICS_KEY = "anythingllm_show_chat_metrics";
 const SHOW_METRICS_EVENT = "anythingllm_show_metrics_change";
@@ -100,6 +101,7 @@ export function MetricsProvider({ children }) {
  * @returns
  */
 export default function RenderMetrics({ metrics = {} }) {
+  const { t } = useTranslation();
   // Inherit the showMetricsAutomatically state from the MetricsProvider so the state is shared across all chats
   const { showMetricsAutomatically, setShowMetricsAutomatically } =
     useContext(MetricsContext);
@@ -112,8 +114,8 @@ export default function RenderMetrics({ metrics = {} }) {
       data-tooltip-id="metrics-visibility"
       data-tooltip-content={
         showMetricsAutomatically
-          ? "Click to only show metrics when hovering"
-          : "Click to show metrics as soon as they are available"
+          ? t("chat_window.metrics_visibility.hover_only")
+          : t("chat_window.metrics_visibility.always_show")
       }
       className={`border-none flex md:justify-end items-center gap-x-[8px] -ml-7 ${showMetricsAutomatically ? "opacity-100" : "opacity-0"} md:group-hover:opacity-100 motion-hover`}
     >

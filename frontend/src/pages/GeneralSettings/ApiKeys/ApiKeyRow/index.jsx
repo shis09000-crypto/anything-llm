@@ -4,12 +4,21 @@ import { Trash } from "@phosphor-icons/react";
 import { userFromStorage } from "@/utils/request";
 import System from "@/models/system";
 import { useTranslation } from "react-i18next";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function ApiKeyRow({ apiKey, removeApiKey }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const handleDelete = async () => {
-    if (!window.confirm(t("api.row.deleteConfirm"))) return false;
+    if (
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除 API Key？",
+        description: t("api.row.deleteConfirm"),
+        confirmText: "删除",
+      }))
+    )
+      return false;
 
     const user = userFromStorage();
     const Model = !!user ? Admin : System;

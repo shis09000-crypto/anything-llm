@@ -4,6 +4,7 @@ import Workspace from "@/models/workspace";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import showToast from "@/utils/toast";
 import AppButton from "@/components/lib/AppButton";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 function mergeQuestions(existing = [], incoming = []) {
   const byId = new Map();
@@ -461,7 +462,14 @@ export default function QuizCard({
   }
 
   async function abandon() {
-    if (!window.confirm("放弃后本次测试不会生成分析，也不会计入学习记录。"))
+    if (
+      !(await showAppConfirm({
+        tone: "warning",
+        title: "放弃本次测试？",
+        description: "放弃后本次测试不会生成分析，也不会计入学习记录。",
+        confirmText: "放弃",
+      }))
+    )
       return;
     const result = await Workspace.abandonQuiz(workspace.slug, quiz.id);
     if (!result?.success) {

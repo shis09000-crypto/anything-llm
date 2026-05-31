@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { titleCase } from "text-case";
 import Admin from "@/models/admin";
 import { Trash } from "@phosphor-icons/react";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function InviteRow({ invite }) {
   const rowRef = useRef(null);
@@ -9,9 +10,12 @@ export default function InviteRow({ invite }) {
   const [copied, setCopied] = useState(false);
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        `Are you sure you want to deactivate this invite?\nAfter you do this it will not longer be useable.\n\nThis action is irreversible.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "停用邀请？",
+        description: "停用后该邀请将不再可用，且此操作无法撤销。",
+        confirmText: "停用",
+      }))
     )
       return false;
     if (rowRef?.current) {

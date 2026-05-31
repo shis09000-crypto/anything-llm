@@ -14,6 +14,9 @@ export function dispatchThreadRename(thread) {
       detail: {
         threadSlug: thread.slug,
         newName: thread.name,
+        title: thread.title || thread.name,
+        titleVersion: thread.titleVersion,
+        animate: !!thread.animate,
       },
     })
   );

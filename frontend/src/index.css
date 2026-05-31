@@ -504,6 +504,110 @@
   --glass-highlight: 0.72;
 }
 
+.chat-prompt-feather {
+  position: relative;
+  isolation: isolate;
+  --prompt-feather-outer-blur: 3px;
+  --prompt-feather-inner-blur: 11px;
+  --prompt-feather-tint: rgb(var(--glass-tint) / 0.1);
+  --prompt-feather-accent: rgb(56 189 248 / 0.055);
+}
+
+.chat-prompt-feather::before,
+.chat-prompt-feather::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 32px;
+}
+
+.chat-prompt-feather::before {
+  inset: -92px -112px -70px;
+  background:
+    radial-gradient(
+      ellipse 84% 64% at 50% 62%,
+      var(--prompt-feather-tint) 0%,
+      rgb(var(--glass-tint) / 0.065) 34%,
+      rgb(var(--glass-tint) / 0.026) 58%,
+      rgb(var(--glass-tint) / 0) 84%
+    ),
+    radial-gradient(
+      ellipse 76% 52% at 50% 72%,
+      var(--prompt-feather-accent) 0%,
+      rgb(56 189 248 / 0.026) 46%,
+      rgb(56 189 248 / 0) 78%
+    );
+  -webkit-backdrop-filter: blur(var(--prompt-feather-outer-blur))
+    saturate(1.05);
+  backdrop-filter: blur(var(--prompt-feather-outer-blur)) saturate(1.05);
+  -webkit-mask-image: radial-gradient(
+    ellipse 78% 66% at 50% 62%,
+    rgb(0 0 0 / 0.86) 0%,
+    rgb(0 0 0 / 0.74) 24%,
+    rgb(0 0 0 / 0.5) 46%,
+    rgb(0 0 0 / 0.22) 68%,
+    rgb(0 0 0 / 0.06) 82%,
+    rgb(0 0 0 / 0) 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 78% 66% at 50% 62%,
+    rgb(0 0 0 / 0.86) 0%,
+    rgb(0 0 0 / 0.74) 24%,
+    rgb(0 0 0 / 0.5) 46%,
+    rgb(0 0 0 / 0.22) 68%,
+    rgb(0 0 0 / 0.06) 82%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+.chat-prompt-feather::after {
+  inset: -42px -50px -36px;
+  background:
+    radial-gradient(
+      ellipse 82% 72% at 50% 58%,
+      rgb(var(--glass-tint) / 0.145) 0%,
+      rgb(var(--glass-tint) / 0.105) 28%,
+      rgb(var(--glass-tint) / 0.058) 52%,
+      rgb(var(--glass-tint) / 0.018) 74%,
+      rgb(var(--glass-tint) / 0) 92%
+    ),
+    radial-gradient(
+      ellipse 64% 44% at 50% 70%,
+      rgb(56 189 248 / 0.06) 0%,
+      rgb(56 189 248 / 0.02) 58%,
+      rgb(56 189 248 / 0) 86%
+    );
+  -webkit-backdrop-filter: blur(var(--prompt-feather-inner-blur))
+    saturate(1.1);
+  backdrop-filter: blur(var(--prompt-feather-inner-blur)) saturate(1.1);
+  -webkit-mask-image: radial-gradient(
+    ellipse 76% 68% at 50% 58%,
+    rgb(0 0 0 / 0.98) 0%,
+    rgb(0 0 0 / 0.9) 22%,
+    rgb(0 0 0 / 0.66) 46%,
+    rgb(0 0 0 / 0.32) 68%,
+    rgb(0 0 0 / 0.08) 84%,
+    rgb(0 0 0 / 0) 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 76% 68% at 50% 58%,
+    rgb(0 0 0 / 0.98) 0%,
+    rgb(0 0 0 / 0.9) 22%,
+    rgb(0 0 0 / 0.66) 46%,
+    rgb(0 0 0 / 0.32) 68%,
+    rgb(0 0 0 / 0.08) 84%,
+    rgb(0 0 0 / 0) 100%
+  );
+}
+
+[data-theme="light"] .chat-prompt-feather {
+  --prompt-feather-outer-blur: 2.4px;
+  --prompt-feather-inner-blur: 9px;
+  --prompt-feather-tint: rgb(var(--glass-tint) / 0.075);
+  --prompt-feather-accent: rgb(14 165 233 / 0.04);
+}
+
 .liquid-glass-input {
   color: var(--glass-text);
   caret-color: #38bdf8;

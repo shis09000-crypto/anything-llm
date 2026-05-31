@@ -63,7 +63,7 @@ export default forwardRef(function (
     (item) => item.type === "assistant_turn" && item.status === "running"
   );
   const { showScrollbar } = Appearance.getSettings();
-  const { textSizeClass } = useTextSize();
+  const { textSizeClass, textSizeStyle } = useTextSize();
   const { updateAssistantTurn, updateUserItem } = useChatThreadDrafts();
   const shouldVirtualize = items.length > 80;
   const normalizedBottomInset =
@@ -314,9 +314,9 @@ export default forwardRef(function (
           id="chat-history"
           ref={chatHistoryRef}
           onScroll={handleScroll}
-          style={scrollContainerStyle}
+          style={{ ...textSizeStyle, ...scrollContainerStyle }}
         >
-          <div className={`w-full max-w-[750px] ${contentClassName}`}>
+          <div className={`w-full max-w-[920px] ${contentClassName}`}>
             {isLoadingOlderHistory && (
               <div className="motion-skeleton h-12 rounded-md mb-2" />
             )}
@@ -446,8 +446,11 @@ const MessageRow = memo(
           message={item.content}
           role="user"
           workspace={workspace}
+          chatKey={chatKey}
+          turnId={item.turnId}
           chatId={item.chatId}
           attachments={item.attachments}
+          readerTextSources={item.readerTextSources}
           hydrationStatus={item.hydrationStatus}
           saveEditedMessage={saveEditedMessage}
           forkThread={forkThread}

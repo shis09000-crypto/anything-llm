@@ -4,6 +4,7 @@ import MSSQLLogo from "./icons/mssql.png";
 import { PencilSimple, X } from "@phosphor-icons/react";
 import { useModal } from "@/hooks/useModal";
 import EditSQLConnection from "./SQLConnectionModal";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export const DB_LOGOS = {
   postgresql: PostgreSQLLogo,
@@ -21,11 +22,14 @@ export default function DBConnection({
   const { database_id, engine } = connection;
   const { isOpen, openModal, closeModal } = useModal();
 
-  function removeConfirmation() {
+  async function removeConfirmation() {
     if (
-      !window.confirm(
-        `Delete ${database_id} from the list of available SQL connections? This cannot be undone.`
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除 SQL 连接？",
+        description: `将从可用 SQL 连接列表中删除 ${database_id}。此操作无法撤销。`,
+        confirmText: "删除",
+      }))
     )
       return false;
     onRemove(database_id);

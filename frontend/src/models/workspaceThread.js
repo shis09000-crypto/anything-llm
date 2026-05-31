@@ -35,20 +35,57 @@ const WorkspaceThread = {
 
     return { threads };
   },
-  new: async function (workspaceSlug) {
-    const { thread, error } = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/new`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
-      .catch((e) => {
-        return { thread: null, error: e.message };
-      });
+  titleEvents: async function (
+    workspaceSlug,
+    { signal = null, onThreadRename = null } = {}
+  ) {
+    if (!workspaceSlug) return;
 
-    return { thread, error };
+    await fetchEventSource(
+      `${API_BASE}/workspace/${workspaceSlug}/thread-title-events`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+        signal,
+        openWhenHidden: true,
+        async onopen(response) {
+          if (response.ok) return;
+          throw new Error(`Title event stream failed: ${response.status}`);
+        },
+        async onmessage(msg) {
+          const event = safeJsonParse(msg.data, null);
+          if (event?.action !== "rename_thread" || !event?.thread) return;
+          onThreadRename?.(event.thread);
+        },
+        onerror(error) {
+          if (signal?.aborted) return;
+          console.warn("[ThreadTitle] event stream error", error.message);
+          return 3_000;
+        },
+      }
+    );
+  },
+  new: async function (workspaceSlug) {
+    try {
+      const response = await fetch(
+        `${API_BASE}/workspace/${workspaceSlug}/thread/new`,
+        {
+          method: "POST",
+          headers: baseHeaders(),
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      const error =
+        payload?.error ||
+        payload?.message ||
+        (!response.ok ? `Request failed with status ${response.status}` : null);
+      if (error) return { thread: null, error };
+      if (!payload?.thread?.slug)
+        return { thread: null, error: "Invalid thread response" };
+      return { thread: payload.thread, error: null };
+    } catch (e) {
+      return { thread: null, error: e.message };
+    }
   },
   update: async function (workspaceSlug, threadSlug, data = {}) {
     const { thread, message } = await fetch(

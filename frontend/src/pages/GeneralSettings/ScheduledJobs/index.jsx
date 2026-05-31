@@ -13,6 +13,7 @@ import showToast from "@/utils/toast";
 import JobRow from "./components/JobRow";
 import { Bell } from "@phosphor-icons/react";
 import { Tooltip } from "react-tooltip";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export default function ScheduledJobsPage() {
   const { t } = useTranslation();
@@ -36,7 +37,15 @@ export default function ScheduledJobsPage() {
   usePolling(fetchJobs, 5000);
 
   const handleDelete = async (id) => {
-    if (!window.confirm(t("scheduledJobs.confirmDelete"))) return;
+    if (
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除定时任务？",
+        description: t("scheduledJobs.confirmDelete"),
+        confirmText: "删除",
+      }))
+    )
+      return;
     await ScheduledJobs.delete(id);
     showToast(t("scheduledJobs.toast.deleted"), "success", { clear: true });
     fetchJobs();

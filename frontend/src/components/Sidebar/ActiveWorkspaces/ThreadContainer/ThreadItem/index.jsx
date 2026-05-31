@@ -16,11 +16,12 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
 import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
 
 function displayThreadName(thread = {}) {
-  const name = thread.name || "";
+  const name = thread.title || thread.name || "";
   const isBranch =
     thread.thread_type === "branch" || Number(thread.parent_thread_id) > 0;
   if (!isBranch) return name;
@@ -298,9 +299,7 @@ function OptionsMenu({
   }, [menuRef.current, containerRef.current]);
 
   const renameThread = async () => {
-    const name = window
-      .prompt("What would you like to rename this thread to?")
-      ?.trim();
+    const name = window.prompt("请输入新的线程名称")?.trim();
     if (!name || name.length === 0) {
       close();
       return;
@@ -312,7 +311,7 @@ function OptionsMenu({
       { name }
     );
     if (!!message) {
-      showToast(`Thread could not be updated! ${message}`, "error", {
+      showToast(`线程更新失败！${message}`, "error", {
         clear: true,
       });
       close();
@@ -325,18 +324,21 @@ function OptionsMenu({
 
   const handleDelete = async () => {
     if (
-      !window.confirm(
-        "Are you sure you want to delete this thread? All of its chats will be deleted. You cannot undo this."
-      )
+      !(await showAppConfirm({
+        tone: "danger",
+        title: "删除线程？",
+        description: "此线程中的所有对话都会被删除，且无法撤销。",
+        confirmText: "删除",
+      }))
     )
       return;
     const success = await Workspace.threads.delete(workspace.slug, thread.slug);
     if (!success) {
-      showToast("Thread could not be deleted!", "error", { clear: true });
+      showToast("线程删除失败！", "error", { clear: true });
       return;
     }
     if (success) {
-      showToast("Thread deleted successfully!", "success", { clear: true });
+      showToast("线程已删除。", "success", { clear: true });
       clearLastVisitedThread(workspace.slug, thread.slug);
       onRemove(thread.id);
       // Redirect if deleting the active thread
@@ -358,7 +360,7 @@ function OptionsMenu({
         className="w-full rounded-md flex items-center p-2 gap-x-2 hover:bg-slate-500/20 text-slate-300 light:text-theme-text-primary"
       >
         <PencilSimple size={18} />
-        <p className="text-sm">Rename</p>
+        <p className="text-sm">重命名</p>
       </button>
       <button
         onClick={handleDelete}
@@ -366,7 +368,7 @@ function OptionsMenu({
         className="w-full rounded-md flex items-center p-2 gap-x-2 hover:bg-red-500/20 text-slate-300 light:text-theme-text-primary hover:text-red-100"
       >
         <Trash size={18} />
-        <p className="text-sm">Delete Thread</p>
+        <p className="text-sm">删除线程</p>
       </button>
     </div>
   );

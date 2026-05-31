@@ -1,17 +1,22 @@
 const mockCreate = jest.fn();
+const mockGetTaskConnector = jest.fn();
 const mockStreamGetChatCompletion = jest.fn();
 const mockCompressMessages = jest.fn(async ({ systemPrompt, userPrompt }) => [
   { role: "system", content: systemPrompt },
   { role: "user", content: userPrompt },
 ]);
 
-jest.mock("../../../utils/AiProviders/deepseek", () => ({
-  DeepSeekLLM: jest.fn().mockImplementation((_, model) => ({
-    model,
-    compressMessages: mockCompressMessages,
-    getChatCompletion: mockCreate,
-    streamGetChatCompletion: mockStreamGetChatCompletion,
-  })),
+jest.mock("../../../utils/llmTasks", () => ({
+  resolveTaskProviderModel: jest.fn((taskName) => {
+    const models = {
+      quiz_plan: "deepseek-v4-flash",
+      quiz_generation: "deepseek-v4-pro",
+      quiz_generation_fallback: "deepseek-v4-flash",
+      quiz_analysis: "deepseek-v4-pro",
+    };
+    return { provider: "deepseek", model: models[taskName] };
+  }),
+  getTaskConnector: (...args) => mockGetTaskConnector(...args),
 }));
 
 const {
@@ -19,7 +24,6 @@ const {
   completeJsonWithRetry,
   completeJsonStreamWithRetry,
 } = require("../../../utils/quiz/llm");
-const { DeepSeekLLM } = require("../../../utils/AiProviders/deepseek");
 
 async function* streamFromTokens(tokens = []) {
   for (const token of tokens) {
@@ -53,6 +57,16 @@ async function* hangingStream() {
 describe("quiz llm helpers", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetTaskConnector.mockImplementation((taskName, _context, overrides) => ({
+      provider: "deepseek",
+      model: overrides?.model,
+      connector: {
+        model: overrides?.model,
+        compressMessages: mockCompressMessages,
+        getChatCompletion: mockCreate,
+        streamGetChatCompletion: mockStreamGetChatCompletion,
+      },
+    }));
     mockCreate.mockResolvedValue({ textResponse: '{"ok":true}', metrics: {} });
     mockStreamGetChatCompletion.mockResolvedValue(
       streamFromTokens(['{"ok":true}'])
@@ -200,9 +214,24 @@ describe("quiz llm helpers", () => {
     });
 
     expect(result.json).toEqual({ ok: true });
-    expect(DeepSeekLLM).toHaveBeenNthCalledWith(1, null, "deepseek-v4-pro");
-    expect(DeepSeekLLM).toHaveBeenNthCalledWith(2, null, "deepseek-v4-pro");
-    expect(DeepSeekLLM).toHaveBeenNthCalledWith(3, null, "deepseek-v4-flash");
+    expect(mockGetTaskConnector).toHaveBeenNthCalledWith(
+      1,
+      "quiz_generation",
+      {},
+      { model: "deepseek-v4-pro" }
+    );
+    expect(mockGetTaskConnector).toHaveBeenNthCalledWith(
+      2,
+      "quiz_generation",
+      {},
+      { model: "deepseek-v4-pro" }
+    );
+    expect(mockGetTaskConnector).toHaveBeenNthCalledWith(
+      3,
+      "quiz_generation_fallback",
+      {},
+      { model: "deepseek-v4-flash" }
+    );
   });
 
   it("does not use flash fallback for non-timeout streaming errors", async () => {
@@ -220,7 +249,11 @@ describe("quiz llm helpers", () => {
       })
     ).rejects.toThrow("api 429");
 
-    expect(DeepSeekLLM).toHaveBeenCalledTimes(2);
-    expect(DeepSeekLLM).not.toHaveBeenCalledWith(null, "deepseek-v4-flash");
+    expect(mockGetTaskConnector).toHaveBeenCalledTimes(2);
+    expect(mockGetTaskConnector).not.toHaveBeenCalledWith(
+      "quiz_generation_fallback",
+      {},
+      { model: "deepseek-v4-flash" }
+    );
   });
 });

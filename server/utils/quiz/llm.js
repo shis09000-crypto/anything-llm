@@ -1,4 +1,4 @@
-const { DeepSeekLLM } = require("../AiProviders/deepseek");
+const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");
 const {
   QUIZ_JSON_RESPONSE_FORMAT,
@@ -12,8 +12,12 @@ const DEFAULT_RETRY_DELAYS_MS = [800, 1600];
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_TOTAL_STREAM_TIMEOUT_MS = 210_000;
 
-function quizLLM(model) {
-  return new DeepSeekLLM(null, model);
+function quizLLM(model, taskName = null) {
+  taskName ||= "quiz_generation";
+  if (model === QUIZ_PLAN_MODEL) taskName = "quiz_plan";
+  if (model === QUIZ_GENERATION_FALLBACK_MODEL)
+    taskName = "quiz_generation_fallback";
+  return getTaskConnector(taskName, {}, { model }).connector;
 }
 
 function stripThinkBlocks(text = "") {

@@ -23,6 +23,20 @@ const WorkspaceChats = {
           include,
         },
       });
+      if (threadId && include && !apiSessionId) {
+        const {
+          maybeEnqueueTitleGenerationAfterChat,
+        } = require("../utils/chats/threadTitleGeneration");
+        maybeEnqueueTitleGenerationAfterChat({
+          workspaceId,
+          threadId,
+          userId: user?.id || null,
+          include,
+          apiSessionId,
+        }).catch((error) =>
+          console.warn("[ThreadTitle] failed to schedule", error.message)
+        );
+      }
       return { chat, message: null };
     } catch (error) {
       console.error(error.message);

@@ -105,6 +105,7 @@ const TRANSLATIONS = {
     contact: "联系支持",
     "browser-extension": "浏览器扩展",
     "system-prompt-variables": "系统提示变量",
+    "default-system-prompt": "默认系统提示词",
     "mobile-app": "AnythingLLM 移动版",
     "community-hub": {
       title: "社区中心",
@@ -154,8 +155,362 @@ const TRANSLATIONS = {
     general: "通用设置",
     chat: "聊天设置",
     vector: "向量数据库",
+    health: "健康中心",
+    reading: "阅读工具",
     members: "成员",
     agent: "代理配置",
+  },
+  "reading-tools": {
+    eyebrow: "阅读工具",
+    title: "字体大小与阅读预览",
+    description:
+      "字体大小是本地浏览器阅读偏好，只影响当前设备上的聊天阅读体验，不会写入工作区设置。",
+    sizeTitle: "字号选择",
+    previewTitle: "实时预览",
+    currentSelection: "当前选择：{{label}}",
+    customSliderLabel: "自定义字号",
+    customRange: "{{min}}px 到 {{max}}px",
+    userPreview: "用户消息预览：请帮我把这份资料整理成清晰的知识结构。",
+    options: {
+      small: {
+        label: "小号",
+        description: "更紧凑，适合长对话快速浏览。",
+      },
+      normal: {
+        label: "标准",
+        description: "AnythingLLM 默认阅读大小。",
+      },
+      large: {
+        label: "大号",
+        description: "更舒服，适合长时间阅读和演示。",
+      },
+      custom: {
+        label: "自定义",
+        labelWithSize: "自定义 {{size}}px",
+        description: "拖动滑杆，以 1px 为颗粒度调整。",
+      },
+    },
+    previewMarkdown: `### 助手回答预览
+
+这是一段 **Markdown 加粗文本**，用于确认阅读字号、行距和强调样式是否舒适。
+
+- 列表项目会保持清晰间距
+- 中文和 English text 会一起展示
+
+> 引用块用于展示来源摘录或推理说明。
+
+\`\`\`js
+const readable = true;
+\`\`\`
+`,
+  },
+  "workspace-health": {
+    unavailable: "暂无",
+    unknown: "未知",
+    unknownEyebrow: "状态暂不可用",
+    processing: "处理中",
+    processingEyebrow: "后台任务运行中",
+    healthy: "健康",
+    healthyEyebrow: "运行状态良好",
+    attention: "需关注",
+    attentionEyebrow: "存在轻微风险",
+    degraded: "降级",
+    degradedEyebrow: "需要排查",
+    critical: "严重",
+    criticalEyebrow: "需要立即处理",
+    warning: "警告",
+    info: "信息",
+    scoreUnit: "分",
+    ariaOpen: "工作区健康状态：{{score}}，{{status}}，按 Enter 打开健康中心",
+    title: "工作区健康中心",
+    eyebrow: "工作区可观察性",
+    description:
+      "这里展示知识图谱、修复任务、节点指标、后台 Worker、队列、模型服务与缓存的轻量可观察状态。刷新只更新健康聚合缓存，不会触发嵌入、向量重建、知识图谱提取或修复任务。",
+    refresh: "刷新健康状态",
+    refreshAfter: "{{seconds}}s 后可刷新",
+    healthScore: "工作区健康分数",
+    lastUpdated: "最后更新时间：{{time}}",
+    summaryCache: "摘要缓存：{{time}}",
+    latestActivity: "最新活动：{{time}}",
+    workerHeartbeat: "Worker 心跳：{{time}}",
+    summaryFallback: "健康状态暂时不可用",
+    currentIssues: "当前问题",
+    scoreSources: "具体扣分来源",
+    noScoreSources: "当前没有实际扣分项。该问题可能已在最新健康聚合中恢复。",
+    pointsLost: "-{{points}} 分",
+    severity: "严重程度：{{severity}}",
+    cacheNote:
+      "缓存说明：当前有 {{count}} 条过期 traversal 缓存。缓存会按需重建，不影响健康分数。",
+    noIssues: "暂无需要立即处理的问题。",
+    processingTitle: "正在处理",
+    noProcessing: "当前没有正在处理的健康任务。",
+    timeline: "最近活动时间线",
+    recentActivity: "最近活动",
+    abnormalEvents: "异常事件",
+    noRecentActivity: "暂无最近活动。",
+    advancedInfo: "高级信息",
+    advancedDiagnostics: "高级诊断数据",
+    dataSourceTimes: "数据来源时间",
+    adjustReadingTools: "调整阅读工具与字体大小",
+    fullDiagnostics: "查看完整诊断",
+    activityTitles: {
+      nodeMetrics: "节点指标",
+      kgExtraction: "知识图谱提取",
+      graphRepair: "图谱修复",
+      recomputeNodeMetrics: "重新计算节点指标",
+    },
+    activityDetails: {
+      processed: "处理",
+      succeeded: "成功",
+      failed: "失败",
+      skipped: "跳过",
+    },
+  },
+  "workspace-overview": {
+    workspaceOverview: "工作区总览",
+    overviewGenerating: "总览生成中",
+    workspaceHealth: "工作区健康",
+    unknown: "未知",
+    healthUnavailable: "健康状态暂不可用",
+    healthNote: "推荐、证据、关系与处理状态的综合读数",
+    continueLast: "继续上次研究",
+    noContinue: "暂无可恢复的研究路径。",
+    recommended: "为你推荐",
+    noRecommendations: "暂无推荐。继续查看概念或证据后，这里会变得更聪明。",
+    knowledgeGaps: "知识缺口",
+  },
+  "system-prompt-variables": {
+    title: "系统提示变量",
+    description:
+      "系统提示变量用于保存配置值，可在系统提示词中引用，以便在提示词中启用动态内容。",
+    addVariable: "添加变量",
+    noVariables: "未找到变量",
+    edit: "编辑",
+    columns: {
+      key: "键",
+      value: "值",
+      description: "描述",
+      type: "类型",
+    },
+    types: {
+      system: "系统",
+      user: "用户",
+      workspace: "工作区",
+      static: "静态",
+    },
+    variableDescriptions: {
+      time: "当前时间",
+      date: "当前日期",
+      datetime: "当前日期和时间",
+      "user.id": "当前用户的 ID",
+      "user.name": "当前用户的用户名",
+      "user.bio": "当前用户个人资料中的简介字段",
+      "workspace.id": "当前工作区的 ID",
+      "workspace.name": "当前工作区的名称",
+    },
+    form: {
+      addTitle: "添加新变量",
+      editTitle: "编辑 {{key}}",
+      keyPlaceholder: "例如：company_name",
+      valuePlaceholder: "例如：Acme Corp",
+      descriptionPlaceholder: "可选描述",
+      keyHint:
+        "键必须唯一，并会以 {key} 的形式在提示词中使用。只允许使用字母、数字和下划线。",
+      cancel: "取消",
+      create: "创建变量",
+      update: "更新变量",
+    },
+    deleteConfirm: {
+      title: "删除变量？",
+      description: "将删除变量“{{key}}”，此操作无法撤销。",
+      confirm: "删除",
+    },
+    toasts: {
+      created: "变量创建成功",
+      updated: "变量更新成功",
+      deleted: "变量删除成功",
+    },
+    errors: {
+      prefix: "错误",
+      required: "键和值为必填项",
+      create: "创建变量失败",
+      update: "更新变量失败",
+      delete: "删除变量失败",
+    },
+  },
+  "experimental-features": {
+    title: "实验功能",
+    selectFeature: "选择一个实验功能",
+    status: {
+      on: "开启",
+      off: "关闭",
+    },
+    toasts: {
+      enabledSet: "实验功能集已启用。正在重新加载页面。",
+    },
+    tos: {
+      title: "实验功能使用条款",
+      introStart: "AnythingLLM 的实验功能是我们正在试运行的功能，并且需要",
+      introSeparator: "",
+      optIn: "主动选择启用",
+      optInSuffix: "。",
+      introEnd:
+        "在批准任何功能之前，如存在潜在问题，我们会主动给出条件说明或警告。",
+      risksIntro: "使用本页任何功能可能导致但不限于以下情况。",
+      risks: {
+        dataLoss: "数据丢失。",
+        qualityChange: "结果质量发生变化。",
+        storageIncrease: "存储占用增加。",
+        resourceIncrease: "资源消耗增加。",
+        cost: "任何已连接的 LLM 或嵌入模型提供商的费用或使用量增加。",
+        bugs: "使用 AnythingLLM 时可能出现错误或问题。",
+      },
+      conditionsIntro: "使用实验功能还附带以下非穷尽条件。",
+      conditions: {
+        futureRemoval: "该功能未来更新中可能不再存在。",
+        unstable: "正在使用的功能目前并不稳定。",
+        availability:
+          "该功能未来可能无法在某些版本、配置或 AnythingLLM 订阅中使用。",
+        privacyStart: "使用任何测试功能时，你的隐私设置",
+        privacySeparator: "",
+        privacyBold: "都会得到遵守",
+        privacyEnd: "。",
+        mayChange: "这些条件未来更新中可能会变化。",
+      },
+      moreInfoPrefix:
+        "访问任何功能都需要先同意此弹窗。如果想了解更多信息，可以查看",
+      moreInfoOrEmail: "或发送邮件至",
+      reject: "拒绝并关闭",
+      accept: "我已理解",
+    },
+    liveSync: {
+      navTitle: "实时文档同步",
+      title: "自动文档内容同步",
+      description:
+        "启用后可以指定要“监视”的文档。被监视文档的内容会定期获取并更新到 AnythingLLM。",
+      workspaceUpdate: "被监视的文档会在更新时同步更新到所有引用它们的工作区。",
+      webOnly:
+        "此功能仅适用于基于 Web 的内容，例如网站、Confluence、YouTube 和 GitHub 文件。",
+      docsLink: "功能文档和警告",
+      manageLink: "管理被监视的文档",
+      toasts: {
+        enabled: "实时文档内容同步已启用。",
+        disabled: "实时文档内容同步已禁用。",
+      },
+      errors: {
+        update: "更新功能状态失败。",
+      },
+      manage: {
+        title: "被监视的文档",
+        description:
+          "这里列出当前实例中所有正在被监视的文档。这些文档的内容会定期同步。",
+        columns: {
+          documentName: "文档名称",
+          lastSynced: "上次同步",
+          nextRefresh: "距离下次刷新",
+          createdOn: "创建时间",
+        },
+      },
+    },
+  },
+  "audio-preference": {
+    stt: {
+      title: "语音转文本偏好",
+      description:
+        "在这里可以指定你希望在 AnythingLLM 体验中使用哪种文本转语音和语音转文本提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
+      searchPlaceholder: "搜索语音转文本提供商",
+    },
+    tts: {
+      title: "文本转语音偏好",
+      description:
+        "在这里可以指定你希望在 AnythingLLM 体验中使用哪种文本转语音提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
+      searchPlaceholder: "搜索文本转语音提供商",
+    },
+    provider: "提供商",
+    noConfiguration: "此提供商无需配置。",
+    loadingModels: "-- 正在加载可用模型 --",
+    providers: {
+      native: {
+        name: "系统原生",
+        sttDescription: "如果支持，将使用浏览器内置的 STT 服务。",
+        ttsDescription: "如果支持，将使用浏览器内置的 TTS 服务。",
+      },
+      openai: {
+        description: "使用 OpenAI 的文本转语音声音。",
+      },
+      elevenlabs: {
+        description: "使用 ElevenLabs 的文本转语音声音和技术。",
+      },
+      piper: {
+        description: "在浏览器中本地私密运行 TTS 模型。",
+      },
+      openaiCompatible: {
+        name: "OpenAI 兼容",
+        description: "连接到本地或远程运行的 OpenAI 兼容 TTS 服务。",
+      },
+    },
+    fields: {
+      apiKey: "API 密钥",
+      baseUrl: "基础 URL",
+      ttsModel: "TTS 模型",
+      voiceModel: "声音模型",
+      voiceModelSelection: "声音模型选择",
+    },
+    toasts: {
+      sttSaved: "语音转文本偏好已成功保存。",
+      sttSaveFailed: "保存偏好失败：{{error}}",
+      ttsSaved: "文本转语音偏好已成功保存。",
+      ttsSaveFailed: "保存偏好失败：{{error}}",
+    },
+    piper: {
+      description:
+        "所有 PiperTTS 模型都会在你的浏览器中本地运行。低端设备上可能会消耗较多资源。",
+      storedModelHint: "“✔”表示该模型已存储在本地，运行时无需再次下载。",
+      flushCache: "清空声音缓存",
+      stopDemo: "停止演示",
+      loadingVoice: "正在加载声音",
+      playSample: "播放示例",
+      toasts: {
+        flushed: "已从浏览器存储中清空所有声音",
+      },
+    },
+    openaiCompatible: {
+      baseUrlHint:
+        "这里应填写 OpenAI 兼容 TTS 服务的基础 URL，用于生成 TTS 响应。",
+      apiKeyHint:
+        "某些 TTS 服务需要 API 密钥才能生成 TTS 响应。如果你的服务不需要密钥，则此项可选。",
+      ttsPlaceholder: "你的 TTS 模型标识符",
+      voicePlaceholder: "你的声音模型标识符",
+      ttsModelHintStart: "大多数 TTS 服务会提供多个模型。这是你用于选择模型的",
+      ttsModelHintEnd: "参数。注意：这不同于声音模型。",
+      voiceModelHint:
+        "大多数 TTS 服务会提供多个声音模型，这里填写你想使用的声音模型标识符。",
+    },
+  },
+  "default-system-prompt": {
+    title: "默认系统提示词",
+    description: "这是新工作区将使用的默认系统提示词。",
+    form: {
+      label: "系统提示词",
+      helpStart:
+        "系统提示词提供用于塑造 AI 回复和行为的指令。此提示词会自动应用到所有新创建的工作区。若要更改",
+      helpStartSeparator: "",
+      specificWorkspace: "特定工作区",
+      helpMiddle: "的系统提示词，请在",
+      helpMiddleSeparator: "",
+      workspaceSettings: "工作区设置",
+      helpEnd:
+        "中编辑提示词。若要将系统提示词恢复为我们的合理默认值，请留空此字段并保存更改。",
+      variablesPrefix: "你可以插入",
+      variablesLink: "系统提示变量",
+      variablesLike: "例如：",
+      moreVariables: "+{{count}} 个更多...",
+      placeholder: "你是一个可以回答问题并协助完成任务的 AI 助手。",
+    },
+    toasts: {
+      updated: "默认系统提示词已成功更新。",
+      updateFailed: "更新默认系统提示词失败：{{error}}",
+    },
   },
   general: {
     vector: {
@@ -1265,6 +1620,10 @@ const TRANSLATIONS = {
     regenerate_response: "重新回应",
     good_response: "反应良好",
     more_actions: "更多操作",
+    metrics_visibility: {
+      hover_only: "点击后仅在悬停时显示模型信息",
+      always_show: "点击后始终显示模型信息",
+    },
     fork: "分叉",
     delete: "删除",
     cancel: "取消",
@@ -1281,6 +1640,8 @@ const TRANSLATIONS = {
     small: "小",
     normal: "一般",
     large: "大",
+    custom: "自定义",
+    custom_text_size: "自定义字体大小",
     workspace_llm_manager: {
       search: "搜索",
       loading_workspace_settings: "正在载入工作区设置",

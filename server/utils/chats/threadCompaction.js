@@ -2,6 +2,7 @@ const {
   WorkspaceChatCompaction,
 } = require("../../models/workspaceChatCompaction");
 const { getLLMProvider } = require("../helpers");
+const { getTaskConnector, resolveTaskProviderModel } = require("../llmTasks");
 const { TokenManager } = require("../helpers/tiktoken");
 const { convertToPromptHistory } = require("../helpers/chat/responses");
 const { recentChatHistory } = require("./index");
@@ -9,15 +10,13 @@ const { recentChatHistory } = require("./index");
 const DEFAULT_KEEP_RECENT_MESSAGES = 10;
 const DEFAULT_TRIGGER_RATIO = 0.65;
 const DEFAULT_MAX_SUMMARY_TOKENS = 2500;
-const DEFAULT_COMPACTION_CONTEXT_WINDOW_TOKENS = 1_000_000;
+const DEFAULT_COMPACTION_CONTEXT_WINDOW_TOKENS = 400_000;
 const DEFAULT_MANUAL_TARGET_RATIO = 0.15;
 const DEFAULT_AUTO_TARGET_RATIO = 0.2;
 const DEFAULT_TARGET_ABSOLUTE_TOKENS = 150_000;
 const DEFAULT_TARGET_MIN_SUMMARY_TOKENS = 12_000;
 const DEFAULT_TARGET_MAX_SUMMARY_TOKENS = 60_000;
 const DEFAULT_TARGET_SUMMARY_BUDGET_RATIO = 0.5;
-const DEFAULT_COMPACTION_PROVIDER = "deepseek";
-const DEFAULT_COMPACTION_MODEL = "deepseek-v4-flash";
 const MANUAL_COMPACT_RATIO = 0.8;
 const AUTO_COOLDOWN_MS = 5 * 60 * 1000;
 const TARGET_RATIO_MIN = 0.1;
@@ -50,6 +49,7 @@ function clamp(value, min, max) {
 }
 
 function getConfig() {
+  const compactionProviderModel = resolveTaskProviderModel("thread_compaction");
   const minSummaryTokens = Math.max(
     1,
     Math.floor(
@@ -71,14 +71,8 @@ function getConfig() {
   return {
     enabled: envBool("THREAD_COMPACTION_ENABLED", true),
     autoEnabled: envBool("THREAD_COMPACTION_AUTO_ENABLED", false),
-    compactionProvider: envString(
-      "THREAD_COMPACTION_PROVIDER",
-      DEFAULT_COMPACTION_PROVIDER
-    ),
-    compactionModel: envString(
-      "THREAD_COMPACTION_MODEL",
-      DEFAULT_COMPACTION_MODEL
-    ),
+    compactionProvider: compactionProviderModel.provider,
+    compactionModel: compactionProviderModel.model,
     compactionContextWindowTokens: Math.max(
       1,
       Math.floor(
@@ -234,30 +228,26 @@ function normalizedTargetRatio(value, fallback) {
 }
 
 function resolveCompactionLLM(workspace) {
-  const config = getConfig();
-  const requestedProvider = config.compactionProvider;
-  const requestedModel = config.compactionModel;
   const fallbackProvider = workspace?.chatProvider;
   const fallbackModel = workspace?.chatModel;
 
-  if (requestedProvider || requestedModel) {
-    try {
-      const llm = getLLMProvider({
-        provider: requestedProvider || fallbackProvider,
-        model: requestedModel || fallbackModel,
-      });
-      return {
-        llm,
-        provider: requestedProvider || fallbackProvider || null,
-        model: llm?.model || requestedModel || fallbackModel || null,
-        fallbackUsed: false,
-      };
-    } catch (error) {
-      console.warn(
-        "[ThreadCompaction] configured compaction provider unavailable, falling back",
-        error.message
-      );
-    }
+  try {
+    const {
+      connector: llm,
+      provider,
+      model,
+    } = getTaskConnector("thread_compaction", { workspace });
+    return {
+      llm,
+      provider,
+      model,
+      fallbackUsed: false,
+    };
+  } catch (error) {
+    console.warn(
+      "[ThreadCompaction] configured compaction provider unavailable, falling back",
+      error.message
+    );
   }
 
   const llm = getLLMProvider({
@@ -268,7 +258,7 @@ function resolveCompactionLLM(workspace) {
     llm,
     provider: fallbackProvider || null,
     model: llm?.model || fallbackModel || null,
-    fallbackUsed: Boolean(requestedProvider || requestedModel),
+    fallbackUsed: true,
   };
 }
 

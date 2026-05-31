@@ -1,6 +1,15 @@
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 
+function apiUrl(pathOrUrl) {
+  if (!pathOrUrl) return pathOrUrl;
+  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
+  if (API_BASE.startsWith("http") && pathOrUrl.startsWith("/api/")) {
+    return `${API_BASE.replace(/\/api\/?$/, "")}${pathOrUrl}`;
+  }
+  return pathOrUrl;
+}
+
 const ReaderDocument = {
   upload: async function (slug, formData) {
     const response = await fetch(
@@ -22,8 +31,24 @@ const ReaderDocument = {
     const data = await response.json();
     return { response, data };
   },
+  delete: async function (slug, readerDocumentId) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}`,
+      { method: "DELETE", headers: baseHeaders() }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
   originalBlob: async function (originalUrl) {
-    const response = await fetch(originalUrl, {
+    const response = await fetch(apiUrl(originalUrl), {
+      method: "GET",
+      headers: baseHeaders(),
+    });
+    const blob = await response.blob();
+    return { response, blob };
+  },
+  previewBlob: async function (previewUrl) {
+    const response = await fetch(apiUrl(previewUrl), {
       method: "GET",
       headers: baseHeaders(),
     });
@@ -42,6 +67,61 @@ const ReaderDocument = {
       method: "GET",
       headers: baseHeaders(),
     });
+    const data = await response.json();
+    return { response, data };
+  },
+  fromLocalPath: async function (slug, absolutePath) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/from-local-path`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ absolutePath }),
+      }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
+  reopenLocalPath: async function (slug, readerDocumentId) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/reopen-local-path`,
+      {
+        method: "POST",
+        headers: baseHeaders(),
+      }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
+  classify: async function (slug, payload = {}) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/classify`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
+  postprocess: async function (slug, readerDocumentId, payload = {}) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/postprocess`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
+  postprocessStatus: async function (slug, readerDocumentId) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/postprocess`,
+      { method: "GET", headers: baseHeaders() }
+    );
     const data = await response.json();
     return { response, data };
   },

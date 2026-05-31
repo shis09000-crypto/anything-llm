@@ -4,13 +4,15 @@ import { titleCase } from "text-case";
 import { humanFileSize } from "@/utils/numbers";
 import showToast from "@/utils/toast";
 import { CircleNotch, PauseCircle, PlayCircle } from "@phosphor-icons/react";
+import { useTranslation } from "react-i18next";
 
 export default function PiperTTSOptions({ settings }) {
+  const { t } = useTranslation();
+
   return (
     <>
       <p className="text-sm font-base text-white text-opacity-60 mb-4">
-        All PiperTTS models will run in your browser locally. This can be
-        resource intensive on lower-end devices.
+        {t("audio-preference.piper.description")}
       </p>
       <div className="flex gap-x-4 items-center">
         <PiperTTSModelSelection settings={settings} />
@@ -42,11 +44,12 @@ function PiperTTSModelSelection({ settings }) {
   const [selectedVoice, setSelectedVoice] = useState(
     settings?.TTSPiperTTSVoiceModel
   );
+  const { t } = useTranslation();
 
   function flushVoices() {
     PiperTTSClient.flush()
       .then(() =>
-        showToast("All voices flushed from browser storage", "info", {
+        showToast(t("audio-preference.piper.toasts.flushed"), "info", {
           clear: true,
         })
       )
@@ -69,7 +72,7 @@ function PiperTTSModelSelection({ settings }) {
     return (
       <div className="flex flex-col w-60">
         <label className="text-white text-sm font-semibold block mb-3">
-          Voice Model Selection
+          {t("audio-preference.fields.voiceModelSelection")}
         </label>
         <select
           name="TTSPiperTTSVoiceModel"
@@ -78,7 +81,7 @@ function PiperTTSModelSelection({ settings }) {
           className="border-none bg-theme-settings-input-bg border-gray-500 text-white text-sm rounded-lg block w-full p-2.5"
         >
           <option value="" disabled={true}>
-            -- loading available models --
+            {t("audio-preference.loadingModels")}
           </option>
         </select>
       </div>
@@ -89,7 +92,7 @@ function PiperTTSModelSelection({ settings }) {
     <div className="flex flex-col w-fit">
       <div className="flex flex-col w-60">
         <label className="text-white text-sm font-semibold block mb-3">
-          Voice Model Selection
+          {t("audio-preference.fields.voiceModelSelection")}
         </label>
         <div className="flex items-center w-fit gap-x-4 mb-2">
           <select
@@ -114,8 +117,7 @@ function PiperTTSModelSelection({ settings }) {
           <DemoVoiceSample voiceId={selectedVoice} />
         </div>
         <p className="text-xs text-white/40">
-          The "✔" indicates this model is already stored locally and does not
-          need to be downloaded when run.
+          {t("audio-preference.piper.storedModelHint")}
         </p>
       </div>
       {!!voices.find((voice) => voice.is_stored) && (
@@ -124,7 +126,7 @@ function PiperTTSModelSelection({ settings }) {
           onClick={flushVoices}
           className="w-fit border-none hover:text-white hover:underline text-white/40 text-sm my-4"
         >
-          Flush voice cache
+          {t("audio-preference.piper.flushCache")}
         </button>
       )}
     </div>
@@ -137,6 +139,7 @@ function DemoVoiceSample({ voiceId }) {
   const [loading, setLoading] = useState(false);
   const [audioSrc, setAudioSrc] = useState(null);
   const audioSrcRef = useRef(null);
+  const { t } = useTranslation();
 
   function releaseAudioSrc(url = audioSrcRef.current, updateState = true) {
     if (!url) return;
@@ -205,19 +208,25 @@ function DemoVoiceSample({ voiceId }) {
       {speaking ? (
         <>
           <PauseCircle size={20} className="flex-shrink-0" />
-          <p className="text-sm flex-shrink-0">Stop demo</p>
+          <p className="text-sm flex-shrink-0">
+            {t("audio-preference.piper.stopDemo")}
+          </p>
         </>
       ) : (
         <>
           {loading ? (
             <>
               <CircleNotch size={20} className="animate-spin flex-shrink-0" />
-              <p className="text-sm flex-shrink-0">Loading voice</p>
+              <p className="text-sm flex-shrink-0">
+                {t("audio-preference.piper.loadingVoice")}
+              </p>
             </>
           ) : (
             <>
               <PlayCircle size={20} className="flex-shrink-0 text-white" />
-              <p className="text-white text-sm flex-shrink-0">Play sample</p>
+              <p className="text-white text-sm flex-shrink-0">
+                {t("audio-preference.piper.playSample")}
+              </p>
             </>
           )}
         </>
