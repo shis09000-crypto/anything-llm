@@ -5,6 +5,11 @@ const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody, isValidUrl } = require("../utils/http");
 const { EncryptionManager } = require("../utils/EncryptionManager");
+const {
+  isSecretEncrypted,
+  readSecret,
+  saveSecret,
+} = require("../utils/security");
 
 const CONNECTOR_TYPE = "advanced_gateway";
 const ENCRYPTED_PREFIX = "enc:";
@@ -17,14 +22,12 @@ const DEFAULT_CONFIG = {
 };
 
 function encryptSecret(secret = null) {
-  if (!secret) return null;
-  const manager = new EncryptionManager();
-  const encrypted = manager.encrypt(secret);
-  return encrypted ? ENCRYPTED_PREFIX + encrypted : null;
+  return saveSecret(secret);
 }
 
 function decryptSecret(secret = null) {
   if (!secret) return null;
+  if (isSecretEncrypted(secret)) return readSecret(secret);
   if (!secret.startsWith(ENCRYPTED_PREFIX)) return secret;
   const manager = new EncryptionManager();
   return manager.decrypt(secret.slice(ENCRYPTED_PREFIX.length));

@@ -1,6 +1,7 @@
 const { MAX_MSG_LEN } = require("../constants");
 const { markdownToTelegram } = require("../utils/format");
 const { EncryptionManager } = require("../../EncryptionManager");
+const { isSecretEncrypted, readSecret, saveSecret } = require("../../security");
 
 const ENCRYPTED_PREFIX = "enc:";
 
@@ -131,10 +132,7 @@ async function sendBatchedMessages(bot, chatId, blocks, opts = {}) {
  * @returns {string|null}
  */
 function encryptToken(token) {
-  if (!token) return null;
-  const manager = new EncryptionManager();
-  const encrypted = manager.encrypt(token);
-  return encrypted ? ENCRYPTED_PREFIX + encrypted : null;
+  return saveSecret(token);
 }
 
 /**
@@ -145,6 +143,7 @@ function encryptToken(token) {
  */
 function decryptToken(encryptedToken) {
   if (!encryptedToken) return null;
+  if (isSecretEncrypted(encryptedToken)) return readSecret(encryptedToken);
   if (!encryptedToken.startsWith(ENCRYPTED_PREFIX)) return encryptedToken;
   const manager = new EncryptionManager();
   return manager.decrypt(encryptedToken.slice(ENCRYPTED_PREFIX.length));

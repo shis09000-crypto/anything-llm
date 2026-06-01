@@ -396,18 +396,18 @@ describe("Thread compaction memory", () => {
     expect(status.summaryTokens).toBe(expectedSummary);
     expect(status.recentHistoryTokens).toBe(expectedHistory);
     expect(status.usedTokens).toBe(expectedSummary + expectedHistory);
-    expect(status.limitTokens).toBe(4000);
+    expect(status.limitTokens).toBe(400_000);
     expect(status.compactableMessageCount).toBe(2);
     expect(status.targetRatio).toBe(0.15);
-    expect(status.targetTokens).toBe(600);
-    expect(status.chatInjectionLimit).toBe(4000);
+    expect(status.targetTokens).toBe(60_000);
+    expect(status.chatInjectionLimit).toBe(400_000);
     expect(status.latestCompaction.summary).toBeUndefined();
     expect(status.excludes).toEqual(
       expect.arrayContaining(["RAG context", "current attachments"])
     );
   });
 
-  it("calculates compaction input and chat injection budgets separately", async () => {
+  it("uses the compaction window as the thread memory budget", async () => {
     process.env.THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS = "1000000";
     process.env.THREAD_COMPACTION_TARGET_BASE = "absolute";
     process.env.THREAD_COMPACTION_TARGET_ABSOLUTE_TOKENS = "150000";
@@ -429,19 +429,20 @@ describe("Thread compaction memory", () => {
     });
 
     expect(budgets.compactionInputLimit).toBe(1000000);
-    expect(budgets.chatInjectionLimit).toBe(150000);
-    expect(budgets.targetTokens).toBe(22500);
-    expect(budgets.estimatedSummaryBudget).toBe(12000);
-    expect(budgets.recentRawBudget).toBe(10500);
+    expect(budgets.targetBase).toBe("compaction_window");
+    expect(budgets.chatInjectionLimit).toBe(1000000);
+    expect(budgets.targetTokens).toBe(150000);
+    expect(budgets.estimatedSummaryBudget).toBe(60000);
+    expect(budgets.recentRawBudget).toBe(90000);
   });
 
-  it("uses compaction window by default when workspace chat model matches Flash compaction model", async () => {
+  it("uses compaction window by default across workspace chat models", async () => {
     const {
       resolveTargetBudgets,
     } = require("../../../utils/chats/threadCompaction");
     const llm = mockGetLLMProvider();
 
-    const budgets = resolveTargetBudgets({
+    const flashBudgets = resolveTargetBudgets({
       workspace: {
         ...workspace,
         chatProvider: "deepseek",
@@ -456,6 +457,47 @@ describe("Thread compaction memory", () => {
       },
       mode: "manual",
     });
+    const proBudgets = resolveTargetBudgets({
+      workspace: {
+        ...workspace,
+        chatProvider: "deepseek",
+        chatModel: "deepseek-v4-pro",
+      },
+      chatLLM: llm,
+      compactionLLM: llm,
+      compactionInfo: {
+        provider: "deepseek",
+        model: "deepseek-v4-flash",
+        fallbackUsed: false,
+      },
+      mode: "manual",
+    });
+
+    expect(flashBudgets.targetBase).toBe("compaction_window");
+    expect(flashBudgets.chatInjectionLimit).toBe(400_000);
+    expect(flashBudgets.targetTokens).toBe(60_000);
+    expect(proBudgets.targetBase).toBe("compaction_window");
+    expect(proBudgets.chatInjectionLimit).toBe(flashBudgets.chatInjectionLimit);
+    expect(proBudgets.targetTokens).toBe(flashBudgets.targetTokens);
+  });
+
+  it("ignores explicit chat-window target base overrides for thread memory", async () => {
+    process.env.THREAD_COMPACTION_TARGET_BASE = "chat_window";
+    const {
+      resolveTargetBudgets,
+    } = require("../../../utils/chats/threadCompaction");
+    const llm = mockGetLLMProvider();
+
+    const budgets = resolveTargetBudgets({
+      workspace: {
+        ...workspace,
+        chatProvider: "deepseek",
+        chatModel: "deepseek-v4-pro",
+      },
+      chatLLM: llm,
+      compactionLLM: llm,
+      mode: "manual",
+    });
 
     expect(budgets.targetBase).toBe("compaction_window");
     expect(budgets.chatInjectionLimit).toBe(400_000);
@@ -463,6 +505,7 @@ describe("Thread compaction memory", () => {
   });
 
   it("target mode can compact history even when keep-10 would retain it", async () => {
+    process.env.THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS = "4000";
     const rows = Array.from({ length: 4 }, (_, index) =>
       chat(index + 1, `prompt ${index + 1}`, "long answer ".repeat(500))
     );

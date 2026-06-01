@@ -103,6 +103,7 @@ export default function PdfReader({
   const scrollRestoreRef = useRef(null);
   const flashTimerRef = useRef(null);
   const restoreTimerRef = useRef(null);
+  const selectionCleanupFrameRef = useRef([]);
   const restoredDocumentRef = useRef(null);
   const thumbnailDocumentIdRef = useRef(null);
   const [highlights, setHighlights] = useState([]);
@@ -125,6 +126,26 @@ export default function PdfReader({
   function clearBrowserSelection() {
     const selection = window.getSelection?.();
     if (selection?.removeAllRanges) selection.removeAllRanges();
+  }
+
+  function cancelSelectionCleanup() {
+    selectionCleanupFrameRef.current.forEach((frameId) =>
+      window.cancelAnimationFrame(frameId)
+    );
+    selectionCleanupFrameRef.current = [];
+  }
+
+  function deferSelectionCleanup(hideTipAndSelection) {
+    cancelSelectionCleanup();
+    const firstFrame = window.requestAnimationFrame(() => {
+      const secondFrame = window.requestAnimationFrame(() => {
+        hideTipAndSelection?.();
+        clearBrowserSelection();
+        selectionCleanupFrameRef.current = [];
+      });
+      selectionCleanupFrameRef.current = [secondFrame];
+    });
+    selectionCleanupFrameRef.current = [firstFrame];
   }
 
   function viewerContainer() {
@@ -372,6 +393,7 @@ export default function PdfReader({
     return () => {
       window.clearTimeout(flashTimerRef.current);
       window.clearTimeout(restoreTimerRef.current);
+      cancelSelectionCleanup();
     };
   }, []);
 
@@ -457,9 +479,15 @@ export default function PdfReader({
               }}
               onScrollChange={reportPdfProgress}
               highlights={highlights}
-              onSelectionFinished={(position, content, hideTipAndSelection) => {
+              onSelectionFinished={(
+                position,
+                content,
+                hideTipAndSelection,
+                showSelectionAsHighlight
+              ) => {
                 const selectedText = content.text || "";
                 if (!selectedText.trim()) return null;
+                showSelectionAsHighlight?.();
                 const highlight = {
                   id: `${position.pageNumber}-${textHash(selectedText)}`,
                   position,
@@ -491,16 +519,16 @@ export default function PdfReader({
                 };
                 setHighlights((current) => [
                   ...current.filter(
-                    (item) => item.sourceKey || item.id !== highlight.id
+                    (item) =>
+                      item.sourceKey ||
+                      (markAvailable && item.id === markedHighlightId)
                   ),
                   highlight,
                 ]);
                 setMarkAvailable(false);
                 setMarkedHighlightId(highlight.id);
                 setSelectionDraft(highlight.selection);
-                hideTipAndSelection();
-                window.setTimeout(hideTipAndSelection, 0);
-                clearBrowserSelection();
+                deferSelectionCleanup(hideTipAndSelection);
                 return null;
               }}
               highlightTransform={(
@@ -511,47 +539,59 @@ export default function PdfReader({
                 _viewportToScaled,
                 _screenshot,
                 _isScrolledTo
-              ) => (
-                <div
-                  key={index}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    openSelectionPanelFromHighlight(highlight);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
-                    openSelectionPanelFromHighlight(highlight);
-                  }}
-                  className={`relative ${
-                    flashHighlightId === highlight.id
-                      ? "reader-pdf-highlight-flash"
-                      : "cursor-pointer"
-                  }`}
-                >
-                  {highlight.sourceKey && highlight.citationNo && (
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onFocusTextSource?.(highlight.sourceKey);
-                      }}
-                      className="absolute -right-2 -top-2 z-40 flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white shadow-[0_8px_18px_rgba(16,185,129,0.28)]"
-                      title={`定位 TXT 引用 ${highlight.citationNo}`}
-                      aria-label={`定位 TXT 引用 ${highlight.citationNo}`}
-                    >
-                      {highlight.citationNo}
-                    </button>
-                  )}
-                  <Highlight
-                    isScrolledTo={false}
-                    position={highlight.position}
-                    comment={null}
-                  />
-                </div>
-              )}
+              ) => {
+                const isDraft =
+                  selectionDraft?.highlightId === highlight.id &&
+                  !highlight.sourceKey;
+                const isMarked =
+                  markAvailable && markedHighlightId === highlight.id;
+                const isCitation = !!highlight.sourceKey;
+                return (
+                  <div
+                    key={index}
+                    role="button"
+                    tabIndex={0}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openSelectionPanelFromHighlight(highlight);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key !== "Enter" && event.key !== " ") return;
+                      event.preventDefault();
+                      openSelectionPanelFromHighlight(highlight);
+                    }}
+                    className={`reader-pdf-highlight relative cursor-pointer ${
+                      isDraft ? "reader-pdf-highlight-draft" : ""
+                    } ${isMarked ? "reader-pdf-highlight-marked" : ""} ${
+                      isCitation ? "reader-pdf-highlight-citation" : ""
+                    } ${
+                      flashHighlightId === highlight.id
+                        ? "reader-pdf-highlight-flash"
+                        : ""
+                    }`}
+                  >
+                    {highlight.sourceKey && highlight.citationNo && (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onFocusTextSource?.(highlight.sourceKey);
+                        }}
+                        className="absolute -right-2 -top-2 z-40 flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white shadow-[0_8px_18px_rgba(16,185,129,0.28)]"
+                        title={`定位 TXT 引用 ${highlight.citationNo}`}
+                        aria-label={`定位 TXT 引用 ${highlight.citationNo}`}
+                      >
+                        {highlight.citationNo}
+                      </button>
+                    )}
+                    <Highlight
+                      isScrolledTo={false}
+                      position={highlight.position}
+                      comment={null}
+                    />
+                  </div>
+                );
+              }}
             />
           );
         }}
@@ -678,23 +718,49 @@ export default function PdfReader({
       )}
       <style>
         {`
+          .PdfHighlighter__highlight-layer {
+            z-index: 7 !important;
+          }
+
+          .PdfHighlighter__highlight-layer .Highlight,
+          .reader-pdf-highlight {
+            z-index: 8;
+          }
+
           .reader-pdf-highlight-flash .Highlight__parts {
             animation: reader-pdf-highlight-flash 0.62s cubic-bezier(0.4, 0, 0.2, 1) 2;
           }
 
           .Highlight__part {
-            background: rgba(250, 204, 21, 0.28) !important;
+            background: rgba(250, 204, 21, 0.34) !important;
             border-radius: 2px;
+            box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.16);
+            mix-blend-mode: multiply;
+            pointer-events: auto;
             transition: background 0.24s cubic-bezier(0.4, 0, 0.2, 1), filter 0.24s cubic-bezier(0.4, 0, 0.2, 1);
           }
 
+          .reader-pdf-highlight-draft .Highlight__part {
+            background: rgba(250, 204, 21, 0.46) !important;
+            box-shadow: 0 0 0 1px rgba(202, 138, 4, 0.24), 0 6px 16px rgba(250, 204, 21, 0.12);
+          }
+
+          .reader-pdf-highlight-marked .Highlight__part {
+            background: rgba(251, 191, 36, 0.38) !important;
+          }
+
+          .reader-pdf-highlight-citation .Highlight__part {
+            background: rgba(52, 211, 153, 0.3) !important;
+            box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.18);
+          }
+
           .Highlight--scrolledTo .Highlight__part {
-            background: rgba(250, 204, 21, 0.28) !important;
+            background: rgba(250, 204, 21, 0.42) !important;
           }
 
           @keyframes reader-pdf-highlight-flash {
             0%, 100% {
-              background: rgba(250, 204, 21, 0.28);
+              background: rgba(250, 204, 21, 0.34);
               filter: brightness(1);
             }
             45% {

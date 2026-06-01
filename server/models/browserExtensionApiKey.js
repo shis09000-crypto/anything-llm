@@ -1,6 +1,28 @@
 const prisma = require("../utils/prisma");
 const { SystemSettings } = require("./systemSettings");
 const { ROLES } = require("../utils/middleware/multiUserProtected");
+const {
+  isSecretEncrypted,
+  readSecret,
+  saveSecret,
+} = require("../utils/security");
+
+function maskKey(key = null) {
+  if (!key || typeof key !== "string") return "";
+  if (key.length <= 12) return "********";
+  return `${key.slice(0, 8)}...${key.slice(-4)}`;
+}
+
+function publicApiKey(apiKey = null, plainKey = null) {
+  if (!apiKey) return null;
+  return {
+    ...apiKey,
+    key:
+      plainKey ||
+      (isSecretEncrypted(apiKey.key) ? "********" : maskKey(apiKey.key)),
+    keyMasked: !plainKey,
+  };
+}
 
 const BrowserExtensionApiKey = {
   /**
@@ -19,13 +41,14 @@ const BrowserExtensionApiKey = {
    */
   create: async function (userId = null) {
     try {
+      const plainKey = this.makeSecret();
       const apiKey = await prisma.browser_extension_api_keys.create({
         data: {
-          key: this.makeSecret(),
+          key: saveSecret(plainKey),
           user_id: userId,
         },
       });
-      return { apiKey, error: null };
+      return { apiKey: publicApiKey(apiKey, plainKey), error: null };
     } catch (error) {
       console.error("Failed to create browser extension API key", error);
       return { apiKey: null, error: error.message };
@@ -39,10 +62,18 @@ const BrowserExtensionApiKey = {
    */
   validate: async function (key) {
     if (!key.startsWith("brx-")) return false;
-    const apiKey = await prisma.browser_extension_api_keys.findUnique({
+    let apiKey = await prisma.browser_extension_api_keys.findUnique({
       where: { key: key.toString() },
       include: { user: true },
     });
+
+    if (!apiKey) {
+      const apiKeys = await prisma.browser_extension_api_keys.findMany({
+        include: { user: true },
+      });
+      apiKey = apiKeys.find((candidate) => readSecret(candidate.key) === key);
+    }
+
     if (!apiKey) return false;
 
     const multiUserMode = await SystemSettings.isMultiUserMode();
@@ -123,7 +154,7 @@ const BrowserExtensionApiKey = {
         ...(orderBy !== null ? { orderBy } : {}),
         include: { user: true },
       });
-      return apiKeys;
+      return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
       console.error("FAILED TO GET BROWSER EXTENSION API KEYS.", error.message);
       return [];
@@ -158,7 +189,7 @@ const BrowserExtensionApiKey = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return apiKeys;
+      return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
       console.error(error.message);
       return [];

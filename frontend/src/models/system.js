@@ -419,12 +419,15 @@ const System = {
         return { defaultSystemPrompt: "", saneDefaultSystemPrompt: "" };
       });
   },
-  updateDefaultSystemPrompt: async function (defaultSystemPrompt) {
+  updateDefaultSystemPrompt: async function (
+    defaultSystemPrompt,
+    syncExistingWorkspaces = null
+  ) {
     try {
       const res = await fetch(`${API_BASE}/system/default-system-prompt`, {
         method: "POST",
         headers: baseHeaders(),
-        body: JSON.stringify({ defaultSystemPrompt }),
+        body: JSON.stringify({ defaultSystemPrompt, syncExistingWorkspaces }),
       });
       const data = await res.json();
       return data;

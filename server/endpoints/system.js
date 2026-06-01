@@ -1070,9 +1070,9 @@ function systemEndpoints(app) {
 
         response.status(200).json({
           success: true,
-          defaultSystemPrompt:
-            defaultSystemPrompt?.value ||
-            SystemSettings.saneDefaultSystemPrompt,
+          defaultSystemPrompt: SystemSettings.effectiveDefaultSystemPrompt(
+            defaultSystemPrompt?.value
+          ),
           saneDefaultSystemPrompt: SystemSettings.saneDefaultSystemPrompt,
         });
       } catch (error) {
@@ -1089,7 +1089,15 @@ function systemEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
-        const { defaultSystemPrompt } = reqBody(request);
+        const { defaultSystemPrompt, syncExistingWorkspaces = null } =
+          reqBody(request);
+        const user = await userFromSession(request, response);
+        const previousDefaultSystemPrompt = await SystemSettings.get({
+          label: "default_system_prompt",
+        });
+        const previousPrompt =
+          previousDefaultSystemPrompt?.value ||
+          SystemSettings.saneDefaultSystemPrompt;
         const { success, error } = await SystemSettings.updateSettings({
           default_system_prompt: defaultSystemPrompt,
         });
@@ -1097,9 +1105,33 @@ function systemEndpoints(app) {
           throw new Error(
             error.message || "Failed to update default system prompt."
           );
+
+        const nextDefaultSystemPrompt = await SystemSettings.get({
+          label: "default_system_prompt",
+        });
+        const nextPrompt = SystemSettings.effectiveDefaultSystemPrompt(
+          nextDefaultSystemPrompt?.value
+        );
+        const sync =
+          syncExistingWorkspaces === "defaultOnly"
+            ? await SystemSettings.syncDefaultSystemPromptToWorkspaces({
+                previousDefaultPrompt: previousPrompt,
+                nextDefaultPrompt: nextPrompt,
+                user,
+              })
+            : {
+                enabled: false,
+                synced: 0,
+                skipped: 0,
+                unchanged: 0,
+                failed: 0,
+              };
+
         response.status(200).json({
           success: true,
           message: "Default system prompt updated successfully.",
+          defaultSystemPrompt: nextPrompt,
+          sync,
         });
       } catch (error) {
         console.error("Error updating default system prompt:", error);

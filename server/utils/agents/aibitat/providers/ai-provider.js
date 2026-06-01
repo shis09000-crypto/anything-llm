@@ -31,7 +31,7 @@ const {
 const { OllamaAILLM } = require("../../../AiProviders/ollama");
 
 const DEFAULT_WORKSPACE_PROMPT =
-  "You are a helpful ai assistant who can assist the user and use tools available to help answer the users prompts and questions.";
+  "请根据以下 conversation、relevant context 和用户的 follow-up question，回答用户当前正在询问的问题。请只输出对当前问题的回答，并在需要时遵循用户的 instructions。\n\n当用户要求向量化文件时，优先使用 document-ingest-agent 的 document_identifiers 批量路径，而非 rag-memory store。";
 
 /**
  * @typedef {Object} ProviderUsageMetrics

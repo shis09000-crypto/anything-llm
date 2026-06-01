@@ -19,11 +19,24 @@ import {
 import AppButton from "@/components/lib/AppButton";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
+import { API_BASE } from "@/utils/constants";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 import { useTranslation } from "react-i18next";
 
 const OVERVIEW_CACHE_TTL_MS = 60_000;
+const HERO_BACKGROUND_MAX_BYTES = 5 * 1024 * 1024;
+const HERO_BACKGROUND_MIN_WIDTH = 1200;
+const HERO_BACKGROUND_MIN_HEIGHT = 600;
+const HERO_BACKGROUND_MIN_RATIO = 1.45;
+const HERO_BACKGROUND_MAX_RATIO = 2.5;
+const HERO_BACKGROUND_ALLOWED_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+const HERO_BACKGROUND_RECOMMENDATION =
+  "建议上传 1600×900 或 1800×900 的横向 PNG/JPG/WebP，比例约 16:9 到 2:1，文件小于 5MB。";
 const overviewCache = new Map();
 
 function formatTime(value) {
@@ -158,19 +171,106 @@ function healthToneStyle(status) {
   };
 }
 
+function formatBytes(bytes = 0) {
+  if (!Number.isFinite(Number(bytes))) return "0MB";
+  return `${(Number(bytes) / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function loadImageDimensions(file) {
+  if (!file) return Promise.resolve(null);
+  if (typeof createImageBitmap === "function") {
+    return createImageBitmap(file).then((bitmap) => {
+      const dimensions = { width: bitmap.width, height: bitmap.height };
+      bitmap.close?.();
+      return dimensions;
+    });
+  }
+
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve({
+        width: image.naturalWidth || image.width,
+        height: image.naturalHeight || image.height,
+      });
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("image_dimensions_unreadable"));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function validateHeroBackgroundFile(file) {
+  if (!file) return { ok: false, reason: "未选择图片。" };
+  if (!HERO_BACKGROUND_ALLOWED_TYPES.has(file.type)) {
+    return {
+      ok: false,
+      reason: "图片格式不支持。请上传 PNG、JPG 或 WebP。",
+    };
+  }
+  if (file.size > HERO_BACKGROUND_MAX_BYTES) {
+    return {
+      ok: false,
+      reason: `图片文件过大（${formatBytes(file.size)}）。请控制在 5MB 以内。`,
+    };
+  }
+
+  let dimensions;
+  try {
+    dimensions = await loadImageDimensions(file);
+  } catch {
+    return {
+      ok: false,
+      reason: "无法读取图片尺寸，请换一张标准 PNG、JPG 或 WebP。",
+    };
+  }
+
+  const width = Number(dimensions?.width || 0);
+  const height = Number(dimensions?.height || 0);
+  const ratio = height > 0 ? width / height : 0;
+  const dimensionLabel = width && height ? `${width}×${height}` : "未知尺寸";
+  const sizeTooSmall =
+    width < HERO_BACKGROUND_MIN_WIDTH || height < HERO_BACKGROUND_MIN_HEIGHT;
+  const ratioOutOfRange =
+    ratio < HERO_BACKGROUND_MIN_RATIO || ratio > HERO_BACKGROUND_MAX_RATIO;
+
+  if (sizeTooSmall || ratioOutOfRange) {
+    return {
+      ok: false,
+      reason: `这张图尺寸为 ${dimensionLabel}，不适合当前首页背景。${HERO_BACKGROUND_RECOMMENDATION}`,
+    };
+  }
+
+  return { ok: true, width, height, ratio };
+}
+
+function resolveOverviewAssetUrl(url = null) {
+  if (!url) return null;
+  if (/^(https?:|data:|blob:)/i.test(url)) return url;
+  if (API_BASE.startsWith("http") && url.startsWith("/api/")) {
+    return `${API_BASE.replace(/\/api\/?$/, "")}${url}`;
+  }
+  return url;
+}
+
 function VisualBackground({
   userUrl = null,
   defaultUrl = null,
   className = "",
 }) {
-  const [source, setSource] = useState(userUrl ? "user" : "default");
+  const resolvedUserUrl = resolveOverviewAssetUrl(userUrl);
+  const [source, setSource] = useState(resolvedUserUrl ? "user" : "default");
   useEffect(() => {
-    setSource(userUrl ? "user" : "default");
-  }, [defaultUrl, userUrl]);
+    setSource(resolvedUserUrl ? "user" : "default");
+  }, [defaultUrl, resolvedUserUrl]);
 
   const src =
-    source === "user" && userUrl
-      ? userUrl
+    source === "user" && resolvedUserUrl
+      ? resolvedUserUrl
       : source === "default" && defaultUrl
         ? defaultUrl
         : null;
@@ -179,10 +279,11 @@ function VisualBackground({
     <div className={`overview-visual-background ${className}`}>
       {src && (
         <img
+          key={src}
           src={src}
           alt=""
           aria-hidden="true"
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-cover object-center"
           onError={() => {
             setSource((current) =>
               current === "user" && defaultUrl ? "default" : "css"
@@ -292,6 +393,25 @@ export default function WorkspaceOverview({
     },
     [cacheKey, loadOverview, workspace?.slug]
   );
+
+  const applyHeroBackgroundAsset = useCallback((asset = null) => {
+    if (!asset?.url) return;
+    setOverview((previous) => {
+      if (!previous) return previous;
+      return {
+        ...previous,
+        workspaceHero: {
+          ...(previous.workspaceHero || {}),
+          backgroundImageUrl: asset.url,
+          backgroundAsset: asset,
+        },
+        visualAssets: {
+          ...(previous.visualAssets || {}),
+          workspaceBackground: asset,
+        },
+      };
+    });
+  }, []);
 
   useEffect(() => {
     if (!shouldLoad) return;
@@ -441,6 +561,15 @@ export default function WorkspaceOverview({
   const health = overview?.healthLite || {};
   const recentActivity = overview?.recentActivity?.[0] || null;
   const taglinePending = hero?.taglineStatus === "pending";
+  const heroBackgroundAsset =
+    hero?.backgroundAsset ||
+    overview?.visualAssets?.workspaceBackground ||
+    null;
+  const heroBackgroundUrl =
+    hero?.backgroundImageUrl || heroBackgroundAsset?.url || null;
+  const heroThemeStyle = heroBackgroundUrl
+    ? overviewThemeStyle(heroBackgroundAsset?.metadata)
+    : undefined;
   const overviewRenderLoad =
     (overview?.personalizedRecommendations?.length || 0) +
     (overview?.unfinishedExplorations?.length || 0) +
@@ -457,16 +586,15 @@ export default function WorkspaceOverview({
       className={`overview-themed-surface h-full w-full overflow-y-auto bg-slate-50 light:bg-slate-50 ${
         isRenderHeavy ? "overview-high-load" : ""
       }`}
-      style={overviewThemeStyle(hero?.backgroundAsset?.metadata)}
     >
       <div className="w-full max-w-7xl mx-auto px-4 md:px-8 pt-7 md:pt-9 pb-72">
-        <section
-          className="overview-themed-surface grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(220px,2fr)]"
-          style={overviewThemeStyle(hero?.backgroundAsset?.metadata)}
-        >
-          <div className="relative min-h-[350px] overflow-hidden rounded-[28px] border border-[color:var(--overview-glass-border)] bg-white shadow-[0_24px_70px_rgb(15_23_42_/_0.10)]">
+        <section className="overview-themed-surface grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,5fr)_minmax(220px,2fr)]">
+          <div
+            className="overview-themed-surface relative min-h-[350px] overflow-hidden rounded-[28px] border border-[color:var(--overview-glass-border)] bg-white shadow-[0_24px_70px_rgb(15_23_42_/_0.10)]"
+            style={heroThemeStyle}
+          >
             <VisualBackground
-              userUrl={hero?.backgroundImageUrl}
+              userUrl={heroBackgroundUrl}
               defaultUrl={defaultWorkspaceHeroBg}
             />
             <div className="relative grid min-h-[350px] gap-6 p-5 sm:p-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] lg:p-8 xl:p-9">
@@ -569,9 +697,11 @@ export default function WorkspaceOverview({
           profile={overview?.workspaceProfile}
           summary={overview?.workspaceSupplements}
           workspaceBackground={overview?.visualAssets?.workspaceBackground}
-          onChanged={async () => {
+          onChanged={async (asset = null) => {
+            applyHeroBackgroundAsset(asset);
             overviewCache.delete(cacheKey);
             await loadOverview({ force: true });
+            applyHeroBackgroundAsset(asset);
           }}
         />
 
@@ -677,7 +807,11 @@ function CurrentFocusCard({
   return (
     <section
       className="overview-themed-surface relative mt-5 min-h-[250px] overflow-hidden rounded-[26px] border border-[color:var(--overview-glass-border)] shadow-[0_18px_54px_rgb(15_23_42_/_0.08)]"
-      style={overviewThemeStyle(detail.backgroundAsset?.metadata)}
+      style={
+        detail.backgroundAsset?.metadata
+          ? overviewThemeStyle(detail.backgroundAsset.metadata)
+          : undefined
+      }
     >
       <VisualBackground
         userUrl={detail.backgroundImageUrl}
@@ -919,6 +1053,16 @@ function WorkspaceSupplementPanel({
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file || !workspace?.slug) return;
+
+    const validation = await validateHeroBackgroundFile(file);
+    if (!validation.ok) {
+      showToast("这张背景图不建议上传", "warning", {
+        description: validation.reason,
+        duration: 5_800,
+      });
+      return;
+    }
+
     setVisualSaving(true);
     const formData = new FormData();
     formData.append("file", file, file.name);
@@ -934,7 +1078,16 @@ function WorkspaceSupplementPanel({
       return;
     }
     showToast("已更新工作区背景图。", "success");
-    await onChanged?.();
+    await onChanged?.(result.asset);
+  };
+
+  const openWorkspaceBackgroundPicker = () => {
+    showToast("上传工作区背景图", "info", {
+      description: HERO_BACKGROUND_RECOMMENDATION,
+      duration: 5_000,
+      toastId: "workspace-hero-background-upload-guidance",
+    });
+    visualInputRef.current?.click();
   };
 
   const removeWorkspaceBackground = async () => {
@@ -1086,7 +1239,7 @@ function WorkspaceSupplementPanel({
           <button
             type="button"
             disabled={visualSaving}
-            onClick={() => visualInputRef.current?.click()}
+            onClick={openWorkspaceBackgroundPicker}
             className="inline-flex items-center gap-1.5 rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 hover:bg-cyan-100 disabled:opacity-60"
           >
             <UploadSimple size={13} />

@@ -42,8 +42,6 @@ THREAD_COMPACTION_MAX_SUMMARY_TOKENS=2500
 THREAD_COMPACTION_PROVIDER=deepseek
 THREAD_COMPACTION_MODEL=deepseek-v4-flash
 THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS=1000000
-THREAD_COMPACTION_TARGET_BASE=
-THREAD_COMPACTION_TARGET_ABSOLUTE_TOKENS=150000
 THREAD_COMPACTION_MANUAL_TARGET_RATIO=0.15
 THREAD_COMPACTION_AUTO_TARGET_RATIO=0.2
 THREAD_COMPACTION_TARGET_MIN_SUMMARY_TOKENS=12000
@@ -52,7 +50,7 @@ THREAD_COMPACTION_TARGET_SUMMARY_BUDGET_RATIO=0.5
 THREAD_COMPACTION_MIN_KEEP_RECENT_MESSAGES=1
 ```
 
-Target mode separates the compaction input window from the chat injection budget. The compaction model can read up to `THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS`, while `THREAD_COMPACTION_TARGET_BASE` decides whether the post-compact target is based on the current chat model window, the compaction window, or an absolute token value. Leave `THREAD_COMPACTION_TARGET_BASE` blank to auto-select: if the workspace chat model matches the configured compaction Flash model, AnythingLLM uses `compaction_window`; otherwise it uses `chat_window`. If the configured compaction provider/model is unavailable, AnythingLLM falls back to the workspace chat provider/model and records the actual provider/model in compaction metadata.
+Target mode uses `THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS` as the thread memory ceiling and derives manual/auto targets from that ceiling. The visible thread memory limit is intentionally independent of the active chat model context window, so switching workspace models does not shrink an existing thread from a long-memory budget back to a small model window. If the configured compaction provider/model is unavailable, AnythingLLM falls back to the workspace chat provider/model and records the actual provider/model in compaction metadata.
 
 When auto mode is enabled, AnythingLLM estimates prompt pressure from compact memory, recent history, the current user message, and context inputs where possible. If a full provider-specific estimate is not available, it falls back to history pressure and still relies on `messageArrayCompressor`.
 

@@ -1,4 +1,28 @@
 const prisma = require("../utils/prisma");
+const {
+  isSecretEncrypted,
+  readSecret,
+  saveSecret,
+} = require("../utils/security");
+
+function maskSecret(secret = null) {
+  if (!secret || typeof secret !== "string") return "";
+  if (secret.length <= 12) return "********";
+  return `${secret.slice(0, 8)}...${secret.slice(-4)}`;
+}
+
+function publicApiKey(apiKey = null, plainSecret = null) {
+  if (!apiKey) return null;
+  return {
+    ...apiKey,
+    secret:
+      plainSecret ||
+      (isSecretEncrypted(apiKey.secret)
+        ? "********"
+        : maskSecret(apiKey.secret)),
+    secretMasked: !plainSecret,
+  };
+}
 
 const ApiKey = {
   tablename: "api_keys",
@@ -13,15 +37,16 @@ const ApiKey = {
     try {
       const normalizedName =
         typeof name === "string" && name.trim().length > 0 ? name.trim() : null;
+      const plainSecret = this.makeSecret();
       const apiKey = await prisma.api_keys.create({
         data: {
           name: normalizedName,
-          secret: this.makeSecret(),
+          secret: saveSecret(plainSecret),
           createdBy: createdByUserId,
         },
       });
 
-      return { apiKey, error: null };
+      return { apiKey: publicApiKey(apiKey, plainSecret), error: null };
     } catch (error) {
       console.error("FAILED TO CREATE API KEY.", error.message);
       return { apiKey: null, error: error.message };
@@ -64,10 +89,28 @@ const ApiKey = {
         where: clause,
         take: limit,
       });
-      return apiKeys;
+      return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
       console.error("FAILED TO GET API KEYS.", error.message);
       return [];
+    }
+  },
+
+  validateSecret: async function (secret = null) {
+    try {
+      if (!secret) return null;
+
+      const plaintextMatch = await this.get({ secret: String(secret) });
+      if (plaintextMatch) return plaintextMatch;
+
+      const apiKeys = await prisma.api_keys.findMany({});
+      for (const apiKey of apiKeys) {
+        if (readSecret(apiKey.secret) === String(secret)) return apiKey;
+      }
+      return null;
+    } catch (error) {
+      console.error("FAILED TO VALIDATE API KEY.", error.message);
+      throw error;
     }
   },
 

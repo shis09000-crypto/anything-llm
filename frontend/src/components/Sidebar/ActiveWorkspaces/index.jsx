@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import Workspace from "@/models/workspace";
@@ -16,6 +16,7 @@ import {
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
+import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
 
 export default function ActiveWorkspaces() {
   const navigate = useNavigate();
@@ -28,14 +29,41 @@ export default function ActiveWorkspaces() {
   const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/:tab");
   const isHomePage = !!useMatch("/");
 
-  useEffect(() => {
-    async function getWorkspaces() {
-      const workspaces = await Workspace.all();
-      setLoading(false);
-      setWorkspaces(Workspace.orderWorkspaces(workspaces));
-    }
-    getWorkspaces();
+  const refreshWorkspaces = useCallback(async () => {
+    const workspaces = await Workspace.all();
+    setLoading(false);
+    setWorkspaces(Workspace.orderWorkspaces(workspaces));
   }, []);
+
+  useEffect(() => {
+    const handleWorkspacesRefresh = (event) => {
+      const workspace = event.detail?.workspace;
+      if (workspace?.id) {
+        setWorkspaces((prevWorkspaces) => {
+          const workspaceExists = prevWorkspaces.some(
+            (existingWorkspace) => existingWorkspace.id === workspace.id
+          );
+          if (workspaceExists) {
+            return prevWorkspaces.map((existingWorkspace) =>
+              existingWorkspace.id === workspace.id
+                ? { ...existingWorkspace, ...workspace }
+                : existingWorkspace
+            );
+          }
+          return [...prevWorkspaces, workspace];
+        });
+      }
+      refreshWorkspaces();
+    };
+
+    refreshWorkspaces();
+    window.addEventListener(WORKSPACES_REFRESH_EVENT, handleWorkspacesRefresh);
+    return () =>
+      window.removeEventListener(
+        WORKSPACES_REFRESH_EVENT,
+        handleWorkspacesRefresh
+      );
+  }, [refreshWorkspaces]);
 
   if (loading) {
     return (

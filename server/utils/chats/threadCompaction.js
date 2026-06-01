@@ -269,43 +269,20 @@ function resolveChatLLM(workspace) {
   });
 }
 
-function llmWindowLimit(llm, fallback = 0) {
-  const value = Number(llm?.promptWindowLimit?.() || 0);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
-function defaultTargetBase(config, workspace, compactionInfo) {
-  if (config.targetBase) return config.targetBase;
-  const sameProvider =
-    config.compactionProvider &&
-    workspace?.chatProvider &&
-    config.compactionProvider === workspace.chatProvider;
-  const sameModel =
-    config.compactionModel &&
-    workspace?.chatModel &&
-    config.compactionModel === workspace.chatModel;
-  return sameProvider && sameModel && !compactionInfo?.fallbackUsed
-    ? "compaction_window"
-    : "chat_window";
+function defaultTargetBase() {
+  return "compaction_window";
 }
 
 function resolveTargetBudgets({
-  workspace,
-  chatLLM,
+  chatLLM: _chatLLM,
   compactionLLM: _compactionLLM,
-  compactionInfo = null,
   targetRatio = null,
   mode = "manual",
 } = {}) {
   const config = getConfig();
   const compactionInputLimit = config.compactionContextWindowTokens;
-  const targetBase = defaultTargetBase(config, workspace, compactionInfo);
-  const chatWindowLimit = llmWindowLimit(chatLLM, compactionInputLimit);
-  let chatInjectionLimit = chatWindowLimit;
-  if (targetBase === "compaction_window")
-    chatInjectionLimit = compactionInputLimit;
-  if (targetBase === "absolute")
-    chatInjectionLimit = config.targetAbsoluteTokens;
+  const targetBase = defaultTargetBase();
+  const chatInjectionLimit = compactionInputLimit;
 
   const ratio = normalizedTargetRatio(
     targetRatio,
@@ -1005,6 +982,10 @@ async function getThreadCompactionStatus({
   const limitTokens = budgets.chatInjectionLimit;
   const ratio = limitTokens > 0 ? usedTokens / limitTokens : 0;
   const latestMetadata = safeJsonParse(latest?.metadata_json, {});
+  const latestTargetReason =
+    latestMetadata.targetBase === "chat_window"
+      ? null
+      : latestMetadata.cannotReachTargetReason || null;
   const projectedUsedTokensAfterCompact =
     budgets.estimatedSummaryBudget + targetPlan.retainedTokens;
   const projectedRatioAfterCompact =
@@ -1031,11 +1012,10 @@ async function getThreadCompactionStatus({
     projectedRatioAfterCompact,
     retainedRecentMessageCount: targetPlan.retainedRecentMessageCount,
     cannotReachTargetReason:
-      targetPlan.cannotReachTargetReason ||
-      latestMetadata.cannotReachTargetReason ||
-      null,
+      targetPlan.cannotReachTargetReason || latestTargetReason,
     latestTargetResult:
-      latestMetadata.mode === "target"
+      latestMetadata.mode === "target" &&
+      latestMetadata.targetBase !== "chat_window"
         ? {
             targetReached: latestMetadata.targetReached,
             targetRatio: latestMetadata.targetRatio,

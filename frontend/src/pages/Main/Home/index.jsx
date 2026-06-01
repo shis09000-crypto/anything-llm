@@ -40,6 +40,7 @@ import {
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
+import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
 
 async function getTargetWorkspace() {
   const lastVisited = getLastVisitedWorkspace();
@@ -82,6 +83,7 @@ async function createDefaultWorkspace(workspaceName = "My Workspace") {
     showToast(errorMsg || "Failed to create workspace", "error");
     return null;
   }
+  dispatchWorkspacesRefresh(workspace);
   return workspace;
 }
 

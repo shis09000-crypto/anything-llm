@@ -5,6 +5,7 @@ process.env.NODE_ENV === "development"
 const { default: slugify } = require("slugify");
 const { isValidUrl, safeJsonParse } = require("../utils/http");
 const prisma = require("../utils/prisma");
+const { readSecret, saveSecret } = require("../utils/security");
 const { MetaGenerator } = require("../utils/boot/MetaGenerator");
 const { PGVector } = require("../utils/vectorDbProviders/pgvector");
 const { NativeEmbedder } = require("../utils/EmbeddingEngines/native");
@@ -37,10 +38,30 @@ function mergeStringField(target, source, fieldName, validator = null) {
   }
 }
 
+function mergeSecretField(target, source, fieldName, validator = null) {
+  const value = source[fieldName];
+  if (value && typeof value === "string" && value.trim()) {
+    if (validator && !validator(value)) return;
+    target[fieldName] = saveSecret(value.trim());
+  }
+}
+
+function setSecretField(target, source, fieldName) {
+  if (source[fieldName] !== undefined) {
+    target[fieldName] = source[fieldName]
+      ? saveSecret(source[fieldName])
+      : null;
+  }
+}
+
 const SystemSettings = {
   /** A default system prompt that is used when no other system prompt is set or available to the function caller. */
   saneDefaultSystemPrompt:
+    "请根据以下 conversation、relevant context 和用户的 follow-up question，回答用户当前正在询问的问题。请只输出对当前问题的回答，并在需要时遵循用户的 instructions。\n\n当用户要求向量化文件时，优先使用 document-ingest-agent 的 document_identifiers 批量路径，而非 rag-memory store。",
+  legacyDefaultSystemPrompts: [
     "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. Return only your response to the question given the above information following the users instructions as needed.",
+    "Given the following conversation, relevant context, and a follow up question, reply with an answer to the current question the user is asking. Return only your response to the question given the above information following the users instructions as needed.\n当用户要求向量化文件时，优先使用 document-ingest-agent 的 document_identifiers 批量路径，而非 rag-memory store。",
+  ],
   protectedFields: ["multi_user_mode", "hub_api_key", "onboarding_complete"],
   publicFields: [
     "footer_data",
@@ -238,7 +259,7 @@ const SystemSettings = {
         const mergedConfig = { ...existingConfig };
 
         mergeStringField(mergedConfig, newConfig, "deploymentId");
-        mergeStringField(
+        mergeSecretField(
           mergedConfig,
           newConfig,
           "apiKey",
@@ -278,7 +299,7 @@ const SystemSettings = {
         const mergedConfig = { ...existingConfig };
 
         mergeStringField(mergedConfig, newConfig, "deploymentId");
-        mergeStringField(
+        mergeSecretField(
           mergedConfig,
           newConfig,
           "apiKey",
@@ -321,19 +342,15 @@ const SystemSettings = {
 
         mergeStringField(mergedConfig, newConfig, "clientId");
         mergeStringField(mergedConfig, newConfig, "tenantId");
-        mergeStringField(
+        mergeSecretField(
           mergedConfig,
           newConfig,
           "clientSecret",
           (v) => !v.match(/^\*+$/)
         );
 
-        if (newConfig.accessToken !== undefined) {
-          mergedConfig.accessToken = newConfig.accessToken;
-        }
-        if (newConfig.refreshToken !== undefined) {
-          mergedConfig.refreshToken = newConfig.refreshToken;
-        }
+        setSecretField(mergedConfig, newConfig, "accessToken");
+        setSecretField(mergedConfig, newConfig, "refreshToken");
         if (newConfig.tokenExpiry !== undefined) {
           mergedConfig.tokenExpiry = newConfig.tokenExpiry;
         }
@@ -414,11 +431,14 @@ const SystemSettings = {
     },
     hub_api_key: (apiKey) => {
       if (!apiKey) return null;
-      return String(apiKey);
+      return saveSecret(String(apiKey));
     },
     default_system_prompt: (prompt) => {
       if (typeof prompt !== "string" || !prompt) return null;
-      if (prompt.trim() === SystemSettings.saneDefaultSystemPrompt)
+      if (
+        prompt.trim() === SystemSettings.saneDefaultSystemPrompt ||
+        SystemSettings.legacyDefaultSystemPrompts.includes(prompt.trim())
+      )
         return SystemSettings.saneDefaultSystemPrompt;
       return String(prompt.trim());
     },
@@ -1005,7 +1025,7 @@ const SystemSettings = {
   hubSettings: async function () {
     try {
       const hubKey = await this.get({ label: "hub_api_key" });
-      return { connectionKey: hubKey?.value || null };
+      return { connectionKey: readSecret(hubKey?.value) || null };
     } catch (error) {
       console.error(error.message);
       return { connectionKey: null };
@@ -1033,6 +1053,91 @@ const SystemSettings = {
       // if the no login redirect is not a valid URL or is not set, return null
       return null;
     },
+  },
+
+  defaultPromptSyncCandidates: function (previousDefaultPrompt = null) {
+    return [
+      previousDefaultPrompt,
+      this.saneDefaultSystemPrompt,
+      ...this.legacyDefaultSystemPrompts,
+    ]
+      .filter((prompt) => typeof prompt === "string" && prompt.trim())
+      .map((prompt) => prompt.trim())
+      .filter((prompt, index, prompts) => prompts.indexOf(prompt) === index);
+  },
+
+  effectiveDefaultSystemPrompt: function (prompt = null) {
+    if (typeof prompt !== "string" || !prompt.trim())
+      return this.saneDefaultSystemPrompt;
+
+    const trimmedPrompt = prompt.trim();
+    if (this.legacyDefaultSystemPrompts.includes(trimmedPrompt))
+      return this.saneDefaultSystemPrompt;
+    return trimmedPrompt;
+  },
+
+  syncDefaultSystemPromptToWorkspaces: async function ({
+    previousDefaultPrompt = null,
+    nextDefaultPrompt = null,
+    user = null,
+  }) {
+    const { Workspace } = require("./workspace");
+    const nextPrompt =
+      typeof nextDefaultPrompt === "string" && nextDefaultPrompt.trim()
+        ? nextDefaultPrompt.trim()
+        : this.saneDefaultSystemPrompt;
+    const defaultPrompts = this.defaultPromptSyncCandidates(
+      previousDefaultPrompt
+    );
+    const workspaces = await Workspace._findMany({});
+    const results = {
+      enabled: true,
+      synced: 0,
+      skipped: 0,
+      unchanged: 0,
+      failed: 0,
+    };
+
+    for (const workspace of workspaces) {
+      const currentPrompt =
+        typeof workspace.openAiPrompt === "string"
+          ? workspace.openAiPrompt.trim()
+          : "";
+      const usesDefaultPrompt =
+        !currentPrompt || defaultPrompts.includes(currentPrompt);
+      const alreadyUsesNextPrompt = currentPrompt === nextPrompt;
+
+      if (!usesDefaultPrompt && !alreadyUsesNextPrompt) {
+        results.skipped += 1;
+        continue;
+      }
+
+      if (alreadyUsesNextPrompt) {
+        results.unchanged += 1;
+        continue;
+      }
+
+      await Workspace.trackChange(
+        workspace,
+        { openAiPrompt: nextPrompt },
+        user
+      );
+      const { workspace: updatedWorkspace } = await Workspace.update(
+        workspace.id,
+        {
+          openAiPrompt: nextPrompt,
+        }
+      );
+
+      if (!updatedWorkspace) {
+        results.failed += 1;
+        continue;
+      }
+
+      results.synced += 1;
+    }
+
+    return results;
   },
 };
 

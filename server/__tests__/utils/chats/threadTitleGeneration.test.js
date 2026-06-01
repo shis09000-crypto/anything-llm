@@ -46,10 +46,13 @@ jest.mock("../../../models/workspaceThread", () => ({
 describe("threadTitleGeneration", () => {
   let mod;
   let warnSpy;
+  let originalTitleRefreshInterval;
 
   beforeEach(() => {
     jest.clearAllMocks();
     jest.resetModules();
+    originalTitleRefreshInterval = process.env.THREAD_TITLE_REFRESH_INTERVAL;
+    process.env.THREAD_TITLE_REFRESH_INTERVAL = "14d";
     warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
     mod = require("../../../utils/chats/threadTitleGeneration");
     mod._internals.pendingJobKeys.clear();
@@ -68,8 +71,25 @@ describe("threadTitleGeneration", () => {
   afterEach(async () => {
     await mod._internals.titleQueue.onIdle();
     mod._internals.pendingJobKeys.clear();
+    if (originalTitleRefreshInterval === undefined)
+      delete process.env.THREAD_TITLE_REFRESH_INTERVAL;
+    else process.env.THREAD_TITLE_REFRESH_INTERVAL = originalTitleRefreshInterval;
     warnSpy.mockRestore();
   });
+
+  function mockRefreshQueries({ scanChats = [], prompts = [] } = {}) {
+    let scanServed = false;
+    mockFindMany.mockImplementation(async (query = {}) => {
+      const threadClause = query.where?.thread_id;
+      if (threadClause && typeof threadClause === "object") {
+        if (scanServed) return [];
+        scanServed = true;
+        return scanChats;
+      }
+
+      return prompts.map((prompt) => ({ prompt }));
+    });
+  }
 
   it("normalizes and hashes only non-empty user message text", () => {
     const hashA = mod.hashUserMessages([
@@ -141,6 +161,163 @@ describe("threadTitleGeneration", () => {
     });
 
     expect(mockMarkPending).not.toHaveBeenCalled();
+  });
+
+  it("skips latest-five refresh while the thread title is still on cooldown", async () => {
+    mockRefreshQueries({
+      scanChats: [{ id: 50, workspaceId: 1, thread_id: 10, user_id: 2 }],
+      prompts: ["one", "two", "three", "four", "five"],
+    });
+    mockThreadGet.mockResolvedValue({
+      id: 10,
+      titleSource: "llm",
+      titleHash: "old-hash",
+      titleGeneratedAt: new Date(Date.now() - 60 * 1000),
+      titleMessageScope: mod.TITLE_SCOPES.firstFiveUserMessages,
+    });
+
+    const result = await mod.refreshRecentThreadTitles({ waitForIdle: true });
+
+    expect(result).toEqual({
+      scannedChats: 1,
+      scannedThreads: 1,
+      queued: 0,
+    });
+    expect(mockMarkPending).not.toHaveBeenCalled();
+  });
+
+  it("queues latest-five refresh after the thread title cooldown expires", async () => {
+    mockRefreshQueries({
+      scanChats: [{ id: 50, workspaceId: 1, thread_id: 10, user_id: 2 }],
+      prompts: ["one", "two", "three", "four", "five"],
+    });
+    mockThreadGet.mockResolvedValue({
+      id: 10,
+      workspace_id: 1,
+      user_id: 2,
+      slug: "thread-10",
+      name: "Old title",
+      title: "Old title",
+      titleSource: "llm",
+      titleHash: "old-hash",
+      titleGeneratedAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000),
+      titleMessageScope: mod.TITLE_SCOPES.firstFiveUserMessages,
+    });
+    mockMarkPending.mockResolvedValue(true);
+    mockGetLLMProvider.mockReturnValue({
+      getChatCompletion: jest.fn(async () => ({
+        textResponse: '{"title":"新的标题"}',
+      })),
+    });
+    mockUpdateAutomaticTitle.mockResolvedValue({
+      id: 10,
+      workspace_id: 1,
+      user_id: 2,
+      slug: "thread-10",
+      name: "新的标题",
+      title: "新的标题",
+      titleSource: "llm",
+      titleVersion: 2,
+    });
+
+    const result = await mod.refreshRecentThreadTitles({ waitForIdle: true });
+
+    expect(result).toEqual({
+      scannedChats: 1,
+      scannedThreads: 1,
+      queued: 1,
+    });
+    expect(mockMarkPending).toHaveBeenCalledWith(
+      10,
+      mod.TITLE_SCOPES.latestFiveUserMessages
+    );
+    expect(mockUpdateAutomaticTitle).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 10,
+        title: "新的标题",
+        titleSource: "llm",
+        titleMessageScope: mod.TITLE_SCOPES.latestFiveUserMessages,
+      })
+    );
+  });
+
+  it("allows latest-five refresh backfill when titleGeneratedAt is missing", async () => {
+    mockRefreshQueries({
+      scanChats: [{ id: 50, workspaceId: 1, thread_id: 10, user_id: 2 }],
+      prompts: ["one", "two", "three", "four", "five"],
+    });
+    mockThreadGet.mockResolvedValue({
+      id: 10,
+      workspace_id: 1,
+      user_id: 2,
+      slug: "thread-10",
+      name: "Old title",
+      title: "Old title",
+      titleSource: "llm",
+      titleHash: "old-hash",
+      titleGeneratedAt: null,
+      titleMessageScope: mod.TITLE_SCOPES.firstFiveUserMessages,
+    });
+    mockMarkPending.mockResolvedValue(true);
+    mockGetLLMProvider.mockReturnValue({
+      getChatCompletion: jest.fn(async () => ({
+        textResponse: '{"title":"回填标题"}',
+      })),
+    });
+    mockUpdateAutomaticTitle.mockResolvedValue({
+      id: 10,
+      workspace_id: 1,
+      user_id: 2,
+      slug: "thread-10",
+      name: "回填标题",
+      title: "回填标题",
+      titleSource: "llm",
+      titleVersion: 1,
+    });
+
+    const result = await mod.refreshRecentThreadTitles({ waitForIdle: true });
+
+    expect(result.queued).toBe(1);
+    expect(mockMarkPending).toHaveBeenCalledWith(
+      10,
+      mod.TITLE_SCOPES.latestFiveUserMessages
+    );
+  });
+
+  it("does not apply refresh cooldown to immediate first and first-five triggers", async () => {
+    mockThreadGet.mockResolvedValue({
+      id: 10,
+      titleSource: "llm",
+      titleHash: "old-hash",
+      titleGeneratedAt: new Date(),
+      titleMessageScope: null,
+    });
+    mockMarkPending.mockResolvedValue(false);
+
+    mockCount.mockResolvedValueOnce(1);
+    await mod.maybeEnqueueTitleGenerationAfterChat({
+      workspaceId: 1,
+      threadId: 10,
+      userId: 2,
+      include: true,
+    });
+    expect(mockMarkPending).toHaveBeenCalledWith(
+      10,
+      mod.TITLE_SCOPES.firstUserMessage
+    );
+
+    mockMarkPending.mockClear();
+    mockCount.mockResolvedValueOnce(5);
+    await mod.maybeEnqueueTitleGenerationAfterChat({
+      workspaceId: 1,
+      threadId: 10,
+      userId: 2,
+      include: true,
+    });
+    expect(mockMarkPending).toHaveBeenCalledWith(
+      10,
+      mod.TITLE_SCOPES.firstFiveUserMessages
+    );
   });
 
   it("falls back to first-message title when the fixed title model is unavailable", async () => {

@@ -1,5 +1,6 @@
 const { SystemSettings } = require("../../../../../models/systemSettings");
 const { safeJsonParse } = require("../../../../http");
+const { readSecret } = require("../../../../security");
 
 const DEFAULT_BRIDGE_REQUEST_TIMEOUT_MS = 25 * 1_000;
 
@@ -46,7 +47,11 @@ class GoogleCalendarBridge {
       { label: "google_calendar_agent_config" },
       "{}"
     );
-    return safeJsonParse(configJson, {});
+    const config = safeJsonParse(configJson, {});
+    return {
+      ...config,
+      apiKey: readSecret(config.apiKey),
+    };
   }
 
   /**

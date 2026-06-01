@@ -39,6 +39,7 @@ export default function BrowserExtensionApiKeyRow({
   };
 
   const handleCopy = () => {
+    if (apiKey.keyMasked) return;
     navigator.clipboard.writeText(connectionString);
     showToast("Connection string copied to clipboard", "success", {
       clear: true,
@@ -48,6 +49,7 @@ export default function BrowserExtensionApiKeyRow({
   };
 
   const handleConnect = () => {
+    if (apiKey.keyMasked) return;
     // Sending a message to Chrome extension to pop up the extension window
     // This will open the extension window and attempt to connect with the API key
     window.postMessage(
@@ -71,7 +73,12 @@ export default function BrowserExtensionApiKeyRow({
             <button
               onClick={handleCopy}
               data-tooltip-id="copy-connection-text"
-              data-tooltip-content="Copy connection string"
+              data-tooltip-content={
+                apiKey.keyMasked
+                  ? "Only newly-created keys can be copied"
+                  : "Copy connection string"
+              }
+              disabled={apiKey.keyMasked}
               className="border-none text-theme-text-primary hover:text-theme-text-secondary motion-hover p-1 rounded"
             >
               {copied ? (
@@ -84,7 +91,12 @@ export default function BrowserExtensionApiKeyRow({
             <button
               onClick={handleConnect}
               data-tooltip-id="auto-connection"
-              data-tooltip-content="Automatically connect to extension"
+              data-tooltip-content={
+                apiKey.keyMasked
+                  ? "Only newly-created keys can connect automatically"
+                  : "Automatically connect to extension"
+              }
+              disabled={apiKey.keyMasked}
               className="border-none text-theme-text-primary hover:text-theme-text-secondary motion-hover p-1 rounded"
             >
               <Plug className="h-4 w-4" />

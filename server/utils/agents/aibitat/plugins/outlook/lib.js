@@ -6,6 +6,7 @@ const { SystemSettings } = require("../../../../../models/systemSettings");
 const { CollectorApi } = require("../../../../collectorApi");
 const { humanFileSize } = require("../../../../helpers");
 const { safeJsonParse } = require("../../../../http");
+const { readSecret } = require("../../../../security");
 
 const MAX_TOTAL_ATTACHMENT_SIZE = 25 * 1024 * 1024; // 25MB limit for Outlook
 
@@ -553,7 +554,13 @@ class OutlookBridge {
       { label: "outlook_agent_config" },
       "{}"
     );
-    return safeJsonParse(configJson, {});
+    const config = safeJsonParse(configJson, {});
+    return {
+      ...config,
+      clientSecret: readSecret(config.clientSecret),
+      accessToken: readSecret(config.accessToken),
+      refreshToken: readSecret(config.refreshToken),
+    };
   }
 
   /**

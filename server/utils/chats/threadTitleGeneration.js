@@ -9,6 +9,7 @@ const TITLE_GENERATION_TIMEOUT_MS = 15_000;
 const TITLE_REFRESH_PAGE_SIZE =
   Number(process.env.THREAD_TITLE_REFRESH_PAGE_SIZE) || 100;
 const TITLE_REFRESH_RECENT_DAYS = 90;
+const DEFAULT_TITLE_REFRESH_COOLDOWN_MS = 14 * 24 * 60 * 60 * 1000;
 const TITLE_QUEUE_CONCURRENCY = Math.min(
   Math.max(Number(process.env.THREAD_TITLE_QUEUE_CONCURRENCY) || 1, 1),
   2
@@ -38,6 +39,55 @@ let titleMetadataReadiness = null;
 function titleDebug(event, payload = {}) {
   if (process.env.THREAD_TITLE_DEBUG !== "true") return;
   console.log(`[ThreadTitle] ${event}`, JSON.stringify(payload));
+}
+
+function parseTitleRefreshCooldownMs(
+  value = process.env.THREAD_TITLE_REFRESH_INTERVAL
+) {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+    return value;
+
+  const raw = String(value || "14d")
+    .trim()
+    .toLowerCase();
+  const match = raw.match(/^(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)$/);
+  if (!match) return DEFAULT_TITLE_REFRESH_COOLDOWN_MS;
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount) || amount < 0)
+    return DEFAULT_TITLE_REFRESH_COOLDOWN_MS;
+
+  const unitMs = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+  };
+  return amount * unitMs[match[2]];
+}
+
+function dateValueMs(value = null) {
+  if (!value) return null;
+  if (value instanceof Date) return value.getTime();
+
+  if (typeof value === "number") return value;
+
+  if (typeof value === "string") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function titleRefreshOnCooldown(thread = null, nowMs = Date.now()) {
+  const generatedAtMs = dateValueMs(thread?.titleGeneratedAt);
+  if (!Number.isFinite(generatedAtMs)) return false;
+
+  return nowMs - generatedAtMs < parseTitleRefreshCooldownMs();
 }
 
 function prismaClientHasTitleMetadata() {
@@ -540,6 +590,15 @@ async function refreshRecentThreadTitles({
 
       const thread = await WorkspaceThread.get({ id: chat.thread_id });
       if (!thread || thread.titleSource === "manual") continue;
+      if (titleRefreshOnCooldown(thread)) {
+        titleDebug("refresh:skip", {
+          workspaceId: chat.workspaceId,
+          threadId: chat.thread_id,
+          reason: "title_refresh_cooldown",
+          titleGeneratedAt: thread.titleGeneratedAt,
+        });
+        continue;
+      }
 
       const prompts = await userPromptsForScope({
         workspaceId: chat.workspaceId,
@@ -582,6 +641,8 @@ module.exports = {
     runTitleGenerationJob,
     generateTitle,
     titleMetadataReady,
+    parseTitleRefreshCooldownMs,
+    titleRefreshOnCooldown,
     resetTitleMetadataReadiness: () => {
       titleMetadataReadiness = null;
     },

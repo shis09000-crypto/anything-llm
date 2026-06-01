@@ -199,9 +199,9 @@ const Workspace = {
     const defaultSystemPrompt = await SystemSettings.get({
       label: "default_system_prompt",
     });
-    if (!!defaultSystemPrompt?.value)
-      additionalFields.openAiPrompt = defaultSystemPrompt.value;
-    else additionalFields.openAiPrompt = this.defaultPrompt;
+    additionalFields.openAiPrompt = SystemSettings.effectiveDefaultSystemPrompt(
+      defaultSystemPrompt?.value
+    );
 
     try {
       const workspace = await prisma.workspaces.create({

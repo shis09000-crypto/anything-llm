@@ -548,11 +548,7 @@ function selectStableCurrentFocus({
   };
 }
 
-function buildCurrentFocusDetail({
-  focus = null,
-  nodeBackground = null,
-  workspaceBackground = null,
-} = {}) {
+function buildCurrentFocusDetail({ focus = null, nodeBackground = null } = {}) {
   if (!focus) return null;
   const target = focus.target || {};
   const displayName =
@@ -580,13 +576,9 @@ function buildCurrentFocusDetail({
       focus.supplementCount || target.supplementCount || 0
     ),
     knowledgeBits,
-    backgroundImageUrl: nodeBackground?.url || workspaceBackground?.url || null,
-    backgroundAsset: nodeBackground || workspaceBackground || null,
-    backgroundSource: nodeBackground
-      ? "node"
-      : workspaceBackground
-        ? "workspace"
-        : "default",
+    backgroundImageUrl: nodeBackground?.url || null,
+    backgroundAsset: nodeBackground || null,
+    backgroundSource: nodeBackground ? "node" : "default",
   };
 }
 
@@ -2199,7 +2191,6 @@ async function buildWorkspaceOverviewUncached({
   const currentFocusDetail = buildCurrentFocusDetail({
     focus: topFocus?.[0] || null,
     nodeBackground,
-    workspaceBackground,
   });
   const hasAnyOverviewData =
     supplementedNodes.length > 0 ||

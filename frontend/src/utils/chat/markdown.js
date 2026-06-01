@@ -7,6 +7,10 @@ import "./themes/github-dark.css";
 import "./themes/github.css";
 import { v4 } from "uuid";
 import { setEventDelegatorForCodeSnippets } from "./codeBlockCopy";
+import {
+  normalizeMarkdownStrongDelimiters,
+  stripMarkdownStrongSentinel,
+} from "./markdownNormalizer";
 
 // Register custom lanaguages
 import hljsDefineSvelte from "./hljs-libraries/svelte";
@@ -81,5 +85,6 @@ markdown.use(markdownItKatexPlugin);
 
 export default function renderMarkdown(text = "") {
   setEventDelegatorForCodeSnippets();
-  return markdown.render(text);
+  const normalizedText = normalizeMarkdownStrongDelimiters(text);
+  return stripMarkdownStrongSentinel(markdown.render(normalizedText));
 }

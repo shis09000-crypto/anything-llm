@@ -2,6 +2,13 @@ import { useMemo, useState } from "react";
 import { CaretDown, Check, Hammer, Warning } from "@phosphor-icons/react";
 import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
+import { useTranslation } from "react-i18next";
+import {
+  displayToolName,
+  formatTimelineContent,
+  formatToolPayloadPreview,
+  formatToolStatus,
+} from "@/utils/chat/toolTimelineI18n";
 
 function formatPayload(data) {
   if (data === undefined || data === null) return "";
@@ -61,23 +68,24 @@ function toolPayload(event = {}) {
   );
 }
 
-function toolSummary(event = {}) {
-  const toolName = event.toolName || "tool";
-  const isError = event.type === "tool_result" && isErroredToolResult(event);
-  const status =
-    event.type === "tool_call" ? "Calling" : isError ? "Errored" : "Returned";
-  const preview = compactText(toolPayload(event));
+function toolSummary(event = {}, t) {
+  const status = formatToolStatus(event, t);
+  const toolName = displayToolName(event.toolName, t);
+  const preview = formatToolPayloadPreview(compactText(toolPayload(event)), t);
   return `${status} ${toolName}${preview ? `: ${preview}` : ""}`;
 }
 
-function normalizeDisplayEvent(event = {}, index) {
+function normalizeDisplayEvent(event = {}, index, t) {
   const displayType = ["tool_call", "tool_result"].includes(event.type)
     ? "tool"
     : "thought";
   return {
     ...event,
     displayType,
-    displayContent: displayType === "tool" ? toolSummary(event) : event.content,
+    displayContent:
+      displayType === "tool"
+        ? toolSummary(event, t)
+        : formatTimelineContent(event.content, t),
     sortTime: event.createdAt || event.requestedAt || event.timestamp || 0,
     originalIndex: index,
   };
@@ -88,11 +96,12 @@ export default function ThoughtTimeline({
   toolEvents = [],
   isRunning = false,
 }) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const visibleEvents = useMemo(
     () =>
       [...events, ...toolEvents]
-        .map(normalizeDisplayEvent)
+        .map((event, index) => normalizeDisplayEvent(event, index, t))
         .filter((event) => {
           if (event.displayType === "tool") return !!event.displayContent;
           return !!event.content;
@@ -105,7 +114,7 @@ export default function ThoughtTimeline({
           if (!a.sortTime && b.sortTime) return 1;
           return a.originalIndex - b.originalIndex;
         }),
-    [events, toolEvents]
+    [events, toolEvents, t]
   );
   if (visibleEvents.length === 0 && !isRunning) return null;
 
@@ -133,19 +142,23 @@ export default function ThoughtTimeline({
                 playsInline
                 className="w-[18px] h-[18px] scale-[165%] motion-hover light:invert light:opacity-50"
                 data-tooltip-id="agent-thinking"
-                data-tooltip-content="Agent is thinking..."
-                aria-label="Agent is thinking..."
+                data-tooltip-content={t(
+                  "chat_window.toolTimeline.agentThinking"
+                )}
+                aria-label={t("chat_window.toolTimeline.agentThinking")}
               >
                 <source src={AgentAnimation} type="video/webm" />
               </video>
             ) : (
               <img
                 src={AgentStatic}
-                alt="Agent complete"
+                alt={t("chat_window.toolTimeline.agentComplete")}
                 className="w-[18px] h-[18px] motion-hover light:invert light:opacity-50"
                 data-tooltip-id="agent-thinking"
-                data-tooltip-content="Agent has finished thinking"
-                aria-label="Agent has finished thinking"
+                data-tooltip-content={t(
+                  "chat_window.toolTimeline.agentComplete"
+                )}
+                aria-label={t("chat_window.toolTimeline.agentComplete")}
               />
             )}
           </div>
@@ -156,10 +169,14 @@ export default function ThoughtTimeline({
               className="absolute top-4 right-4 border-none text-zinc-200 light:text-slate-800 motion-hover"
               data-tooltip-id="expand-cot"
               data-tooltip-content={
-                isExpanded ? "Hide thought chain" : "Show thought chain"
+                isExpanded
+                  ? t("chat_window.toolTimeline.hideThoughtChain")
+                  : t("chat_window.toolTimeline.showThoughtChain")
               }
               aria-label={
-                isExpanded ? "Hide thought chain" : "Show thought chain"
+                isExpanded
+                  ? t("chat_window.toolTimeline.hideThoughtChain")
+                  : t("chat_window.toolTimeline.showThoughtChain")
               }
             >
               <CaretDown
@@ -174,7 +191,9 @@ export default function ThoughtTimeline({
               {!isExpanded ? (
                 <span className="block w-full truncate">
                   {currentEvent?.displayContent ||
-                    (isRunning ? "Working..." : "Finished.")}
+                    (isRunning
+                      ? t("chat_window.toolTimeline.status.working")
+                      : t("chat_window.toolTimeline.status.finished"))}
                 </span>
               ) : (
                 <div className="space-y-2">
@@ -182,7 +201,7 @@ export default function ThoughtTimeline({
                     event.displayType === "tool" ? (
                       <ToolTimelineRow key={event.id} event={event} />
                     ) : (
-                      <div key={event.id}>{event.content}</div>
+                      <div key={event.id}>{event.displayContent}</div>
                     )
                   )}
                 </div>
@@ -196,11 +215,15 @@ export default function ThoughtTimeline({
 }
 
 function ToolTimelineRow({ event }) {
+  const { t } = useTranslation();
   const isCall = event.type === "tool_call";
   const isError = event.type === "tool_result" && isErroredToolResult(event);
-  const status = isCall ? "Calling" : isError ? "Errored" : "Returned";
+  const status = formatToolStatus(event, t);
   const timestamp = formatTimestamp(event);
-  const payload = compactText(toolPayload(event), 500);
+  const payload = formatToolPayloadPreview(
+    compactText(toolPayload(event), 500),
+    t
+  );
   const error = compactText(
     event.errorMessage || event.error || event.storageError || "",
     500
@@ -220,7 +243,7 @@ function ToolTimelineRow({ event }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0">
           <span className="font-semibold text-zinc-100 light:text-slate-900">
-            {status} {event.toolName || "tool"}
+            {status} {displayToolName(event.toolName, t)}
           </span>
           {timestamp && (
             <span className="text-[11px] text-zinc-500 light:text-slate-500">

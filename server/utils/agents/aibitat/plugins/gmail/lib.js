@@ -6,6 +6,7 @@ const { SystemSettings } = require("../../../../../models/systemSettings");
 const { CollectorApi } = require("../../../../collectorApi");
 const { humanFileSize } = require("../../../../helpers");
 const { safeJsonParse } = require("../../../../http");
+const { readSecret } = require("../../../../security");
 
 const MAX_TOTAL_ATTACHMENT_SIZE = 20 * 1024 * 1024; // 20MB limit for all attachments combined
 const DEFAULT_BRIDGE_REQUEST_TIMEOUT_MS = 25 * 1_000;
@@ -249,7 +250,11 @@ class GmailBridge {
       { label: "gmail_agent_config" },
       "{}"
     );
-    return safeJsonParse(configJson, {});
+    const config = safeJsonParse(configJson, {});
+    return {
+      ...config,
+      apiKey: readSecret(config.apiKey),
+    };
   }
 
   /**

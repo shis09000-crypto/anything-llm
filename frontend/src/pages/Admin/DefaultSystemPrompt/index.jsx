@@ -19,6 +19,7 @@ export default function DefaultSystemPrompt() {
     isSubmitting: false,
     isLoading: true,
     isEditing: false,
+    syncExistingWorkspaces: false,
   });
   const [saneDefaultSystemPrompt, setSaneDefaultSystemPrompt] = useState("");
   const [availableVariables, setAvailableVariables] = useState([]);
@@ -75,27 +76,36 @@ export default function DefaultSystemPrompt() {
       isSubmitting: true,
     }));
     const newSystemPrompt = systemPromptForm.value.trim();
-    await System.updateDefaultSystemPrompt(newSystemPrompt)
-      .then(({ success, message }) => {
+    await System.updateDefaultSystemPrompt(
+      newSystemPrompt,
+      systemPromptForm.syncExistingWorkspaces ? "defaultOnly" : null
+    )
+      .then(({ success, message, defaultSystemPrompt, sync }) => {
         if (!success) throw new Error(message);
 
-        // If the user has set the default system prompt to the sane default, reset the value to the sane default.
-        if (
-          !newSystemPrompt ||
-          newSystemPrompt.trim() === saneDefaultSystemPrompt
-        ) {
-          return setSystemPromptForm((prev) => ({
-            ...prev,
-            value: saneDefaultSystemPrompt,
-          }));
-        }
+        const savedSystemPrompt =
+          defaultSystemPrompt ||
+          (!newSystemPrompt || newSystemPrompt === saneDefaultSystemPrompt
+            ? saneDefaultSystemPrompt
+            : newSystemPrompt);
 
-        showToast(t("default-system-prompt.toasts.updated"), "success");
+        showToast(
+          sync?.enabled
+            ? t("default-system-prompt.toasts.updatedWithSync", {
+                synced: sync.synced,
+                skipped: sync.skipped,
+                failed: sync.failed,
+              })
+            : t("default-system-prompt.toasts.updated"),
+          "success"
+        );
         setSystemPromptForm((prev) => ({
           ...prev,
-          default: newSystemPrompt,
+          default: savedSystemPrompt,
+          value: savedSystemPrompt,
           isDirty: false,
           isSubmitting: false,
+          syncExistingWorkspaces: false,
         }));
       })
       .catch((error) => {
@@ -257,11 +267,34 @@ export default function DefaultSystemPrompt() {
                       />
                     </div>
                   )}
+                  <label className="flex w-fit items-start gap-x-2 rounded-lg border border-white/10 bg-theme-settings-input-bg/60 p-3 text-xs font-medium text-theme-text-secondary light:border-slate-200 light:bg-slate-50">
+                    <input
+                      type="checkbox"
+                      checked={systemPromptForm.syncExistingWorkspaces}
+                      onChange={(e) =>
+                        setSystemPromptForm((prev) => ({
+                          ...prev,
+                          syncExistingWorkspaces: e.target.checked,
+                        }))
+                      }
+                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-theme-settings-input-bg accent-primary-button"
+                    />
+                    <span className="flex max-w-[640px] flex-col gap-y-1">
+                      <span className="font-semibold text-theme-text-primary">
+                        {t("default-system-prompt.form.syncExisting")}
+                      </span>
+                      <span>
+                        {t("default-system-prompt.form.syncExistingHint")}
+                      </span>
+                    </span>
+                  </label>
                   <button
                     disabled={
-                      !systemPromptForm.isDirty || systemPromptForm.isSubmitting
+                      (!systemPromptForm.isDirty &&
+                        !systemPromptForm.syncExistingWorkspaces) ||
+                      systemPromptForm.isSubmitting
                     }
-                    className={`enabled:hover:bg-secondary enabled:hover:text-white rounded-lg bg-primary-button w-fit py-2 px-4 font-semibold text-xs disabled:opacity-20 disabled:cursor-not-allowed`}
+                    className="motion-hover flex h-[36px] w-fit items-center justify-center rounded-lg border-none bg-primary-button px-4 py-2 text-sm font-bold text-black shadow-[0_4px_14px_rgba(0,0,0,0.25)] hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:opacity-40 light:text-white"
                     type="submit"
                   >
                     {t("common.save")}

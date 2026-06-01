@@ -27,7 +27,7 @@ export default function ApiKeyRow({ apiKey, removeApiKey }) {
   };
 
   const copyApiKey = () => {
-    if (!apiKey) return false;
+    if (!apiKey || apiKey.secretMasked) return false;
     window.navigator.clipboard.writeText(apiKey.secret);
     setCopied(true);
   };
@@ -63,10 +63,14 @@ export default function ApiKeyRow({ apiKey, removeApiKey }) {
           <div className="flex items-center gap-x-6">
             <button
               onClick={copyApiKey}
-              disabled={copied}
+              disabled={copied || apiKey.secretMasked}
               className="text-xs font-medium text-blue-300 rounded-lg hover:text-white hover:light:text-blue-500 hover:text-opacity-60 hover:underline"
             >
-              {copied ? t("api.row.copied") : t("api.row.copy")}
+              {apiKey.secretMasked
+                ? "Masked"
+                : copied
+                  ? t("api.row.copied")
+                  : t("api.row.copy")}
             </button>
             <button
               onClick={handleDelete}

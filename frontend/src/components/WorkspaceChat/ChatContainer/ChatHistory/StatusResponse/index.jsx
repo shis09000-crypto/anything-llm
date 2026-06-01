@@ -3,8 +3,11 @@ import { CaretDown } from "@phosphor-icons/react";
 
 import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
+import { useTranslation } from "react-i18next";
+import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
 
 export default function StatusResponse({ messages = [], isThinking = false }) {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const currentThought = messages[messages.length - 1];
   const previousThoughts = messages.slice(0, -1);
@@ -35,19 +38,23 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
                   playsInline
                   className="w-[18px] h-[18px] scale-[165%] motion-hover light:invert light:opacity-50"
                   data-tooltip-id="agent-thinking"
-                  data-tooltip-content="Agent is thinking..."
-                  aria-label="Agent is thinking..."
+                  data-tooltip-content={t(
+                    "chat_window.toolTimeline.agentThinking"
+                  )}
+                  aria-label={t("chat_window.toolTimeline.agentThinking")}
                 >
                   <source src={AgentAnimation} type="video/webm" />
                 </video>
               ) : (
                 <img
                   src={AgentStatic}
-                  alt="Agent complete"
+                  alt={t("chat_window.toolTimeline.agentComplete")}
                   className="w-[18px] h-[18px] motion-hover light:invert light:opacity-50"
                   data-tooltip-id="agent-thinking"
-                  data-tooltip-content="Agent has finished thinking"
-                  aria-label="Agent has finished thinking"
+                  data-tooltip-content={t(
+                    "chat_window.toolTimeline.agentComplete"
+                  )}
+                  aria-label={t("chat_window.toolTimeline.agentComplete")}
                 />
               )}
             </div>
@@ -57,10 +64,14 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
                 className="absolute top-4 right-4 border-none text-zinc-200 light:text-slate-800 motion-hover"
                 data-tooltip-id="expand-cot"
                 data-tooltip-content={
-                  isExpanded ? "Hide thought chain" : "Show thought chain"
+                  isExpanded
+                    ? t("chat_window.toolTimeline.hideThoughtChain")
+                    : t("chat_window.toolTimeline.showThoughtChain")
                 }
                 aria-label={
-                  isExpanded ? "Hide thought chain" : "Show thought chain"
+                  isExpanded
+                    ? t("chat_window.toolTimeline.hideThoughtChain")
+                    : t("chat_window.toolTimeline.showThoughtChain")
                 }
               >
                 <CaretDown
@@ -74,7 +85,7 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
               <div className="text-zinc-200 light:text-slate-800 font-mono text-sm leading-[18px]">
                 {!isExpanded ? (
                   <span className="block w-full truncate">
-                    {currentThought.content}
+                    {formatTimelineContent(currentThought.content, t)}
                   </span>
                 ) : (
                   <>
@@ -83,10 +94,12 @@ export default function StatusResponse({ messages = [], isThinking = false }) {
                         key={`cot-${thought.uuid || index}`}
                         className="mb-2"
                       >
-                        {thought.content}
+                        {formatTimelineContent(thought.content, t)}
                       </div>
                     ))}
-                    <div>{currentThought.content}</div>
+                    <div>
+                      {formatTimelineContent(currentThought.content, t)}
+                    </div>
                   </>
                 )}
               </div>
