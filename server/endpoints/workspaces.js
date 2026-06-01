@@ -43,6 +43,12 @@ const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
 
+const DEFAULT_UPLOAD_FOLDER = "custom-documents";
+const documentsPath =
+  process.env.NODE_ENV === "development"
+    ? path.resolve(__dirname, "../storage/documents")
+    : path.resolve(process.env.STORAGE_DIR, "documents");
+
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
 }
@@ -69,6 +75,86 @@ function parseHistoryQuery(request) {
 }
 
 const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
+
+function resolveUploadTargetFolder(folderName = DEFAULT_UPLOAD_FOLDER) {
+  const rawFolderName =
+    typeof folderName === "string" ? folderName.trim() : folderName;
+  if (rawFolderName && typeof rawFolderName !== "string") {
+    return {
+      error: "Invalid folderName. Expected a folder name string.",
+    };
+  }
+
+  if (
+    rawFolderName &&
+    (path.isAbsolute(rawFolderName) ||
+      rawFolderName.split(/[\\/]+/).includes(".."))
+  ) {
+    return {
+      error: "Invalid folderName. Target folder must be inside documents.",
+    };
+  }
+
+  let folder;
+  try {
+    folder = normalizePath(rawFolderName || DEFAULT_UPLOAD_FOLDER);
+  } catch {
+    return {
+      error: "Invalid folderName. Target folder must be inside documents.",
+    };
+  }
+  const targetFolderPath = path.resolve(documentsPath, folder);
+  const rootDocumentsPath = path.resolve(documentsPath);
+
+  if (!isWithin(rootDocumentsPath, targetFolderPath)) {
+    return {
+      error: "Invalid folderName. Target folder must be inside documents.",
+    };
+  }
+
+  fs.mkdirSync(targetFolderPath, { recursive: true });
+  return { folder, targetFolderPath };
+}
+
+function moveProcessedDocumentsToFolder(documents = [], target = {}) {
+  if (!Array.isArray(documents) || !target?.folder || !target?.targetFolderPath)
+    return [];
+
+  const rootDocumentsPath = path.resolve(documentsPath);
+
+  for (const doc of documents) {
+    if (!doc?.location) continue;
+    const currentFolder = path.dirname(doc.location);
+    if (currentFolder === target.folder) continue;
+
+    const sourcePath = path.resolve(documentsPath, normalizePath(doc.location));
+    const destinationPath = path.resolve(
+      target.targetFolderPath,
+      path.basename(doc.location)
+    );
+
+    if (
+      !isWithin(rootDocumentsPath, sourcePath) ||
+      !isWithin(rootDocumentsPath, destinationPath)
+    ) {
+      throw new Error("Invalid processed document location.");
+    }
+
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error(`Processed document was not found at ${doc.location}.`);
+    }
+
+    fs.renameSync(sourcePath, destinationPath);
+    const movedLocation = normalizePath(
+      path.join(target.folder, path.basename(doc.location))
+    );
+    doc.location = movedLocation;
+    doc.name = path.basename(movedLocation);
+    if (doc.docpath) doc.docpath = movedLocation;
+  }
+
+  return documents;
+}
 
 function branchBaseName(sourceThread = null) {
   const sourceName = sourceThread?.name || "Default";
@@ -219,6 +305,18 @@ function workspaceEndpoints(app) {
       try {
         const Collector = new CollectorApi();
         const { originalname } = request.file;
+        const uploadTarget = resolveUploadTargetFolder(
+          request.body?.folderName
+        );
+        if (uploadTarget.error) {
+          if (request.file?.path && fs.existsSync(request.file.path))
+            fs.rmSync(request.file.path);
+          return response
+            .status(400)
+            .json({ success: false, error: uploadTarget.error })
+            .end();
+        }
+
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
@@ -232,25 +330,35 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { success, reason } =
+        const { success, reason, documents } =
           await Collector.processDocument(originalname);
         if (!success) {
-          response.status(500).json({ success: false, error: reason }).end();
+          response
+            .status(500)
+            .json({ success: false, error: reason, documents })
+            .end();
           return;
         }
+        const movedDocuments = moveProcessedDocumentsToFolder(
+          documents,
+          uploadTarget
+        );
 
         Collector.log(
-          `Document ${originalname} uploaded processed and successfully. It is now available in documents.`
+          `Document ${originalname} uploaded processed and successfully. It is now available in ${uploadTarget.folder}.`
         );
         await Telemetry.sendTelemetry("document_uploaded");
         await EventLogs.logEvent(
           "document_uploaded",
           {
             documentName: originalname,
+            folder: uploadTarget.folder,
           },
           response.locals?.user?.id
         );
-        response.status(200).json({ success: true, error: null });
+        response
+          .status(200)
+          .json({ success: true, error: null, documents: movedDocuments });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -264,7 +372,16 @@ function workspaceEndpoints(app) {
     async (request, response) => {
       try {
         const Collector = new CollectorApi();
-        const { link = "" } = reqBody(request);
+        const { link = "", folderName = DEFAULT_UPLOAD_FOLDER } =
+          reqBody(request);
+        const uploadTarget = resolveUploadTargetFolder(folderName);
+        if (uploadTarget.error) {
+          return response
+            .status(400)
+            .json({ success: false, error: uploadTarget.error })
+            .end();
+        }
+
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
@@ -278,22 +395,32 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { success, reason } = await Collector.processLink(link);
+        const { success, reason, documents } =
+          await Collector.processLink(link);
         if (!success) {
-          response.status(500).json({ success: false, error: reason }).end();
+          response
+            .status(500)
+            .json({ success: false, error: reason, documents })
+            .end();
           return;
         }
+        const movedDocuments = moveProcessedDocumentsToFolder(
+          documents,
+          uploadTarget
+        );
 
         Collector.log(
-          `Link ${link} uploaded processed and successfully. It is now available in documents.`
+          `Link ${link} uploaded processed and successfully. It is now available in ${uploadTarget.folder}.`
         );
         await Telemetry.sendTelemetry("link_uploaded");
         await EventLogs.logEvent(
           "link_uploaded",
-          { link },
+          { link, folder: uploadTarget.folder },
           response.locals?.user?.id
         );
-        response.status(200).json({ success: true, error: null });
+        response
+          .status(200)
+          .json({ success: true, error: null, documents: movedDocuments });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

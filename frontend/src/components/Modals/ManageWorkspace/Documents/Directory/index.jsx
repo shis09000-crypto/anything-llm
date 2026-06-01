@@ -31,6 +31,8 @@ function Directory({
   moveToWorkspace,
   setLoadingMessage,
   loadingMessage,
+  uploadTargetFolder,
+  setUploadTargetFolder,
 }) {
   const { t } = useTranslation();
   const [amountSelected, setAmountSelected] = useState(0);
@@ -274,7 +276,8 @@ function Directory({
                           item.id,
                           item.type === "folder" ? item : null
                         )}
-                        onRowClick={() => toggleSelection(item)}
+                        uploadTargetSelected={uploadTargetFolder === item.name}
+                        onRowClick={() => setUploadTargetFolder(item.name)}
                         toggleSelection={toggleSelection}
                         isSelected={isSelected}
                         autoExpanded={index === 0}
@@ -336,6 +339,7 @@ function Directory({
             fetchKeys={fetchKeys}
             setLoading={setLoading}
             setLoadingMessage={setLoadingMessage}
+            uploadTargetFolder={uploadTargetFolder}
           />
         </div>
         {isFolderModalOpen && (

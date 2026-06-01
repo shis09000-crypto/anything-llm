@@ -11,6 +11,7 @@ export default function FolderRow({
   toggleSelection,
   isSelected,
   autoExpanded = false,
+  uploadTargetSelected = false,
 }) {
   const [expanded, setExpanded] = useState(autoExpanded);
 
@@ -25,6 +26,10 @@ export default function FolderRow({
         onClick={onRowClick}
         className={`text-theme-text-primary text-xs grid grid-cols-12 py-2 pl-3.5 pr-8 hover:bg-theme-file-picker-hover cursor-pointer file-row ${
           selected ? "selected light:text-white !text-white" : ""
+        } ${
+          uploadTargetSelected
+            ? "bg-theme-settings-input-active light:bg-[#E0F2FE]"
+            : ""
         }`}
       >
         <div

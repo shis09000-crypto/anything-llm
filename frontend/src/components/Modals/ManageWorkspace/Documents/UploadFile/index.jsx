@@ -14,6 +14,7 @@ export default function UploadFile({
   fetchKeys,
   setLoading,
   setLoadingMessage,
+  uploadTargetFolder = "custom-documents",
 }) {
   const { t } = useTranslation();
   const [ready, setReady] = useState(false);
@@ -27,9 +28,11 @@ export default function UploadFile({
     setFetchingUrl(true);
     const formEl = e.target;
     const form = new FormData(formEl);
+    const targetFolder = uploadTargetFolder || "custom-documents";
     const { response, data } = await Workspace.uploadLink(
       workspace.slug,
-      form.get("link")
+      form.get("link"),
+      targetFolder
     );
     if (!response.ok) {
       showToast(`Error uploading link: ${data.error}`, "error");
@@ -50,10 +53,12 @@ export default function UploadFile({
   const handleUploadError = () => debouncedFetchKeysRef.current(fetchKeys, {});
 
   const onDrop = async (acceptedFiles, rejections) => {
+    const targetFolder = uploadTargetFolder || "custom-documents";
     const newAccepted = acceptedFiles.map((file) => {
       return {
         uid: v4(),
         file,
+        uploadTargetFolder: targetFolder,
       };
     });
     const newRejected = rejections.map((file) => {
@@ -62,6 +67,7 @@ export default function UploadFile({
         file: file.file,
         rejected: true,
         reason: file.errors[0].code,
+        uploadTargetFolder: targetFolder,
       };
     });
     setFiles([...newAccepted, ...newRejected]);
@@ -126,6 +132,7 @@ export default function UploadFile({
                 onUploadError={handleUploadError}
                 setLoading={setLoading}
                 setLoadingMessage={setLoadingMessage}
+                uploadTargetFolder={file.uploadTargetFolder}
               />
             ))}
           </div>

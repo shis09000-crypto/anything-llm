@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowRight,
+  ArrowsClockwise,
   Brain,
   Clock,
   Compass,
@@ -521,33 +522,44 @@ export default function WorkspaceOverview({
 
   if (overview?.emptyState?.show) {
     return (
-      <div className="w-full max-w-4xl mx-auto px-4 md:px-8 py-12">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="flex items-center gap-3 text-slate-900 font-semibold text-lg">
-            <Compass size={22} className="text-blue-500" />
-            动态知识库首页还在等待数据
-          </div>
-          <p className="mt-3 text-sm leading-6 text-slate-600">
-            当前 workspace
-            还没有足够的知识图谱、证据或使用记录。你可以先上传文档、运行
-            Knowledge Graph backfill，或继续聊天来积累研究信号。
-          </p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onUploadDocument}
-              className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              上传文档
-            </button>
-            <button
-              type="button"
-              onClick={() => loadOverview({ force: true })}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-            >
-              重新检查
-            </button>
-          </div>
+      <div className="overview-themed-surface h-full w-full overflow-y-auto bg-slate-50 light:bg-slate-50">
+        <div className="mx-auto w-full max-w-5xl px-4 py-10 md:px-8">
+          <section className="overview-themed-surface relative min-h-[220px] overflow-hidden rounded-[28px] border border-[color:var(--overview-glass-border)] bg-white shadow-[0_24px_70px_rgb(15_23_42_/_0.10)]">
+            <VisualBackground defaultUrl={defaultWorkspaceHeroBg} />
+            <div className="relative p-6 sm:p-8">
+              <div className="overview-glass-pill inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold">
+                <Compass size={17} />
+                动态知识库首页
+              </div>
+              <h2 className="mt-5 max-w-2xl text-2xl font-bold leading-tight text-[color:var(--overview-text-primary)] sm:text-3xl">
+                动态知识库首页还在等待数据
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-[color:var(--overview-text-secondary)]">
+                当前 workspace
+                还没有足够的知识图谱、证据或使用记录。你可以先上传文档、运行
+                Knowledge Graph backfill，或继续聊天来积累研究信号。
+              </p>
+              <div className="mt-6 flex flex-wrap gap-3">
+                <AppButton
+                  type="button"
+                  onClick={onUploadDocument}
+                  size="md"
+                  leftIcon={<UploadSimple size={16} weight="bold" />}
+                >
+                  上传文档
+                </AppButton>
+                <AppButton
+                  type="button"
+                  variant="secondary"
+                  onClick={() => loadOverview({ force: true })}
+                  size="md"
+                  leftIcon={<ArrowsClockwise size={16} weight="bold" />}
+                >
+                  重新检查
+                </AppButton>
+              </div>
+            </div>
+          </section>
         </div>
       </div>
     );

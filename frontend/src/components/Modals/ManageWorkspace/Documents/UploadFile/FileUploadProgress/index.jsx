@@ -16,6 +16,7 @@ function FileUploadProgressComponent({
   onUploadError,
   setLoading,
   setLoadingMessage,
+  uploadTargetFolder = "custom-documents",
 }) {
   const [timerMs, setTimerMs] = useState(10);
   const [status, setStatus] = useState("pending");
@@ -41,12 +42,17 @@ function FileUploadProgressComponent({
       const start = Number(new Date());
       const formData = new FormData();
       formData.append("file", file, file.name);
+      formData.append("folderName", uploadTargetFolder || "custom-documents");
       const timer = setInterval(() => {
         setTimerMs(Number(new Date()) - start);
       }, 100);
 
       // Chunk streaming not working in production so we just sit and wait
-      const { response, data } = await Workspace.uploadFile(slug, formData);
+      const { response, data } = await Workspace.uploadFile(
+        slug,
+        formData,
+        uploadTargetFolder
+      );
       if (!response.ok) {
         setStatus("failed");
         clearInterval(timer);

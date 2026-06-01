@@ -13,6 +13,8 @@ export default function DocumentSettings({ workspace }) {
   const [loading, setLoading] = useState(true);
   const [workspaceDocs, setWorkspaceDocs] = useState([]);
   const [selectedItems, setSelectedItems] = useState({});
+  const [uploadTargetFolder, setUploadTargetFolder] =
+    useState("custom-documents");
   const [hasChanges, setHasChanges] = useState(false);
   const [movedItems, setMovedItems] = useState([]);
   const [loadingMessage, setLoadingMessage] = useState("");
@@ -249,6 +251,8 @@ export default function DocumentSettings({ workspace }) {
         setHighlightWorkspace={setHighlightWorkspace}
         moveToWorkspace={moveSelectedItemsToWorkspace}
         setLoadingMessage={setLoadingMessage}
+        uploadTargetFolder={uploadTargetFolder}
+        setUploadTargetFolder={setUploadTargetFolder}
       />
       <div className="upload-modal-arrow">
         <ArrowsDownUp className="text-white text-base font-bold rotate-90 w-11 h-11" />

@@ -331,7 +331,10 @@ const Workspace = {
       .then((res) => res.ok)
       .catch(() => false);
   },
-  uploadFile: async function (slug, formData) {
+  uploadFile: async function (slug, formData, folderName = "custom-documents") {
+    if (folderName && !formData.has("folderName")) {
+      formData.append("folderName", folderName);
+    }
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {
       method: "POST",
       body: formData,
@@ -363,10 +366,10 @@ const Workspace = {
     const data = await response.json();
     return data;
   },
-  uploadLink: async function (slug, link) {
+  uploadLink: async function (slug, link, folderName = "custom-documents") {
     const response = await fetch(`${API_BASE}/workspace/${slug}/upload-link`, {
       method: "POST",
-      body: JSON.stringify({ link }),
+      body: JSON.stringify({ link, folderName }),
       headers: baseHeaders(),
     });
 
