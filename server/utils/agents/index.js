@@ -643,6 +643,27 @@ class AgentHandler {
       this.invocation.workspace,
       user
     );
+    if (this.invocation.workspace?.id) {
+      const {
+        TOOL_NAME: WORKSPACE_SUPPLEMENT_TOOL_NAME,
+        resolveWorkspaceSupplementToolManifest,
+      } = require("../knowledgeGraph/workspaceSupplementToolManifest");
+      const manifest = await resolveWorkspaceSupplementToolManifest({
+        workspaceId: this.invocation.workspace.id,
+      });
+      if (manifest.hasSupplements) {
+        this.aibitat.handlerProps.workspaceSupplementManifest = manifest;
+        this.aibitat.handlerProps.workspaceSupplementPrimaryDocumentId = null;
+        if (
+          !workspaceAgentDef.functions.includes(WORKSPACE_SUPPLEMENT_TOOL_NAME)
+        )
+          workspaceAgentDef.functions.push(WORKSPACE_SUPPLEMENT_TOOL_NAME);
+        workspaceAgentDef.role = `${workspaceAgentDef.role}
+
+Workspace supplement tool guidance:
+If the user asks about book structure, reading order, timeline, person relationships, concept definitions, chapter summaries, or summary requirements, and a matching workspace supplement is available, you may call get_workspace_supplement before answering. Do not call it for ordinary conversation. The tool can only be called once per turn; if it reports tool_call_limit_exceeded, answer using the existing context and do not request it again.`;
+      }
+    }
     workspaceAgentDef.functions = functionsForFileAccessPolicy(
       workspaceAgentDef.functions || [],
       this.aibitat?.fileAccessPolicy

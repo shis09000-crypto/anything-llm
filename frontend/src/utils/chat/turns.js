@@ -4,6 +4,7 @@ export const TURN_STATUSES = {
   running: "running",
   completed: "completed",
   failed: "failed",
+  interrupted: "interrupted",
 };
 
 const TIMELINE_TYPES = new Set([

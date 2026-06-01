@@ -940,6 +940,7 @@ function WorkspaceSupplementPanel({
   workspaceBackground = null,
   onChanged,
 }) {
+  const { t } = useTranslation();
   const fileInputRef = useRef(null);
   const visualInputRef = useRef(null);
   const triggerRef = useRef(null);
@@ -950,6 +951,7 @@ function WorkspaceSupplementPanel({
   const [saving, setSaving] = useState(false);
   const [visualSaving, setVisualSaving] = useState(false);
   const [supplements, setSupplements] = useState(summary?.supplements || []);
+  const [toolManifest, setToolManifest] = useState(null);
   const [structureError, setStructureError] = useState("");
   const [draft, setDraft] = useState({
     title: "",
@@ -998,11 +1000,25 @@ function WorkspaceSupplementPanel({
 
   const refreshList = useCallback(async () => {
     if (!workspace?.slug) return;
-    const result = await WorkspaceOverviewModel.listWorkspaceSupplements(
-      workspace.slug
-    );
+    const [result, manifestResult] = await Promise.all([
+      WorkspaceOverviewModel.listWorkspaceSupplements(workspace.slug),
+      WorkspaceOverviewModel.workspaceSupplementToolManifestPreview(
+        workspace.slug
+      ),
+    ]);
     if (result?.success) setSupplements(result.supplements || []);
+    if (manifestResult?.success)
+      setToolManifest(manifestResult.manifest || null);
   }, [workspace?.slug]);
+
+  useEffect(() => {
+    if (!workspace?.slug) return;
+    WorkspaceOverviewModel.workspaceSupplementToolManifestPreview(
+      workspace.slug
+    ).then((result) => {
+      if (result?.success) setToolManifest(result.manifest || null);
+    });
+  }, [summary?.count, workspace?.slug]);
 
   const openModal = async (nextMode, event) => {
     triggerRef.current = event?.currentTarget || document.activeElement;
@@ -1291,6 +1307,7 @@ function WorkspaceSupplementPanel({
           </button>
         </div>
       </div>
+      <SupplementToolPreview manifest={toolManifest} t={t} />
       {open &&
         createPortal(
           <div
@@ -1581,6 +1598,88 @@ function scopeTypeLabel(scopeType) {
 function supplementKindLabel(kind) {
   return (
     Object.fromEntries(workspaceSupplementKinds)[kind] || kind || "未知类型"
+  );
+}
+
+function SupplementToolPreview({ manifest, t }) {
+  const standardKinds = manifest?.standardKinds || [];
+  const customDocuments = manifest?.customDocuments || [];
+  const hasSupplements = standardKinds.length > 0 || customDocuments.length > 0;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-slate-200/80 bg-white/70 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold text-slate-700">
+            {t("workspaceSupplement.tool.title")}
+          </div>
+          <p className="mt-1 text-[11px] leading-5 text-slate-500">
+            {t("workspaceSupplement.tool.description")}
+          </p>
+        </div>
+        {!hasSupplements && (
+          <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] text-slate-500">
+            {t("workspaceSupplement.tool.noAvailableSupplements")}
+          </span>
+        )}
+      </div>
+      {hasSupplements && (
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div>
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {t("workspaceSupplement.tool.availableKinds")}
+            </div>
+            {standardKinds.length ? (
+              <div className="flex flex-wrap gap-2">
+                {standardKinds.map((item) => (
+                  <span
+                    key={item.kind}
+                    className="rounded-full border border-blue-100 bg-blue-50 px-2 py-1 text-[11px] font-medium text-blue-700"
+                    title={t(item.descriptionKey)}
+                  >
+                    {t(item.labelKey)} · {item.count}
+                    {item.kind === "structure_json" &&
+                      ` · ${
+                        item.structureJsonValid
+                          ? t("workspaceSupplement.structureJsonValid")
+                          : t("workspaceSupplement.structureJsonInvalid")
+                      }`}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">
+                {t("workspaceSupplement.tool.noAvailableSupplements")}
+              </p>
+            )}
+          </div>
+          <div>
+            <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {t("workspaceSupplement.tool.customDocuments")}
+            </div>
+            {customDocuments.length ? (
+              <div className="flex flex-wrap gap-2">
+                {customDocuments.map((item) => (
+                  <span
+                    key={item.supplementId}
+                    className="max-w-full truncate rounded-full border border-emerald-100 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700"
+                    title={`${item.title} · ${t(
+                      "workspaceSupplement.usagePreview"
+                    )}: ${item.contentPreview || ""}`}
+                  >
+                    {item.title}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400">
+                {t("workspaceSupplement.tool.noAvailableSupplements")}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

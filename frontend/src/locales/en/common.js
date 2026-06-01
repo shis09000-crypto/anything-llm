@@ -295,6 +295,44 @@ const readable = true;
       "No recommendations yet. Keep exploring concepts or evidence and this area will get smarter.",
     knowledgeGaps: "Knowledge gaps",
   },
+  workspaceSupplement: {
+    tool: {
+      title: "Tool preview",
+      description:
+        "These supplements are exposed to the model as an on-demand tool instead of being preloaded into context.",
+      availableKinds: "Available supplement types",
+      customDocuments: "Custom supplement documents",
+      noAvailableSupplements: "No available supplements",
+    },
+    kinds: {
+      structure_json: "Structure notes",
+      reading_guide: "Reading guide",
+      chapter_overview: "Chapter overview",
+      timeline: "Timeline",
+      person_map: "Person map",
+      concept_index: "Concept index",
+      summary_standard: "Summary standard",
+    },
+    kindDescriptions: {
+      structure_json:
+        "Used for structure, primary axes, secondary axes, and node parsing standards.",
+      reading_guide:
+        "Used for reading order, subject boundaries, and learning approach.",
+      chapter_overview:
+        "Used for chapter roles, chapter relationships, and study focus.",
+      timeline: "Used for chronological order, developments, and causality.",
+      person_map: "Used for views, influence chains, and comparisons.",
+      concept_index:
+        "Used for definitions, related concepts, and common mistakes.",
+      summary_standard:
+        "Used for summary structure, required coverage, and forbidden misreadings.",
+    },
+    customDocumentDescription:
+      "A custom supplement document exposed by its concrete title.",
+    structureJsonValid: "Valid structure",
+    structureJsonInvalid: "Structure needs review",
+    usagePreview: "Preview",
+  },
   "system-prompt-variables": {
     title: "System Prompt Variables",
     description:

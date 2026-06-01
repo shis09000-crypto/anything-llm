@@ -16,7 +16,12 @@ const WorkspaceAgentInvocation = {
         where: { uuid: String(uuid) },
         data: { closed: true },
       });
-    } catch {}
+    } catch (error) {
+      console.warn("[WorkspaceAgentInvocation] close failed", {
+        uuid: String(uuid),
+        message: error.message,
+      });
+    }
   },
 
   new: async function ({ prompt, workspace, user = null, thread = null }) {

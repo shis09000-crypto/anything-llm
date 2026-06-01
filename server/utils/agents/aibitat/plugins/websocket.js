@@ -442,6 +442,7 @@ const websocket = {
 
         aibitat.onTerminate(() => {
           // console.log("🚀 chat finished");
+          socket.__agentFinalClose = true;
           socket.close();
         });
 

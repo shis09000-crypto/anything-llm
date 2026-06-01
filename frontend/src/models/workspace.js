@@ -293,6 +293,19 @@ const Workspace = {
       window.removeEventListener(ABORT_STREAM_EVENT, abortStream);
     }
   },
+  agentInvocationState: async function (uuid) {
+    if (!uuid) return { success: false, state: null };
+    return await fetch(`${API_BASE}/agent-invocation/${uuid}/state`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((error) => ({
+        success: false,
+        state: null,
+        error: error.message,
+      }));
+  },
   all: async function () {
     const workspaces = await fetch(`${API_BASE}/workspaces`, {
       method: "GET",

@@ -11,6 +11,7 @@ const { normalizePath, isWithin } = require("../utils/files");
 const { Workspace } = require("../models/workspace");
 const { Document } = require("../models/documents");
 const { DocumentVectors } = require("../models/vectors");
+const { DocumentIndexStatus } = require("../models/documentIndexStatus");
 const { WorkspaceChats } = require("../models/workspaceChats");
 const { getVectorDbClass } = require("../utils/helpers");
 const { handleFileUpload, handlePfpUpload } = require("../utils/files/multer");
@@ -42,6 +43,7 @@ const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
 const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
+const { safeFileMove, safeReadJsonFile } = require("../utils/safety");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath =
@@ -116,6 +118,17 @@ function resolveUploadTargetFolder(folderName = DEFAULT_UPLOAD_FOLDER) {
   return { folder, targetFolderPath };
 }
 
+function uniqueDestinationPath(destinationPath) {
+  if (!fs.existsSync(destinationPath)) return destinationPath;
+  const ext = path.extname(destinationPath);
+  const base = destinationPath.slice(0, destinationPath.length - ext.length);
+  for (let index = 1; index < 1_000; index++) {
+    const candidate = `${base}-${index}${ext}`;
+    if (!fs.existsSync(candidate)) return candidate;
+  }
+  throw new Error("Unable to resolve a unique destination for uploaded file.");
+}
+
 function moveProcessedDocumentsToFolder(documents = [], target = {}) {
   if (!Array.isArray(documents) || !target?.folder || !target?.targetFolderPath)
     return [];
@@ -128,9 +141,8 @@ function moveProcessedDocumentsToFolder(documents = [], target = {}) {
     if (currentFolder === target.folder) continue;
 
     const sourcePath = path.resolve(documentsPath, normalizePath(doc.location));
-    const destinationPath = path.resolve(
-      target.targetFolderPath,
-      path.basename(doc.location)
+    const destinationPath = uniqueDestinationPath(
+      path.resolve(target.targetFolderPath, path.basename(doc.location))
     );
 
     if (
@@ -144,9 +156,9 @@ function moveProcessedDocumentsToFolder(documents = [], target = {}) {
       throw new Error(`Processed document was not found at ${doc.location}.`);
     }
 
-    fs.renameSync(sourcePath, destinationPath);
+    safeFileMove(sourcePath, destinationPath, { overwrite: false });
     const movedLocation = normalizePath(
-      path.join(target.folder, path.basename(doc.location))
+      path.join(target.folder, path.basename(destinationPath))
     );
     doc.location = movedLocation;
     doc.name = path.basename(movedLocation);
@@ -154,6 +166,102 @@ function moveProcessedDocumentsToFolder(documents = [], target = {}) {
   }
 
   return documents;
+}
+
+function localDocumentPath(docpath = "") {
+  try {
+    return path.resolve(documentsPath, normalizePath(docpath));
+  } catch {
+    return null;
+  }
+}
+
+function localDocumentHealth(docpath = "") {
+  const fullPath = localDocumentPath(docpath);
+  if (!fullPath || !isWithin(documentsPath, fullPath))
+    return { exists: false, readableJson: false, error: "invalid_path" };
+  if (!fs.existsSync(fullPath))
+    return { exists: false, readableJson: false, error: "missing_file" };
+
+  const result = safeReadJsonFile(fullPath, null, {
+    quarantine: false,
+    context: { docpath },
+  });
+  return {
+    exists: true,
+    readableJson: result.ok,
+    error: result.error?.code || null,
+  };
+}
+
+async function workspaceRobustnessDiagnostics(workspace) {
+  const workspaceDocuments = await Document.forWorkspace(workspace.id);
+  const docIds = [...new Set(workspaceDocuments.map((doc) => doc.docId))];
+  const vectorRows = docIds.length
+    ? await DocumentVectors.where({ docId: { in: docIds } })
+    : [];
+  const vectorDocIds = new Set(vectorRows.map((row) => row.docId));
+  const indexStatuses = await DocumentIndexStatus.forWorkspace(workspace.id);
+  const documentPaths = new Set(workspaceDocuments.map((doc) => doc.docpath));
+  const statusPaths = new Set(indexStatuses.map((status) => status.filePath));
+  const allPaths = [...new Set([...documentPaths, ...statusPaths])];
+  const fileHealth = allPaths.map((docpath) => ({
+    docpath,
+    ...localDocumentHealth(docpath),
+    hasWorkspaceDocument: documentPaths.has(docpath),
+    hasIndexStatus: statusPaths.has(docpath),
+  }));
+  const dbWithoutFile = fileHealth.filter(
+    (item) => item.hasWorkspaceDocument && !item.exists
+  );
+  const statusWithoutDb = fileHealth.filter(
+    (item) => item.hasIndexStatus && !item.hasWorkspaceDocument
+  );
+  const dbWithoutVector = workspaceDocuments.filter(
+    (doc) => !vectorDocIds.has(doc.docId)
+  );
+  const corruptFiles = fileHealth.filter(
+    (item) => item.exists && !item.readableJson
+  );
+  const stuckIndexStatuses = indexStatuses.filter((status) =>
+    ["pending", "indexing"].includes(status.indexStatus)
+  );
+
+  return {
+    success: true,
+    workspace: { id: workspace.id, slug: workspace.slug },
+    summary: {
+      workspaceDocuments: workspaceDocuments.length,
+      vectorRows: vectorRows.length,
+      indexStatuses: indexStatuses.length,
+      checkedFiles: fileHealth.length,
+      dbWithoutFile: dbWithoutFile.length,
+      statusWithoutDb: statusWithoutDb.length,
+      dbWithoutVector: dbWithoutVector.length,
+      corruptFiles: corruptFiles.length,
+      stuckIndexStatuses: stuckIndexStatuses.length,
+    },
+    issues: {
+      dbWithoutFile: dbWithoutFile.map((item) => item.docpath),
+      statusWithoutDb: statusWithoutDb.map((item) => item.docpath),
+      dbWithoutVector: dbWithoutVector.map((doc) => ({
+        docId: doc.docId,
+        docpath: doc.docpath,
+        filename: doc.filename,
+      })),
+      corruptFiles: corruptFiles.map((item) => ({
+        docpath: item.docpath,
+        error: item.error,
+      })),
+      stuckIndexStatuses: stuckIndexStatuses.map((status) => ({
+        filePath: status.filePath,
+        docId: status.docId,
+        indexStatus: status.indexStatus,
+        updatedAt: status.updatedAt,
+      })),
+    },
+    fileHealth,
+  };
 }
 
 function branchBaseName(sourceThread = null) {
@@ -496,6 +604,34 @@ function workspaceEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/robustness-diagnostics",
+    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const { slug = null } = request.params;
+        const workspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+        if (!workspace)
+          return response
+            .status(404)
+            .json({ success: false, error: "Workspace not found." });
+
+        return response
+          .status(200)
+          .json(await workspaceRobustnessDiagnostics(workspace));
+      } catch (error) {
+        console.error("[RobustnessDiagnostics]", error.message, error);
+        return response.status(500).json({
+          success: false,
+          error: error.message,
+        });
       }
     }
   );

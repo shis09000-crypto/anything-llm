@@ -18,6 +18,7 @@ import ThoughtTimeline from "./ThoughtTimeline";
 import ToolEvent from "./ToolEvent";
 import { debugChatTurn } from "@/utils/chat/debug";
 import DocumentSourceChips from "../../DocumentReader/DocumentSourceChips";
+import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 
 function AssistantTurn({
   turn,
@@ -33,6 +34,7 @@ function AssistantTurn({
   readOnly = false,
 }) {
   const { t } = useTranslation();
+  const { continueInterruptedAgentTurn } = useChatThreadDrafts();
   const { isEditing } = useEditMessage({
     chatId: turn.chatId,
     role: "assistant",
@@ -77,6 +79,7 @@ function AssistantTurn({
   );
   const isRunning = turn.status === "running";
   const isFailed = turn.status === "failed";
+  const isReconnectOffer = turn.reconnectState === "offer";
   const isRefusalMessage =
     turn.finalContent === chatQueryRefusalResponse(workspace);
 
@@ -197,6 +200,34 @@ function AssistantTurn({
                 {turn.error}
               </p>
             )}
+          </div>
+        )}
+        {isReconnectOffer && !readOnly && (
+          <div className="mt-3 p-3 rounded-lg bg-theme-bg-secondary border border-theme-sidebar-border w-fit max-w-full">
+            <p className="text-sm text-theme-text-primary m-0">
+              Agent connection reached the reconnect limit. Continue using the
+              recorded tool results and partial answer?
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  continueInterruptedAgentTurn(chatKey, turn.turnId, true)
+                }
+                className="px-3 py-1.5 rounded-md bg-primary-button text-white text-xs font-medium"
+              >
+                Reconnect
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  continueInterruptedAgentTurn(chatKey, turn.turnId, false)
+                }
+                className="px-3 py-1.5 rounded-md bg-theme-bg-primary text-theme-text-primary border border-theme-sidebar-border text-xs font-medium"
+              >
+                Keep interrupted
+              </button>
+            </div>
           </div>
         )}
         {!readOnly && (

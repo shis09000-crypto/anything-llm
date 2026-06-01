@@ -14,13 +14,17 @@ const { NodeHtmlMarkdown } = require("node-html-markdown");
 const { Document } = require("../models/documents");
 const { validateReadPath } = require("../utils/fileAccessPolicy");
 const { fileData, isWithin, normalizePath } = require("../utils/files");
-const { getTaskConnector } = require("../utils/llmTasks");
+const {
+  getTaskConnector,
+  resolveTaskProviderModel,
+} = require("../utils/llmTasks");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
+const { atomicWriteJsonFile, safeReadJsonFile } = require("../utils/safety");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -401,12 +405,14 @@ function scheduleDocxPreviewMetadataUpdate({
   })
     .then((finalMetadata) => {
       const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-      fs.writeFileSync(
-        safeResolve(documentRoot, "metadata.json"),
-        JSON.stringify(finalMetadata, null, 2)
-      );
+      writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
     })
-    .catch(() => null);
+    .catch((error) =>
+      console.warn("[ReaderDocument] DOCX preview metadata update failed", {
+        readerDocumentId,
+        error: error.message,
+      })
+    );
 }
 
 function writeReaderDocumentFiles(
@@ -417,14 +423,8 @@ function writeReaderDocumentFiles(
 ) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   fs.mkdirSync(documentRoot, { recursive: true });
-  fs.writeFileSync(
-    safeResolve(documentRoot, "content.json"),
-    JSON.stringify(content, null, 2)
-  );
-  fs.writeFileSync(
-    safeResolve(documentRoot, "metadata.json"),
-    JSON.stringify(metadata, null, 2)
-  );
+  writeReaderJsonFile(documentRoot, "content.json", content);
+  writeReaderJsonFile(documentRoot, "metadata.json", metadata);
   return documentRoot;
 }
 
@@ -729,19 +729,26 @@ function defaultReaderPostprocessStatus(readerDocumentId) {
 
 function readReaderPostprocessStatus(documentRoot, readerDocumentId) {
   const statusPath = safeResolve(documentRoot, READER_POSTPROCESS_STATUS_NAME);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(statusPath, "utf8"));
-    return {
-      ...defaultReaderPostprocessStatus(readerDocumentId),
-      ...parsed,
-      tasks: parsed.tasks || {},
-      requestedTasks: Array.isArray(parsed.requestedTasks)
-        ? parsed.requestedTasks
-        : [],
-    };
-  } catch {
+  const result = safeReadJsonFile(
+    statusPath,
+    defaultReaderPostprocessStatus(readerDocumentId),
+    {
+      context: { readerDocumentId, file: READER_POSTPROCESS_STATUS_NAME },
+    }
+  );
+  if (!result.ok) {
+    console.warn("[ReaderPostprocess] status fallback", result.error);
     return defaultReaderPostprocessStatus(readerDocumentId);
   }
+  const parsed = result.value || {};
+  return {
+    ...defaultReaderPostprocessStatus(readerDocumentId),
+    ...parsed,
+    tasks: parsed.tasks || {},
+    requestedTasks: Array.isArray(parsed.requestedTasks)
+      ? parsed.requestedTasks
+      : [],
+  };
 }
 
 function writeReaderPostprocessStatus(documentRoot, status) {
@@ -749,10 +756,12 @@ function writeReaderPostprocessStatus(documentRoot, status) {
     ...status,
     updatedAt: isoNow(),
   };
-  fs.writeFileSync(
+  const result = atomicWriteJsonFile(
     safeResolve(documentRoot, READER_POSTPROCESS_STATUS_NAME),
-    JSON.stringify(next, null, 2)
+    next
   );
+  if (!result.ok)
+    console.warn("[ReaderPostprocess] status write failed", result.error);
   return next;
 }
 
@@ -767,6 +776,52 @@ function updateReaderPostprocessStatus(
       ? updater(current)
       : { ...current, ...updater };
   return writeReaderPostprocessStatus(documentRoot, next);
+}
+
+function readReaderJsonFile(
+  documentRoot,
+  filename,
+  fallback = null,
+  context = {}
+) {
+  const filePath = safeResolve(documentRoot, filename);
+  const result = safeReadJsonFile(filePath, fallback, {
+    context: { file: filename, ...context },
+  });
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(`Reader document ${filename} is unavailable.`),
+      {
+        code: "READER_DOCUMENT_JSON_UNAVAILABLE",
+        detail: result.error,
+      }
+    );
+  }
+  return result.value;
+}
+
+function writeReaderJsonFile(documentRoot, filename, value) {
+  const result = atomicWriteJsonFile(
+    safeResolve(documentRoot, filename),
+    value
+  );
+  if (!result.ok) {
+    throw Object.assign(
+      new Error(`Failed to write reader document ${filename}.`),
+      {
+        code: "READER_DOCUMENT_JSON_WRITE_FAILED",
+        detail: result.error,
+      }
+    );
+  }
+  return value;
+}
+
+function readReaderContentAndMetadata(documentRoot, context = {}) {
+  return {
+    content: readReaderJsonFile(documentRoot, "content.json", null, context),
+    metadata: readReaderJsonFile(documentRoot, "metadata.json", null, context),
+  };
 }
 
 function postprocessTaskPatch(status, task, patch = {}) {
@@ -1233,10 +1288,7 @@ async function generateReaderDocumentThumbnail({
     thumbnailUrl: thumbnailUrlForDocument(workspace, readerDocumentId),
     thumbnailGeneratedAt: isoNow(),
   };
-  fs.writeFileSync(
-    safeResolve(documentRoot, "metadata.json"),
-    JSON.stringify(nextMetadata, null, 2)
-  );
+  writeReaderJsonFile(documentRoot, "metadata.json", nextMetadata);
   return {
     metadata: nextMetadata,
     thumbnailDataUrl: `data:image/jpeg;base64,${thumbnailBuffer.toString("base64")}`,
@@ -1264,12 +1316,10 @@ async function runReaderPostprocessJob({
     completedAt: null,
   }));
 
-  let content = JSON.parse(
-    fs.readFileSync(safeResolve(documentRoot, "content.json"), "utf8")
-  );
-  let metadata = JSON.parse(
-    fs.readFileSync(safeResolve(documentRoot, "metadata.json"), "utf8")
-  );
+  let { content, metadata } = readReaderContentAndMetadata(documentRoot, {
+    readerDocumentId,
+    phase: "postprocess",
+  });
   const originalPath = await originalPathForReaderDocument({
     documentRoot,
     metadata,
@@ -1718,6 +1768,15 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
       safeClassificationReason("failed")
     );
 
+  const taskProvider = resolveTaskProviderModel(
+    "reader_document_classification"
+  );
+  if (taskProvider.provider === "deepseek" && !process.env.DEEPSEEK_API_KEY)
+    return unknownClassificationCategory(
+      categories,
+      safeClassificationReason("missing_key")
+    );
+
   try {
     readerClassificationLog("start", {
       title: String(body.title || "").slice(0, 80),
@@ -1726,9 +1785,20 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
       sampleChars,
       categoryCount: categories.length,
     });
-    const { connector: LLMConnector } = getTaskConnector(
+    const { connector: LLMConnector, provider } = getTaskConnector(
       "reader_document_classification"
     );
+    if (
+      typeof LLMConnector?.compressMessages !== "function" ||
+      typeof LLMConnector?.getChatCompletion !== "function"
+    ) {
+      const error = new Error("classification_connector_unavailable");
+      error.code =
+        provider === "deepseek"
+          ? "LLM_TASK_PROVIDER_MISSING_KEY"
+          : "LLM_TASK_CONNECTOR_UNAVAILABLE";
+      throw error;
+    }
     const prompt = buildReaderClassificationPrompt({
       title: body.title,
       documentType: body.documentType,
@@ -1851,14 +1921,8 @@ function workspaceReaderDocumentsEndpoints(app) {
             createdAt: new Date().toISOString(),
           };
 
-          fs.writeFileSync(
-            safeResolve(documentRoot, "content.json"),
-            JSON.stringify(content, null, 2)
-          );
-          fs.writeFileSync(
-            safeResolve(documentRoot, "metadata.json"),
-            JSON.stringify(metadata, null, 2)
-          );
+          writeReaderJsonFile(documentRoot, "content.json", content);
+          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
           const finalMetadata = await finalizeReaderDocumentMetadata({
             workspace,
             readerDocumentId,
@@ -1867,10 +1931,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             buffer: request.file.buffer,
             waitForDocxPreview: false,
           });
-          fs.writeFileSync(
-            safeResolve(documentRoot, "metadata.json"),
-            JSON.stringify(finalMetadata, null, 2)
-          );
+          writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
 
           return response.status(200).json({
             success: true,
@@ -2022,10 +2083,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        fs.accessSync(
-          safeResolve(documentRoot, "metadata.json"),
-          fs.constants.R_OK
-        );
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "postprocess.enqueue",
+        });
         const status = enqueueReaderPostprocessJob({
           workspace,
           readerDocumentId,
@@ -2055,10 +2116,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        fs.accessSync(
-          safeResolve(documentRoot, "metadata.json"),
-          fs.constants.R_OK
-        );
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "postprocess.status",
+        });
         return response
           .status(200)
           .json(readerPostprocessResponse(workspace, readerDocumentId));
@@ -2080,8 +2141,11 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const previousMetadata = JSON.parse(
-          fs.readFileSync(safeResolve(documentRoot, "metadata.json"), "utf8")
+        const previousMetadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          { readerDocumentId, endpoint: "reopen-local-path" }
         );
         if (!previousMetadata.localPath) {
           const error = new Error("Reader document has no local path binding.");
@@ -2156,8 +2220,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const metadataPath = safeResolve(documentRoot, "metadata.json");
-        fs.accessSync(metadataPath, fs.constants.R_OK);
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "preview",
+        });
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
@@ -2188,10 +2254,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        fs.accessSync(
-          safeResolve(documentRoot, "metadata.json"),
-          fs.constants.R_OK
-        );
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "thumbnail",
+        });
         const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
         if (!validNonEmptyFile(thumbnailPath))
           return response.status(404).json({
@@ -2222,8 +2288,14 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const metadata = JSON.parse(
-          fs.readFileSync(safeResolve(documentRoot, "metadata.json"), "utf8")
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "original",
+          }
         );
         const originalPath = metadata.localPath
           ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
@@ -2247,12 +2319,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const content = JSON.parse(
-          fs.readFileSync(safeResolve(documentRoot, "content.json"), "utf8")
-        );
-        let metadata = JSON.parse(
-          fs.readFileSync(safeResolve(documentRoot, "metadata.json"), "utf8")
-        );
+        const { content, metadata: initialMetadata } =
+          readReaderContentAndMetadata(documentRoot, {
+            readerDocumentId,
+            endpoint: "get",
+          });
+        let metadata = initialMetadata;
         if (metadataIsDocx(metadata)) {
           const originalPath = metadata.localPath
             ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
@@ -2263,10 +2335,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             metadata,
             originalPath,
           });
-          fs.writeFileSync(
-            safeResolve(documentRoot, "metadata.json"),
-            JSON.stringify(metadata, null, 2)
-          );
+          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
         }
 
         return response.status(200).json({

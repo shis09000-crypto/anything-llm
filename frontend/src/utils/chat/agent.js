@@ -69,8 +69,10 @@ function compactApprovalPayload(payload = {}) {
 function toolResultEvent(content = {}) {
   return {
     type: "timeline_event",
+    seq: content.seq,
     event: {
       type: "tool_result",
+      seq: content.seq,
       uuid: content.uuid,
       content: truncateText(
         content.summary ||
@@ -105,6 +107,7 @@ function reportStreamEvent(content = {}) {
     if (content.close) {
       return {
         type: "assistant_final",
+        seq: content.seq,
         uuid,
         content: content.content || "",
         sources: content.sources || [],
@@ -116,6 +119,7 @@ function reportStreamEvent(content = {}) {
 
     return {
       type: "assistant_delta",
+      seq: content.seq,
       uuid,
       content: content.content || "",
       sources: content.sources || [],
@@ -128,6 +132,7 @@ function reportStreamEvent(content = {}) {
   if (type === "fullTextResponse") {
     return {
       type: "assistant_final",
+      seq: content.seq,
       uuid,
       content: content.content || "",
       sources: content.sources || [],
@@ -140,6 +145,7 @@ function reportStreamEvent(content = {}) {
   if (type === "usageMetrics") {
     return {
       type: "assistant_patch",
+      seq: content.seq,
       uuid,
       patch: { metrics: content.metrics || {} },
     };
@@ -148,6 +154,7 @@ function reportStreamEvent(content = {}) {
   if (type === "citations") {
     return {
       type: "assistant_patch",
+      seq: content.seq,
       uuid,
       patch: { sources: content.citations || [] },
       appendSources: true,
@@ -157,6 +164,7 @@ function reportStreamEvent(content = {}) {
   if (type === "chatId") {
     return {
       type: "assistant_final",
+      seq: content.seq,
       uuid,
       content: "",
       chatId: content.chatId,
@@ -169,8 +177,10 @@ function reportStreamEvent(content = {}) {
   if (type === "toolCallInvocation") {
     return {
       type: "timeline_event",
+      seq: content.seq,
       event: {
         type: "tool_call",
+        seq: content.seq,
         uuid,
         content: truncateText(content.content || ""),
         toolName: content.toolName,
@@ -179,14 +189,16 @@ function reportStreamEvent(content = {}) {
   }
 
   if (type === "toolCallResult") {
-    return toolResultEvent(content);
+    return { ...toolResultEvent(content), seq: content.seq };
   }
 
   if (type === "statusResponse") {
     return {
       type: "timeline_event",
+      seq: content.seq,
       event: {
         type: "thought",
+        seq: content.seq,
         uuid,
         content: truncateText(content.content || ""),
       },
@@ -196,6 +208,7 @@ function reportStreamEvent(content = {}) {
   if (type === "removeStatusResponse") {
     return {
       type: "timeline_event",
+      seq: content.seq,
       event: {
         type: "remove_agent_event",
         uuid,
@@ -206,8 +219,10 @@ function reportStreamEvent(content = {}) {
 
   return {
     type: "timeline_event",
+    seq: content.seq,
     event: {
       type: "thought",
+      seq: content.seq,
       uuid,
       content: content.content || "",
       payload: content,
@@ -242,6 +257,7 @@ export default function handleSocketResponse(_socket, event) {
   if (!data.hasOwnProperty("type")) {
     normalized = {
       type: "assistant_final",
+      seq: data.seq,
       content: data.content || "",
     };
     debugChatTurn("normalize:event", {
@@ -256,6 +272,7 @@ export default function handleSocketResponse(_socket, event) {
       data.content && typeof data.content === "object" ? data.content : data;
     normalized = {
       type: "assistant_final",
+      seq: data.seq || content.seq,
       uuid: content.uuid,
       content: content.content || "",
       chatId: content.chatId,
@@ -273,8 +290,10 @@ export default function handleSocketResponse(_socket, event) {
   if (data.type === "statusResponse") {
     normalized = {
       type: "timeline_event",
+      seq: data.seq,
       event: {
         type: "thought",
+        seq: data.seq,
         content: data.content || "",
         animate: data.animate,
       },
@@ -290,8 +309,10 @@ export default function handleSocketResponse(_socket, event) {
     if (!data.requestId || !data.skillName) return null;
     normalized = {
       type: "timeline_event",
+      seq: data.seq,
       event: {
         type: "approval_request",
+        seq: data.seq,
         requestId: data.requestId,
         skillName: data.skillName,
         payload: compactApprovalPayload(data.payload),
@@ -312,6 +333,7 @@ export default function handleSocketResponse(_socket, event) {
   if (data.type === "wssFailure") {
     normalized = {
       type: "assistant_error",
+      seq: data.seq,
       content: data.content || "Agent websocket connection failed.",
       error: data.content || "Agent websocket connection failed.",
     };
@@ -363,8 +385,33 @@ export default function handleSocketResponse(_socket, event) {
     return normalized;
   }
 
+  if (data.type === "agentReplayStart") {
+    normalized = {
+      type: "agent_replay_start",
+      latestSeq: data.latestSeq || 0,
+    };
+    debugChatTurn("normalize:event", {
+      ...rawEventSummary(data, "WebSocket"),
+      ...normalizedEventSummary(normalized, "WebSocket"),
+    });
+    return normalized;
+  }
+
+  if (data.type === "agentReplayEnd") {
+    normalized = {
+      type: "agent_replay_end",
+      latestSeq: data.latestSeq || 0,
+    };
+    debugChatTurn("normalize:event", {
+      ...rawEventSummary(data, "WebSocket"),
+      ...normalizedEventSummary(normalized, "WebSocket"),
+    });
+    return normalized;
+  }
+
   normalized = {
     type: "timeline_event",
+    seq: data.seq,
     event: {
       type: "thought",
       content: truncateText(data.content || ""),

@@ -270,6 +270,39 @@ const readable = true;
       "まだおすすめはありません。概念や証拠を確認し続けると、ここがより賢くなります。",
     knowledgeGaps: "知識ギャップ",
   },
+  workspaceSupplement: {
+    tool: {
+      title: "ツールプレビュー",
+      description:
+        "これらの補足はコンテキストへ一括投入せず、必要に応じてモデル用ツールとして公開されます。",
+      availableKinds: "利用可能な補足タイプ",
+      customDocuments: "カスタム補足ドキュメント",
+      noAvailableSupplements: "利用可能な補足はありません",
+    },
+    kinds: {
+      structure_json: "構造説明",
+      reading_guide: "読書ガイド",
+      chapter_overview: "章の概要",
+      timeline: "タイムライン",
+      person_map: "人物関係",
+      concept_index: "概念索引",
+      summary_standard: "要約基準",
+    },
+    kindDescriptions: {
+      structure_json: "構造、主軸、副軸、ノード解析基準に使用します。",
+      reading_guide: "読む順序、主題範囲、学習方法に使用します。",
+      chapter_overview: "章の役割、章同士の関係、学習重点に使用します。",
+      timeline: "時系列、展開、因果関係に使用します。",
+      person_map: "人物の見解、影響関係、比較に使用します。",
+      concept_index: "定義、関連概念、誤解しやすい点に使用します。",
+      summary_standard: "要約構成、必須観点、誤読禁止事項に使用します。",
+    },
+    customDocumentDescription:
+      "具体的なタイトルで公開されるカスタム補足ドキュメントです。",
+    structureJsonValid: "構造は有効",
+    structureJsonInvalid: "構造は確認が必要",
+    usagePreview: "プレビュー",
+  },
   "system-prompt-variables": {
     title: "システムプロンプト変数",
     description:

@@ -26,6 +26,10 @@ const {
 const {
   invalidateWorkspaceOverviewCache,
 } = require("../utils/workspaceOverview");
+const {
+  listWorkspaceSupplementsWithToolFields,
+  resolveWorkspaceSupplementToolManifest,
+} = require("../utils/knowledgeGraph/workspaceSupplementToolManifest");
 
 function bool(value) {
   return value === true || value === "true" || value === 1 || value === "1";
@@ -104,7 +108,7 @@ function workspaceSupplementEndpoints(app) {
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
-        const supplements = await WorkspaceSupplement.list({
+        const supplements = await listWorkspaceSupplementsWithToolFields({
           workspaceId: workspace.id,
           scopeType: request.query.scopeType || null,
           primaryDocumentId:
@@ -115,6 +119,28 @@ function workspaceSupplementEndpoints(app) {
         response.status(200).json({ success: true, supplements });
       } catch (error) {
         console.error("[WorkspaceSupplement] list failed", error);
+        response.status(500).json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/workspace-supplements/tool-manifest-preview",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const manifest = await resolveWorkspaceSupplementToolManifest({
+          workspaceId: workspace.id,
+          scopeType: request.query.scopeType || null,
+          primaryDocumentId: request.query.primaryDocumentId || null,
+        });
+        response.status(200).json({ success: true, manifest });
+      } catch (error) {
+        console.error(
+          "[WorkspaceSupplement] tool manifest preview failed",
+          error
+        );
         response.status(500).json({ success: false, error: error.message });
       }
     }

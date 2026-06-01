@@ -30,7 +30,9 @@ const prisma = new PrismaClient({
   },
 });
 
-if (process.env.NODE_ENV !== "test") {
+const isJestRuntime = Boolean(process.env.JEST_WORKER_ID);
+
+if (process.env.NODE_ENV !== "test" && !isJestRuntime) {
   (async () => {
     await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL");
     await prisma.$queryRawUnsafe("PRAGMA synchronous = NORMAL");

@@ -279,6 +279,37 @@ const readable = true;
     noRecommendations: "暂无推荐。继续查看概念或证据后，这里会变得更聪明。",
     knowledgeGaps: "知识缺口",
   },
+  workspaceSupplement: {
+    tool: {
+      title: "工具预览",
+      description: "这些补充会作为按需工具暴露给模型，不会一次性塞入上下文。",
+      availableKinds: "可用补充类型",
+      customDocuments: "自定义补充文档",
+      noAvailableSupplements: "暂无可用补充",
+    },
+    kinds: {
+      structure_json: "结构说明",
+      reading_guide: "阅读导引",
+      chapter_overview: "章节总览",
+      timeline: "时间线",
+      person_map: "人物关系",
+      concept_index: "概念索引",
+      summary_standard: "总结标准",
+    },
+    kindDescriptions: {
+      structure_json: "用于结构、主轴、次轴和节点解析标准。",
+      reading_guide: "用于阅读顺序、主题边界和学习方式。",
+      chapter_overview: "用于章节作用、章节关系和学习重点。",
+      timeline: "用于时间顺序、事件发展和因果关系。",
+      person_map: "用于人物观点、影响链和对比关系。",
+      concept_index: "用于概念定义、关联概念和易错点。",
+      summary_standard: "用于总结结构、覆盖维度和禁止误判项。",
+    },
+    customDocumentDescription: "按具体标题暴露的自定义补充文档。",
+    structureJsonValid: "结构有效",
+    structureJsonInvalid: "结构待确认",
+    usagePreview: "预览",
+  },
   "system-prompt-variables": {
     title: "系统提示变量",
     description:

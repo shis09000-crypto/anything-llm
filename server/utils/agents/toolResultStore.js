@@ -252,6 +252,13 @@ function sanitizeAgentEvent(event = {}) {
     fileCount: event.fileCount,
     excludedCount: event.excludedCount,
     totalSize: event.totalSize,
+    mode: event.mode,
+    supplementKind: event.supplementKind,
+    supplementId: event.supplementId,
+    documentTitle: event.documentTitle,
+    query: event.query,
+    returnedCount: event.returnedCount,
+    truncatedCount: event.truncatedCount,
   };
 
   const content = truncate(

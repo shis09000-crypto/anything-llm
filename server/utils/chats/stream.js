@@ -22,6 +22,22 @@ const {
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
+function logRecoverableChatError(stage, error, context = {}) {
+  console.warn("[ChatResilience] recoverable failure", {
+    stage,
+    message: error?.message || String(error),
+    ...context,
+  });
+}
+
+function emptyVectorSearchResult(message = null) {
+  return {
+    contextTexts: [],
+    sources: [],
+    message,
+  };
+}
+
 async function streamChatWithWorkspace(
   response,
   workspace,
@@ -67,8 +83,16 @@ async function streamChatWithWorkspace(
   const VectorDb = getVectorDbClass();
 
   const messageLimit = workspace?.openAiHistory || 20;
-  const hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
-  const embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
+  let hasVectorizedSpace = false;
+  let embeddingsCount = 0;
+  try {
+    hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
+    embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
+  } catch (error) {
+    logRecoverableChatError("vector.namespace_status", error, {
+      workspaceSlug: workspace.slug,
+    });
+  }
 
   // User is trying to query-mode chat a workspace that has no data in it - so
   // we should exit early as no information can be found under these conditions.
@@ -109,13 +133,25 @@ async function streamChatWithWorkspace(
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  let { rawHistory, chatHistory, compaction } =
-    await recentChatHistoryWithCompaction({
+  let rawHistory = [];
+  let chatHistory = [];
+  let compaction = null;
+  try {
+    const history = await recentChatHistoryWithCompaction({
       user,
       workspace,
       thread,
       messageLimit,
     });
+    rawHistory = history.rawHistory || [];
+    chatHistory = history.chatHistory || [];
+    compaction = history.compaction || null;
+  } catch (error) {
+    logRecoverableChatError("recent_chat_history", error, {
+      workspaceSlug: workspace.slug,
+      threadId: thread?.id || null,
+    });
+  }
 
   // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
   // as pinning is a supplemental tool but it should be used with caution since it can easily blow up a context window.
@@ -123,31 +159,43 @@ async function streamChatWithWorkspace(
   // it will undergo prompt compression anyway to make it work. If there is so much pinned that the context here is bigger than
   // what the model can support - it would get compressed anyway and that really is not the point of pinning. It is really best
   // suited for high-context models.
-  await new DocumentManager({
-    workspace,
-    maxTokens: LLMConnector.promptWindowLimit(),
-  })
-    .pinnedDocs()
-    .then((pinnedDocs) => {
-      pinnedDocs.forEach((doc) => {
-        const { pageContent, ...metadata } = doc;
-        pinnedDocIdentifiers.push(sourceIdentifier(doc));
-        contextTexts.push(doc.pageContent);
-        sources.push({
-          text:
-            pageContent.slice(0, 1_000) +
-            "...continued on in source document...",
-          ...metadata,
+  try {
+    await new DocumentManager({
+      workspace,
+      maxTokens: LLMConnector.promptWindowLimit(),
+    })
+      .pinnedDocs()
+      .then((pinnedDocs) => {
+        pinnedDocs.forEach((doc) => {
+          const { pageContent, ...metadata } = doc;
+          pinnedDocIdentifiers.push(sourceIdentifier(doc));
+          contextTexts.push(doc.pageContent);
+          sources.push({
+            text:
+              pageContent.slice(0, 1_000) +
+              "...continued on in source document...",
+            ...metadata,
+          });
         });
       });
+  } catch (error) {
+    logRecoverableChatError("pinned_docs", error, {
+      workspaceSlug: workspace.slug,
     });
+  }
 
   // Inject any parsed files for this workspace/thread/user
   const parsedFiles = await WorkspaceParsedFiles.getContextFiles(
     workspace,
     thread || null,
     user || null
-  );
+  ).catch((error) => {
+    logRecoverableChatError("parsed_files", error, {
+      workspaceSlug: workspace.slug,
+      threadId: thread?.id || null,
+    });
+    return [];
+  });
   parsedFiles.forEach((doc) => {
     const { pageContent, ...metadata } = doc;
     contextTexts.push(doc.pageContent);
@@ -159,23 +207,31 @@ async function streamChatWithWorkspace(
   });
 
   if (options.nodeContext?.nodeKey || options.nodeContext?.nodeId) {
-    const graphContext = await resolveGraphContext({
-      workspace,
-      user,
-      nodeKey: options.nodeContext?.nodeKey,
-      nodeId: options.nodeContext?.nodeId,
-      intent: "explain",
-      query: updatedMessage,
-      budget: {
-        supplementChunks: Math.min(4, workspace?.topN || 4),
-        originalChunks: Math.min(4, workspace?.topN || 4),
-        vectorChunks: 0,
-        contextChars: 8_000,
-      },
-    });
-    if (graphContext.contextText)
-      contextTexts.unshift(graphContext.contextText);
-    sources = [...(graphContext.sourceRefs || []), ...sources];
+    try {
+      const graphContext = await resolveGraphContext({
+        workspace,
+        user,
+        nodeKey: options.nodeContext?.nodeKey,
+        nodeId: options.nodeContext?.nodeId,
+        intent: "explain",
+        query: updatedMessage,
+        budget: {
+          supplementChunks: Math.min(4, workspace?.topN || 4),
+          originalChunks: Math.min(4, workspace?.topN || 4),
+          vectorChunks: 0,
+          contextChars: 8_000,
+        },
+      });
+      if (graphContext.contextText)
+        contextTexts.unshift(graphContext.contextText);
+      sources = [...(graphContext.sourceRefs || []), ...sources];
+    } catch (error) {
+      logRecoverableChatError("graph_context", error, {
+        workspaceSlug: workspace.slug,
+        nodeKey: options.nodeContext?.nodeKey || null,
+        nodeId: options.nodeContext?.nodeId || null,
+      });
+    }
   }
 
   const vectorSearchResults =
@@ -188,15 +244,19 @@ async function streamChatWithWorkspace(
           topN: workspace?.topN,
           filterIdentifiers: pinnedDocIdentifiers,
           rerank: workspace?.vectorSearchMode === "rerank",
+        }).catch((error) => {
+          logRecoverableChatError("vector_similarity_search", error, {
+            workspaceSlug: workspace.slug,
+            chatMode,
+          });
+          return emptyVectorSearchResult(
+            "Failed to connect to vector database provider."
+          );
         })
-      : {
-          contextTexts: [],
-          sources: [],
-          message: null,
-        };
+      : emptyVectorSearchResult();
 
   // Failed similarity search if it was run at all and failed.
-  if (!!vectorSearchResults.message) {
+  if (!!vectorSearchResults.message && chatMode === "query") {
     writeResponseChunk(response, {
       id: uuid,
       type: "abort",
@@ -206,6 +266,10 @@ async function streamChatWithWorkspace(
       error: vectorSearchResults.message,
     });
     return;
+  } else if (!!vectorSearchResults.message) {
+    logRecoverableChatError("vector_similarity_search_degraded", {
+      message: vectorSearchResults.message,
+    });
   }
 
   const { fillSourceWindow } = require("../helpers/chat");
@@ -278,6 +342,11 @@ async function streamChatWithWorkspace(
       workspace,
       thread,
       messageLimit,
+    }).catch((error) => {
+      logRecoverableChatError("post_compaction_history_refresh", error, {
+        workspaceSlug: workspace.slug,
+      });
+      return { rawHistory, chatHistory, compaction };
     });
     rawHistory = nextHistory.rawHistory;
     chatHistory = nextHistory.chatHistory;
@@ -343,6 +412,12 @@ async function streamChatWithWorkspace(
       },
       threadId: thread?.id || null,
       user,
+    }).catch((error) => {
+      logRecoverableChatError("chat_history_save", error, {
+        workspaceSlug: workspace.slug,
+        threadId: thread?.id || null,
+      });
+      return { chat: null };
     });
     maybeAutoCompact({
       workspace,
@@ -372,7 +447,7 @@ async function streamChatWithWorkspace(
       type: "finalizeResponseStream",
       close: true,
       error: false,
-      chatId: chat.id,
+      chatId: chat?.id || null,
       metrics,
     });
     return;

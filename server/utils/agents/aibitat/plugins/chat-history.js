@@ -109,7 +109,16 @@ const chatHistory = {
               response: last.content,
               attachments,
             });
-          } catch {}
+          } catch (error) {
+            console.warn("[AgentChatHistory] failed to persist agent chat", {
+              message: error.message,
+              invocationUuid: aibitat.handlerProps?.invocation?.uuid || null,
+              workspaceId:
+                aibitat.handlerProps?.invocation?.workspace_id || null,
+              trackedChatId: aibitat.trackedChatId || null,
+            });
+            this._cleanup(aibitat);
+          }
         });
       },
       _store: async function (

@@ -102,6 +102,29 @@ const WorkspaceOverview = {
       .catch((error) => ({ success: false, error: error.message }));
   },
 
+  async workspaceSupplementToolManifestPreview(slug, params = {}) {
+    if (!slug) return { success: false, manifest: null };
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") return;
+      searchParams.set(key, value);
+    });
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    return await fetch(
+      `${API_BASE}/workspace/${slug}/workspace-supplements/tool-manifest-preview${query}`,
+      {
+        method: "GET",
+        headers: baseHeaders(),
+      }
+    )
+      .then((res) => res.json())
+      .catch((error) => ({
+        success: false,
+        manifest: null,
+        error: error.message,
+      }));
+  },
+
   async createWorkspaceSupplementText(slug, body = {}) {
     if (!slug) return { success: false, error: "missing_workspace" };
     return await fetch(
