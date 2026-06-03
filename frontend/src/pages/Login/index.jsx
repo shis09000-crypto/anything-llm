@@ -5,7 +5,6 @@ import { Navigate } from "react-router-dom";
 import paths from "@/utils/paths";
 import useQuery from "@/hooks/useQuery";
 import useSimpleSSO from "@/hooks/useSimpleSSO";
-import EnvironmentBadge from "@/components/EnvironmentBadge";
 
 /**
  * Login page that handles both single and multi-user login.
@@ -33,12 +32,5 @@ export default function Login() {
 
   if (requiresAuth === false) return <Navigate to={paths.home()} />;
 
-  return (
-    <>
-      <div className="fixed right-4 top-4 z-[100]">
-        <EnvironmentBadge />
-      </div>
-      <PasswordModal mode={mode} />
-    </>
-  );
+  return <PasswordModal mode={mode} />;
 }

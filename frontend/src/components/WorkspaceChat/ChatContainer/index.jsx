@@ -60,6 +60,7 @@ import {
 } from "@/components/Sidebar/SidebarToggle";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import AppIcon from "@/components/lib/AppIcon";
+import { isOverviewThread } from "@/utils/workspaceThreads";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -130,6 +131,7 @@ function setSidebarForReader(open) {
 export default function ChatContainer({
   workspace,
   threadSlug = null,
+  activeThread = null,
   knownHistory = [],
   hasMoreHistory = false,
   isLoadingOlderHistory = false,
@@ -246,6 +248,7 @@ export default function ChatContainer({
         : chatItems,
     [chatItems, sourceChatKey, sourceHistory]
   );
+  const activeThreadIsOverview = isOverviewThread(activeThread);
 
   const { listening, resetTranscript } = useSpeechRecognition({
     clearTranscriptOnListen: true,
@@ -1316,6 +1319,7 @@ export default function ChatContainer({
 
   useEffect(() => {
     if (pendingMessageChecked.current || !workspace?.slug) return;
+    if (activeThreadIsOverview) return;
     pendingMessageChecked.current = true;
 
     const pending = safeJsonParse(sessionStorage.getItem(PENDING_HOME_MESSAGE));
@@ -1329,7 +1333,7 @@ export default function ChatContainer({
         });
       }, 100);
     }
-  }, [workspace?.slug]);
+  }, [activeThreadIsOverview, workspace?.slug]);
 
   const hasMessages = chatItems.length > 0;
   const hasPendingHomeMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
@@ -1370,6 +1374,58 @@ export default function ChatContainer({
       quizIntentResolverRef.current = null;
     };
   }, []);
+
+  if (activeThreadIsOverview) {
+    return (
+      <SourcesSidebarProvider>
+        <DocumentReaderProvider
+          workspace={workspace}
+          threadSlug={threadSlug}
+          setMessage={(message, mode = "append") =>
+            setMessageEmit(message, mode)
+          }
+        >
+          <div
+            style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+            className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+          >
+            {isMobile && <SidebarMobileHeader />}
+            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <DnDFileUploaderWrapper>
+              <WorkspaceOverview
+                workspace={workspace}
+                threadSlug={threadSlug}
+                shouldLoad={true}
+                isVisible={true}
+                onOpenGraph={openGraphOverviewConcept}
+                onOpenPath={openGraphOverviewPath}
+                onOpenEvidence={openGraphOverviewEvidence}
+                onOpenDocument={() =>
+                  navigate(
+                    paths.workspace.settings.vectorDatabase(workspace.slug)
+                  )
+                }
+                onUploadDocument={() =>
+                  document.getElementById("dnd-chat-file-uploader")?.click()
+                }
+              />
+            </DnDFileUploaderWrapper>
+            <ChatTooltips />
+            <MindMapPanel
+              workspace={workspace}
+              threadSlug={threadSlug}
+              isOpen={mindMapOpen}
+              request={mindMapRequest}
+              onClose={() => setMindMapOpen(false)}
+              sendCommand={sendCommand}
+              setMessage={(message) => setMessageEmit(message)}
+              floating
+            />
+          </div>
+        </DocumentReaderProvider>
+      </SourcesSidebarProvider>
+    );
+  }
 
   if (dualThreadFork.enabled) {
     return (

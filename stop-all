@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
+STATE_FILE="$RUNTIME_DIR/status.env"
+QUIET=0
+if [[ "${1:-}" == "--quiet" ]]; then QUIET=1; fi
+
+log() {
+  if [[ "$QUIET" != "1" ]]; then printf '[stop-all] %s\n' "$*"; fi
+}
+
+pid_alive() {
+  local pid="${1:-}"
+  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+kill_pid() {
+  local pid="${1:-}"
+  local name="${2:-process}"
+  if ! pid_alive "$pid"; then return 0; fi
+  log "stopping $name pid=$pid"
+  kill "$pid" >/dev/null 2>&1 || true
+  for _ in {1..20}; do
+    if ! pid_alive "$pid"; then return 0; fi
+    sleep 0.25
+  done
+  log "force stopping $name pid=$pid"
+  kill -9 "$pid" >/dev/null 2>&1 || true
+}
+
+pid_cwd_under_root() {
+  local pid="$1"
+  local cwd
+  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+  [[ "$cwd" == "$ROOT_DIR"* ]]
+}
+
+kill_port_if_owned() {
+  local port="$1"
+  local pids
+  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  if [[ -z "$pids" ]]; then return 0; fi
+  while IFS= read -r pid; do
+    [[ -z "$pid" ]] && continue
+    if pid_cwd_under_root "$pid"; then
+      kill_pid "$pid" "port:$port"
+    fi
+  done <<<"$pids"
+}
+
+if [[ -f "$STATE_FILE" ]]; then
+  set +e
+  # shellcheck disable=SC1090
+  source "$STATE_FILE" >/dev/null 2>&1
+  set -e
+  kill_pid "${FRONTEND_PID:-}" frontend
+  kill_pid "${COLLECTOR_PID:-}" collector
+  kill_pid "${SERVER_PID:-}" server
+else
+  log "no runtime state file found"
+fi
+
+kill_port_if_owned "${SERVER_PORT:-3001}"
+kill_port_if_owned "${COLLECTOR_PORT:-8888}"
+kill_port_if_owned "${FRONTEND_PORT:-3000}"
+
+rm -f "$STATE_FILE"
+log "stopped AnythingLLM processes"

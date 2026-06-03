@@ -342,6 +342,9 @@ function workspaceEndpoints(app) {
         const user = await userFromSession(request, response);
         const { name = null } = reqBody(request);
         const { workspace, message } = await Workspace.new(name, user?.id);
+        const defaultThreads = workspace
+          ? await WorkspaceThread.ensureDefaultThreads(workspace, user?.id)
+          : null;
         await Telemetry.sendTelemetry(
           "workspace_created",
           {
@@ -362,7 +365,7 @@ function workspaceEndpoints(app) {
           },
           user?.id
         );
-        response.status(200).json({ workspace, message });
+        response.status(200).json({ workspace, message, defaultThreads });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

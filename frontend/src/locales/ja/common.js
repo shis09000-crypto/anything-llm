@@ -54,6 +54,9 @@ const TRANSLATIONS = {
     defaultSiteTitle: "AnythingLLM | Your personal LLM trained on anything",
     clear: "Clear",
     "workspaces-name": "ワークスペース名",
+    overviewPage: "概要",
+    newThread: "新しいスレッド",
+    startingThread: "スレッドを開始中...",
     selection: "モデル選択",
     saving: "保存中...",
     save: "変更を保存",
@@ -63,6 +66,7 @@ const TRANSLATIONS = {
     yes: "はい",
     no: "いいえ",
     search: "検索",
+    developmentMode: "開発モード",
     username_requirements:
       "ユーザー名は2〜32文字で、小文字で始まり、小文字、数字、アンダースコア、ハイフン、ピリオドのみを含む必要があります。",
     on: "～について",

@@ -1,0 +1,369 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
+LOG_DIR="$RUNTIME_DIR/logs"
+STATE_FILE="$RUNTIME_DIR/status.env"
+SERVER_PORT="${SERVER_PORT:-3001}"
+COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
+FRONTEND_PORT="${FRONTEND_PORT:-3000}"
+FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
+API_URL="http://localhost:${SERVER_PORT}/api"
+STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
+ENV_STORAGE_ROOT="$STORAGE_BASE/development"
+OPEN_BROWSER=1
+
+mkdir -p "$LOG_DIR"
+
+log() {
+  printf '[run-development] %s\n' "$*" >&2
+}
+
+usage() {
+  cat <<EOF
+Usage: bash ./run-development [--no-open]
+
+Options:
+  --no-open   Start services without opening or refreshing a browser tab.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-open)
+      OPEN_BROWSER=0
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+is_port_open() {
+  nc -z localhost "$1" >/dev/null 2>&1
+}
+
+wait_for_port() {
+  local name="$1"
+  local port="$2"
+  local attempts="${3:-90}"
+  local count=0
+  while (( count < attempts )); do
+    if is_port_open "$port"; then
+      log "$name is listening on port $port"
+      return 0
+    fi
+    sleep 1
+    count=$((count + 1))
+  done
+  log "warning: $name did not open port $port within ${attempts}s"
+  return 1
+}
+
+start_process() {
+  local name="$1"
+  local dir="$2"
+  local logfile="$3"
+  shift 3
+
+  log "starting $name..."
+  (
+    cd "$dir"
+    nohup env \
+      APP_ENV=development \
+      SERVER_PORT="$SERVER_PORT" \
+      COLLECTOR_PORT="$COLLECTOR_PORT" \
+      ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+      ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+      STORAGE_DIR="$ENV_STORAGE_ROOT" \
+      VITE_API_BASE="$API_URL" \
+      "$@" >"$logfile" 2>&1 &
+    echo $!
+  )
+}
+
+prepare_storage_dirs() {
+  mkdir -p \
+    "$ENV_STORAGE_ROOT/documents" \
+    "$ENV_STORAGE_ROOT/direct-uploads" \
+    "$ENV_STORAGE_ROOT/reader-documents" \
+    "$ENV_STORAGE_ROOT/vector-cache" \
+    "$ENV_STORAGE_ROOT/lancedb" \
+    "$ENV_STORAGE_ROOT/models" \
+    "$ENV_STORAGE_ROOT/tmp"
+}
+
+database_has_core_schema() {
+  local db_path="$1"
+  local table_count
+
+  if [[ ! -f "$db_path" ]] || ! command -v sqlite3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  table_count="$(sqlite3 "$db_path" "select count(*) from sqlite_master where type='table' and name in ('_prisma_migrations','system_settings','workspaces','workspace_documents','event_logs');" 2>/dev/null || printf '0')"
+  [[ "$table_count" == "5" ]]
+}
+
+sqlite_quote() {
+  printf "%s" "$1" | sed "s/'/''/g"
+}
+
+migration_id() {
+  node -e 'console.log(require("crypto").randomUUID())'
+}
+
+apply_sqlite_migrations() {
+  local db_path="$1"
+  local migrations_dir="$ROOT_DIR/server/prisma/migrations"
+  local migration_dir
+  local migration_name
+  local migration_sql
+  local applied
+  local id
+  local checksum
+
+  sqlite3 "$db_path" <<'SQL'
+CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
+  "id" TEXT PRIMARY KEY NOT NULL,
+  "checksum" TEXT NOT NULL,
+  "finished_at" DATETIME,
+  "migration_name" TEXT NOT NULL,
+  "logs" TEXT,
+  "rolled_back_at" DATETIME,
+  "started_at" DATETIME NOT NULL DEFAULT current_timestamp,
+  "applied_steps_count" INTEGER UNSIGNED NOT NULL DEFAULT 0
+);
+SQL
+
+  for migration_dir in "$migrations_dir"/*; do
+    [[ -d "$migration_dir" ]] || continue
+    migration_name="$(basename "$migration_dir")"
+    migration_sql="$migration_dir/migration.sql"
+    [[ -f "$migration_sql" ]] || continue
+
+    applied="$(sqlite3 "$db_path" "select count(*) from \"_prisma_migrations\" where migration_name = '$(sqlite_quote "$migration_name")' and rolled_back_at is null;" 2>/dev/null || printf '0')"
+    if [[ "$applied" != "0" ]]; then
+      continue
+    fi
+
+    log "applying migration $migration_name"
+    sqlite3 "$db_path" <"$migration_sql"
+    id="$(migration_id)"
+    checksum="$(shasum -a 256 "$migration_sql" | awk '{print $1}')"
+    sqlite3 "$db_path" "insert into \"_prisma_migrations\" (id, checksum, finished_at, migration_name, started_at, applied_steps_count) values ('$(sqlite_quote "$id")', '$(sqlite_quote "$checksum")', datetime('now'), '$(sqlite_quote "$migration_name")', datetime('now'), 1);"
+  done
+}
+
+ensure_env_database() {
+  local db_path="$ENV_STORAGE_ROOT/anythingllm.db"
+
+  if database_has_core_schema "$db_path"; then
+    log "development database schema is ready"
+    return 0
+  fi
+
+  log "development database schema missing or incomplete; running env-aware SQLite migrations/seed..."
+  apply_sqlite_migrations "$db_path"
+
+  (
+    cd "$ROOT_DIR/server"
+    APP_ENV=development STORAGE_DIR="$STORAGE_BASE" node prisma/seed.js
+  )
+
+  if ! database_has_core_schema "$db_path"; then
+    log "error: development database schema is still incomplete after migration"
+    exit 1
+  fi
+}
+
+write_state() {
+  {
+    printf 'APP_ENV=%q\n' "development"
+    printf 'SERVER_PORT=%q\n' "$SERVER_PORT"
+    printf 'COLLECTOR_PORT=%q\n' "$COLLECTOR_PORT"
+    printf 'FRONTEND_PORT=%q\n' "$FRONTEND_PORT"
+    printf 'SERVER_PID=%q\n' "$SERVER_PID"
+    printf 'COLLECTOR_PID=%q\n' "$COLLECTOR_PID"
+    printf 'FRONTEND_PID=%q\n' "$FRONTEND_PID"
+    printf 'SERVER_LOG=%q\n' "$SERVER_LOG"
+    printf 'COLLECTOR_LOG=%q\n' "$COLLECTOR_LOG"
+    printf 'FRONTEND_LOG=%q\n' "$FRONTEND_LOG"
+    printf 'APP_URL=%q\n' "$FRONTEND_URL"
+    printf 'STARTED_AT=%q\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+  } >"$STATE_FILE"
+}
+
+refresh_browser_tab() {
+  local browser="$1"
+  local url="$2"
+  local result
+  local status
+  local output_file
+  local status_file
+  local script_pid
+
+  if ! command -v osascript >/dev/null 2>&1; then
+    return 1
+  fi
+
+  output_file="$(mktemp "${TMPDIR:-/tmp}/anythingllm-osascript-output.XXXXXX")"
+  status_file="$(mktemp "${TMPDIR:-/tmp}/anythingllm-osascript-status.XXXXXX")"
+
+  # AppleScript can block on macOS automation permissions; keep it best-effort.
+  (
+    osascript - "$browser" "$url" >"$output_file" 2>/dev/null <<'OSA'
+on normalizeUrl(rawUrl)
+  set normalizedUrl to rawUrl as text
+  repeat while normalizedUrl ends with "/"
+    if (length of normalizedUrl) <= 1 then exit repeat
+    set normalizedUrl to text 1 thru -2 of normalizedUrl
+  end repeat
+  return normalizedUrl
+end normalizeUrl
+
+on run argv
+  set browserName to item 1 of argv
+  set targetUrl to item 2 of argv
+  set normalizedTargetUrl to my normalizeUrl(targetUrl)
+
+  if browserName is "Google Chrome" then
+    if application "Google Chrome" is not running then return "not-running"
+    tell application "Google Chrome"
+      repeat with windowIndex from 1 to count of windows
+        set candidateWindow to window windowIndex
+        repeat with tabIndex from 1 to count of tabs of candidateWindow
+          set candidateTab to tab tabIndex of candidateWindow
+          if my normalizeUrl(URL of candidateTab) is normalizedTargetUrl then
+            set active tab index of candidateWindow to tabIndex
+            set index of candidateWindow to 1
+            activate
+            reload candidateTab
+            return "reloaded"
+          end if
+        end repeat
+      end repeat
+    end tell
+  else if browserName is "Safari" then
+    if application "Safari" is not running then return "not-running"
+    tell application "Safari"
+      repeat with windowIndex from 1 to count of windows
+        set candidateWindow to window windowIndex
+        repeat with tabIndex from 1 to count of tabs of candidateWindow
+          set candidateTab to tab tabIndex of candidateWindow
+          if my normalizeUrl(URL of candidateTab) is normalizedTargetUrl then
+            set current tab of candidateWindow to candidateTab
+            set index of candidateWindow to 1
+            activate
+            do JavaScript "window.location.reload()" in candidateTab
+            return "reloaded"
+          end if
+        end repeat
+      end repeat
+    end tell
+  end if
+
+  return "not-found"
+end run
+OSA
+    printf '%s' "$?" >"$status_file"
+  ) &
+  script_pid=$!
+
+  for _ in {1..40}; do
+    if [[ -s "$status_file" ]]; then break; fi
+    sleep 0.1
+  done
+
+  if [[ ! -s "$status_file" ]]; then
+    kill "$script_pid" >/dev/null 2>&1 || true
+    wait "$script_pid" >/dev/null 2>&1 || true
+    rm -f "$output_file" "$status_file"
+    return 1
+  fi
+
+  wait "$script_pid" >/dev/null 2>&1 || true
+  status="$(cat "$status_file" 2>/dev/null || printf '1')"
+  result="$(cat "$output_file" 2>/dev/null || true)"
+  rm -f "$output_file" "$status_file"
+
+  [[ "$status" == "0" && "$result" == "reloaded" ]]
+}
+
+open_or_refresh_frontend() {
+  local app_env="$1"
+  local url="$2"
+
+  printf '\nAPP_ENV=%s\nURL=%s\n' "$app_env" "$url"
+
+  if [[ "$OPEN_BROWSER" != "1" ]]; then
+    log "browser open skipped (--no-open)"
+    return 0
+  fi
+
+  if [[ "$(uname -s)" != "Darwin" ]] || ! command -v open >/dev/null 2>&1; then
+    log "automatic browser open is only supported on macOS with open; visit $url"
+    return 0
+  fi
+
+  if refresh_browser_tab "Google Chrome" "$url"; then
+    log "refreshed existing Google Chrome tab: $url"
+    return 0
+  fi
+
+  if refresh_browser_tab "Safari" "$url"; then
+    log "refreshed existing Safari tab: $url"
+    return 0
+  fi
+
+  log "opening browser: $url"
+  open "$url" >/dev/null 2>&1 || log "warning: failed to open browser for $url"
+}
+
+log "stopping existing AnythingLLM processes..."
+SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --quiet || true
+prepare_storage_dirs
+ensure_env_database
+
+SERVER_LOG="$LOG_DIR/development-server.log"
+COLLECTOR_LOG="$LOG_DIR/development-collector.log"
+FRONTEND_LOG="$LOG_DIR/development-frontend.log"
+: >"$SERVER_LOG"
+: >"$COLLECTOR_LOG"
+: >"$FRONTEND_LOG"
+
+SERVER_PID="$(start_process server "$ROOT_DIR/server" "$SERVER_LOG" yarn dev)"
+COLLECTOR_PID="$(start_process collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" yarn dev)"
+FRONTEND_PID="$(start_process frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" yarn dev --host 0.0.0.0 --port "$FRONTEND_PORT")"
+
+write_state
+
+wait_for_port server "$SERVER_PORT" 90 || true
+wait_for_port collector "$COLLECTOR_PORT" 60 || true
+wait_for_port frontend "$FRONTEND_PORT" 90 || true
+
+open_or_refresh_frontend "development" "$FRONTEND_URL"
+
+cat <<EOF
+
+Development environment is running.
+APP_ENV: development
+URL:     $FRONTEND_URL
+API:     $API_URL
+
+Logs:
+server:    $SERVER_LOG
+collector: $COLLECTOR_LOG
+frontend:  $FRONTEND_LOG
+
+Useful commands:
+bash ./status
+bash ./stop-all
+EOF

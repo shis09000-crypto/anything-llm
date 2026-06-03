@@ -11,6 +11,7 @@ yarn.lock
 *.bak
 .idea
 .playwright-mcp/
+.anythingllm-runtime/
 dist-desktop/
 server/public/
 desktop/*.env

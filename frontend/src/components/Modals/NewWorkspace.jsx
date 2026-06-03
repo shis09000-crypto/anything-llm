@@ -2,12 +2,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FloppyDisk } from "@phosphor-icons/react";
 import Workspace from "@/models/workspace";
-import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import AppButton from "@/components/lib/AppButton";
 import AppIcon from "@/components/lib/AppIcon";
 import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { defaultWorkspacePath } from "@/utils/workspaceThreads";
 
 const noop = () => false;
 export default function NewWorkspaceModal({ hideModal = noop }) {
@@ -32,11 +32,11 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
     const data = {};
     const form = new FormData(formEl.current);
     for (var [key, value] of form.entries()) data[key] = value;
-    const { workspace, message } = await Workspace.new(data);
+    const { workspace, message, defaultThreads } = await Workspace.new(data);
     setCreating(false);
     if (!!workspace) {
       dispatchWorkspacesRefresh(workspace);
-      navigate(paths.workspace.chat(workspace.slug));
+      navigate(defaultWorkspacePath(workspace.slug, defaultThreads?.threads));
       hideModal();
       return;
     }

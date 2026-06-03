@@ -17,14 +17,15 @@ import { debugChatTurn } from "@/utils/chat/debug";
 import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
 import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { displayThreadName, isOverviewThread } from "@/utils/workspaceThreads";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
 
-function displayThreadName(thread = {}) {
+function displayBranchThreadName(thread = {}, t = null) {
   const name = thread.title || thread.name || "";
   const isBranch =
     thread.thread_type === "branch" || Number(thread.parent_thread_id) > 0;
-  if (!isBranch) return name;
+  if (!isBranch) return displayThreadName(thread, t);
   if (/^分支(?:\s+\d+)?\s*·\s*/u.test(name)) return name;
 
   const suffixMatch = name.match(/\s*·\s*分支(?:\s+(\d+))?$/u);
@@ -58,7 +59,8 @@ export default function ThreadItem({
     : !thread.slug
       ? paths.workspace.chat(workspaceSlug)
       : paths.workspace.thread(workspaceSlug, thread.slug);
-  const threadName = displayThreadName(thread);
+  const threadName = displayBranchThreadName(thread, t);
+  const overviewThread = isOverviewThread(thread);
 
   useEffect(() => {
     debugChatTurn("ThreadItem:activity", {
@@ -172,50 +174,53 @@ export default function ThreadItem({
             </div>
           </Link>
         )}
-        {!!thread.slug && !thread.deleted && !thread.virtual && (
-          <div ref={optionsContainer} className="flex items-center">
-            {" "}
-            {/* Added flex and items-center */}
-            {ctrlPressed ? (
-              <button
-                type="button"
-                className="border-none"
-                onClick={() => toggleMarkForDeletion(thread.id)}
-              >
-                <X
-                  className="text-zinc-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
-                  weight="bold"
-                  size={18}
-                />
-              </button>
-            ) : (
-              <div className="flex items-center w-fit group-hover:visible md:invisible gap-x-1">
+        {!!thread.slug &&
+          !thread.deleted &&
+          !thread.virtual &&
+          !overviewThread && (
+            <div ref={optionsContainer} className="flex items-center">
+              {" "}
+              {/* Added flex and items-center */}
+              {ctrlPressed ? (
                 <button
                   type="button"
                   className="border-none"
-                  onClick={() => setShowOptions(!showOptions)}
-                  aria-label="Thread options"
+                  onClick={() => toggleMarkForDeletion(thread.id)}
                 >
-                  <DotsThree
-                    className="text-slate-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
-                    size={25}
+                  <X
+                    className="text-zinc-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
+                    weight="bold"
+                    size={18}
                   />
                 </button>
-              </div>
-            )}
-            {showOptions && (
-              <OptionsMenu
-                containerRef={optionsContainer}
-                workspace={workspace}
-                thread={thread}
-                onRemove={onRemove}
-                close={() => setShowOptions(false)}
-                currentThreadSlug={threadSlug}
-                navigate={navigate}
-              />
-            )}
-          </div>
-        )}
+              ) : (
+                <div className="flex items-center w-fit group-hover:visible md:invisible gap-x-1">
+                  <button
+                    type="button"
+                    className="border-none"
+                    onClick={() => setShowOptions(!showOptions)}
+                    aria-label="Thread options"
+                  >
+                    <DotsThree
+                      className="text-slate-300 light:text-theme-text-secondary hover:text-white hover:light:text-theme-text-primary"
+                      size={25}
+                    />
+                  </button>
+                </div>
+              )}
+              {showOptions && (
+                <OptionsMenu
+                  containerRef={optionsContainer}
+                  workspace={workspace}
+                  thread={thread}
+                  onRemove={onRemove}
+                  close={() => setShowOptions(false)}
+                  currentThreadSlug={threadSlug}
+                  navigate={navigate}
+                />
+              )}
+            </div>
+          )}
       </div>
     </div>
   );

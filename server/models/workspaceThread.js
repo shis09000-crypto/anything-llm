@@ -2,8 +2,20 @@ const prisma = require("../utils/prisma");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
 
+const THREAD_TYPES = {
+  chat: "chat",
+  overview: "overview",
+};
+const THREAD_CREATED_FROM = {
+  workspaceDefault: "workspace_default",
+};
+
 const WorkspaceThread = {
   defaultName: "Thread",
+  defaultChatName: "New Thread",
+  overviewName: "Overview",
+  THREAD_TYPES,
+  THREAD_CREATED_FROM,
   writable: [
     "name",
     "parent_thread_id",
@@ -20,6 +32,27 @@ const WorkspaceThread = {
       name: thread.title || thread.name,
       displayTitle: thread.title || thread.name,
     };
+  },
+
+  isOverviewThread: function (thread = null) {
+    return thread?.thread_type === THREAD_TYPES.overview;
+  },
+
+  sortForDisplay: function (threads = []) {
+    return [...threads].sort((a, b) => {
+      const rank = (thread) => {
+        if (thread?.thread_type === THREAD_TYPES.overview) return 0;
+        if (
+          thread?.thread_type === THREAD_TYPES.chat &&
+          thread?.created_from === THREAD_CREATED_FROM.workspaceDefault
+        )
+          return 1;
+        return 2;
+      };
+      const rankDiff = rank(a) - rank(b);
+      if (rankDiff !== 0) return rankDiff;
+      return new Date(a?.createdAt || 0) - new Date(b?.createdAt || 0);
+    });
   },
 
   /**
@@ -80,8 +113,58 @@ const WorkspaceThread = {
     }
   },
 
+  ensureDefaultThreads: async function (workspace, userId = null) {
+    const userClause = { user_id: userId ? Number(userId) : null };
+    const clause = {
+      workspace_id: workspace.id,
+      ...userClause,
+    };
+
+    const existingThreads = await this.where(clause);
+    let overviewThread = existingThreads.find((thread) =>
+      this.isOverviewThread(thread)
+    );
+    let chatThread = existingThreads.find(
+      (thread) =>
+        thread.thread_type === THREAD_TYPES.chat &&
+        thread.created_from === THREAD_CREATED_FROM.workspaceDefault
+    );
+
+    if (!overviewThread) {
+      const result = await this.new(workspace, userId, {
+        name: this.overviewName,
+        thread_type: THREAD_TYPES.overview,
+        created_from: THREAD_CREATED_FROM.workspaceDefault,
+      });
+      overviewThread = result.thread;
+    }
+
+    if (!chatThread) {
+      const result = await this.new(workspace, userId, {
+        name: this.defaultChatName,
+        thread_type: THREAD_TYPES.chat,
+        created_from: THREAD_CREATED_FROM.workspaceDefault,
+      });
+      chatThread = result.thread;
+    }
+
+    const threads = await this.where(clause);
+    return {
+      overviewThread,
+      chatThread,
+      threads: this.sortForDisplay(threads),
+    };
+  },
+
   update: async function (prevThread = null, data = {}) {
     if (!prevThread) throw new Error("No thread id provided for update");
+
+    if (this.isOverviewThread(prevThread)) {
+      return {
+        thread: this.withDisplayTitle(prevThread),
+        message: "Overview thread cannot be updated.",
+      };
+    }
 
     const validData = {};
     Object.entries(data).forEach(([key, value]) => {

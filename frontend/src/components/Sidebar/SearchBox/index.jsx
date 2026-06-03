@@ -7,6 +7,10 @@ import Preloader from "@/components/Preloader";
 import debounce from "lodash.debounce";
 import Workspace from "@/models/workspace";
 import { Tooltip } from "react-tooltip";
+import {
+  APP_ENVIRONMENT_CHANGE_EVENT,
+  getAppEnvironment,
+} from "@/utils/appEnvironment";
 
 const DEFAULT_SEARCH_RESULTS = {
   workspaces: [],
@@ -20,7 +24,12 @@ export default function SearchBox({ user, showNewWsModal }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchResults, setSearchResults] = useState(DEFAULT_SEARCH_RESULTS);
+  const [appEnv, setAppEnv] = useState(getAppEnvironment());
   const handleSearch = debounce(handleSearchDebounced, 500);
+  const isDevelopment = appEnv === "development";
+  const placeholder = isDevelopment
+    ? `${t("common.developmentMode")} · ${t("common.search")}`
+    : t("common.search");
 
   async function handleSearchDebounced(e) {
     try {
@@ -51,21 +60,45 @@ export default function SearchBox({ user, showNewWsModal }) {
       window.removeEventListener(SEARCH_RESULT_SELECTED, handleReset);
   }, []);
 
+  useEffect(() => {
+    function handleEnvironmentChange(event) {
+      setAppEnv(event.detail?.appEnv || getAppEnvironment());
+    }
+
+    window.addEventListener(
+      APP_ENVIRONMENT_CHANGE_EVENT,
+      handleEnvironmentChange
+    );
+    return () =>
+      window.removeEventListener(
+        APP_ENVIRONMENT_CHANGE_EVENT,
+        handleEnvironmentChange
+      );
+  }, []);
+
   return (
     <div className="flex gap-x-[5px] w-full items-center h-[32px]">
       <div className="relative h-full w-full flex">
         <input
           ref={searchRef}
           type="search"
-          placeholder={t("common.search")}
+          placeholder={placeholder}
           onChange={handleSearch}
           onReset={handleReset}
           onFocus={(e) => e.target.select()}
-          className="border-none w-full h-full rounded-lg bg-theme-sidebar-item-default pl-9 focus:pl-4 pr-1 placeholder:text-white/50 light:placeholder:text-slate-500 placeholder:font-semibold outline-none text-theme-text-primary search-input peer text-sm"
+          className={`border-none w-full h-full rounded-lg pl-9 focus:pl-4 pr-1 placeholder:font-semibold outline-none search-input peer text-sm ${
+            isDevelopment
+              ? "bg-amber-50/95 text-slate-800 placeholder:text-amber-700/70 light:bg-amber-50"
+              : "bg-theme-sidebar-item-default text-theme-text-primary placeholder:text-white/50 light:placeholder:text-slate-500"
+          }`}
         />
         <MagnifyingGlass
           size={14}
-          className="absolute left-3 top-1/2 transform -translate-y-1/2 text-theme-settings-input-placeholder peer-focus:invisible"
+          className={`absolute left-3 top-1/2 transform -translate-y-1/2 peer-focus:invisible ${
+            isDevelopment
+              ? "text-amber-700/70"
+              : "text-theme-settings-input-placeholder"
+          }`}
           weight="bold"
           hidden={!!searchTerm}
         />

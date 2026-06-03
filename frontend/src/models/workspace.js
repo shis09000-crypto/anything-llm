@@ -26,17 +26,24 @@ const Workspace = {
   maxContextWindowLimit: 0.8,
 
   new: async function (data = {}) {
-    const { workspace, message } = await fetch(`${API_BASE}/workspace/new`, {
-      method: "POST",
-      body: JSON.stringify(data),
-      headers: baseHeaders(),
-    })
+    const { workspace, message, defaultThreads } = await fetch(
+      `${API_BASE}/workspace/new`,
+      {
+        method: "POST",
+        body: JSON.stringify(data),
+        headers: baseHeaders(),
+      }
+    )
       .then((res) => res.json())
       .catch((e) => {
-        return { workspace: null, message: e.message };
+        return { workspace: null, message: e.message, defaultThreads: null };
       });
 
-    return { workspace, message };
+    return {
+      workspace: workspace ? { ...workspace, defaultThreads } : null,
+      message,
+      defaultThreads,
+    };
   },
   update: async function (slug, data = {}) {
     const { workspace, message } = await fetch(

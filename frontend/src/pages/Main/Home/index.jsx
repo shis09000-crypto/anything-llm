@@ -41,6 +41,7 @@ import {
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
 import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { defaultWorkspacePath } from "@/utils/workspaceThreads";
 
 async function getTargetWorkspace() {
   const lastVisited = getLastVisitedWorkspace();
@@ -57,7 +58,7 @@ async function getTargetWorkspace() {
           clearLastVisitedThread(workspace.slug, threadSlug);
           return {
             workspace,
-            redirectPath: paths.workspace.chat(workspace.slug),
+            redirectPath: defaultWorkspacePath(workspace.slug, threads),
           };
         }
       }
@@ -71,7 +72,8 @@ async function getTargetWorkspace() {
   const workspaces = await Workspace.all();
   return {
     workspace: workspaces.length > 0 ? workspaces[0] : null,
-    redirectPath: null,
+    redirectPath:
+      workspaces.length > 0 ? paths.workspace.chat(workspaces[0].slug) : null,
   };
 }
 

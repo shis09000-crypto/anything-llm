@@ -12,6 +12,10 @@ import {
 } from "@/contexts/ChatThreadDraftProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
+import {
+  isOverviewThread,
+  sortThreadsForDisplay,
+} from "@/utils/workspaceThreads";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 
@@ -215,6 +219,7 @@ export default function ThreadContainer({
   const toggleForDeletion = (id) => {
     setThreads((prev) =>
       prev.map((t) => {
+        if (isOverviewThread(t)) return t;
         if (t.id !== id) return t;
         return { ...t, deleted: !t.deleted };
       })
@@ -222,7 +227,9 @@ export default function ThreadContainer({
   };
 
   const handleDeleteAll = async () => {
-    const slugs = threads.filter((t) => t.deleted === true).map((t) => t.slug);
+    const slugs = threads
+      .filter((t) => t.deleted === true && !isOverviewThread(t))
+      .map((t) => t.slug);
     const success = await Workspace.threads.deleteBulk(workspace.slug, slugs);
     if (success) {
       slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
@@ -264,9 +271,10 @@ export default function ThreadContainer({
       workspace.slug,
       hasThreadActivity
     );
-    if (isVirtualThread) return threads.length + 1;
     const idx = rows.findIndex((row) => row.thread?.slug === threadSlug);
-    return idx >= 0 ? idx + 1 : 0;
+    if (idx >= 0) return idx;
+    if (isVirtualThread) return rows.length;
+    return -1;
   }
 
   useEffect(() => {
@@ -282,16 +290,10 @@ export default function ThreadContainer({
     hasThreadActivity
   );
   const activeThreadIdx = getActiveThreadIdx();
-  const defaultActivity = displayActivity(
-    hasThreadActivity(workspace.slug, null),
-    activeThreadIdx === 0
-  );
-
   useEffect(() => {
     debugChatTurn("ThreadContainer:renderState", {
       workspaceSlug: workspace.slug,
       activeThreadSlug: threadSlug,
-      defaultActivityStatus: defaultActivity?.status || null,
       runningRows: threadRows
         .filter((row) => row.activity?.status === "running")
         .map((row) => ({
@@ -299,7 +301,7 @@ export default function ThreadContainer({
           turnId: row.activity.turnId,
         })),
     });
-  }, [defaultActivity?.status, threadRows, threadSlug, workspace.slug]);
+  }, [threadRows, threadSlug, workspace.slug]);
 
   if (loading) {
     return (
@@ -311,21 +313,12 @@ export default function ThreadContainer({
 
   return (
     <div className="flex flex-col" role="list" aria-label="Threads">
-      <ThreadItem
-        idx={0}
-        activeIdx={activeThreadIdx}
-        isActive={activeThreadIdx === 0}
-        workspace={workspace}
-        thread={{ slug: null, name: t("common.default") }}
-        activity={defaultActivity}
-        hasNext={threads.length > 0 || isVirtualThread}
-      />
       {threadRows.map(({ thread, activity }, i) => {
-        const isActiveThread = activeThreadIdx === i + 1;
+        const isActiveThread = activeThreadIdx === i;
         return (
           <ThreadItem
             key={thread.slug}
-            idx={i + 1}
+            idx={i}
             ctrlPressed={ctrlPressed}
             toggleMarkForDeletion={toggleForDeletion}
             activeIdx={activeThreadIdx}
@@ -344,7 +337,7 @@ export default function ThreadContainer({
           activeIdx={activeThreadIdx}
           isActive={true}
           workspace={workspace}
-          thread={{ slug: null, name: "*New Thread", virtual: true }}
+          thread={{ slug: null, name: t("common.newThread"), virtual: true }}
           hasNext={false}
         />
       )}
@@ -366,31 +359,13 @@ function displayActivity(activity, isActive) {
   return activity?.status === "running" ? activity : null;
 }
 
-function activitySortRank(activity) {
-  if (activity?.status === "running") return 0;
-  return 1;
-}
-
 function getSortedThreadRows(threads, workspaceSlug, hasThreadActivity) {
-  return threads
-    .map((thread, index) => ({
-      thread,
-      index,
-      activity: hasThreadActivity(workspaceSlug, thread.slug),
-    }))
-    .sort((a, b) => {
-      const rankDiff =
-        activitySortRank(a.activity) - activitySortRank(b.activity);
-      if (rankDiff !== 0) return rankDiff;
-      if (activitySortRank(a.activity) === 0) {
-        return (b.activity?.updatedAt || 0) - (a.activity?.updatedAt || 0);
-      }
-      return a.index - b.index;
-    });
+  return sortThreadsForDisplay(threads, workspaceSlug, hasThreadActivity);
 }
 
 function NewThreadButton({ workspace, onThreadCreated }) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const onClick = async () => {
     if (loading || !workspace?.slug) return;
@@ -445,11 +420,11 @@ function NewThreadButton({ workspace, onThreadCreated }) {
 
         {loading ? (
           <p className="text-left text-white light:text-theme-text-primary text-sm">
-            Starting Thread...
+            {t("common.startingThread")}
           </p>
         ) : (
           <p className="text-left text-white light:text-theme-text-primary text-sm font-semibold">
-            New Thread
+            {t("common.newThread")}
           </p>
         )}
       </div>

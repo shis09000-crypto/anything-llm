@@ -52,6 +52,9 @@ const TRANSLATIONS = {
     clear: "清除",
     thread: "线程",
     default: "默认",
+    overviewPage: "总览页",
+    newThread: "新线程",
+    startingThread: "正在创建线程...",
     running: "运行中",
     completed: "已完成",
     failed: "失败",
@@ -66,6 +69,7 @@ const TRANSLATIONS = {
     yes: "是",
     no: "否",
     search: "搜索",
+    developmentMode: "开发模式",
     username_requirements:
       "用户名必须为 2-32 个字符，以小写字母开头，只能包含小写字母、数字、下划线、连字符和句点。",
     on: "关于",

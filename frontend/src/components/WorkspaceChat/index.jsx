@@ -22,6 +22,10 @@ import { debugChatTurn } from "@/utils/chat/debug";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "@/utils/chat/performanceBudget";
+import {
+  defaultWorkspacePath,
+  isOverviewThread,
+} from "@/utils/workspaceThreads";
 
 const FIRST_PAGE_LIMIT = 20;
 const PRIORITY_FULL_WINDOW = 5;
@@ -124,6 +128,7 @@ export default function WorkspaceChat({ loading, workspace }) {
         prev?.key === next.key &&
         prev?.workspace === next.workspace &&
         prev?.threadSlug === next.threadSlug &&
+        prev?.activeThread === next.activeThread &&
         prev?.history === next.history
       ) {
         return prev;
@@ -133,16 +138,25 @@ export default function WorkspaceChat({ loading, workspace }) {
   }, []);
 
   const mergeAndRenderHistory = useCallback(
-    async ({ key, workspace, threadSlug, history, page, mode = "replace" }) => {
+    async ({
+      key,
+      workspace,
+      threadSlug,
+      activeThread,
+      history,
+      page,
+      mode = "replace",
+    }) => {
       setLoaded((prev) => {
         const base =
           prev?.key === key
             ? prev
-            : { key, workspace, threadSlug, history: [] };
+            : { key, workspace, threadSlug, activeThread, history: [] };
         return {
           ...base,
           workspace,
           threadSlug,
+          activeThread,
           history: mergeHistoryMessages(base.history, history, mode),
         };
       });
@@ -178,7 +192,33 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       }
 
+      const { threads } = await Workspace.threads.all(workspace.slug);
+      const activeThread =
+        threads.find((thread) => thread.slug === threadSlug) || null;
+      if (!threadSlug || !activeThread) {
+        navigate(defaultWorkspacePath(workspace.slug, threads), {
+          replace: true,
+        });
+        return false;
+      }
+
       const key = `${workspace.slug}:${threadSlug ?? "default"}`;
+      if (isOverviewThread(activeThread)) {
+        setHistoryState({
+          page: null,
+          loadingRecent: false,
+          loadingOlder: false,
+        });
+        setLoadedIfChanged({
+          key,
+          workspace,
+          threadSlug,
+          activeThread,
+          history: [],
+        });
+        return false;
+      }
+
       const runningThread = getRunningThread(workspace.slug);
       if (
         !location.state?.userSelectedThread &&
@@ -225,6 +265,7 @@ export default function WorkspaceChat({ loading, workspace }) {
           key,
           workspace,
           threadSlug,
+          activeThread,
           history: cached?.history || [],
         });
       } else if (cached) {
@@ -237,6 +278,7 @@ export default function WorkspaceChat({ loading, workspace }) {
             key,
             workspace,
             threadSlug,
+            activeThread,
             history: cachedHistory,
           };
         });
@@ -310,6 +352,7 @@ export default function WorkspaceChat({ loading, workspace }) {
         key,
         workspace,
         threadSlug,
+        activeThread,
         history: chatHistory,
         page: payload.page,
         mode: "replace",
@@ -349,6 +392,7 @@ export default function WorkspaceChat({ loading, workspace }) {
               key,
               workspace,
               threadSlug,
+              activeThread,
               history: hydration.history,
               mode: "append",
             });
@@ -431,6 +475,7 @@ export default function WorkspaceChat({ loading, workspace }) {
       key: loaded.key,
       workspace: loaded.workspace,
       threadSlug: loaded.threadSlug,
+      activeThread: loaded.activeThread,
       history: payload.history,
       page: payload.page,
       mode: "prepend",
@@ -520,6 +565,7 @@ export default function WorkspaceChat({ loading, workspace }) {
           key={loaded.key}
           workspace={loaded.workspace}
           threadSlug={loaded.threadSlug}
+          activeThread={loaded.activeThread}
           knownHistory={loaded.history}
           hasMoreHistory={!!historyState.page?.hasMore}
           isLoadingOlderHistory={historyState.loadingOlder}

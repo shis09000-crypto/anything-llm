@@ -103,7 +103,8 @@ function workspaceThreadEndpoints(app) {
         const workspace = response.locals.workspace;
         const { thread, message } = await WorkspaceThread.new(
           workspace,
-          user?.id
+          user?.id,
+          { thread_type: WorkspaceThread.THREAD_TYPES.chat }
         );
         await Telemetry.sendTelemetry(
           "workspace_thread_created",
@@ -140,11 +141,14 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const threads = await WorkspaceThread.where({
-          workspace_id: workspace.id,
-          user_id: user?.id || null,
+        const defaultThreads = await WorkspaceThread.ensureDefaultThreads(
+          workspace,
+          user?.id
+        );
+        response.status(200).json({
+          threads: defaultThreads.threads,
+          defaultThreads,
         });
-        response.status(200).json({ threads });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -224,6 +228,11 @@ function workspaceThreadEndpoints(app) {
     async (_, response) => {
       try {
         const thread = response.locals.thread;
+        if (WorkspaceThread.isOverviewThread(thread)) {
+          return response
+            .status(400)
+            .json({ error: "Overview thread cannot be deleted." });
+        }
         await WorkspaceThread.delete({ id: thread.id });
         response.sendStatus(200).end();
       } catch (e) {
@@ -243,8 +252,21 @@ function workspaceThreadEndpoints(app) {
 
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        await WorkspaceThread.delete({
+        const overviewThreads = await WorkspaceThread.where({
           slug: { in: slugs },
+          user_id: user?.id ?? null,
+          workspace_id: workspace.id,
+          thread_type: WorkspaceThread.THREAD_TYPES.overview,
+        });
+        const protectedSlugs = new Set(
+          overviewThreads.map((thread) => thread.slug)
+        );
+        const deletableSlugs = slugs.filter(
+          (slug) => !protectedSlugs.has(slug)
+        );
+        if (deletableSlugs.length === 0) return response.sendStatus(200).end();
+        await WorkspaceThread.delete({
+          slug: { in: deletableSlugs },
           user_id: user?.id ?? null,
           workspace_id: workspace.id,
         });

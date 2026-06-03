@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+STATE_FILE="$ROOT_DIR/.anythingllm-runtime/status.env"
+
+pid_status() {
+  local pid="${1:-}"
+  if [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1; then
+    printf 'running'
+  else
+    printf 'stopped'
+  fi
+}
+
+port_pids() {
+  local port="${1:-}"
+  if [[ -z "$port" ]]; then
+    printf '-'
+    return
+  fi
+  local pids
+  pids="$(lsof -ti tcp:"$port" 2>/dev/null | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  printf '%s' "${pids:--}"
+}
+
+if [[ ! -f "$STATE_FILE" ]]; then
+  cat <<EOF
+AnythingLLM status
+state: stopped
+
+No runtime state file found.
+EOF
+  exit 0
+fi
+
+set +e
+# shellcheck disable=SC1090
+source "$STATE_FILE" >/dev/null 2>&1
+SOURCE_STATUS=$?
+set -e
+
+cat <<EOF
+AnythingLLM status
+environment: ${APP_ENV:-unknown}
+started_at:   ${STARTED_AT:-unknown}
+access_url:   ${APP_URL:-unknown}
+state_file:   $([[ "$SOURCE_STATUS" == "0" ]] && printf 'ok' || printf 'partially readable')
+
+process       pid                 status      port      port_pids
+server        ${SERVER_PID:--}    $(pid_status "${SERVER_PID:-}")    ${SERVER_PORT:--}    $(port_pids "${SERVER_PORT:-}")
+collector     ${COLLECTOR_PID:--}    $(pid_status "${COLLECTOR_PID:-}")    ${COLLECTOR_PORT:--}    $(port_pids "${COLLECTOR_PORT:-}")
+frontend      ${FRONTEND_PID:--}    $(pid_status "${FRONTEND_PID:-}")    ${FRONTEND_PORT:--}    $(port_pids "${FRONTEND_PORT:-}")
+
+logs
+server:    ${SERVER_LOG:-}
+collector: ${COLLECTOR_LOG:-}
+frontend:  ${FRONTEND_LOG:-}
+EOF

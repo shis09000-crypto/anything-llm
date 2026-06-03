@@ -1100,7 +1100,6 @@ const EXTRA_PROVIDER_ENV_KEYS = [
   "AWS_BEDROCK_STREAMING_DISABLED",
   "OLLAMA_RESPONSE_TIMEOUT",
   "NVIDIA_NIM_LLM_MODEL_TOKEN_LIMIT",
-  "STORAGE_DIR",
 ];
 
 const PROVIDER_ENV_KEYS = [
@@ -1630,7 +1629,6 @@ function dumpENV() {
     // and are either managed or manually set ENV key:values.
     "JWT_EXPIRY",
 
-    "STORAGE_DIR",
     "SERVER_PORT",
     "COLLECTOR_PORT",
     "COLLECTOR_ENDPOINT",

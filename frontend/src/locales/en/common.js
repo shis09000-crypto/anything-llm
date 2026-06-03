@@ -54,6 +54,9 @@ const TRANSLATIONS = {
     clear: "Clear",
     thread: "Thread",
     default: "Default",
+    overviewPage: "Overview",
+    newThread: "New Thread",
+    startingThread: "Starting thread...",
     running: "Running",
     completed: "Completed",
     failed: "Failed",
@@ -71,6 +74,7 @@ const TRANSLATIONS = {
     none: "None",
     stopped: "Stopped",
     search: "Search",
+    developmentMode: "Development mode",
     username_requirements:
       "Username must be 2-32 characters, start with a lowercase letter, and only contain lowercase letters, numbers, underscores, hyphens, and periods.",
     loading: "Loading",

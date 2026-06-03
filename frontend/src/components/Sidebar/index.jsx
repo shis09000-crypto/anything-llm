@@ -19,7 +19,6 @@ import {
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
-import EnvironmentBadge from "@/components/EnvironmentBadge";
 
 function homeLinkPath() {
   const lastVisited = getLastVisitedWorkspace();
@@ -78,7 +77,6 @@ export default function Sidebar() {
                   </span>
                 )}
               </Link>
-              <EnvironmentBadge />
             </div>
           </div>
           <div
@@ -161,7 +159,6 @@ export function SidebarMobileHeader() {
               {productName}
             </span>
           )}
-          <EnvironmentBadge compact />
         </div>
         <div className="w-12"></div>
       </div>

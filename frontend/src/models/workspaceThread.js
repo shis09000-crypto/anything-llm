@@ -21,7 +21,7 @@ function historyPageQuery({
 
 const WorkspaceThread = {
   all: async function (workspaceSlug) {
-    const { threads } = await fetch(
+    const { threads, defaultThreads } = await fetch(
       `${API_BASE}/workspace/${workspaceSlug}/threads`,
       {
         method: "GET",
@@ -30,10 +30,10 @@ const WorkspaceThread = {
     )
       .then((res) => res.json())
       .catch(() => {
-        return { threads: [] };
+        return { threads: [], defaultThreads: null };
       });
 
-    return { threads };
+    return { threads, defaultThreads };
   },
   titleEvents: async function (
     workspaceSlug,

@@ -26,7 +26,11 @@ function defaultStorageBase() {
 function storageBaseDir() {
   if (process.env[STORAGE_BASE_ENV])
     return path.resolve(process.env[STORAGE_BASE_ENV]);
-  if (process.env[STORAGE_APPLIED_ENV] === "true" && process.env.STORAGE_DIR)
+  if (
+    process.env[STORAGE_APPLIED_ENV] === "true" &&
+    process.env.STORAGE_DIR &&
+    path.basename(path.resolve(process.env.STORAGE_DIR)) === appEnvironment()
+  )
     return path.dirname(path.resolve(process.env.STORAGE_DIR));
   return process.env.STORAGE_DIR
     ? path.resolve(process.env.STORAGE_DIR)
@@ -34,7 +38,11 @@ function storageBaseDir() {
 }
 
 function storageRoot() {
-  if (process.env[STORAGE_APPLIED_ENV] === "true" && process.env.STORAGE_DIR)
+  if (
+    process.env[STORAGE_APPLIED_ENV] === "true" &&
+    process.env.STORAGE_DIR &&
+    path.basename(path.resolve(process.env.STORAGE_DIR)) === appEnvironment()
+  )
     return path.resolve(process.env.STORAGE_DIR);
   return path.join(storageBaseDir(), appEnvironment());
 }
