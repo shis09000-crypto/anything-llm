@@ -120,6 +120,73 @@ describe("workspace reader documents", () => {
     );
   });
 
+  it("reports reader OCR config without leaking secrets", () => {
+    const { readerOcrConfigStatus } = loadEndpoint(storageDir);
+    const configured = readerOcrConfigStatus({
+      READER_OCR_PROVIDER: "alibaba",
+      READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+      READER_OCR_API_KEY: "sk-secret",
+      READER_OCR_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    });
+    expect(configured).toEqual({
+      success: true,
+      configured: true,
+      provider: "alibaba",
+      modelConfigured: true,
+      apiKeyConfigured: true,
+      baseUrlConfigured: true,
+      reason: "configured",
+    });
+    expect(JSON.stringify(configured)).not.toContain("sk-secret");
+
+    expect(
+      readerOcrConfigStatus({
+        READER_OCR_PROVIDER: "alibaba",
+        READER_OCR_API_KEY: "sk-secret",
+        READER_OCR_BASE_URL:
+          "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      })
+    ).toMatchObject({
+      configured: false,
+      modelConfigured: false,
+      apiKeyConfigured: true,
+      baseUrlConfigured: true,
+      reason: "missing_model",
+    });
+    expect(
+      readerOcrConfigStatus({
+        READER_OCR_PROVIDER: "alibaba",
+        READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+        READER_OCR_BASE_URL:
+          "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      })
+    ).toMatchObject({
+      configured: false,
+      modelConfigured: true,
+      apiKeyConfigured: false,
+      baseUrlConfigured: true,
+      reason: "missing_api_key",
+    });
+    expect(
+      readerOcrConfigStatus({
+        READER_OCR_PROVIDER: "alibaba",
+        READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+        READER_OCR_API_KEY: "sk-secret",
+      })
+    ).toMatchObject({
+      configured: false,
+      modelConfigured: true,
+      apiKeyConfigured: true,
+      baseUrlConfigured: false,
+      reason: "missing_base_url",
+    });
+    expect(readerOcrConfigStatus({})).toMatchObject({
+      configured: false,
+      provider: "none",
+      reason: "disabled",
+    });
+  });
+
   it("caps classification samples before model use", () => {
     const { cappedClassificationSamples, classificationSampleCharCount } =
       loadEndpoint(storageDir);

@@ -81,6 +81,10 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_RERANK_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_RERANK_MODEL,
 } = require("../utils/EmbeddingRerankers/alibaba");
+const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
+} = require("../utils/OcrProviders/alibaba");
 
 const PROVIDER_PRESETS = {
   SHIJIE_DEEPSEEK_ALI_V1: {
@@ -752,6 +756,10 @@ function systemEndpoints(app) {
             RerankApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
             RerankBaseUrl: DEFAULT_ALIBABA_RERANK_BASE_URL,
             RerankModelPref: DEFAULT_ALIBABA_RERANK_MODEL,
+            ReaderOcrProvider: "alibaba",
+            ReaderOcrApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
+            ReaderOcrBaseUrl: DEFAULT_ALIBABA_OCR_BASE_URL,
+            ReaderOcrModelPref: DEFAULT_ALIBABA_OCR_MODEL,
           },
           false,
           response?.locals?.user?.id
@@ -771,6 +779,12 @@ function systemEndpoints(app) {
             provider: preset.embedder.provider,
             base_url: preset.embedder.baseUrl,
             model: preset.embedder.model,
+            api_key_set: true,
+          },
+          ocr: {
+            provider: "alibaba",
+            base_url: DEFAULT_ALIBABA_OCR_BASE_URL,
+            model: DEFAULT_ALIBABA_OCR_MODEL,
             api_key_set: true,
           },
         });

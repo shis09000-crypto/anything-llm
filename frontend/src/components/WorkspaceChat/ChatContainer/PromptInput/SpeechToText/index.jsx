@@ -7,7 +7,6 @@ import SpeechRecognition, {
 } from "react-speech-recognition";
 import { PROMPT_INPUT_EVENT } from "../../PromptInput";
 import { useTranslation } from "react-i18next";
-import Appearance from "@/models/appearance";
 
 let timeout;
 const SILENCE_INTERVAL = 3_200; // wait in seconds of silence before closing.
@@ -15,7 +14,7 @@ const SILENCE_INTERVAL = 3_200; // wait in seconds of silence before closing.
 /**
  * Speech-to-text input component for the chat window.
  * @param {Object} props - The component props
- * @param {(textToAppend: string, autoSubmit: boolean) => void} props.sendCommand - The function to send the command
+ * @param {(options: Object) => void} props.sendCommand - The function to write transcribed text into the prompt input.
  * @returns {React.ReactElement} The SpeechToText component
  */
 export default function SpeechToText({ sendCommand, onListeningChange }) {
@@ -49,16 +48,6 @@ export default function SpeechToText({ sendCommand, onListeningChange }) {
 
   function endSTTSession() {
     SpeechRecognition.stopListening();
-
-    // If auto submit is enabled, send an empty string to the chat window to submit the current transcript
-    // since every chunk of text should have been streamed to the chat window by now.
-    if (Appearance.get("autoSubmitSttInput")) {
-      sendCommand({
-        text: "",
-        autoSubmit: true,
-        writeMode: "append",
-      });
-    }
 
     resetTranscript();
     previousTranscriptRef.current = "";

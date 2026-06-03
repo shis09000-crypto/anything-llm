@@ -907,6 +907,27 @@ const KEY_MAPPING = {
     envKey: "RERANK_MODEL_PREF",
     checks: [isNotEmpty],
   },
+  ReaderOcrProvider: {
+    envKey: "READER_OCR_PROVIDER",
+    checks: [
+      (input) =>
+        ["none", "alibaba"].includes(input)
+          ? null
+          : "Invalid reader OCR provider.",
+    ],
+  },
+  ReaderOcrApiKey: {
+    envKey: "READER_OCR_API_KEY",
+    checks: [isNotEmpty],
+  },
+  ReaderOcrBaseUrl: {
+    envKey: "READER_OCR_BASE_URL",
+    checks: [isNotEmpty, isValidURL],
+  },
+  ReaderOcrModelPref: {
+    envKey: "READER_OCR_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
 };
 
 const PROVIDER_SETTING_KEYS = [
@@ -1062,6 +1083,10 @@ const PROVIDER_SETTING_KEYS = [
   "RerankApiKey",
   "RerankBaseUrl",
   "RerankModelPref",
+  "ReaderOcrProvider",
+  "ReaderOcrApiKey",
+  "ReaderOcrBaseUrl",
+  "ReaderOcrModelPref",
 ];
 
 const EXTRA_PROVIDER_ENV_KEYS = [

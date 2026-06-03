@@ -1,5 +1,7 @@
 const {
+  formatFunctionsToTools,
   formatMessagesForTools,
+  normalizeToolParameters,
   tooledComplete,
   tooledStream,
 } = require("../../../utils/agents/aibitat/providers/helpers/tooled");
@@ -21,6 +23,62 @@ describe("OpenAI-compatible tooled helpers", () => {
       },
     },
   ];
+
+  test("normalizes invalid native tool schema fields before provider calls", () => {
+    const formatted = formatFunctionsToTools([
+      {
+        name: "search",
+        description: "Search with a dynamic schema",
+        parameters: {
+          type: "object",
+          properties: {
+            query: null,
+            filters: {
+              type: "object",
+              properties: null,
+              required: null,
+            },
+            tags: {
+              type: "array",
+              items: null,
+            },
+            mode: {
+              oneOf: [null, { type: "string" }],
+            },
+          },
+          required: null,
+        },
+      },
+    ]);
+
+    expect(formatted[0].function.parameters).toEqual({
+      type: "object",
+      properties: {
+        query: {},
+        filters: {
+          type: "object",
+          properties: {},
+          required: [],
+        },
+        tags: {
+          type: "array",
+          items: {},
+        },
+        mode: {
+          oneOf: [{ type: "string" }],
+        },
+      },
+      required: [],
+    });
+  });
+
+  test("defaults missing native tool parameters to an empty object schema", () => {
+    expect(normalizeToolParameters(null)).toEqual({
+      type: "object",
+      properties: {},
+      required: [],
+    });
+  });
 
   test("preserves reasoning_content at the assistant message top level when rebuilding tool calls", () => {
     const reasoningContent = "first reason\nsecond reason";

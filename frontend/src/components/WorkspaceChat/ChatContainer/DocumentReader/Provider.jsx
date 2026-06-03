@@ -461,6 +461,28 @@ export function DocumentReaderProvider({
     setPendingReaderTextSources(pendingReaderTextSourcesRef.current);
   }, []);
 
+  const upsertPendingReaderTextSource = useCallback(
+    (source) => {
+      if (!source?.sourceKey) return null;
+      let nextSource = null;
+      setPendingTextSources((current) => {
+        const index = current.findIndex(
+          (item) => item.sourceKey === source.sourceKey
+        );
+        if (index === -1) {
+          nextSource = source;
+          return [...current, source];
+        }
+        nextSource = { ...current[index], ...source };
+        const next = current.slice();
+        next[index] = nextSource;
+        return next;
+      });
+      return nextSource;
+    },
+    [setPendingTextSources]
+  );
+
   const removePendingReaderTextSource = useCallback(
     (sourceKeyOrSource) => {
       const sourceKey =
@@ -751,11 +773,21 @@ export function DocumentReaderProvider({
   useEffect(() => {
     const consume = (event) => {
       const sources = pendingReaderTextSourcesRef.current || [];
-      if (sources.length) {
-        setPendingSelectionSources((current) => [...current, ...sources]);
-        setPendingTextSources([]);
+      const readySources = sources.filter(
+        (source) =>
+          source?.selectedText &&
+          (!source.ocrStatus || source.ocrStatus === "ready")
+      );
+      if (readySources.length) {
+        setPendingSelectionSources((current) => [...current, ...readySources]);
+        const readyKeys = new Set(
+          readySources.map((source) => source.sourceKey).filter(Boolean)
+        );
+        setPendingTextSources((current) =>
+          current.filter((source) => !readyKeys.has(source.sourceKey))
+        );
       }
-      event.detail?.reply?.({ sources });
+      event.detail?.reply?.({ sources: readySources });
     };
     window.addEventListener(READER_EVENT_CONSUME_TEXT_SOURCES, consume);
     return () =>
@@ -1569,9 +1601,13 @@ export function DocumentReaderProvider({
       deleteReaderHistoryItem,
       updateCurrentDocumentThumbnail,
       pendingReaderTextSources,
+      hasPendingReaderTextSources: pendingReaderTextSources.some(
+        (source) => source?.ocrStatus === "processing"
+      ),
       focusedReaderTextSource,
       focusReaderTextSource,
       removePendingReaderTextSource,
+      upsertPendingReaderTextSource,
       sourcesByTurn,
       workspace,
       threadSlug,
@@ -1609,6 +1645,7 @@ export function DocumentReaderProvider({
       focusedReaderTextSource,
       focusReaderTextSource,
       removePendingReaderTextSource,
+      upsertPendingReaderTextSource,
       updateCurrentDocumentThumbnail,
       updateBookshelfItemCategory,
       workspace,

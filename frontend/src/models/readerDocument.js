@@ -125,6 +125,26 @@ const ReaderDocument = {
     const data = await response.json();
     return { response, data };
   },
+  ocrConfig: async function (slug) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/ocr-config`,
+      { method: "GET", headers: baseHeaders() }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
+  ocrScreenshot: async function (slug, payload = {}) {
+    const response = await fetch(
+      `${API_BASE}/workspace/${slug}/reader-documents/ocr-screenshot`,
+      {
+        method: "POST",
+        headers: { ...baseHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+    const data = await response.json();
+    return { response, data };
+  },
 };
 
 export default ReaderDocument;

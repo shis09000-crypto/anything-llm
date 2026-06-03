@@ -133,6 +133,9 @@ export default {
     rerankPreference: () => {
       return "/settings/rerank-preference";
     },
+    ocrPreference: () => {
+      return "/settings/ocr-preference";
+    },
     embeddingPreference: () => {
       return "/settings/embedding-preference";
     },

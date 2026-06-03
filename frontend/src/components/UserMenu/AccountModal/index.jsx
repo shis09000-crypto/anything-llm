@@ -198,7 +198,6 @@ export default function AccountModal({ user, hideModal }) {
                   <LanguagePreference />
                 </div>
                 <div className="flex flex-col gap-y-6">
-                  <AutoSubmitPreference />
                   <AutoSpeakPreference />
                 </div>
               </div>
@@ -282,48 +281,6 @@ function ThemePreference() {
           </option>
         ))}
       </select>
-    </div>
-  );
-}
-
-function AutoSubmitPreference() {
-  const [autoSubmitSttInput, setAutoSubmitSttInput] = useState(true);
-  const { t } = useTranslation();
-
-  useEffect(() => {
-    const settings = Appearance.getSettings();
-    setAutoSubmitSttInput(settings.autoSubmitSttInput ?? true);
-  }, []);
-
-  const handleChange = (checked) => {
-    setAutoSubmitSttInput(checked);
-    Appearance.updateSettings({ autoSubmitSttInput: checked });
-  };
-
-  return (
-    <div>
-      <div className="flex items-center gap-x-1 mb-2">
-        <label
-          htmlFor="autoSubmit"
-          className="block text-sm font-medium text-white"
-        >
-          {t("customization.chat.auto_submit.title")}
-        </label>
-        <div
-          data-tooltip-id="auto-submit-info"
-          data-tooltip-content={t("customization.chat.auto_submit.description")}
-          className="cursor-pointer h-fit"
-        >
-          <Info size={16} weight="bold" className="text-white" />
-        </div>
-      </div>
-      <Toggle size="lg" enabled={autoSubmitSttInput} onChange={handleChange} />
-      <Tooltip
-        id="auto-submit-info"
-        place="bottom"
-        delayShow={300}
-        className="allm-tooltip !allm-text-xs"
-      />
     </div>
   );
 }

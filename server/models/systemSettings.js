@@ -15,6 +15,10 @@ const {
   DEFAULT_MODEL: DEFAULT_ALIBABA_RERANK_MODEL,
 } = require("../utils/EmbeddingRerankers/alibaba");
 const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
+} = require("../utils/OcrProviders/alibaba");
+const {
   ConnectionStringParser,
 } = require("../utils/agents/aibitat/plugins/sql-agent/SQLConnectors/utils");
 
@@ -518,6 +522,16 @@ const SystemSettings = {
         process.env.RERANK_BASE_URL || DEFAULT_ALIBABA_RERANK_BASE_URL,
       RerankModelPref:
         process.env.RERANK_MODEL_PREF || DEFAULT_ALIBABA_RERANK_MODEL,
+
+      // --------------------------------------------------------
+      // Reader OCR Provider Selection Settings & Configs
+      // --------------------------------------------------------
+      ReaderOcrProvider: process.env.READER_OCR_PROVIDER || "none",
+      ReaderOcrApiKey: !!process.env.READER_OCR_API_KEY,
+      ReaderOcrBaseUrl:
+        process.env.READER_OCR_BASE_URL || DEFAULT_ALIBABA_OCR_BASE_URL,
+      ReaderOcrModelPref:
+        process.env.READER_OCR_MODEL_PREF || DEFAULT_ALIBABA_OCR_MODEL,
 
       // --------------------------------------------------------
       // Whisper (Audio transcription) Selection Settings & Configs

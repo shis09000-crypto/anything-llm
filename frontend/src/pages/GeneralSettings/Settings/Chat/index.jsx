@@ -1,7 +1,6 @@
 import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
-import AutoSubmit from "../components/AutoSubmit";
 import AutoSpeak from "../components/AutoSpeak";
 import SpellCheck from "../components/SpellCheck";
 import ShowScrollbar from "../components/ShowScrollbar";
@@ -28,7 +27,6 @@ export default function ChatSettings() {
               {t("customization.chat.description")}
             </p>
           </div>
-          <AutoSubmit />
           <AutoSpeak />
           <SpellCheck />
           <ShowScrollbar />

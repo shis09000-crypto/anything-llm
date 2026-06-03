@@ -1,11 +1,14 @@
+/* global URL, console */
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import {
   TURN_STATUSES,
   appendTimelineEventToItems,
+  cleanupTransientDraftItems,
   createTurn,
   findAssistantTurn,
+  isAgentReconnectAttemptStale,
   mergeServerHistoryIntoTurns,
   updateAssistantTurnInItems,
 } from "../src/utils/chat/turns.js";
@@ -112,6 +115,45 @@ function completeTurn(draft, turnId, patch = {}) {
     activeToolCall: null,
     pendingApproval: null,
   };
+}
+
+function completeTurnWithPendingDelta(
+  draft,
+  turnId,
+  patch = {},
+  pendingDelta = null
+) {
+  const turn = findAssistantTurn(draft.items, turnId);
+  assert.ok(turn, "target turn should exist before completion");
+  const patchHasFinalContent =
+    (typeof patch.finalContent === "string" && patch.finalContent.length > 0) ||
+    (typeof patch.content === "string" && patch.content.length > 0);
+  const finalPatch =
+    pendingDelta?.content && !patchHasFinalContent
+      ? {
+          ...patch,
+          finalContent: `${turn.finalContent || ""}${pendingDelta.content}`,
+          sources:
+            pendingDelta.sources?.length > 0
+              ? pendingDelta.sources
+              : patch.sources,
+          metrics: pendingDelta.metrics || patch.metrics,
+          chatId: pendingDelta.chatId || patch.chatId,
+        }
+      : patch;
+
+  return completeTurn(draft, turnId, {
+    ...finalPatch,
+    finalContent:
+      finalPatch.finalContent !== undefined
+        ? finalPatch.finalContent
+        : finalPatch.content !== undefined && finalPatch.content !== ""
+          ? finalPatch.content
+          : turn.finalContent || "",
+    sources: finalPatch.sources || turn.sources || [],
+    metrics: finalPatch.metrics || turn.metrics || {},
+    chatId: finalPatch.chatId || turn.chatId || null,
+  });
 }
 
 function failTurn(draft, turnId, reason = "failed") {
@@ -300,6 +342,72 @@ assert.equal(completed.finalContent, "done");
 assert.equal(draft.activeTurnId, null);
 assert.equal(draft.isStreaming, false);
 
+const emptyClosedChunk = handleChat({
+  type: "textResponseChunk",
+  textResponse: "",
+  close: true,
+  uuid: "u-empty",
+});
+assert.equal(emptyClosedChunk.type, "assistant_final");
+assert.equal(emptyClosedChunk.content, "");
+
+const pendingRaceTurn = createTurn({
+  prompt: "pending race",
+  chatKey: "ws:default",
+});
+let pendingRaceDraft = {
+  items: pendingRaceTurn.items,
+  activeTurnId: pendingRaceTurn.turnId,
+  isStreaming: true,
+  isAgentRunning: false,
+};
+pendingRaceDraft = completeTurnWithPendingDelta(
+  pendingRaceDraft,
+  pendingRaceTurn.turnId,
+  {
+    finalContent: emptyClosedChunk.content,
+    chatId: 202,
+    sources: [{ title: "final" }],
+    metrics: { total_tokens: 1 },
+  },
+  {
+    content: "ok",
+    chatId: 202,
+    sources: [{ title: "pending" }],
+    metrics: { total_tokens: 2 },
+  }
+);
+const pendingRaceCompleted = findAssistantTurn(
+  pendingRaceDraft.items,
+  pendingRaceTurn.turnId
+);
+assert.equal(pendingRaceCompleted.status, TURN_STATUSES.completed);
+assert.equal(pendingRaceCompleted.finalContent, "ok");
+assert.equal(pendingRaceCompleted.chatId, 202);
+assert.deepEqual(pendingRaceCompleted.sources, [{ title: "pending" }]);
+assert.deepEqual(pendingRaceCompleted.metrics, { total_tokens: 2 });
+
+const overridingTurn = createTurn({
+  prompt: "override",
+  chatKey: "ws:default",
+});
+let overridingDraft = {
+  items: overridingTurn.items,
+  activeTurnId: overridingTurn.turnId,
+  isStreaming: true,
+  isAgentRunning: false,
+};
+overridingDraft = completeTurnWithPendingDelta(
+  overridingDraft,
+  overridingTurn.turnId,
+  { finalContent: "server final" },
+  { content: "pending should not duplicate" }
+);
+assert.equal(
+  findAssistantTurn(overridingDraft.items, overridingTurn.turnId).finalContent,
+  "server final"
+);
+
 const beforeLateDelta = completed.finalContent;
 draft = applyDeltaIfRunning(draft, first.turnId, " late");
 assert.equal(findAssistantTurn(draft.items, first.turnId).status, "completed");
@@ -380,6 +488,176 @@ assert.equal(
 );
 assert.equal(persistedDraft.activeTurnId, null);
 assert.equal(persistedDraft.isStreaming, false);
+
+const failedLocalOverrideTurn = createTurn({
+  prompt: "server should win failed local",
+  chatKey: "ws:default",
+});
+let failedLocalOverrideItems = updateAssistantTurnInItems(
+  failedLocalOverrideTurn.items,
+  failedLocalOverrideTurn.turnId,
+  {
+    status: TURN_STATUSES.failed,
+    error: "local failure",
+  }
+);
+failedLocalOverrideItems = mergeServerHistoryIntoTurns(
+  [
+    {
+      role: "user",
+      chatId: 303,
+      content: "server should win failed local",
+      sentAt: 1,
+    },
+    {
+      role: "assistant",
+      chatId: 303,
+      content: "server completed",
+      sentAt: 2,
+    },
+  ],
+  failedLocalOverrideItems,
+  { chatKey: "ws:default" }
+);
+const failedLocalOverrideAssistant = findAssistantTurn(
+  failedLocalOverrideItems,
+  failedLocalOverrideTurn.turnId
+);
+assert.equal(failedLocalOverrideAssistant.status, TURN_STATUSES.completed);
+assert.equal(failedLocalOverrideAssistant.error, null);
+assert.equal(failedLocalOverrideAssistant.finalContent, "server completed");
+
+const localFailedCleanupTurn = createTurn({
+  prompt: "failed local cleanup",
+  chatKey: "ws:default",
+});
+const failedCleanup = cleanupTransientDraftItems(
+  updateAssistantTurnInItems(
+    localFailedCleanupTurn.items,
+    localFailedCleanupTurn.turnId,
+    {
+      status: TURN_STATUSES.failed,
+      error: "local failure",
+    }
+  )
+);
+assert.deepEqual(failedCleanup.items, []);
+assert.deepEqual(failedCleanup.removedTurnIds, [localFailedCleanupTurn.turnId]);
+
+const localRunningCleanupTurn = createTurn({
+  prompt: "running local cleanup",
+  chatKey: "ws:default",
+});
+const runningCleanup = cleanupTransientDraftItems(localRunningCleanupTurn.items);
+assert.deepEqual(runningCleanup.items, []);
+assert.deepEqual(runningCleanup.removedTurnIds, [localRunningCleanupTurn.turnId]);
+
+const now = Date.now();
+const retryingRoughTurn = createTurn({
+  prompt: "retrying rough",
+  chatKey: "ws:default",
+});
+const retryingRoughItems = updateAssistantTurnInItems(
+  retryingRoughTurn.items,
+  retryingRoughTurn.turnId,
+  {
+    reconnectState: "retrying",
+    websocketUUID: "agent-rough",
+    agentModelTier: "rough",
+    silenceTimeoutMs: 50_000,
+    reconnectAttemptStartedAt: now - 90_000,
+  }
+);
+assert.equal(
+  cleanupTransientDraftItems(retryingRoughItems, { now }).items.length,
+  2
+);
+assert.equal(
+  isAgentReconnectAttemptStale(
+    findAssistantTurn(retryingRoughItems, retryingRoughTurn.turnId),
+    now
+  ),
+  false
+);
+
+const staleRetryingRoughItems = updateAssistantTurnInItems(
+  retryingRoughTurn.items,
+  retryingRoughTurn.turnId,
+  {
+    reconnectState: "retrying",
+    websocketUUID: "agent-rough",
+    agentModelTier: "rough",
+    silenceTimeoutMs: 50_000,
+    reconnectAttemptStartedAt: now - 101_000,
+  }
+);
+assert.deepEqual(
+  cleanupTransientDraftItems(staleRetryingRoughItems, { now }).items,
+  []
+);
+assert.equal(
+  isAgentReconnectAttemptStale(
+    findAssistantTurn(staleRetryingRoughItems, retryingRoughTurn.turnId),
+    now
+  ),
+  true
+);
+
+for (const [tier, timeoutMs] of [
+  ["refined", 90_000],
+  ["ultra", 120_000],
+]) {
+  const tierTurn = createTurn({
+    prompt: `${tier} retrying`,
+    chatKey: "ws:default",
+  });
+  const tierItems = updateAssistantTurnInItems(tierTurn.items, tierTurn.turnId, {
+    reconnectState: "retrying",
+    websocketUUID: `agent-${tier}`,
+    agentModelTier: tier,
+    silenceTimeoutMs: timeoutMs,
+    reconnectAttemptStartedAt: now - (timeoutMs * 2 + 1),
+  });
+  assert.deepEqual(cleanupTransientDraftItems(tierItems, { now }).items, []);
+}
+
+const unknownTierTurn = createTurn({
+  prompt: "unknown tier retrying",
+  chatKey: "ws:default",
+});
+const unknownTierItems = updateAssistantTurnInItems(
+  unknownTierTurn.items,
+  unknownTierTurn.turnId,
+  {
+    reconnectState: "retrying",
+    websocketUUID: "agent-unknown",
+    reconnectAttemptStartedAt: now - 179_000,
+  }
+);
+assert.equal(cleanupTransientDraftItems(unknownTierItems, { now }).items.length, 2);
+const staleUnknownTierItems = updateAssistantTurnInItems(
+  unknownTierTurn.items,
+  unknownTierTurn.turnId,
+  {
+    reconnectState: "retrying",
+    websocketUUID: "agent-unknown",
+    reconnectAttemptStartedAt: now - 181_000,
+  }
+);
+assert.deepEqual(
+  cleanupTransientDraftItems(staleUnknownTierItems, { now }).items,
+  []
+);
+
+const offerTurn = createTurn({
+  prompt: "offer should stay",
+  chatKey: "ws:default",
+});
+const offerItems = updateAssistantTurnInItems(offerTurn.items, offerTurn.turnId, {
+  status: TURN_STATUSES.interrupted,
+  reconnectState: "offer",
+});
+assert.equal(cleanupTransientDraftItems(offerItems, { now }).items.length, 2);
 
 const chatKey = "ws:default";
 let runningState = { activeRunningThread: null, threadActivityByKey: {} };

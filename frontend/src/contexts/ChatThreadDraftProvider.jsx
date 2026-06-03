@@ -22,6 +22,7 @@ import { safeJsonParse } from "@/utils/request";
 import {
   TURN_STATUSES,
   appendTimelineEventToItems,
+  cleanupTransientDraftItems,
   createTurn,
   createTurnId,
   findAssistantTurn,
@@ -55,6 +56,17 @@ const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const MAX_AGENT_RECONNECT_ATTEMPTS = 5;
 const AGENT_RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 12_000];
 const DEFAULT_AGENT_SILENCE_TIMEOUT_MS = 90_000;
+const AGENT_RECONNECT_TURN_FIELDS = [
+  "websocketUUID",
+  "agentProvider",
+  "agentModel",
+  "agentModelTier",
+  "silenceTimeoutMs",
+  "reconnectAttemptStartedAt",
+  "reconnectDueAt",
+  "lastEventSeq",
+  "interruptedContext",
+];
 
 function agentReconnectKey(chatKey, turnId) {
   return `${chatKey}:${turnId}`;
@@ -132,32 +144,40 @@ function createDraft({ workspaceSlug, threadSlug = null, items = [] }) {
 
 function draftFromStorageValue(value) {
   if (!value || !value.workspaceSlug) return null;
-  const updatedAt = value.updatedAt || Date.now();
-  const staleRuntime =
-    (value.isStreaming || value.isAgentRunning) &&
-    Date.now() - updatedAt > RUNNING_STALE_TIMEOUT_MS;
+  const now = Date.now();
+  const updatedAt = value.updatedAt || now;
+  const { items, removedTurnIds } = cleanupTransientDraftItems(
+    Array.isArray(value.items) ? value.items : [],
+    { now }
+  );
+  const removedTurnIdSet = new Set(removedTurnIds);
+  const activeTurnId =
+    value.activeTurnId && !removedTurnIdSet.has(value.activeTurnId)
+      ? value.activeTurnId
+      : null;
+  const activeTurn = findAssistantTurn(items, activeTurnId);
+  const hasRunningTurn = items.some(
+    (item) => isAssistantTurn(item) && item.status === TURN_STATUSES.running
+  );
+  const keepActiveRuntime =
+    activeTurn?.status === TURN_STATUSES.running && hasRunningTurn;
   const draft = {
     workspaceSlug: value.workspaceSlug,
     threadSlug: value.threadSlug ?? null,
-    items: normalizeTurnItems(Array.isArray(value.items) ? value.items : []),
-    activeTurnId: staleRuntime ? null : value.activeTurnId || null,
-    pendingApproval: staleRuntime ? null : value.pendingApproval || null,
-    activeToolCall: staleRuntime ? null : value.activeToolCall || null,
-    isStreaming: staleRuntime ? false : !!value.isStreaming,
-    isAgentRunning: staleRuntime ? false : !!value.isAgentRunning,
+    items,
+    activeTurnId: keepActiveRuntime ? activeTurnId : null,
+    pendingApproval: keepActiveRuntime ? value.pendingApproval || null : null,
+    activeToolCall: keepActiveRuntime ? value.activeToolCall || null : null,
+    isStreaming:
+      keepActiveRuntime && activeTurn?.reconnectState !== "retrying"
+        ? !!value.isStreaming
+        : false,
+    isAgentRunning:
+      keepActiveRuntime &&
+      (value.isAgentRunning || !!activeTurn?.websocketUUID),
     updatedAt,
-    persistError: staleRuntime
-      ? "This agent session timed out locally because no response was received."
-      : value.persistError || null,
+    persistError: removedTurnIds.length > 0 ? null : value.persistError || null,
   };
-
-  if (staleRuntime && value.activeTurnId) {
-    draft.items = failTurnItems(
-      draft.items,
-      value.activeTurnId,
-      draft.persistError
-    );
-  }
   return draft;
 }
 
@@ -380,7 +400,13 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       reconnectState: item.reconnectState || null,
       retryCount: item.retryCount || 0,
       maxRetries: item.maxRetries || MAX_AGENT_RECONNECT_ATTEMPTS,
+      websocketUUID: item.websocketUUID || null,
+      agentProvider: item.agentProvider || null,
+      agentModel: item.agentModel || null,
+      agentModelTier: item.agentModelTier || null,
       silenceTimeoutMs: item.silenceTimeoutMs || null,
+      reconnectAttemptStartedAt: item.reconnectAttemptStartedAt || null,
+      reconnectDueAt: item.reconnectDueAt || null,
       lastEventSeq: item.lastEventSeq || 0,
       interruptedContext: minimal ? null : item.interruptedContext || null,
     };
@@ -704,7 +730,32 @@ function restoreActiveRunningState() {
     sessionStorage.getItem(ACTIVE_RUNNING_STORAGE_KEY),
     {}
   );
-  return normalizeRunningState(stored);
+  const restored = normalizeRunningState(stored);
+  const threadActivityByKey = {};
+
+  Object.entries(restored.threadActivityByKey || {}).forEach(
+    ([chatKey, activity]) => {
+      const draft = draftFromStorageValue(
+        safeJsonParse(
+          sessionStorage.getItem(
+            getStorageKey(activity.workspaceSlug, activity.threadSlug)
+          )
+        )
+      );
+      const turn = findAssistantTurn(draft?.items || [], activity.turnId);
+      if (turn?.status === TURN_STATUSES.running) {
+        threadActivityByKey[chatKey] = activity;
+      }
+    }
+  );
+
+  const activeRunningThread =
+    restored.activeRunningThread &&
+    threadActivityByKey[restored.activeRunningThread.chatKey]
+      ? restored.activeRunningThread
+      : null;
+
+  return { activeRunningThread, threadActivityByKey };
 }
 
 function persistActiveRunningState(activeRunningThread, threadActivityByKey) {
@@ -740,6 +791,15 @@ function failTurnItems(items = [], turnId, reason) {
   );
 }
 
+function definedPatch(source = {}, fields = []) {
+  return fields.reduce((patch, field) => {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      patch[field] = source[field];
+    }
+    return patch;
+  }, {});
+}
+
 function completeTurnPatch(turn, patch = {}) {
   const nextFinalContent =
     patch.finalContent !== undefined
@@ -756,6 +816,17 @@ function completeTurnPatch(turn, patch = {}) {
     metrics: patch.metrics || turn.metrics || {},
     status: TURN_STATUSES.completed,
     error: null,
+    reconnectState: null,
+    retryCount: 0,
+    maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
+    websocketUUID: null,
+    agentProvider: null,
+    agentModel: null,
+    agentModelTier: null,
+    silenceTimeoutMs: null,
+    reconnectAttemptStartedAt: null,
+    reconnectDueAt: null,
+    lastEventSeq: 0,
   };
 }
 
@@ -800,6 +871,7 @@ export function ChatThreadDraftProvider({ children }) {
   const stoppedThreadRefs = useRef({});
   const erroredThreadRefs = useRef({});
   const agentReconnectRefs = useRef({});
+  const resumedAgentTurnRefs = useRef(new Set());
   const confirmPersistedRef = useRef(null);
   const settledTurnRefs = useRef({});
   const deltaFlushRefs = useRef({});
@@ -1360,8 +1432,12 @@ export function ChatThreadDraftProvider({ children }) {
         const pendingDelta = deltaFlushRefs.current[pendingKey];
         if (pendingDelta?.frame) cancelAnimationFrame(pendingDelta.frame);
         delete deltaFlushRefs.current[pendingKey];
+        const patchHasFinalContent =
+          (typeof patch.finalContent === "string" &&
+            patch.finalContent.length > 0) ||
+          (typeof patch.content === "string" && patch.content.length > 0);
         const finalPatch =
-          pendingDelta?.content && patch.finalContent === undefined
+          pendingDelta?.content && !patchHasFinalContent
             ? {
                 ...patch,
                 finalContent: `${currentTurn.finalContent || ""}${pendingDelta.content}`,
@@ -1560,17 +1636,16 @@ export function ChatThreadDraftProvider({ children }) {
           eventContentLength: event.content?.length || 0,
           ...turnRuntimeSnapshot(draft, turnId),
         });
-        const finalContent =
-          event.content && event.content.length > 0
-            ? event.content
-            : turn?.finalContent || "";
-        completeAssistantTurn(chatKey, turnId, {
-          finalContent,
+        const completionPatch = {
           chatId: event.chatId || turn?.chatId,
           sources:
             event.sources?.length > 0 ? event.sources : turn?.sources || [],
           metrics: event.metrics || turn?.metrics || {},
-        });
+        };
+        if (event.content && event.content.length > 0) {
+          completionPatch.finalContent = event.content;
+        }
+        completeAssistantTurn(chatKey, turnId, completionPatch);
         return event;
       }
 
@@ -1820,17 +1895,18 @@ export function ChatThreadDraftProvider({ children }) {
 
   const updateAgentReconnectTurn = useCallback(
     (chatKey, turnId, patch = {}) => {
+      const turnPatch = {
+        ...definedPatch(patch, [
+          "reconnectState",
+          "retryCount",
+          ...AGENT_RECONNECT_TURN_FIELDS,
+        ]),
+        maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
+        updatedAt: Date.now(),
+      };
       updateDraft(chatKey, (draft) => ({
         ...draft,
-        items: updateAssistantTurnInItems(draft.items, turnId, {
-          reconnectState: patch.reconnectState,
-          retryCount: patch.retryCount,
-          maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
-          silenceTimeoutMs: patch.silenceTimeoutMs,
-          lastEventSeq: patch.lastEventSeq,
-          interruptedContext: patch.interruptedContext,
-          updatedAt: Date.now(),
-        }),
+        items: updateAssistantTurnInItems(draft.items, turnId, turnPatch),
       }));
     },
     [updateDraft]
@@ -1848,7 +1924,19 @@ export function ChatThreadDraftProvider({ children }) {
         lastEventSeq: existing.lastEventSeq || 0,
         lastMeaningfulOutputAt: existing.lastMeaningfulOutputAt || Date.now(),
         silenceTimeoutMs:
-          existing.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
+          options.silenceTimeoutMs ||
+          existing.silenceTimeoutMs ||
+          DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
+        agentProvider: options.agentProvider || existing.agentProvider || null,
+        agentModel: options.agentModel || existing.agentModel || null,
+        agentModelTier:
+          options.agentModelTier || existing.agentModelTier || null,
+        reconnectAttemptStartedAt:
+          options.reconnectAttemptStartedAt ??
+          existing.reconnectAttemptStartedAt ??
+          null,
+        reconnectDueAt:
+          options.reconnectDueAt ?? existing.reconnectDueAt ?? null,
         originalPrompt: options.prompt || existing.originalPrompt || "",
         displayPrompt:
           options.displayPrompt ||
@@ -1926,19 +2014,43 @@ export function ChatThreadDraftProvider({ children }) {
       updateAgentReconnectTurn(chatKey, turnId, {
         reconnectState: session.retryCount > 0 ? "retrying" : "idle",
         retryCount: session.retryCount,
+        websocketUUID,
+        agentProvider: session.agentProvider,
+        agentModel: session.agentModel,
+        agentModelTier: session.agentModelTier,
         silenceTimeoutMs: session.silenceTimeoutMs,
+        reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
+        reconnectDueAt: session.reconnectDueAt,
         lastEventSeq: session.lastEventSeq,
       });
       markThreadRunning(chatKey, turnId);
 
       Workspace.agentInvocationState(websocketUUID).then((result) => {
+        const state = result?.state || {};
         const timeoutMs = Number(result?.state?.silenceTimeoutMs);
+        session.agentProvider = state.provider || session.agentProvider || null;
+        session.agentModel = state.model || session.agentModel || null;
+        session.agentModelTier =
+          state.modelTier || session.agentModelTier || null;
         if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
           session.silenceTimeoutMs = timeoutMs;
+        }
+        if (
+          session.agentProvider ||
+          session.agentModel ||
+          session.agentModelTier ||
+          (Number.isFinite(timeoutMs) && timeoutMs > 0)
+        ) {
           updateAgentReconnectTurn(chatKey, turnId, {
             reconnectState: session.retryCount > 0 ? "retrying" : "idle",
             retryCount: session.retryCount,
-            silenceTimeoutMs: timeoutMs,
+            websocketUUID,
+            agentProvider: session.agentProvider,
+            agentModel: session.agentModel,
+            agentModelTier: session.agentModelTier,
+            silenceTimeoutMs: session.silenceTimeoutMs,
+            reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
+            reconnectDueAt: session.reconnectDueAt,
             lastEventSeq: session.lastEventSeq,
           });
         }
@@ -1983,7 +2095,13 @@ export function ChatThreadDraftProvider({ children }) {
             reconnectState: "offer",
             retryCount: session.retryCount,
             maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
+            websocketUUID,
+            agentProvider: session.agentProvider,
+            agentModel: session.agentModel,
+            agentModelTier: session.agentModelTier,
             silenceTimeoutMs: session.silenceTimeoutMs,
+            reconnectAttemptStartedAt: null,
+            reconnectDueAt: null,
             lastEventSeq: session.lastEventSeq || 0,
             interruptedContext,
             error: null,
@@ -2012,10 +2130,19 @@ export function ChatThreadDraftProvider({ children }) {
 
         session.retryCount += 1;
         const delay = reconnectBackoff(session.retryCount);
+        const reconnectAttemptStartedAt = Date.now();
+        session.reconnectAttemptStartedAt = reconnectAttemptStartedAt;
+        session.reconnectDueAt = reconnectAttemptStartedAt + delay;
         updateAgentReconnectTurn(chatKey, turnId, {
           reconnectState: "retrying",
           retryCount: session.retryCount,
+          websocketUUID,
+          agentProvider: session.agentProvider,
+          agentModel: session.agentModel,
+          agentModelTier: session.agentModelTier,
           silenceTimeoutMs: session.silenceTimeoutMs,
+          reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
+          reconnectDueAt: session.reconnectDueAt,
           lastEventSeq: session.lastEventSeq || 0,
         });
         appendTimelineEvent(chatKey, turnId, {
@@ -2047,6 +2174,23 @@ export function ChatThreadDraftProvider({ children }) {
       };
       scheduleSilenceTimer();
 
+      socket.addEventListener("open", () => {
+        session.reconnectAttemptStartedAt = null;
+        session.reconnectDueAt = null;
+        updateAgentReconnectTurn(chatKey, turnId, {
+          reconnectState: session.retryCount > 0 ? "retrying" : "idle",
+          retryCount: session.retryCount,
+          websocketUUID,
+          agentProvider: session.agentProvider,
+          agentModel: session.agentModel,
+          agentModelTier: session.agentModelTier,
+          silenceTimeoutMs: session.silenceTimeoutMs,
+          reconnectAttemptStartedAt: null,
+          reconnectDueAt: null,
+          lastEventSeq: session.lastEventSeq,
+        });
+      });
+
       socket.addEventListener("message", (event) => {
         const normalizedEvent = handleSocketResponse(socket, event);
         if (
@@ -2067,12 +2211,32 @@ export function ChatThreadDraftProvider({ children }) {
           updateAgentReconnectTurn(chatKey, turnId, {
             reconnectState: session.retryCount > 0 ? "retrying" : "idle",
             retryCount: session.retryCount,
+            websocketUUID,
+            agentProvider: session.agentProvider,
+            agentModel: session.agentModel,
+            agentModelTier: session.agentModelTier,
             silenceTimeoutMs: session.silenceTimeoutMs,
+            reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
+            reconnectDueAt: session.reconnectDueAt,
             lastEventSeq: session.lastEventSeq,
           });
         }
         if (isMeaningfulAgentEvent(normalizedEvent)) {
           session.lastMeaningfulOutputAt = Date.now();
+          session.reconnectAttemptStartedAt = null;
+          session.reconnectDueAt = null;
+          updateAgentReconnectTurn(chatKey, turnId, {
+            reconnectState: session.retryCount > 0 ? "retrying" : "idle",
+            retryCount: session.retryCount,
+            websocketUUID,
+            agentProvider: session.agentProvider,
+            agentModel: session.agentModel,
+            agentModelTier: session.agentModelTier,
+            silenceTimeoutMs: session.silenceTimeoutMs,
+            reconnectAttemptStartedAt: null,
+            reconnectDueAt: null,
+            lastEventSeq: session.lastEventSeq,
+          });
           scheduleSilenceTimer();
         }
         debugChatTurn("websocket:event", {
@@ -2166,6 +2330,43 @@ export function ChatThreadDraftProvider({ children }) {
       updateDraft,
     ]
   );
+
+  useEffect(() => {
+    Object.entries(draftsRef.current || {}).forEach(([chatKey, draft]) => {
+      const turn = (draft.items || []).find(
+        (item) =>
+          isAssistantTurn(item) &&
+          item.status === TURN_STATUSES.running &&
+          item.reconnectState === "retrying" &&
+          item.websocketUUID
+      );
+      if (!turn) return;
+
+      const resumeKey = agentReconnectKey(chatKey, turn.turnId);
+      if (resumedAgentTurnRefs.current.has(resumeKey)) return;
+      if (websocketRefs.current[chatKey]) return;
+
+      const userMessage = draft.items?.find(
+        (item) => item.id === turn.userMessageId
+      );
+      resumedAgentTurnRefs.current.add(resumeKey);
+      openAgentSocket(chatKey, turn.turnId, turn.websocketUUID, {
+        workspaceSlug: draft.workspaceSlug,
+        threadSlug: draft.threadSlug,
+        prompt: userMessage?.content || "",
+        displayPrompt: userMessage?.content || "",
+        attachments: userMessage?.attachments || [],
+        forceReconnect: true,
+        agentProvider: turn.agentProvider || null,
+        agentModel: turn.agentModel || null,
+        agentModelTier: turn.agentModelTier || null,
+        silenceTimeoutMs:
+          turn.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
+        reconnectAttemptStartedAt: turn.reconnectAttemptStartedAt || null,
+        reconnectDueAt: turn.reconnectDueAt || null,
+      });
+    });
+  }, [openAgentSocket]);
 
   const startStream = useCallback(
     async ({

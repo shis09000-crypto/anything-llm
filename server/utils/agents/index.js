@@ -475,6 +475,12 @@ class AgentHandler {
   parseCallOptions(args, config = {}, pluginName) {
     const callOpts = {};
     for (const [param, definition] of Object.entries(config)) {
+      if (!definition || typeof definition !== "object") {
+        callOpts[param] = Object.prototype.hasOwnProperty.call(args, param)
+          ? args[param]
+          : null;
+        continue;
+      }
       if (
         definition.required &&
         (!Object.prototype.hasOwnProperty.call(args, param) ||

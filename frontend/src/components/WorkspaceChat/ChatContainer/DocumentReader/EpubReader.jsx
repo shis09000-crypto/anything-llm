@@ -19,14 +19,23 @@ function clampFontSize(value) {
   return Math.max(80, Math.min(180, Number(value) || 100));
 }
 
-const PAGE_TURN_COOLDOWN_MS = 320;
 const PAGE_TURN_ANIMATION_MS = 260;
+const PAGE_TURN_FAST_ANIMATION_MS = 80;
+const PAGE_TURN_CATCHUP_LIMIT = 96;
+const PAGE_TURN_CATCHUP_THRESHOLD = 4;
+const PAGE_TURN_CATCHUP_INPUT_QUIET_MS = 90;
+const PAGE_TURN_HANDOFF_STABILITY_MS = 520;
+const PAGE_TURN_FONT_READY_TIMEOUT_MS = 700;
+const PAGE_TURN_WHEEL_BURST_LIMIT = 3;
 const PAGE_TURN_SETTLE_TIMEOUT_MS = 1200;
+const EPUB_VISIBLE_TURN_PREVIEW_ENABLED = false;
+const EPUB_BACKGROUND_PREVIEW_CACHE_ENABLED = false;
 const HORIZONTAL_WHEEL_THRESHOLD = 48;
 const HORIZONTAL_WHEEL_DOMINANCE = 1.35;
-const WHEEL_GESTURE_RESET_MS = 250;
+const WHEEL_GESTURE_RESET_MS = 220;
 const PREVIEW_WAIT_MS = 150;
 const PREVIEW_REBUILD_DEBOUNCE_MS = 260;
+const CHAPTER_PREVIEW_REBUILD_DELAY_MS = 700;
 const PREVIEW_SETTLE_TIMEOUT_MS = 2200;
 const TOOL_REVEAL_DELAY_MS = 80;
 const WHEEL_LISTENER_OPTIONS = { capture: true, passive: false };
@@ -40,6 +49,86 @@ const PREVIEW_OFFSET_SET = new Set(PREVIEW_OFFSETS);
 const EPUB_PREFERENCES_STORAGE_KEY =
   "anythingllm_document_reader_epub_preferences:v1";
 const EPUB_READER_FONT_FAMILY = '"Songti SC", "Noto Serif SC", "SimSun", serif';
+const EPUB_READER_FONT_TOKENS = ["songti sc", "noto serif sc", "simsun"];
+const EPUB_READER_THEME_STYLE_ID = "anythingllm-epub-reader-theme";
+const EPUB_READER_FRAME_GUTTER = "clamp(56px, 7.5vw, 104px)";
+const EPUB_READER_PRESENTATION_MODES = {
+  NORMALIZED: "normalized",
+  AUTHOR: "author",
+};
+const EPUB_READER_PRESENTATION_MODE = EPUB_READER_PRESENTATION_MODES.NORMALIZED;
+const EPUB_DEBUG_EXPENSIVE_PAINT_EVENTS = new Set([
+  "visibleTextStyleChange",
+  "authorCssInfluence",
+  "turnTraceComplete",
+  "turnTraceAbandoned",
+]);
+const EPUB_DEBUG_EXPENSIVE_TURN_EVENTS = new Set([
+  "stable-layout",
+  "finalize-complete",
+  "turn-abandoned",
+]);
+const PAGE_TURN_WATCHDOG_DELAYS_MS = [90, 320, 900, 1500];
+const PAGE_TURN_STABLE_LAYOUT_SAMPLE_LIMIT = 32;
+const CHAPTER_CONTENT_VISIBLE_SAMPLE_LIMIT = 3;
+const CHAPTER_CONTENT_TEXT_NODE_CHECK_LIMIT = 48;
+const STABLE_SNAPSHOT_MAX_HTML_LENGTH = 250_000;
+const STABLE_SNAPSHOT_MIRROR_STYLE_PROPERTIES = [
+  "box-sizing",
+  "display",
+  "position",
+  "width",
+  "min-width",
+  "max-width",
+  "height",
+  "min-height",
+  "max-height",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "overflow",
+  "overflow-x",
+  "overflow-y",
+  "column-count",
+  "-webkit-column-count",
+  "column-gap",
+  "-webkit-column-gap",
+  "column-width",
+  "-webkit-column-width",
+  "column-fill",
+  "-webkit-column-fill",
+  "writing-mode",
+  "direction",
+  "text-align",
+  "text-indent",
+  "transform",
+  "transform-origin",
+];
+const EPUB_READER_BODY_LAYOUT_MANAGED_PROPERTIES = new Set([
+  "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "width",
+  "max-width",
+  "min-width",
+  "column-gap",
+  "-webkit-column-gap",
+  "column-width",
+  "-webkit-column-width",
+  "column-fill",
+  "-webkit-column-fill",
+  "column-axis",
+  "-webkit-column-axis",
+]);
 
 const EPUB_READER_THEMES = {
   paper: {
@@ -77,9 +166,12 @@ const EPUB_READER_THEMES = {
         "box-sizing": "border-box",
         "font-family": EPUB_READER_FONT_FAMILY,
         "line-height": "1.78",
-        margin: "0 auto",
-        "max-width": "780px",
-        padding: "clamp(60px, 9vh, 92px) clamp(52px, 9vw, 128px)",
+        margin: "0",
+        "max-width": "none",
+        width: "auto",
+        "column-gap": "0px",
+        "-webkit-column-gap": "0px",
+        padding: "clamp(60px, 9vh, 92px) 0",
       },
       p: {
         "text-align": "justify",
@@ -126,9 +218,12 @@ const EPUB_READER_THEMES = {
         "box-sizing": "border-box",
         "font-family": EPUB_READER_FONT_FAMILY,
         "line-height": "1.72",
-        margin: "0 auto",
-        "max-width": "780px",
-        padding: "clamp(60px, 9vh, 92px) clamp(52px, 9vw, 128px)",
+        margin: "0",
+        "max-width": "none",
+        width: "auto",
+        "column-gap": "0px",
+        "-webkit-column-gap": "0px",
+        padding: "clamp(60px, 9vh, 92px) 0",
       },
       p: {
         "text-align": "justify",
@@ -175,9 +270,12 @@ const EPUB_READER_THEMES = {
         "box-sizing": "border-box",
         "font-family": EPUB_READER_FONT_FAMILY,
         "line-height": "1.78",
-        margin: "0 auto",
-        "max-width": "780px",
-        padding: "clamp(60px, 9vh, 92px) clamp(52px, 9vw, 128px)",
+        margin: "0",
+        "max-width": "none",
+        width: "auto",
+        "column-gap": "0px",
+        "-webkit-column-gap": "0px",
+        padding: "clamp(60px, 9vh, 92px) 0",
       },
       p: {
         "text-align": "justify",
@@ -259,6 +357,8 @@ export default function EpubReader({
   const previewHostRef = useRef(null);
   const incomingLayerRef = useRef(null);
   const outgoingLayerRef = useRef(null);
+  const turnCoverLayerRef = useRef(null);
+  const turnCoverGenerationRef = useRef(0);
   const contentCleanupsRef = useRef([]);
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
@@ -268,6 +368,7 @@ export default function EpubReader({
   const previewLayoutKeyRef = useRef(null);
   const previewWindowBaseCfiRef = useRef(null);
   const previewBuildTimerRef = useRef(null);
+  const previewBuildIdleCallbackRef = useRef(null);
   const previewBuildGenerationRef = useRef(0);
   const previewObjectUrlsRef = useRef(new Set());
   const activeIncomingPreviewEntryRef = useRef(null);
@@ -284,14 +385,33 @@ export default function EpubReader({
   const flashTimerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const lastResizeRef = useRef({ width: 0, height: 0 });
-  const pageTurnAtRef = useRef(0);
   const turnInFlightRef = useRef(false);
-  const wheelGestureLockedRef = useRef(false);
+  const pendingPageTurnDeltaRef = useRef(0);
+  const targetTurnDeltaRef = useRef(0);
+  const pageTurnDrainActiveRef = useRef(false);
+  const fastTurnBurstRef = useRef(false);
+  const fastTurnTraceRef = useRef([]);
+  const fastTurnInputQuietTimerRef = useRef(null);
+  const fastTurnLastInputAtRef = useRef(0);
+  const fastTurnCatchupActiveRef = useRef(false);
+  const fastTurnProbeInFlightRef = useRef(false);
+  const fastTurnProbeRef = useRef(null);
+  const wheelTurnDeltaRef = useRef(0);
   const wheelGestureTimerRef = useRef(null);
   const toolRevealTimersRef = useRef({ left: null, right: null });
   const turnEdgeRevealTimersRef = useRef({ left: null, right: null });
   const pageTurnTimerRef = useRef(null);
+  const pageTurnWatchdogTimersRef = useRef([]);
+  const activePageTurnIdRef = useRef(null);
+  const epubPaintTurnSeqRef = useRef(0);
+  const epubPaintActiveTurnRef = useRef(null);
+  const epubPaintTraceRef = useRef([]);
+  const epubChapterTraceRef = useRef([]);
+  const epubPaintLoggingRef = useRef(false);
+  const postRevealPaintTimersRef = useRef([]);
   const mainRenderWaitRef = useRef(null);
+  const chapterJumpSeqRef = useRef(0);
+  const chapterJumpInFlightRef = useRef(false);
   const thumbnailDocumentIdRef = useRef(null);
   const tocRef = useRef([]);
   const initialPreferencesRef = useRef(readEpubPreferences());
@@ -315,6 +435,7 @@ export default function EpubReader({
   const [turnAnimation, setTurnAnimation] = useState(null);
   const [mainPaintReady, setMainPaintReady] = useState(false);
   const [mainLayerSuppressed, setMainLayerSuppressed] = useState(false);
+  const mainPaintReadyRef = useRef(false);
   const [stablePageSnapshot, setStablePageSnapshot] = useState(null);
   const stablePageSnapshotRef = useRef(null);
   const [error, setError] = useState(null);
@@ -324,6 +445,10 @@ export default function EpubReader({
   useEffect(() => {
     readerThemeRef.current = readerTheme;
   }, [readerTheme]);
+
+  useEffect(() => {
+    mainPaintReadyRef.current = mainPaintReady;
+  }, [mainPaintReady]);
 
   useEffect(() => {
     fontSizeRef.current = fontSize;
@@ -359,12 +484,522 @@ export default function EpubReader({
     readerShellRef.current?.focus?.({ preventScroll: true });
   }
 
-  function registerReaderThemes(rendition) {
-    try {
-      for (const [name, theme] of Object.entries(EPUB_READER_THEMES)) {
-        rendition.themes?.register?.(name, theme.styles);
+  function registerReaderThemes() {
+    // epubjs theme overrides are applied after a view is displayed. Reader
+    // styling is injected through the spine hook instead so page turns do not
+    // repaint visible content with a second font/layout pass.
+  }
+
+  function currentEpubPaintTurn() {
+    return (
+      epubPaintActiveTurnRef.current || {
+        id: activePageTurnIdRef.current,
+        sequence: epubPaintTurnSeqRef.current,
       }
+    );
+  }
+
+  function debugEpubPaint(eventName, details = {}) {
+    try {
+      if (!import.meta.env?.DEV) return;
+      if (epubPaintLoggingRef.current) return;
+      epubPaintLoggingRef.current = true;
+      const turn = currentEpubPaintTurn();
+      const outgoing = outgoingLayerRef.current;
+      const incoming = incomingLayerRef.current;
+      const captureExpensiveSnapshot =
+        details.captureSnapshot ||
+        EPUB_DEBUG_EXPENSIVE_PAINT_EVENTS.has(eventName);
+      const entry = {
+        at: Math.round(performance.now()),
+        event: eventName,
+        turnId: turn?.id || null,
+        sequence: turn?.sequence || null,
+        details,
+        mainVisible: captureExpensiveSnapshot
+          ? mainRenditionHasVisiblePage()
+          : null,
+        mainPaintReady,
+        mainLayerSuppressed,
+        incomingChildren: incoming?.children?.length || 0,
+        outgoingOpacity: outgoing
+          ? window.getComputedStyle(outgoing).opacity
+          : null,
+        layout: captureExpensiveSnapshot
+          ? mainRenditionVisibleLayoutSnapshot()
+          : null,
+        visibleTextStyle: captureExpensiveSnapshot
+          ? mainVisibleTextStyleSnapshot()
+          : null,
+      };
+      epubPaintTraceRef.current = [...epubPaintTraceRef.current, entry].slice(
+        -160
+      );
+      console.debug("[EPUB paint]", eventName, entry);
+    } catch {
+    } finally {
+      epubPaintLoggingRef.current = false;
+    }
+  }
+
+  function debugEpubChapter(eventName, details = {}) {
+    try {
+      if (!import.meta.env?.DEV) return;
+      const entry = {
+        at: Math.round(performance.now()),
+        event: eventName,
+        details,
+        mainPaintReady,
+        mainLayerSuppressed,
+        turnInFlight: turnInFlightRef.current,
+        activeTurnId: activePageTurnIdRef.current,
+      };
+      epubChapterTraceRef.current = [
+        ...epubChapterTraceRef.current,
+        entry,
+      ].slice(-120);
+      console.debug("[EPUB chapter]", eventName, entry);
     } catch {}
+  }
+
+  function debugFastTurn(eventName, details = {}) {
+    try {
+      if (!import.meta.env?.DEV) return;
+      const entry = {
+        at: Math.round(performance.now()),
+        event: eventName,
+        details,
+        pendingDelta: pendingPageTurnDeltaRef.current,
+        targetDelta: targetTurnDeltaRef.current,
+        catchupActive: fastTurnCatchupActiveRef.current,
+        probeInFlight: fastTurnProbeInFlightRef.current,
+        drainActive: pageTurnDrainActiveRef.current,
+        turnInFlight: turnInFlightRef.current,
+        activeTurnId: activePageTurnIdRef.current,
+      };
+      fastTurnTraceRef.current = [...fastTurnTraceRef.current, entry].slice(
+        -200
+      );
+      console.debug("[EPUB fast turn]", eventName, entry);
+    } catch {}
+  }
+
+  function startEpubPaintTrace({ id, direction, mode }) {
+    epubPaintActiveTurnRef.current = {
+      id,
+      direction,
+      mode,
+      sequence: epubPaintTurnSeqRef.current + 1,
+    };
+    epubPaintTurnSeqRef.current += 1;
+    epubPaintTraceRef.current = [];
+    debugEpubPaint("turnTraceStart", { id, direction, mode });
+  }
+
+  function normalizeRenditionContents(contentsOrView) {
+    return contentsOrView?.contents || contentsOrView || null;
+  }
+
+  function readerThemeSignature(themeName, size) {
+    return [
+      themeName,
+      clampFontSize(size),
+      EPUB_READER_FONT_FAMILY,
+      EPUB_READER_FRAME_GUTTER,
+      EPUB_READER_PRESENTATION_MODE,
+    ].join("|");
+  }
+
+  function fontFamilyHasReaderFont(fontFamily = "") {
+    const normalized = String(fontFamily).toLowerCase();
+    return EPUB_READER_FONT_TOKENS.some((fontName) =>
+      normalized.includes(fontName)
+    );
+  }
+
+  function readerBodyContentStyles(themeName) {
+    const theme = themeByName(themeName);
+    const bodyStyles = theme.styles?.body || {};
+    return Object.fromEntries(
+      Object.entries(bodyStyles).filter(([property]) => {
+        const normalized = property.toLowerCase();
+        return (
+          !EPUB_READER_BODY_LAYOUT_MANAGED_PROPERTIES.has(normalized) &&
+          !["font-family", "font-size", "color", "background"].includes(
+            normalized
+          )
+        );
+      })
+    );
+  }
+
+  function readerHtmlContentStyles(themeName) {
+    const theme = themeByName(themeName);
+    const htmlStyles = theme.styles?.html || {};
+    return Object.fromEntries(
+      Object.entries(htmlStyles).filter(([property]) => {
+        const normalized = property.toLowerCase();
+        return !["color", "background"].includes(normalized);
+      })
+    );
+  }
+
+  function readerThemeVariableMap(themeName, size) {
+    const theme = themeByName(themeName);
+    const bodyStyles = theme.styles?.body || {};
+    const linkStyles = theme.styles?.a || {};
+    const lineHeight = bodyStyles["line-height"] || "1.78";
+    return {
+      "--anythingllm-epub-font-family": EPUB_READER_FONT_FAMILY,
+      "--anythingllm-epub-font-size": `${clampFontSize(size)}%`,
+      "--anythingllm-epub-color": bodyStyles.color || "inherit",
+      "--anythingllm-epub-background": bodyStyles.background || "transparent",
+      "--anythingllm-epub-link-color":
+        linkStyles.color || bodyStyles.color || "inherit",
+      "--anythingllm-epub-line-height": lineHeight,
+      "--anythingllm-epub-paragraph-gap": "0.72em",
+      "--anythingllm-epub-paragraph-indent": "0",
+      "--anythingllm-epub-list-indent": "1.45em",
+      "--anythingllm-epub-heading-gap-before": "1.15em",
+      "--anythingllm-epub-heading-gap-after": "0.62em",
+      "--anythingllm-epub-block-gap": "0.9em",
+      "--anythingllm-epub-table-border-color": "currentColor",
+    };
+  }
+
+  function readerFrameVariableValue(property, fallback = "") {
+    try {
+      const stage = containerRef.current?.closest?.(
+        ".epub-reader-transition-stage"
+      );
+      const value = stage
+        ? window.getComputedStyle(stage).getPropertyValue(property).trim()
+        : "";
+      return value || fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function applyReaderThemeVariables(contentDocument, themeName, size) {
+    let wroteVariables = false;
+    const root = contentDocument?.documentElement;
+    const variables = readerThemeVariableMap(themeName, size);
+    for (const [property, value] of Object.entries(variables)) {
+      wroteVariables =
+        setStylePropertyIfChanged(
+          root,
+          property,
+          readerFrameVariableValue(property, value)
+        ) || wroteVariables;
+    }
+    return wroteVariables;
+  }
+
+  function readerSnapshotStyleText(scopeSelector) {
+    return `
+      ${scopeSelector},
+      ${scopeSelector} *:not(#${EPUB_READER_THEME_STYLE_ID}) {
+        font-family: var(--anythingllm-epub-font-family) !important;
+        color: var(--anythingllm-epub-color) !important;
+      }
+      ${scopeSelector} {
+        line-height: var(--anythingllm-epub-line-height) !important;
+        text-rendering: optimizeLegibility !important;
+        -webkit-font-smoothing: antialiased !important;
+      }
+      ${scopeSelector} p,
+      ${scopeSelector} li,
+      ${scopeSelector} dd,
+      ${scopeSelector} dt {
+        margin-block: var(--anythingllm-epub-paragraph-gap) !important;
+        line-height: var(--anythingllm-epub-line-height) !important;
+      }
+      ${scopeSelector} p {
+        text-indent: var(--anythingllm-epub-paragraph-indent) !important;
+        text-align: justify !important;
+      }
+      ${scopeSelector} ul,
+      ${scopeSelector} ol {
+        margin-block: var(--anythingllm-epub-block-gap) !important;
+        padding-inline-start: var(--anythingllm-epub-list-indent) !important;
+      }
+      ${scopeSelector} h1,
+      ${scopeSelector} h2,
+      ${scopeSelector} h3,
+      ${scopeSelector} h4,
+      ${scopeSelector} h5,
+      ${scopeSelector} h6 {
+        margin-block-start: var(--anythingllm-epub-heading-gap-before) !important;
+        margin-block-end: var(--anythingllm-epub-heading-gap-after) !important;
+        line-height: 1.35 !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+      ${scopeSelector} h1 { font-size: 1.55em !important; font-weight: 650 !important; }
+      ${scopeSelector} h2 { font-size: 1.35em !important; font-weight: 650 !important; }
+      ${scopeSelector} h3 { font-size: 1.18em !important; font-weight: 620 !important; }
+      ${scopeSelector} h4,
+      ${scopeSelector} h5,
+      ${scopeSelector} h6 { font-size: 1.06em !important; font-weight: 620 !important; }
+      ${scopeSelector} blockquote {
+        margin-block: var(--anythingllm-epub-block-gap) !important;
+        margin-inline: var(--anythingllm-epub-list-indent) !important;
+        padding-inline-start: 0.9em !important;
+        border-inline-start: 0.18em solid var(--anythingllm-epub-table-border-color) !important;
+      }
+      ${scopeSelector} img,
+      ${scopeSelector} svg,
+      ${scopeSelector} video,
+      ${scopeSelector} canvas {
+        max-width: 100% !important;
+        height: auto !important;
+        object-fit: contain !important;
+      }
+      ${scopeSelector} table {
+        max-width: 100% !important;
+        border-collapse: collapse !important;
+        table-layout: auto !important;
+      }
+      ${scopeSelector} th,
+      ${scopeSelector} td {
+        border-color: var(--anythingllm-epub-table-border-color) !important;
+        vertical-align: top !important;
+      }
+      ${scopeSelector} pre,
+      ${scopeSelector} code,
+      ${scopeSelector} kbd,
+      ${scopeSelector} samp {
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
+      }
+      ${scopeSelector} a {
+        color: var(--anythingllm-epub-link-color) !important;
+      }
+    `;
+  }
+
+  function markReaderThemeReady(contentDocument, themeName, size) {
+    try {
+      const root = contentDocument?.documentElement;
+      if (!root) return;
+      root.dataset.anythingllmEpubThemeReady = "true";
+      root.dataset.anythingllmEpubThemeSignature = readerThemeSignature(
+        themeName,
+        size
+      );
+    } catch {}
+  }
+
+  function readerThemeHead(contentDocument) {
+    return (
+      contentDocument?.head ||
+      contentDocument?.querySelector?.("head") ||
+      contentDocument?.documentElement ||
+      null
+    );
+  }
+
+  function setStylePropertyIfChanged(element, property, value) {
+    try {
+      if (!element || value === undefined || value === null) return false;
+      const nextValue = String(value);
+      if (element.style?.getPropertyValue(property) === nextValue) {
+        return false;
+      }
+      element.style?.setProperty(property, nextValue, "important");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function ensureReaderThemeStyle(
+    contentDocument,
+    themeName,
+    size,
+    details = {}
+  ) {
+    if (!contentDocument) return false;
+    try {
+      const signature = readerThemeSignature(themeName, size);
+      const styleText = readerThemeStyleText(themeName);
+      const head = readerThemeHead(contentDocument);
+      let styleElement = contentDocument.getElementById(
+        EPUB_READER_THEME_STYLE_ID
+      );
+      let wroteStyle = false;
+      if (!styleElement) {
+        styleElement = contentDocument.createElement("style");
+        styleElement.id = EPUB_READER_THEME_STYLE_ID;
+        styleElement.setAttribute("id", EPUB_READER_THEME_STYLE_ID);
+        styleElement.setAttribute("data-anythingllm-epub-theme-signature", "");
+        head?.appendChild(styleElement);
+        wroteStyle = true;
+      }
+      if (styleElement.textContent !== styleText) {
+        styleElement.textContent = styleText;
+        wroteStyle = true;
+      }
+      const previousStyleSignature = styleElement.getAttribute(
+        "data-anythingllm-epub-theme-signature"
+      );
+      const wroteStyleSignature = previousStyleSignature !== signature;
+      if (wroteStyleSignature) {
+        styleElement.setAttribute(
+          "data-anythingllm-epub-theme-signature",
+          signature
+        );
+      }
+
+      const root = contentDocument.documentElement;
+      const htmlStyles = readerHtmlContentStyles(themeName);
+      const bodyStyles = readerBodyContentStyles(themeName);
+      let wroteInline = applyReaderThemeVariables(
+        contentDocument,
+        themeName,
+        size
+      );
+      for (const [property, value] of Object.entries(htmlStyles)) {
+        wroteInline =
+          setStylePropertyIfChanged(root, property, value) || wroteInline;
+      }
+      for (const [property, value] of Object.entries(bodyStyles)) {
+        wroteInline =
+          setStylePropertyIfChanged(contentDocument.body, property, value) ||
+          wroteInline;
+      }
+
+      const previousReady = root?.dataset?.anythingllmEpubThemeReady === "true";
+      const previousSignature =
+        root?.dataset?.anythingllmEpubThemeSignature || null;
+      markReaderThemeReady(contentDocument, themeName, size);
+      const wroteReadyMarker =
+        !previousReady || previousSignature !== signature;
+
+      if (wroteStyle || wroteInline || wroteReadyMarker) {
+        debugEpubPaint("themeStyleWrite", {
+          ...details,
+          wroteStyle,
+          wroteStyleSignature,
+          wroteInline,
+          wroteReadyMarker,
+          signature,
+        });
+      } else {
+        debugEpubPaint("themeStyleSkip", {
+          ...details,
+          signature,
+        });
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function contentHasReaderTheme(
+    contentsOrView,
+    themeName = readerThemeRef.current,
+    size = fontSizeRef.current,
+    options = {}
+  ) {
+    try {
+      const { inspectVisibleText = false } = options;
+      const contents = normalizeRenditionContents(contentsOrView);
+      const doc = contents?.document;
+      const root = doc?.documentElement;
+      const body = doc?.body;
+      const win = contents?.window || doc?.defaultView;
+      const styleElement = doc?.getElementById(EPUB_READER_THEME_STYLE_ID);
+      if (
+        !doc ||
+        !root ||
+        !body ||
+        !styleElement?.textContent ||
+        root.dataset.anythingllmEpubThemeReady !== "true" ||
+        root.dataset.anythingllmEpubThemeSignature !==
+          readerThemeSignature(themeName, size)
+      ) {
+        return false;
+      }
+      const bodyFontFamily =
+        win?.getComputedStyle?.(body)?.fontFamily ||
+        body.style?.fontFamily ||
+        "";
+      const bodyHasReaderFont = fontFamilyHasReaderFont(bodyFontFamily);
+      if (!inspectVisibleText) return bodyHasReaderFont;
+      const textStyleSnapshot = contentVisibleTextStyleSnapshot(contents);
+      if (
+        bodyHasReaderFont &&
+        textStyleSnapshot?.samples?.length &&
+        !textStyleSnapshot.hasReaderFont
+      ) {
+        debugFontConflict({
+          bodyFontFamily,
+          visibleTextStyle: textStyleSnapshot,
+        });
+      }
+      if (
+        textStyleSnapshot?.samples?.length &&
+        (!textStyleSnapshot.hasReaderColor ||
+          !textStyleSnapshot.hasReaderLineHeight)
+      ) {
+        debugEpubPaint("authorCssInfluence", {
+          visibleTextStyle: textStyleSnapshot,
+        });
+      }
+      return textStyleSnapshot?.samples?.length
+        ? Boolean(textStyleSnapshot.hasReaderFont)
+        : bodyHasReaderFont;
+    } catch {
+      return false;
+    }
+  }
+
+  function registerReaderContentThemeHook(rendition) {
+    if (!rendition?.hooks?.content?.register) return null;
+    const applyThemeBeforeRender = (contentsOrView) => {
+      const contents = normalizeRenditionContents(contentsOrView);
+      ensureReaderThemeStyle(
+        contents?.document,
+        readerThemeRef.current,
+        fontSizeRef.current,
+        { source: "renditionContentHook" }
+      );
+    };
+    try {
+      rendition.hooks.content.register(applyThemeBeforeRender);
+      return () => {
+        try {
+          rendition.hooks.content.deregister?.(applyThemeBeforeRender);
+        } catch {}
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function registerReaderBookThemeHook(book) {
+    if (!book?.spine?.hooks?.content?.register) return null;
+    const applyThemeToSectionDocument = (contentDocument) => {
+      ensureReaderThemeStyle(
+        contentDocument,
+        readerThemeRef.current,
+        fontSizeRef.current,
+        { source: "bookSpineHook" }
+      );
+    };
+    try {
+      book.spine.hooks.content.register(applyThemeToSectionDocument);
+      return () => {
+        try {
+          book.spine.hooks.content.deregister?.(applyThemeToSectionDocument);
+        } catch {}
+      };
+    } catch {
+      return null;
+    }
   }
 
   function applyReaderTheme(
@@ -372,11 +1007,9 @@ export default function EpubReader({
     themeName = readerThemeRef.current,
     size = fontSizeRef.current
   ) {
-    try {
-      rendition.themes?.select?.(themeName);
-      rendition.themes?.fontSize?.(`${clampFontSize(size)}%`);
-      rendition.themes?.font?.(EPUB_READER_FONT_FAMILY);
-    } catch {}
+    applyReaderThemeToVisibleContents(rendition, themeName, size, {
+      source: "applyReaderTheme",
+    });
   }
 
   function cssDeclarations(styles = {}) {
@@ -386,91 +1019,149 @@ export default function EpubReader({
       .join("\n");
   }
 
-  function readerThemeStyleText(themeName, size) {
-    const theme = themeByName(themeName);
-    const htmlStyles = theme.styles?.html || {};
-    const bodyStyles = theme.styles?.body || {};
-    return `
+  function readerThemeStyleText(themeName) {
+    const htmlStyles = readerHtmlContentStyles(themeName);
+    const bodyStyles = readerBodyContentStyles(themeName);
+    const baseReaderCss = `
       html {
         ${cssDeclarations(htmlStyles)}
+        background: var(--anythingllm-epub-background) !important;
+        color: var(--anythingllm-epub-color) !important;
       }
       body {
         ${cssDeclarations(bodyStyles)}
-        font-family: ${EPUB_READER_FONT_FAMILY} !important;
-        font-size: ${clampFontSize(size)}% !important;
+        color: var(--anythingllm-epub-color) !important;
+        background: var(--anythingllm-epub-background) !important;
+        font-family: var(--anythingllm-epub-font-family) !important;
+        font-size: var(--anythingllm-epub-font-size) !important;
+        line-height: var(--anythingllm-epub-line-height) !important;
       }
-      body, body * {
-        font-family: ${EPUB_READER_FONT_FAMILY} !important;
+      html body,
+      html body :where(
+        p, li, dd, dt, blockquote, h1, h2, h3, h4, h5, h6,
+        span, a, strong, em, b, i, u, small, sup, sub,
+        div, section, article, aside, figcaption,
+        table, thead, tbody, tfoot, tr, th, td,
+        pre, code, kbd, samp
+      ) {
+        color: var(--anythingllm-epub-color) !important;
+        font-family: var(--anythingllm-epub-font-family) !important;
+      }
+      html body a {
+        color: var(--anythingllm-epub-link-color) !important;
+      }
+    `;
+    if (EPUB_READER_PRESENTATION_MODE === EPUB_READER_PRESENTATION_MODES.AUTHOR)
+      return baseReaderCss;
+
+    return `
+      ${baseReaderCss}
+      html body {
+        text-rendering: optimizeLegibility !important;
+        -webkit-font-smoothing: antialiased !important;
+      }
+      html body p,
+      html body li,
+      html body dd,
+      html body dt {
+        margin-block: var(--anythingllm-epub-paragraph-gap) !important;
+        line-height: var(--anythingllm-epub-line-height) !important;
+      }
+      html body p {
+        text-indent: var(--anythingllm-epub-paragraph-indent) !important;
+        text-align: justify !important;
+      }
+      html body ul,
+      html body ol {
+        margin-block: var(--anythingllm-epub-block-gap) !important;
+        padding-inline-start: var(--anythingllm-epub-list-indent) !important;
+      }
+      html body h1,
+      html body h2,
+      html body h3,
+      html body h4,
+      html body h5,
+      html body h6 {
+        margin-block-start: var(--anythingllm-epub-heading-gap-before) !important;
+        margin-block-end: var(--anythingllm-epub-heading-gap-after) !important;
+        line-height: 1.35 !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+      }
+      html body h1 { font-size: 1.55em !important; font-weight: 650 !important; }
+      html body h2 { font-size: 1.35em !important; font-weight: 650 !important; }
+      html body h3 { font-size: 1.18em !important; font-weight: 620 !important; }
+      html body h4,
+      html body h5,
+      html body h6 { font-size: 1.06em !important; font-weight: 620 !important; }
+      html body blockquote {
+        margin-block: var(--anythingllm-epub-block-gap) !important;
+        margin-inline: var(--anythingllm-epub-list-indent) !important;
+        padding-inline-start: 0.9em !important;
+        border-inline-start: 0.18em solid var(--anythingllm-epub-table-border-color) !important;
+      }
+      html body img,
+      html body svg,
+      html body video,
+      html body canvas {
+        max-width: 100% !important;
+        height: auto !important;
+        object-fit: contain !important;
+      }
+      html body table {
+        max-width: 100% !important;
+        border-collapse: collapse !important;
+        table-layout: auto !important;
+      }
+      html body th,
+      html body td {
+        border-color: var(--anythingllm-epub-table-border-color) !important;
+        vertical-align: top !important;
+      }
+      html body pre,
+      html body code,
+      html body kbd,
+      html body samp {
+        white-space: pre-wrap !important;
+        word-break: break-word !important;
       }
     `;
   }
 
-  function injectReaderThemeStyle(contentDocument, themeName, size) {
-    if (!contentDocument) return;
-    try {
-      const styleId = "anythingllm-epub-reader-theme";
-      let styleElement = contentDocument.getElementById(styleId);
-      if (!styleElement) {
-        styleElement = contentDocument.createElement("style");
-        styleElement.id = styleId;
-        (contentDocument.head || contentDocument.documentElement)?.appendChild(
-          styleElement
-        );
-      }
-      styleElement.textContent = readerThemeStyleText(themeName, size);
-    } catch {}
-  }
-
   function applyReaderThemeToContents(
-    contents,
+    contentsOrView,
     themeName = readerThemeRef.current,
-    size = fontSizeRef.current
+    size = fontSizeRef.current,
+    details = {}
   ) {
-    if (!contents) return;
-    const theme = themeByName(themeName);
-    const htmlStyles = theme.styles?.html || {};
-    const bodyStyles = theme.styles?.body || {};
-    try {
-      contents.css?.("font-family", EPUB_READER_FONT_FAMILY, true);
-      contents.css?.("font-size", `${clampFontSize(size)}%`, true);
-      for (const [property, value] of Object.entries(bodyStyles)) {
-        if (value === undefined || value === null) continue;
-        contents.css?.(property, String(value), true);
-      }
-    } catch {}
-    try {
-      const root = contents.document?.documentElement;
-      const body = contents.document?.body;
-      for (const [property, value] of Object.entries(htmlStyles)) {
-        root?.style?.setProperty(property, String(value), "important");
-      }
-      for (const [property, value] of Object.entries(bodyStyles)) {
-        body?.style?.setProperty(property, String(value), "important");
-      }
-      body?.style?.setProperty(
-        "font-family",
-        EPUB_READER_FONT_FAMILY,
-        "important"
-      );
-      body?.style?.setProperty(
-        "font-size",
-        `${clampFontSize(size)}%`,
-        "important"
-      );
-      injectReaderThemeStyle(contents.document, themeName, size);
-    } catch {}
+    const contents = normalizeRenditionContents(contentsOrView);
+    if (!contents) return false;
+    if (contentHasReaderTheme(contents, themeName, size)) {
+      debugEpubPaint("themeContentReady", details);
+      return true;
+    }
+    ensureReaderThemeStyle(contents.document, themeName, size, {
+      source: "applyReaderThemeToContents",
+      ...details,
+    });
+    return contentHasReaderTheme(contents, themeName, size);
   }
 
   function applyReaderThemeToVisibleContents(
     rendition = renditionRef.current,
     themeName = readerThemeRef.current,
-    size = fontSizeRef.current
+    size = fontSizeRef.current,
+    details = {}
   ) {
+    let anyApplied = false;
     try {
       for (const contents of rendition?.getContents?.() || []) {
-        applyReaderThemeToContents(contents, themeName, size);
+        anyApplied =
+          applyReaderThemeToContents(contents, themeName, size, details) ||
+          anyApplied;
       }
     } catch {}
+    return anyApplied;
   }
 
   function applyReaderThemeToPreviewContainer(
@@ -479,32 +1170,14 @@ export default function EpubReader({
     size = fontSizeRef.current
   ) {
     if (!container) return;
-    const theme = themeByName(themeName);
-    const htmlStyles = theme.styles?.html || {};
-    const bodyStyles = theme.styles?.body || {};
     for (const iframe of container.querySelectorAll("iframe")) {
       try {
         const contentDocument = iframe.contentDocument;
-        const root = contentDocument?.documentElement;
-        const body = contentDocument?.body;
-        if (!contentDocument || !root || !body) continue;
-        for (const [property, value] of Object.entries(htmlStyles)) {
-          root.style.setProperty(property, String(value), "important");
-        }
-        for (const [property, value] of Object.entries(bodyStyles)) {
-          body.style.setProperty(property, String(value), "important");
-        }
-        body.style.setProperty(
-          "font-family",
-          EPUB_READER_FONT_FAMILY,
-          "important"
-        );
-        body.style.setProperty(
-          "font-size",
-          `${clampFontSize(size)}%`,
-          "important"
-        );
-        injectReaderThemeStyle(contentDocument, themeName, size);
+        if (!contentDocument?.documentElement || !contentDocument?.body)
+          continue;
+        ensureReaderThemeStyle(contentDocument, themeName, size, {
+          source: "previewContainer",
+        });
       } catch {}
     }
   }
@@ -533,12 +1206,18 @@ export default function EpubReader({
     );
   }
 
-  function contentHasVisiblePaint(contents) {
+  function contentVisibleTextStyleSnapshot(contentsOrView, options = {}) {
+    const { sampleLimit = 8 } = options;
     try {
+      const contents = normalizeRenditionContents(contentsOrView);
       const doc = contents?.document;
       const win = contents?.window || doc?.defaultView;
       const body = doc?.body;
-      if (!doc || !win || !body) return false;
+      if (!doc || !win || !body) return null;
+      const bodyStyle = win.getComputedStyle?.(body);
+      const rootStyle = win.getComputedStyle?.(doc.documentElement);
+      const expectedTextColor = bodyStyle?.color || "";
+      const expectedLineHeight = bodyStyle?.lineHeight || "";
       const viewportWidth = Math.max(
         1,
         Math.floor(
@@ -557,6 +1236,212 @@ export default function EpubReader({
             0
         )
       );
+      const nodeFilter = win.NodeFilter || window.NodeFilter;
+      const walker = doc.createTreeWalker(body, nodeFilter?.SHOW_TEXT || 4, {
+        acceptNode(node) {
+          if (!node.nodeValue?.trim()) return nodeFilter?.FILTER_REJECT || 2;
+          const parent = node.parentElement;
+          if (!parent) return nodeFilter?.FILTER_REJECT || 2;
+          const tagName = parent.tagName?.toLowerCase?.();
+          if (["script", "style", "noscript"].includes(tagName)) {
+            return nodeFilter?.FILTER_REJECT || 2;
+          }
+          const style = win.getComputedStyle?.(parent);
+          if (
+            style?.display === "none" ||
+            style?.visibility === "hidden" ||
+            style?.opacity === "0"
+          ) {
+            return nodeFilter?.FILTER_REJECT || 2;
+          }
+          return nodeFilter?.FILTER_ACCEPT || 1;
+        },
+      });
+      const samples = [];
+      let checked = 0;
+      let node = walker.nextNode();
+      while (node && checked < 300 && samples.length < sampleLimit) {
+        checked += 1;
+        const range = doc.createRange();
+        range.selectNodeContents(node);
+        const hasVisibleRect = Array.from(range.getClientRects()).some((rect) =>
+          rectIntersectsViewport(rect, viewportWidth, viewportHeight)
+        );
+        range.detach?.();
+        if (hasVisibleRect) {
+          const parent = node.parentElement;
+          const style = win.getComputedStyle?.(parent);
+          samples.push({
+            text: node.nodeValue.trim().slice(0, 32),
+            tagName: parent?.tagName?.toLowerCase?.() || null,
+            className:
+              typeof parent?.className === "string" ? parent.className : null,
+            fontFamily: style?.fontFamily || "",
+            color: style?.color || "",
+            lineHeight: style?.lineHeight || "",
+          });
+        }
+        node = walker.nextNode();
+      }
+      const textFontFamilies = Array.from(
+        new Set(samples.map((sample) => sample.fontFamily).filter(Boolean))
+      );
+      const textColors = Array.from(
+        new Set(samples.map((sample) => sample.color).filter(Boolean))
+      );
+      const textLineHeights = Array.from(
+        new Set(samples.map((sample) => sample.lineHeight).filter(Boolean))
+      );
+      const hasReaderFont =
+        samples.length > 0
+          ? samples.every((sample) =>
+              fontFamilyHasReaderFont(sample.fontFamily)
+            )
+          : fontFamilyHasReaderFont(bodyStyle?.fontFamily);
+      const hasReaderColor =
+        samples.length > 0
+          ? samples.every(
+              (sample) =>
+                !sample.color ||
+                !expectedTextColor ||
+                sample.color === expectedTextColor ||
+                sample.tagName === "a"
+            )
+          : true;
+      const hasReaderLineHeight =
+        samples.length > 0
+          ? samples.every(
+              (sample) =>
+                !sample.lineHeight ||
+                !expectedLineHeight ||
+                sample.lineHeight === expectedLineHeight ||
+                sample.tagName?.match?.(/^h[1-6]$/)
+            )
+          : true;
+      return {
+        bodyFontFamily: bodyStyle?.fontFamily || "",
+        bodyColor: bodyStyle?.color || "",
+        bodyLineHeight: bodyStyle?.lineHeight || "",
+        bodyPadding: bodyStyle?.padding || "",
+        bodyColumnGap: bodyStyle?.columnGap || "",
+        bodyColumnWidth: bodyStyle?.columnWidth || "",
+        rootColumnGap: rootStyle?.columnGap || "",
+        rootColumnWidth: rootStyle?.columnWidth || "",
+        textFontFamilies,
+        textColors,
+        textLineHeights,
+        primaryTextFontFamily: textFontFamilies[0] || "",
+        primaryTextColor: textColors[0] || "",
+        primaryTextLineHeight: textLineHeights[0] || "",
+        hasReaderFont,
+        hasReaderColor,
+        hasReaderLineHeight,
+        samples,
+        signature: [
+          bodyStyle?.padding || "",
+          bodyStyle?.columnGap || "",
+          bodyStyle?.columnWidth || "",
+          textFontFamilies.join("|"),
+          textColors.join("|"),
+          textLineHeights.join("|"),
+          samples.map((sample) => sample.text).join("|"),
+        ].join("~"),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function mainVisibleTextStyleSnapshot(rendition = renditionRef.current) {
+    try {
+      for (const contents of rendition?.getContents?.() || []) {
+        const snapshot = contentVisibleTextStyleSnapshot(contents);
+        if (snapshot?.samples?.length) return snapshot;
+      }
+    } catch {}
+    return null;
+  }
+
+  function debugFontConflict(details = {}) {
+    try {
+      if (!import.meta.env?.DEV || epubPaintLoggingRef.current) return;
+      const turn = currentEpubPaintTurn();
+      const entry = {
+        at: Math.round(performance.now()),
+        event: "fontConflict",
+        turnId: turn?.id || null,
+        sequence: turn?.sequence || null,
+        details,
+      };
+      epubPaintTraceRef.current = [...epubPaintTraceRef.current, entry].slice(
+        -160
+      );
+      console.debug("[EPUB paint]", "fontConflict", entry);
+    } catch {}
+  }
+
+  function contentVisibleLayoutSnapshot(contentsOrView, options = {}) {
+    const { requireThemeReady = true } = options;
+    try {
+      const contents = normalizeRenditionContents(contentsOrView);
+      const doc = contents?.document;
+      const win = contents?.window || doc?.defaultView;
+      const body = doc?.body;
+      if (!doc || !win || !body) return null;
+      if (
+        requireThemeReady &&
+        !contentHasReaderTheme(
+          contents,
+          readerThemeRef.current,
+          fontSizeRef.current
+        )
+      ) {
+        return null;
+      }
+      const viewportWidth = Math.max(
+        1,
+        Math.floor(
+          win.innerWidth ||
+            doc.documentElement?.clientWidth ||
+            body.clientWidth ||
+            0
+        )
+      );
+      const viewportHeight = Math.max(
+        1,
+        Math.floor(
+          win.innerHeight ||
+            doc.documentElement?.clientHeight ||
+            body.clientHeight ||
+            0
+        )
+      );
+      if (viewportWidth < 160 || viewportHeight < 160) return null;
+      const frameElement = win.frameElement;
+      const stageElement = frameElement?.closest?.(
+        ".epub-reader-transition-stage"
+      );
+      const frameRect = frameElement?.getBoundingClientRect?.();
+      const stageRect = stageElement?.getBoundingClientRect?.();
+      const clipLeft =
+        frameRect && stageRect && stageRect.width > 0
+          ? Math.max(0, stageRect.left - frameRect.left)
+          : 0;
+      const clipRight =
+        frameRect && stageRect && stageRect.width > 0
+          ? Math.min(viewportWidth, clipLeft + stageRect.width)
+          : viewportWidth;
+      const clipTop =
+        frameRect && stageRect && stageRect.height > 0
+          ? Math.max(0, stageRect.top - frameRect.top)
+          : 0;
+      const clipBottom =
+        frameRect && stageRect && stageRect.height > 0
+          ? Math.min(viewportHeight, clipTop + stageRect.height)
+          : viewportHeight;
+      if (clipRight - clipLeft < 120 || clipBottom - clipTop < 120) {
+        return null;
+      }
 
       const nodeFilter = win.NodeFilter || window.NodeFilter;
       const walker = doc.createTreeWalker(body, nodeFilter?.SHOW_TEXT || 4, {
@@ -580,34 +1465,415 @@ export default function EpubReader({
       });
 
       let checked = 0;
+      const rects = [];
+      const textSamples = [];
+      let visibleArea = 0;
+      let minLeft = Number.POSITIVE_INFINITY;
+      let maxRight = Number.NEGATIVE_INFINITY;
+      let minTop = Number.POSITIVE_INFINITY;
+      let maxBottom = Number.NEGATIVE_INFINITY;
       let node = walker.nextNode();
-      while (node && checked < 300) {
+      while (
+        node &&
+        checked < 300 &&
+        rects.length < PAGE_TURN_STABLE_LAYOUT_SAMPLE_LIMIT
+      ) {
         checked += 1;
         const range = doc.createRange();
         range.selectNodeContents(node);
         for (const rect of range.getClientRects()) {
-          if (rectIntersectsViewport(rect, viewportWidth, viewportHeight)) {
-            range.detach?.();
-            return true;
+          if (
+            rectIntersectsViewport(
+              rect,
+              Math.max(viewportWidth, clipRight),
+              Math.max(viewportHeight, clipBottom)
+            )
+          ) {
+            const clippedLeft = Math.max(clipLeft, rect.left);
+            const clippedRight = Math.min(clipRight, rect.right);
+            const clippedTop = Math.max(clipTop, rect.top);
+            const clippedBottom = Math.min(clipBottom, rect.bottom);
+            const clippedWidth = Math.max(0, clippedRight - clippedLeft);
+            const clippedHeight = Math.max(0, clippedBottom - clippedTop);
+            if (clippedWidth <= 1 || clippedHeight <= 1) continue;
+            visibleArea += clippedWidth * clippedHeight;
+            minLeft = Math.min(minLeft, clippedLeft);
+            maxRight = Math.max(maxRight, clippedRight);
+            minTop = Math.min(minTop, clippedTop);
+            maxBottom = Math.max(maxBottom, clippedBottom);
+            rects.push({
+              left: Math.round(clippedLeft),
+              right: Math.round(clippedRight),
+              top: Math.round(clippedTop),
+              bottom: Math.round(clippedBottom),
+              width: Math.round(clippedWidth),
+              height: Math.round(clippedHeight),
+            });
+            if (textSamples.length < 6) {
+              textSamples.push(node.nodeValue.trim().slice(0, 24));
+            }
+            break;
           }
         }
         range.detach?.();
         node = walker.nextNode();
       }
-      return false;
+      if (!rects.length || visibleArea < 120) return null;
+      const clusterWidth = maxRight - minLeft;
+      const clusterHeight = maxBottom - minTop;
+      if (clusterWidth < 24 || clusterHeight < 12) return null;
+      const visibleTextStyle = contentVisibleTextStyleSnapshot(contents);
+      return {
+        viewportWidth,
+        viewportHeight,
+        themeReady: contentHasReaderTheme(
+          contents,
+          readerThemeRef.current,
+          fontSizeRef.current
+        ),
+        themeSignature:
+          doc.documentElement?.dataset?.anythingllmEpubThemeSignature || null,
+        fontFamily: win.getComputedStyle?.(body)?.fontFamily || null,
+        visibleTextStyle,
+        clipLeft: Math.round(clipLeft),
+        clipRight: Math.round(clipRight),
+        clipTop: Math.round(clipTop),
+        clipBottom: Math.round(clipBottom),
+        visibleArea: Math.round(visibleArea),
+        minLeft: Math.round(minLeft),
+        maxRight: Math.round(maxRight),
+        minTop: Math.round(minTop),
+        maxBottom: Math.round(maxBottom),
+        rects,
+        text: textSamples.join("|"),
+        signature: [
+          Math.round(minLeft / 4),
+          Math.round(maxRight / 4),
+          Math.round(minTop / 4),
+          Math.round(maxBottom / 4),
+          Math.round(visibleArea / 80),
+          textSamples.join("|"),
+        ].join("~"),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function mainRenditionVisibleLayoutSnapshot(
+    rendition = renditionRef.current,
+    options = {}
+  ) {
+    try {
+      for (const contents of rendition?.getContents?.() || []) {
+        const snapshot = contentVisibleLayoutSnapshot(contents, options);
+        if (snapshot) return snapshot;
+      }
+    } catch {}
+    return null;
+  }
+
+  function mainRenditionHasVisiblePage(
+    rendition = renditionRef.current,
+    options = {}
+  ) {
+    try {
+      return Boolean(mainRenditionVisibleLayoutSnapshot(rendition, options));
     } catch {
       return false;
     }
   }
 
-  function mainRenditionHasVisiblePage(rendition = renditionRef.current) {
+  function contentHasReaderThemeMarker(
+    contentsOrView,
+    themeName = readerThemeRef.current,
+    size = fontSizeRef.current
+  ) {
     try {
-      return (rendition?.getContents?.() || []).some((contents) =>
-        contentHasVisiblePaint(contents)
+      const contents = normalizeRenditionContents(contentsOrView);
+      const doc = contents?.document;
+      const root = doc?.documentElement;
+      const styleElement = doc?.getElementById(EPUB_READER_THEME_STYLE_ID);
+      return Boolean(
+        doc &&
+          root &&
+          styleElement?.textContent &&
+          root.dataset.anythingllmEpubThemeReady === "true" &&
+          root.dataset.anythingllmEpubThemeSignature ===
+            readerThemeSignature(themeName, size)
       );
     } catch {
       return false;
     }
+  }
+
+  function contentChapterContentSnapshot(contentsOrView) {
+    try {
+      const contents = normalizeRenditionContents(contentsOrView);
+      const doc = contents?.document;
+      const win = contents?.window || doc?.defaultView;
+      const body = doc?.body;
+      if (!doc || !win || !body) return null;
+      const themeReady = contentHasReaderThemeMarker(contents);
+      const bodyStyle = win.getComputedStyle?.(body);
+      const viewportWidth = Math.max(
+        1,
+        Math.floor(
+          win.innerWidth ||
+            doc.documentElement?.clientWidth ||
+            body.clientWidth ||
+            0
+        )
+      );
+      const viewportHeight = Math.max(
+        1,
+        Math.floor(
+          win.innerHeight ||
+            doc.documentElement?.clientHeight ||
+            body.clientHeight ||
+            0
+        )
+      );
+      if (viewportWidth < 120 || viewportHeight < 120) {
+        return {
+          themeReady,
+          hasVisibleText: false,
+          textSampleLength: 0,
+          viewportWidth,
+          viewportHeight,
+        };
+      }
+
+      const nodeFilter = win.NodeFilter || window.NodeFilter;
+      const walker = doc.createTreeWalker(body, nodeFilter?.SHOW_TEXT || 4, {
+        acceptNode(node) {
+          const text = node.nodeValue?.trim();
+          if (!text) return nodeFilter?.FILTER_REJECT || 2;
+          const parent = node.parentElement;
+          if (!parent) return nodeFilter?.FILTER_REJECT || 2;
+          const tagName = parent.tagName?.toLowerCase?.();
+          if (["script", "style", "noscript"].includes(tagName)) {
+            return nodeFilter?.FILTER_REJECT || 2;
+          }
+          const style = win.getComputedStyle?.(parent);
+          if (
+            style?.display === "none" ||
+            style?.visibility === "hidden" ||
+            style?.opacity === "0"
+          ) {
+            return nodeFilter?.FILTER_REJECT || 2;
+          }
+          return nodeFilter?.FILTER_ACCEPT || 1;
+        },
+      });
+
+      const samples = [];
+      let checked = 0;
+      let textSampleLength = 0;
+      let node = walker.nextNode();
+      while (
+        node &&
+        checked < CHAPTER_CONTENT_TEXT_NODE_CHECK_LIMIT &&
+        samples.length < CHAPTER_CONTENT_VISIBLE_SAMPLE_LIMIT
+      ) {
+        checked += 1;
+        const text = node.nodeValue?.trim() || "";
+        textSampleLength += text.length;
+        const range = doc.createRange();
+        range.selectNodeContents(node);
+        const visibleRect = Array.from(range.getClientRects()).find((rect) =>
+          rectIntersectsViewport(rect, viewportWidth, viewportHeight)
+        );
+        range.detach?.();
+        if (visibleRect) {
+          const parent = node.parentElement;
+          const style = win.getComputedStyle?.(parent);
+          samples.push({
+            text: text.slice(0, 32),
+            tagName: parent?.tagName?.toLowerCase?.() || null,
+            fontFamily: style?.fontFamily || "",
+            color: style?.color || "",
+            lineHeight: style?.lineHeight || "",
+            rect: {
+              left: Math.round(visibleRect.left),
+              top: Math.round(visibleRect.top),
+              width: Math.round(visibleRect.width),
+              height: Math.round(visibleRect.height),
+            },
+          });
+        }
+        node = walker.nextNode();
+      }
+
+      const hasVisibleText = samples.length > 0;
+      const hasReaderFont = hasVisibleText
+        ? samples.every((sample) => fontFamilyHasReaderFont(sample.fontFamily))
+        : fontFamilyHasReaderFont(bodyStyle?.fontFamily);
+      return {
+        themeReady,
+        hasVisibleText,
+        hasReaderFont,
+        checked,
+        textSampleLength,
+        viewportWidth,
+        viewportHeight,
+        bodyPadding: bodyStyle?.padding || "",
+        bodyColumnGap: bodyStyle?.columnGap || "",
+        bodyColumnWidth: bodyStyle?.columnWidth || "",
+        bodyFontFamily: bodyStyle?.fontFamily || "",
+        samples,
+        signature: [
+          themeReady ? "theme" : "no-theme",
+          hasVisibleText ? "visible" : "hidden",
+          bodyStyle?.padding || "",
+          bodyStyle?.columnGap || "",
+          bodyStyle?.columnWidth || "",
+          samples.map((sample) => sample.text).join("|"),
+        ].join("~"),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  function mainRenditionChapterContentSnapshot(
+    rendition = renditionRef.current
+  ) {
+    try {
+      for (const contents of rendition?.getContents?.() || []) {
+        const snapshot = contentChapterContentSnapshot(contents);
+        if (snapshot?.themeReady && snapshot?.hasVisibleText) return snapshot;
+      }
+    } catch {}
+    return null;
+  }
+
+  function mainRenditionHasChapterContent(rendition = renditionRef.current) {
+    return Boolean(mainRenditionChapterContentSnapshot(rendition));
+  }
+
+  function epubDebugSnapshot(label = "snapshot") {
+    try {
+      const stage = containerRef.current?.closest?.(
+        ".epub-reader-transition-stage"
+      );
+      const outgoing = outgoingLayerRef.current;
+      const incoming = incomingLayerRef.current;
+      const iframe = stage?.querySelector?.("iframe");
+      const doc = iframe?.contentDocument;
+      const body = doc?.body;
+      const root = doc?.documentElement;
+      const win = iframe?.contentWindow || doc?.defaultView;
+      const bodyStyle = body && win ? win.getComputedStyle(body) : null;
+      const rootStyle = root && win ? win.getComputedStyle(root) : null;
+      const outgoingStyle = outgoing ? window.getComputedStyle(outgoing) : null;
+      const layout = mainRenditionVisibleLayoutSnapshot();
+      return {
+        label,
+        location: currentLocationRef.current?.start || null,
+        mainPaintReady,
+        mainLayerSuppressed,
+        turnInFlight: turnInFlightRef.current,
+        activeTurnId: activePageTurnIdRef.current,
+        readerPresentationMode: EPUB_READER_PRESENTATION_MODE,
+        turnAnimation,
+        stageRect: stage?.getBoundingClientRect?.()?.toJSON?.() || null,
+        iframeRect: iframe?.getBoundingClientRect?.()?.toJSON?.() || null,
+        iframeWindow: win
+          ? {
+              innerWidth: win.innerWidth,
+              innerHeight: win.innerHeight,
+            }
+          : null,
+        rootMetrics: root
+          ? {
+              clientWidth: root.clientWidth,
+              scrollWidth: root.scrollWidth,
+              offsetWidth: root.offsetWidth,
+              columnWidth: rootStyle?.columnWidth || null,
+              columnGap: rootStyle?.columnGap || null,
+              themeReady:
+                root.dataset?.anythingllmEpubThemeReady === "true" || false,
+              themeSignature:
+                root.dataset?.anythingllmEpubThemeSignature || null,
+            }
+          : null,
+        bodyMetrics: body
+          ? {
+              clientWidth: body.clientWidth,
+              scrollWidth: body.scrollWidth,
+              offsetWidth: body.offsetWidth,
+              margin: bodyStyle?.margin || null,
+              maxWidth: bodyStyle?.maxWidth || null,
+              width: bodyStyle?.width || null,
+              padding: bodyStyle?.padding || null,
+              columnWidth: bodyStyle?.columnWidth || null,
+              columnGap: bodyStyle?.columnGap || null,
+              fontFamily: bodyStyle?.fontFamily || null,
+              themeStylePresent: Boolean(
+                doc?.getElementById(EPUB_READER_THEME_STYLE_ID)
+              ),
+            }
+          : null,
+        textStart:
+          (body?.innerText || body?.textContent || "").trim().slice(0, 120) ||
+          "",
+        visibleTextStyle: contentVisibleTextStyleSnapshot({
+          document: doc,
+          window: win,
+        }),
+        layout,
+        themeReady: contentHasReaderTheme(
+          { document: doc, window: win },
+          readerThemeRef.current,
+          fontSizeRef.current
+        ),
+        outgoing: outgoing
+          ? {
+              className: outgoing.className,
+              dataTurnMode: outgoing.getAttribute("data-turn-mode"),
+              opacity: outgoingStyle?.opacity || null,
+              transform: outgoingStyle?.transform || null,
+              pointerEvents: outgoingStyle?.pointerEvents || null,
+            }
+          : null,
+        incoming: incoming
+          ? {
+              dataTurnMode: incoming.getAttribute("data-turn-mode"),
+              children: incoming.children?.length || 0,
+            }
+          : null,
+      };
+    } catch (error) {
+      return { label, error: error?.message || String(error) };
+    }
+  }
+
+  function debugEpubTurn(eventName, details = {}) {
+    try {
+      if (!import.meta.env?.DEV) return;
+      const outgoing = outgoingLayerRef.current;
+      const incoming = incomingLayerRef.current;
+      const captureExpensiveSnapshot =
+        details.captureSnapshot ||
+        EPUB_DEBUG_EXPENSIVE_TURN_EVENTS.has(eventName);
+      console.debug("[EPUB turn]", eventName, {
+        ...details,
+        layout: captureExpensiveSnapshot
+          ? mainRenditionVisibleLayoutSnapshot()
+          : null,
+        mainVisible: captureExpensiveSnapshot
+          ? mainRenditionHasVisiblePage()
+          : null,
+        hasStableSnapshot: Boolean(stablePageSnapshotRef.current?.html),
+        outgoingClassName: outgoing?.className || null,
+        outgoingOpacity: outgoing
+          ? window.getComputedStyle(outgoing).opacity
+          : null,
+        incomingChildren: incoming?.children?.length || 0,
+        activeTurnId: activePageTurnIdRef.current,
+      });
+    } catch {}
   }
 
   function logPreviewDebug(eventName, details = {}) {
@@ -624,65 +1890,520 @@ export default function EpubReader({
     } catch {}
   }
 
+  function escapeHtmlAttribute(value = "") {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  function stableSnapshotSafeAttributes(element, skipAttributes = new Set()) {
+    try {
+      return Array.from(element?.attributes || [])
+        .filter((attribute) => {
+          const name = attribute.name?.toLowerCase?.() || "";
+          if (!name || skipAttributes.has(name)) return false;
+          if (name.startsWith("on")) return false;
+          if (name === "srcdoc") return false;
+          return true;
+        })
+        .map(
+          (attribute) =>
+            `${attribute.name}="${escapeHtmlAttribute(attribute.value)}"`
+        )
+        .join(" ");
+    } catch {
+      return "";
+    }
+  }
+
+  function sanitizeStableSnapshotClone(element) {
+    try {
+      element
+        ?.querySelectorAll?.(
+          "script, style, link[rel='stylesheet'], iframe, object, embed"
+        )
+        ?.forEach((node) => node.remove());
+      element?.querySelectorAll?.("*")?.forEach((node) => {
+        for (const attribute of Array.from(node.attributes || [])) {
+          const name = attribute.name?.toLowerCase?.() || "";
+          if (name.startsWith("on") || name === "srcdoc") {
+            node.removeAttribute(attribute.name);
+          }
+        }
+      });
+    } catch {}
+  }
+
+  function computedStyleDeclarations(style, properties = []) {
+    try {
+      if (!style) return "";
+      return properties
+        .map((property) => {
+          const value = style.getPropertyValue?.(property);
+          return value ? `${property}: ${value} !important;` : "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    } catch {
+      return "";
+    }
+  }
+
+  function stableSnapshotScrollOffset(doc, win, body) {
+    try {
+      const root = doc?.documentElement;
+      return {
+        left: Math.max(
+          0,
+          Math.round(
+            Number(win?.scrollX || 0) ||
+              Number(root?.scrollLeft || 0) ||
+              Number(body?.scrollLeft || 0) ||
+              0
+          )
+        ),
+        top: Math.max(
+          0,
+          Math.round(
+            Number(win?.scrollY || 0) ||
+              Number(root?.scrollTop || 0) ||
+              Number(body?.scrollTop || 0) ||
+              0
+          )
+        ),
+      };
+    } catch {
+      return { left: 0, top: 0 };
+    }
+  }
+
   function captureStablePageSnapshot(rendition = renditionRef.current) {
     try {
       const contents = (rendition?.getContents?.() || []).find((item) => {
         const body = item?.document?.body;
         if (!body) return false;
+        if (
+          !contentHasReaderTheme(
+            item,
+            readerThemeRef.current,
+            fontSizeRef.current
+          )
+        ) {
+          return false;
+        }
         const visibleText = body.innerText || body.textContent || "";
         return visibleText.trim().length > 0;
       });
       const body = contents?.document?.body;
       if (!body) return null;
+      const doc = contents.document;
+      const win = contents?.window || contents?.document?.defaultView;
+      const root = doc?.documentElement;
+      if (!doc || !win || !root) return null;
+      const bodyStyle = win?.getComputedStyle?.(body);
+      const rootStyle = win?.getComputedStyle?.(root);
       const theme = themeByName(readerThemeRef.current);
       const bodyStyles = theme.styles?.body || {};
+      const bodyClone = body.cloneNode(true);
+      sanitizeStableSnapshotClone(bodyClone);
+      const bodyInnerHtml = bodyClone.innerHTML;
+      if (bodyInnerHtml.length > STABLE_SNAPSHOT_MAX_HTML_LENGTH) {
+        debugEpubPaint("stableSnapshotSkipped", {
+          reason: "htmlTooLarge",
+          htmlLength: bodyInnerHtml.length,
+          maxHtmlLength: STABLE_SNAPSHOT_MAX_HTML_LENGTH,
+        });
+        return null;
+      }
+      const viewportWidth = Math.max(
+        1,
+        Math.floor(win.innerWidth || root.clientWidth || body.clientWidth || 0)
+      );
+      const viewportHeight = Math.max(
+        1,
+        Math.floor(
+          win.innerHeight || root.clientHeight || body.clientHeight || 0
+        )
+      );
+      const scrollOffset = stableSnapshotScrollOffset(doc, win, body);
+      const rootAttributes = stableSnapshotSafeAttributes(
+        root,
+        new Set(["style", "class"])
+      );
+      const bodyAttributes = stableSnapshotSafeAttributes(
+        body,
+        new Set(["style", "class"])
+      );
+      const rootClassName = [
+        "anythingllm-epub-stable-snapshot-html",
+        root.className || "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const bodyClassName = [
+        "anythingllm-epub-stable-snapshot-body",
+        body.className || "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const rootLayoutCss = computedStyleDeclarations(
+        rootStyle,
+        STABLE_SNAPSHOT_MIRROR_STYLE_PROPERTIES
+      );
+      const bodyLayoutCss = computedStyleDeclarations(
+        bodyStyle,
+        STABLE_SNAPSHOT_MIRROR_STYLE_PROPERTIES
+      );
+      const rootAttributeText = rootAttributes ? ` ${rootAttributes}` : "";
+      const bodyAttributeText = bodyAttributes ? ` ${bodyAttributes}` : "";
+      const contentStyleText = `
+        ${readerSnapshotStyleText(".anythingllm-epub-stable-snapshot-body")}
+        .anythingllm-epub-stable-snapshot-document {
+          width: ${viewportWidth}px;
+          height: ${viewportHeight}px;
+          overflow: hidden;
+          background: var(--anythingllm-epub-background);
+          color: var(--anythingllm-epub-color);
+          font-family: var(--anythingllm-epub-font-family);
+          font-size: var(--anythingllm-epub-font-size);
+          line-height: var(--anythingllm-epub-line-height);
+          box-sizing: border-box;
+        }
+        .anythingllm-epub-stable-snapshot-html {
+          ${rootLayoutCss}
+          width: ${viewportWidth}px;
+          height: ${viewportHeight}px;
+          overflow: visible;
+          background: var(--anythingllm-epub-background) !important;
+          color: var(--anythingllm-epub-color) !important;
+        }
+        .anythingllm-epub-stable-snapshot-scroll {
+          transform: translate(${-scrollOffset.left}px, ${-scrollOffset.top}px);
+          transform-origin: 0 0;
+          width: max-content;
+          min-width: ${viewportWidth}px;
+        }
+        .anythingllm-epub-stable-snapshot-body {
+          ${bodyLayoutCss}
+          color: var(--anythingllm-epub-color) !important;
+          background: var(--anythingllm-epub-background) !important;
+          font-family: var(--anythingllm-epub-font-family) !important;
+          font-size: var(--anythingllm-epub-font-size) !important;
+          line-height: var(--anythingllm-epub-line-height) !important;
+        }
+      `;
+      const html = `
+        <style>${contentStyleText}</style>
+        <div class="anythingllm-epub-stable-snapshot-document">
+          <div class="${escapeHtmlAttribute(rootClassName)}"${rootAttributeText}>
+            <div class="anythingllm-epub-stable-snapshot-scroll">
+              <div class="${escapeHtmlAttribute(bodyClassName)}"${bodyAttributeText}>${bodyInnerHtml}</div>
+            </div>
+          </div>
+        </div>
+      `;
       return {
-        html: body.innerHTML,
+        html,
         background: bodyStyles.background || "transparent",
         color: bodyStyles.color || "inherit",
         fontFamily: EPUB_READER_FONT_FAMILY,
         fontSize: `${clampFontSize(fontSizeRef.current)}%`,
-        lineHeight: bodyStyles["line-height"] || "1.78",
-        margin: bodyStyles.margin || "0 auto",
-        maxWidth: bodyStyles["max-width"] || "780px",
-        padding:
-          bodyStyles.padding ||
-          "clamp(60px, 9vh, 92px) clamp(52px, 9vw, 128px)",
+        lineHeight: "var(--anythingllm-epub-line-height)",
+        margin: bodyStyle?.margin || bodyStyles.margin || "0",
+        maxWidth: bodyStyle?.maxWidth || bodyStyles["max-width"] || "none",
+        padding: bodyStyle?.padding || bodyStyles.padding || "20px 0",
+        contentStyleText: "",
+        viewportWidth,
+        viewportHeight,
+        scrollLeft: scrollOffset.left,
+        scrollTop: scrollOffset.top,
+        themeSignature: readerThemeSignature(
+          readerThemeRef.current,
+          fontSizeRef.current
+        ),
       };
     } catch {
       return null;
     }
   }
 
-  function rememberStablePageSnapshot(rendition = renditionRef.current) {
+  function rememberStablePageSnapshot(
+    rendition = renditionRef.current,
+    reason = "rememberStablePageSnapshot"
+  ) {
     const snapshot = captureStablePageSnapshot(rendition);
     if (snapshot?.html) {
       stablePageSnapshotRef.current = snapshot;
       setStablePageSnapshot(snapshot);
+      debugEpubPaint("stableSnapshotSwap", {
+        reason,
+        themeSignature: snapshot.themeSignature,
+        htmlLength: snapshot.html.length,
+        viewportWidth: snapshot.viewportWidth,
+        viewportHeight: snapshot.viewportHeight,
+        scrollLeft: snapshot.scrollLeft,
+        scrollTop: snapshot.scrollTop,
+      });
     }
     return Boolean(snapshot?.html);
   }
 
-  async function waitForMainVisiblePage(timeoutMs = 700) {
+  function stableSnapshotLayerMarkup(snapshot) {
+    if (!snapshot?.html) return "";
+    return `${
+      snapshot.contentStyleText
+        ? `<style>${snapshot.contentStyleText}</style>`
+        : ""
+    }${snapshot.html}`;
+  }
+
+  function hasVisibleTurnCover() {
+    const layer = turnCoverLayerRef.current;
+    return Boolean(layer && (layer.children?.length || 0) > 0);
+  }
+
+  function clearVisibleTurnCover(reason = "clear", expectedGeneration = null) {
+    const layer = turnCoverLayerRef.current;
+    if (!layer) return;
+    if (
+      expectedGeneration !== null &&
+      turnCoverGenerationRef.current !== expectedGeneration
+    ) {
+      debugEpubPaint("turnCoverClearSkipped", {
+        reason,
+        expectedGeneration,
+        currentGeneration: turnCoverGenerationRef.current,
+      });
+      return;
+    }
+    const children = layer.children?.length || 0;
+    layer.innerHTML = "";
+    layer.style.opacity = "";
+    layer.style.visibility = "";
+    layer.style.animation = "";
+    layer.style.transform = "";
+    layer.style.filter = "";
+    debugEpubPaint("turnCoverCleared", {
+      reason,
+      children,
+      generation: turnCoverGenerationRef.current,
+    });
+  }
+
+  function clearVisibleTurnCoverAfterPaint(reason = "clear", frameCount = 2) {
+    const generation = turnCoverGenerationRef.current;
+    let remainingFrames = Math.max(1, Number(frameCount) || 1);
+    const clearAfterFrame = () => {
+      remainingFrames -= 1;
+      if (remainingFrames <= 0) {
+        clearVisibleTurnCover(reason, generation);
+        return;
+      }
+      window.requestAnimationFrame(clearAfterFrame);
+    };
+    window.requestAnimationFrame(clearAfterFrame);
+  }
+
+  function prepareVisibleTurnCover(reason = "turn-cover") {
+    const layer = turnCoverLayerRef.current;
+    if (!layer) {
+      debugEpubPaint("turnCoverMissing", { reason, missingLayer: true });
+      return false;
+    }
+    const snapshot = captureStablePageSnapshot(renditionRef.current);
+    if (!snapshot?.html) {
+      debugEpubPaint("turnCoverMissing", {
+        reason,
+        missingSnapshot: true,
+      });
+      return false;
+    }
+    try {
+      turnCoverGenerationRef.current += 1;
+      layer.innerHTML = stableSnapshotLayerMarkup(snapshot);
+      layer.style.opacity = "1";
+      layer.style.visibility = "visible";
+      layer.style.animation = "none";
+      layer.style.transform = "none";
+      layer.style.filter = "none";
+      const rect = layer.getBoundingClientRect?.();
+      const visible = Boolean(
+        (layer.children?.length || 0) > 0 &&
+          rect &&
+          rect.width > 0 &&
+          rect.height > 0
+      );
+      if (!visible) {
+        clearVisibleTurnCover("prepare-empty");
+        debugEpubPaint("turnCoverMissing", {
+          reason,
+          emptyAfterPrepare: true,
+        });
+        return false;
+      }
+      debugEpubPaint("turnCoverPrepared", {
+        reason,
+        htmlLength: snapshot.html.length,
+        viewportWidth: snapshot.viewportWidth,
+        viewportHeight: snapshot.viewportHeight,
+        scrollLeft: snapshot.scrollLeft,
+        scrollTop: snapshot.scrollTop,
+        generation: turnCoverGenerationRef.current,
+      });
+      return true;
+    } catch (error) {
+      clearVisibleTurnCover("prepare-error");
+      debugEpubPaint("turnCoverMissing", {
+        reason,
+        error: error?.message || String(error),
+      });
+      return false;
+    }
+  }
+
+  function revealMainLayer(reason = "visible", details = {}) {
+    debugEpubPaint("mainReveal", { reason, ...details });
+    setMainLayerSuppressed(false);
+    mainPaintReadyRef.current = true;
+    setMainPaintReady(true);
+    debugEpubTurn("reveal", { reason, ...details });
+    if (!details.skipPostRevealSamples) {
+      schedulePostRevealPaintSamples(reason);
+    }
+  }
+
+  function schedulePostRevealPaintSamples(reason) {
+    try {
+      if (!import.meta.env?.DEV) return;
+      for (const timer of postRevealPaintTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      let previousStyleSignature = null;
+      postRevealPaintTimersRef.current = [50, 200, 500].map((delayMs) =>
+        window.setTimeout(() => {
+          const visibleTextStyle = mainVisibleTextStyleSnapshot();
+          if (
+            previousStyleSignature &&
+            visibleTextStyle?.signature &&
+            visibleTextStyle.signature !== previousStyleSignature
+          ) {
+            debugEpubPaint("visibleTextStyleChange", {
+              reason,
+              delayMs,
+              previousStyleSignature,
+              nextStyleSignature: visibleTextStyle.signature,
+              visibleTextStyle,
+            });
+          }
+          previousStyleSignature = visibleTextStyle?.signature || null;
+          debugEpubPaint("postRevealPaintSample", {
+            reason,
+            delayMs,
+            visibleTextStyle,
+          });
+        }, delayMs)
+      );
+    } catch {}
+  }
+
+  function recoverVisibleMainLayer(reason = "recover", options = {}) {
+    const { clearLayers = true } = options;
+    if (!mainRenditionHasVisiblePage()) {
+      debugEpubTurn("recover-miss", { reason });
+      return false;
+    }
+    rememberStablePageSnapshot(renditionRef.current, reason);
+    revealMainLayer(reason);
+    clearVisibleTurnCoverAfterPaint(`recover:${reason}`);
+    if (clearLayers) clearTurnLayers();
+    return true;
+  }
+
+  async function waitForMainVisiblePage(timeoutMs = 700, options = {}) {
+    const { updateStableSnapshot = true } = options;
     const startedAt = Date.now();
     while (Date.now() - startedAt < timeoutMs) {
-      applyReaderTheme(
-        renditionRef.current,
-        readerThemeRef.current,
-        fontSizeRef.current
-      );
-      applyReaderThemeToVisibleContents(
-        renditionRef.current,
-        readerThemeRef.current,
-        fontSizeRef.current
-      );
       await waitForAnimationFrame();
       if (mainRenditionHasVisiblePage()) {
-        rememberStablePageSnapshot();
+        if (updateStableSnapshot) {
+          rememberStablePageSnapshot(
+            renditionRef.current,
+            "waitForMainVisiblePage"
+          );
+        }
         return true;
       }
       await wait(50);
     }
+    return false;
+  }
+
+  async function waitForMainChapterContent(timeoutMs = 900) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < timeoutMs) {
+      await waitForAnimationFrame();
+      const snapshot = mainRenditionChapterContentSnapshot();
+      if (snapshot) {
+        debugEpubChapter("chapterContentReady", {
+          waitedMs: Date.now() - startedAt,
+          snapshot,
+        });
+        return snapshot;
+      }
+      await wait(40);
+    }
+    debugEpubChapter("chapterContentTimeout", { timeoutMs });
+    return null;
+  }
+
+  function stableLayoutSnapshotsMatch(previous, next) {
+    if (!previous || !next) return false;
+    if (previous.signature === next.signature) return true;
+    if (previous.text !== next.text) return false;
+    return (
+      Math.abs(previous.minLeft - next.minLeft) <= 4 &&
+      Math.abs(previous.maxRight - next.maxRight) <= 4 &&
+      Math.abs(previous.minTop - next.minTop) <= 4 &&
+      Math.abs(previous.maxBottom - next.maxBottom) <= 4 &&
+      Math.abs(previous.visibleArea - next.visibleArea) <= 160
+    );
+  }
+
+  async function waitForStableMainLayout(timeoutMs = 700, options = {}) {
+    const { updateStableSnapshot = true } = options;
+    const startedAt = Date.now();
+    let previous = null;
+    let stableFrames = 0;
+    while (Date.now() - startedAt < timeoutMs) {
+      await waitForAnimationFrame();
+      const snapshot = mainRenditionVisibleLayoutSnapshot();
+      if (snapshot) {
+        stableFrames = stableLayoutSnapshotsMatch(previous, snapshot)
+          ? stableFrames + 1
+          : 1;
+        previous = snapshot;
+        if (stableFrames >= 2) {
+          if (updateStableSnapshot) {
+            rememberStablePageSnapshot(
+              renditionRef.current,
+              "waitForStableMainLayout"
+            );
+          }
+          debugEpubTurn("stable-layout", {
+            signature: snapshot.signature,
+            visibleArea: snapshot.visibleArea,
+          });
+          return true;
+        }
+      } else {
+        previous = null;
+        stableFrames = 0;
+      }
+      await wait(40);
+    }
+    debugEpubTurn("stable-layout-timeout", { timeoutMs });
     return false;
   }
 
@@ -713,9 +2434,110 @@ export default function EpubReader({
     );
   }
 
+  function clearPageTurnRecoveryTimers() {
+    window.clearTimeout(pageTurnTimerRef.current);
+    pageTurnTimerRef.current = null;
+    for (const timer of pageTurnWatchdogTimersRef.current) {
+      window.clearTimeout(timer);
+    }
+    pageTurnWatchdogTimersRef.current = [];
+  }
+
+  function resetTurnLayerDomState() {
+    const layers = [incomingLayerRef.current, outgoingLayerRef.current].filter(
+      Boolean
+    );
+    debugEpubPaint("turnLayerDomReset", { layerCount: layers.length });
+    for (const layer of layers) {
+      try {
+        layer.removeAttribute("data-turn-mode");
+        layer.removeAttribute("data-turn-direction");
+        layer.removeAttribute("data-turn-phase");
+        layer.style.animation = "none";
+        layer.style.transform = "none";
+        layer.style.filter = "none";
+        layer.getBoundingClientRect?.();
+        window.requestAnimationFrame(() => {
+          layer.style.animation = "";
+          layer.style.transform = "";
+          layer.style.filter = "";
+        });
+      } catch {}
+    }
+  }
+
+  function hasIncomingHandoffCover() {
+    return Boolean(
+      incomingLayerRef.current &&
+        (incomingLayerRef.current.children?.length || 0) > 0
+    );
+  }
+
+  function raiseIncomingHandoffCover(reason = "handoff") {
+    const layer = incomingLayerRef.current;
+    if (!hasIncomingHandoffCover()) return false;
+    try {
+      layer.style.zIndex = "15";
+      layer.style.opacity = "1";
+      layer.style.visibility = "visible";
+      layer.style.transform = "none";
+      layer.style.filter = "none";
+      layer.style.animation = "none";
+      debugEpubPaint("incomingHandoffCover", {
+        reason,
+        children: layer.children?.length || 0,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function waitForPostRevealMainStability(reason = "handoff") {
+    const ready =
+      (await waitForStableMainLayout(PAGE_TURN_HANDOFF_STABILITY_MS, {
+        updateStableSnapshot: false,
+      })) || mainRenditionHasVisiblePage();
+    await waitForAnimationFrame();
+    await waitForAnimationFrame();
+    debugEpubTurn("post-reveal-stability", {
+      reason,
+      ready,
+    });
+    return ready;
+  }
+
+  async function waitForMainContentFontsReady(reason = "turn") {
+    try {
+      const fontReadyPromises = (renditionRef.current?.getContents?.() || [])
+        .map((contents) => contents?.document?.fonts?.ready)
+        .filter(Boolean);
+      if (!fontReadyPromises.length) {
+        debugEpubTurn("font-ready-skip", { reason });
+        return true;
+      }
+      const result = await Promise.race([
+        Promise.allSettled(fontReadyPromises).then(() => "ready"),
+        wait(PAGE_TURN_FONT_READY_TIMEOUT_MS).then(() => "timeout"),
+      ]);
+      debugEpubTurn("font-ready", {
+        reason,
+        result,
+        count: fontReadyPromises.length,
+      });
+      return result === "ready";
+    } catch {
+      return false;
+    }
+  }
+
   function clearTurnLayers() {
     const activeEntry = activeIncomingPreviewEntryRef.current;
     if (activeEntry?.container && previewHostRef.current) {
+      debugEpubPaint("incomingDetachToCache", {
+        offset: activeEntry.offset,
+        status: activeEntry.status,
+      });
       Object.assign(activeEntry.container.style, {
         position: "absolute",
         left: "0",
@@ -733,10 +2555,141 @@ export default function EpubReader({
         previewHostRef.current.appendChild(activeEntry.container);
       } catch {}
     } else if (incomingLayerRef.current) {
+      debugEpubPaint("incomingClear", {
+        children: incomingLayerRef.current.children?.length || 0,
+      });
       incomingLayerRef.current.innerHTML = "";
     }
     activeIncomingPreviewEntryRef.current = null;
+    if (incomingLayerRef.current) {
+      incomingLayerRef.current.style.zIndex = "";
+      incomingLayerRef.current.style.opacity = "";
+      incomingLayerRef.current.style.visibility = "";
+      incomingLayerRef.current.style.animation = "";
+      incomingLayerRef.current.style.transform = "";
+      incomingLayerRef.current.style.filter = "";
+    }
     setTurnAnimation(null);
+  }
+
+  async function finalizeTurnToMainLayer(reason, options = {}) {
+    const {
+      id = null,
+      direction = null,
+      updatePreview = true,
+      deferPreviewRebuild = false,
+    } = options;
+    if (id && activePageTurnIdRef.current !== id) return false;
+    if (!mainRenditionHasVisiblePage()) {
+      debugEpubTurn("finalize-miss", { reason, id, direction });
+      return false;
+    }
+
+    resetTurnLayerDomState();
+    await waitForAnimationFrame();
+
+    if (id && activePageTurnIdRef.current !== id) return false;
+    if (!mainRenditionHasVisiblePage()) {
+      debugEpubTurn("finalize-hidden-after-reset", { reason, id, direction });
+      return false;
+    }
+
+    await waitForMainContentFontsReady(reason);
+    if (id && activePageTurnIdRef.current !== id) return false;
+
+    const hasHandoffCover = raiseIncomingHandoffCover(reason);
+    if (!hasHandoffCover) {
+      const stableBeforeReveal = await waitForStableMainLayout(
+        PAGE_TURN_HANDOFF_STABILITY_MS,
+        { updateStableSnapshot: false }
+      );
+      if (id && activePageTurnIdRef.current !== id) return false;
+      if (!stableBeforeReveal && !mainRenditionHasVisiblePage()) {
+        debugEpubTurn("finalize-unstable-before-reveal", {
+          reason,
+          id,
+          direction,
+        });
+        return false;
+      }
+    }
+
+    revealMainLayer(reason);
+    if (hasHandoffCover) {
+      await waitForPostRevealMainStability(reason);
+    } else {
+      await waitForAnimationFrame();
+      await waitForAnimationFrame();
+    }
+    if (id && activePageTurnIdRef.current !== id) return false;
+    if (mainRenditionHasVisiblePage()) {
+      clearVisibleTurnCover(`finalize:${reason}`);
+    } else {
+      debugEpubPaint("turnCoverRetained", {
+        reason,
+        id,
+        direction,
+        mainVisibleAfterReveal: false,
+      });
+    }
+    clearTurnLayers();
+    if (updatePreview && direction) {
+      shiftPreviewCacheWindow(direction, currentBaseCfi());
+    }
+    turnInFlightRef.current = false;
+    activePageTurnIdRef.current = null;
+    clearPageTurnRecoveryTimers();
+    if (!deferPreviewRebuild) {
+      schedulePreviewRebuild(updatePreview ? 0 : undefined);
+    }
+    debugEpubTurn("finalize-complete", { reason, id, direction });
+    debugEpubPaint("turnTraceComplete", { reason, id, direction });
+    epubPaintActiveTurnRef.current = null;
+    return true;
+  }
+
+  function abandonTurnToStableSnapshot(reason, options = {}) {
+    const { id = null, deferPreviewRebuild = false } = options;
+    if (id && activePageTurnIdRef.current !== id) return;
+    const stableReady = rememberStablePageSnapshot(
+      renditionRef.current,
+      reason
+    );
+    const mainVisible = mainRenditionHasVisiblePage();
+    if (stableReady) {
+      setMainLayerSuppressed(true);
+      mainPaintReadyRef.current = false;
+      setMainPaintReady(false);
+    } else if (mainVisible) {
+      revealMainLayer(`abandon:${reason}`, {
+        skipPostRevealSamples: true,
+      });
+    } else {
+      setMainLayerSuppressed(true);
+      mainPaintReadyRef.current = false;
+      setMainPaintReady(false);
+    }
+    clearTurnLayers();
+    resetTurnLayerDomState();
+    if (hasVisibleTurnCover()) {
+      if (stableReady || mainVisible) {
+        clearVisibleTurnCoverAfterPaint(`abandon:${reason}`);
+      } else {
+        debugEpubPaint("turnCoverRetained", {
+          reason,
+          id,
+          stableReady,
+          mainVisible,
+        });
+      }
+    }
+    turnInFlightRef.current = false;
+    activePageTurnIdRef.current = null;
+    clearPageTurnRecoveryTimers();
+    if (!deferPreviewRebuild) schedulePreviewRebuild();
+    debugEpubTurn("turn-abandoned", { reason, id });
+    debugEpubPaint("turnTraceAbandoned", { reason, id });
+    epubPaintActiveTurnRef.current = null;
   }
 
   function resolveMainRenderWait(eventName = null) {
@@ -754,6 +2707,9 @@ export default function EpubReader({
         relocated: Boolean(waiter.relocated),
       });
     };
+    if (eventName && waiter.strict && (!waiter.rendered || !waiter.relocated)) {
+      return;
+    }
     if (eventName && (!waiter.rendered || !waiter.relocated)) {
       window.clearTimeout(waiter.softTimer);
       waiter.softTimer = window.setTimeout(finish, 90);
@@ -762,7 +2718,8 @@ export default function EpubReader({
     finish();
   }
 
-  function waitForMainRender() {
+  function waitForMainRender(options = {}) {
+    const { strict = false, timeoutMs = PAGE_TURN_SETTLE_TIMEOUT_MS } = options;
     return new Promise((resolve) => {
       window.clearTimeout(mainRenderWaitRef.current?.timer);
       window.clearTimeout(mainRenderWaitRef.current?.softTimer);
@@ -778,13 +2735,14 @@ export default function EpubReader({
             timedOut: true,
           });
         }
-      }, PAGE_TURN_SETTLE_TIMEOUT_MS);
+      }, timeoutMs);
       mainRenderWaitRef.current = {
         resolve,
         timer,
         softTimer: null,
         rendered: false,
         relocated: false,
+        strict,
       };
     });
   }
@@ -804,44 +2762,81 @@ export default function EpubReader({
       hideBefore = true,
       keepHidden = false,
       requireFullRender = false,
+      skipStableSnapshot = false,
+      strictRenderWait = false,
+      visibilityMode = "page",
+      skipPostRevealSamples = false,
     } = options;
+    const useChapterVisibility = visibilityMode === "chapter";
     if (hideBefore) {
-      setMainLayerSuppressed(true);
-      setMainPaintReady(false);
+      const coverReady = prepareVisibleTurnCover(
+        `syncMainRendition:${visibilityMode}`
+      );
+      if (coverReady) {
+        setMainLayerSuppressed(true);
+        mainPaintReadyRef.current = false;
+        setMainPaintReady(false);
+      } else if (!mainPaintReadyRef.current) {
+        debugEpubPaint("mainHiddenWithoutCover", {
+          reason: "syncMainRendition",
+          visibilityMode,
+        });
+      }
     }
-    const renderWait = waitForMainRender();
+    const renderWait = waitForMainRender({
+      strict: strictRenderWait,
+      timeoutMs: strictRenderWait ? 900 : PAGE_TURN_SETTLE_TIMEOUT_MS,
+    });
     try {
       const result = action?.();
       if (result?.then) await result.catch(() => null);
     } catch {}
     const renderState = await renderWait;
-    applyReaderTheme(
-      renditionRef.current,
-      readerThemeRef.current,
-      fontSizeRef.current
-    );
-    applyReaderThemeToVisibleContents(
-      renditionRef.current,
-      readerThemeRef.current,
-      fontSizeRef.current
-    );
     syncAnnotations();
-    const visibleReady = mainRenditionHasVisiblePage();
+    const visibleReady = useChapterVisibility
+      ? mainRenditionHasChapterContent()
+      : mainRenditionHasVisiblePage();
+    const fallbackVisibleReady =
+      visibleReady ||
+      (allowContentFallback &&
+        (useChapterVisibility
+          ? Boolean(await waitForMainChapterContent(700))
+          : await waitForMainVisiblePage(700, {
+              updateStableSnapshot: !keepHidden && !skipStableSnapshot,
+            })));
     const ready = requireFullRender
       ? Boolean(
-          renderState?.ready &&
-            (visibleReady || (await waitForMainVisiblePage()))
+          fallbackVisibleReady &&
+            (renderState?.ready ||
+              renderState?.relocated ||
+              renderState?.rendered ||
+              allowContentFallback)
         )
       : renderState?.ready ||
         renderState?.relocated ||
         renderState?.rendered ||
-        (allowContentFallback &&
-          (visibleReady || (await waitForMainVisiblePage())));
-    if (mainRenditionHasVisiblePage()) rememberStablePageSnapshot();
-    if (!keepHidden && ready) {
-      setMainLayerSuppressed(false);
-      setMainPaintReady(true);
+        fallbackVisibleReady;
+    if (!keepHidden && !skipStableSnapshot && mainRenditionHasVisiblePage()) {
+      rememberStablePageSnapshot(renditionRef.current, "syncMainRendition");
     }
+    if (!keepHidden && ready) {
+      revealMainLayer("syncMainRendition", {
+        renderState,
+        skipPostRevealSamples,
+      });
+      clearVisibleTurnCoverAfterPaint("syncMainRendition");
+    }
+    debugEpubTurn("syncMainRendition", {
+      ready,
+      renderState,
+      requireFullRender,
+      allowContentFallback,
+      fallbackVisibleReady,
+      keepHidden,
+      skipStableSnapshot,
+      strictRenderWait,
+      visibilityMode,
+    });
     return ready;
   }
 
@@ -876,8 +2871,13 @@ export default function EpubReader({
     return [
       body.padding || "",
       body["line-height"] || "",
+      body.margin || "",
       body["max-width"] || "",
+      body.width || "",
+      body["column-gap"] || "",
       EPUB_READER_FONT_FAMILY,
+      EPUB_READER_FRAME_GUTTER,
+      EPUB_READER_PRESENTATION_MODE,
     ].join("~");
   }
 
@@ -901,6 +2901,7 @@ export default function EpubReader({
       readerLayoutSignature(),
       "paginated",
       "none",
+      "gap:0",
     ].join("|");
   }
 
@@ -947,7 +2948,7 @@ export default function EpubReader({
   function releaseWheelGestureAfterQuiet() {
     window.clearTimeout(wheelGestureTimerRef.current);
     wheelGestureTimerRef.current = window.setTimeout(() => {
-      wheelGestureLockedRef.current = false;
+      wheelTurnDeltaRef.current = 0;
     }, WHEEL_GESTURE_RESET_MS);
   }
 
@@ -995,6 +2996,10 @@ export default function EpubReader({
 
   function clearPreviewCache(reason = "clear") {
     window.clearTimeout(previewBuildTimerRef.current);
+    if (previewBuildIdleCallbackRef.current && window.cancelIdleCallback) {
+      window.cancelIdleCallback(previewBuildIdleCallbackRef.current);
+      previewBuildIdleCallbackRef.current = null;
+    }
     previewBuildGenerationRef.current += 1;
     const clearedCount = previewCacheRef.current.size;
     for (const entry of previewCacheRef.current.values()) {
@@ -1143,11 +3148,14 @@ export default function EpubReader({
         openAs: "binary",
         replacements: "blobUrl",
       });
+      const cleanupBookThemeHook = registerReaderBookThemeHook(book);
+      if (cleanupBookThemeHook) entry.cleanups.push(cleanupBookThemeHook);
       const rendition = book.renderTo(container, {
         width: `${width}px`,
         height: `${height}px`,
         flow: "paginated",
         spread: "none",
+        gap: 0,
         minSpreadWidth: 999999,
         allowScriptedContent: false,
       });
@@ -1156,15 +3164,22 @@ export default function EpubReader({
       entry.container = container;
 
       registerReaderThemes(rendition);
+      const cleanupThemeHook = registerReaderContentThemeHook(rendition);
+      if (cleanupThemeHook) entry.cleanups.push(cleanupThemeHook);
       applyReaderTheme(rendition, readerThemeRef.current, fontSizeRef.current);
-      const handlePreviewRendered = (_section, contents) => {
+      const handlePreviewRendered = (_section, view) => {
+        const contents = normalizeRenditionContents(view);
         applyReaderThemeToContents(
           contents,
           readerThemeRef.current,
           fontSizeRef.current
         );
         entry.contentsReady = true;
-        entry.themeApplied = true;
+        entry.themeApplied = contentHasReaderTheme(
+          contents,
+          readerThemeRef.current,
+          fontSizeRef.current
+        );
       };
       rendition.on?.("rendered", handlePreviewRendered);
       entry.cleanups.push(() =>
@@ -1213,8 +3228,12 @@ export default function EpubReader({
       );
       applyPreparedAnnotations(rendition);
       entry.contentsReady = true;
-      entry.themeApplied = true;
       entry.annotationsReady = true;
+      entry.themeApplied = applyReaderThemeToVisibleContents(
+        rendition,
+        readerThemeRef.current,
+        fontSizeRef.current
+      );
       entry.visibleReady = mainRenditionHasVisiblePage(rendition);
       if (!entry.visibleReady) {
         throw new Error("EPUB preview rendered without visible content.");
@@ -1308,6 +3327,7 @@ export default function EpubReader({
   }
 
   async function rebuildPreviewCache(options = {}) {
+    if (!EPUB_BACKGROUND_PREVIEW_CACHE_ENABLED) return;
     const baseCfi = options.baseCfi || currentBaseCfi();
     const layoutKey = makeLayoutKey();
     if (!layoutKey || !epubArrayBufferRef.current || !previewHostRef.current)
@@ -1334,14 +3354,44 @@ export default function EpubReader({
     }
   }
 
-  function schedulePreviewRebuild(delay = PREVIEW_REBUILD_DEBOUNCE_MS) {
+  function schedulePreviewRebuild(
+    delay = PREVIEW_REBUILD_DEBOUNCE_MS,
+    options = {}
+  ) {
+    if (!EPUB_BACKGROUND_PREVIEW_CACHE_ENABLED) {
+      window.clearTimeout(previewBuildTimerRef.current);
+      return;
+    }
     window.clearTimeout(previewBuildTimerRef.current);
+    if (previewBuildIdleCallbackRef.current && window.cancelIdleCallback) {
+      window.cancelIdleCallback(previewBuildIdleCallbackRef.current);
+      previewBuildIdleCallbackRef.current = null;
+    }
     previewBuildTimerRef.current = window.setTimeout(() => {
-      rebuildPreviewCache();
+      const runRebuild = () => {
+        previewBuildIdleCallbackRef.current = null;
+        rebuildPreviewCache();
+      };
+      if (options.idle && window.requestIdleCallback) {
+        previewBuildIdleCallbackRef.current = window.requestIdleCallback(
+          runRebuild,
+          { timeout: options.idleTimeoutMs || 1400 }
+        );
+        return;
+      }
+      runRebuild();
     }, delay);
   }
 
   async function getPreviewForTurn(direction) {
+    if (!EPUB_VISIBLE_TURN_PREVIEW_ENABLED) {
+      logPreviewDebug("miss", {
+        direction: directionName(direction),
+        offset: directionOffset(direction),
+        reason: "visiblePreviewDisabled",
+      });
+      return null;
+    }
     const offset = directionOffset(direction);
     const layoutKey = makeLayoutKey();
     const baseCfi = currentBaseCfi();
@@ -1401,6 +3451,11 @@ export default function EpubReader({
       return false;
     incomingLayerRef.current.innerHTML = "";
     activeIncomingPreviewEntryRef.current = entry;
+    debugEpubPaint("incomingAttach", {
+      offset: entry.offset,
+      status: entry.status,
+      hasTheme: entry.themeApplied,
+    });
     applyReaderThemeToPreviewContainer(
       entry.container,
       readerThemeRef.current,
@@ -1420,109 +3475,789 @@ export default function EpubReader({
     return true;
   }
 
+  function setPageTurnDelta(nextDelta) {
+    const normalized = Math.trunc(Number(nextDelta) || 0);
+    pendingPageTurnDeltaRef.current = normalized;
+    targetTurnDeltaRef.current = normalized;
+  }
+
+  function shouldUseCatchupTurn() {
+    return Math.abs(targetTurnDeltaRef.current) >= PAGE_TURN_CATCHUP_THRESHOLD;
+  }
+
+  function clearFastTurnInputQuietTimer() {
+    window.clearTimeout(fastTurnInputQuietTimerRef.current);
+    fastTurnInputQuietTimerRef.current = null;
+  }
+
+  function cleanupFastTurnProbe(reason = "cleanup") {
+    const probe = fastTurnProbeRef.current;
+    fastTurnProbeRef.current = null;
+    if (!probe) return;
+    debugFastTurn("probeCleanup", {
+      reason,
+      baseCfi: probe.baseCfi,
+      positionDelta: probe.positionDelta,
+    });
+    for (const cleanup of probe.cleanups || []) {
+      try {
+        cleanup();
+      } catch {}
+    }
+    try {
+      probe.rendition?.destroy?.();
+    } catch {}
+    try {
+      probe.book?.destroy?.();
+    } catch {}
+    try {
+      probe.container?.remove?.();
+    } catch {}
+  }
+
+  async function createFastTurnProbe(baseCfi, layoutKey) {
+    if (!baseCfi || !layoutKey || !epubArrayBufferRef.current) return null;
+    const { width, height } = getPreviewSize();
+    if (width < 160 || height < 160) return null;
+    const container = createPreviewContainer(width, height);
+    Object.assign(container.style, {
+      opacity: "0",
+      visibility: "hidden",
+      pointerEvents: "none",
+      zIndex: "-1",
+      transform: "none",
+      filter: "none",
+    });
+    const book = ePub(epubArrayBufferRef.current.slice(0), {
+      openAs: "binary",
+      replacements: "blobUrl",
+    });
+    const cleanups = [];
+    const cleanupBookThemeHook = registerReaderBookThemeHook(book);
+    if (cleanupBookThemeHook) cleanups.push(cleanupBookThemeHook);
+    const rendition = book.renderTo(container, {
+      width: `${width}px`,
+      height: `${height}px`,
+      flow: "paginated",
+      spread: "none",
+      gap: 0,
+      minSpreadWidth: 999999,
+      allowScriptedContent: false,
+    });
+    const cleanupThemeHook = registerReaderContentThemeHook(rendition);
+    if (cleanupThemeHook) cleanups.push(cleanupThemeHook);
+    registerReaderThemes(rendition);
+    applyReaderTheme(rendition, readerThemeRef.current, fontSizeRef.current);
+    const handleRendered = (_section, view) => {
+      applyReaderThemeToContents(
+        normalizeRenditionContents(view),
+        readerThemeRef.current,
+        fontSizeRef.current
+      );
+    };
+    rendition.on?.("rendered", handleRendered);
+    cleanups.push(() => rendition.off?.("rendered", handleRendered));
+    const ready = await waitForPreviewRenditionSettle(rendition, () =>
+      displayPreviewWithTimeout(rendition, baseCfi)
+    );
+    if (!ready) {
+      for (const cleanup of cleanups) {
+        try {
+          cleanup();
+        } catch {}
+      }
+      try {
+        rendition.destroy?.();
+      } catch {}
+      try {
+        book.destroy?.();
+      } catch {}
+      try {
+        container.remove?.();
+      } catch {}
+      return null;
+    }
+    applyReaderThemeToVisibleContents(
+      rendition,
+      readerThemeRef.current,
+      fontSizeRef.current
+    );
+    const location = rendition.currentLocation?.() || null;
+    return {
+      baseCfi,
+      layoutKey,
+      book,
+      rendition,
+      container,
+      cleanups,
+      location,
+      positionDelta: 0,
+      direction: null,
+    };
+  }
+
+  async function ensureFastTurnProbe(baseCfi, desiredDelta) {
+    const layoutKey = makeLayoutKey();
+    if (!layoutKey || !baseCfi || !desiredDelta) return null;
+    const desiredDirection = Math.sign(desiredDelta);
+    const existing = fastTurnProbeRef.current;
+    const shouldRebuild =
+      !existing ||
+      existing.baseCfi !== baseCfi ||
+      existing.layoutKey !== layoutKey ||
+      (existing.direction && existing.direction !== desiredDirection) ||
+      Math.abs(existing.positionDelta) > Math.abs(desiredDelta);
+    if (shouldRebuild) cleanupFastTurnProbe("rebuild");
+    if (!fastTurnProbeRef.current) {
+      fastTurnProbeRef.current = await createFastTurnProbe(baseCfi, layoutKey);
+      if (fastTurnProbeRef.current) {
+        fastTurnProbeRef.current.direction = desiredDirection;
+        debugFastTurn("catchupStart", {
+          baseCfi,
+          desiredDelta,
+          layoutKey,
+        });
+      }
+    }
+    return fastTurnProbeRef.current;
+  }
+
+  async function resolveFastTurnTarget(baseCfi, desiredDelta) {
+    const desiredDirection = Math.sign(desiredDelta);
+    const targetSteps = Math.abs(desiredDelta);
+    const probe = await ensureFastTurnProbe(baseCfi, desiredDelta);
+    if (!probe || !desiredDirection || !targetSteps) return null;
+    let boundaryHit = false;
+
+    while (Math.abs(probe.positionDelta) < targetSteps) {
+      const beforeCfi = probe.location?.start?.cfi || null;
+      const ready = await waitForPreviewRenditionSettle(probe.rendition, () =>
+        desiredDirection > 0
+          ? probe.rendition.next?.()
+          : probe.rendition.prev?.()
+      );
+      if (!ready) {
+        debugFastTurn("probeStepFailed", {
+          desiredDelta,
+          positionDelta: probe.positionDelta,
+        });
+        return null;
+      }
+      applyReaderThemeToVisibleContents(
+        probe.rendition,
+        readerThemeRef.current,
+        fontSizeRef.current
+      );
+      probe.location = probe.rendition.currentLocation?.() || probe.location;
+      const afterCfi = probe.location?.start?.cfi || null;
+      if (!afterCfi || afterCfi === beforeCfi) {
+        boundaryHit = true;
+        debugFastTurn("boundaryHit", {
+          desiredDelta,
+          positionDelta: probe.positionDelta,
+          beforeCfi,
+          afterCfi,
+        });
+        break;
+      }
+      probe.positionDelta += desiredDirection;
+      debugFastTurn("probeStep", {
+        desiredDelta,
+        positionDelta: probe.positionDelta,
+        cfi: afterCfi,
+      });
+      await wait(0);
+    }
+
+    const targetCfi = probe.location?.start?.cfi || null;
+    if (!targetCfi || probe.positionDelta === 0) return null;
+    debugFastTurn("probeTargetCfi", {
+      desiredDelta,
+      movedDelta: probe.positionDelta,
+      boundaryHit,
+      targetCfi,
+    });
+    return {
+      cfi: targetCfi,
+      movedDelta: probe.positionDelta,
+      boundaryHit,
+      direction: desiredDirection > 0 ? "next" : "prev",
+    };
+  }
+
+  function scheduleFastCatchupCommit(reason = "input") {
+    if (!fastTurnCatchupActiveRef.current) return;
+    clearFastTurnInputQuietTimer();
+    fastTurnInputQuietTimerRef.current = window.setTimeout(() => {
+      runFastCatchupCommit(reason);
+    }, PAGE_TURN_CATCHUP_INPUT_QUIET_MS);
+  }
+
+  function deactivateFastCatchup(reason = "idle") {
+    clearFastTurnInputQuietTimer();
+    fastTurnCatchupActiveRef.current = false;
+    fastTurnProbeInFlightRef.current = false;
+    cleanupFastTurnProbe(reason);
+  }
+
+  async function runFastCatchupCommit(reason = "quiet") {
+    if (!fastTurnCatchupActiveRef.current) return;
+    const quietFor = performance.now() - fastTurnLastInputAtRef.current;
+    if (quietFor < PAGE_TURN_CATCHUP_INPUT_QUIET_MS) {
+      scheduleFastCatchupCommit(reason);
+      return;
+    }
+    if (turnInFlightRef.current || pageTurnDrainActiveRef.current) {
+      scheduleFastCatchupCommit("waitingForMainTurn");
+      return;
+    }
+    const desiredDelta = targetTurnDeltaRef.current;
+    if (!desiredDelta) {
+      deactivateFastCatchup("empty");
+      schedulePreviewRebuild(0);
+      debugFastTurn("catchupIdle", { reason });
+      return;
+    }
+    const baseCfi = currentBaseCfi();
+    if (!baseCfi) {
+      debugFastTurn("fallbackSequential", {
+        reason: "missingBaseCfi",
+        desiredDelta,
+      });
+      deactivateFastCatchup("missingBaseCfi");
+      fastTurnBurstRef.current = true;
+      drainPageTurnQueue("slide-stack");
+      return;
+    }
+
+    fastTurnProbeInFlightRef.current = true;
+    const startedAt = performance.now();
+    const target = await resolveFastTurnTarget(baseCfi, desiredDelta);
+    fastTurnProbeInFlightRef.current = false;
+    if (!fastTurnCatchupActiveRef.current) return;
+    if (targetTurnDeltaRef.current !== desiredDelta) {
+      scheduleFastCatchupCommit("targetChanged");
+      return;
+    }
+    if (!target?.cfi || !target.movedDelta) {
+      debugFastTurn("fallbackSequential", {
+        reason: "probeFailed",
+        desiredDelta,
+      });
+      deactivateFastCatchup("probeFailed");
+      fastTurnBurstRef.current = true;
+      drainPageTurnQueue("slide-stack");
+      return;
+    }
+
+    const id = `${Date.now()}-catchup-${target.direction}`;
+    turnInFlightRef.current = true;
+    activePageTurnIdRef.current = id;
+    clearPageTurnRecoveryTimers();
+    startEpubPaintTrace({
+      id,
+      direction: target.direction,
+      mode: "fast-catchup",
+    });
+    debugFastTurn("catchupCommit", {
+      id,
+      reason,
+      desiredDelta,
+      movedDelta: target.movedDelta,
+      remainingDelta: targetTurnDeltaRef.current - target.movedDelta,
+      targetCfi: target.cfi,
+      probeMs: Math.round(performance.now() - startedAt),
+    });
+
+    let mainReady = false;
+    let finalized = false;
+    try {
+      mainReady = await syncMainRendition(
+        () => renditionRef.current?.display?.(target.cfi),
+        {
+          allowContentFallback: true,
+          hideBefore: true,
+          keepHidden: true,
+          requireFullRender: true,
+          skipStableSnapshot: true,
+          strictRenderWait: true,
+          skipPostRevealSamples: true,
+        }
+      );
+      finalized =
+        mainReady &&
+        (await finalizeTurnToMainLayer("fastCatchupCommit", {
+          id,
+          direction: target.direction,
+          updatePreview: false,
+          deferPreviewRebuild: true,
+        }));
+      if (!finalized) {
+        abandonTurnToStableSnapshot("fastCatchupCommitFailed", {
+          id,
+          deferPreviewRebuild: true,
+        });
+      }
+    } catch {
+      abandonTurnToStableSnapshot("fastCatchupCommitError", {
+        id,
+        deferPreviewRebuild: true,
+      });
+    }
+
+    cleanupFastTurnProbe("committed");
+    if (!finalized) {
+      debugFastTurn("fallbackSequential", {
+        reason: "commitFailed",
+        desiredDelta,
+      });
+      fastTurnCatchupActiveRef.current = false;
+      fastTurnBurstRef.current = true;
+      drainPageTurnQueue("slide-stack");
+      return;
+    }
+    const remainingDelta = targetTurnDeltaRef.current - target.movedDelta;
+    const boundedRemainingDelta =
+      target.boundaryHit &&
+      remainingDelta &&
+      Math.sign(remainingDelta) === Math.sign(target.movedDelta)
+        ? 0
+        : remainingDelta;
+    setPageTurnDelta(boundedRemainingDelta);
+    if (targetTurnDeltaRef.current) {
+      if (shouldUseCatchupTurn()) {
+        scheduleFastCatchupCommit("remainingDelta");
+      } else {
+        fastTurnCatchupActiveRef.current = false;
+        fastTurnBurstRef.current = true;
+        drainPageTurnQueue("slide-stack");
+      }
+    } else {
+      fastTurnCatchupActiveRef.current = false;
+      fastTurnBurstRef.current = false;
+      schedulePreviewRebuild(0);
+      debugFastTurn("catchupIdle", { reason: "committed" });
+    }
+  }
+
+  function schedulePageTurnRecoveryWatchdogs({
+    id,
+    direction,
+    getMainReady,
+    markMainReady,
+    deferPreviewRebuild = false,
+    onComplete = null,
+  }) {
+    clearPageTurnRecoveryTimers();
+    const finalDelay =
+      PAGE_TURN_WATCHDOG_DELAYS_MS[PAGE_TURN_WATCHDOG_DELAYS_MS.length - 1];
+
+    const runWatchdog = async (delayMs, finalize = false) => {
+      if (activePageTurnIdRef.current !== id) return;
+
+      let ready = Boolean(getMainReady?.());
+      debugEpubTurn("watchdog-start", {
+        id,
+        direction,
+        delayMs,
+        finalize,
+        ready,
+      });
+
+      if (!ready) {
+        ready = await waitForStableMainLayout(delayMs >= 900 ? 900 : 220, {
+          updateStableSnapshot: false,
+        });
+      } else {
+        ready =
+          (await waitForStableMainLayout(delayMs >= 900 ? 700 : 180, {
+            updateStableSnapshot: false,
+          })) || mainRenditionHasVisiblePage();
+      }
+
+      if (!ready) {
+        debugEpubTurn("watchdog-hidden", {
+          id,
+          direction,
+          delayMs,
+          finalize,
+        });
+        if (finalize) {
+          abandonTurnToStableSnapshot(`watchdog:${delayMs}:hidden`, {
+            id,
+            deferPreviewRebuild,
+          });
+          onComplete?.(false);
+        }
+        return;
+      }
+
+      markMainReady?.();
+
+      const finalized = await finalizeTurnToMainLayer(
+        `watchdog:${delayMs}:settled`,
+        {
+          id,
+          direction,
+          updatePreview: true,
+          deferPreviewRebuild,
+        }
+      );
+      if (!finalized) {
+        if (finalize) {
+          abandonTurnToStableSnapshot(`watchdog:${delayMs}:finalize-miss`, {
+            id,
+            deferPreviewRebuild,
+          });
+          onComplete?.(false);
+        }
+        return;
+      }
+
+      debugEpubTurn("watchdog-complete", {
+        id,
+        direction,
+        delayMs,
+        finalize,
+      });
+      onComplete?.(true);
+    };
+
+    const [firstDelay, ...remainingDelays] = PAGE_TURN_WATCHDOG_DELAYS_MS;
+    pageTurnTimerRef.current = window.setTimeout(
+      () => runWatchdog(firstDelay, firstDelay === finalDelay),
+      firstDelay
+    );
+    pageTurnWatchdogTimersRef.current = remainingDelays.map((delayMs) =>
+      window.setTimeout(
+        () => runWatchdog(delayMs, delayMs === finalDelay),
+        delayMs
+      )
+    );
+  }
+
   function handleReaderPointerDown() {
     focusReaderShell();
   }
 
-  async function requestPageTurn(direction, mode = "slide-stack") {
+  function queuedPageTurnCount() {
+    return Math.abs(targetTurnDeltaRef.current);
+  }
+
+  function enqueuePageTurn(direction, options = {}) {
+    const { source = "unknown", count = 1, mode = "slide-stack" } = options;
+    const turnDirection = directionName(direction);
+    const sign = turnDirection === "next" ? 1 : -1;
+    let accepted = 0;
+    let cancelled = 0;
+    let dropped = 0;
+    let nextDelta = targetTurnDeltaRef.current;
+    const requestedCount = Math.max(1, Math.floor(Number(count) || 1));
+
+    for (let index = 0; index < requestedCount; index += 1) {
+      if (nextDelta && Math.sign(nextDelta) !== sign) {
+        nextDelta += sign;
+        cancelled += 1;
+        continue;
+      }
+      if (Math.abs(nextDelta) >= PAGE_TURN_CATCHUP_LIMIT) {
+        dropped += 1;
+        continue;
+      }
+      nextDelta += sign;
+      accepted += 1;
+    }
+
+    setPageTurnDelta(nextDelta);
+    fastTurnLastInputAtRef.current = performance.now();
+    if (
+      accepted > 0 &&
+      (pageTurnDrainActiveRef.current ||
+        Math.abs(nextDelta) > 1 ||
+        requestedCount > 1)
+    ) {
+      fastTurnBurstRef.current = true;
+    }
+    debugFastTurn("enqueue", {
+      source,
+      mode,
+      direction: turnDirection,
+      requestedCount,
+      accepted,
+      cancelled,
+      dropped,
+      queueLength: queuedPageTurnCount(),
+    });
+    if (Math.abs(nextDelta) >= PAGE_TURN_CATCHUP_THRESHOLD) {
+      fastTurnCatchupActiveRef.current = true;
+      fastTurnBurstRef.current = true;
+      scheduleFastCatchupCommit(source);
+      debugFastTurn("catchupQueued", {
+        source,
+        direction: turnDirection,
+        targetDelta: nextDelta,
+      });
+      return accepted;
+    }
+    if (fastTurnCatchupActiveRef.current) {
+      scheduleFastCatchupCommit(source);
+      return accepted;
+    }
+    drainPageTurnQueue(mode);
+    return accepted;
+  }
+
+  function dequeuePageTurn() {
+    const delta = targetTurnDeltaRef.current;
+    if (!delta) return null;
+    if (delta > 0) {
+      setPageTurnDelta(delta - 1);
+      return "next";
+    }
+    setPageTurnDelta(delta + 1);
+    return "prev";
+  }
+
+  async function drainPageTurnQueue(mode = "slide-stack") {
+    if (fastTurnCatchupActiveRef.current && targetTurnDeltaRef.current) {
+      scheduleFastCatchupCommit("drainPaused");
+      debugFastTurn("drain-paused-for-catchup", { mode });
+      return;
+    }
+    if (pageTurnDrainActiveRef.current) return;
+    pageTurnDrainActiveRef.current = true;
+    debugFastTurn("drain-start", { mode });
+    try {
+      while (targetTurnDeltaRef.current && renditionRef.current) {
+        if (fastTurnCatchupActiveRef.current) {
+          debugFastTurn("drain-paused-for-catchup", { mode });
+          break;
+        }
+        const turnDirection = dequeuePageTurn();
+        if (!turnDirection) break;
+        const queueAfterDequeue = queuedPageTurnCount();
+        const fastMode = fastTurnBurstRef.current || queueAfterDequeue > 0;
+        const startedAt = performance.now();
+        debugFastTurn("dequeue", {
+          direction: turnDirection,
+          queueAfterDequeue,
+          fastMode,
+        });
+        const completed = await performQueuedPageTurn(turnDirection, {
+          mode,
+          fastMode,
+        });
+        debugFastTurn("page-complete", {
+          direction: turnDirection,
+          completed,
+          fastMode,
+          durationMs: Math.round(performance.now() - startedAt),
+          remainingQueue: queuedPageTurnCount(),
+        });
+        if (!completed) {
+          setPageTurnDelta(0);
+          break;
+        }
+        if (
+          fastTurnCatchupActiveRef.current ||
+          Math.abs(targetTurnDeltaRef.current) >= PAGE_TURN_CATCHUP_THRESHOLD
+        ) {
+          fastTurnCatchupActiveRef.current = true;
+          scheduleFastCatchupCommit("drainThreshold");
+          debugFastTurn("drain-threshold-catchup", {
+            mode,
+            targetDelta: targetTurnDeltaRef.current,
+          });
+          break;
+        }
+        if (queuedPageTurnCount()) await wait(fastMode ? 8 : 20);
+      }
+    } finally {
+      pageTurnDrainActiveRef.current = false;
+      if (targetTurnDeltaRef.current) {
+        if (fastTurnCatchupActiveRef.current) {
+          scheduleFastCatchupCommit("drainFinally");
+        } else {
+          window.setTimeout(() => drainPageTurnQueue(mode), 0);
+        }
+      } else {
+        fastTurnBurstRef.current = false;
+        schedulePreviewRebuild(0);
+        debugFastTurn("drain-idle", { mode });
+      }
+    }
+  }
+
+  function requestPageTurn(direction, mode = "slide-stack", options = {}) {
+    return enqueuePageTurn(direction, { mode, ...options });
+  }
+
+  async function performQueuedPageTurn(direction, options = {}) {
+    const { mode = "slide-stack", fastMode = false } = options;
     const turnDirection = directionName(direction);
     const rendition = renditionRef.current;
-    if (!rendition || turnInFlightRef.current) return;
+    if (!rendition || turnInFlightRef.current) return false;
     const now = Date.now();
-    if (now - pageTurnAtRef.current < PAGE_TURN_COOLDOWN_MS) return;
-    pageTurnAtRef.current = now;
     turnInFlightRef.current = true;
-    const id = `${now}-${turnDirection}-${mode}`;
+    const id = `${now}-${turnDirection}-${mode}-${fastMode ? "fast" : "normal"}`;
+    activePageTurnIdRef.current = id;
+    clearPageTurnRecoveryTimers();
+    startEpubPaintTrace({ id, direction: turnDirection, mode });
+    debugEpubTurn("turn-start", {
+      id,
+      direction: turnDirection,
+      mode,
+      fastMode,
+    });
     let previewEntry = null;
     let mainReady = false;
     let hasPreview = false;
-    try {
-      previewEntry =
-        mode === "slide-stack" ? await getPreviewForTurn(turnDirection) : null;
-      if (mainRenditionHasVisiblePage()) rememberStablePageSnapshot();
-      hasPreview = attachIncomingPreview(previewEntry);
-      if (hasPreview) rememberStablePageSnapshot(previewEntry.rendition);
-      if (!hasPreview && incomingLayerRef.current) {
-        incomingLayerRef.current.innerHTML = "";
-        logPreviewDebug("fallback", {
-          direction: turnDirection,
-          reason: "previewNotReady",
-        });
-      }
-      const targetCfi = previewEntry?.location?.start?.cfi || null;
-      const turnMainPage = () =>
-        hasPreview && targetCfi
-          ? rendition.display?.(targetCfi)
-          : turnDirection === "next"
-            ? rendition.next?.()
-            : rendition.prev?.();
-      const shouldHideMainBeforeSync =
-        hasPreview || Boolean(stablePageSnapshotRef.current?.html);
-      if (prefersReducedMotion()) {
-        mainReady = await syncMainRendition(() => turnMainPage(), {
-          allowContentFallback: true,
-          hideBefore: shouldHideMainBeforeSync,
-          requireFullRender: true,
-        });
-        return;
-      }
-      setTurnAnimation({
-        id,
-        direction: turnDirection,
-        mode: hasPreview ? "slide-stack" : "push-fallback",
+    return new Promise((resolve) => {
+      let settled = false;
+      const complete = (value) => {
+        if (settled) return;
+        settled = true;
+        resolve(Boolean(value));
+      };
+
+      const runTurn = async () => {
+        try {
+          const fastFinalize = async (reason) => {
+            if (!fastMode || !mainReady) return false;
+            return finalizeTurnToMainLayer(reason, {
+              id,
+              direction: turnDirection,
+              updatePreview: true,
+              deferPreviewRebuild: true,
+            });
+          };
+
+          previewEntry =
+            EPUB_VISIBLE_TURN_PREVIEW_ENABLED &&
+            !fastMode &&
+            mode === "slide-stack"
+              ? await getPreviewForTurn(turnDirection)
+              : null;
+          if (
+            mainRenditionHasVisiblePage() &&
+            (!fastMode || !EPUB_VISIBLE_TURN_PREVIEW_ENABLED)
+          ) {
+            rememberStablePageSnapshot(renditionRef.current, "turn-start-main");
+          }
+          hasPreview = attachIncomingPreview(previewEntry);
+          if (!hasPreview && incomingLayerRef.current) {
+            incomingLayerRef.current.innerHTML = "";
+            logPreviewDebug("fallback", {
+              direction: turnDirection,
+              reason: "previewNotReady",
+            });
+            debugEpubTurn("preview-fallback", {
+              id,
+              direction: turnDirection,
+              reason: "previewNotReady",
+            });
+          }
+          debugEpubTurn("preview-state", {
+            id,
+            direction: turnDirection,
+            hasPreview,
+            previewStatus: previewEntry?.status || null,
+            fastMode,
+          });
+          const targetCfi = previewEntry?.location?.start?.cfi || null;
+          const turnMainPage = () =>
+            hasPreview && targetCfi
+              ? rendition.display?.(targetCfi)
+              : turnDirection === "next"
+                ? rendition.next?.()
+                : rendition.prev?.();
+          const shouldHideMainBeforeSync = true;
+          if (prefersReducedMotion()) {
+            mainReady = await syncMainRendition(() => turnMainPage(), {
+              allowContentFallback: true,
+              hideBefore: shouldHideMainBeforeSync,
+              keepHidden: true,
+              requireFullRender: true,
+              skipStableSnapshot: fastMode,
+              strictRenderWait: true,
+              skipPostRevealSamples: fastMode,
+            });
+            if (
+              mainReady &&
+              (await waitForStableMainLayout(700, {
+                updateStableSnapshot: false,
+              }))
+            ) {
+              const finalized = await finalizeTurnToMainLayer(
+                "reducedMotionTurn",
+                {
+                  id,
+                  direction: turnDirection,
+                  updatePreview: true,
+                  deferPreviewRebuild: true,
+                }
+              );
+              complete(finalized);
+            }
+            return;
+          }
+          if (hasPreview) {
+            setTurnAnimation({
+              id,
+              direction: turnDirection,
+              mode: "slide-stack",
+            });
+            await wait(
+              fastMode ? PAGE_TURN_FAST_ANIMATION_MS : PAGE_TURN_ANIMATION_MS
+            );
+          } else {
+            setTurnAnimation(null);
+            debugEpubTurn("main-only-turn", {
+              id,
+              direction: turnDirection,
+              fastMode,
+            });
+          }
+          mainReady = await syncMainRendition(() => turnMainPage(), {
+            allowContentFallback: true,
+            hideBefore: shouldHideMainBeforeSync,
+            keepHidden: true,
+            requireFullRender: true,
+            skipStableSnapshot: fastMode,
+            strictRenderWait: true,
+            skipPostRevealSamples: fastMode,
+          });
+          if (await fastFinalize("fastQueuedTurn")) {
+            complete(true);
+          }
+        } finally {
+          if (activePageTurnIdRef.current === id && !settled) {
+            schedulePageTurnRecoveryWatchdogs({
+              id,
+              direction: turnDirection,
+              getMainReady: () => mainReady,
+              markMainReady: () => {
+                mainReady = true;
+              },
+              deferPreviewRebuild: true,
+              onComplete: complete,
+            });
+          } else if (!settled) {
+            complete(false);
+          }
+        }
+      };
+
+      runTurn().catch(() => {
+        if (activePageTurnIdRef.current === id) {
+          abandonTurnToStableSnapshot("turn-error", {
+            id,
+            deferPreviewRebuild: true,
+          });
+        }
+        complete(false);
       });
-      await wait(PAGE_TURN_ANIMATION_MS);
-      mainReady = await syncMainRendition(() => turnMainPage(), {
-        allowContentFallback: true,
-        hideBefore: shouldHideMainBeforeSync,
-        requireFullRender: true,
-      });
-    } finally {
-      pageTurnTimerRef.current = window.setTimeout(async () => {
-        if (!mainReady) {
-          mainReady = await waitForMainVisiblePage(900);
-          if (mainReady) setMainPaintReady(true);
-        }
-        if (!mainReady && incomingLayerRef.current?.children?.length) {
-          setMainPaintReady(false);
-          setTurnAnimation(null);
-          turnInFlightRef.current = false;
-          schedulePreviewRebuild();
-          return;
-        }
-        if (!mainReady) {
-          setMainPaintReady(false);
-          setTurnAnimation(null);
-          turnInFlightRef.current = false;
-          schedulePreviewRebuild();
-          return;
-        }
-        applyReaderTheme(
-          renditionRef.current,
-          readerThemeRef.current,
-          fontSizeRef.current
-        );
-        applyReaderThemeToVisibleContents(
-          renditionRef.current,
-          readerThemeRef.current,
-          fontSizeRef.current
-        );
-        await waitForAnimationFrame();
-        await waitForAnimationFrame();
-        if (!mainRenditionHasVisiblePage()) {
-          setMainPaintReady(false);
-          setTurnAnimation(null);
-          turnInFlightRef.current = false;
-          schedulePreviewRebuild();
-          return;
-        }
-        rememberStablePageSnapshot();
-        clearTurnLayers();
-        shiftPreviewCacheWindow(turnDirection, currentBaseCfi());
-        turnInFlightRef.current = false;
-        schedulePreviewRebuild(0);
-      }, 90);
-    }
+    });
   }
 
   function handleReaderWheel(event) {
@@ -1538,21 +4273,40 @@ export default function EpubReader({
     event.stopPropagation?.();
     event.stopImmediatePropagation?.();
     releaseWheelGestureAfterQuiet();
-    if (wheelGestureLockedRef.current) return;
-    wheelGestureLockedRef.current = true;
-    requestPageTurn(deltaX > 0 ? "next" : "prev", "slide-stack");
+    const previousDelta = wheelTurnDeltaRef.current;
+    const nextDelta =
+      previousDelta && Math.sign(previousDelta) !== Math.sign(deltaX)
+        ? deltaX
+        : previousDelta + deltaX;
+    const turnCount = Math.min(
+      PAGE_TURN_WHEEL_BURST_LIMIT,
+      Math.floor(Math.abs(nextDelta) / HORIZONTAL_WHEEL_THRESHOLD)
+    );
+    if (!turnCount) {
+      wheelTurnDeltaRef.current = nextDelta;
+      return;
+    }
+    const consumedDelta =
+      Math.sign(nextDelta) * turnCount * HORIZONTAL_WHEEL_THRESHOLD;
+    wheelTurnDeltaRef.current = nextDelta - consumedDelta;
+    requestPageTurn(deltaX > 0 ? "next" : "prev", "slide-stack", {
+      source: "wheel",
+      count: turnCount,
+    });
   }
 
   function handleReaderKeyDown(event) {
     if (event.key === "ArrowRight") {
       event.preventDefault();
-      if (event.repeat) return;
-      requestPageTurn("next", "slide-stack");
+      requestPageTurn("next", "slide-stack", {
+        source: event.repeat ? "key-repeat" : "key",
+      });
     }
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      if (event.repeat) return;
-      requestPageTurn("prev", "slide-stack");
+      requestPageTurn("prev", "slide-stack", {
+        source: event.repeat ? "key-repeat" : "key",
+      });
     }
   }
 
@@ -1702,7 +4456,7 @@ export default function EpubReader({
     if (!target || !renditionRef.current) return;
     try {
       await syncMainRendition(() => renditionRef.current?.display?.(target));
-      rememberStablePageSnapshot();
+      recoverVisibleMainLayer("jumpToSource");
       if (options.flash) flashSource(source.sourceKey);
     } catch {}
   }
@@ -1744,7 +4498,10 @@ export default function EpubReader({
     let handleSelected = null;
     let handleRelocated = null;
     let handleRendered = null;
+    let cleanupBookThemeHook = null;
+    let cleanupThemeHook = null;
     setLoading(true);
+    mainPaintReadyRef.current = false;
     setMainPaintReady(false);
     setMainLayerSuppressed(false);
     stablePageSnapshotRef.current = null;
@@ -1764,6 +4521,7 @@ export default function EpubReader({
           replacements: "blobUrl",
         });
         bookRef.current = book;
+        cleanupBookThemeHook = registerReaderBookThemeHook(book);
         const initialRect = containerRef.current?.getBoundingClientRect?.();
         if (initialRect?.width && initialRect?.height) {
           lastResizeRef.current = {
@@ -1776,12 +4534,14 @@ export default function EpubReader({
           height: "100%",
           flow: "paginated",
           spread: "none",
+          gap: 0,
           minSpreadWidth: 999999,
           allowScriptedContent: false,
         });
         renditionRef.current = rendition;
 
         registerReaderThemes(rendition);
+        cleanupThemeHook = registerReaderContentThemeHook(rendition);
         applyReaderTheme(
           rendition,
           readerThemeRef.current,
@@ -1825,27 +4585,53 @@ export default function EpubReader({
           currentLocationRef.current = location;
           reportProgress(location);
           resolveMainRenderWait("relocated");
-          schedulePreviewRebuild();
+          if (chapterJumpInFlightRef.current) {
+            schedulePreviewRebuild(CHAPTER_PREVIEW_REBUILD_DELAY_MS, {
+              idle: true,
+            });
+          } else {
+            schedulePreviewRebuild();
+          }
         };
 
-        handleRendered = (_section, contents) => {
+        handleRendered = (_section, view) => {
+          const contents = normalizeRenditionContents(view);
           const hasPendingMainRender = Boolean(mainRenderWaitRef.current);
-          applyReaderTheme(
-            rendition,
-            readerThemeRef.current,
-            fontSizeRef.current
-          );
-          applyReaderThemeToContents(
-            contents,
-            readerThemeRef.current,
-            fontSizeRef.current
-          );
+          const themeReady = contentHasReaderThemeMarker(contents);
+          const canRepairThemeBeforeVisible =
+            !themeReady &&
+            (hasPendingMainRender ||
+              Boolean(activePageTurnIdRef.current) ||
+              !mainPaintReadyRef.current);
+          if (themeReady) {
+            debugEpubPaint("themeContentReady", { source: "mainRendered" });
+          } else if (canRepairThemeBeforeVisible) {
+            ensureReaderThemeStyle(
+              contents?.document,
+              readerThemeRef.current,
+              fontSizeRef.current,
+              { source: "mainRendered" }
+            );
+          } else {
+            debugEpubPaint("visibleThemeRepairSkipped", {
+              source: "mainRendered",
+              hasPendingMainRender,
+              activeTurnId: activePageTurnIdRef.current,
+              mainPaintReady: mainPaintReadyRef.current,
+            });
+          }
           wireContentInteractions(contents);
           syncAnnotations();
           resolveMainRenderWait("rendered");
-          if (mainRenditionHasVisiblePage(rendition)) {
-            rememberStablePageSnapshot(rendition);
-            if (!hasPendingMainRender) setMainPaintReady(true);
+          if (
+            !hasPendingMainRender &&
+            !chapterJumpInFlightRef.current &&
+            !activePageTurnIdRef.current &&
+            !mainPaintReadyRef.current &&
+            mainRenditionHasVisiblePage(rendition)
+          ) {
+            rememberStablePageSnapshot(rendition, "rendered");
+            revealMainLayer("rendered");
           }
         };
 
@@ -1884,6 +4670,7 @@ export default function EpubReader({
           document?.progress?.locator?.cfiRange ||
           document?.progress?.locator?.cfi ||
           undefined;
+        mainPaintReadyRef.current = false;
         setMainPaintReady(false);
         const initialRenderWait = waitForMainRender();
         await displayWithTimeout(rendition, target);
@@ -1906,7 +4693,7 @@ export default function EpubReader({
         if (!initialReady && !target) {
           initialReady = await advancePastInitialBlankPages(rendition, 3);
         }
-        if (initialReady) setMainPaintReady(true);
+        if (initialReady) revealMainLayer("initialDisplay");
         if (initialReady) {
           rebuildPreviewCache({ reason: "initialDisplay" });
         }
@@ -1922,6 +4709,18 @@ export default function EpubReader({
     return () => {
       cancelled = true;
       window.clearTimeout(flashTimerRef.current);
+      activePageTurnIdRef.current = null;
+      chapterJumpInFlightRef.current = false;
+      setPageTurnDelta(0);
+      pageTurnDrainActiveRef.current = false;
+      fastTurnBurstRef.current = false;
+      fastTurnCatchupActiveRef.current = false;
+      fastTurnProbeInFlightRef.current = false;
+      wheelTurnDeltaRef.current = 0;
+      clearFastTurnInputQuietTimer();
+      cleanupFastTurnProbe("unmount");
+      clearPageTurnRecoveryTimers();
+      clearVisibleTurnCover("unmount");
       try {
         if (rendition && handleSelected)
           rendition.off("selected", handleSelected);
@@ -1930,6 +4729,8 @@ export default function EpubReader({
         if (rendition && handleRendered)
           rendition.off("rendered", handleRendered);
       } catch {}
+      cleanupThemeHook?.();
+      cleanupBookThemeHook?.();
       removeContentInteractions();
       clearPreviewCache("unmount");
       try {
@@ -1962,11 +4763,14 @@ export default function EpubReader({
           hideBefore: false,
           requireFullRender: true,
         })
-          .then(() => schedulePreviewRebuild())
+          .then(() => {
+            recoverVisibleMainLayer("themeChanged");
+            schedulePreviewRebuild();
+          })
           .catch(() => schedulePreviewRebuild());
       }, 80);
     } else {
-      setMainPaintReady(true);
+      revealMainLayer("themeChangedNoCurrentCfi");
     }
   }, [readerTheme]);
 
@@ -2011,7 +4815,10 @@ export default function EpubReader({
                 () => renditionRef.current?.display?.(currentCfi),
                 { hideBefore: false, requireFullRender: true }
               )
-                .then(() => schedulePreviewRebuild())
+                .then(() => {
+                  recoverVisibleMainLayer("resize");
+                  schedulePreviewRebuild();
+                })
                 .catch(() => schedulePreviewRebuild());
             }, 90);
           }
@@ -2074,11 +4881,14 @@ export default function EpubReader({
             hideBefore: false,
             requireFullRender: true,
           })
-            .then(() => schedulePreviewRebuild())
+            .then(() => {
+              recoverVisibleMainLayer("fontSizeChanged");
+              schedulePreviewRebuild();
+            })
             .catch(() => schedulePreviewRebuild());
         }, 80);
       } else {
-        setMainPaintReady(true);
+        revealMainLayer("fontSizeChangedNoCurrentCfi");
       }
     } catch {}
   }
@@ -2092,13 +4902,74 @@ export default function EpubReader({
 
   async function selectToc(href) {
     if (!href) return;
+    const chapterJumpId = chapterJumpSeqRef.current + 1;
+    chapterJumpSeqRef.current = chapterJumpId;
+    const startedAt = performance.now();
+    epubChapterTraceRef.current = [];
+    chapterJumpInFlightRef.current = true;
+    debugEpubChapter("chapterJumpStart", { id: chapterJumpId, href });
     setTocOpen(false);
-    await syncMainRendition(() => renditionRef.current?.display?.(href), {
-      hideBefore: false,
-      requireFullRender: true,
-    });
-    rememberStablePageSnapshot();
-    schedulePreviewRebuild(120);
+    try {
+      const ready = await syncMainRendition(
+        () => renditionRef.current?.display?.(href),
+        {
+          hideBefore: false,
+          keepHidden: true,
+          requireFullRender: true,
+          skipStableSnapshot: true,
+          visibilityMode: "chapter",
+        }
+      );
+      if (chapterJumpSeqRef.current !== chapterJumpId) return;
+      const chapterSnapshot =
+        mainRenditionChapterContentSnapshot() ||
+        (await waitForMainChapterContent(900));
+      if (chapterJumpSeqRef.current !== chapterJumpId) return;
+      debugEpubChapter("chapterJumpReady", {
+        id: chapterJumpId,
+        href,
+        ready,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        snapshot: chapterSnapshot,
+        skippedStableSnapshot: true,
+      });
+      if (chapterSnapshot) {
+        revealMainLayer("selectToc", {
+          mode: "chapter",
+          skipPostRevealSamples: true,
+        });
+        debugEpubChapter("chapterMainReveal", {
+          id: chapterJumpId,
+          href,
+          elapsedMs: Math.round(performance.now() - startedAt),
+          ready,
+        });
+      } else {
+        debugEpubChapter("chapterJumpNoVisibleContent", {
+          id: chapterJumpId,
+          href,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }
+      schedulePreviewRebuild(CHAPTER_PREVIEW_REBUILD_DELAY_MS, {
+        idle: true,
+      });
+      debugEpubChapter("chapterPreviewRebuildScheduled", {
+        id: chapterJumpId,
+        href,
+        delayMs: CHAPTER_PREVIEW_REBUILD_DELAY_MS,
+        idle: true,
+      });
+    } finally {
+      if (chapterJumpSeqRef.current === chapterJumpId) {
+        chapterJumpInFlightRef.current = false;
+        debugEpubChapter("chapterJumpComplete", {
+          id: chapterJumpId,
+          href,
+          elapsedMs: Math.round(performance.now() - startedAt),
+        });
+      }
+    }
   }
 
   function saveCurrentBookmark() {
@@ -2123,9 +4994,49 @@ export default function EpubReader({
   }
 
   useEffect(() => {
+    window.__anythingllmEpubDebug = {
+      snapshot: epubDebugSnapshot,
+      visible: () => mainRenditionHasVisiblePage(),
+      stable: (timeoutMs = 700) => waitForStableMainLayout(timeoutMs),
+      lastTurnTrace: () => epubPaintTraceRef.current,
+      lastChapterTrace: () => epubChapterTraceRef.current,
+      lastFastTurnTrace: () => fastTurnTraceRef.current,
+      queuedTurns: () => ({
+        pendingDelta: pendingPageTurnDeltaRef.current,
+        targetDelta: targetTurnDeltaRef.current,
+        queueLength: queuedPageTurnCount(),
+        catchupActive: fastTurnCatchupActiveRef.current,
+        probeInFlight: fastTurnProbeInFlightRef.current,
+        drainActive: pageTurnDrainActiveRef.current,
+        turnInFlight: turnInFlightRef.current,
+      }),
+    };
+    return () => {
+      if (window.__anythingllmEpubDebug?.snapshot === epubDebugSnapshot) {
+        delete window.__anythingllmEpubDebug;
+      }
+    };
+  });
+
+  useEffect(() => {
     return () => {
       window.clearTimeout(wheelGestureTimerRef.current);
-      window.clearTimeout(pageTurnTimerRef.current);
+      activePageTurnIdRef.current = null;
+      chapterJumpInFlightRef.current = false;
+      setPageTurnDelta(0);
+      pageTurnDrainActiveRef.current = false;
+      fastTurnBurstRef.current = false;
+      fastTurnCatchupActiveRef.current = false;
+      fastTurnProbeInFlightRef.current = false;
+      wheelTurnDeltaRef.current = 0;
+      clearFastTurnInputQuietTimer();
+      cleanupFastTurnProbe("unmount");
+      clearPageTurnRecoveryTimers();
+      clearVisibleTurnCover("unmount");
+      for (const timer of postRevealPaintTimersRef.current) {
+        window.clearTimeout(timer);
+      }
+      postRevealPaintTimersRef.current = [];
       window.clearTimeout(toolRevealTimersRef.current.left);
       window.clearTimeout(toolRevealTimersRef.current.right);
       window.clearTimeout(turnEdgeRevealTimersRef.current.left);
@@ -2138,11 +5049,8 @@ export default function EpubReader({
   const activeTurn = turnAnimation;
   const activeTurnStyle = { "--epub-slide-distance": "100%" };
   const stableSnapshot = stablePageSnapshot || stablePageSnapshotRef.current;
-  const mainLayerVisible =
-    !mainLayerSuppressed &&
-    (mainPaintReady ||
-      (Boolean(activeTurn) &&
-        mainRenditionHasVisiblePage(renditionRef.current)));
+  const mainLayerVisible = !mainLayerSuppressed && mainPaintReady;
+  const readerFrameVariables = readerThemeVariableMap(readerTheme, fontSize);
 
   return (
     <div
@@ -2379,7 +5287,9 @@ export default function EpubReader({
                 ? "pointer-events-auto opacity-75 hover:opacity-100"
                 : "pointer-events-none opacity-0 focus:pointer-events-auto focus:opacity-100"
             } ${activeTheme.turnButtonStateClassName} focus-visible:shadow-[0_10px_24px_rgba(15,23,42,0.16)] active:shadow-[0_10px_24px_rgba(15,23,42,0.16)]`}
-            onClick={() => requestPageTurn("prev", "slide-stack")}
+            onClick={() =>
+              requestPageTurn("prev", "slide-stack", { source: "click" })
+            }
             onFocus={() => setVisibleTurnEdge("left")}
             onBlur={() => hideTurnEdge("left")}
             style={{ transitionDuration: "200ms" }}
@@ -2401,7 +5311,9 @@ export default function EpubReader({
                 ? "pointer-events-auto opacity-75 hover:opacity-100"
                 : "pointer-events-none opacity-0 focus:pointer-events-auto focus:opacity-100"
             } ${activeTheme.turnButtonStateClassName} focus-visible:shadow-[0_10px_24px_rgba(15,23,42,0.16)] active:shadow-[0_10px_24px_rgba(15,23,42,0.16)]`}
-            onClick={() => requestPageTurn("next", "slide-stack")}
+            onClick={() =>
+              requestPageTurn("next", "slide-stack", { source: "click" })
+            }
             onFocus={() => setVisibleTurnEdge("right")}
             onBlur={() => hideTurnEdge("right")}
             style={{ transitionDuration: "200ms" }}
@@ -2416,49 +5328,47 @@ export default function EpubReader({
           style={{
             boxShadow: activeTheme.shadowStyle,
             overscrollBehaviorX: "contain",
+            "--anythingllm-epub-frame-gutter": EPUB_READER_FRAME_GUTTER,
+            ...readerFrameVariables,
             ...activeTurnStyle,
           }}
         >
           <div
-            className={`pointer-events-none absolute inset-0 z-0 overflow-hidden ${activeTheme.pageClassName}`}
+            className={`epub-reader-content-frame pointer-events-none absolute z-0 overflow-hidden ${activeTheme.pageClassName}`}
             aria-hidden="true"
           >
             {stableSnapshot?.html && (
               <div
                 className="h-full w-full overflow-hidden"
                 style={{
-                  background: stableSnapshot.background,
-                  color: stableSnapshot.color,
+                  background: "var(--anythingllm-epub-background)",
+                  color: "var(--anythingllm-epub-color)",
                 }}
-              >
-                <div
-                  className="min-h-full"
-                  style={{
-                    boxSizing: "border-box",
-                    color: stableSnapshot.color,
-                    background: stableSnapshot.background,
-                    fontFamily: stableSnapshot.fontFamily,
-                    fontSize: stableSnapshot.fontSize,
-                    lineHeight: stableSnapshot.lineHeight,
-                    margin: stableSnapshot.margin,
-                    maxWidth: stableSnapshot.maxWidth,
-                    padding: stableSnapshot.padding,
-                  }}
-                  dangerouslySetInnerHTML={{ __html: stableSnapshot.html }}
-                />
-              </div>
+                dangerouslySetInnerHTML={{
+                  __html: `${
+                    stableSnapshot.contentStyleText
+                      ? `<style>${stableSnapshot.contentStyleText}</style>`
+                      : ""
+                  }${stableSnapshot.html}`,
+                }}
+              />
             )}
           </div>
           <div
             ref={incomingLayerRef}
-            className={`epub-page-transition-layer epub-page-incoming pointer-events-none absolute inset-0 z-[5] overflow-hidden ${activeTheme.pageClassName}`}
+            className={`epub-reader-content-frame epub-page-transition-layer epub-page-incoming pointer-events-none absolute z-[5] overflow-hidden ${activeTheme.pageClassName}`}
             data-turn-mode={activeTurn?.mode || undefined}
             data-turn-direction={activeTurn?.direction || undefined}
             data-turn-phase={activeTurn?.phase || undefined}
           />
           <div
+            ref={turnCoverLayerRef}
+            className={`epub-reader-content-frame epub-turn-cover-layer pointer-events-none absolute z-[8] overflow-hidden ${activeTheme.pageClassName}`}
+            aria-hidden="true"
+          />
+          <div
             ref={outgoingLayerRef}
-            className={`epub-page-transition-layer epub-page-outgoing motion-hover relative z-10 h-full w-full ${
+            className={`epub-reader-content-frame epub-page-transition-layer epub-page-outgoing absolute z-10 overflow-hidden ${
               mainLayerVisible ? "opacity-100" : "opacity-0"
             } ${activeTheme.pageClassName}`}
             data-turn-mode={activeTurn?.mode || undefined}
@@ -2479,9 +5389,28 @@ export default function EpubReader({
         />
       </div>
       <style>{`
+        .epub-reader-content-frame {
+          top: 0;
+          bottom: 0;
+          left: var(--anythingllm-epub-frame-gutter);
+          right: var(--anythingllm-epub-frame-gutter);
+          min-width: 0;
+        }
         .epub-page-transition-layer {
           will-change: transform, filter, opacity;
           transform: translateZ(0);
+        }
+        .epub-page-outgoing {
+          transition: none !important;
+        }
+        .epub-turn-cover-layer {
+          opacity: 0;
+          visibility: hidden;
+          transform: translateZ(0);
+        }
+        .epub-turn-cover-layer:not(:empty) {
+          opacity: 1;
+          visibility: visible;
         }
         .epub-page-transition-layer[data-turn-mode] {
           pointer-events: none;

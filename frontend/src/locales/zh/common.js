@@ -89,6 +89,7 @@ const TRANSLATIONS = {
     transcription: "转录模型",
     embedder: "嵌入器（Embedder）",
     reranker: "重排模型（Rerank）",
+    ocr: "OCR 模型",
     "text-splitting": "文本分割",
     "batch-jobs": "批处理任务",
     "voice-speech": "语音和讲话",
@@ -1310,6 +1311,31 @@ const readable = true;
     save: "保存更改",
     saving: "正在保存...",
   },
+  ocr: {
+    title: "OCR 模型首选项",
+    description: "配置阅读器用于识别扫描版 PDF 和图片文本的 OCR 提供商和模型。",
+    provider: "OCR 提供商",
+    providerHint:
+      "默认不启用托管 OCR。只有在已准备好 DashScope API Key，并希望使用阿里 OCR 模型处理扫描文本时，再切换到阿里百炼。",
+    providers: {
+      none: {
+        name: "无",
+        description: "不使用托管 OCR 模型。扫描版文档不会自动调用外部 OCR。",
+      },
+      alibaba: {
+        name: "阿里百炼 DashScope",
+        description: "使用阿里云 DashScope qwen-vl-ocr 识别图片和扫描文本。",
+      },
+    },
+    model: "OCR 模型",
+    noneHelp:
+      "当前不会调用托管 OCR 模型。阅读器仍可使用已有文本层和本地解析结果，但扫描版 PDF 或图片的 OCR 后处理会保持未配置状态。",
+    help: "阿里百炼 OCR 会把需要识别的图像内容发送到 DashScope OpenAI-compatible 接口。请填写 DashScope API Key、Base URL 和模型名。",
+    save: "保存更改",
+    saving: "正在保存...",
+    saved: "OCR 模型设置已保存。",
+    saveError: "OCR 模型设置保存失败：{{error}}",
+  },
   llm: {
     title: "LLM 首选项",
     description:
@@ -1335,7 +1361,8 @@ const readable = true;
     apply: "应用配置",
     applying: "正在应用...",
     imported_status: "已从环境变量导入",
-    success_toast: "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 配置",
+    success_toast:
+      "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 + 阿里 OCR 配置",
   },
   transcription: {
     title: "转录模型首选项",
@@ -1658,6 +1685,7 @@ const readable = true;
     microphone: "语音输入你的提示。",
     send: "将提示消息发送到工作区",
     attachments_processing: "附件正在处理，请稍候……",
+    ocr_processing: "OCR 识别中，请稍候……",
     tts_speak_message: "TTS 播报消息",
     copy: "复制",
     regenerate: "重新",

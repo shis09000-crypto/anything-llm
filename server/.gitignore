@@ -29,6 +29,8 @@ logs/server.log
 storage/lancedb
 storage/embedding-batches/*
 storage/tool-runs/*
+storage/agent-sessions/*
+__tests__/utils/agents/models/context-windows/*
 public/
 
 # For legacy copies of repo

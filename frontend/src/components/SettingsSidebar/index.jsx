@@ -263,6 +263,12 @@ const SidebarOptions = ({ user = null, t }) => (
               roles: ["admin"],
             },
             {
+              btnText: t("settings.ocr"),
+              href: paths.settings.ocrPreference(),
+              flex: true,
+              roles: ["admin"],
+            },
+            {
               btnText: t("settings.text-splitting"),
               href: paths.settings.embedder.chunkingPreference(),
               flex: true,

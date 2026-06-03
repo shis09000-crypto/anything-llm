@@ -116,6 +116,17 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/ocr-preference",
+        lazy: async () => {
+          const { default: GeneralOcrPreference } = await import(
+            "@/pages/GeneralSettings/OcrPreference"
+          );
+          return {
+            element: <AdminRoute Component={GeneralOcrPreference} />,
+          };
+        },
+      },
+      {
         path: "/settings/text-splitter-preference",
         lazy: async () => {
           const { default: EmbeddingTextSplitterPreference } = await import(

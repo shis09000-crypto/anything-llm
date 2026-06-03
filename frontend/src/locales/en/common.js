@@ -98,6 +98,7 @@ const TRANSLATIONS = {
     transcription: "Transcription",
     embedder: "Embedder",
     reranker: "Rerank Model",
+    ocr: "OCR Model",
     "text-splitting": "Text Splitter & Chunking",
     "batch-jobs": "Batch Jobs",
     "voice-speech": "Voice & Speech",
@@ -1395,6 +1396,34 @@ const readable = true;
     save: "Save changes",
     saving: "Saving...",
   },
+  ocr: {
+    title: "OCR Model Preference",
+    description:
+      "Configure the provider and model the reader uses to recognize text from scanned PDFs and images.",
+    provider: "OCR Provider",
+    providerHint:
+      "Hosted OCR is disabled by default. Select Alibaba Cloud DashScope only after you have a DashScope API key and want Alibaba OCR for scanned text.",
+    providers: {
+      none: {
+        name: "None",
+        description:
+          "Do not use a hosted OCR model. Scanned documents will not automatically call external OCR.",
+      },
+      alibaba: {
+        name: "Alibaba DashScope",
+        description:
+          "Use Alibaba Cloud DashScope qwen-vl-ocr to recognize image and scanned text.",
+      },
+    },
+    model: "OCR Model",
+    noneHelp:
+      "No hosted OCR model will be called. The reader can still use existing text layers and local parse results, but scanned PDF or image OCR post-processing remains unconfigured.",
+    help: "Alibaba DashScope OCR sends image content that needs recognition to the DashScope OpenAI-compatible endpoint. Provide your DashScope API Key, Base URL, and model name.",
+    save: "Save changes",
+    saving: "Saving...",
+    saved: "OCR model settings saved.",
+    saveError: "Failed to save OCR model settings: {{error}}",
+  },
   llm: {
     title: "LLM Preference",
     description:
@@ -1421,7 +1450,7 @@ const readable = true;
     applying: "Applying...",
     imported_status: "Imported from environment variables",
     success_toast:
-      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 configuration",
+      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR configuration",
   },
   transcription: {
     title: "Transcription Model Preference",
@@ -1946,6 +1975,7 @@ const readable = true;
   },
   chat_window: {
     attachments_processing: "Attachments are processing. Please wait...",
+    ocr_processing: "OCR recognition is processing. Please wait...",
     send_message: "Send a message",
     attach_file: "Attach a file to this chat",
     text_size: "Change text size.",

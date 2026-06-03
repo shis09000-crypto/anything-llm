@@ -160,6 +160,10 @@ class ImportedPlugin {
       return callOpts;
     }
     for (const [param, definition] of Object.entries(this.config.setup_args)) {
+      if (!definition || typeof definition !== "object") {
+        callOpts[param] = null;
+        continue;
+      }
       if (definition.required && !definition?.value) {
         console.log(
           `'${param}' required value for '${this.name}' plugin is missing. Plugin may not function or crash agent.`

@@ -19,6 +19,92 @@ const { safeJsonParse } = require("../../../../http");
  */
 
 /**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isPlainObject(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Native tool providers are strict about JSON schema shapes. Imported or
+ * dynamic tools can occasionally provide null/non-array schema fields, so
+ * normalize them at the provider boundary before the model sees them.
+ * @param {unknown} schema
+ * @returns {object}
+ */
+function sanitizeToolSchemaNode(schema) {
+  if (!isPlainObject(schema)) return {};
+
+  const sanitized = {};
+  for (const [key, value] of Object.entries(schema)) {
+    if (key === "required") {
+      sanitized.required = Array.isArray(value)
+        ? value.filter((item) => typeof item === "string")
+        : [];
+      continue;
+    }
+
+    if (key === "properties") {
+      sanitized.properties = isPlainObject(value)
+        ? Object.fromEntries(
+            Object.entries(value).map(([propertyName, propertySchema]) => [
+              propertyName,
+              sanitizeToolSchemaNode(propertySchema),
+            ])
+          )
+        : {};
+      continue;
+    }
+
+    if (key === "items") {
+      sanitized.items = Array.isArray(value)
+        ? value.map((item) => sanitizeToolSchemaNode(item))
+        : sanitizeToolSchemaNode(value);
+      continue;
+    }
+
+    if (["anyOf", "oneOf", "allOf"].includes(key)) {
+      if (Array.isArray(value)) {
+        const variants = value
+          .filter((variant) => variant != null)
+          .map((variant) => sanitizeToolSchemaNode(variant));
+        if (variants.length > 0) sanitized[key] = variants;
+      }
+      continue;
+    }
+
+    if (value == null) continue;
+
+    if (Array.isArray(value)) {
+      sanitized[key] = value.filter((item) => item != null);
+      continue;
+    }
+
+    sanitized[key] = isPlainObject(value)
+      ? sanitizeToolSchemaNode(value)
+      : value;
+  }
+
+  return sanitized;
+}
+
+/**
+ * @param {unknown} parameters
+ * @returns {{type: "object", properties: object, required: string[]}}
+ */
+function normalizeToolParameters(parameters) {
+  const sanitized = sanitizeToolSchemaNode(parameters);
+
+  return {
+    ...sanitized,
+    type: "object",
+    properties: isPlainObject(sanitized.properties) ? sanitized.properties : {},
+    required: Array.isArray(sanitized.required) ? sanitized.required : [],
+  };
+}
+
+/**
  * Convert aibitat function definitions to the OpenAI tools format.
  * @param {Array<{name: string, description: string, parameters: object}>} functions
  * @returns {Array<{type: "function", function: {name: string, description: string, parameters: object}}>}
@@ -30,7 +116,7 @@ function formatFunctionsToTools(functions) {
     function: {
       name: func.name,
       description: func.description,
-      parameters: func.parameters,
+      parameters: normalizeToolParameters(func.parameters),
     },
   }));
 }
@@ -404,6 +490,7 @@ async function tooledComplete(
 module.exports = {
   formatFunctionsToTools,
   formatMessagesForTools,
+  normalizeToolParameters,
   tooledStream,
   tooledComplete,
 };

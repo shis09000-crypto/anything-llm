@@ -7,6 +7,14 @@ export const TURN_STATUSES = {
   interrupted: "interrupted",
 };
 
+export const AGENT_RECONNECT_TIER_TIMEOUT_MS = {
+  rough: 50_000,
+  refined: 90_000,
+  ultra: 120_000,
+};
+
+const DEFAULT_AGENT_RECONNECT_TIER = "refined";
+
 const TIMELINE_TYPES = new Set([
   "thought",
   "tool_call",
@@ -274,6 +282,85 @@ function serverTurnId(chatId) {
   return `server:${chatId}`;
 }
 
+function agentTierFromModel(model = "") {
+  const normalized = String(model || "").toLowerCase();
+  if (normalized.includes("flash") || normalized.includes("rough"))
+    return "rough";
+  if (normalized.includes("ultra") || normalized.includes("max"))
+    return "ultra";
+  return DEFAULT_AGENT_RECONNECT_TIER;
+}
+
+export function agentReconnectTimeoutMs(turn = {}) {
+  const explicitTimeout = Number(turn.silenceTimeoutMs);
+  if (Number.isFinite(explicitTimeout) && explicitTimeout > 0) {
+    return explicitTimeout;
+  }
+
+  const tier = AGENT_RECONNECT_TIER_TIMEOUT_MS[turn.agentModelTier]
+    ? turn.agentModelTier
+    : agentTierFromModel(turn.agentModel);
+  return AGENT_RECONNECT_TIER_TIMEOUT_MS[tier];
+}
+
+export function isAgentReconnectAttemptStale(turn = {}, now = nowMs()) {
+  if (
+    turn.status !== TURN_STATUSES.running ||
+    turn.reconnectState !== "retrying" ||
+    !turn.websocketUUID
+  ) {
+    return false;
+  }
+
+  const startedAt =
+    Number(turn.reconnectAttemptStartedAt) ||
+    Number(turn.updatedAt) ||
+    Number(turn.createdAt) ||
+    now;
+  const timeoutMs = agentReconnectTimeoutMs(turn);
+  return now - startedAt > timeoutMs * 2;
+}
+
+function shouldRemoveTransientAssistantTurn(turn = {}, now = nowMs()) {
+  if (!isAssistantTurn(turn) || turn.chatId) return false;
+  if (turn.reconnectState === "offer") return false;
+  if (turn.status === TURN_STATUSES.failed) return true;
+  if (turn.status !== TURN_STATUSES.running) return false;
+
+  if (turn.reconnectState === "retrying") {
+    if (!turn.websocketUUID) return true;
+    return isAgentReconnectAttemptStale(turn, now);
+  }
+
+  return true;
+}
+
+export function cleanupTransientDraftItems(items = [], options = {}) {
+  const now = options.now || nowMs();
+  const normalized = normalizeTurnItems(items);
+  const removedTurnIds = new Set();
+
+  for (const item of normalized) {
+    if (shouldRemoveTransientAssistantTurn(item, now)) {
+      removedTurnIds.add(item.turnId);
+    }
+  }
+
+  if (removedTurnIds.size === 0) {
+    return { items: normalized, removedTurnIds: [] };
+  }
+
+  return {
+    items: normalized.filter((item) => {
+      if (!removedTurnIds.has(item.turnId)) return true;
+      if (isAssistantTurn(item)) return false;
+      if (isUserItem(item) && !item.chatId) return false;
+      return true;
+    }),
+    removedTurnIds: Array.from(removedTurnIds),
+  };
+}
+
 function groupedServerHistory(history = []) {
   const groups = [];
   const byChatId = new Map();
@@ -354,7 +441,7 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
       isAssistantTurn(item) &&
       ((serverAssistant.chatId && item.chatId === serverAssistant.chatId) ||
         (!item.chatId &&
-          item.status === TURN_STATUSES.running &&
+          [TURN_STATUSES.failed, TURN_STATUSES.running].includes(item.status) &&
           userFingerprint(
             localItems.find((candidate) => candidate.id === item.userMessageId)
           ) === userFingerprint(serverUser)))
@@ -391,10 +478,8 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     outputs: serverAssistant.outputs || localAssistant.outputs || [],
     responseType: serverAssistant.responseType || localAssistant.responseType,
     hydrationStatus: serverAssistant.hydrationStatus || null,
-    status:
-      localAssistant.status === TURN_STATUSES.failed
-        ? TURN_STATUSES.failed
-        : TURN_STATUSES.completed,
+    status: TURN_STATUSES.completed,
+    error: null,
     timeline: normalizeStoredTimeline([
       ...(localAssistant.timeline || []),
       ...(serverAssistant.timeline || []),

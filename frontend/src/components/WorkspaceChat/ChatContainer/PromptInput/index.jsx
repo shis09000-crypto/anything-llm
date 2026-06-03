@@ -84,7 +84,14 @@ export default function PromptInput({
   const { t } = useTranslation();
   const readerContext = useDocumentReader();
   const { showAgentCommand = true } = workspace ?? {};
-  const { isDisabled } = useIsDisabled();
+  const { isDisabled: attachmentsProcessing } = useIsDisabled();
+  const ocrProcessing = !!readerContext?.hasPendingReaderTextSources;
+  const disabledReason = ocrProcessing
+    ? "ocr"
+    : attachmentsProcessing
+      ? "attachments"
+      : null;
+  const isDisabled = !!disabledReason;
   const agentSessionActive = useIsAgentSessionActive();
   const [promptInput, setPromptInput] = useState("");
   const [showTools, setShowTools] = useState(false);
@@ -243,6 +250,9 @@ export default function PromptInput({
       inputId,
       isStreaming: !!isStreaming,
       isDisabled: !!isDisabled,
+      disabledReason,
+      attachmentsProcessing: !!attachmentsProcessing,
+      ocrProcessing: !!ocrProcessing,
       agentSessionActive: !!agentSessionActive,
       stopButtonVisible: !!isStreaming,
       sendButtonVisible: !isStreaming,
@@ -250,9 +260,12 @@ export default function PromptInput({
     });
   }, [
     agentSessionActive,
+    attachmentsProcessing,
+    disabledReason,
     isDisabled,
     isStreaming,
     inputId,
+    ocrProcessing,
     promptInput.length,
     threadSlug,
     workspace?.slug,
@@ -348,6 +361,7 @@ export default function PromptInput({
           threadSlug,
           isStreaming: !!isStreaming,
           isDisabled: !!isDisabled,
+          disabledReason,
         });
         return;
       } // Prevent submission if streaming or disabled
@@ -598,6 +612,7 @@ export default function PromptInput({
                       formRef={formRef}
                       promptInput={promptInput}
                       isDisabled={isDisabled}
+                      disabledReason={disabledReason}
                     />
                   )}
                 </div>
@@ -1187,8 +1202,19 @@ function ToolsButton({
   );
 }
 
-function SendPromptButton({ formRef, promptInput, isDisabled }) {
+function SendPromptButton({
+  formRef,
+  promptInput,
+  isDisabled,
+  disabledReason = null,
+}) {
   const { t } = useTranslation();
+  const disabledTooltip =
+    disabledReason === "ocr"
+      ? t("chat_window.ocr_processing", {
+          defaultValue: "OCR recognition is processing. Please wait...",
+        })
+      : t("chat_window.attachments_processing");
 
   return (
     <>
@@ -1203,9 +1229,7 @@ function SendPromptButton({ formRef, promptInput, isDisabled }) {
         }`}
         data-tooltip-id="send-prompt"
         data-tooltip-content={
-          isDisabled
-            ? t("chat_window.attachments_processing")
-            : t("chat_window.send")
+          isDisabled ? disabledTooltip : t("chat_window.send")
         }
         aria-label={t("chat_window.send")}
       >
