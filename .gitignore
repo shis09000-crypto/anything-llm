@@ -12,6 +12,7 @@ yarn.lock
 .idea
 .playwright-mcp/
 .anythingllm-runtime/
+anythingllm-data-sync-backups/
 dist-desktop/
 server/public/
 desktop/*.env

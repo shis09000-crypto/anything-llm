@@ -10,6 +10,7 @@ COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
 APP_URL="http://localhost:${SERVER_PORT}"
 STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
 ENV_STORAGE_ROOT="$STORAGE_BASE/production"
+BUILD_STAMP_FILE="$ROOT_DIR/server/public/.anythingllm-build"
 OPEN_BROWSER=1
 
 mkdir -p "$LOG_DIR"
@@ -66,12 +67,29 @@ wait_for_port() {
 }
 
 build_frontend_if_needed() {
-  if [[ -f "$ROOT_DIR/server/public/_index.html" && "${FORCE_FRONTEND_BUILD:-0}" != "1" ]]; then
-    log "frontend build found at server/public/_index.html"
+  local current_commit
+  local bundle_commit
+
+  current_commit="$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || printf 'unknown')"
+  bundle_commit="$(sed -n 's/^commit=//p' "$BUILD_STAMP_FILE" 2>/dev/null | head -1 || true)"
+
+  if [[ -f "$ROOT_DIR/server/public/_index.html" ]] &&
+    [[ "${FORCE_FRONTEND_BUILD:-0}" != "1" ]] &&
+    [[ "$bundle_commit" == "$current_commit" ]]; then
+    log "frontend build is current for commit $current_commit"
     return 0
   fi
 
-  log "frontend build not found; building production frontend..."
+  if [[ "${FORCE_FRONTEND_BUILD:-0}" == "1" ]]; then
+    log "FORCE_FRONTEND_BUILD=1; rebuilding production frontend..."
+  elif [[ ! -f "$ROOT_DIR/server/public/_index.html" ]]; then
+    log "frontend build not found; building production frontend..."
+  elif [[ -z "$bundle_commit" ]]; then
+    log "frontend build stamp missing; rebuilding production frontend for commit $current_commit..."
+  else
+    log "frontend build commit is $bundle_commit; rebuilding for current commit $current_commit..."
+  fi
+
   (
     cd "$ROOT_DIR/frontend"
     VITE_API_BASE=/api yarn build
@@ -81,6 +99,12 @@ build_frontend_if_needed() {
   rm -rf "$ROOT_DIR/server/public"
   mkdir -p "$ROOT_DIR/server/public"
   rsync -a "$ROOT_DIR/frontend/dist/" "$ROOT_DIR/server/public/"
+  {
+    printf 'commit=%s\n' "$current_commit"
+    printf 'built_at=%s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+    printf 'app_env=production\n'
+  } >"$BUILD_STAMP_FILE"
+  log "production frontend bundle is now stamped for commit $current_commit"
 }
 
 prepare_storage_dirs() {
@@ -369,6 +393,7 @@ cat <<EOF
 Production environment is running.
 APP_ENV: production
 URL:     $APP_URL
+Bundle:  $(sed -n 's/^commit=//p' "$BUILD_STAMP_FILE" 2>/dev/null | head -1 || printf 'unknown')
 
 Logs:
 server:    $SERVER_LOG
