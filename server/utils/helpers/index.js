@@ -32,7 +32,12 @@ function scopeVectorDatabase(vectorDb) {
 
       if (SECOND_ARG_NAMESPACE_METHODS.has(prop)) {
         return function scopedSecondNamespace(client, namespace, ...args) {
-          return value.call(target, client, vectorNamespace(namespace), ...args);
+          return value.call(
+            target,
+            client,
+            vectorNamespace(namespace),
+            ...args
+          );
         };
       }
 

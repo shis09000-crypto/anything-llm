@@ -3,6 +3,7 @@ const fs = require("fs/promises");
 const fsSync = require("fs");
 const { randomBytes } = require("crypto");
 const { v4: uuidv4 } = require("uuid");
+const { storagePath } = require("../../../../environment");
 
 /**
  * Manages file creation operations for binary document formats.
@@ -20,10 +21,7 @@ class CreateFilesManager {
    * @returns {string} The output directory path (storage/generated-files)
    */
   #getOutputDirectory() {
-    const storageRoot =
-      process.env.STORAGE_DIR ||
-      path.resolve(__dirname, "../../../../../storage");
-    return path.join(storageRoot, "generated-files");
+    return storagePath("generated-files");
   }
 
   /**
@@ -350,7 +348,7 @@ class CreateFilesManager {
    * @returns {Buffer|string|null} Logo as Buffer, data URI string, or null if file not found
    */
   getLogo({ forDarkBackground = false, format = "buffer" } = {}) {
-    const assetsPath = path.join(__dirname, "../../../../../storage/assets");
+    const assetsPath = storagePath("assets");
     const filename = forDarkBackground
       ? "anything-llm.png"
       : "anything-llm-invert.png";

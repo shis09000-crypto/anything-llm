@@ -1,4 +1,5 @@
 import React, { Suspense, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { AuthProvider } from "@/AuthContext";
@@ -19,12 +20,27 @@ import MotionRouteOutlet from "@/components/MotionRouteOutlet";
 import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
 import { AppToastHost } from "@/components/lib/AppToast";
 import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm";
+import { loadAppEnvironment } from "@/utils/appEnvironment";
 
 export default function App() {
   const location = useLocation();
+  const [environmentReady, setEnvironmentReady] = useState(false);
+
   useEffect(() => {
     installAnythingMemoryDiagnostics();
   }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    loadAppEnvironment().finally(() => {
+      if (mounted) setEnvironmentReady(true);
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (!environmentReady) return <FullScreenLoader />;
 
   return (
     <ErrorBoundary

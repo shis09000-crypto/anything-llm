@@ -2,6 +2,7 @@ import { requestPriorityQueue } from "./requestPriorityQueue";
 import { threadHistoryCache } from "./threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "./performanceBudget";
 import { getTrackedTtsBlobStats } from "@/utils/piperTTS";
+import { storageKeys } from "@/utils/appEnvironment";
 
 let draftStatsProvider = null;
 let sourcesStatsProvider = null;
@@ -26,15 +27,15 @@ function sessionStorageStats() {
   if (typeof sessionStorage === "undefined") return null;
   let bytes = 0;
   const byPrefix = {};
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
+  const keys = storageKeys(sessionStorage);
+  for (const key of keys) {
     const value = sessionStorage.getItem(key) || "";
     const size = key.length + value.length;
     bytes += size;
     const prefix = key.split(":")[0] || "unknown";
     byPrefix[prefix] = (byPrefix[prefix] || 0) + size;
   }
-  return { keyCount: sessionStorage.length, bytes, byPrefix };
+  return { keyCount: keys.length, bytes, byPrefix };
 }
 
 export function workspaceChatMemorySnapshot() {

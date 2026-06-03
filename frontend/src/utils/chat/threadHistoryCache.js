@@ -1,3 +1,9 @@
+import {
+  envIndexedDbName,
+  getAppEnvironment,
+  storageKeys,
+} from "@/utils/appEnvironment";
+
 const DB_NAME = "anythingllm-workspacechat-cache";
 const STORE_NAME = "history";
 const SESSION_PREFIX = "workspacechat-history:";
@@ -17,7 +23,7 @@ function cacheKey({
   kind = "page",
   cursor = "latest",
 }) {
-  return `${THREAD_HISTORY_CACHE_VERSION}:${workspaceSlug}:${threadSlug || "default"}:${kind}:${cursor || "latest"}`;
+  return `${getAppEnvironment()}:${THREAD_HISTORY_CACHE_VERSION}:${workspaceSlug}:${threadSlug || "default"}:${kind}:${cursor || "latest"}`;
 }
 
 function estimateSize(value) {
@@ -35,7 +41,10 @@ function isExpired(entry) {
 function openDb() {
   if (typeof indexedDB === "undefined") return Promise.resolve(null);
   return new Promise((resolve) => {
-    const request = indexedDB.open(DB_NAME, THREAD_HISTORY_CACHE_VERSION);
+    const request = indexedDB.open(
+      envIndexedDbName(DB_NAME),
+      THREAD_HISTORY_CACHE_VERSION
+    );
     request.onupgradeneeded = () => {
       const db = request.result;
       if (db.objectStoreNames.contains(STORE_NAME)) {
@@ -142,7 +151,7 @@ function sessionEntries() {
   if (typeof sessionStorage === "undefined") return [];
   const entries = [];
   try {
-    Object.keys(sessionStorage).forEach((storageKey) => {
+    storageKeys(sessionStorage).forEach((storageKey) => {
       if (!storageKey.startsWith(SESSION_PREFIX)) return;
       const raw = sessionStorage.getItem(storageKey);
       const entry = JSON.parse(raw);
@@ -240,7 +249,7 @@ export const threadHistoryCache = {
       if (key.includes(needle)) memoryCache.delete(key);
     }
     try {
-      Object.keys(sessionStorage)
+      storageKeys(sessionStorage)
         .filter((key) => key.startsWith(SESSION_PREFIX) && key.includes(needle))
         .forEach((key) => sessionStorage.removeItem(key));
     } catch {}
@@ -262,7 +271,7 @@ export const threadHistoryCache = {
       if (key.includes(needle)) memoryCache.delete(key);
     }
     try {
-      Object.keys(sessionStorage)
+      storageKeys(sessionStorage)
         .filter((key) => key.startsWith(SESSION_PREFIX) && key.includes(needle))
         .forEach((key) => sessionStorage.removeItem(key));
     } catch {}

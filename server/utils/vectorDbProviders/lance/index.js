@@ -7,7 +7,6 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { getEmbeddingReranker } = require("../../EmbeddingRerankers");
 const { VectorDatabase } = require("../base");
-const path = require("path");
 const { storagePath } = require("../../environment");
 
 /**

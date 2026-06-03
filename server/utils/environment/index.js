@@ -8,7 +8,9 @@ const STORAGE_APPLIED_ENV = "ANYTHINGLLM_ENV_STORAGE_APPLIED";
 function appEnvironment() {
   const fallback =
     process.env.NODE_ENV === "production" ? "production" : "development";
-  const value = String(process.env.APP_ENV || fallback).trim().toLowerCase();
+  const value = String(process.env.APP_ENV || fallback)
+    .trim()
+    .toLowerCase();
   if (!VALID_APP_ENVS.has(value)) {
     throw new Error(
       `Invalid APP_ENV "${process.env.APP_ENV}". Expected production or development.`
@@ -97,27 +99,47 @@ function legacyStorageDetected() {
 }
 
 function diagnosticSummary() {
+  const paths = {
+    documents: storagePath("documents"),
+    directUploads: storagePath("direct-uploads"),
+    readerDocuments: storagePath("reader-documents"),
+    vectorCache: storagePath("vector-cache"),
+    knowledgeGraph: storagePath("knowledge-graph"),
+    workspaceSupplements: storagePath("workspace-supplements"),
+    assets: storagePath("assets"),
+    providerBackups: storagePath("system", "provider-settings.backup.json"),
+    models: storagePath("models"),
+    plugins: storagePath("plugins"),
+    logs: storagePath("logs"),
+    agentSessions: storagePath("agent-sessions"),
+    toolRuns: storagePath("tool-runs"),
+    generatedFiles: storagePath("generated-files"),
+    agentFilesystem: storagePath("anythingllm-fs"),
+  };
+
   return {
     appEnv: appEnvironment(),
     nodeEnv: process.env.NODE_ENV || null,
     storageRoot: storageRoot(),
     database: { path: databasePath() },
     vectorStore: vectorStoreSummary(),
+    documents: { path: paths.documents },
+    readerDocuments: { path: paths.readerDocuments },
+    vectorCache: { path: paths.vectorCache },
+    directUploads: { path: paths.directUploads },
+    agentRuntimePaths: {
+      sessions: paths.agentSessions,
+      toolRuns: paths.toolRuns,
+      generatedFiles: paths.generatedFiles,
+      filesystem: paths.agentFilesystem,
+      plugins: paths.plugins,
+      logs: paths.logs,
+    },
     featureFlags: {
       telemetryDisabled: process.env.DISABLE_TELEMETRY === "true",
       multiUserMode: process.env.AUTH_TOKEN !== undefined,
     },
-    paths: {
-      documents: storagePath("documents"),
-      directUploads: storagePath("direct-uploads"),
-      readerDocuments: storagePath("reader-documents"),
-      vectorCache: storagePath("vector-cache"),
-      knowledgeGraph: storagePath("knowledge-graph"),
-      workspaceSupplements: storagePath("workspace-supplements"),
-      assets: storagePath("assets"),
-      agentSessions: storagePath("agent-sessions"),
-      toolRuns: storagePath("tool-runs"),
-    },
+    paths,
     legacyStorageDetected: legacyStorageDetected(),
   };
 }

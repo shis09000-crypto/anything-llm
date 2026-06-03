@@ -44,10 +44,10 @@ const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
 const { safeFileMove, safeReadJsonFile } = require("../utils/safety");
-const { storagePath } = require("../utils/environment");
+const { storagePath: environmentStoragePath } = require("../utils/environment");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
-const documentsPath = storagePath("documents");
+const documentsPath = environmentStoragePath("documents");
 
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
@@ -1165,7 +1165,7 @@ function workspaceEndpoints(app) {
 
         const oldPfpFilename = workspaceRecord.pfpFilename;
         if (oldPfpFilename) {
-          const storagePath = path.join(__dirname, "../storage/assets/pfp");
+          const storagePath = environmentStoragePath("assets", "pfp");
           const oldPfpPath = path.join(
             storagePath,
             normalizePath(workspaceRecord.pfpFilename)
@@ -1206,7 +1206,7 @@ function workspaceEndpoints(app) {
         const oldPfpFilename = workspaceRecord.pfpFilename;
 
         if (oldPfpFilename) {
-          const storagePath = path.join(__dirname, "../storage/assets/pfp");
+          const storagePath = environmentStoragePath("assets", "pfp");
           const oldPfpPath = path.join(
             storagePath,
             normalizePath(oldPfpFilename)

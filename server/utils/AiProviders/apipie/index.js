@@ -11,12 +11,9 @@ const { safeJsonParse } = require("../../http");
 const {
   LLMPerformanceMonitor,
 } = require("../../helpers/chat/LLMPerformanceMonitor");
+const { storagePath } = require("../../environment");
 
-const cacheFolder = path.resolve(
-  process.env.STORAGE_DIR
-    ? path.resolve(process.env.STORAGE_DIR, "models", "apipie")
-    : path.resolve(__dirname, `../../../storage/models/apipie`)
-);
+const cacheFolder = storagePath("models", "apipie");
 
 class ApiPieLLM {
   constructor(embedder = null, modelPreference = null) {

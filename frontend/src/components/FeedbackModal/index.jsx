@@ -5,12 +5,13 @@ import AppButton from "@/components/lib/AppButton";
 import AppIcon from "@/components/lib/AppIcon";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
+import { envIndexedDbName } from "@/utils/appEnvironment";
 const DB_NAME = "vector-knowledge-feedback";
 const STORE_NAME = "drafts";
 const DRAFT_KEY = "footer-feedback";
 function openDraftDb() {
   return new Promise((resolve, reject) => {
-    const request = window.indexedDB.open(DB_NAME, 1);
+    const request = window.indexedDB.open(envIndexedDbName(DB_NAME), 1);
     request.onupgradeneeded = () => {
       request.result.createObjectStore(STORE_NAME);
     };

@@ -1,5 +1,21 @@
+const path = require("path");
+const fs = require("fs");
 const { PrismaClient } = require("@prisma/client");
-const prisma = new PrismaClient();
+const { databasePath } = require("../utils/environment");
+
+function sqliteDatasourceUrl() {
+  const dbPath = databasePath();
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  return new URL(`file:${dbPath}`).toString();
+}
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: sqliteDatasourceUrl(),
+    },
+  },
+});
 
 async function main() {
   const settings = [

@@ -166,7 +166,7 @@ async function wipeCollectorStorage() {
   });
 
   const cleanTmpDir = new Promise((resolve) => {
-    const directory = path.resolve(__dirname, "../../storage/tmp");
+    const directory = storagePath("tmp");
     fs.readdir(directory, (err, files) => {
       if (err) resolve();
 

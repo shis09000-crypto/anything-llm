@@ -3,19 +3,22 @@
  * into LanceDB and re-create document_vectors + workspace_documents records.
  *
  * Usage: node scripts/recover-vectors.js
- * Requires: STORAGE_DIR to be set (from .env or process.env)
+ * Uses APP_ENV-aware storage under STORAGE_DIR/APP_ENV.
  */
 
 const fs = require("fs");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
+const {
+  applyEnvironmentStorage,
+  storageRoot,
+  storagePath,
+  vectorNamespace,
+} = require("../utils/environment");
 
-// ── Ensure STORAGE_DIR is set ──────────────────────────────────────────────
-const storageDir =
-  process.env.STORAGE_DIR || path.resolve(__dirname, "../storage");
-process.env.STORAGE_DIR = storageDir;
+applyEnvironmentStorage();
 
-const BATCH_DIR = path.join(storageDir, "embedding-batches");
+const BATCH_DIR = storagePath("embedding-batches");
 
 // ── Load batch jobs from SQLite via Prisma ─────────────────────────────────
 async function getBatchJobs() {
@@ -57,7 +60,7 @@ function stripMetadataTags(text = "") {
 
 // ── Main recovery ───────────────────────────────────────────────────────────
 async function recover() {
-  console.log("Storage dir:", storageDir);
+  console.log("Storage dir:", storageRoot());
   console.log("Batch dir:", BATCH_DIR);
 
   const jobs = await getBatchJobs();
@@ -202,7 +205,7 @@ async function recover() {
     }
 
     // Insert into LanceDB
-    const namespace = job.workspaceSlug;
+    const namespace = vectorNamespace(job.workspaceSlug);
     const hasNamespace = await vectorDb.hasNamespace(namespace);
     await vectorDb.updateOrCreateCollection(client, submissions, namespace);
     console.log(

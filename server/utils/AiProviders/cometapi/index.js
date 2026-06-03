@@ -12,11 +12,8 @@ const {
   LLMPerformanceMonitor,
 } = require("../../helpers/chat/LLMPerformanceMonitor");
 const { COMETAPI_IGNORE_PATTERNS } = require("./constants");
-const cacheFolder = path.resolve(
-  process.env.STORAGE_DIR
-    ? path.resolve(process.env.STORAGE_DIR, "models", "cometapi")
-    : path.resolve(__dirname, `../../../storage/models/cometapi`)
-);
+const { storagePath } = require("../../environment");
+const cacheFolder = storagePath("models", "cometapi");
 
 class CometApiLLM {
   defaultTimeout = 3_000;

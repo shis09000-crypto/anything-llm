@@ -8,6 +8,7 @@
 
 const path = require("path");
 const fs = require("fs/promises");
+const { storagePath } = require("../../../../../environment");
 const {
   DOCUMENT_STYLES,
   getTheme,
@@ -20,10 +21,7 @@ const {
   DEFAULT_NUMBERING_CONFIG,
 } = require("./utils.js");
 
-const OUTPUT_DIR = path.resolve(
-  __dirname,
-  "../../../../../../storage/generated-files/docx-theme-previews"
-);
+const OUTPUT_DIR = storagePath("generated-files", "docx-theme-previews");
 
 const SAMPLE_CONTENT = `# Sample Document
 

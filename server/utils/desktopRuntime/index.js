@@ -1,5 +1,5 @@
 const fs = require("fs");
-const path = require("path");
+const { storagePath } = require("../environment");
 
 const SCHEMA_VERSION = "desktop-runtime-v1";
 
@@ -28,9 +28,7 @@ function runtimeConfig() {
 
 function logsDirectory() {
   if (process.env.DESKTOP_LOG_DIR) return process.env.DESKTOP_LOG_DIR;
-  if (process.env.STORAGE_DIR)
-    return path.join(process.env.STORAGE_DIR, "..", "logs");
-  return path.resolve(__dirname, "../../storage/logs");
+  return storagePath("logs");
 }
 
 function runtimeSummary() {

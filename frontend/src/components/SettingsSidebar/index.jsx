@@ -24,6 +24,7 @@ import System from "@/models/system";
 import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
+import EnvironmentBadge from "@/components/EnvironmentBadge";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -70,6 +71,7 @@ export default function SettingsSidebar() {
                 {productName}
               </span>
             )}
+            <EnvironmentBadge compact />
           </div>
           <div className="w-12"></div>
         </div>
@@ -152,7 +154,7 @@ export default function SettingsSidebar() {
       <div>
         <Link
           to={paths.home()}
-          className="flex shrink-0 max-w-[80%] items-center justify-start gap-x-2 mx-[20.5px] my-[18px]"
+          className="flex shrink-0 max-w-[90%] items-center justify-start gap-x-2 mx-[20.5px] my-[18px]"
         >
           <img
             src={logo}
@@ -165,6 +167,7 @@ export default function SettingsSidebar() {
               {productName}
             </span>
           )}
+          <EnvironmentBadge />
         </Link>
         <div
           ref={sidebarRef}

@@ -52,7 +52,9 @@ function workspaceVisualAssetEndpoints(app) {
         const scopeType = parseScope({}, request.query);
         const nodeKey = String(request.query.nodeKey || "").trim();
         if (scopeType === "node" && nodeKey && !isStableNodeKey(nodeKey)) {
-          response.status(400).json({ success: false, error: "invalid_node_key" });
+          response
+            .status(400)
+            .json({ success: false, error: "invalid_node_key" });
           return;
         }
         const assets = await WorkspaceVisualAsset.list({
@@ -85,7 +87,9 @@ function workspaceVisualAssetEndpoints(app) {
         const scopeType = parseScope(body);
         const nodeKey = String(body.nodeKey || "").trim();
         if (scopeType === "node" && !isStableNodeKey(nodeKey)) {
-          response.status(400).json({ success: false, error: "invalid_node_key" });
+          response
+            .status(400)
+            .json({ success: false, error: "invalid_node_key" });
           return;
         }
         const result = await WorkspaceVisualAsset.upsertFromUpload({
@@ -141,7 +145,9 @@ function workspaceVisualAssetEndpoints(app) {
         fs.createReadStream(filePath).pipe(response);
       } catch (error) {
         console.error("[WorkspaceVisualAsset] file failed", error);
-        response.status(500).json({ success: false, error: "asset_file_failed" });
+        response
+          .status(500)
+          .json({ success: false, error: "asset_file_failed" });
       }
     }
   );

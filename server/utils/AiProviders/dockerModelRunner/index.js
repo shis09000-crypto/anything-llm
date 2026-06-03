@@ -11,14 +11,11 @@ const {
 const { OpenAI: OpenAIApi } = require("openai");
 const { humanFileSize } = require("../../helpers");
 const { safeJsonParse } = require("../../http");
+const { storagePath } = require("../../environment");
 
 class DockerModelRunnerLLM {
   static cacheTime = 1000 * 60 * 60 * 24; // 24 hours
-  static cacheFolder = path.resolve(
-    process.env.STORAGE_DIR
-      ? path.resolve(process.env.STORAGE_DIR, "models", "docker-model-runner")
-      : path.resolve(__dirname, `../../../storage/models/docker-model-runner`)
-  );
+  static cacheFolder = storagePath("models", "docker-model-runner");
 
   constructor(embedder = null, modelPreference = null) {
     if (!process.env.DOCKER_MODEL_RUNNER_BASE_PATH)

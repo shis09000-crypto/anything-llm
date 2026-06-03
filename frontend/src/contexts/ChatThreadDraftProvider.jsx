@@ -37,6 +37,7 @@ import {
   estimatePayloadBytes,
   setDraftMemoryStatsProvider,
 } from "@/utils/chat/memoryDiagnostics";
+import { storageKeys } from "@/utils/appEnvironment";
 
 const ChatThreadDraftContext = createContext(null);
 const STORAGE_PREFIX = "chat-thread-draft";
@@ -675,8 +676,7 @@ function removeStoredDraft(workspaceSlug, threadSlug = null) {
 function restoreStoredDrafts() {
   if (typeof window === "undefined") return {};
   const drafts = {};
-  for (let i = 0; i < sessionStorage.length; i++) {
-    const key = sessionStorage.key(i);
+  for (const key of storageKeys(sessionStorage)) {
     if (!key?.startsWith(`${STORAGE_PREFIX}:`)) continue;
     const draft = draftFromStorageValue(
       safeJsonParse(sessionStorage.getItem(key))

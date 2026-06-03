@@ -10,6 +10,7 @@ const {
   getAllowedDirectories,
   explainDenial,
 } = require("../../../../fileAccessPolicy");
+const { storagePath } = require("../../../../environment");
 
 /**
  * Manages filesystem operations with security constraints.
@@ -57,10 +58,7 @@ class FilesystemManager {
    * @returns {string} The default filesystem root path
    */
   #getDefaultFilesystemRoot() {
-    const storageRoot =
-      process.env.STORAGE_DIR ||
-      path.resolve(__dirname, "../../../../../storage");
-    return path.join(storageRoot, "anythingllm-fs");
+    return storagePath("anythingllm-fs");
   }
 
   /**

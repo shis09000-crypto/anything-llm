@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { v4 } = require("uuid");
+const { storagePath } = require("../environment");
 const defaultWhisper = "Xenova/whisper-small"; // Model Card: https://huggingface.co/Xenova/whisper-small
 const fileSize = {
   "Xenova/whisper-small": "250mb",
@@ -11,11 +12,7 @@ class LocalWhisper {
   constructor({ options }) {
     this.model = options?.WhisperModelPref ?? defaultWhisper;
     this.fileSize = fileSize[this.model];
-    this.cacheDir = path.resolve(
-      process.env.STORAGE_DIR
-        ? path.resolve(process.env.STORAGE_DIR, `models`)
-        : path.resolve(__dirname, `../../../server/storage/models`)
-    );
+    this.cacheDir = storagePath("models");
 
     this.modelPath = path.resolve(this.cacheDir, ...this.model.split("/"));
     // Make directory when it does not exist in existing installations
@@ -66,7 +63,7 @@ class LocalWhisper {
       const wavefile = require("wavefile");
       const { FFMPEGWrapper } = require("./ffmpeg");
       const ffmpeg = new FFMPEGWrapper();
-      const outFolder = path.resolve(__dirname, `../../storage/tmp`);
+      const outFolder = storagePath("tmp");
       if (!fs.existsSync(outFolder))
         fs.mkdirSync(outFolder, { recursive: true });
 

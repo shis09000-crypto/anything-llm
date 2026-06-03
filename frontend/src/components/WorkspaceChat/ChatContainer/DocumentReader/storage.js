@@ -1,3 +1,5 @@
+import { storageKeys } from "@/utils/appEnvironment";
+
 export const READER_SCHEMA_VERSION = 1;
 export const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
 export const READER_EVENT_OPEN_DRAWER = "anythingllm-document-reader-open";
@@ -829,8 +831,7 @@ export function clearDeletedReaderDocumentIdsFromAllStorage(ids = []) {
 
   const historyPrefix = "anythingllm_document_reader_history:v1:";
   const readerPrefix = "anythingllm_document_reader:v1:";
-  for (let index = 0; index < localStorage.length; index += 1) {
-    const key = localStorage.key(index);
+  for (const key of storageKeys(localStorage)) {
     if (!key) continue;
     if (key.startsWith(historyPrefix)) {
       const history = safeJson(localStorage.getItem(key), []);
