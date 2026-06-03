@@ -4,6 +4,7 @@ const { v4: uuidv4 } = require("uuid");
 const { FlowExecutor, FLOW_TYPES } = require("./executor");
 const { normalizePath, isWithin } = require("../files");
 const { safeJsonParse } = require("../http");
+const { storagePath } = require("../environment");
 
 /**
  * @typedef {Object} LoadedFlow
@@ -15,9 +16,7 @@ const { safeJsonParse } = require("../http");
  */
 
 class AgentFlows {
-  static flowsDir = process.env.STORAGE_DIR
-    ? path.join(process.env.STORAGE_DIR, "plugins", "agent-flows")
-    : path.join(process.cwd(), "storage", "plugins", "agent-flows");
+  static flowsDir = storagePath("plugins", "agent-flows");
 
   constructor() {}
 

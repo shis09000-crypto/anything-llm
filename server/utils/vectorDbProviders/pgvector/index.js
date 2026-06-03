@@ -4,6 +4,7 @@ const { TextSplitter } = require("../../TextSplitter");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const { appEnvironment } = require("../../environment");
 
 /*
  Embedding Table Schema (table name defined by user)
@@ -46,7 +47,10 @@ class PGVector extends VectorDatabase {
    * @returns {string}
    */
   static tableName() {
-    return process.env.PGVECTOR_TABLE_NAME || "anythingllm_vectors";
+    return (
+      process.env.PGVECTOR_TABLE_NAME ||
+      `anythingllm_${appEnvironment()}_vectors`
+    );
   }
 
   /**

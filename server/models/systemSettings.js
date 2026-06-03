@@ -18,6 +18,7 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const { storageRoot } = require("../utils/environment");
 const {
   ConnectionStringParser,
 } = require("../utils/agents/aibitat/plugins/sql-agent/SQLConnectors/utils");
@@ -464,7 +465,7 @@ const SystemSettings = {
       RequiresAuth: !!process.env.AUTH_TOKEN,
       AuthToken: !!process.env.AUTH_TOKEN,
       JWTSecret: !!process.env.JWT_SECRET,
-      StorageDir: process.env.STORAGE_DIR,
+      StorageDir: storageRoot(),
       MultiUserMode: await this.isMultiUserMode(),
       DisableTelemetry: process.env.DISABLE_TELEMETRY || "false",
 

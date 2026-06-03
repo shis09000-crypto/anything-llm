@@ -8,6 +8,7 @@ const { sourceIdentifier } = require("../../chats");
 const { getEmbeddingReranker } = require("../../EmbeddingRerankers");
 const { VectorDatabase } = require("../base");
 const path = require("path");
+const { storagePath } = require("../../environment");
 
 /**
  * LancedDB Client connection object
@@ -59,10 +60,7 @@ class LanceDb extends VectorDatabase {
   }
 
   get uri() {
-    const basePath = !!process.env.STORAGE_DIR
-      ? process.env.STORAGE_DIR
-      : path.resolve(__dirname, "../../../storage");
-    return path.resolve(basePath, "lancedb");
+    return storagePath("lancedb");
   }
 
   get name() {

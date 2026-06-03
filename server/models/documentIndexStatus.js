@@ -2,14 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const prisma = require("../utils/prisma");
+const { storagePath } = require("../utils/environment");
 
-const documentsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, "../storage/documents")
-    : path.resolve(
-        process.env.STORAGE_DIR || path.resolve(__dirname, "../storage"),
-        "documents"
-      );
+const documentsPath = storagePath("documents");
 
 function normalizePath(filepath = "") {
   const result = path

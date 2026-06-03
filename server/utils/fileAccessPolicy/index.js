@@ -7,6 +7,7 @@ const { SystemSettings } = require("../../models/systemSettings");
 const { EventLogs } = require("../../models/eventLogs");
 const { safeJsonParse } = require("../http");
 const { documentsPath, directUploadsPath } = require("../files");
+const { storageRoot } = require("../environment");
 
 const MODES = {
   sandbox: "sandbox",
@@ -147,9 +148,7 @@ function ensureDirPath(targetPath = "") {
 }
 
 function storagePath(folder) {
-  const storageRoot =
-    process.env.STORAGE_DIR || path.resolve(__dirname, "../../storage");
-  return path.join(storageRoot, folder);
+  return path.join(storageRoot(), folder);
 }
 
 function sandboxDirectories() {

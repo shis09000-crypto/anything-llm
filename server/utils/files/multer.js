@@ -3,6 +3,7 @@ const path = require("path");
 const fs = require("fs");
 const { v4 } = require("uuid");
 const { normalizePath, sanitizeFileName } = require(".");
+const { storagePath } = require("../environment");
 
 /**
  * Handle File uploads for auto-uploading.
@@ -47,10 +48,7 @@ const fileAPIUploadStorage = multer.diskStorage({
 // Asset storage for logos
 const assetUploadStorage = multer.diskStorage({
   destination: function (_, __, cb) {
-    const uploadOutput =
-      process.env.NODE_ENV === "development"
-        ? path.resolve(__dirname, `../../storage/assets`)
-        : path.resolve(process.env.STORAGE_DIR, "assets");
+    const uploadOutput = storagePath("assets");
     fs.mkdirSync(uploadOutput, { recursive: true });
     return cb(null, uploadOutput);
   },
@@ -67,10 +65,7 @@ const assetUploadStorage = multer.diskStorage({
  */
 const pfpUploadStorage = multer.diskStorage({
   destination: function (_, __, cb) {
-    const uploadOutput =
-      process.env.NODE_ENV === "development"
-        ? path.resolve(__dirname, `../../storage/assets/pfp`)
-        : path.resolve(process.env.STORAGE_DIR, "assets/pfp");
+    const uploadOutput = storagePath("assets", "pfp");
     fs.mkdirSync(uploadOutput, { recursive: true });
     return cb(null, uploadOutput);
   },

@@ -10,6 +10,7 @@ const {
   fallbackVisualMetadata,
   optimizeImageBuffer,
 } = require("../utils/visualAssets/imageMetadata");
+const { storagePath } = require("../utils/environment");
 
 const VALID_SCOPES = new Set(["workspace", "node"]);
 const VALID_ROLES = new Set(["hero_background"]);
@@ -17,9 +18,7 @@ const DEFAULT_ROLE = "hero_background";
 let tableReady = false;
 
 function assetsRoot() {
-  return process.env.STORAGE_DIR
-    ? path.join(process.env.STORAGE_DIR, "assets", "overview-backgrounds")
-    : path.join(__dirname, "../storage/assets/overview-backgrounds");
+  return storagePath("assets", "overview-backgrounds");
 }
 
 function safeJSONStringify(value = {}, fallback = "{}") {

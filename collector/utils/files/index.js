@@ -1,25 +1,20 @@
 const fs = require("fs");
 const path = require("path");
 const { MimeDetector } = require("./mime");
+const { storagePath } = require("../environment");
 
 /**
  * The folder where documents are stored to be stored when
  * processed by the collector.
  */
-const documentsFolder =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../../server/storage/documents`)
-    : path.resolve(process.env.STORAGE_DIR, `documents`);
+const documentsFolder = storagePath("documents");
 
 /**
  * The folder where direct uploads are stored to be stored when
  * processed by the collector. These are files that were DnD'd into UI
  * and are not to be embedded or selectable from the file picker.
  */
-const directUploadsFolder =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../../server/storage/direct-uploads`)
-    : path.resolve(process.env.STORAGE_DIR, `direct-uploads`);
+const directUploadsFolder = storagePath("direct-uploads");
 
 /**
  * Checks if a file is text by checking the mime type and then falling back to buffer inspection.

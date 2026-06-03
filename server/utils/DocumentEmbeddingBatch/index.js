@@ -13,6 +13,7 @@ const { SystemSettings } = require("../../models/systemSettings");
 const { EmbeddingBatchJob } = require("../../models/embeddingBatchJob");
 const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
 const prisma = require("../prisma");
+const { storagePath: environmentStoragePath } = require("../environment");
 
 const DASH_SCOPE_BASE_PATH =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -32,13 +33,7 @@ const TRANSIENT_ERROR_PATTERNS = [
 ];
 
 function storagePath() {
-  const basePath =
-    process.env.NODE_ENV === "development"
-      ? path.resolve(__dirname, "../../storage")
-      : path.resolve(
-          process.env.STORAGE_DIR || path.resolve(__dirname, "../../storage")
-        );
-  const target = path.resolve(basePath, "embedding-batches");
+  const target = environmentStoragePath("embedding-batches");
   if (!fs.existsSync(target)) fs.mkdirSync(target, { recursive: true });
   return target;
 }

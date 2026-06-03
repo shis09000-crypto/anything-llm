@@ -31,6 +31,7 @@ const {
   assertImageDataUrl,
   recognizeImage,
 } = require("../utils/OcrProviders/alibaba");
+const { storagePath } = require("../utils/environment");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -51,10 +52,7 @@ const ALLOWED_TYPES = {
   ".epub": ["application/epub+zip", "application/octet-stream"],
 };
 
-const readerDocumentsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, "../storage/reader-documents")
-    : path.resolve(process.env.STORAGE_DIR, "reader-documents");
+const readerDocumentsPath = storagePath("reader-documents");
 const DOCX_PREVIEW_NAME = "preview.pdf";
 const DOCX_PREVIEW_TIMEOUT_MS = 45_000;
 const docxPreviewJobs = new Map();

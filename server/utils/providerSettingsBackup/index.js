@@ -1,5 +1,6 @@
 const fs = require("fs");
 const path = require("path");
+const { storageRoot } = require("../environment");
 
 const BACKUP_VERSION = 1;
 const BACKUP_FILENAME = "provider-settings.backup.json";
@@ -7,9 +8,7 @@ const SECRET_KEY_PATTERN =
   /(KEY|TOKEN|SECRET|PASSWORD|CONNECTION_STRING|AUTH|CREDENTIAL)/i;
 
 function storageDir() {
-  return process.env.STORAGE_DIR
-    ? path.resolve(process.env.STORAGE_DIR)
-    : path.resolve(__dirname, "../../storage");
+  return storageRoot();
 }
 
 function backupDir() {

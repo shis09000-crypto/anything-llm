@@ -4,6 +4,7 @@ const path = require("path");
 const { User } = require("../../models/user");
 const { SystemSettings } = require("../../models/systemSettings");
 const { safeJsonParse } = require("../http");
+const { storagePath } = require("../environment");
 
 /**
  * For more options, see:
@@ -70,9 +71,7 @@ class PushNotifications {
   }
 
   get storagePath() {
-    return process.env.NODE_ENV === "development"
-      ? path.resolve(__dirname, `../../storage`, "push-notifications")
-      : path.resolve(process.env.STORAGE_DIR, "push-notifications");
+    return storagePath("push-notifications");
   }
 
   get primarySubscriptionPath() {

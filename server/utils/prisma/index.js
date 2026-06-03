@@ -1,6 +1,7 @@
 const path = require("path");
 const fs = require("fs");
 const { PrismaClient } = require("@prisma/client");
+const { databasePath } = require("../environment");
 
 // npx prisma introspect
 // npx prisma generate
@@ -10,11 +11,9 @@ const { PrismaClient } = require("@prisma/client");
 const logLevels = ["error", "info", "warn"]; // add "query" to debug query logs
 
 function sqliteDatasourceUrl() {
-  const storageDir = process.env.STORAGE_DIR
-    ? path.resolve(process.env.STORAGE_DIR)
-    : path.resolve(__dirname, "../../storage");
+  const dbPath = databasePath();
+  const storageDir = path.dirname(dbPath);
   fs.mkdirSync(storageDir, { recursive: true });
-  const dbPath = path.join(storageDir, "anythingllm.db");
   const url = new URL(`file:${dbPath}`);
   url.searchParams.set("connection_limit", "1");
   url.searchParams.set("pool_timeout", "10");

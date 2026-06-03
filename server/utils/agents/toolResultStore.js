@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
+const { storageRoot: environmentStorageRoot } = require("../environment");
 
 const MAX_MODEL_TOOL_RESULT_CHARS = 12_000;
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
@@ -11,7 +12,7 @@ const TOOL_RUN_MAX_COUNT = 1_000;
 const TOOL_RUN_MAX_BYTES = 1024 * 1024 * 1024;
 
 function storageRoot() {
-  return process.env.STORAGE_DIR || path.resolve(__dirname, "../../storage");
+  return environmentStorageRoot();
 }
 
 function toolRunsRoot() {

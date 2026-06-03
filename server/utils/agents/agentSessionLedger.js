@@ -1,13 +1,14 @@
 const fs = require("fs");
 const path = require("path");
 const { safeJsonParse } = require("../http");
+const { storageRoot: environmentStorageRoot } = require("../environment");
 
 const MAX_PARTIAL_TEXT_PREVIEW_CHARS = 1_000;
 const MAX_EVENT_CONTENT_CHARS = 1_000;
 const MAX_LEDGER_EVENTS = 500;
 
 function storageRoot() {
-  return process.env.STORAGE_DIR || path.resolve(__dirname, "../../storage");
+  return environmentStorageRoot();
 }
 
 function sessionsRoot() {

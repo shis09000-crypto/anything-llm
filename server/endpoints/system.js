@@ -85,6 +85,7 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const { diagnosticSummary } = require("../utils/environment");
 
 const PROVIDER_PRESETS = {
   SHIJIE_DEEPSEEK_ALI_V1: {
@@ -105,6 +106,15 @@ function systemEndpoints(app) {
 
   app.get("/ping", (_, response) => {
     response.status(200).json({ online: true });
+  });
+
+  app.get("/system/environment", async (_, response) => {
+    try {
+      response.status(200).json({ success: true, environment: diagnosticSummary() });
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({ success: false, error: e.message });
+    }
   });
 
   app.get("/migrate", async (_, response) => {

@@ -44,12 +44,10 @@ const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
 const { safeFileMove, safeReadJsonFile } = require("../utils/safety");
+const { storagePath } = require("../utils/environment");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
-const documentsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, "../storage/documents")
-    : path.resolve(process.env.STORAGE_DIR, "documents");
+const documentsPath = storagePath("documents");
 
 function normalizedChatIds(chatIds = []) {
   return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];

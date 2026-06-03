@@ -3,6 +3,8 @@ const envPath =
     ? `.env.${process.env.NODE_ENV}`
     : process.env.DESKTOP_ENV_PATH || ".env";
 require("dotenv").config({ path: envPath });
+const { applyEnvironmentStorage } = require("./utils/environment");
+applyEnvironmentStorage();
 
 require("./utils/logger")();
 const express = require("express");

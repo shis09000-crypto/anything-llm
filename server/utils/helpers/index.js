@@ -1,3 +1,58 @@
+const { vectorNamespace } = require("../environment");
+
+const FIRST_ARG_NAMESPACE_METHODS = new Set([
+  "addDocumentToNamespace",
+  "deleteDocumentFromNamespace",
+  "hasNamespace",
+  "namespaceCount",
+]);
+const SECOND_ARG_NAMESPACE_METHODS = new Set([
+  "namespace",
+  "namespaceExists",
+  "deleteVectorsInNamespace",
+]);
+const BODY_NAMESPACE_METHODS = new Set(["namespace-stats", "delete-namespace"]);
+
+function scopedVectorBody(body = {}) {
+  if (!body || typeof body !== "object") return body;
+  return { ...body, namespace: vectorNamespace(body.namespace) };
+}
+
+function scopeVectorDatabase(vectorDb) {
+  return new Proxy(vectorDb, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function") return value;
+
+      if (FIRST_ARG_NAMESPACE_METHODS.has(prop)) {
+        return function scopedFirstNamespace(namespace, ...args) {
+          return value.call(target, vectorNamespace(namespace), ...args);
+        };
+      }
+
+      if (SECOND_ARG_NAMESPACE_METHODS.has(prop)) {
+        return function scopedSecondNamespace(client, namespace, ...args) {
+          return value.call(target, client, vectorNamespace(namespace), ...args);
+        };
+      }
+
+      if (BODY_NAMESPACE_METHODS.has(prop)) {
+        return function scopedBodyNamespace(body = {}, ...args) {
+          return value.call(target, scopedVectorBody(body), ...args);
+        };
+      }
+
+      if (prop === "performSimilaritySearch") {
+        return function scopedSimilaritySearch(options = {}) {
+          return value.call(target, scopedVectorBody(options));
+        };
+      }
+
+      return value.bind(target);
+    },
+  });
+}
+
 /**
  * File Attachment for automatic upload on the chat container page.
  * @typedef Attachment
@@ -83,44 +138,56 @@
  */
 function getVectorDbClass(getExactly = null) {
   const vectorSelection = getExactly ?? process.env.VECTOR_DB ?? "lancedb";
+  let vectorDb;
   switch (vectorSelection) {
     case "pinecone":
       const { Pinecone } = require("../vectorDbProviders/pinecone");
-      return new Pinecone();
+      vectorDb = new Pinecone();
+      break;
     case "chroma":
       const { Chroma } = require("../vectorDbProviders/chroma");
-      return new Chroma();
+      vectorDb = new Chroma();
+      break;
     case "chromacloud":
       const { ChromaCloud } = require("../vectorDbProviders/chromacloud");
-      return new ChromaCloud();
+      vectorDb = new ChromaCloud();
+      break;
     case "lancedb":
       const { LanceDb } = require("../vectorDbProviders/lance");
-      return new LanceDb();
+      vectorDb = new LanceDb();
+      break;
     case "weaviate":
       const { Weaviate } = require("../vectorDbProviders/weaviate");
-      return new Weaviate();
+      vectorDb = new Weaviate();
+      break;
     case "qdrant":
       const { QDrant } = require("../vectorDbProviders/qdrant");
-      return new QDrant();
+      vectorDb = new QDrant();
+      break;
     case "milvus":
       const { Milvus } = require("../vectorDbProviders/milvus");
-      return new Milvus();
+      vectorDb = new Milvus();
+      break;
     case "zilliz":
       const { Zilliz } = require("../vectorDbProviders/zilliz");
-      return new Zilliz();
+      vectorDb = new Zilliz();
+      break;
     case "astra":
       const { AstraDB } = require("../vectorDbProviders/astra");
-      return new AstraDB();
+      vectorDb = new AstraDB();
+      break;
     case "pgvector":
       const { PGVector } = require("../vectorDbProviders/pgvector");
-      return new PGVector();
+      vectorDb = new PGVector();
+      break;
     default:
       console.error(
         `\x1b[31m[ENV ERROR]\x1b[0m No VECTOR_DB value found in environment! Falling back to LanceDB`
       );
       const { LanceDb: DefaultLanceDb } = require("../vectorDbProviders/lance");
-      return new DefaultLanceDb();
+      vectorDb = new DefaultLanceDb();
   }
+  return scopeVectorDatabase(vectorDb);
 }
 
 /**

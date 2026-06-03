@@ -16,10 +16,8 @@ const path = require("path");
 const { Document } = require("../../../models/documents");
 const { Workspace } = require("../../../models/workspace");
 const { purgeFolder } = require("../../../utils/files/purgeDocument");
-const documentsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, "../../../storage/documents")
-    : path.resolve(process.env.STORAGE_DIR, `documents`);
+const { storagePath } = require("../../../utils/environment");
+const documentsPath = storagePath("documents");
 
 /**
  * Runs a simple validation check on the addToWorkspaces query parameter to ensure it is a string of comma-separated workspace slugs.

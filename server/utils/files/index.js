@@ -3,18 +3,10 @@ const path = require("path");
 const { v5: uuidv5 } = require("uuid");
 const { Document } = require("../../models/documents");
 const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
-const documentsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../storage/documents`)
-    : path.resolve(process.env.STORAGE_DIR, `documents`);
-const directUploadsPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../storage/direct-uploads`)
-    : path.resolve(process.env.STORAGE_DIR, `direct-uploads`);
-const vectorCachePath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../storage/vector-cache`)
-    : path.resolve(process.env.STORAGE_DIR, `vector-cache`);
+const { storagePath } = require("../environment");
+const documentsPath = storagePath("documents");
+const directUploadsPath = storagePath("direct-uploads");
+const vectorCachePath = storagePath("vector-cache");
 const hotdirPath =
   process.env.NODE_ENV === "development"
     ? path.resolve(__dirname, `../../../collector/hotdir`)
