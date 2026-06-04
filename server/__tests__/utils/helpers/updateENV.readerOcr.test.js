@@ -39,6 +39,11 @@ describe("Reader OCR updateENV settings", () => {
         "ReaderOcrApiKey",
         "ReaderOcrBaseUrl",
         "ReaderOcrModelPref",
+        "VisionProvider",
+        "VisionApiKey",
+        "VisionBaseUrl",
+        "VisionModelPref",
+        "VisionToolEnabled",
       ])
     );
 
@@ -47,6 +52,11 @@ describe("Reader OCR updateENV settings", () => {
       ReaderOcrApiKey: "sk-reader-ocr",
       ReaderOcrBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       ReaderOcrModelPref: "qwen-vl-ocr-latest",
+      VisionProvider: "alibaba",
+      VisionApiKey: "sk-vision",
+      VisionBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      VisionModelPref: "qwen3-vl-flash",
+      VisionToolEnabled: "true",
     });
 
     expect(error).toBe(false);
@@ -55,13 +65,26 @@ describe("Reader OCR updateENV settings", () => {
       ReaderOcrApiKey: "sk-reader-ocr",
       ReaderOcrBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       ReaderOcrModelPref: "qwen-vl-ocr-latest",
+      VisionProvider: "alibaba",
+      VisionApiKey: "sk-vision",
+      VisionBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      VisionModelPref: "qwen3-vl-flash",
+      VisionToolEnabled: "true",
     });
     expect(process.env.READER_OCR_PROVIDER).toBe("alibaba");
     expect(process.env.READER_OCR_API_KEY).toBe("sk-reader-ocr");
+    expect(process.env.VISION_PROVIDER).toBe("alibaba");
+    expect(process.env.VISION_API_KEY).toBe("sk-vision");
+    expect(process.env.VISION_TOOL_ENABLED).toBe("true");
 
     const backup = JSON.parse(
       fs.readFileSync(
-        path.join(storageDir, "system", "provider-settings.backup.json"),
+        path.join(
+          storageDir,
+          "production",
+          "system",
+          "provider-settings.backup.json"
+        ),
         "utf8"
       )
     );
@@ -71,24 +94,40 @@ describe("Reader OCR updateENV settings", () => {
       READER_OCR_BASE_URL:
         "https://dashscope.aliyuncs.com/compatible-mode/v1",
       READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+      VISION_PROVIDER: "alibaba",
+      VISION_API_KEY: "sk-vision",
+      VISION_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      VISION_MODEL_PREF: "qwen3-vl-flash",
+      VISION_TOOL_ENABLED: "true",
     });
   });
 
-  it("ignores masked reader OCR API keys and rejects invalid providers", async () => {
+  it("ignores masked reader OCR and vision API keys and rejects invalid providers", async () => {
     const { updateENV } = loadUpdateENV();
+    process.env.READER_OCR_PROVIDER = "alibaba";
     process.env.READER_OCR_API_KEY = "sk-existing";
+    process.env.VISION_PROVIDER = "alibaba";
+    process.env.VISION_API_KEY = "sk-vision-existing";
 
     const masked = await updateENV({
       ReaderOcrApiKey: "********************",
+      VisionApiKey: "********************",
     });
     expect(masked.error).toBe(false);
     expect(masked.newValues).toEqual({});
     expect(process.env.READER_OCR_API_KEY).toBe("sk-existing");
+    expect(process.env.VISION_API_KEY).toBe("sk-vision-existing");
 
     const invalid = await updateENV({
       ReaderOcrProvider: "dashscope",
     });
     expect(invalid.error).toContain("Invalid reader OCR provider.");
     expect(process.env.READER_OCR_PROVIDER).toBe("alibaba");
+
+    const invalidVision = await updateENV({
+      VisionProvider: "dashscope",
+    });
+    expect(invalidVision.error).toContain("Invalid vision provider.");
+    expect(process.env.VISION_PROVIDER).toBe("alibaba");
   });
 });

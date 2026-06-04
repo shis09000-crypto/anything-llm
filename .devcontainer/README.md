@@ -1,73 +1,73 @@
-# AnythingLLM Development Container Setup
+# AnythingLLM 开发容器设置
 
-Welcome to the AnythingLLM development container configuration, designed to create a seamless and feature-rich development environment for this project.
+欢迎使用 AnythingLLM 开发容器配置。该配置用于为本项目创建一个顺畅且功能完整的开发环境。
 
-<center><h1><b>PLEASE READ THIS</b></h1></center>
+<center><h1><b>请务必阅读</b></h1></center>
 
-## Prerequisites
+## 前置条件
 
-- [Docker](https://www.docker.com/get-started)
-- [Visual Studio Code](https://code.visualstudio.com/)
-- [Remote - Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) VS Code extension
+- Docker
+- Visual Studio Code
+- Remote - Containers VS Code 扩展
 
-## Features
+## 功能特性
 
-- **Base Image**: Built on `mcr.microsoft.com/devcontainers/javascript-node:1-18-bookworm`, thus Node.JS LTS v18.
-- **Additional Tools**: Includes `hadolint`, and essential apt-packages such as `curl`, `gnupg`, and more.
-- **Ports**: Configured to auto-forward ports `3000` (Frontend) and `3001` (Backend).
-- **Environment Variables**: Sets `NODE_ENV` to `development` and `ESLINT_USE_FLAT_CONFIG` to `true`.
-- **VS Code Extensions**: A suite of extensions such as `Prettier`, `Docker`, `ESLint`, and more are automatically installed. Please revise if you do not agree with any of these extensions. AI-powered extensions and time trackers are (for now) not included to avoid any privacy concerns, but you can install them later in your own environment.
+- 基础镜像：基于 mcr.microsoft.com/devcontainers/javascript-node:1-18-bookworm 构建，因此使用 Node.JS LTS v18。
+- 附加工具：包含 hadolint，以及 curl、gnupg 等必要的 apt-packages。
+- 端口：已配置自动转发端口 3000（Frontend）和 3001（Backend）。
+- 环境变量：将 NODE_ENV 设置为 development，将 ESLINT_USE_FLAT_CONFIG 设置为 true。
+- VS Code 扩展：会自动安装一组扩展，例如 Prettier、Docker、ESLint 等。如果你不认可其中某些扩展，请自行调整。出于隐私方面的考虑，目前不包含 AI 驱动扩展和时间追踪器，但你之后可以在自己的环境中安装。
 
-## Getting Started
+## 开始使用
 
-1. Using GitHub Codespaces. Just select to create a new workspace, and the devcontainer will be created for you.
+1. 使用 GitHub Codespaces。只需选择创建一个新的 workspace，devcontainer 就会自动为你创建。
 
-2. Using your Local VSCode (Release or Insiders). We suggest you first make a fork of the repo and then clone it to your local machine using VSCode tools. Then open the project folder in VSCode, which will prompt you to open the project in a devcontainer. Select yes, and the devcontainer will be created for you. If this does not happen, you can open the command palette and select "Remote-Containers: Reopen in Container".
+2. 使用本地 VSCode（Release 或 Insiders）。建议你先 fork 该仓库，然后使用 VSCode 工具将其 clone 到本地机器。随后在 VSCode 中打开项目文件夹，系统会提示你是否在 devcontainer 中打开项目。选择 yes 后，devcontainer 就会被创建。如果没有出现提示，可以打开命令面板并选择 "Remote-Containers: Reopen in Container"。
 
-## On Creation:
+## 创建时：
 
-When the container is built for the first time, it will automatically run `yarn setup` to ensure everything is in place for the Collector, Server and Frontend. This command is expected to be automatically re-run if there is a content change on next reboot.
+容器首次构建时，会自动运行 yarn setup，以确保 Collector、Server 和 Frontend 所需内容都已准备就绪。如果下次重启时检测到内容发生变化，该命令预计会被自动重新运行。
 
-## Work in the Container:
+## 在容器中工作：
 
-Once the container is up, be patient. Some extensions may complain because dependencies are still being installed, and in the Extensions tab, some may ask you to "Reload" the project. Don't do that yet. First, wait until all settle down for the first time. We suggest you create a new VSCode profile for this devcontainer, so any configuration and extensions you change, won't affect your default profile.
+容器启动后，请耐心等待。有些扩展可能会报错，因为依赖仍在安装中；在 Extensions 标签页中，有些扩展可能会要求你 "Reload" 项目。先不要这样做。第一次使用时，先等待所有内容稳定下来。建议你为这个 devcontainer 创建一个新的 VSCode profile，这样你修改的配置和扩展就不会影响默认 profile。
 
-Checklist:
+检查清单：
 
-- [ ] The usual message asking you to start the Server and Frontend in different windows are now "hidden" in the building process of the devcontainer. Don't forget to do as suggested.
-- [ ] Open a JavaScript file, for example "server/index.js" and check if `eslint` is working. It will complain that `'err' is defined but never used.`. This means it is working.
-- [ ] Open a React File, for example, "frontend/src/main.jsx," and check if `eslint` complains about `Fast refresh only works when a file has exports. Move your component(s) to a separate file.`. Again, it means `eslint` is working. Now check at the status bar if the `Prettier` has a double checkmark :heavy_check_mark: (double). It means Prettier is working. You will see a nice extension `Formatting:`:heavy_check_mark: that can be used to disable the `Format on Save` feature temporarily.
-- [ ] Check if, on the left pane, you have the NPM Scripts (this may be disabled; look at the "Explorer" tree-dots up-right). There will be scripts inside the `package.json` files. You will basically need to run the `dev:collector`, `dev:server` and the `dev:frontend` in this order. When the frontend finishes starting, a window browser will open **inside** the VSCode. Still, you can open it outside.
+- [ ] 通常会提示你在不同窗口启动 Server 和 Frontend 的消息，现在已经“隐藏”在 devcontainer 构建过程中。不要忘记按提示操作。
+- [ ] 打开一个 JavaScript 文件，例如 "server/index.js"，检查 eslint 是否工作。它会提示 'err' is defined but never used.。这说明它正在工作。
+- [ ] 打开一个 React 文件，例如 "frontend/src/main.jsx"，检查 eslint 是否提示 Fast refresh only works when a file has exports. Move your component(s) to a separate file.。同样，这说明 eslint 正在工作。然后检查状态栏中的 Prettier 是否有双勾 :heavy_check_mark:（双重勾选）。这表示 Prettier 正在工作。你会看到一个不错的扩展 Formatting::heavy_check_mark:，它可以用来临时禁用 Format on Save 功能。
+- [ ] 检查左侧面板中是否有 NPM Scripts（这可能被禁用；查看 "Explorer" 树右上角的三个点）。package.json 文件中会有相关脚本。你基本上需要按顺序运行 dev:collector、dev:server 和 dev:frontend。当前端启动完成后，会在 VSCode 内部 打开一个浏览器窗口。当然，你也可以在外部浏览器中打开。
 
-:warning: **Important for all developers** :warning:
+:warning: 所有开发者请注意 :warning:
 
-- [ ] When you are using the `NODE_ENV=development` the server will not store the configurations you set for security reasons. Please set the proper config on file `.env.development`. The side-effect if you don't, everytime you restart the server, you will be sent to the "Onboarding" page again.
+- [ ] 当你使用 NODE_ENV=development 时，出于安全原因，server 不会保存你设置的配置。请在 .env.development 文件中设置正确配置。否则每次重启 server 时，你都会被重新送到 "Onboarding" 页面。
 
-**Note when using GitHub Codespaces**
+使用 GitHub Codespaces 时的说明
 
-- [ ] When running the "Server" for the first time, it will automatically configure its port to be publicly accessible by default, as this is required for the front end to reach the server backend. To know more, read the content of the `.env` file on the frontend folder about this, and if any issues occur, make sure to manually set the port "Visibility" of the "Server" is set to "Public" if needed. Again, this is only needed for developing on GitHub Codespaces.
+- [ ] 首次运行 "Server" 时，它会默认自动将对应端口配置为公开可访问，因为前端需要访问后端 server。想了解更多，请阅读 frontend 文件夹中 .env 文件的内容。如果出现问题，请确认 "Server" 的端口 "Visibility" 是否已按需手动设置为 "Public"。再次强调，这只在 GitHub Codespaces 开发时需要。
 
 
-**For the Collector:**
+关于 Collector：
 
-- [x] In the past, the Collector dwelled within the Python domain, but now it has journeyed to the splendid realm of Node.JS. Consequently, the configuration complexities of bygone versions are no longer a concern.
+- [x] 过去，Collector 曾经位于 Python 的领域中，但现在它已经迁移到了 Node.JS 的世界。因此，旧版本那些复杂的配置问题已经不再需要担心。
 
-### Now it is ready to start
+### 现在可以开始了
 
-In the status bar you will see three shortcuts names `Collector`, `Server` and `Frontend`. Just click-and-wait on that order (don't forget to set the Server port 3001 to Public if you are using GH Codespaces **_before_** starting the Frontend).
+在状态栏中，你会看到三个快捷入口，名称分别是 Collector、Server 和 Frontend。只需要按这个顺序点击并等待即可（如果你使用 GH Codespaces，不要忘记在启动 Frontend 之前 将 Server 的 3001 端口设置为 Public）。
 
-Now you can enjoy your time developing instead of reconfiguring everything.
+现在你可以把时间用在开发上，而不是反复重新配置环境。
 
-## Debugging with the devcontainers
+## 使用 devcontainers 进行调试
 
-### For debugging the collector, server and frontend
+### 调试 collector、server 和 frontend
 
-First, make sure the built-in extension (ms-vscode.js-debug) is active (I don't know why it would not be, but just in case). If you want, you can install the nightly version (ms-vscode.js-debug-nightly)
+首先，确认内置扩展（ms-vscode.js-debug）处于启用状态（我也不知道它为什么会没启用，但以防万一）。你也可以安装 nightly 版本（ms-vscode.js-debug-nightly）。
 
-Then, in the "Run and Debug" tab (Ctrl+shift+D), you can select on the menu:
+然后，在 "Run and Debug" 标签页（Ctrl+shift+D）中，可以在菜单里选择：
 
-- Collector debug. This will start the collector in debug mode and attach the debugger. Works very well.
-- Server debug. This will start the server in debug mode and attach the debugger. Works very well.
-- Frontend debug. This will start the frontend in debug mode and attach the debugger. I am still struggling with this one. I don't know if VSCode can handle the .jsx files seamlessly as the pure .js on the server. Maybe there is a need for a particular configuration for Vite or React. Anyway, it starts. Another two configurations launch Chrome and Edge, and I think we could add breakpoints on .jsx files somehow. The best scenario would be always to use the embedded browser. WIP.
+- Collector debug。它会以调试模式启动 collector 并附加 debugger。效果很好。
+- Server debug。它会以调试模式启动 server 并附加 debugger。效果很好。
+- Frontend debug。它会以调试模式启动 frontend 并附加 debugger。我目前仍在折腾这个配置。我不确定 VSCode 是否能像处理 server 里的纯 .js 文件一样，顺畅处理 .jsx 文件。也许需要针对 Vite 或 React 做特定配置。不管怎样，它可以启动。另外还有两个配置会启动 Chrome 和 Edge，我认为我们应该也能以某种方式在 .jsx 文件中添加断点。最佳情况始终是使用内嵌浏览器。WIP。
 
-Please leave comments on the Issues tab or the [![](https://img.shields.io/discord/1114740394715004990?logo=Discord&logoColor=white&label=Discord&labelColor=%235568ee&color=%2355A2DD&link=https%3A%2F%2Fdiscord.gg%2F6UyHPeGZAC)]("https://discord.gg/6UyHPeGZAC")
+请在 Issues 标签页留言，或通过  反馈。

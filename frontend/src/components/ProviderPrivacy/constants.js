@@ -1,4 +1,4 @@
-import AnythingLLMIcon from "@/media/logo/anything-llm-icon.png";
+import AthenaIcon from "@/media/logo/athena-mark.svg";
 import OpenAiLogo from "@/media/llmprovider/openai.png";
 import GenericOpenAiLogo from "@/media/llmprovider/generic-openai.png";
 import AzureOpenAiLogo from "@/media/llmprovider/azure.png";
@@ -311,7 +311,7 @@ const VECTOR_DB_PROVIDER_PRIVACY_MAP = {
   lancedb: {
     name: "LanceDB",
     description: [
-      "Your vectors and document text are stored privately on this instance of AnythingLLM.",
+      "Athena Vector Engine stores vectors and document text privately on this instance.",
     ],
     logo: LanceDbLogo,
   },
@@ -319,11 +319,11 @@ const VECTOR_DB_PROVIDER_PRIVACY_MAP = {
 
 const EMBEDDING_ENGINE_PROVIDER_PRIVACY_MAP = {
   native: {
-    name: "AnythingLLM Embedder",
+    name: "Athena Vector Engine",
     description: [
-      "Your document text is embedded privately on this instance of AnythingLLM.",
+      "Athena Vector Engine embeds document text privately on this instance.",
     ],
-    logo: AnythingLLMIcon,
+    logo: AthenaIcon,
   },
   openai: {
     name: "OpenAI",

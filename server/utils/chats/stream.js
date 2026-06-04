@@ -19,6 +19,10 @@ const {
 const {
   resolveGraphContext,
 } = require("../knowledgeGraph/graphContextResolver");
+const {
+  prepareImageAnalysisContext,
+  shouldUseVisionTool,
+} = require("../vision/viewTool");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -49,7 +53,7 @@ async function streamChatWithWorkspace(
   options = {}
 ) {
   const uuid = uuidv4();
-  const updatedMessage = await grepCommand(message, user);
+  let updatedMessage = await grepCommand(message, user);
 
   if (Object.keys(VALID_COMMANDS).includes(updatedMessage)) {
     const data = await VALID_COMMANDS[updatedMessage](
@@ -63,15 +67,66 @@ async function streamChatWithWorkspace(
     return;
   }
 
+  const historyAttachments = attachments;
+  let llmAttachments = attachments;
+  let imageAnalysisContext = null;
+  let imageAnalysisText = null;
+  try {
+    const willUseVisionTool = shouldUseVisionTool(attachments);
+    if (willUseVisionTool) {
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "statusResponse",
+        textResponse: "正在调用视觉模型分析图片，请稍候...",
+        sources: [],
+        close: false,
+        error: null,
+        animate: true,
+      });
+    }
+    const imageAnalysis = await prepareImageAnalysisContext({ attachments });
+    if (imageAnalysis.used) {
+      imageAnalysisContext = imageAnalysis.contextText;
+      imageAnalysisText = imageAnalysis.analysisText || imageAnalysisContext;
+      llmAttachments = imageAnalysis.llmAttachments;
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "statusResponse",
+        textResponse: "视觉模型分析完成，正在继续会话...",
+        sources: [],
+        close: false,
+        error: null,
+        animate: true,
+      });
+    }
+  } catch (error) {
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "abort",
+      textResponse: null,
+      sources: [],
+      close: true,
+      error: error.message,
+    });
+    return;
+  }
+
+  const agentMessage = imageAnalysisContext
+    ? `${updatedMessage}\n\n${imageAnalysisContext}`
+    : updatedMessage;
+
   // If is agent enabled chat we will exit this flow early.
   const isAgentChat = await grepAgents({
     uuid,
     response,
-    message: updatedMessage,
+    message: agentMessage,
     user,
     workspace,
     thread,
-    attachments,
+    attachments: llmAttachments,
+    displayAttachments: historyAttachments,
+    displayPrompt: updatedMessage,
+    visionAnalysisContext: imageAnalysisText,
     fileAccess: options.fileAccess || {},
   });
   if (isAgentChat) return;
@@ -105,7 +160,7 @@ async function streamChatWithWorkspace(
       type: "textResponse",
       textResponse,
       sources: [],
-      attachments,
+      attachments: historyAttachments,
       close: true,
       error: null,
     });
@@ -116,7 +171,8 @@ async function streamChatWithWorkspace(
         text: textResponse,
         sources: [],
         type: chatMode,
-        attachments,
+        attachments: historyAttachments,
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       include: false,
@@ -290,6 +346,8 @@ async function streamChatWithWorkspace(
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
+  if (imageAnalysisContext) contextTexts.unshift(imageAnalysisContext);
+
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
   // let the LLM try to hallucinate a response or use general knowledge and exit early
   if (chatMode === "query" && contextTexts.length === 0) {
@@ -312,7 +370,8 @@ async function streamChatWithWorkspace(
         text: textResponse,
         sources: [],
         type: chatMode,
-        attachments,
+        attachments: historyAttachments,
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       include: false,
@@ -333,7 +392,7 @@ async function streamChatWithWorkspace(
     chatHistory,
     userPrompt: updatedMessage,
     contextTexts,
-    attachments,
+    attachments: llmAttachments,
     compaction,
   });
   if (autoCompaction?.compactionId) {
@@ -359,7 +418,7 @@ async function streamChatWithWorkspace(
       userPrompt: updatedMessage,
       contextTexts,
       chatHistory,
-      attachments,
+      attachments: llmAttachments,
     },
     rawHistory
   );
@@ -407,8 +466,9 @@ async function streamChatWithWorkspace(
         text: completeText,
         sources,
         type: chatMode,
-        attachments,
+        attachments: historyAttachments,
         metrics,
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       user,
@@ -432,7 +492,7 @@ async function streamChatWithWorkspace(
       ],
       userPrompt: "",
       contextTexts,
-      attachments,
+      attachments: llmAttachments,
       compaction,
       phase: "turn_end",
     }).catch((error) =>

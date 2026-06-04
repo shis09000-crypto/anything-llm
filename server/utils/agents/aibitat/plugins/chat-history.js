@@ -88,16 +88,31 @@ const chatHistory = {
             // the USER and the last being from anyone other than the user.
             if (prev.from !== "USER" || last.from === "USER") return;
 
-            // Extract attachments from user message if present
-            const attachments = prev.attachments || [];
+            const isVisionPreAnalyzedTurn = Boolean(
+              aibitat.handlerProps?.visionAnalysisContext &&
+                prev.content.includes("[System image pre-analysis]")
+            );
+            // Keep display/history attachments separate from model attachments.
+            // Vision pre-analysis removes image pixels before the agent model sees
+            // them, but the user's original image must remain in chat history.
+            const attachments = isVisionPreAnalyzedTurn
+              ? aibitat.handlerProps?.displayAttachments || []
+              : prev.attachments || [];
+            const prompt = isVisionPreAnalyzedTurn
+              ? aibitat.handlerProps?.displayPrompt || prev.content
+              : prev.content;
+            const imageAnalysis = isVisionPreAnalyzedTurn
+              ? aibitat.handlerProps?.visionAnalysisContext
+              : null;
 
             // If we have a post-reply flow we should save the chat using this special flow
             // so that post save cleanup and other unique properties can be run as opposed to regular chat.
             if (aibitat.hasOwnProperty("_replySpecialAttributes")) {
               await this._storeSpecial(aibitat, {
-                prompt: prev.content,
+                prompt,
                 response: last.content,
                 attachments,
+                imageAnalysis,
                 options: aibitat._replySpecialAttributes,
               });
               delete aibitat._replySpecialAttributes;
@@ -105,9 +120,10 @@ const chatHistory = {
             }
 
             await this._store(aibitat, {
-              prompt: prev.content,
+              prompt,
               response: last.content,
               attachments,
+              imageAnalysis,
             });
           } catch (error) {
             console.warn("[AgentChatHistory] failed to persist agent chat", {
@@ -123,7 +139,7 @@ const chatHistory = {
       },
       _store: async function (
         aibitat,
-        { prompt, response, attachments = [] } = {}
+        { prompt, response, attachments = [], imageAnalysis = null } = {}
       ) {
         const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
@@ -141,6 +157,7 @@ const chatHistory = {
             type: "chat",
             attachments,
             metrics,
+            ...(imageAnalysis ? { imageAnalysis } : {}),
             ...(outputs.length > 0 ? { outputs } : {}),
             ...(agentEvents.length > 0 ? { agentEvents } : {}),
           },
@@ -159,7 +176,13 @@ const chatHistory = {
       },
       _storeSpecial: async function (
         aibitat,
-        { prompt, response, attachments = [], options = {} } = {}
+        {
+          prompt,
+          response,
+          attachments = [],
+          imageAnalysis = null,
+          options = {},
+        } = {}
       ) {
         const invocation = aibitat.handlerProps.invocation;
         const metrics = aibitat.provider?.getUsage?.() ?? {};
@@ -182,6 +205,7 @@ const chatHistory = {
             type: options?.saveAsType ?? "chat",
             attachments,
             metrics,
+            ...(imageAnalysis ? { imageAnalysis } : {}),
             ...(outputs.length > 0 ? { outputs } : {}),
             ...(agentEvents.length > 0 ? { agentEvents } : {}),
           },

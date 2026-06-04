@@ -33,7 +33,7 @@ export default function SpeechToText({ sendCommand, onListeningChange }) {
   function startSTTSession() {
     if (!isMicrophoneAvailable) {
       alert(
-        "AnythingLLM does not have access to microphone. Please enable for this site to use this feature."
+        "Athena does not have access to microphone. Please enable for this site to use this feature."
       );
       return;
     }

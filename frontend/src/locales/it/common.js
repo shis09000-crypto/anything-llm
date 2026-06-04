@@ -3,18 +3,18 @@ const TRANSLATIONS = {
   onboarding: {
     survey: {
       email: "Qual è il tuo indirizzo email?",
-      useCase: "Quali utilizzi intende fare con AnythingLLM?",
+      useCase: "Quali utilizzi intende fare con Athena?",
       useCaseWork: "Per lavoro",
       useCasePersonal: "Per uso personale",
       useCaseOther: "Altro",
-      comment: "Come ha saputo di AnythingLLM?",
+      comment: "Come ha saputo di Athena?",
       commentPlaceholder:
         "Reddit, Twitter, GitHub, YouTube, ecc. – Fateci sapere come ci avete trovato!",
       skip: "Salta la domanda",
       thankYou: "Grazie per il tuo feedback.",
-      title: "Benvenuti in AnythingLLM",
+      title: "Benvenuti in Athena",
       description:
-        "Aiutaci a sviluppare AnythingLLM in base alle tue esigenze. Facoltativo.",
+        "Aiutaci a sviluppare Athena in base alle tue esigenze. Facoltativo.",
     },
     home: {
       getStarted: "Inizia",
@@ -23,7 +23,7 @@ const TRANSLATIONS = {
     llm: {
       title: "Preferenza per i modelli LLM",
       description:
-        "AnythingLLM può collaborare con numerosi fornitori di modelli linguistici. Questo sarà il servizio che gestirà le conversazioni.",
+        "Athena può collaborare con numerosi fornitori di modelli linguistici. Questo sarà il servizio che gestirà le conversazioni.",
     },
     userSetup: {
       title: "Configurazione dell'utente",
@@ -51,8 +51,8 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    productName: "AnythingLLM",
-    defaultSiteTitle: "AnythingLLM | Your personal LLM trained on anything",
+    productName: "Athena",
+    defaultSiteTitle: "Athena | Knowledge Operating System",
     clear: "Clear",
     "workspaces-name": "Nome delle aree di lavoro",
     selection: "Selezione del modello",
@@ -102,7 +102,7 @@ const TRANSLATIONS = {
     interface: "Preferenze dell'interfaccia utente",
     branding: "Branding e personalizzazione",
     chat: "Chat",
-    "mobile-app": "AnythingLLM Mobile",
+    "mobile-app": "Athena Mobile",
     "community-hub": {
       title: "Punto di riferimento della comunità",
       trending: "Esplora le tendenze",
@@ -161,7 +161,7 @@ const TRANSLATIONS = {
       add: "Aggiungi un nuovo messaggio",
       save: "Salva messaggi",
       heading: "Spiegami",
-      body: "i vantaggi di AnythingLLM",
+      body: "i vantaggi di Athena",
     },
     delete: {
       title: "Elimina area di lavoro",
@@ -769,7 +769,7 @@ const TRANSLATIONS = {
         title: "Selezione intelligente delle competenze",
         "beta-badge": "Versione beta",
         description:
-          "Abilita l'uso illimitato degli strumenti e riduci l'utilizzo dei token fino all'80% per ogni query — AnythingLLM seleziona automaticamente le competenze più appropriate per ogni richiesta.",
+          "Abilita l'uso illimitato degli strumenti e riduci l'utilizzo dei token fino all'80% per ogni query — Athena seleziona automaticamente le competenze più appropriate per ogni richiesta.",
         "max-tools": {
           title: "Max Tools",
           description:
@@ -795,7 +795,7 @@ const TRANSLATIONS = {
   api: {
     title: "Chiavi API",
     description:
-      "Le chiavi API consentono al titolare di accedere e gestire in modo programmatico questa istanza AnythingLLM.",
+      "Le chiavi API consentono al titolare di accedere e gestire in modo programmatico questa istanza Athena.",
     link: "Leggi la documentazione API",
     generate: "Genera nuova chiave API",
     empty: "Nessuna chiave API trovata",
@@ -809,7 +809,7 @@ const TRANSLATIONS = {
       close: "Chiudi",
       create: "Crea chiave API",
       helper:
-        "Una volta creata, la chiave API può essere usata per accedere e configurare questa istanza AnythingLLM in modo programmatico.",
+        "Una volta creata, la chiave API può essere usata per accedere e configurare questa istanza Athena in modo programmatico.",
       name: {
         label: "Nome",
         placeholder: "Integrazione di produzione",
@@ -834,7 +834,7 @@ const TRANSLATIONS = {
   llm: {
     title: "Preferenza LLM",
     description:
-      "Queste sono le credenziali e le impostazioni per il tuo provider di chat e embedding LLM preferito. È importante che queste chiavi siano aggiornate e corrette, altrimenti AnythingLLM non funzionerà correttamente.",
+      "Queste sono le credenziali e le impostazioni per il tuo provider di chat e embedding LLM preferito. È importante che queste chiavi siano aggiornate e corrette, altrimenti Athena non funzionerà correttamente.",
     provider: "Provider LLM",
     providers: {
       azure_openai: {
@@ -856,7 +856,7 @@ const TRANSLATIONS = {
       "Queste sono le credenziali e le impostazioni per il tuo fornitore di modelli di trascrizione preferito. È importante che queste chiavi siano aggiornate e corrette, altrimenti i file multimediali e l'audio non verranno trascritti.",
     provider: "Provider di trascrizione",
     "warn-start":
-      "L'utilizzo del modello whisper locale su macchine con RAM o CPU limitate può bloccare AnythingLLM durante l'elaborazione di file multimediali.",
+      "L'utilizzo del modello whisper locale su macchine con RAM o CPU limitate può bloccare Athena durante l'elaborazione di file multimediali.",
     "warn-recommend":
       "Si consigliano almeno 2 GB di RAM e caricare file <10 Mb.",
     "warn-end":
@@ -867,7 +867,7 @@ const TRANSLATIONS = {
     "desc-start":
       "Quando si utilizza un LLM che non supporta nativamente un motore di embedding, potrebbe essere necessario specificare credenziali aggiuntive per l'embedding del testo.",
     "desc-end":
-      "L'embedding è il processo di trasformazione del testo in vettori. Queste credenziali sono necessarie per trasformare i file e i prompt in un formato che AnythingLLM può utilizzare per l'elaborazione.",
+      "L'embedding è il processo di trasformazione del testo in vettori. Queste credenziali sono necessarie per trasformare i file e i prompt in un formato che Athena può utilizzare per l'elaborazione.",
     provider: {
       title: "Provider di embedding",
     },
@@ -893,7 +893,7 @@ const TRANSLATIONS = {
   vector: {
     title: "Database vettoriale",
     description:
-      "Queste sono le credenziali e le impostazioni per il funzionamento della tua istanza AnythingLLM. È importante che queste chiavi siano aggiornate e corrette.",
+      "Queste sono le credenziali e le impostazioni per il funzionamento della tua istanza Athena. È importante che queste chiavi siano aggiornate e corrette.",
     provider: {
       title: "Provider del database vettoriale",
       description: "Non è richiesta alcuna configurazione per LanceDB.",
@@ -938,7 +938,7 @@ const TRANSLATIONS = {
   privacy: {
     title: "Privacy e gestione dei dati",
     description:
-      "Questa è la tua configurazione per il modo in cui i provider terzi connessi e AnythingLLM gestiscono i tuoi dati.",
+      "Questa è la tua configurazione per il modo in cui i provider terzi connessi e Athena gestiscono i tuoi dati.",
     anonymous: "Telemetria anonima abilitata",
   },
   connectors: {
@@ -1098,22 +1098,22 @@ const TRANSLATIONS = {
       fetching: "Caricamento...",
       "fetch-website": "Recupera il sito web",
       "privacy-notice":
-        "Questi file verranno caricati nel processore di documenti in esecuzione su questa istanza di AnythingLLM. Questi file non vengono inviati o condivisi con terzi.",
+        "Questi file verranno caricati nel processore di documenti in esecuzione su questa istanza di Athena. Questi file non vengono inviati o condivisi con terzi.",
     },
     pinning: {
       what_pinning: 'Cos\'è il "pinning" di un documento?',
       pin_explained_block1:
-        'Quando si "fissa" un documento in AnythingLLM, caricheremo l\'intero contenuto del documento nella finestra di prompt per il tuo modello linguistico, in modo che possa comprenderlo appieno.',
+        'Quando si "fissa" un documento in Athena, caricheremo l\'intero contenuto del documento nella finestra di prompt per il tuo modello linguistico, in modo che possa comprenderlo appieno.',
       pin_explained_block2:
         "Questo funziona meglio con i modelli che gestiscono **ampie quantità di dati** o con file di piccole dimensioni che sono fondamentali per la loro base di conoscenza.",
       pin_explained_block3:
-        'Se non ottenete le risposte desiderate da AnythingLLM per impostazione predefinita, allora l\'utilizzo del "pinning" è un ottimo modo per ottenere risposte di qualità superiore in pochi clic.',
+        'Se non ottenete le risposte desiderate da Athena per impostazione predefinita, allora l\'utilizzo del "pinning" è un ottimo modo per ottenere risposte di qualità superiore in pochi clic.',
       accept: "Ok, ho capito.",
     },
     watching: {
       what_watching: "Cosa si ottiene guardando un documentario?",
       watch_explained_block1:
-        "Quando visualizzi un documento in AnythingLLM, il sistema <i>sincronizzerà automaticamente</i> il contenuto del documento dalla sua fonte originale a intervalli regolari. Ciò aggiornerà automaticamente il contenuto in tutti gli spazi di lavoro in cui questo file è gestito.",
+        "Quando visualizzi un documento in Athena, il sistema <i>sincronizzerà automaticamente</i> il contenuto del documento dalla sua fonte originale a intervalli regolari. Ciò aggiornerà automaticamente il contenuto in tutti gli spazi di lavoro in cui questo file è gestito.",
       watch_explained_block2:
         "Questa funzionalità supporta attualmente i contenuti basati su internet e non sarà disponibile per i documenti caricati manualmente.",
       watch_explained_block3_start:
@@ -1252,16 +1252,15 @@ const TRANSLATIONS = {
     interface: {
       title: "Preferenze dell'interfaccia utente",
       description:
-        "Configura le tue preferenze dell'interfaccia utente per AnythingLLM.",
+        "Configura le tue preferenze dell'interfaccia utente per Athena.",
     },
     branding: {
       title: "Branding e personalizzazione",
-      description:
-        "Personalizza la tua istanza di AnythingLLM con il tuo marchio.",
+      description: "Personalizza la tua istanza di Athena con il tuo marchio.",
     },
     chat: {
       title: "Chat",
-      description: "Configura le tue preferenze di chat per AnythingLLM.",
+      description: "Configura le tue preferenze di chat per Athena.",
       auto_submit: {
         title: "Inserimento automatico del testo della discorsione",
         description:
@@ -1302,7 +1301,7 @@ const TRANSLATIONS = {
       "display-language": {
         title: "Lingua da visualizzare",
         description:
-          "Seleziona la lingua preferita per visualizzare l'interfaccia utente di AnythingLLM – quando sono disponibili le traduzioni.",
+          "Seleziona la lingua preferita per visualizzare l'interfaccia utente di Athena – quando sono disponibili le traduzioni.",
       },
       logo: {
         title: "Logo del marchio",
@@ -1425,7 +1424,7 @@ const TRANSLATIONS = {
         unauthenticated: {
           title: "Richiesta di autenticazione",
           description:
-            "È necessario autenticarsi tramite il Community Hub di AnythingLLM prima di pubblicare contenuti.",
+            "È necessario autenticarsi tramite il Community Hub di Athena prima di pubblicare contenuti.",
           button: "Connettiti al centro comunitario",
         },
       },
@@ -1478,7 +1477,7 @@ const TRANSLATIONS = {
     password: {
       title: "Protezione password",
       description:
-        "Proteggi la tua istanza AnythingLLM con una password. Se la dimentichi, non esiste un metodo di recupero, quindi assicurati di salvare questa password.",
+        "Proteggi la tua istanza Athena con una password. Se la dimentichi, non esiste un metodo di recupero, quindi assicurati di salvare questa password.",
       "password-label": "Password istanza",
     },
   },
@@ -1492,7 +1491,7 @@ const TRANSLATIONS = {
   telegram: {
     title: "Bot per Telegram",
     description:
-      "Collega la tua istanza di AnythingLLM a Telegram in modo da poter chattare con i tuoi spazi di lavoro da qualsiasi dispositivo.",
+      "Collega la tua istanza di Athena a Telegram in modo da poter chattare con i tuoi spazi di lavoro da qualsiasi dispositivo.",
     setup: {
       step1: {
         title: "Passo 1: Crea il tuo bot Telegram",

@@ -12,7 +12,7 @@ export default function WorkspaceRow({ workspace, users: _users }) {
       !(await showAppConfirm({
         tone: "danger",
         title: "删除工作区？",
-        description: `${workspace.name} 将无法在此 AnythingLLM 实例中继续使用。此操作无法撤销。`,
+        description: `${workspace.name} 将无法在此 Athena 实例中继续使用。此操作无法撤销。`,
         confirmText: "删除",
       }))
     )

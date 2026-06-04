@@ -6,45 +6,57 @@ import System from "@/models/system";
 import showToast from "@/utils/toast";
 import PreLoader from "@/components/Preloader";
 import CTAButton from "@/components/lib/CTAButton";
+import Toggle from "@/components/lib/Toggle";
 import GenericOpenAiLogo from "@/media/llmprovider/generic-openai.png";
 import AthenaIcon from "@/media/logo/athena-mark.svg";
 import { CaretUpDown } from "@phosphor-icons/react";
+import ProviderPresetImport from "@/components/ProviderPresetImport";
 
-const DEFAULT_ALIBABA_RERANK_BASE_URL =
-  "https://dashscope.aliyuncs.com/compatible-api/v1/reranks";
-const DEFAULT_ALIBABA_RERANK_MODEL = "qwen3-rerank";
+const DEFAULT_ALIBABA_VISION_BASE_URL =
+  "https://dashscope.aliyuncs.com/compatible-mode/v1";
+const DEFAULT_ALIBABA_VISION_MODEL = "qwen3-vl-flash";
+const ALIBABA_VISION_MODELS = [
+  "qwen3-vl-flash",
+  "qwen-vl-plus",
+  "qwen3-vl-plus-2025-09-23",
+  "qwen3-vl-flash-2026-01-22",
+  "qwen3-vl-plus",
+  "qwen3-vl-plus-2025-12-19",
+];
 
-function rerankProviders(t) {
+function visionProviders(t) {
   return [
     {
-      name: t("rerank.providers.native.name"),
-      value: "native",
+      name: t("vision.providers.none.name"),
+      value: "none",
       logo: AthenaIcon,
-      description: t("rerank.providers.native.description"),
+      description: t("vision.providers.none.description"),
     },
     {
-      name: t("rerank.providers.alibaba.name"),
+      name: t("vision.providers.alibaba.name"),
       value: "alibaba",
       logo: GenericOpenAiLogo,
-      description: t("rerank.providers.alibaba.description"),
+      description: t("vision.providers.alibaba.description"),
     },
   ];
 }
 
-export default function GeneralRerankPreference() {
+export default function GeneralVisionPreference() {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [settings, setSettings] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedProvider, setSelectedProvider] = useState("native");
+  const [selectedProvider, setSelectedProvider] = useState("none");
+  const [visionToolEnabled, setVisionToolEnabled] = useState(true);
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const { t } = useTranslation();
-  const providers = rerankProviders(t);
+  const providers = visionProviders(t);
 
   const refreshSettings = useCallback(async () => {
     const _settings = await System.keys();
     setSettings(_settings);
-    setSelectedProvider(_settings?.RerankProvider || "native");
+    setSelectedProvider(_settings?.VisionProvider || "none");
+    setVisionToolEnabled(_settings?.VisionToolEnabled !== false);
     setHasChanges(false);
     setLoading(false);
   }, []);
@@ -58,15 +70,15 @@ export default function GeneralRerankPreference() {
     setSaving(true);
 
     const formData = new FormData(event.target);
-    const data = { RerankProvider: selectedProvider };
+    const data = { VisionProvider: selectedProvider };
     for (const [key, value] of formData.entries()) data[key] = value;
 
     const { error } = await System.updateSystem(data);
     if (error) {
-      showToast(`重排模型设置保存失败：${error}`, "error");
+      showToast(t("vision.saveError", { error }), "error");
       setHasChanges(true);
     } else {
-      showToast("重排模型设置已保存。", "success");
+      showToast(t("vision.saved"), "success");
       setHasChanges(false);
       await refreshSettings();
     }
@@ -105,24 +117,24 @@ export default function GeneralRerankPreference() {
               <div className="flex w-full flex-col gap-y-1 border-b-2 border-white border-opacity-10 pb-6 light:border-theme-sidebar-border">
                 <div className="flex items-center gap-x-4">
                   <p className="text-lg font-bold leading-6 text-white light:text-theme-text-primary">
-                    {t("rerank.title")}
+                    {t("vision.title")}
                   </p>
                 </div>
                 <p className="text-xs font-base leading-[18px] text-white text-opacity-60 light:text-theme-text-secondary">
-                  {t("rerank.description")}
+                  {t("vision.description")}
                 </p>
               </div>
 
               <div className="flex w-full justify-end">
                 {hasChanges && (
                   <CTAButton className="z-10 -mb-14 mr-0 mt-3">
-                    {saving ? t("rerank.saving") : t("rerank.save")}
+                    {saving ? t("vision.saving") : t("vision.save")}
                   </CTAButton>
                 )}
               </div>
 
               <div className="mb-4 mt-6 text-base font-bold text-white light:text-theme-text-primary">
-                {t("rerank.provider")}
+                {t("vision.provider")}
               </div>
 
               <div className="relative w-full max-w-[640px]">
@@ -194,20 +206,44 @@ export default function GeneralRerankPreference() {
                   </button>
                 )}
                 <p className="mt-2 text-xs leading-5 text-description light:text-theme-text-secondary">
-                  {t("rerank.providerHint")}
+                  {t("vision.providerHint")}
                 </p>
               </div>
 
               <div
+                key={`${selectedProvider}-${settings?.VisionBaseUrl}-${settings?.VisionModelPref}-${settings?.VisionApiKey}-${settings?.VisionToolEnabled}`}
                 onChange={() => setHasChanges(true)}
                 className="mt-6 flex flex-col gap-y-7"
               >
+                <div className="max-w-[720px] rounded-xl border border-white/10 bg-theme-settings-input-bg p-4 light:border-theme-sidebar-border">
+                  <input
+                    type="hidden"
+                    name="VisionToolEnabled"
+                    value={visionToolEnabled ? "true" : "false"}
+                  />
+                  <Toggle
+                    size="lg"
+                    label={t("vision.toolToggle.label")}
+                    description={
+                      selectedProvider === "alibaba"
+                        ? t("vision.toolToggle.description")
+                        : t("vision.toolToggle.disabledDescription")
+                    }
+                    enabled={visionToolEnabled}
+                    onChange={(checked) => {
+                      setVisionToolEnabled(checked);
+                      setHasChanges(true);
+                    }}
+                  />
+                </div>
                 {selectedProvider === "alibaba" ? (
-                  <AlibabaRerankOptions settings={settings} />
+                  <AlibabaVisionOptions settings={settings} />
                 ) : (
-                  <NativeRerankOptions />
+                  <NoVisionOptions />
                 )}
               </div>
+
+              <ProviderPresetImport onApplied={refreshSettings} />
             </div>
           </form>
         </div>
@@ -216,16 +252,16 @@ export default function GeneralRerankPreference() {
   );
 }
 
-function NativeRerankOptions() {
+function NoVisionOptions() {
   const { t } = useTranslation();
   return (
     <div className="max-w-[720px] rounded-xl border border-white/10 bg-theme-settings-input-bg p-4 text-xs leading-6 text-description light:border-theme-sidebar-border light:text-theme-text-secondary">
-      {t("rerank.nativeHelp")}
+      {t("vision.noneHelp")}
     </div>
   );
 }
 
-function AlibabaRerankOptions({ settings }) {
+function AlibabaVisionOptions({ settings }) {
   const { t } = useTranslation();
   return (
     <>
@@ -236,10 +272,10 @@ function AlibabaRerankOptions({ settings }) {
           </label>
           <input
             type="password"
-            name="RerankApiKey"
+            name="VisionApiKey"
             className="block w-full rounded-lg border-none bg-theme-settings-input-bg p-2.5 text-sm text-white outline-none placeholder:text-theme-settings-input-placeholder focus:outline-primary-button active:outline-primary-button light:text-theme-settings-input-text"
             placeholder="DashScope API Key"
-            defaultValue={settings?.RerankApiKey ? "*".repeat(20) : ""}
+            defaultValue={settings?.VisionApiKey ? "*".repeat(20) : ""}
             required={true}
             autoComplete="off"
             spellCheck={false}
@@ -251,36 +287,40 @@ function AlibabaRerankOptions({ settings }) {
           </label>
           <input
             type="url"
-            name="RerankBaseUrl"
+            name="VisionBaseUrl"
             className="block w-full rounded-lg border-none bg-theme-settings-input-bg p-2.5 text-sm text-white outline-none placeholder:text-theme-settings-input-placeholder focus:outline-primary-button active:outline-primary-button light:text-theme-settings-input-text"
-            placeholder={DEFAULT_ALIBABA_RERANK_BASE_URL}
+            placeholder={DEFAULT_ALIBABA_VISION_BASE_URL}
             defaultValue={
-              settings?.RerankBaseUrl || DEFAULT_ALIBABA_RERANK_BASE_URL
+              settings?.VisionBaseUrl || DEFAULT_ALIBABA_VISION_BASE_URL
             }
             required={true}
             autoComplete="off"
             spellCheck={false}
           />
         </div>
-        <div className="flex w-60 flex-col">
+        <div className="flex w-72 flex-col">
           <label className="mb-3 block text-sm font-semibold text-white light:text-theme-text-primary">
-            {t("rerank.model")}
+            {t("vision.model")}
           </label>
           <select
-            name="RerankModelPref"
+            name="VisionModelPref"
             required={true}
             className="block w-full rounded-lg border-none bg-theme-settings-input-bg p-2.5 text-sm text-white outline-none focus:outline-primary-button active:outline-primary-button light:text-theme-settings-input-text"
             defaultValue={
-              settings?.RerankModelPref || DEFAULT_ALIBABA_RERANK_MODEL
+              settings?.VisionModelPref || DEFAULT_ALIBABA_VISION_MODEL
             }
           >
-            <option value="qwen3-rerank">qwen3-rerank</option>
+            {ALIBABA_VISION_MODELS.map((model) => (
+              <option key={model} value={model}>
+                {model}
+              </option>
+            ))}
           </select>
         </div>
       </div>
 
       <div className="max-w-[720px] rounded-xl border border-white/10 bg-theme-settings-input-bg p-4 text-xs leading-6 text-description light:border-theme-sidebar-border light:text-theme-text-secondary">
-        {t("rerank.help")}
+        {t("vision.help")}
       </div>
     </>
   );

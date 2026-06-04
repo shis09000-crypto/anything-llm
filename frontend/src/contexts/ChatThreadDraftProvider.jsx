@@ -791,6 +791,14 @@ function failTurnItems(items = [], turnId, reason) {
   );
 }
 
+function withoutTransientAgentReconnectEvents(timeline = []) {
+  return (timeline || []).filter((event) => {
+    if (event?.type !== "thought") return true;
+    const content = String(event?.content || "");
+    return !content.startsWith("Agent connection interrupted. Reconnecting");
+  });
+}
+
 function definedPatch(source = {}, fields = []) {
   return fields.reduce((patch, field) => {
     if (Object.prototype.hasOwnProperty.call(source, field)) {
@@ -814,6 +822,7 @@ function completeTurnPatch(turn, patch = {}) {
     finalContent: nextFinalContent,
     sources: patch.sources || turn.sources || [],
     metrics: patch.metrics || turn.metrics || {},
+    timeline: withoutTransientAgentReconnectEvents(turn.timeline || []),
     status: TURN_STATUSES.completed,
     error: null,
     reconnectState: null,

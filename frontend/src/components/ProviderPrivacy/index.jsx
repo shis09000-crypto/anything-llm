@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import System from "@/models/system";
 import { PROVIDER_PRIVACY_MAP } from "./constants";
 import { ArrowSquareOut } from "@phosphor-icons/react";
-import AnythingLLMIcon from "@/media/logo/anything-llm-icon.png";
+import AthenaIcon from "@/media/logo/athena-mark.svg";
 import { Link } from "react-router-dom";
 import { titleCase, sentenceCase } from "text-case";
 
@@ -12,9 +12,9 @@ function defaultProvider(providerString) {
       ? titleCase(sentenceCase(String(providerString)))
       : "Unknown",
     description: [
-      `"${providerString}" has no known data handling policy defined in AnythingLLM.`,
+      `"${providerString}" has no known data handling policy defined in Athena.`,
     ],
-    logo: AnythingLLMIcon,
+    logo: AthenaIcon,
   };
 }
 
@@ -58,12 +58,12 @@ export default function ProviderPrivacy() {
         altText="LLM Logo"
       />
       <ProviderPrivacyItem
-        title="Embedding Preference"
+        title="Vector Engine"
         provider={providers.embeddingEngine}
         altText="Embedding Logo"
       />
       <ProviderPrivacyItem
-        title="Vector Database"
+        title="Vector Engine Storage"
         provider={providers.vectorDb}
         altText="Vector DB Logo"
       />

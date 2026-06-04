@@ -141,7 +141,7 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const defaultThreads = await WorkspaceThread.ensureDefaultThreads(
+        const defaultThreads = await WorkspaceThread.ensureOverviewThread(
           workspace,
           user?.id
         );

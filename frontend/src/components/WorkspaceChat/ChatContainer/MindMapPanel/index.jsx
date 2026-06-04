@@ -1682,6 +1682,17 @@ function identitySourceLabel(source = "") {
   );
 }
 
+function buildNodeSupplementPrompt(nodeLabel = "当前节点") {
+  const label = String(nodeLabel || "当前节点").trim() || "当前节点";
+  return `请根据书中的资料，围绕「${label}」这个知识节点做一份补充说明。请优先使用当前工作区已上传文档和原书材料，不要脱离来源。请用 Markdown 输出：
+- 这个节点在书中的基本含义
+- 它与主线问题或相邻概念的关系
+- 容易误解或需要区分的地方
+- 可以作为节点补充保存的简明摘要
+
+如果资料不足，请明确标注“待确认”。`;
+}
+
 function findGraphNode(schema, target = {}) {
   const nodes = Array.isArray(schema?.nodes) ? schema.nodes : [];
   if (!nodes.length) return null;
@@ -2017,6 +2028,19 @@ function NodeSupplementSection({
     showToast("已解除节点补充绑定，原文档仍保留在知识库。", "success");
   };
 
+  const copyNodeSupplementPrompt = async () => {
+    if (!nodeKey) return;
+    try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("clipboard_unavailable");
+      }
+      await navigator.clipboard.writeText(buildNodeSupplementPrompt(nodeLabel));
+      showToast("已复制节点 Prompt", "success");
+    } catch {
+      showToast("复制节点 Prompt 失败，请稍后重试。", "error");
+    }
+  };
+
   const explainWithSupplement = () => {
     const prompt = `请围绕知识节点「${nodeLabel}」做一段讲解。优先使用该节点绑定的补充文档，再结合原书主线和已有证据，不要脱离来源。`;
     if (sendCommand) {
@@ -2113,6 +2137,14 @@ function NodeSupplementSection({
             className="rounded-lg border border-blue-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
           >
             输入补充文本
+          </button>
+          <button
+            type="button"
+            onClick={copyNodeSupplementPrompt}
+            disabled={!nodeKey}
+            className="rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            复制节点 Prompt
           </button>
           <button
             type="button"

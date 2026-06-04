@@ -18,6 +18,7 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const DEFAULT_ALIBABA_VISION_MODEL = "qwen3-vl-flash";
 const { storageRoot } = require("../utils/environment");
 const {
   ConnectionStringParser,
@@ -533,6 +534,17 @@ const SystemSettings = {
         process.env.READER_OCR_BASE_URL || DEFAULT_ALIBABA_OCR_BASE_URL,
       ReaderOcrModelPref:
         process.env.READER_OCR_MODEL_PREF || DEFAULT_ALIBABA_OCR_MODEL,
+
+      // --------------------------------------------------------
+      // Vision Model Provider Selection Settings & Configs
+      // --------------------------------------------------------
+      VisionProvider: process.env.VISION_PROVIDER || "none",
+      VisionApiKey: !!process.env.VISION_API_KEY,
+      VisionBaseUrl:
+        process.env.VISION_BASE_URL || DEFAULT_ALIBABA_OCR_BASE_URL,
+      VisionModelPref:
+        process.env.VISION_MODEL_PREF || DEFAULT_ALIBABA_VISION_MODEL,
+      VisionToolEnabled: process.env.VISION_TOOL_ENABLED !== "false",
 
       // --------------------------------------------------------
       // Whisper (Audio transcription) Selection Settings & Configs

@@ -1,8 +1,11 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/javascript-node
+// 关于配置格式的详细说明，请参阅：https://aka.ms/devcontainer.json
+// 配置项说明请参考 README：
+// https://github.com/devcontainers/templates/tree/main/src/javascript-node
 {
   "name": "Node.js",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+
+  // 也可以使用 Dockerfile 或 Docker Compose 文件
+  // 更多信息：https://containers.dev/guide/dockerfile
   // "build": {
   //   "args": {
   //     "ARG_UID": "1000",
@@ -10,23 +13,31 @@
   //   },
   //   "dockerfile": "Dockerfile"
   // },
+
   // "containerUser": "anythingllm",
-  // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
+
+  // 也可以使用 Dockerfile 或 Docker Compose 文件
+  // 更多信息：https://containers.dev/guide/dockerfile
   "image": "mcr.microsoft.com/devcontainers/javascript-node:1-18-bookworm",
 
   "forwardPorts": [3001, 3000],
 
-  // Features to add to the dev container. More info: https://containers.dev/features.
+  // 添加到开发容器中的功能组件
+  // 更多信息：https://containers.dev/features
   "features": {
-    // Docker very useful linter
+    // Docker 非常实用的镜像检查工具（Linter）
     "ghcr.io/dhoeric/features/hadolint:1": {
       "version": "latest"
     },
-    // Terraform support
+
+    // Terraform 支持
     "ghcr.io/devcontainers/features/terraform:1": {},
-    // Just a wrap to install needed packages
+
+    // 仅用于封装安装所需软件包
     "ghcr.io/devcontainers-contrib/features/apt-packages:1": {
-      // Dependencies copied from ../docker/Dockerfile plus some dev stuff
+
+      // 从 ../docker/Dockerfile 复制的依赖，
+      // 另外增加了一些开发环境工具
       "packages": [
         "build-essential",
         "ca-certificates",
@@ -79,10 +90,13 @@
       ]
     }
   },
+
   "updateContentCommand": "cd server && yarn && cd ../collector && PUPPETEER_DOWNLOAD_BASE_URL=https://storage.googleapis.com/chrome-for-testing-public yarn && cd ../frontend && yarn && cd .. && yarn setup:envs && yarn prisma:setup && echo \"Please run yarn dev:server, yarn dev:collector, and yarn dev:frontend in separate terminal tabs.\"",
-  // Use 'postCreateCommand' to run commands after the container is created.
-  // This configures VITE for github codespaces and installs gh cli
+
+  // 使用 postCreateCommand 在容器创建完成后执行命令
+  // 此处用于配置 GitHub Codespaces 的 VITE 环境变量并安装 gh CLI
   "postCreateCommand": "if [ \"${CODESPACES}\" = \"true\" ]; then echo 'VITE_API_BASE=\"https://$CODESPACE_NAME-3001.$GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN/api\"' > ./frontend/.env && (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) && sudo mkdir -p -m 755 /etc/apt/keyrings && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null && sudo apt update && sudo apt install gh -y; fi",
+
   "portsAttributes": {
     "3001": {
       "label": "Backend",
@@ -93,17 +107,22 @@
       "onAutoForward": "openPreview"
     }
   },
+
   "capAdd": [
-    "SYS_ADMIN" // needed for puppeteer using headless chrome in sandbox
+    "SYS_ADMIN" // Puppeteer 在沙箱模式下运行 Headless Chrome 所需权限
   ],
+
   "remoteEnv": {
     "NODE_ENV": "development",
     "ESLINT_USE_FLAT_CONFIG": "true",
     "ANYTHING_LLM_RUNTIME": "docker"
   },
+
   // "initializeCommand": "echo Initialize....",
+
   "shutdownAction": "stopContainer",
-  // Configure tool-specific properties.
+
+  // 配置特定工具的属性
   "customizations": {
     "codespaces": {
       "openFiles": [
@@ -111,11 +130,13 @@
         ".devcontainer/README.md"
       ]
     },
+
     "vscode": {
       "openFiles": [
         "README.md",
         ".devcontainer/README.md"
       ],
+
       "extensions": [
         "bierner.github-markdown-preview",
         "bradlc.vscode-tailwindcss",
@@ -133,6 +154,7 @@
         "tombonnike.vscode-status-bar-format-toggle",
         "ms-vscode.js-debug"
       ],
+
       "settings": {
         "[css]": {
           "editor.defaultFormatter": "esbenp.prettier-vscode"
@@ -167,10 +189,12 @@
         "[toml]": {
           "editor.defaultFormatter": "tamasfe.even-better-toml"
         },
+
         "eslint.debug": true,
         "eslint.enable": true,
         "eslint.experimental.useFlatConfig": true,
         "eslint.run": "onSave",
+
         "files.associations": {
           ".*ignore": "ignore",
           ".editorconfig": "editorconfig",
@@ -184,17 +208,24 @@
           "Dockerfile*": "dockerfile",
           "yarn.lock": "yarnlock"
         },
+
         "javascript.format.enable": false,
+
         "javascript.inlayHints.enumMemberValues.enabled": true,
         "javascript.inlayHints.functionLikeReturnTypes.enabled": true,
         "javascript.inlayHints.parameterTypes.enabled": true,
         "javascript.inlayHints.variableTypes.enabled": true,
+
         "js/ts.implicitProjectConfig.module": "CommonJS",
+
         "json.format.enable": false,
         "json.schemaDownload.enable": true,
+
         "npm.autoDetect": "on",
         "npm.packageManager": "yarn",
+
         "prettier.useEditorConfig": false,
+
         "tailwindCSS.files.exclude": [
           "**/.git/**",
           "**/node_modules/**",
@@ -202,13 +233,17 @@
           "**/.svn/**",
           "**/dist/**"
         ],
+
         "typescript.validate.enable": false,
+
         "workbench.editorAssociations": {
           "*.md": "vscode.markdown.preview.editor"
         }
       }
     }
   }
-  // Uncomment to connect as root instead. More info: https://aka.ms/dev-containers-non-root.
+
+  // 取消注释后可使用 root 用户连接容器
+  // 更多信息：https://aka.ms/dev-containers-non-root
   // "remoteUser": "root"
 }

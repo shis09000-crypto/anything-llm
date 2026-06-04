@@ -12,21 +12,22 @@ function assert(condition, message) {
 }
 
 assert(
-  resources.en.common.common.productName === "AnythingLLM",
-  "Expected en.common.productName to be AnythingLLM"
+  resources.en.common.common.productName === "Athena",
+  "Expected en.common.productName to be Athena"
 );
 assert(
-  resources.zh.common.common.productName === "向量知识库",
-  "Expected zh.common.productName to be 向量知识库"
+  resources.zh.common.common.productName === "Athena",
+  "Expected zh.common.productName to be Athena"
 );
 assert(
   resources.en.common.common.defaultSiteTitle ===
-    "AnythingLLM | Your personal LLM trained on anything",
-  "Expected en.common.defaultSiteTitle to preserve the existing English title"
+    "Athena | Knowledge Operating System",
+  "Expected en.common.defaultSiteTitle to use the Athena positioning"
 );
 assert(
-  resources.zh.common.common.defaultSiteTitle === "向量知识库",
-  "Expected zh.common.defaultSiteTitle to be 向量知识库"
+  resources.zh.common.common.defaultSiteTitle ===
+    "Athena | Knowledge Operating System",
+  "Expected zh.common.defaultSiteTitle to use the Athena positioning"
 );
 
 const userVisibleEntryFiles = [

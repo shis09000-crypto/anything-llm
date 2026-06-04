@@ -81,9 +81,10 @@ function DefaultDocumentTitle() {
 
   useEffect(() => {
     const defaultTitles = new Set([
-      "AnythingLLM",
-      "AnythingLLM | Your personal LLM trained on anything",
+      "Athena",
       "向量知识库",
+      "Athena | Knowledge Operating System",
+      "Athena | 知识操作系统",
     ]);
     if (defaultTitles.has(document.title)) {
       document.title = t("common.defaultSiteTitle");

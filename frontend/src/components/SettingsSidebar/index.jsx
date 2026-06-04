@@ -29,7 +29,7 @@ export default function SettingsSidebar() {
   const { t } = useTranslation();
   const { logo } = useLogo();
   const productName = t("common.productName");
-  const showTextBrand = productName !== "AnythingLLM";
+  const showTextBrand = Boolean(productName);
   const { user } = useUser();
   const sidebarRef = useRef(null);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -265,6 +265,12 @@ const SidebarOptions = ({ user = null, t }) => (
             {
               btnText: t("settings.ocr"),
               href: paths.settings.ocrPreference(),
+              flex: true,
+              roles: ["admin"],
+            },
+            {
+              btnText: t("settings.vision"),
+              href: paths.settings.visionPreference(),
               flex: true,
               roles: ["admin"],
             },

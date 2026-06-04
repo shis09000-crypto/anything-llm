@@ -887,43 +887,59 @@ function MemoryStat({ label, value }) {
 }
 
 function QuizModeButton({ active, onToggle, textareaRef }) {
+  const { t } = useTranslation();
+  const tooltip = active
+    ? t("chat_window.controls.quizMode.activeDescription")
+    : t("chat_window.controls.quizMode.description");
+
   return (
-    <button
-      type="button"
-      onClick={() => {
-        onToggle?.();
-        textareaRef.current?.focus();
-      }}
-      className={`group border-none cursor-pointer flex items-center justify-center gap-x-1 h-6 px-2 rounded-full ${
-        active
-          ? "bg-sky-900/50 light:bg-sky-100"
-          : "hover:bg-zinc-700 light:hover:bg-slate-200"
-      }`}
-      aria-label="测试模式"
-    >
-      <Question
-        size={15}
-        className={
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          onToggle?.();
+          textareaRef.current?.focus();
+        }}
+        data-tooltip-id="quiz-mode"
+        data-tooltip-content={tooltip}
+        className={`group border-none cursor-pointer flex items-center justify-center gap-x-1 h-6 px-2 rounded-full ${
           active
-            ? "text-sky-300 light:text-sky-600"
-            : "text-zinc-300 light:text-slate-600"
-        }
-        weight="bold"
-      />
-      <span
-        className={`text-xs font-medium ${
-          active
-            ? "text-sky-300 light:text-sky-600"
-            : "text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-slate-800"
+            ? "bg-sky-900/50 light:bg-sky-100"
+            : "hover:bg-zinc-700 light:hover:bg-slate-200"
         }`}
+        aria-label={tooltip}
       >
-        测试
-      </span>
-    </button>
+        <Question
+          size={15}
+          className={
+            active
+              ? "text-sky-300 light:text-sky-600"
+              : "text-zinc-300 light:text-slate-600"
+          }
+          weight="bold"
+        />
+        <span
+          className={`text-xs font-medium ${
+            active
+              ? "text-sky-300 light:text-sky-600"
+              : "text-zinc-300 light:text-slate-600 group-hover:text-white light:group-hover:text-slate-800"
+          }`}
+        >
+          {t("chat_window.controls.quizMode.label")}
+        </span>
+      </button>
+      <Tooltip
+        id="quiz-mode"
+        place="bottom"
+        delayShow={300}
+        className="tooltip !text-xs z-99 max-w-[280px]"
+      />
+    </>
   );
 }
 
 function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
+  const { t } = useTranslation();
   const [showMenu, setShowMenu] = useState(false);
   const [menuStyle, setMenuStyle] = useState({});
   const buttonRef = useRef(null);
@@ -966,22 +982,24 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
 
   const config = {
     sandbox: {
-      label: "Sandbox",
+      label: t("chat_window.controls.fileAccess.modes.sandbox.label"),
       color: "text-zinc-300 light:text-slate-600",
       active: "bg-zinc-700 light:bg-slate-200",
-      tooltip: "仅访问项目内部文件",
+      tooltip: t("chat_window.controls.fileAccess.modes.sandbox.description"),
     },
     authorized: {
-      label: "Authorized",
+      label: t("chat_window.controls.fileAccess.modes.authorized.label"),
       color: "text-sky-400 light:text-sky-600",
       active: "bg-sky-900/40 light:bg-sky-100",
-      tooltip: "可访问桌面、文稿、下载等授权目录",
+      tooltip: t(
+        "chat_window.controls.fileAccess.modes.authorized.description"
+      ),
     },
     open: {
-      label: "Open",
+      label: t("chat_window.controls.fileAccess.modes.open.label"),
       color: "text-red-400 light:text-red-600",
       active: "bg-red-900/40 light:bg-red-100",
-      tooltip: "完全访问本机文件与终端（高风险）",
+      tooltip: t("chat_window.controls.fileAccess.modes.open.description"),
     },
   };
 
@@ -1034,10 +1052,11 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
       normalized === FileAccessPolicy.modes.open &&
       !(await showAppConfirm({
         tone: "warning",
-        title: "开启开放文件访问？",
-        description:
-          "开放模式会授予较宽的本地文件访问权限，并允许在批准后执行 shell 命令。",
-        confirmText: "继续",
+        title: t("chat_window.controls.fileAccess.openConfirm.title"),
+        description: t(
+          "chat_window.controls.fileAccess.openConfirm.description"
+        ),
+        confirmText: t("chat_window.controls.fileAccess.openConfirm.confirm"),
       }))
     ) {
       return;
@@ -1066,9 +1085,9 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
         type="button"
         onClick={() => setShowMenu((prev) => !prev)}
         data-tooltip-id="file-access-mode"
-        data-tooltip-content={current.tooltip}
+        data-tooltip-content={`${t("chat_window.controls.fileAccess.label")}: ${current.label}. ${current.tooltip}`}
         className={`group border-none cursor-pointer flex items-center justify-center gap-x-1 h-6 px-2 rounded-full hover:bg-zinc-700 light:hover:bg-slate-200 ${showMenu ? current.active : ""}`}
-        aria-label={`File access mode: ${current.label}`}
+        aria-label={`${t("chat_window.controls.fileAccess.label")}: ${current.label}`}
       >
         <Shield size={15} className={current.color} weight="bold" />
         <span className={`text-xs font-medium ${current.color}`}>
@@ -1095,6 +1114,8 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
                 key={option}
                 type="button"
                 onClick={() => setSessionMode(option)}
+                data-tooltip-id="file-access-mode"
+                data-tooltip-content={config[option].tooltip}
                 className={`w-full border-none text-left px-3 py-2 flex items-center gap-x-2 hover:bg-zinc-800 light:hover:bg-slate-100 ${
                   option === mode ? "bg-zinc-800 light:bg-slate-100" : ""
                 }`}
@@ -1110,7 +1131,7 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
                   </span>
                   {option === defaultMode && (
                     <span className="text-[10px] text-white/50 light:text-slate-500">
-                      Global default
+                      {t("chat_window.controls.fileAccess.globalDefault")}
                     </span>
                   )}
                 </div>

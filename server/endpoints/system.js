@@ -85,6 +85,7 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const DEFAULT_ALIBABA_VISION_MODEL = "qwen3-vl-flash";
 const {
   diagnosticSummary,
   storagePath: environmentStoragePath,
@@ -775,6 +776,11 @@ function systemEndpoints(app) {
             ReaderOcrApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
             ReaderOcrBaseUrl: DEFAULT_ALIBABA_OCR_BASE_URL,
             ReaderOcrModelPref: DEFAULT_ALIBABA_OCR_MODEL,
+            VisionProvider: "alibaba",
+            VisionApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
+            VisionBaseUrl: DEFAULT_ALIBABA_OCR_BASE_URL,
+            VisionModelPref: DEFAULT_ALIBABA_VISION_MODEL,
+            VisionToolEnabled: "true",
           },
           false,
           response?.locals?.user?.id
@@ -801,6 +807,13 @@ function systemEndpoints(app) {
             base_url: DEFAULT_ALIBABA_OCR_BASE_URL,
             model: DEFAULT_ALIBABA_OCR_MODEL,
             api_key_set: true,
+          },
+          vision: {
+            provider: "alibaba",
+            base_url: DEFAULT_ALIBABA_OCR_BASE_URL,
+            model: DEFAULT_ALIBABA_VISION_MODEL,
+            api_key_set: true,
+            tool_enabled: true,
           },
         });
       } catch (e) {

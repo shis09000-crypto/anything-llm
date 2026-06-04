@@ -1,15 +1,10 @@
 import { createContext, useEffect, useState } from "react";
-import AnythingLLM from "./media/logo/anything-llm.png";
-import AnythingLLMDark from "./media/logo/anything-llm-dark.png";
-import DefaultLoginLogoLight from "./media/illustrations/login-logo.svg";
-import DefaultLoginLogoDark from "./media/illustrations/login-logo-light.svg";
+import AthenaMark from "./media/logo/athena-mark.svg";
+import AthenaLogo from "./media/logo/athena-logo.svg";
 import System from "./models/system";
 
 export const REFETCH_LOGO_EVENT = "refetch-logo";
 
-function isLightMode() {
-  return document.documentElement.getAttribute("data-theme") === "light";
-}
 export const LogoContext = createContext();
 
 export function LogoProvider({ children }) {
@@ -18,22 +13,20 @@ export function LogoProvider({ children }) {
   const [isCustomLogo, setIsCustomLogo] = useState(false);
 
   async function fetchInstanceLogo() {
-    const DefaultLoginLogo = isLightMode()
-      ? DefaultLoginLogoDark
-      : DefaultLoginLogoLight;
+    const DefaultLoginLogo = AthenaLogo;
     try {
       const { isCustomLogo, logoURL } = await System.fetchLogo();
-      if (logoURL) {
+      if (logoURL && isCustomLogo) {
         setLogo(logoURL);
-        setLoginLogo(isCustomLogo ? logoURL : DefaultLoginLogo);
+        setLoginLogo(logoURL);
         setIsCustomLogo(isCustomLogo);
       } else {
-        isLightMode() ? setLogo(AnythingLLMDark) : setLogo(AnythingLLM);
+        setLogo(AthenaMark);
         setLoginLogo(DefaultLoginLogo);
         setIsCustomLogo(false);
       }
     } catch (err) {
-      isLightMode() ? setLogo(AnythingLLMDark) : setLogo(AnythingLLM);
+      setLogo(AthenaMark);
       setLoginLogo(DefaultLoginLogo);
       setIsCustomLogo(false);
       console.error("Failed to fetch logo:", err);

@@ -7,7 +7,7 @@ import showToast from "@/utils/toast";
 import PreLoader from "@/components/Preloader";
 import CTAButton from "@/components/lib/CTAButton";
 import GenericOpenAiLogo from "@/media/llmprovider/generic-openai.png";
-import AnythingLLMIcon from "@/media/logo/anything-llm-icon.png";
+import AthenaIcon from "@/media/logo/athena-mark.svg";
 import { CaretUpDown } from "@phosphor-icons/react";
 
 const DEFAULT_ALIBABA_OCR_BASE_URL =
@@ -19,7 +19,7 @@ function ocrProviders(t) {
     {
       name: t("ocr.providers.none.name"),
       value: "none",
-      logo: AnythingLLMIcon,
+      logo: AthenaIcon,
       description: t("ocr.providers.none.description"),
     },
     {

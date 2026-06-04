@@ -71,7 +71,7 @@ export default function Footer() {
               className="motion-hover p-2 rounded-full bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover"
               aria-label="Docs"
               data-tooltip-id="footer-item"
-              data-tooltip-content="Open AnythingLLM help docs"
+              data-tooltip-content="Open Athena help docs"
             >
               <BookOpen
                 weight="fill"

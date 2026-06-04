@@ -129,6 +129,17 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/vision-preference",
+        lazy: async () => {
+          const { default: GeneralVisionPreference } = await import(
+            "@/pages/GeneralSettings/VisionPreference"
+          );
+          return {
+            element: <AdminRoute Component={GeneralVisionPreference} />,
+          };
+        },
+      },
+      {
         path: "/settings/text-splitter-preference",
         lazy: async () => {
           const { default: EmbeddingTextSplitterPreference } = await import(

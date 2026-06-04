@@ -29,7 +29,7 @@ import GoogleCalendarIcon from "./GoogleCalendarSkillPanel/google-calendar.png";
 
 export const getDefaultSkills = (t) => ({
   "rag-memory": {
-    title: t("agent.skill.rag.title"),
+    title: `Search: ${t("agent.skill.rag.title")}`,
     description: t("agent.skill.rag.description"),
     component: DefaultSkillPanel,
     icon: Brain,
@@ -37,7 +37,7 @@ export const getDefaultSkills = (t) => ({
     skill: "rag-memory",
   },
   document_index_status_tool: {
-    title: "Document Index Status",
+    title: "Knowledge Graph: Document Index Status",
     description:
       "Check which workspace documents are indexed, unindexed, outdated, or failed.",
     component: DefaultSkillPanel,
@@ -46,7 +46,7 @@ export const getDefaultSkills = (t) => ({
     skill: "document_index_status_tool",
   },
   "document-ingest-agent": {
-    title: t("agent.skill.ingest.title"),
+    title: `Knowledge Graph: ${t("agent.skill.ingest.title")}`,
     description: t("agent.skill.ingest.description"),
     component: DefaultSkillPanel,
     icon: FilePlus,
@@ -54,7 +54,7 @@ export const getDefaultSkills = (t) => ({
     skill: "document-ingest-agent",
   },
   "document-summarizer": {
-    title: t("agent.skill.view.title"),
+    title: `Knowledge Graph: ${t("agent.skill.view.title")}`,
     description: t("agent.skill.view.description"),
     component: DefaultSkillPanel,
     icon: File,
@@ -62,7 +62,7 @@ export const getDefaultSkills = (t) => ({
     skill: "document-summarizer",
   },
   "web-scraping": {
-    title: t("agent.skill.scrape.title"),
+    title: `Intelligence: ${t("agent.skill.scrape.title")}`,
     description: t("agent.skill.scrape.description"),
     component: DefaultSkillPanel,
     icon: Browser,

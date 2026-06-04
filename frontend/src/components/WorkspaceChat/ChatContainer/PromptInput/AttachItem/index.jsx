@@ -92,9 +92,11 @@ export default function AttachItem({
           showTooltip ? "tooltip-attach-item-btn" : "attach-item-btn"
         }
         data-tooltip-content={
-          !showTooltip ? t("chat_window.attach_file") : undefined
+          !showTooltip
+            ? t("chat_window.controls.upload.description")
+            : undefined
         }
-        aria-label={t("chat_window.attach_file")}
+        aria-label={t("chat_window.controls.upload.description")}
         type="button"
         onClick={handleClick}
         onPointerEnter={fetchFiles}

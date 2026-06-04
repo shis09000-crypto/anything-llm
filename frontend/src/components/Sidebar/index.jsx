@@ -32,7 +32,7 @@ export default function Sidebar() {
   const { user } = useUser();
   const { logo } = useLogo();
   const productName = t("common.productName");
-  const showTextBrand = productName !== "AnythingLLM";
+  const showTextBrand = Boolean(productName);
   const sidebarRef = useRef(null);
   const { showSidebar, setShowSidebar, canToggleSidebar } = useSidebarToggle();
   const {
@@ -109,7 +109,7 @@ export function SidebarMobileHeader() {
   const { t } = useTranslation();
   const { logo } = useLogo();
   const productName = t("common.productName");
-  const showTextBrand = productName !== "AnythingLLM";
+  const showTextBrand = Boolean(productName);
   const sidebarRef = useRef(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showBgOverlay, setShowBgOverlay] = useState(false);

@@ -49,7 +49,7 @@ export default function UserRow({ currUser, user }) {
       !(await showAppConfirm({
         tone: "danger",
         title: "删除用户？",
-        description: `${user.username} 将被登出，并且无法继续使用此 AnythingLLM 实例。此操作无法撤销。`,
+        description: `${user.username} 将被登出，并且无法继续使用此 Athena 实例。此操作无法撤销。`,
         confirmText: "删除",
       }))
     )

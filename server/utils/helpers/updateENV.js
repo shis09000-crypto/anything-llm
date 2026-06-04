@@ -928,6 +928,34 @@ const KEY_MAPPING = {
     envKey: "READER_OCR_MODEL_PREF",
     checks: [isNotEmpty],
   },
+  VisionProvider: {
+    envKey: "VISION_PROVIDER",
+    checks: [
+      (input) =>
+        ["none", "alibaba"].includes(input) ? null : "Invalid vision provider.",
+    ],
+  },
+  VisionApiKey: {
+    envKey: "VISION_API_KEY",
+    checks: [isNotEmpty],
+  },
+  VisionBaseUrl: {
+    envKey: "VISION_BASE_URL",
+    checks: [isNotEmpty, isValidURL],
+  },
+  VisionModelPref: {
+    envKey: "VISION_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
+  VisionToolEnabled: {
+    envKey: "VISION_TOOL_ENABLED",
+    checks: [
+      (input) =>
+        ["true", "false"].includes(String(input))
+          ? null
+          : "Invalid vision tool enabled value.",
+    ],
+  },
 };
 
 const PROVIDER_SETTING_KEYS = [
@@ -1087,6 +1115,11 @@ const PROVIDER_SETTING_KEYS = [
   "ReaderOcrApiKey",
   "ReaderOcrBaseUrl",
   "ReaderOcrModelPref",
+  "VisionProvider",
+  "VisionApiKey",
+  "VisionBaseUrl",
+  "VisionModelPref",
+  "VisionToolEnabled",
 ];
 
 const EXTRA_PROVIDER_ENV_KEYS = [
@@ -1463,7 +1496,7 @@ async function updateENV(newENVs = {}, force = false, userId = null) {
   const runAfterAll = [];
   const validKeys = Object.keys(KEY_MAPPING);
   const ENV_KEYS = Object.keys(newENVs).filter(
-    (key) => validKeys.includes(key) && !newENVs[key].includes("******") // strip out answers where the value is all asterisks
+    (key) => validKeys.includes(key) && !String(newENVs[key]).includes("******") // strip out answers where the value is all asterisks
   );
   const newValues = {};
 

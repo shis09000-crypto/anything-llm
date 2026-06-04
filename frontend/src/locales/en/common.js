@@ -7,7 +7,7 @@ const TRANSLATIONS = {
     llm: {
       title: "LLM Preference",
       description:
-        "AnythingLLM can work with many LLM providers. This will be the service which handles chatting.",
+        "Athena can work with many LLM providers. This will be the service which handles chatting.",
     },
     userSetup: {
       title: "User Setup",
@@ -34,14 +34,14 @@ const TRANSLATIONS = {
         "These settings can be reconfigured at any time in the settings.",
     },
     survey: {
-      title: "Welcome to AnythingLLM",
-      description: "Help us make AnythingLLM built for your needs. Optional.",
+      title: "Welcome to Athena",
+      description: "Help us make Athena built for your needs. Optional.",
       email: "What's your email?",
-      useCase: "What will you use AnythingLLM for?",
+      useCase: "What will you use Athena for?",
       useCaseWork: "For work",
       useCasePersonal: "For personal use",
       useCaseOther: "Other",
-      comment: "How did you hear about AnythingLLM?",
+      comment: "How did you hear about Athena?",
       commentPlaceholder:
         "Reddit, Twitter, GitHub, YouTube, etc. - Let us know how you found us!",
       skip: "Skip Survey",
@@ -49,8 +49,19 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    productName: "AnythingLLM",
-    defaultSiteTitle: "AnythingLLM | Your personal LLM trained on anything",
+    productName: "Athena",
+    defaultSiteTitle: "Athena | Knowledge Operating System",
+    controls: {
+      settings: "Settings",
+      settingsDescription:
+        "Open system settings to adjust appearance, providers, security, and workspace management.",
+      workspaceSettings: "Workspace settings",
+      workspaceSettingsDescription:
+        "Open this workspace's settings to adjust appearance, documents, members, and behavior.",
+      backToWorkspace: "Back to workspaces",
+      showSidebar: "Show sidebar ({{shortcut}})",
+      hideSidebar: "Hide sidebar ({{shortcut}})",
+    },
     clear: "Clear",
     thread: "Thread",
     default: "Default",
@@ -103,6 +114,7 @@ const TRANSLATIONS = {
     embedder: "Embedder",
     reranker: "Rerank Model",
     ocr: "OCR Model",
+    vision: "Vision Model",
     "text-splitting": "Text Splitter & Chunking",
     "batch-jobs": "Batch Jobs",
     "voice-speech": "Voice & Speech",
@@ -127,7 +139,7 @@ const TRANSLATIONS = {
     "experimental-features": "Experimental Features",
     contact: "Contact Support",
     "browser-extension": "Browser Extension",
-    "mobile-app": "AnythingLLM Mobile",
+    "mobile-app": "Athena Mobile",
     channels: "Channels",
     "available-channels": {
       telegram: "Telegram Connector",
@@ -195,7 +207,7 @@ const TRANSLATIONS = {
       },
       normal: {
         label: "Standard",
-        description: "The default AnythingLLM reading size.",
+        description: "The default Athena reading size.",
       },
       large: {
         label: "Large",
@@ -411,7 +423,7 @@ const readable = true;
     tos: {
       title: "Terms of use for experimental features",
       introStart:
-        "Experimental features of AnythingLLM are features that we are piloting and are",
+        "Experimental features of Athena are features that we are piloting and are",
       introSeparator: " ",
       optIn: "opt-in",
       optInSuffix: ".",
@@ -425,7 +437,7 @@ const readable = true;
         storageIncrease: "Increased storage.",
         resourceIncrease: "Increased resource consumption.",
         cost: "Increased cost or use of any connected LLM or embedding provider.",
-        bugs: "Potential bugs or issues using AnythingLLM.",
+        bugs: "Potential bugs or issues using Athena.",
       },
       conditionsIntro:
         "Use of an experimental feature also comes with the following list of non-exhaustive conditions.",
@@ -433,7 +445,7 @@ const readable = true;
         futureRemoval: "Feature may not exist in future updates.",
         unstable: "The feature being used is not currently stable.",
         availability:
-          "The feature may not be available in future versions, configurations, or subscriptions of AnythingLLM.",
+          "The feature may not be available in future versions, configurations, or subscriptions of Athena.",
         privacyStart: "Your privacy settings",
         privacySeparator: " ",
         privacyBold: "will be honored",
@@ -450,7 +462,7 @@ const readable = true;
       navTitle: "Live Document Sync",
       title: "Automatic Document Content Sync",
       description:
-        'Enable the ability to specify a document to be "watched". Watched document\'s content will be regularly fetched and updated in AnythingLLM.',
+        'Enable the ability to specify a document to be "watched". Watched document\'s content will be regularly fetched and updated in Athena.',
       workspaceUpdate:
         "Watched documents will automatically update in all workspaces they are referenced in at the same time of update.",
       webOnly:
@@ -481,13 +493,13 @@ const readable = true;
     stt: {
       title: "Speech-to-text Preference",
       description:
-        "Here you can specify what kind of text-to-speech and speech-to-text providers you would want to use in your AnythingLLM experience. By default, we use the browser's built in support for these services, but you may want to use others.",
+        "Here you can specify what kind of text-to-speech and speech-to-text providers you would want to use in your Athena experience. By default, we use the browser's built in support for these services, but you may want to use others.",
       searchPlaceholder: "Search speech to text providers",
     },
     tts: {
       title: "Text-to-speech Preference",
       description:
-        "Here you can specify what kind of text-to-speech providers you would want to use in your AnythingLLM experience. By default, we use the browser's built in support for these services, but you may want to use others.",
+        "Here you can specify what kind of text-to-speech providers you would want to use in your Athena experience. By default, we use the browser's built in support for these services, but you may want to use others.",
       searchPlaceholder: "Search text to speech providers",
     },
     provider: "Provider",
@@ -604,7 +616,7 @@ const readable = true;
       add: "Add new message",
       save: "Save Messages",
       heading: "Explain to me",
-      body: "the benefits of AnythingLLM",
+      body: "the benefits of Athena",
     },
     delete: {
       title: "Delete Workspace",
@@ -1187,7 +1199,7 @@ const readable = true;
         title: "Intelligent Skill Selection",
         "beta-badge": "Beta",
         description:
-          "Enable unlimited tools and cut token usage by up to 80% per query — AnythingLLM automatically selects the right skills for every prompt.",
+          "Enable unlimited tools and cut token usage by up to 80% per query — Athena automatically selects the right skills for every prompt.",
         "max-tools": {
           title: "Max Tools",
           description:
@@ -1213,16 +1225,15 @@ const readable = true;
   customization: {
     interface: {
       title: "UI Preferences",
-      description: "Set your UI preferences for AnythingLLM.",
+      description: "Set your UI preferences for Athena.",
     },
     branding: {
       title: "Branding & Whitelabeling",
-      description:
-        "White-label your AnythingLLM instance with custom branding.",
+      description: "White-label your Athena instance with custom branding.",
     },
     chat: {
       title: "Chat",
-      description: "Set your chat preferences for AnythingLLM.",
+      description: "Set your chat preferences for Athena.",
       auto_submit: {
         title: "Auto-Submit Speech Input",
         description:
@@ -1297,7 +1308,7 @@ const readable = true;
       "display-language": {
         title: "Display Language",
         description:
-          "Select the preferred language to render AnythingLLM's UI in - when translations are available.",
+          "Select the preferred language to render Athena's UI in - when translations are available.",
       },
       logo: {
         title: "Brand Logo",
@@ -1338,7 +1349,7 @@ const readable = true;
   api: {
     title: "API Keys",
     description:
-      "API keys allow the holder to programmatically access and manage this AnythingLLM instance.",
+      "API keys allow the holder to programmatically access and manage this Athena instance.",
     link: "Read the API documentation",
     generate: "Generate New API Key",
     empty: "No API keys found",
@@ -1352,7 +1363,7 @@ const readable = true;
       close: "Close",
       create: "Create API Key",
       helper:
-        "Once created the API key can be used to programmatically access and configure this AnythingLLM instance.",
+        "Once created the API key can be used to programmatically access and configure this Athena instance.",
       name: {
         label: "Name",
         placeholder: "Production integration",
@@ -1385,7 +1396,7 @@ const readable = true;
       native: {
         name: "Built-in Reranker",
         description:
-          "Use the local system reranker included with AnythingLLM. No API key or hosted endpoint is required.",
+          "Use the local system reranker included with Athena. No API key or hosted endpoint is required.",
       },
       alibaba: {
         name: "Alibaba DashScope",
@@ -1428,10 +1439,45 @@ const readable = true;
     saved: "OCR model settings saved.",
     saveError: "Failed to save OCR model settings: {{error}}",
   },
+  vision: {
+    title: "Vision Model Preference",
+    description:
+      "Configure the provider and model used for hosted visual understanding tasks.",
+    provider: "Vision Provider",
+    providerHint:
+      "Hosted vision is disabled by default. Select Alibaba Cloud DashScope only after you have a DashScope API key and want to configure a vision model.",
+    providers: {
+      none: {
+        name: "None",
+        description:
+          "Do not use a hosted vision model. Visual understanding calls remain unconfigured.",
+      },
+      alibaba: {
+        name: "Alibaba DashScope",
+        description:
+          "Use Alibaba Cloud DashScope Qwen VL models for visual understanding.",
+      },
+    },
+    model: "Vision Model",
+    noneHelp:
+      "No hosted vision model is configured. This only controls the global vision model preference and does not change OCR or chat behavior by itself.",
+    help: "Alibaba DashScope vision uses the OpenAI-compatible endpoint. Provide your DashScope API Key, Base URL, and model name.",
+    toolToggle: {
+      label: "Enable image pre-analysis",
+      description:
+        "When chat messages include images, analyze them first with the vision model and send the analysis to the main chat model.",
+      disabledDescription:
+        "This can stay on, but image pre-analysis only runs after Alibaba DashScope is configured.",
+    },
+    save: "Save changes",
+    saving: "Saving...",
+    saved: "Vision model settings saved.",
+    saveError: "Failed to save vision model settings: {{error}}",
+  },
   llm: {
     title: "LLM Preference",
     description:
-      "These are the credentials and settings for your preferred LLM chat & embedding provider. It is important that these keys are current and correct, or else AnythingLLM will not function properly.",
+      "These are the credentials and settings for your preferred LLM chat & embedding provider. It is important that these keys are current and correct, or else Athena will not function properly.",
     provider: "LLM Provider",
     providers: {
       azure_openai: {
@@ -1454,7 +1500,7 @@ const readable = true;
     applying: "Applying...",
     imported_status: "Imported from environment variables",
     success_toast:
-      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR configuration",
+      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR + Ali vision configuration",
   },
   transcription: {
     title: "Transcription Model Preference",
@@ -1462,20 +1508,20 @@ const readable = true;
       "These are the credentials and settings for your preferred transcription model provider. Its important these keys are current and correct or else media files and audio will not transcribe.",
     provider: "Transcription Provider",
     "warn-start":
-      "Using the local whisper model on machines with limited RAM or CPU can stall AnythingLLM when processing media files.",
+      "Using the local whisper model on machines with limited RAM or CPU can stall Athena when processing media files.",
     "warn-recommend":
       "We recommend at least 2GB of RAM and upload files <10Mb.",
     "warn-end":
       "The built-in model will automatically download on the first use.",
   },
   embedding: {
-    title: "Embedding Preference",
+    title: "Vector Engine",
     "desc-start":
-      "When using an LLM that does not natively support an embedding engine - you may need to additionally specify credentials for embedding text.",
+      "Athena Vector Engine turns documents, conversations, and knowledge into semantic vectors for retrieval.",
     "desc-end":
-      "Embedding is the process of turning text into vectors. These credentials are required to turn your files and prompts into a format which AnythingLLM can use to process.",
+      "Configure the embedding provider that powers indexing, semantic search, and retrieval across Athena.",
     provider: {
-      title: "Embedding Provider",
+      title: "Vector Engine Provider",
     },
     "document-mode": {
       title: "Document Embedding Mode",
@@ -1489,7 +1535,7 @@ const readable = true;
         description:
           "Files are submitted as asynchronous batch jobs. Cost is lower, but documents are searchable only after completion.",
       },
-      note: "This setting only affects document ingestion and workspace embedding rebuilds. Chat, search, and RAG queries always use direct real-time embeddings.",
+      note: "This setting only affects document ingestion and workspace embedding rebuilds. Athena Search and RAG queries always use direct real-time embeddings.",
     },
   },
   "batch-jobs": {
@@ -1544,11 +1590,11 @@ const readable = true;
     },
   },
   vector: {
-    title: "Vector Database",
+    title: "Vector Engine Storage",
     description:
-      "These are the credentials and settings for how your AnythingLLM instance will function. It's important these keys are current and correct.",
+      "Configure where Athena Vector Engine stores semantic vectors for retrieval and reasoning.",
     provider: {
-      title: "Vector Database Provider",
+      title: "Vector Storage Provider",
       description: "There is no configuration needed for LanceDB.",
     },
   },
@@ -1580,7 +1626,7 @@ const readable = true;
   telegram: {
     title: "Telegram Bot",
     description:
-      "Connect your AnythingLLM instance to Telegram so you can chat with your workspaces from any device.",
+      "Connect your Athena instance to Telegram so you can chat with your workspaces from any device.",
     setup: {
       step1: {
         title: "Step 1: Create your Telegram bot",
@@ -1646,7 +1692,7 @@ const readable = true;
     enabled: {
       title: "Enable WeChat Connector",
       description:
-        "Allow this AnythingLLM instance to use the WeChat connector when an official bridge is configured.",
+        "Allow this Athena instance to use the WeChat connector when an official bridge is configured.",
     },
     qr: {
       placeholder: "Generate a QR code and scan it with WeChat to connect.",
@@ -1712,11 +1758,11 @@ const readable = true;
     notes: {
       title: "Gateway security notes",
       "api-secret":
-        "API Secret is used by external Gateways to generate HMAC signatures for AnythingLLM webhooks.",
+        "API Secret is used by external Gateways to generate HMAC signatures for Athena webhooks.",
       "gateway-url":
         "Gateway URL is currently recorded as the address of your external Gateway service.",
       "no-wechat-state":
-        "WeChat login state, cookies, tokens, and local credentials are not stored in AnythingLLM.",
+        "WeChat login state, cookies, tokens, and local credentials are not stored in Athena.",
       "external-gateway":
         "Real WeChat login, message receiving, and message sending are handled by your external Gateway, Clawbot, or OpenClaw WeChat plugin.",
     },
@@ -1755,7 +1801,7 @@ const readable = true;
     password: {
       title: "Password Protection",
       description:
-        "Protect your AnythingLLM instance with a password. If you forget this there is no recovery method so ensure you save this password.",
+        "Protect your Athena instance with a password. If you forget this there is no recovery method so ensure you save this password.",
       "password-label": "Instance Password",
     },
   },
@@ -1773,7 +1819,7 @@ const readable = true;
   privacy: {
     title: "Privacy & Data-Handling",
     description:
-      "This is your configuration for how connected third party providers and AnythingLLM handle your data.",
+      "This is your configuration for how connected third party providers and Athena handle your data.",
     anonymous: "Anonymous Telemetry Enabled",
   },
   connectors: {
@@ -1952,22 +1998,22 @@ const readable = true;
       fetching: "Fetching...",
       "fetch-website": "Fetch website",
       "privacy-notice":
-        "These files will be uploaded to the document processor running on this AnythingLLM instance. These files are not sent or shared with a third party.",
+        "These files will be uploaded to the document processor running on this Athena instance. These files are not sent or shared with a third party.",
     },
     pinning: {
       what_pinning: "What is document pinning?",
       pin_explained_block1:
-        "When you <b>pin</b> a document in AnythingLLM we will inject the entire content of the document into your prompt window for your LLM to fully comprehend.",
+        "When you <b>pin</b> a document in Athena we will inject the entire content of the document into your prompt window for your LLM to fully comprehend.",
       pin_explained_block2:
         "This works best with <b>large-context models</b> or small files that are critical to its knowledge-base.",
       pin_explained_block3:
-        "If you are not getting the answers you desire from AnythingLLM by default then pinning is a great way to get higher quality answers in a click.",
+        "If you are not getting the answers you desire from Athena by default then pinning is a great way to get higher quality answers in a click.",
       accept: "Okay, got it",
     },
     watching: {
       what_watching: "What does watching a document do?",
       watch_explained_block1:
-        "When you <b>watch</b> a document in AnythingLLM we will <i>automatically</i> sync your document content from it's original source on regular intervals. This will automatically update the content in every workspace where this file is managed.",
+        "When you <b>watch</b> a document in Athena we will <i>automatically</i> sync your document content from it's original source on regular intervals. This will automatically update the content in every workspace where this file is managed.",
       watch_explained_block2:
         "This feature currently supports online-based content and will not be available for manually uploaded documents.",
       watch_explained_block3_start:
@@ -1981,7 +2027,51 @@ const readable = true;
     attachments_processing: "Attachments are processing. Please wait...",
     ocr_processing: "OCR recognition is processing. Please wait...",
     send_message: "Send a message",
-    attach_file: "Attach a file to this chat",
+    attach_file: "Upload or attach a file to this chat.",
+    controls: {
+      upload: {
+        label: "Upload",
+        description:
+          "Upload or attach files. Images stay with this chat; supported documents can also be indexed for workspace knowledge.",
+        workspaceLabel: "Upload document",
+        workspaceDescription:
+          "Upload documents into this workspace so Athena can organize and retrieve them later.",
+      },
+      quizMode: {
+        label: "Test",
+        description:
+          "Enable test mode for the next message. Athena will prepare quiz-style questions from your prompt.",
+        activeDescription:
+          "Test mode is active. Your next message will generate quiz-style questions.",
+      },
+      fileAccess: {
+        label: "File access mode",
+        globalDefault: "Global default",
+        modes: {
+          sandbox: {
+            label: "Sandbox mode",
+            description:
+              "Only allows access to files inside the project workspace.",
+          },
+          authorized: {
+            label: "Authorized mode",
+            description:
+              "Allows access to approved local folders such as Desktop, Documents, and Downloads.",
+          },
+          open: {
+            label: "Full open mode",
+            description:
+              "Allows broad local file and terminal access after approval. Use with care.",
+          },
+        },
+        openConfirm: {
+          title: "Enable full open file access?",
+          description:
+            "Full open mode grants broader local file access and may allow shell commands after approval.",
+          confirm: "Continue",
+        },
+      },
+    },
     text_size: "Change text size.",
     microphone: "Speak your prompt.",
     send: "Send prompt message to workspace",
@@ -2246,7 +2336,7 @@ const readable = true;
         unauthenticated: {
           title: "Authentication Required",
           description:
-            "You need to authenticate with the AnythingLLM Community Hub before publishing items.",
+            "You need to authenticate with the Athena Community Hub before publishing items.",
           button: "Connect to Community Hub",
         },
       },

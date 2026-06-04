@@ -7,7 +7,7 @@ const { Workspace } = require("../../models/workspace");
 
 /**
  * In-memory cache for attachments associated with agent invocations.
- * Attachments are stored here when grepAgents creates an invocation,
+ * Attachment payloads are stored here when grepAgents creates an invocation,
  * then retrieved by AgentHandler when the websocket connects.
  * @type {Map<string, Array>}
  */
@@ -17,21 +17,41 @@ const invocationFileAccessCache = new Map();
 /**
  * Store attachments for an invocation UUID
  * @param {string} uuid - The invocation UUID
- * @param {Array} attachments - The attachments array
+ * @param {object} payload - Attachment payload for this invocation
+ * @param {Array} payload.llmAttachments - Attachments passed to the agent model
+ * @param {Array} payload.displayAttachments - Attachments stored in chat history
+ * @param {string|null} payload.displayPrompt - Prompt stored in chat history
+ * @param {string|null} payload.visionAnalysisContext - Vision analysis stored with chat history
  */
-function cacheInvocationAttachments(uuid, attachments = []) {
-  if (attachments.length > 0) {
-    invocationAttachmentsCache.set(uuid, attachments);
-  }
+function cacheInvocationAttachments(
+  uuid,
+  {
+    llmAttachments = [],
+    displayAttachments = llmAttachments,
+    displayPrompt = null,
+    visionAnalysisContext = null,
+  } = {}
+) {
+  invocationAttachmentsCache.set(uuid, {
+    llmAttachments,
+    displayAttachments,
+    displayPrompt,
+    visionAnalysisContext,
+  });
 }
 
 /**
  * Retrieve and remove attachments for an invocation UUID
  * @param {string} uuid - The invocation UUID
- * @returns {Array} The attachments array (empty if none cached)
+ * @returns {{llmAttachments: Array, displayAttachments: Array, displayPrompt: string|null, visionAnalysisContext: string|null}}
  */
 function getAndClearInvocationAttachments(uuid) {
-  const attachments = invocationAttachmentsCache.get(uuid) || [];
+  const attachments = invocationAttachmentsCache.get(uuid) || {
+    llmAttachments: [],
+    displayAttachments: [],
+    displayPrompt: null,
+    visionAnalysisContext: null,
+  };
   invocationAttachmentsCache.delete(uuid);
   return attachments;
 }
@@ -56,6 +76,9 @@ async function grepAgents({
   user = null,
   thread = null,
   attachments = [],
+  displayAttachments = attachments,
+  displayPrompt = null,
+  visionAnalysisContext = null,
   fileAccess = {},
 }) {
   let nativeToolingEnabled = false;
@@ -93,7 +116,12 @@ async function grepAgents({
     }
 
     // Cache attachments for the websocket handler to retrieve later
-    cacheInvocationAttachments(newInvocation.uuid, attachments);
+    cacheInvocationAttachments(newInvocation.uuid, {
+      llmAttachments: attachments,
+      displayAttachments,
+      displayPrompt,
+      visionAnalysisContext,
+    });
     cacheInvocationFileAccess(newInvocation.uuid, fileAccess);
 
     writeResponseChunk(response, {

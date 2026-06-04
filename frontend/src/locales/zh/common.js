@@ -8,7 +8,7 @@ const TRANSLATIONS = {
     llm: {
       title: "LLM 偏好",
       description:
-        "向量知识库可以与多家 LLM 提供商配合使用。这将是处理聊天的服务。",
+        "Athena可以与多家 LLM 提供商配合使用。这将是处理聊天的服务。",
     },
     userSetup: {
       title: "用户设置",
@@ -32,14 +32,14 @@ const TRANSLATIONS = {
       settingsHint: "这些设置可以随时在设置中重新配置。",
     },
     survey: {
-      title: "欢迎使用向量知识库",
-      description: "帮助我们根据你的需求打造向量知识库。可选。",
+      title: "欢迎使用Athena",
+      description: "帮助我们根据你的需求打造Athena。可选。",
       email: "你的电子邮件是什么？",
-      useCase: "你将如何使用向量知识库？",
+      useCase: "你将如何使用Athena？",
       useCaseWork: "用于工作",
       useCasePersonal: "用于个人使用",
       useCaseOther: "其他",
-      comment: "你是如何听说向量知识库的？",
+      comment: "你是如何听说Athena的？",
       commentPlaceholder:
         "Reddit，Twitter，GitHub，YouTube 等 - 让我们知道你是如何找到我们的！",
       skip: "跳过调查",
@@ -47,8 +47,19 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    productName: "向量知识库",
-    defaultSiteTitle: "向量知识库",
+    productName: "Athena",
+    defaultSiteTitle: "Athena | 知识操作系统",
+    controls: {
+      settings: "设置",
+      settingsDescription:
+        "打开系统设置，调整界面、模型提供商、安全和工作区管理等配置。",
+      workspaceSettings: "工作区设置",
+      workspaceSettingsDescription:
+        "打开此工作区设置，调整外观、文档、成员和行为配置。",
+      backToWorkspace: "返回工作区",
+      showSidebar: "展开侧边栏（{{shortcut}}）",
+      hideSidebar: "关闭侧边栏（{{shortcut}}）",
+    },
     clear: "清除",
     thread: "线程",
     default: "默认",
@@ -94,6 +105,7 @@ const TRANSLATIONS = {
     embedder: "嵌入器（Embedder）",
     reranker: "重排模型（Rerank）",
     ocr: "OCR 模型",
+    vision: "视觉模型",
     "text-splitting": "文本分割",
     "batch-jobs": "批处理任务",
     "voice-speech": "语音和讲话",
@@ -111,7 +123,7 @@ const TRANSLATIONS = {
     "browser-extension": "浏览器扩展",
     "system-prompt-variables": "系统提示变量",
     "default-system-prompt": "默认系统提示词",
-    "mobile-app": "AnythingLLM 移动版",
+    "mobile-app": "Athena 移动版",
     "community-hub": {
       title: "社区中心",
       trending: "探索热门",
@@ -183,7 +195,7 @@ const TRANSLATIONS = {
       },
       normal: {
         label: "标准",
-        description: "AnythingLLM 默认阅读大小。",
+        description: "Athena 默认阅读大小。",
       },
       large: {
         label: "大号",
@@ -386,7 +398,7 @@ const readable = true;
     },
     tos: {
       title: "实验功能使用条款",
-      introStart: "AnythingLLM 的实验功能是我们正在试运行的功能，并且需要",
+      introStart: "Athena 的实验功能是我们正在试运行的功能，并且需要",
       introSeparator: "",
       optIn: "主动选择启用",
       optInSuffix: "。",
@@ -399,14 +411,14 @@ const readable = true;
         storageIncrease: "存储占用增加。",
         resourceIncrease: "资源消耗增加。",
         cost: "任何已连接的 LLM 或嵌入模型提供商的费用或使用量增加。",
-        bugs: "使用 AnythingLLM 时可能出现错误或问题。",
+        bugs: "使用 Athena 时可能出现错误或问题。",
       },
       conditionsIntro: "使用实验功能还附带以下非穷尽条件。",
       conditions: {
         futureRemoval: "该功能未来更新中可能不再存在。",
         unstable: "正在使用的功能目前并不稳定。",
         availability:
-          "该功能未来可能无法在某些版本、配置或 AnythingLLM 订阅中使用。",
+          "该功能未来可能无法在某些版本、配置或 Athena 订阅中使用。",
         privacyStart: "使用任何测试功能时，你的隐私设置",
         privacySeparator: "",
         privacyBold: "都会得到遵守",
@@ -423,7 +435,7 @@ const readable = true;
       navTitle: "实时文档同步",
       title: "自动文档内容同步",
       description:
-        "启用后可以指定要“监视”的文档。被监视文档的内容会定期获取并更新到 AnythingLLM。",
+        "启用后可以指定要“监视”的文档。被监视文档的内容会定期获取并更新到 Athena。",
       workspaceUpdate: "被监视的文档会在更新时同步更新到所有引用它们的工作区。",
       webOnly:
         "此功能仅适用于基于 Web 的内容，例如网站、Confluence、YouTube 和 GitHub 文件。",
@@ -453,13 +465,13 @@ const readable = true;
     stt: {
       title: "语音转文本偏好",
       description:
-        "在这里可以指定你希望在 AnythingLLM 体验中使用哪种文本转语音和语音转文本提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
+        "在这里可以指定你希望在 Athena 体验中使用哪种文本转语音和语音转文本提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
       searchPlaceholder: "搜索语音转文本提供商",
     },
     tts: {
       title: "文本转语音偏好",
       description:
-        "在这里可以指定你希望在 AnythingLLM 体验中使用哪种文本转语音提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
+        "在这里可以指定你希望在 Athena 体验中使用哪种文本转语音提供商。默认情况下，我们使用浏览器内置的这些服务支持，但你也可以使用其他提供商。",
       searchPlaceholder: "搜索文本转语音提供商",
     },
     provider: "提供商",
@@ -567,7 +579,7 @@ const readable = true;
       add: "添加新消息",
       save: "保存消息",
       heading: "向我解释",
-      body: "向量知识库的好处",
+      body: "Athena的好处",
     },
     delete: {
       title: "删除工作区",
@@ -1119,7 +1131,7 @@ const readable = true;
         title: "智能技能选择",
         "beta-badge": "β 版本",
         description:
-          "实现无限工具调用，并将每次查询的 Token 使用量最高减少 80%——向量知识库能够为每个提示自动选择最合适的技能。",
+          "实现无限工具调用，并将每次查询的 Token 使用量最高减少 80%——Athena能够为每个提示自动选择最合适的技能。",
         "max-tools": {
           title: "麦克斯工具",
           description:
@@ -1144,15 +1156,15 @@ const readable = true;
   customization: {
     interface: {
       title: "界面偏好设置",
-      description: "设置您的向量知识库界面偏好。",
+      description: "设置您的Athena界面偏好。",
     },
     branding: {
       title: "品牌与白标设置",
-      description: "使用自定义品牌对白标您的向量知识库实例。",
+      description: "使用自定义品牌对白标您的Athena实例。",
     },
     chat: {
       title: "聊天",
-      description: "设置您的向量知识库聊天偏好。",
+      description: "设置您的Athena聊天偏好。",
       auto_submit: {
         title: "自动提交语音输入",
         description: "在静音一段时间后自动提交语音输入",
@@ -1219,7 +1231,7 @@ const readable = true;
       },
       "display-language": {
         title: "显示语言",
-        description: "选择显示向量知识库界面所用的语言（若有翻译可用）。",
+        description: "选择显示Athena界面所用的语言（若有翻译可用）。",
       },
       logo: {
         title: "品牌标志",
@@ -1256,7 +1268,7 @@ const readable = true;
   },
   api: {
     title: "API 密钥",
-    description: "API 密钥允许持有者以编程方式访问和管理此向量知识库实例。",
+    description: "API 密钥允许持有者以编程方式访问和管理此Athena实例。",
     link: "阅读 API 文档",
     generate: "生成新的 API 密钥",
     empty: "未找到 API 密钥",
@@ -1269,7 +1281,7 @@ const readable = true;
       cancel: "取消",
       close: "关闭",
       create: "创建 API 密钥",
-      helper: "创建后，API 密钥可用于以编程方式访问并配置此向量知识库实例。",
+      helper: "创建后，API 密钥可用于以编程方式访问并配置此Athena实例。",
       name: {
         label: "名称",
         placeholder: "生产环境集成",
@@ -1301,7 +1313,7 @@ const readable = true;
       native: {
         name: "系统自带重排",
         description:
-          "使用向量知识库内置的本地重排模型，不需要 API Key 或托管接口。",
+          "使用Athena内置的本地重排模型，不需要 API Key 或托管接口。",
       },
       alibaba: {
         name: "阿里百炼 DashScope",
@@ -1340,10 +1352,42 @@ const readable = true;
     saved: "OCR 模型设置已保存。",
     saveError: "OCR 模型设置保存失败：{{error}}",
   },
+  vision: {
+    title: "视觉模型首选项",
+    description: "配置用于视觉理解任务的托管视觉模型提供商和模型。",
+    provider: "视觉模型提供商",
+    providerHint:
+      "默认不启用托管视觉模型。只有在已准备好 DashScope API Key，并希望配置阿里视觉模型时，再切换到阿里百炼。",
+    providers: {
+      none: {
+        name: "无",
+        description: "不使用托管视觉模型。视觉理解调用会保持未配置状态。",
+      },
+      alibaba: {
+        name: "阿里百炼 DashScope",
+        description: "使用阿里云 DashScope Qwen VL 模型进行视觉理解。",
+      },
+    },
+    model: "视觉模型",
+    noneHelp:
+      "当前没有配置托管视觉模型。这里仅控制全局视觉模型首选项，不会单独改变 OCR 或聊天行为。",
+    help: "阿里百炼视觉模型会使用 DashScope OpenAI-compatible 接口。请填写 DashScope API Key、Base URL 和模型名。",
+    toolToggle: {
+      label: "启用图片预分析",
+      description:
+        "当聊天消息包含图片时，先用视觉模型分析图片，再把分析结果交给主会话模型。",
+      disabledDescription:
+        "可以保持开启，但只有配置阿里百炼后才会实际执行图片预分析。",
+    },
+    save: "保存更改",
+    saving: "正在保存...",
+    saved: "视觉模型设置已保存。",
+    saveError: "视觉模型设置保存失败：{{error}}",
+  },
   llm: {
     title: "LLM 首选项",
     description:
-      "这些是你首选的 LLM 聊天和嵌入提供商的凭据和设置。请确保这些密钥保持最新且正确，否则向量知识库将无法正常运行。",
+      "这些是你首选的 LLM 聊天和嵌入提供商的凭据和设置。请确保这些密钥保持最新且正确，否则Athena将无法正常运行。",
     provider: "LLM 提供商",
     providers: {
       azure_openai: {
@@ -1366,7 +1410,7 @@ const readable = true;
     applying: "正在应用...",
     imported_status: "已从环境变量导入",
     success_toast:
-      "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 + 阿里 OCR 配置",
+      "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 + 阿里 OCR + 阿里视觉模型配置",
   },
   transcription: {
     title: "转录模型首选项",
@@ -1374,18 +1418,17 @@ const readable = true;
       "这些是你的首选转录模型提供商的凭据和设置。重要的是这些密钥是最新且正确的，否则媒体文件和音频将无法转录。",
     provider: "转录提供商",
     "warn-start":
-      "在 RAM 或 CPU 有限的计算机上使用本地 Whisper 模型时，向量知识库可能会在处理媒体文件时卡住。",
+      "在 RAM 或 CPU 有限的计算机上使用本地 Whisper 模型时，Athena可能会在处理媒体文件时卡住。",
     "warn-recommend": "我们建议至少 2GB RAM 并上传 <10Mb 的文件。",
     "warn-end": "内置模型将在首次使用时自动下载。",
   },
   embedding: {
-    title: "嵌入首选项",
+    title: "Vector Engine",
     "desc-start":
-      "当使用本身不支持嵌入引擎的 LLM 时，你可能需要额外指定用于嵌入文本的凭据。",
-    "desc-end":
-      "嵌入是将文本转换为向量的过程。需要这些凭据才能将你的文件和提示转换为向量知识库可以用来处理的格式。",
+      "Athena Vector Engine 将文档、对话和知识内容转化为可检索的语义向量。",
+    "desc-end": "在这里配置支撑索引、语义搜索和知识检索的 embedding 提供商。",
     provider: {
-      title: "嵌入引擎提供商",
+      title: "Vector Engine 提供商",
     },
     "document-mode": {
       title: "文档向量化模式",
@@ -1450,11 +1493,11 @@ const readable = true;
     },
   },
   vector: {
-    title: "向量数据库",
+    title: "Vector Engine 存储",
     description:
-      "这些是向量知识库实例运行所需的凭据和设置。请确保这些密钥保持最新且正确。",
+      "配置 Athena Vector Engine 存储语义向量的位置，为检索与推理提供基础。",
     provider: {
-      title: "向量数据库提供商",
+      title: "向量存储提供商",
       description: "LanceDB 不需要任何配置。",
     },
   },
@@ -1494,7 +1537,7 @@ const readable = true;
   },
   privacy: {
     title: "隐私和数据处理",
-    description: "这是你对连接的第三方提供商和向量知识库如何处理数据的配置。",
+    description: "这是你对连接的第三方提供商和Athena如何处理数据的配置。",
     anonymous: "启用匿名遥测",
   },
   connectors: {
@@ -1648,22 +1691,22 @@ const readable = true;
       fetching: "正在获取...",
       "fetch-website": "获取网站",
       "privacy-notice":
-        "这些文件将被上传到此向量知识库实例上的文档处理器。这些文件不会发送或共享给第三方。",
+        "这些文件将被上传到此Athena实例上的文档处理器。这些文件不会发送或共享给第三方。",
     },
     pinning: {
       what_pinning: "什么是文档固定？",
       pin_explained_block1:
-        "当您在向量知识库中<b>固定</b>一个文档时，我们会将整个文档内容注入到您的提示窗口中，让 LLM 能够完全理解它。",
+        "当您在Athena中<b>固定</b>一个文档时，我们会将整个文档内容注入到您的提示窗口中，让 LLM 能够完全理解它。",
       pin_explained_block2:
         "这在 <b>大上下文模型</b> 或关键的小文件中效果最佳。",
       pin_explained_block3:
-        "如果默认情况下无法从向量知识库获取满意的答案，固定文档是提高答案质量的好方法。",
+        "如果默认情况下无法从Athena获取满意的答案，固定文档是提高答案质量的好方法。",
       accept: "好的，知道了",
     },
     watching: {
       what_watching: "什么是监控文档？",
       watch_explained_block1:
-        "当您在向量知识库中<b>监控</b>一个文档时，我们会<i>自动</i>按定期间隔从其原始来源同步文档内容。系统会自动更新所有使用该文档的工作区中的内容。",
+        "当您在Athena中<b>监控</b>一个文档时，我们会<i>自动</i>按定期间隔从其原始来源同步文档内容。系统会自动更新所有使用该文档的工作区中的内容。",
       watch_explained_block2:
         "此功能当前仅支持在线内容，不适用于手动上传的文档。",
       watch_explained_block3_start: "您可以在 ",
@@ -1684,7 +1727,48 @@ const readable = true;
   },
   chat_window: {
     send_message: "发送消息",
-    attach_file: "向此对话附加文件",
+    attach_file: "上传或附加文件到当前对话。",
+    controls: {
+      upload: {
+        label: "上传",
+        description:
+          "上传或附加文件。图片仅随本次对话使用，支持的文档也可以进入工作区知识库。",
+        workspaceLabel: "上传文档",
+        workspaceDescription:
+          "上传文档到当前工作区，方便 Athena 后续组织、检索和引用。",
+      },
+      quizMode: {
+        label: "测试",
+        description:
+          "开启测试模式。下一条消息会让 Athena 根据你的提示生成测验题。",
+        activeDescription: "测试模式已开启。下一条消息将生成测验题。",
+      },
+      fileAccess: {
+        label: "文件访问模式",
+        globalDefault: "全局默认",
+        modes: {
+          sandbox: {
+            label: "沙盒模式",
+            description: "仅允许访问项目工作区内部文件。",
+          },
+          authorized: {
+            label: "授权模式",
+            description: "允许访问已授权的本地目录，例如桌面、文稿和下载。",
+          },
+          open: {
+            label: "完全开放模式",
+            description:
+              "在确认后允许更广泛的本机文件和终端访问，风险较高，请谨慎使用。",
+          },
+        },
+        openConfirm: {
+          title: "开启完全开放文件访问？",
+          description:
+            "完全开放模式会授予更宽的本地文件访问权限，并可能在批准后执行 shell 命令。",
+          confirm: "继续",
+        },
+      },
+    },
     text_size: "更改文字大小。",
     microphone: "语音输入你的提示。",
     send: "将提示消息发送到工作区",
@@ -1916,8 +2000,7 @@ const readable = true;
       generic: {
         unauthenticated: {
           title: "需要验证",
-          description:
-            "在发布项目之前，您需要通过 AnythingLLM 社区中心进行验证。",
+          description: "在发布项目之前，您需要通过 Athena 社区中心进行验证。",
           button: "连接到社区中心",
         },
       },
@@ -1965,7 +2048,7 @@ const readable = true;
     password: {
       title: "密码保护",
       description:
-        "用密码保护你的向量知识库实例。如果你忘记了密码，将无法恢复，所以请务必保存好这个密码。",
+        "用密码保护你的Athena实例。如果你忘记了密码，将无法恢复，所以请务必保存好这个密码。",
       "password-label": "实例密码",
     },
   },
@@ -1979,7 +2062,7 @@ const readable = true;
   telegram: {
     title: "Telegram 机器人",
     description:
-      "将您的向量知识库实例与 Telegram 连接起来，这样您就可以从任何设备与您的工作空间进行聊天。",
+      "将您的Athena实例与 Telegram 连接起来，这样您就可以从任何设备与您的工作空间进行聊天。",
     setup: {
       step1: {
         title: "第一步：创建您的 Telegram 机器人",
@@ -2042,8 +2125,7 @@ const readable = true;
     description: "通过腾讯官方 OpenClaw Weixin 二维码扫码连接微信。",
     enabled: {
       title: "启用微信连接器",
-      description:
-        "在配置官方桥接能力后，允许当前 AnythingLLM 实例使用微信连接器。",
+      description: "在配置官方桥接能力后，允许当前 Athena 实例使用微信连接器。",
     },
     qr: {
       placeholder: "生成二维码后，用微信扫码完成连接。",
@@ -2104,10 +2186,10 @@ const readable = true;
     notes: {
       title: "Gateway 安全说明",
       "api-secret":
-        "API Secret 用于外部 Gateway 调用 AnythingLLM webhook 时生成 HMAC 签名。",
+        "API Secret 用于外部 Gateway 调用 Athena webhook 时生成 HMAC 签名。",
       "gateway-url": "Gateway URL 当前用于记录外部 Gateway 服务地址。",
       "no-wechat-state":
-        "微信登录态、cookie、token 和本地凭证不会保存在 AnythingLLM 中。",
+        "微信登录态、cookie、token 和本地凭证不会保存在 Athena 中。",
       "external-gateway":
         "真实微信登录、消息接收和消息发送由外部 Gateway、Clawbot 或 OpenClaw 微信插件负责。",
     },

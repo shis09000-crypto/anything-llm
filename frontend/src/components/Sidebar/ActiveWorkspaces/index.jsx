@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
+import { useTranslation } from "react-i18next";
 import Workspace from "@/models/workspace";
 import ManageWorkspace, {
   useManageWorkspaceModal,
@@ -19,6 +20,7 @@ import {
 import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
 
 export default function ActiveWorkspaces() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { slug } = useParams();
   const [loading, setLoading] = useState(true);
@@ -198,7 +200,12 @@ export default function ActiveWorkspaces() {
                                     showModal();
                                   }}
                                   data-tooltip-id="upload-workspace"
-                                  data-tooltip-content="Upload documents to this workspace for RAG indexing"
+                                  data-tooltip-content={t(
+                                    "chat_window.controls.upload.workspaceDescription"
+                                  )}
+                                  aria-label={t(
+                                    "chat_window.controls.upload.workspaceDescription"
+                                  )}
                                   className={`group/upload border-none rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
                                 >
                                   <UploadSimple
@@ -218,9 +225,13 @@ export default function ActiveWorkspaces() {
                                     );
                                   }}
                                   className={`group/gear rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
-                                  aria-label="General appearance settings"
+                                  aria-label={t(
+                                    "common.controls.workspaceSettings"
+                                  )}
                                   data-tooltip-id="gear-workspace"
-                                  data-tooltip-content="General appearance settings"
+                                  data-tooltip-content={t(
+                                    "common.controls.workspaceSettingsDescription"
+                                  )}
                                 >
                                   <GearSix
                                     color={

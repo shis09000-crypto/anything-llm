@@ -11,7 +11,7 @@ const THREAD_CREATED_FROM = {
 };
 
 const WorkspaceThread = {
-  defaultName: "Thread",
+  defaultName: "New Thread",
   defaultChatName: "New Thread",
   overviewName: "Overview",
   THREAD_TYPES,
@@ -146,6 +146,41 @@ const WorkspaceThread = {
         created_from: THREAD_CREATED_FROM.workspaceDefault,
       });
       chatThread = result.thread;
+    }
+
+    const threads = await this.where(clause);
+    return {
+      overviewThread,
+      chatThread,
+      threads: this.sortForDisplay(threads),
+    };
+  },
+
+  ensureOverviewThread: async function (workspace, userId = null) {
+    const userClause = { user_id: userId ? Number(userId) : null };
+    const clause = {
+      workspace_id: workspace.id,
+      ...userClause,
+    };
+
+    const existingThreads = await this.where(clause);
+    let overviewThread = existingThreads.find((thread) =>
+      this.isOverviewThread(thread)
+    );
+    const chatThread =
+      existingThreads.find(
+        (thread) =>
+          thread.thread_type === THREAD_TYPES.chat &&
+          thread.created_from === THREAD_CREATED_FROM.workspaceDefault
+      ) || null;
+
+    if (!overviewThread) {
+      const result = await this.new(workspace, userId, {
+        name: this.overviewName,
+        thread_type: THREAD_TYPES.overview,
+        created_from: THREAD_CREATED_FROM.workspaceDefault,
+      });
+      overviewThread = result.thread;
     }
 
     const threads = await this.where(clause);

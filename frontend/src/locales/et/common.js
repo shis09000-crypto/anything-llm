@@ -8,7 +8,7 @@ const TRANSLATIONS = {
     llm: {
       title: "LLM-i eelistus",
       description:
-        "AnythingLLM töötab paljude LLM-teenusepakkujatega. See teenus haldab vestlust.",
+        "Athena töötab paljude LLM-teenusepakkujatega. See teenus haldab vestlust.",
     },
     userSetup: {
       title: "Kasutaja seadistus",
@@ -34,15 +34,15 @@ const TRANSLATIONS = {
       settingsHint: "Neid sätteid saab igal ajal seadetes muuta.",
     },
     survey: {
-      title: "Tere tulemast AnythingLLM-i",
+      title: "Tere tulemast Athena-i",
       description:
-        "Aita meil AnythingLLM sinu vajadustele vastavaks kujundada. Valikuline.",
+        "Aita meil Athena sinu vajadustele vastavaks kujundada. Valikuline.",
       email: "Mis on su e-post?",
-      useCase: "Milleks kasutad AnythingLLM-i?",
+      useCase: "Milleks kasutad Athena-i?",
       useCaseWork: "Töö jaoks",
       useCasePersonal: "Isiklikuks kasutuseks",
       useCaseOther: "Muu",
-      comment: "Kust kuulsid AnythingLLM-ist?",
+      comment: "Kust kuulsid Athena-ist?",
       commentPlaceholder:
         "Reddit, Twitter, GitHub, YouTube jne – anna meile teada!",
       skip: "Jäta vahele",
@@ -50,8 +50,8 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    productName: "AnythingLLM",
-    defaultSiteTitle: "AnythingLLM | Your personal LLM trained on anything",
+    productName: "Athena",
+    defaultSiteTitle: "Athena | Knowledge Operating System",
     clear: "Clear",
     "workspaces-name": "Tööruumide nimi",
     selection: "Mudeli valik",
@@ -100,7 +100,7 @@ const TRANSLATIONS = {
     "experimental-features": "Eksperimentaalsed funktsioonid",
     contact: "Tugi",
     "browser-extension": "Brauserilaiend",
-    "mobile-app": "AnythingLLM mobiilversioon",
+    "mobile-app": "Athena mobiilversioon",
     "community-hub": {
       title: "Kogukonna keskpunkt",
       trending: "Avasta populaarseid",
@@ -164,7 +164,7 @@ const TRANSLATIONS = {
       add: "Lisa uus sõnum",
       save: "Salvesta sõnumid",
       heading: "Selgita mulle",
-      body: "AnythingLLM eeliseid",
+      body: "Athena eeliseid",
     },
     delete: {
       title: "Kustuta tööruum",
@@ -742,7 +742,7 @@ const TRANSLATIONS = {
         title: "Nutikad oskuste valiku meetodid",
         "beta-badge": "Beeta",
         description:
-          "Lubage piiramatu hulga tööriistade kasutamist ning vähendage küsimuse kohta kasutatavate tokenide arv kuni 80% – AnythingLLM valib automaatselt iga küsimuse jaoks sobivad oskused.",
+          "Lubage piiramatu hulga tööriistade kasutamist ning vähendage küsimuse kohta kasutatavate tokenide arv kuni 80% – Athena valib automaatselt iga küsimuse jaoks sobivad oskused.",
         "max-tools": {
           title: "Max Tools",
           description:
@@ -768,11 +768,11 @@ const TRANSLATIONS = {
   customization: {
     interface: {
       title: "Kasutajaliidese eelistused",
-      description: "Sea AnythingLLM-i UI eelistused.",
+      description: "Sea Athena-i UI eelistused.",
     },
     branding: {
       title: "Bränding ja valgesildistamine",
-      description: "Valgesildista oma AnythingLLM kohandatud brändinguga.",
+      description: "Valgesildista oma Athena kohandatud brändinguga.",
     },
     chat: {
       title: "Vestlus",
@@ -812,7 +812,7 @@ const TRANSLATIONS = {
       "display-language": {
         title: "Kuvakeel",
         description:
-          "Vali keel, milles AnythingLLM UI kuvatakse (kui tõlge on olemas).",
+          "Vali keel, milles Athena UI kuvatakse (kui tõlge on olemas).",
       },
       logo: {
         title: "Brändi logo",
@@ -851,7 +851,7 @@ const TRANSLATIONS = {
   api: {
     title: "API võtmed",
     description:
-      "API võtmed võimaldavad programmipõhiselt hallata seda AnythingLLM instantsi.",
+      "API võtmed võimaldavad programmipõhiselt hallata seda Athena instantsi.",
     link: "Loe API dokumentatsiooni",
     generate: "Genereeri uus API võti",
     empty: "API võtmeid ei leitud",
@@ -865,7 +865,7 @@ const TRANSLATIONS = {
       close: "Sulge",
       create: "Loo API võti",
       helper:
-        "Pärast loomist saab API võtit kasutada sellele AnythingLLM-i instantsile programmiga ligi pääsemiseks ja selle seadistamiseks.",
+        "Pärast loomist saab API võtit kasutada sellele Athena-i instantsile programmiga ligi pääsemiseks ja selle seadistamiseks.",
       name: {
         label: "Nimi",
         placeholder: "Tootmiskeskkonna integratsioon",
@@ -890,7 +890,7 @@ const TRANSLATIONS = {
   llm: {
     title: "LLM-i eelistus",
     description:
-      "Siin on sinu valitud LLM-teenusepakkuja võtmed ja seaded. Need peavad olema õiged, vastasel juhul AnythingLLM ei tööta.",
+      "Siin on sinu valitud LLM-teenusepakkuja võtmed ja seaded. Need peavad olema õiged, vastasel juhul Athena ei tööta.",
     provider: "LLM-pakkuja",
     providers: {
       azure_openai: {
@@ -922,7 +922,7 @@ const TRANSLATIONS = {
     "desc-start":
       "Kui kasutad LLM-i, mis ei sisalda embedding-mootorit, tuleb määrata täiendavad võtmed.",
     "desc-end":
-      "Embedding muudab teksti vektoriteks. Need võtmed on vajalikud, et AnythingLLM saaks sinu failid ja päringud töödelda.",
+      "Embedding muudab teksti vektoriteks. Need võtmed on vajalikud, et Athena saaks sinu failid ja päringud töödelda.",
     provider: {
       title: "Embedding-i pakkuja",
     },
@@ -945,7 +945,7 @@ const TRANSLATIONS = {
   vector: {
     title: "Vektoriandmebaas",
     description:
-      "Siin on seaded, kuidas AnythingLLM töötab. Vale seadistus võib põhjustada tõrkeid.",
+      "Siin on seaded, kuidas Athena töötab. Vale seadistus võib põhjustada tõrkeid.",
     provider: {
       title: "Vektoriandmebaasi pakkuja",
       description: "LanceDB puhul seadistust pole vaja.",
@@ -988,7 +988,7 @@ const TRANSLATIONS = {
   privacy: {
     title: "Privaatsus ja andmetöötlus",
     description:
-      "Konfiguratsioon kolmandate osapoolte ja AnythingLLM-i andmekäitluse kohta.",
+      "Konfiguratsioon kolmandate osapoolte ja Athena-i andmekäitluse kohta.",
     anonymous: "Anonüümne telemeetria lubatud",
   },
   connectors: {
@@ -1407,7 +1407,7 @@ const TRANSLATIONS = {
   telegram: {
     title: "Telegrami bot",
     description:
-      "Ühendage oma AnythingLLM instants Telegramiga, et saaksite vestleda oma tööruumidega igast seadmist.",
+      "Ühendage oma Athena instants Telegramiga, et saaksite vestleda oma tööruumidega igast seadmist.",
     setup: {
       step1: {
         title: "1. samm: Looge oma Telegrami bot",

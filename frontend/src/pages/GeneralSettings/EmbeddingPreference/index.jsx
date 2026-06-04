@@ -3,7 +3,7 @@ import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
-import AnythingLLMIcon from "@/media/logo/anything-llm-icon.png";
+import AthenaIcon from "@/media/logo/athena-mark.svg";
 import OpenAiLogo from "@/media/llmprovider/openai.png";
 import AzureOpenAiLogo from "@/media/llmprovider/azure.png";
 import GeminiAiLogo from "@/media/llmprovider/gemini.png";
@@ -45,12 +45,11 @@ import ProviderPresetImport from "@/components/ProviderPresetImport";
 
 const EMBEDDERS = [
   {
-    name: "AnythingLLM Embedder",
+    name: "Athena Vector Engine",
     value: "native",
-    logo: AnythingLLMIcon,
+    logo: AthenaIcon,
     options: (settings) => <NativeEmbeddingOptions settings={settings} />,
-    description:
-      "Use the built-in embedding provider for AnythingLLM. Zero setup!",
+    description: "Use Athena's built-in vectorization engine. Zero setup!",
   },
   {
     name: "OpenAI",

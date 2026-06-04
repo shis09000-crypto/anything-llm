@@ -544,9 +544,13 @@ export default function WorkspaceOverview({
                   type="button"
                   onClick={onUploadDocument}
                   size="md"
+                  title={t("chat_window.controls.upload.workspaceDescription")}
+                  aria-label={t(
+                    "chat_window.controls.upload.workspaceDescription"
+                  )}
                   leftIcon={<UploadSimple size={16} weight="bold" />}
                 >
-                  上传文档
+                  {t("chat_window.controls.upload.workspaceLabel")}
                 </AppButton>
                 <AppButton
                   type="button"

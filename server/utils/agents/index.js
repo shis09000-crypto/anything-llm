@@ -37,6 +37,9 @@ class AgentHandler {
   provider = null;
   model = null;
   attachments = [];
+  displayAttachments = [];
+  displayPrompt = null;
+  visionAnalysisContext = null;
   fileAccessContext = {};
 
   constructor({ uuid }) {
@@ -695,7 +698,15 @@ If the user asks about book structure, reading order, timeline, person relations
     this.#providerSetupAndCheck();
 
     // Retrieve cached attachments (images, etc.) from the HTTP request
-    this.attachments = getAndClearInvocationAttachments(this.#invocationUUID);
+    const invocationAttachmentPayload = getAndClearInvocationAttachments(
+      this.#invocationUUID
+    );
+    this.attachments = invocationAttachmentPayload.llmAttachments || [];
+    this.displayAttachments =
+      invocationAttachmentPayload.displayAttachments || this.attachments;
+    this.displayPrompt = invocationAttachmentPayload.displayPrompt || null;
+    this.visionAnalysisContext =
+      invocationAttachmentPayload.visionAnalysisContext || null;
     const cachedFileAccess = getInvocationFileAccess(this.#invocationUUID);
     this.fileAccessContext = {
       sessionMode:
@@ -795,6 +806,9 @@ If the user asks about book structure, reading order, timeline, person relations
       handlerProps: {
         invocation: this.invocation,
         log: this.log,
+        displayAttachments: this.displayAttachments,
+        displayPrompt: this.displayPrompt,
+        visionAnalysisContext: this.visionAnalysisContext,
         fileAccessContext: this.fileAccessContext,
         compactedThreadMemory,
       },

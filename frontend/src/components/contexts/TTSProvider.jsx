@@ -6,15 +6,15 @@ const ASSISTANT_MESSAGE_COMPLETE_EVENT = "ASSISTANT_MESSAGE_COMPLETE_EVENT";
 const TTSProviderContext = createContext();
 
 /**
- * This component is used to provide the TTS provider context to the application.
+ * 该组件用于向应用提供 TTS provider context。
  *
- * TODO: This context provider simply wraps around the System.keys() call to get the TTS provider settings.
- * However, we use .keys() in a ton of places and it might make more sense to make a generalized hook that
- * can be used anywhere we need to get _any_ setting from the System by just grabbing keys() and reusing it
- * as a hook where needed.
+ * TODO: 这个 context provider 目前只是对 System.keys() 调用做了一层包装，
+ * 用来获取 TTS provider 设置。
+ * 不过，我们在很多地方都使用了 .keys()，因此更合理的做法可能是创建一个通用 hook，
+ * 只要需要从 System 获取任意设置，就可以获取 keys() 并按需复用。
  *
- * For now, since TTSButtons are rendered on every message, we can save a ton of requests by just using this
- * hook where for now so we can recycle the TTS settings in the chat container.
+ * 目前由于 TTSButtons 会在每条消息上渲染，为了减少大量请求，
+ * 暂时在这里使用这个 hook，这样就可以在聊天容器中复用 TTS 设置。
  */
 export function TTSProvider({ children }) {
   const [settings, setSettings] = useState({});
@@ -45,10 +45,10 @@ export function TTSProvider({ children }) {
 }
 
 /**
- * This hook is used to get the TTS provider settings easily without
- * having to refetch the settings from the System.keys() call each component mount.
+ * 该 hook 用于便捷获取 TTS provider 设置，
+ * 避免每个组件挂载时都重新通过 System.keys() 获取设置。
  *
- * @returns {{settings: {TTSPiperTTSVoiceModel: string|null}, provider: string, loading: boolean}} The TTS provider settings.
+ * @returns {{settings: {TTSPiperTTSVoiceModel: string|null}, provider: string, loading: boolean}} TTS provider 设置。
  */
 export function useTTSProvider() {
   const context = useContext(TTSProviderContext);
@@ -58,12 +58,12 @@ export function useTTSProvider() {
 }
 
 /**
- * This function will emit the ASSISTANT_MESSAGE_COMPLETE_EVENT event.
+ * 该函数会触发 ASSISTANT_MESSAGE_COMPLETE_EVENT 事件。
  *
- * This event is used to notify the TTSProvider that a message has been fully generated and that the TTS response
- * should be played if the user setting is enabled.
+ * 该事件用于通知 TTSProvider：某条消息已经完整生成；
+ * 如果用户启用了对应设置，则应播放 TTS 响应。
  *
- * @param {string} chatId - The chatId of the message that has been fully generated.
+ * @param {string} chatId - 已完整生成的消息对应的 chatId。
  */
 export function emitAssistantMessageCompleteEvent(chatId) {
   window.dispatchEvent(
@@ -72,12 +72,13 @@ export function emitAssistantMessageCompleteEvent(chatId) {
 }
 
 /**
- * This hook will establish a listener for the ASSISTANT_MESSAGE_COMPLETE_EVENT event.
- * When the event is triggered, the hook will attempt to play the TTS response for the given chatId.
- * It will attempt to play the TTS response for the given chatId until it is successful or the maximum number of attempts
- * is reached.
+ * 该 hook 会为 ASSISTANT_MESSAGE_COMPLETE_EVENT 事件建立监听器。
+ * 当事件被触发时，该 hook 会尝试播放给定 chatId 对应的 TTS 响应。
+ * 它会不断尝试播放该 chatId 对应的 TTS 响应，
+ * 直到播放成功或达到最大尝试次数。
  *
- * This is accomplished by looking for a button with the data-auto-play-chat-id attribute that matches the chatId.
+ * 实现方式是查找带有 data-auto-play-chat-id 属性、
+ * 且该属性值与 chatId 匹配的按钮。
  */
 export function useWatchForAutoPlayAssistantTTSResponse() {
   const autoPlayAssistantTtsResponse = Appearance.get(
@@ -89,11 +90,10 @@ export function useWatchForAutoPlayAssistantTTSResponse() {
     const { chatId } = event.detail;
 
     /**
-     * Attempt to play the TTS response for the given chatId.
-     * This is a recursive function that will attempt to play the TTS response
-     * for the given chatId until it is successful or the maximum number of attempts
-     * is reached.
-     * @returns {boolean} true if the TTS response was played, false otherwise.
+     * 尝试播放给定 chatId 对应的 TTS 响应。
+     * 这是一个递归函数，会持续尝试播放给定 chatId 对应的 TTS 响应，
+     * 直到播放成功或达到最大尝试次数。
+     * @returns {boolean} 如果 TTS 响应已播放则返回 true，否则返回 false。
      */
     function attemptToPlay() {
       const playBtn = document.querySelector(
@@ -115,8 +115,8 @@ export function useWatchForAutoPlayAssistantTTSResponse() {
     }, 800);
   }
 
-  // Only bother to listen for these events if the user has autoPlayAssistantTtsResponse
-  // setting enabled.
+  // 只有在用户启用了 autoPlayAssistantTtsResponse 设置时，
+  // 才需要监听这些事件。
   useEffect(() => {
     if (autoPlayAssistantTtsResponse) {
       window.addEventListener(

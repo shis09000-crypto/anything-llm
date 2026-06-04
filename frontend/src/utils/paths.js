@@ -136,6 +136,9 @@ export default {
     ocrPreference: () => {
       return "/settings/ocr-preference";
     },
+    visionPreference: () => {
+      return "/settings/vision-preference";
+    },
     embeddingPreference: () => {
       return "/settings/embedding-preference";
     },

@@ -23,9 +23,14 @@ export function isWorkspaceDefaultChatThread(thread = null) {
 export function isDefaultWorkspaceChatThread(thread = null) {
   return (
     isWorkspaceDefaultChatThread(thread) &&
-    !thread?.title &&
-    ["New Thread", "Thread", ""].includes(thread?.name || "")
+    isUntitledDefaultNamedChatThread(thread)
   );
+}
+
+export function isUntitledDefaultNamedChatThread(thread = null) {
+  if (thread?.thread_type !== THREAD_TYPES.chat || thread?.title) return false;
+  const name = (thread?.name || "").trim().toLowerCase();
+  return ["", "new thread", "thread"].includes(name);
 }
 
 export function findOverviewThread(threads = []) {
@@ -35,7 +40,7 @@ export function findOverviewThread(threads = []) {
 export function displayThreadName(thread = null, t = null) {
   if (!thread) return "";
   if (isOverviewThread(thread)) return t?.("common.overviewPage") || "Overview";
-  if (isDefaultWorkspaceChatThread(thread))
+  if (isUntitledDefaultNamedChatThread(thread))
     return t?.("common.newThread") || "New Thread";
   return thread.title || thread.name || "";
 }

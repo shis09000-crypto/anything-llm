@@ -1,12 +1,12 @@
 {
-  "name": "AnythingLLM",
-  "short_name": "AnythingLLM",
+  "name": "Athena | 知识操作系统",
+  "short_name": "Athena",
   "display": "standalone",
   "orientation": "portrait",
   "start_url": "/",
   "icons": [
     {
-      "src": "/favicon.png",
+      "src": "/athena-mark.svg",
       "sizes": "any"
     }
   ]

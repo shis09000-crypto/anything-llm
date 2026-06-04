@@ -8,7 +8,7 @@ const TRANSLATIONS = {
     llm: {
       title: "LLMの設定",
       description:
-        "AnythingLLMは多くのLLMプロバイダーと連携できます。これがチャットを処理するサービスになります。",
+        "Athenaは多くのLLMプロバイダーと連携できます。これがチャットを処理するサービスになります。",
     },
     userSetup: {
       title: "ユーザー設定",
@@ -34,15 +34,15 @@ const TRANSLATIONS = {
       settingsHint: "これらの設定は、設定画面でいつでも再構成できます。",
     },
     survey: {
-      title: "AnythingLLMへようこそ",
+      title: "Athenaへようこそ",
       description:
-        "AnythingLLMをあなたのニーズに合わせて構築するためにご協力ください。任意です。",
+        "Athenaをあなたのニーズに合わせて構築するためにご協力ください。任意です。",
       email: "メールアドレスは何ですか？",
-      useCase: "AnythingLLMを何に使用しますか？",
+      useCase: "Athenaを何に使用しますか？",
       useCaseWork: "仕事用",
       useCasePersonal: "個人用",
       useCaseOther: "その他",
-      comment: "AnythingLLMをどのように知りましたか？",
+      comment: "Athenaをどのように知りましたか？",
       commentPlaceholder:
         "Reddit、Twitter、GitHub、YouTubeなど - どのように見つけたか教えてください！",
       skip: "アンケートをスキップ",
@@ -50,8 +50,19 @@ const TRANSLATIONS = {
     },
   },
   common: {
-    productName: "AnythingLLM",
-    defaultSiteTitle: "AnythingLLM | Your personal LLM trained on anything",
+    productName: "Athena",
+    defaultSiteTitle: "Athena | Knowledge Operating System",
+    controls: {
+      settings: "設定",
+      settingsDescription:
+        "システム設定を開き、表示、モデルプロバイダー、セキュリティ、ワークスペース管理を調整します。",
+      workspaceSettings: "ワークスペース設定",
+      workspaceSettingsDescription:
+        "このワークスペースの設定を開き、表示、ドキュメント、メンバー、動作を調整します。",
+      backToWorkspace: "ワークスペースへ戻る",
+      showSidebar: "サイドバーを表示（{{shortcut}}）",
+      hideSidebar: "サイドバーを閉じる（{{shortcut}}）",
+    },
     clear: "Clear",
     "workspaces-name": "ワークスペース名",
     overviewPage: "概要",
@@ -86,6 +97,7 @@ const TRANSLATIONS = {
     llm: "LLM",
     transcription: "文字起こし",
     embedder: "埋め込みエンジン",
+    vision: "視覚モデル",
     "text-splitting": "テキスト分割とチャンク化",
     "voice-speech": "音声とスピーチ",
     "vector-database": "ベクターデータベース",
@@ -105,7 +117,7 @@ const TRANSLATIONS = {
     interface: "UI設定",
     branding: "ブランディングとホワイトレーベル化",
     chat: "チャット",
-    "mobile-app": "AnythingLLM モバイル版",
+    "mobile-app": "Athena モバイル版",
     "community-hub": {
       title: "地域交流拠点",
       trending: "人気のあるものを探す",
@@ -170,7 +182,7 @@ const TRANSLATIONS = {
       },
       normal: {
         label: "標準",
-        description: "AnythingLLM の標準的な読書サイズです。",
+        description: "Athena の標準的な読書サイズです。",
       },
       large: {
         label: "大",
@@ -379,7 +391,7 @@ const readable = true;
     },
     tos: {
       title: "実験的機能の利用条件",
-      introStart: "AnythingLLM の実験的機能は試験運用中の機能であり、利用には",
+      introStart: "Athena の実験的機能は試験運用中の機能であり、利用には",
       introSeparator: "",
       optIn: "明示的な有効化",
       optInSuffix: "が必要です。",
@@ -392,14 +404,14 @@ const readable = true;
         storageIncrease: "ストレージ使用量の増加。",
         resourceIncrease: "リソース消費量の増加。",
         cost: "接続済みの LLM または埋め込みプロバイダーの費用や使用量の増加。",
-        bugs: "AnythingLLM 使用時のバグや問題の発生。",
+        bugs: "Athena 使用時のバグや問題の発生。",
       },
       conditionsIntro: "実験的機能の使用には、以下の非網羅的な条件も伴います。",
       conditions: {
         futureRemoval: "今後の更新でこの機能が存在しなくなる場合があります。",
         unstable: "使用中の機能は現在安定版ではありません。",
         availability:
-          "今後のバージョン、構成、または AnythingLLM のサブスクリプションで利用できない場合があります。",
+          "今後のバージョン、構成、または Athena のサブスクリプションで利用できない場合があります。",
         privacyStart: "ベータ機能の使用時も、プライバシー設定は",
         privacySeparator: "",
         privacyBold: "尊重されます",
@@ -416,7 +428,7 @@ const readable = true;
       navTitle: "ライブドキュメント同期",
       title: "ドキュメント内容の自動同期",
       description:
-        "ドキュメントを「監視」対象として指定できるようにします。監視中のドキュメント内容は定期的に取得され、AnythingLLM に更新されます。",
+        "ドキュメントを「監視」対象として指定できるようにします。監視中のドキュメント内容は定期的に取得され、Athena に更新されます。",
       workspaceUpdate:
         "監視中のドキュメントは、参照されているすべてのワークスペースで同時に自動更新されます。",
       webOnly:
@@ -447,13 +459,13 @@ const readable = true;
     stt: {
       title: "音声入力設定",
       description:
-        "ここでは、AnythingLLM で使用するテキスト読み上げおよび音声入力プロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
+        "ここでは、Athena で使用するテキスト読み上げおよび音声入力プロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
       searchPlaceholder: "音声入力プロバイダーを検索",
     },
     tts: {
       title: "テキスト読み上げ設定",
       description:
-        "ここでは、AnythingLLM で使用するテキスト読み上げプロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
+        "ここでは、Athena で使用するテキスト読み上げプロバイダーを指定できます。既定ではブラウザ内蔵の対応機能を使用しますが、他のプロバイダーも利用できます。",
       searchPlaceholder: "テキスト読み上げプロバイダーを検索",
     },
     provider: "プロバイダー",
@@ -565,7 +577,7 @@ const readable = true;
       add: "新しいメッセージを追加",
       save: "メッセージを保存",
       heading: "説明してください",
-      body: "AnythingLLMの利点",
+      body: "Athenaの利点",
     },
     delete: {
       title: "ワークスペースを削除",
@@ -1141,7 +1153,7 @@ const readable = true;
         title: "知的なスキル選択",
         "beta-badge": "ベータ版",
         description:
-          "クエリごとに、無制限のツールを使用し、トークン使用量を最大80%削減できます。AnythingLLMは、各プロンプトに対して最適なスキルを自動的に選択します。",
+          "クエリごとに、無制限のツールを使用し、トークン使用量を最大80%削減できます。Athenaは、各プロンプトに対して最適なスキルを自動的に選択します。",
         "max-tools": {
           title: "マックスツールズ",
           description:
@@ -1167,7 +1179,7 @@ const readable = true;
   api: {
     title: "APIキー",
     description:
-      "APIキーにより、プログラム経由でこのAnythingLLMインスタンスにアクセスおよび管理できます。",
+      "APIキーにより、プログラム経由でこのAthenaインスタンスにアクセスおよび管理できます。",
     link: "APIドキュメントを読む",
     generate: "新しいAPIキーを生成",
     empty: "APIキーが見つかりません",
@@ -1181,7 +1193,7 @@ const readable = true;
       close: "閉じる",
       create: "APIキーを作成",
       helper:
-        "作成したAPIキーは、このAnythingLLMインスタンスにプログラムからアクセスして設定するために使用できます。",
+        "作成したAPIキーは、このAthenaインスタンスにプログラムからアクセスして設定するために使用できます。",
       name: {
         label: "名前",
         placeholder: "本番環境の統合",
@@ -1205,7 +1217,7 @@ const readable = true;
   llm: {
     title: "LLMの設定",
     description:
-      "これは、お好みのLLMチャットおよび埋め込みプロバイダー用の認証情報と設定です。これらのキーが最新かつ正確でない場合、AnythingLLMは正しく動作しません。",
+      "これは、お好みのLLMチャットおよび埋め込みプロバイダー用の認証情報と設定です。これらのキーが最新かつ正確でない場合、Athenaは正しく動作しません。",
     provider: "LLMプロバイダー",
     providers: {
       azure_openai: {
@@ -1222,13 +1234,57 @@ const readable = true;
       },
     },
   },
+  vision: {
+    title: "視覚モデルの設定",
+    description:
+      "視覚理解タスクに使用するホスト型の視覚モデルプロバイダーとモデルを設定します。",
+    provider: "視覚モデルプロバイダー",
+    providerHint:
+      "ホスト型の視覚モデルはデフォルトでは無効です。DashScope APIキーを用意し、阿里百錬の視覚モデルを設定する場合のみ選択してください。",
+    providers: {
+      none: {
+        name: "なし",
+        description:
+          "ホスト型の視覚モデルを使用しません。視覚理解の呼び出しは未設定のままになります。",
+      },
+      alibaba: {
+        name: "阿里百錬 DashScope",
+        description:
+          "Alibaba Cloud DashScope の Qwen VL モデルを視覚理解に使用します。",
+      },
+    },
+    model: "視覚モデル",
+    noneHelp:
+      "ホスト型の視覚モデルは設定されていません。この設定はグローバルな視覚モデルの優先設定のみを管理し、OCRやチャットの動作を単独では変更しません。",
+    help: "阿里百錬の視覚モデルは DashScope OpenAI-compatible エンドポイントを使用します。DashScope APIキー、Base URL、モデル名を入力してください。",
+    toolToggle: {
+      label: "画像の事前分析を有効化",
+      description:
+        "チャットメッセージに画像が含まれる場合、先に視覚モデルで分析し、その結果をメインチャットモデルへ渡します。",
+      disabledDescription:
+        "オンのままでも構いませんが、阿里百錬を設定した後にのみ画像の事前分析が実行されます。",
+    },
+    save: "変更を保存",
+    saving: "保存中...",
+    saved: "視覚モデル設定を保存しました。",
+    saveError: "視覚モデル設定の保存に失敗しました: {{error}}",
+  },
+  provider_preset: {
+    title: "条件コードのインポート",
+    placeholder: "条件コードを入力",
+    apply: "設定を適用",
+    applying: "適用中...",
+    imported_status: "環境変数からインポートしました",
+    success_toast:
+      "DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR + Ali 視覚モデル設定を適用しました",
+  },
   transcription: {
     title: "文字起こしモデルの設定",
     description:
       "これは、お好みの文字起こしモデルプロバイダー用の認証情報と設定です。これらのキーが最新かつ正確でない場合、メディアファイルや音声が正しく文字起こしされません。",
     provider: "文字起こしプロバイダー",
     "warn-start":
-      "RAMやCPUが限られたマシンでローカルのWhisperモデルを使用すると、メディアファイルの処理中にAnythingLLMが停止する可能性があります。",
+      "RAMやCPUが限られたマシンでローカルのWhisperモデルを使用すると、メディアファイルの処理中にAthenaが停止する可能性があります。",
     "warn-recommend":
       "少なくとも2GBのRAMが推奨され、ファイルサイズは10Mb未満であることをお勧めします。",
     "warn-end": "組み込みモデルは初回使用時に自動的にダウンロードされます。",
@@ -1238,7 +1294,7 @@ const readable = true;
     "desc-start":
       "LLMがネイティブに埋め込みエンジンをサポートしていない場合、テキストの埋め込み用に追加の認証情報を指定する必要がある場合があります。",
     "desc-end":
-      "埋め込みとは、テキストをベクトルに変換するプロセスです。これらの認証情報は、ファイルやプロンプトをAnythingLLMが処理できるフォーマットに変換するために必要です。",
+      "埋め込みとは、テキストをベクトルに変換するプロセスです。これらの認証情報は、ファイルやプロンプトをAthenaが処理できるフォーマットに変換するために必要です。",
     provider: {
       title: "埋め込みプロバイダー",
     },
@@ -1262,7 +1318,7 @@ const readable = true;
   vector: {
     title: "ベクターデータベース設定",
     description:
-      "これは、AnythingLLMインスタンスの動作方法用の認証情報と設定です。これらのキーが最新で正確であることが重要です。",
+      "これは、Athenaインスタンスの動作方法用の認証情報と設定です。これらのキーが最新で正確であることが重要です。",
     provider: {
       title: "ベクターデータベースプロバイダー",
       description: "LanceDBの場合、特に設定は必要ありません。",
@@ -1307,7 +1363,7 @@ const readable = true;
   privacy: {
     title: "プライバシーとデータ処理",
     description:
-      "これは、接続されているサードパーティプロバイダーとAnythingLLMがデータをどのように処理するかの設定です。",
+      "これは、接続されているサードパーティプロバイダーとAthenaがデータをどのように処理するかの設定です。",
     anonymous: "匿名テレメトリが有効",
   },
   connectors: {
@@ -1472,12 +1528,12 @@ const readable = true;
       fetching: "取得中...",
       "fetch-website": "ウェブサイトを取得",
       "privacy-notice":
-        "これらのファイルは、このAnythingLLMインスタンス上のドキュメント処理機能にアップロードされます。第三者に送信・共有されることはありません。",
+        "これらのファイルは、このAthenaインスタンス上のドキュメント処理機能にアップロードされます。第三者に送信・共有されることはありません。",
     },
     pinning: {
       what_pinning: "ドキュメントのピン留めとは？",
       pin_explained_block1:
-        "AnythingLLMでドキュメントを<b>ピン留め</b>すると、その内容全体がプロンプトウィンドウに挿入され、LLMがしっかり理解できるようになります。",
+        "Athenaでドキュメントを<b>ピン留め</b>すると、その内容全体がプロンプトウィンドウに挿入され、LLMがしっかり理解できるようになります。",
       pin_explained_block2:
         "<b>大きなコンテキストを持つモデル</b>や、重要な小さなファイルで特に効果的です。",
       pin_explained_block3:
@@ -1487,7 +1543,7 @@ const readable = true;
     watching: {
       what_watching: "ドキュメントのウォッチとは？",
       watch_explained_block1:
-        "AnythingLLMでドキュメントを<b>ウォッチ</b>すると、元のソースから定期的に内容が<i>自動的に</i>同期されます。管理しているすべてのワークスペースで内容が自動更新されます。",
+        "Athenaでドキュメントを<b>ウォッチ</b>すると、元のソースから定期的に内容が<i>自動的に</i>同期されます。管理しているすべてのワークスペースで内容が自動更新されます。",
       watch_explained_block2:
         "この機能は現在オンラインベースのコンテンツのみ対応しており、手動アップロードしたドキュメントには利用できません。",
       watch_explained_block3_start: "ウォッチしているドキュメントの管理は",
@@ -1510,7 +1566,51 @@ const readable = true;
   },
   chat_window: {
     send_message: "メッセージを送信",
-    attach_file: "このチャットにファイルを添付",
+    attach_file: "このチャットにファイルをアップロードまたは添付します。",
+    controls: {
+      upload: {
+        label: "アップロード",
+        description:
+          "ファイルをアップロードまたは添付します。画像はこのチャット内で使用され、対応文書はワークスペース知識として索引化できます。",
+        workspaceLabel: "文書をアップロード",
+        workspaceDescription:
+          "文書をこのワークスペースにアップロードし、Athena が後で整理、検索、参照できるようにします。",
+      },
+      quizMode: {
+        label: "テスト",
+        description:
+          "テストモードを有効にします。次のメッセージで Athena がクイズ形式の質問を作成します。",
+        activeDescription:
+          "テストモードが有効です。次のメッセージでクイズ形式の質問を作成します。",
+      },
+      fileAccess: {
+        label: "ファイルアクセスモード",
+        globalDefault: "グローバル既定",
+        modes: {
+          sandbox: {
+            label: "サンドボックスモード",
+            description:
+              "プロジェクトワークスペース内のファイルにのみアクセスできます。",
+          },
+          authorized: {
+            label: "承認済みモード",
+            description:
+              "デスクトップ、書類、ダウンロードなど、承認済みのローカルフォルダにアクセスできます。",
+          },
+          open: {
+            label: "完全オープンモード",
+            description:
+              "承認後、広範なローカルファイルとターミナルへのアクセスを許可します。注意して使用してください。",
+          },
+        },
+        openConfirm: {
+          title: "完全オープンのファイルアクセスを有効にしますか？",
+          description:
+            "完全オープンモードでは、より広範なローカルファイルアクセスが許可され、承認後に shell コマンドを実行できる場合があります。",
+          confirm: "続行",
+        },
+      },
+    },
     text_size: "テキストサイズを変更",
     microphone: "プロンプトを音声入力",
     send: "ワークスペースにプロンプトメッセージを送信",
@@ -1685,16 +1785,16 @@ const readable = true;
   customization: {
     interface: {
       title: "UI設定",
-      description: "AnythingLLM の UI 設定を調整してください。",
+      description: "Athena の UI 設定を調整してください。",
     },
     branding: {
       title: "ブランディングとホワイトレーベル化",
       description:
-        "AnythingLLMインスタンスを、独自のブランドでカスタマイズしてください。",
+        "Athenaインスタンスを、独自のブランドでカスタマイズしてください。",
     },
     chat: {
       title: "チャット",
-      description: "AnythingLLM のチャット設定をカスタマイズしてください。",
+      description: "Athena のチャット設定をカスタマイズしてください。",
       auto_submit: {
         title: "自動音声入力送信",
         description: "沈黙の後に自動で音声入力を行う",
@@ -1732,7 +1832,7 @@ const readable = true;
       "display-language": {
         title: "表示言語",
         description:
-          "AnythingLLMのUIを特定の言語で表示するためのオプションを選択してください。翻訳が利用可能な場合にのみ有効です。",
+          "AthenaのUIを特定の言語で表示するためのオプションを選択してください。翻訳が利用可能な場合にのみ有効です。",
       },
       logo: {
         title: "ブランドロゴ",
@@ -1854,7 +1954,7 @@ const readable = true;
         unauthenticated: {
           title: "本人確認が必要です。",
           description:
-            "アイテムを公開する前に、AnythingLLMコミュニティハブで認証する必要があります。",
+            "アイテムを公開する前に、Athenaコミュニティハブで認証する必要があります。",
           button: "コミュニティハブへの接続",
         },
       },
@@ -1909,7 +2009,7 @@ const readable = true;
     password: {
       title: "パスワード保護",
       description:
-        "AnythingLLMインスタンスをパスワードで保護します。これを忘れた場合、回復方法はないため、このパスワードを必ず保存してください。",
+        "Athenaインスタンスをパスワードで保護します。これを忘れた場合、回復方法はないため、このパスワードを必ず保存してください。",
       "password-label": "インスタンスパスワード",
     },
   },

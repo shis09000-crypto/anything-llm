@@ -27,6 +27,10 @@ const {
   isWithin,
   sanitizeFileName,
 } = require("../files");
+const {
+  prepareImageAnalysisContext,
+  shouldUseVisionTool,
+} = require("../vision/viewTool");
 /**
  * @typedef ResponseObject
  * @property {string} id - uuid of response
@@ -159,9 +163,36 @@ async function chatSync({
   const processedMessage = await grepAllSlashCommands(message);
   message = processedMessage;
 
+  const historyAttachments = attachments;
+  let imageAnalysisContext = null;
+  let imageAnalysisText = null;
+  let agentAttachments = attachments;
+  try {
+    const imageAnalysis = await prepareImageAnalysisContext({ attachments });
+    if (imageAnalysis.used) {
+      imageAnalysisContext = imageAnalysis.contextText;
+      imageAnalysisText = imageAnalysis.analysisText || imageAnalysisContext;
+      agentAttachments = imageAnalysis.llmAttachments;
+    }
+  } catch (error) {
+    return {
+      id: uuid,
+      type: "abort",
+      textResponse: null,
+      sources: [],
+      close: true,
+      error: error.message,
+      metrics: {},
+    };
+  }
+
+  const agentMessage = imageAnalysisContext
+    ? `${message}\n\n${imageAnalysisContext}`
+    : message;
+
   if (
     await EphemeralAgentHandler.isAgentInvocation({
-      message,
+      message: agentMessage,
       workspace,
       chatMode,
     })
@@ -173,11 +204,11 @@ async function chatSync({
     const agentHandler = new EphemeralAgentHandler({
       uuid,
       workspace,
-      prompt: message,
+      prompt: agentMessage,
       userId: user?.id || null,
       threadId: thread?.id || null,
       sessionId,
-      attachments,
+      attachments: agentAttachments,
     });
 
     // Establish event listener that emulates websocket calls
@@ -200,9 +231,10 @@ async function chatSync({
           response: {
             text: textResponse,
             sources: [],
-            attachments,
+            attachments: historyAttachments,
             type: chatMode,
             thoughts,
+            ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
           },
           include: false,
           apiSessionId: sessionId,
@@ -241,9 +273,10 @@ async function chatSync({
       response: {
         text: textResponse,
         sources: [],
-        attachments: attachments,
+        attachments: historyAttachments,
         type: chatMode,
         metrics: {},
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       include: false,
       apiSessionId: sessionId,
@@ -297,6 +330,7 @@ async function chatSync({
   const processedAttachments = await processDocumentAttachments(attachments);
   const parsedAttachments = processedAttachments.parsedDocuments;
   attachments = processedAttachments.imageAttachments;
+  let llmAttachments = imageAnalysisContext ? [] : attachments;
   parsedAttachments.forEach((doc) => {
     if (doc.pageContent) {
       contextTexts.push(doc.pageContent);
@@ -357,6 +391,8 @@ async function chatSync({
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
+  if (imageAnalysisContext) contextTexts.unshift(imageAnalysisContext);
+
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
   // let the LLM try to hallucinate a response or use general knowledge and exit early
   if (chatMode === "query" && contextTexts.length === 0) {
@@ -370,9 +406,10 @@ async function chatSync({
       response: {
         text: textResponse,
         sources: [],
-        attachments: attachments,
+        attachments: historyAttachments,
         type: chatMode,
         metrics: {},
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       include: false,
@@ -404,7 +441,7 @@ async function chatSync({
     chatHistory,
     userPrompt: message,
     contextTexts,
-    attachments,
+    attachments: llmAttachments,
     compaction,
   });
   if (autoCompaction?.compactionId) {
@@ -426,7 +463,7 @@ async function chatSync({
       userPrompt: message,
       contextTexts,
       chatHistory,
-      attachments,
+      attachments: llmAttachments,
     },
     rawHistory
   );
@@ -456,9 +493,10 @@ async function chatSync({
     response: {
       text: textResponse,
       sources,
-      attachments,
+      attachments: historyAttachments,
       type: chatMode,
       metrics: performanceMetrics,
+      ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
     },
     threadId: thread?.id || null,
     apiSessionId: sessionId,
@@ -478,7 +516,7 @@ async function chatSync({
     ],
     userPrompt: "",
     contextTexts,
-    attachments,
+    attachments: llmAttachments,
     compaction,
     phase: "turn_end",
   }).catch((error) =>
@@ -559,9 +597,58 @@ async function streamChat({
   const processedMessage = await grepAllSlashCommands(message);
   message = processedMessage;
 
+  const historyAttachments = attachments;
+  let imageAnalysisContext = null;
+  let imageAnalysisText = null;
+  let agentAttachments = attachments;
+  try {
+    const willUseVisionTool = shouldUseVisionTool(attachments);
+    if (willUseVisionTool) {
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "statusResponse",
+        textResponse: "正在调用视觉模型分析图片，请稍候...",
+        sources: [],
+        close: false,
+        error: null,
+        animate: true,
+      });
+    }
+    const imageAnalysis = await prepareImageAnalysisContext({ attachments });
+    if (imageAnalysis.used) {
+      imageAnalysisContext = imageAnalysis.contextText;
+      imageAnalysisText = imageAnalysis.analysisText || imageAnalysisContext;
+      agentAttachments = imageAnalysis.llmAttachments;
+      writeResponseChunk(response, {
+        id: uuid,
+        type: "statusResponse",
+        textResponse: "视觉模型分析完成，正在继续会话...",
+        sources: [],
+        close: false,
+        error: null,
+        animate: true,
+      });
+    }
+  } catch (error) {
+    writeResponseChunk(response, {
+      id: uuid,
+      type: "abort",
+      textResponse: null,
+      sources: [],
+      close: true,
+      error: error.message,
+      metrics: {},
+    });
+    return;
+  }
+
+  const agentMessage = imageAnalysisContext
+    ? `${message}\n\n${imageAnalysisContext}`
+    : message;
+
   if (
     await EphemeralAgentHandler.isAgentInvocation({
-      message,
+      message: agentMessage,
       workspace,
       chatMode,
     })
@@ -573,11 +660,11 @@ async function streamChat({
     const agentHandler = new EphemeralAgentHandler({
       uuid,
       workspace,
-      prompt: message,
+      prompt: agentMessage,
       userId: user?.id || null,
       threadId: thread?.id || null,
       sessionId,
-      attachments,
+      attachments: agentAttachments,
     });
 
     // Establish event listener that emulates websocket calls
@@ -599,9 +686,10 @@ async function streamChat({
           response: {
             text: textResponse,
             sources: [],
-            attachments: attachments,
+            attachments: historyAttachments,
             type: chatMode,
             thoughts,
+            ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
           },
           include: true,
           threadId: thread?.id || null,
@@ -650,9 +738,10 @@ async function streamChat({
       response: {
         text: textResponse,
         sources: [],
-        attachments: attachments,
+        attachments: historyAttachments,
         type: chatMode,
         metrics: {},
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       apiSessionId: sessionId,
@@ -707,6 +796,7 @@ async function streamChat({
   const processedAttachments = await processDocumentAttachments(attachments);
   const parsedAttachments = processedAttachments.parsedDocuments;
   attachments = processedAttachments.imageAttachments;
+  let llmAttachments = imageAnalysisContext ? [] : attachments;
   parsedAttachments.forEach((doc) => {
     if (doc.pageContent) {
       contextTexts.push(doc.pageContent);
@@ -768,6 +858,8 @@ async function streamChat({
   contextTexts = [...contextTexts, ...filledSources.contextTexts];
   sources = [...sources, ...vectorSearchResults.sources];
 
+  if (imageAnalysisContext) contextTexts.unshift(imageAnalysisContext);
+
   // If in query mode and no context chunks are found from search, backfill, or pins -  do not
   // let the LLM try to hallucinate a response or use general knowledge and exit early
   if (chatMode === "query" && contextTexts.length === 0) {
@@ -790,9 +882,10 @@ async function streamChat({
       response: {
         text: textResponse,
         sources: [],
-        attachments: attachments,
+        attachments: historyAttachments,
         type: chatMode,
         metrics: {},
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       apiSessionId: sessionId,
@@ -815,7 +908,7 @@ async function streamChat({
     chatHistory,
     userPrompt: message,
     contextTexts,
-    attachments,
+    attachments: llmAttachments,
     compaction,
   });
   if (autoCompaction?.compactionId) {
@@ -837,7 +930,7 @@ async function streamChat({
       userPrompt: message,
       contextTexts,
       chatHistory,
-      attachments,
+      attachments: llmAttachments,
     },
     rawHistory
   );
@@ -882,7 +975,8 @@ async function streamChat({
         sources,
         type: chatMode,
         metrics,
-        attachments,
+        attachments: historyAttachments,
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
       },
       threadId: thread?.id || null,
       apiSessionId: sessionId,
@@ -902,7 +996,7 @@ async function streamChat({
       ],
       userPrompt: "",
       contextTexts,
-      attachments,
+      attachments: llmAttachments,
       compaction,
       phase: "turn_end",
     }).catch((error) =>

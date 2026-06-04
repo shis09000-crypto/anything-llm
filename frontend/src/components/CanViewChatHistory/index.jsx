@@ -5,8 +5,8 @@ import paths from "@/utils/paths";
 import { useNavigate } from "react-router-dom";
 
 /**
- * Protects the view from system set ups who cannot view chat history.
- * If the user cannot view chat history, they are redirected to the home page.
+ * 保护当前视图，避免无法查看聊天历史的系统配置访问该页面。
+ * 如果用户无法查看聊天历史，则会被重定向到首页。
  * @param {React.ReactNode} children
  */
 export function CanViewChatHistory({ children }) {
@@ -25,7 +25,7 @@ export function CanViewChatHistory({ children }) {
 }
 
 /**
- * Provides the `viewable` state to the children.
+ * 向 children 提供 `viewable` 状态。
  * @returns {React.ReactNode}
  */
 export function CanViewChatHistoryProvider({ children }) {
@@ -35,7 +35,7 @@ export function CanViewChatHistoryProvider({ children }) {
 }
 
 /**
- * Hook that fetches the can view chat history state from local storage or the system settings.
+ * 从 local storage 或系统设置中获取是否可以查看聊天历史的状态。
  * @returns {Promise<{viewable: boolean, error: string | null}>}
  */
 export function useCanViewChatHistory() {
