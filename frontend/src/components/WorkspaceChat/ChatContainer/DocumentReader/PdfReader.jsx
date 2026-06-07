@@ -45,6 +45,8 @@ const SCREENSHOT_OCR_STATUS = {
   idle: "idle",
   processing: "processing",
 };
+const SOURCE_HIGHLIGHT_RESTORE_MAX_ATTEMPTS = 12;
+const SOURCE_HIGHLIGHT_RESTORE_DELAY_MS = 80;
 
 async function thumbnailFromPdfDocument(pdfDocument) {
   const page = await pdfDocument.getPage(1);
@@ -211,6 +213,8 @@ export default function PdfReader({
   const flashTimerRef = useRef(null);
   const restoreTimerRef = useRef(null);
   const selectionCleanupFrameRef = useRef([]);
+  const selectionCleanupTimerRef = useRef(null);
+  const sourceHighlightRestoreTimerRef = useRef(null);
   const restoredDocumentRef = useRef(null);
   const thumbnailDocumentIdRef = useRef(null);
   const detectionRequestRef = useRef({ key: null, runId: 0 });
@@ -309,19 +313,22 @@ export default function PdfReader({
       window.cancelAnimationFrame(frameId)
     );
     selectionCleanupFrameRef.current = [];
+    window.clearTimeout(selectionCleanupTimerRef.current);
+    selectionCleanupTimerRef.current = null;
   }
 
   function deferSelectionCleanup(hideTipAndSelection) {
     cancelSelectionCleanup();
-    const firstFrame = window.requestAnimationFrame(() => {
-      const secondFrame = window.requestAnimationFrame(() => {
+    selectionCleanupTimerRef.current = window.setTimeout(() => {
+      const frameId = window.requestAnimationFrame(() => {
         hideTipAndSelection?.();
         clearBrowserSelection();
+        highlighterRef.current?.renderHighlightLayers?.();
         selectionCleanupFrameRef.current = [];
+        selectionCleanupTimerRef.current = null;
       });
-      selectionCleanupFrameRef.current = [secondFrame];
-    });
-    selectionCleanupFrameRef.current = [firstFrame];
+      selectionCleanupFrameRef.current = [frameId];
+    }, 80);
   }
 
   function viewerContainer() {
@@ -338,6 +345,94 @@ export default function PdfReader({
     return pageElements(container).find(
       (page) => Number(page.getAttribute("data-page-number")) === pageNumber
     );
+  }
+
+  function isValidScaledRect(rect) {
+    return ["x1", "y1", "x2", "y2", "width", "height"].every((key) =>
+      Number.isFinite(Number(rect?.[key]))
+    );
+  }
+
+  function isValidScaledPosition(position) {
+    if (!position || !Number.isFinite(Number(position.pageNumber)))
+      return false;
+    if (!isValidScaledRect(position.boundingRect)) return false;
+    if (!Array.isArray(position.rects) || position.rects.length === 0)
+      return false;
+    return position.rects.every(isValidScaledRect);
+  }
+
+  function isPdfHighlightLayerReady(pageNumber) {
+    const page = pageElementByNumber(pageNumber);
+    const pageView = highlighterRef.current?.viewer?.getPageView?.(
+      pageNumber - 1
+    );
+    return !!(page && pageView?.viewport && pageView?.textLayer?.textLayerDiv);
+  }
+
+  function sourceHighlightId(source, pageNumber) {
+    return source.highlightId || `${pageNumber || 0}-${source.textHash}`;
+  }
+
+  function clearSourceHighlightRestoreTimer() {
+    window.clearTimeout(sourceHighlightRestoreTimerRef.current);
+    sourceHighlightRestoreTimerRef.current = null;
+  }
+
+  function restoreTextSourceHighlightWhenReady(
+    source,
+    pageNumber,
+    attempt = 0
+  ) {
+    if (!isValidScaledPosition(source?.position)) return false;
+
+    if (!isPdfHighlightLayerReady(pageNumber)) {
+      if (attempt >= SOURCE_HIGHLIGHT_RESTORE_MAX_ATTEMPTS) return false;
+      clearSourceHighlightRestoreTimer();
+      sourceHighlightRestoreTimerRef.current = window.setTimeout(() => {
+        restoreTextSourceHighlightWhenReady(source, pageNumber, attempt + 1);
+      }, SOURCE_HIGHLIGHT_RESTORE_DELAY_MS);
+      return true;
+    }
+
+    const id = sourceHighlightId(source, pageNumber);
+    const highlight = {
+      id,
+      position: source.position,
+      content: { text: source.selectedText || "" },
+      selection: { ...source, highlightId: id },
+      sourceKey: source.sourceKey,
+      citationNo: source.citationNo,
+    };
+
+    setSelectionDraft(null);
+    setMarkAvailable(false);
+    setMarkedHighlightId(null);
+    setHighlights((current) => [
+      ...current.filter(
+        (item) => item.sourceKey !== source.sourceKey && item.id !== id
+      ),
+      highlight,
+    ]);
+    window.requestAnimationFrame(() => {
+      scrollToRef.current?.(highlight);
+      highlighterRef.current?.renderHighlightLayers?.();
+      flashHighlight(id);
+    });
+    return true;
+  }
+
+  function citationBadgeStyle(position) {
+    const anchor = position?.rects?.[0] || position?.boundingRect;
+    if (!anchor) return null;
+    const left = Number(anchor.left);
+    const top = Number(anchor.top);
+    const width = Number(anchor.width);
+    if (![left, top, width].every(Number.isFinite)) return null;
+    return {
+      left: `${Math.max(0, left + width - 10)}px`,
+      top: `${Math.max(0, top - 12)}px`,
+    };
   }
 
   function viewportRectFromContainerSelection(selection) {
@@ -642,12 +737,20 @@ export default function PdfReader({
 
   function scrollToSelectionSource(source) {
     if (!source) return;
+    clearSourceHighlightRestoreTimer();
     const matchingHighlight = highlights.find(
       (highlight) =>
         highlight.selection?.textHash === source.textHash ||
         highlight.id === source.highlightId
     );
     if (matchingHighlight) {
+      if (matchingHighlight.sourceKey) {
+        scrollToRef.current?.(matchingHighlight);
+        flashHighlight(matchingHighlight.id);
+        setSelectionDraft(null);
+        clearBrowserSelection();
+        return;
+      }
       openSelectionPanelFromHighlight(matchingHighlight);
       return;
     }
@@ -678,35 +781,21 @@ export default function PdfReader({
       return;
     }
     const container = viewerContainer();
-    const pageNumber = Number(source.locator?.page || 0);
-    if (!container || !pageNumber) return;
-    const page = pageElements(container).find(
-      (element) =>
-        Number(element.getAttribute("data-page-number")) === pageNumber
+    const pageNumber = Number(
+      source.locator?.page || source.position?.pageNumber || 0
     );
-    if (!page) return;
+    if (!container || !pageNumber) return;
+    const page = pageElementByNumber(pageNumber);
+    if (!page) {
+      restoreTextSourceHighlightWhenReady(source, pageNumber);
+      return;
+    }
     const offsetRatio = Number(source.locator?.pageOffsetRatio || 0);
     container.scrollTo({
       top: page.offsetTop + page.clientHeight * Math.max(0, offsetRatio),
       behavior: "smooth",
     });
-    if (source.position) {
-      const highlight = {
-        id:
-          source.highlightId ||
-          `${source.locator?.page || 0}-${source.textHash}`,
-        position: source.position,
-        content: { text: source.selectedText || "" },
-        selection: source,
-        sourceKey: source.sourceKey,
-        citationNo: source.citationNo,
-      };
-      setHighlights((current) => [
-        ...current.filter((item) => item.sourceKey !== source.sourceKey),
-        highlight,
-      ]);
-      setSelectionDraft(source);
-    }
+    restoreTextSourceHighlightWhenReady(source, pageNumber);
   }
 
   function restorePdfProgress(attempt = 0) {
@@ -858,6 +947,7 @@ export default function PdfReader({
     setOcrConfigStatus("idle");
     setOcrConfig(null);
     setToolMode("mouse");
+    clearSourceHighlightRestoreTimer();
     setScreenshotSelection(null);
     setScreenshotDrag(EMPTY_SCREENSHOT_DRAG_STATE);
     setScreenshotPanelOpen(false);
@@ -990,6 +1080,7 @@ export default function PdfReader({
     return () => {
       window.clearTimeout(flashTimerRef.current);
       window.clearTimeout(restoreTimerRef.current);
+      clearSourceHighlightRestoreTimer();
       if (screenshotLayoutFrameRef.current)
         window.cancelAnimationFrame(screenshotLayoutFrameRef.current);
       cancelSelectionCleanup();
@@ -1269,6 +1360,14 @@ export default function PdfReader({
                   const isMarked =
                     markAvailable && markedHighlightId === highlight.id;
                   const isCitation = !!highlight.sourceKey;
+                  const badgeStyle = citationBadgeStyle(highlight.position);
+                  const focusCitationHighlight = () => {
+                    onFocusTextSource?.(highlight.sourceKey);
+                    flashHighlight(highlight.id);
+                    setSelectionDraft(null);
+                    setMarkAvailable(false);
+                    clearBrowserSelection();
+                  };
                   return (
                     <div
                       key={index}
@@ -1276,11 +1375,19 @@ export default function PdfReader({
                       tabIndex={0}
                       onClick={(event) => {
                         event.stopPropagation();
+                        if (isCitation) {
+                          focusCitationHighlight();
+                          return;
+                        }
                         openSelectionPanelFromHighlight(highlight);
                       }}
                       onKeyDown={(event) => {
                         if (event.key !== "Enter" && event.key !== " ") return;
                         event.preventDefault();
+                        if (isCitation) {
+                          focusCitationHighlight();
+                          return;
+                        }
                         openSelectionPanelFromHighlight(highlight);
                       }}
                       className={`reader-pdf-highlight relative cursor-pointer ${
@@ -1293,20 +1400,23 @@ export default function PdfReader({
                           : ""
                       }`}
                     >
-                      {highlight.sourceKey && highlight.citationNo && (
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            onFocusTextSource?.(highlight.sourceKey);
-                          }}
-                          className="absolute -right-2 -top-2 z-40 flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white shadow-[0_8px_18px_rgba(16,185,129,0.28)]"
-                          title={`定位 TXT 引用 ${highlight.citationNo}`}
-                          aria-label={`定位 TXT 引用 ${highlight.citationNo}`}
-                        >
-                          {highlight.citationNo}
-                        </button>
-                      )}
+                      {highlight.sourceKey &&
+                        highlight.citationNo &&
+                        badgeStyle && (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              onFocusTextSource?.(highlight.sourceKey);
+                            }}
+                            style={badgeStyle}
+                            className="reader-pdf-highlight-citation-badge absolute z-40 flex h-5 min-w-[20px] items-center justify-center rounded-full border border-white bg-emerald-500 px-1 text-[10px] font-bold leading-none text-white shadow-[0_8px_18px_rgba(16,185,129,0.28)]"
+                            title={`定位 TXT 引用 ${highlight.citationNo}`}
+                            aria-label={`定位 TXT 引用 ${highlight.citationNo}`}
+                          >
+                            {highlight.citationNo}
+                          </button>
+                        )}
                       <Highlight
                         isScrolledTo={false}
                         position={highlight.position}

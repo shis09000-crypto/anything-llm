@@ -1135,12 +1135,23 @@ const EXTRA_PROVIDER_ENV_KEYS = [
   "NVIDIA_NIM_LLM_MODEL_TOKEN_LIMIT",
 ];
 
+const CRYPTO_GATE_ENV_KEYS = [
+  "ENCRYPTION_MASTER_KEY",
+  "GATE_CRYPTO_ENABLED",
+  "GATE_API_ENV",
+  "GATE_API_READONLY",
+  "GATE_API_KEY_ENCRYPTED",
+  "GATE_API_SECRET_ENCRYPTED",
+  "GATE_PROBE_SPOT_PAIR",
+];
+
 const PROVIDER_ENV_KEYS = [
   ...new Set([
     ...PROVIDER_SETTING_KEYS.map((key) => KEY_MAPPING[key]?.envKey).filter(
       Boolean
     ),
     ...EXTRA_PROVIDER_ENV_KEYS,
+    ...CRYPTO_GATE_ENV_KEYS,
   ]),
 ];
 
@@ -1669,6 +1680,7 @@ function dumpENV() {
     "DESKTOP_LOG_DIR",
     "DESKTOP_ENV_PATH",
     // For persistent data encryption
+    ...CRYPTO_GATE_ENV_KEYS,
     "SIG_KEY",
     "SIG_SALT",
     // Password Schema Keys if present.

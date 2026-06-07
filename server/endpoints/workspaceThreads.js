@@ -145,9 +145,16 @@ function workspaceThreadEndpoints(app) {
           workspace,
           user?.id
         );
+        const threads = WorkspaceThread.sortForDisplay(
+          await WorkspaceThread.withLastChatActivity(
+            defaultThreads.threads,
+            workspace.id,
+            user?.id
+          )
+        );
         response.status(200).json({
-          threads: defaultThreads.threads,
-          defaultThreads,
+          threads,
+          defaultThreads: { ...defaultThreads, threads },
         });
       } catch (e) {
         console.error(e.message, e);

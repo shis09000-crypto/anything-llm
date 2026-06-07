@@ -59,8 +59,7 @@ export function sortThreadsForDisplay(
     .sort((a, b) => {
       const rank = (thread) => {
         if (isOverviewThread(thread)) return 0;
-        if (isWorkspaceDefaultChatThread(thread)) return 1;
-        return 2;
+        return 1;
       };
       const rankDiff = rank(a.thread) - rank(b.thread);
       if (rankDiff !== 0) return rankDiff;
@@ -70,6 +69,12 @@ export function sortThreadsForDisplay(
       if (activitySortRank(a.activity) === 0) {
         return (b.activity?.updatedAt || 0) - (a.activity?.updatedAt || 0);
       }
+      const latestDiff =
+        threadLatestTime(b.thread) - threadLatestTime(a.thread);
+      if (latestDiff !== 0) return latestDiff;
+      const latestIdDiff =
+        Number(b.thread?.lastChatId || 0) - Number(a.thread?.lastChatId || 0);
+      if (latestIdDiff !== 0) return latestIdDiff;
       return a.index - b.index;
     });
 }
@@ -84,4 +89,11 @@ export function defaultWorkspacePath(workspaceSlug, threads = []) {
 function activitySortRank(activity) {
   if (activity?.status === "running") return 0;
   return 1;
+}
+
+function threadLatestTime(thread = null) {
+  const timestamp =
+    thread?.lastChatAt || thread?.lastUpdatedAt || thread?.createdAt || 0;
+  const time = new Date(timestamp).getTime();
+  return Number.isFinite(time) ? time : 0;
 }

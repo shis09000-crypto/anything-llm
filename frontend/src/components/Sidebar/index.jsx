@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
-import { List, Plus } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  CurrencyBtc,
+  House,
+  List,
+  Plus,
+} from "@phosphor-icons/react";
 import NewWorkspaceModal, {
   useNewWorkspaceModal,
 } from "../Modals/NewWorkspace";
@@ -8,7 +14,7 @@ import useLogo from "@/hooks/useLogo";
 import useUser from "@/hooks/useUser";
 import Footer from "../Footer";
 import SettingsButton from "../SettingsButton";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
 import { useSidebarToggle, ToggleSidebarButton } from "./SidebarToggle";
@@ -19,6 +25,7 @@ import {
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
+import UserButton from "../UserMenu/UserButton";
 
 function homeLinkPath() {
   const lastVisited = getLastVisitedWorkspace();
@@ -31,18 +38,97 @@ export default function Sidebar() {
   const { t } = useTranslation();
   const { user } = useUser();
   const { logo } = useLogo();
+  const navigate = useNavigate();
   const productName = t("common.productName");
   const showTextBrand = Boolean(productName);
   const sidebarRef = useRef(null);
+  const brandMenuRef = useRef(null);
+  const cryptoEntryTimerRef = useRef(null);
   const { showSidebar, setShowSidebar, canToggleSidebar } = useSidebarToggle();
+  const [brandMenuOpen, setBrandMenuOpen] = useState(false);
+  const [cryptoEntering, setCryptoEntering] = useState(false);
+  const [cryptoEntryProgress, setCryptoEntryProgress] = useState(0);
   const {
     showing: showingNewWsModal,
     showModal: showNewWsModal,
     hideModal: hideNewWsModal,
   } = useNewWorkspaceModal();
+  const canEnterCryptoCenter = !user || user?.role === "admin";
+
+  useEffect(() => {
+    if (!brandMenuOpen) return;
+
+    function handlePointerDown(event) {
+      if (brandMenuRef.current?.contains(event.target)) return;
+      setBrandMenuOpen(false);
+    }
+
+    function handleKeyDown(event) {
+      if (event.key === "Escape") setBrandMenuOpen(false);
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [brandMenuOpen]);
+
+  useEffect(() => {
+    return () => {
+      if (cryptoEntryTimerRef.current)
+        window.clearTimeout(cryptoEntryTimerRef.current);
+    };
+  }, []);
+
+  function goHome() {
+    setBrandMenuOpen(false);
+    navigate(homeLinkPath());
+  }
+
+  function enterCryptoCenter() {
+    if (cryptoEntering || !canEnterCryptoCenter) return;
+    setBrandMenuOpen(false);
+    setCryptoEntering(true);
+    setCryptoEntryProgress(8);
+    window.requestAnimationFrame(() => setCryptoEntryProgress(100));
+    cryptoEntryTimerRef.current = window.setTimeout(() => {
+      navigate(paths.settings.cryptoCenter());
+    }, 900);
+  }
 
   return (
     <>
+      {cryptoEntering ? (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#050505]/95 px-6 text-white backdrop-blur-md">
+          <div className="w-full max-w-[520px] rounded-[28px] border border-[#D6A84F]/20 bg-black/70 p-7 shadow-[0_28px_120px_rgba(214,168,79,.18)]">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[#D6A84F]/35 bg-[#D6A84F]/10 text-[#D6A84F]">
+                <CurrencyBtc className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="text-lg font-black text-white">
+                  正在进入加密货币专区
+                </div>
+                <div className="mt-1 text-xs font-semibold text-white/45">
+                  正在预热行情视图与账户概览缓存...
+                </div>
+              </div>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full rounded-full bg-[#D6A84F] shadow-[0_0_24px_rgba(214,168,79,.55)]"
+                style={{
+                  width: `${cryptoEntryProgress}%`,
+                  transition: "width 850ms cubic-bezier(.22,1,.36,1)",
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div
         style={{
           width: showSidebar ? "292px" : "0px",
@@ -58,11 +144,16 @@ export default function Sidebar() {
         )}
         <div className="overflow-hidden h-full">
           <div className="flex shrink-0 w-full justify-center my-[18px]">
-            <div className="flex w-[250px] min-w-[250px] items-center gap-x-2">
-              <Link
-                to={homeLinkPath()}
-                aria-label="Home"
-                className="flex min-w-0 items-center gap-x-2"
+            <div
+              ref={brandMenuRef}
+              className="relative flex w-[250px] min-w-[250px] items-center gap-x-2 pr-9"
+            >
+              <button
+                type="button"
+                aria-label="Athena navigation menu"
+                aria-expanded={brandMenuOpen}
+                onClick={() => setBrandMenuOpen((current) => !current)}
+                className="flex min-w-0 flex-1 items-center gap-x-2 rounded-md text-left"
               >
                 <img
                   src={logo}
@@ -76,7 +167,38 @@ export default function Sidebar() {
                     {productName}
                   </span>
                 )}
-              </Link>
+                <CaretDown
+                  className={`h-3.5 w-3.5 shrink-0 text-theme-text-secondary motion-hover ${showSidebar ? "opacity-100" : "opacity-0"}`}
+                />
+              </button>
+
+              {brandMenuOpen && showSidebar ? (
+                <div className="absolute left-0 top-[calc(100%+10px)] z-40 w-[220px] rounded-[16px] border border-white/10 bg-theme-bg-sidebar/95 p-2 shadow-[0_18px_48px_rgba(0,0,0,.34)] backdrop-blur light:border-slate-200 light:bg-white/95">
+                  <button
+                    type="button"
+                    onClick={goHome}
+                    className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs font-bold text-theme-text-primary hover:bg-white/10 hover:light:bg-slate-100"
+                  >
+                    <House className="h-4 w-4 shrink-0" />
+                    返回工作区
+                  </button>
+                  {canEnterCryptoCenter ? (
+                    <button
+                      type="button"
+                      disabled={cryptoEntering}
+                      onClick={enterCryptoCenter}
+                      className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs font-bold text-[#D6A84F] hover:bg-[#D6A84F]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <CurrencyBtc className="h-4 w-4 shrink-0" />
+                      加密货币专区
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              <UserButton
+                className={`${showSidebar ? "opacity-100" : "pointer-events-none opacity-0"}`}
+              />
             </div>
           </div>
           <div
@@ -269,6 +391,12 @@ function WorkspaceAndThreadTooltips() {
       <Tooltip
         id="gear-workspace"
         place="top"
+        delayShow={300}
+        className="tooltip !text-xs z-99"
+      />
+      <Tooltip
+        id="user-account-button"
+        place="bottom"
         delayShow={300}
         className="tooltip !text-xs z-99"
       />

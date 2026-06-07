@@ -60,6 +60,8 @@ const { telegramEndpoints } = require("./endpoints/telegram");
 const { wechatEndpoints } = require("./endpoints/wechat");
 const { advancedGatewayEndpoints } = require("./endpoints/advancedGateway");
 const { scheduledJobEndpoints } = require("./endpoints/scheduledJobs");
+const { cryptoCenterEndpoints } = require("./endpoints/cryptoCenter");
+const { cryptoGateProbeEndpoints } = require("./endpoints/cryptoGateProbe");
 const {
   outlookAgentEndpoints,
 } = require("./endpoints/utils/outlookAgentUtils");
@@ -135,6 +137,8 @@ telegramEndpoints(apiRouter);
 wechatEndpoints(apiRouter);
 advancedGatewayEndpoints(apiRouter);
 scheduledJobEndpoints(apiRouter);
+cryptoCenterEndpoints(apiRouter);
+cryptoGateProbeEndpoints(apiRouter);
 outlookAgentEndpoints(apiRouter);
 googleAgentSkillEndpoints(apiRouter);
 // Externally facing embedder endpoints

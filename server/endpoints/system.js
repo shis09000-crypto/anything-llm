@@ -1544,7 +1544,8 @@ function systemEndpoints(app) {
   app.post("/system/user", [validatedRequest], async (request, response) => {
     try {
       const sessionUser = await userFromSession(request, response);
-      const { username, password, bio } = reqBody(request);
+      const body = reqBody(request);
+      const { username, password, bio } = body;
       const id = Number(sessionUser.id);
 
       if (!id) {
@@ -1555,10 +1556,14 @@ function systemEndpoints(app) {
       const updates = {};
       // If the username is being changed, validate it.
       // Otherwise, do not attempt to validate it to allow existing users to keep their username if not changing it.
-      if (username !== sessionUser.username)
+      if (
+        Object.prototype.hasOwnProperty.call(body, "username") &&
+        username !== sessionUser.username
+      )
         updates.username = User.validations.username(String(username));
       if (password) updates.password = String(password);
-      if (bio) updates.bio = String(bio);
+      if (Object.prototype.hasOwnProperty.call(body, "bio"))
+        updates.bio = String(bio ?? "");
 
       if (Object.keys(updates).length === 0) {
         response

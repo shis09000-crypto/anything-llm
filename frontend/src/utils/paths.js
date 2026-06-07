@@ -157,6 +157,9 @@ export default {
     buttonLab: () => {
       return "/settings/button-lab";
     },
+    cryptoComponentExperiment: () => {
+      return "/settings/crypto-component-experiment";
+    },
     agentSkills: () => {
       return "/settings/agents";
     },
@@ -169,6 +172,9 @@ export default {
     systemPromptVariables: () => "/settings/system-prompt-variables",
     logs: () => {
       return "/settings/event-logs";
+    },
+    cryptoCenter: () => {
+      return "/settings/crypto-center";
     },
     batchJobs: () => {
       return "/settings/batch-jobs";

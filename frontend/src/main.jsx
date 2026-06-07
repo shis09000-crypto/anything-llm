@@ -12,6 +12,7 @@ import SimpleSSOPassthrough from "@/pages/Login/SSO/simple";
 import OnboardingFlow from "@/pages/OnboardingFlow";
 import "@/index.css";
 import { installEnvironmentStorageScope } from "@/utils/appEnvironment";
+import { isCryptoCenterDevAuthBypassEnabled } from "@/utils/cryptoCenterDevAuthBypass";
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
@@ -213,6 +214,21 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/crypto-center",
+        lazy: async () => {
+          const { default: CryptoCenter } = await import(
+            "@/pages/Admin/CryptoCenter"
+          );
+          return {
+            element: isCryptoCenterDevAuthBypassEnabled() ? (
+              <CryptoCenter />
+            ) : (
+              <AdminRoute Component={CryptoCenter} />
+            ),
+          };
+        },
+      },
+      {
         path: "/settings/embed-chat-widgets",
         lazy: async () => {
           const { default: ChatEmbedWidgets } = await import(
@@ -265,6 +281,17 @@ const router = createBrowserRouter([
             "@/pages/GeneralSettings/Settings/ButtonLab"
           );
           return { element: <ManagerRoute Component={ButtonLab} /> };
+        },
+      },
+      {
+        path: "/settings/crypto-component-experiment",
+        lazy: async () => {
+          const { default: CryptoComponentExperiment } = await import(
+            "@/pages/GeneralSettings/Settings/CryptoComponentExperiment"
+          );
+          return {
+            element: <ManagerRoute Component={CryptoComponentExperiment} />,
+          };
         },
       },
       {

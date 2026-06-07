@@ -254,6 +254,15 @@ export default function ChatContainer({
     clearTranscriptOnListen: true,
   });
 
+  const [sendScrollRequest, setSendScrollRequest] = useState(0);
+  const [branchSendScrollRequest, setBranchSendScrollRequest] = useState(0);
+  const requestSendScrollToBottom = useCallback(() => {
+    setSendScrollRequest((request) => request + 1);
+  }, []);
+  const requestBranchSendScrollToBottom = useCallback(() => {
+    setBranchSendScrollRequest((request) => request + 1);
+  }, []);
+
   const clearMemoryCompactionDivider = useCallback(() => {
     clearTimeout(memoryDividerTimerRef.current);
     memoryDividerTimerRef.current = null;
@@ -699,6 +708,7 @@ export default function ChatContainer({
       prompt: message,
       history: knownHistory,
     });
+    requestSendScrollToBottom();
     appendTimelineEvent(localTurn.chatKey, localTurn.turnId, {
       type: "thought",
       content: "正在解析测试计划...",
@@ -1032,6 +1042,7 @@ export default function ChatContainer({
       parseAttachments,
       sendToExistingAgent: !!branchDraft?.isAgentRunning,
     });
+    requestBranchSendScrollToBottom();
   }
 
   const sendBranchCommand = async ({
@@ -1073,6 +1084,7 @@ export default function ChatContainer({
       parseAttachments,
       sendToExistingAgent: !!branchDraft?.isAgentRunning,
     });
+    requestBranchSendScrollToBottom();
   };
 
   async function closeSourceThreadPanel() {
@@ -1206,6 +1218,7 @@ export default function ChatContainer({
       parseAttachments,
       sendToExistingAgent: !!draft?.isAgentRunning,
     });
+    requestSendScrollToBottom();
   };
 
   function endSTTSession() {
@@ -1315,6 +1328,7 @@ export default function ChatContainer({
       parseAttachments,
       sendToExistingAgent: !!draft?.isAgentRunning,
     });
+    requestSendScrollToBottom();
   };
 
   useEffect(() => {
@@ -1461,6 +1475,7 @@ export default function ChatContainer({
                     activeThreadSlug={dualThreadFork.branchThreadSlug}
                     contentClassName={DUAL_THREAD_CONTENT_PADDING}
                     bottomInset={branchPromptBottomInset}
+                    sendScrollRequest={branchSendScrollRequest}
                   />
                 </MetricsProvider>
                 <PromptInput
@@ -1610,6 +1625,7 @@ export default function ChatContainer({
                           onGenerateMindMap={openMindMap}
                           contentClassName={DUAL_THREAD_CONTENT_PADDING}
                           bottomInset={promptBottomInset}
+                          sendScrollRequest={sendScrollRequest}
                         />
                       </MetricsProvider>
                       <MemoryCompactionDivider
@@ -1834,6 +1850,7 @@ export default function ChatContainer({
                       onLoadOlderHistory={onLoadOlderHistory}
                       contentClassName={DUAL_THREAD_CONTENT_PADDING}
                       bottomInset={promptBottomInset}
+                      sendScrollRequest={sendScrollRequest}
                     />
                   </MetricsProvider>
                   <MemoryCompactionDivider

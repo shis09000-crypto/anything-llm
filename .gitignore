@@ -1,6 +1,9 @@
 v-env
 .env
+.env.*
 !.env.example
+*.key
+*.pem
 
 node_modules
 __pycache__
@@ -17,6 +20,10 @@ dist-desktop/
 server/public/
 desktop/*.env
 server/storage/reader-documents/
+server/storage/*crypto*
+server/storage/*gate*
+server/storage/**/crypto-gate/
+server/storage/**/gate/
 
 # Logs
 logs

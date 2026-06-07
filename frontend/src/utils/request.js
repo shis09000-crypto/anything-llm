@@ -1,4 +1,8 @@
 import { AUTH_TOKEN, AUTH_USER } from "./constants";
+import {
+  CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER,
+  isCryptoCenterDevAuthBypassEnabled,
+} from "./cryptoCenterDevAuthBypass";
 
 // Sets up the base headers for all authenticated requests so that we are able to prevent
 // basic spoofing since a valid token is required and that cannot be spoofed
@@ -10,9 +14,13 @@ export function userFromStorage() {
 
 export function baseHeaders(providedToken = null) {
   const token = providedToken || window.localStorage.getItem(AUTH_TOKEN);
-  return {
+  const headers = {
     Authorization: token ? `Bearer ${token}` : null,
   };
+  if (isCryptoCenterDevAuthBypassEnabled()) {
+    headers[CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER] = "1";
+  }
+  return headers;
 }
 
 export function safeJsonParse(jsonString, fallback = null) {

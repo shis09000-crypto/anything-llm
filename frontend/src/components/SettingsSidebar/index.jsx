@@ -11,6 +11,7 @@ import {
   Nut,
   Toolbox,
   Plugs,
+  CurrencyBtc,
 } from "@phosphor-icons/react";
 import AgentIcon from "@/media/animations/agent-static.png";
 import CommunityHubIcon from "@/media/illustrations/community-hub.png";
@@ -404,6 +405,12 @@ const SidebarOptions = ({ user = null, t }) => (
               roles: ["admin", "manager"],
             },
             {
+              btnText: "加密组件实验 / Crypto Component Experiment",
+              href: paths.settings.cryptoComponentExperiment(),
+              flex: true,
+              roles: ["admin", "manager"],
+            },
+            {
               btnText: t("settings.chat"),
               href: paths.settings.chat(),
               flex: true,
@@ -453,6 +460,13 @@ const SidebarOptions = ({ user = null, t }) => (
               href: paths.settings.logs(),
               flex: true,
               roles: ["admin"],
+            },
+            {
+              btnText: "Crypto Center",
+              href: paths.settings.cryptoCenter(),
+              flex: true,
+              roles: ["admin"],
+              icon: <CurrencyBtc className="h-4 w-4 flex-shrink-0" />,
             },
             {
               btnText: t("settings.scheduled-jobs"),

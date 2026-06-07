@@ -8,7 +8,13 @@ import ManageWorkspace, {
 } from "../../Modals/ManageWorkspace";
 import paths from "@/utils/paths";
 import { Link, useParams, useNavigate, useMatch } from "react-router-dom";
-import { GearSix, UploadSimple, DotsSixVertical } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  CaretRight,
+  GearSix,
+  UploadSimple,
+  DotsSixVertical,
+} from "@phosphor-icons/react";
 import useUser from "@/hooks/useUser";
 import ThreadContainer from "./ThreadContainer";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
@@ -25,6 +31,7 @@ export default function ActiveWorkspaces() {
   const { slug } = useParams();
   const [loading, setLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState([]);
+  const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
   const [selectedWs, setSelectedWs] = useState(null);
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
   const { user } = useUser();
@@ -105,6 +112,20 @@ export default function ActiveWorkspaces() {
     reorderWorkspaces(result.source.index, result.destination.index);
   };
 
+  function toggleWorkspaceThreads(workspaceSlug) {
+    setCollapsedWorkspaces((prev) => ({
+      ...prev,
+      [workspaceSlug]: !prev[workspaceSlug],
+    }));
+  }
+
+  function expandWorkspaceThreads(workspaceSlug) {
+    setCollapsedWorkspaces((prev) => {
+      if (!prev[workspaceSlug]) return prev;
+      return { ...prev, [workspaceSlug]: false };
+    });
+  }
+
   const lastVisitedWorkspace = isHomePage ? getLastVisitedWorkspace() : null;
   const hasValidLastVisitedWorkspace =
     !!lastVisitedWorkspace?.slug &&
@@ -135,6 +156,7 @@ export default function ActiveWorkspaces() {
             {workspaces.map((workspace, index) => {
               const isVirtuallyActive = workspace.slug === virtualActiveSlug;
               const isActive = workspace.slug === slug || isVirtuallyActive;
+              const isCollapsed = !!collapsedWorkspaces[workspace.slug];
               return (
                 <Draggable
                   key={workspace.id}
@@ -153,6 +175,16 @@ export default function ActiveWorkspaces() {
                       <div className="flex gap-x-2 items-center justify-between">
                         <Link
                           to={pathForLastVisitedThread(workspace.slug)}
+                          onClick={(event) => {
+                            if (event.defaultPrevented) return;
+                            if (isActive) {
+                              event.preventDefault();
+                              toggleWorkspaceThreads(workspace.slug);
+                              return;
+                            }
+                            expandWorkspaceThreads(workspace.slug);
+                          }}
+                          aria-expanded={isActive ? !isCollapsed : undefined}
                           aria-current={isActive ? "page" : ""}
                           className={`
                             motion-hover duration-[200ms]
@@ -171,6 +203,21 @@ export default function ActiveWorkspaces() {
                                 className={`${isActive ? "text-white light:text-blue-800" : ""}`}
                                 weight="bold"
                               />
+                            </div>
+                            <div className="w-[16px] h-[16px] flex items-center justify-center shrink-0">
+                              {isCollapsed ? (
+                                <CaretRight
+                                  size={14}
+                                  weight="bold"
+                                  className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
+                                />
+                              ) : (
+                                <CaretDown
+                                  size={14}
+                                  weight="bold"
+                                  className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
+                                />
+                              )}
                             </div>
                             <div
                               data-tooltip-id="workspace-name"
@@ -248,7 +295,7 @@ export default function ActiveWorkspaces() {
                           </div>
                         </Link>
                       </div>
-                      {isActive && (
+                      {isActive && !isCollapsed && (
                         <ThreadContainer
                           workspace={workspace}
                           isActive={isActive}

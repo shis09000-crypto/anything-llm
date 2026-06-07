@@ -33,6 +33,6 @@ export default function useChatHistoryScrollHandle(
         scrollToBottom(isStreaming ? false : true);
       },
     }),
-    [isStreaming]
+    [isStreaming, scrollToBottom, setIsUserScrolling]
   );
 }

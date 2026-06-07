@@ -12,7 +12,7 @@
   right: max(20px, env(safe-area-inset-right));
   bottom: max(20px, env(safe-area-inset-bottom));
   left: max(20px, env(safe-area-inset-left));
-  z-index: 9999;
+  z-index: 10050;
   width: min(var(--app-toast-width, 400px), calc(100vw - 40px));
   margin-inline: auto;
   pointer-events: none;

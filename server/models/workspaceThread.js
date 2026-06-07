@@ -34,6 +34,59 @@ const WorkspaceThread = {
     };
   },
 
+  withLastChatActivity: async function (
+    threads = [],
+    workspaceId = null,
+    userId = null
+  ) {
+    if (!workspaceId || threads.length === 0) return threads;
+
+    const threadIds = threads
+      .map((thread) => thread?.id)
+      .filter((id) => Number.isFinite(Number(id)))
+      .map(Number);
+    if (threadIds.length === 0) return threads;
+
+    try {
+      const latestChats = await prisma.workspace_chats.groupBy({
+        by: ["thread_id"],
+        where: {
+          workspaceId: Number(workspaceId),
+          user_id: userId ? Number(userId) : null,
+          api_session_id: null,
+          include: true,
+          thread_id: { in: threadIds },
+        },
+        _max: {
+          createdAt: true,
+          id: true,
+        },
+      });
+      const latestByThreadId = new Map(
+        latestChats.map((row) => [
+          row.thread_id,
+          {
+            lastChatAt: row._max.createdAt,
+            lastChatId: row._max.id,
+          },
+        ])
+      );
+
+      return threads.map((thread) => ({
+        ...thread,
+        lastChatAt: latestByThreadId.get(thread.id)?.lastChatAt || null,
+        lastChatId: latestByThreadId.get(thread.id)?.lastChatId || null,
+      }));
+    } catch (error) {
+      console.error(error.message);
+      return threads.map((thread) => ({
+        ...thread,
+        lastChatAt: null,
+        lastChatId: null,
+      }));
+    }
+  },
+
   isOverviewThread: function (thread = null) {
     return thread?.thread_type === THREAD_TYPES.overview;
   },
@@ -42,16 +95,16 @@ const WorkspaceThread = {
     return [...threads].sort((a, b) => {
       const rank = (thread) => {
         if (thread?.thread_type === THREAD_TYPES.overview) return 0;
-        if (
-          thread?.thread_type === THREAD_TYPES.chat &&
-          thread?.created_from === THREAD_CREATED_FROM.workspaceDefault
-        )
-          return 1;
-        return 2;
+        return 1;
       };
       const rankDiff = rank(a) - rank(b);
       if (rankDiff !== 0) return rankDiff;
-      return new Date(a?.createdAt || 0) - new Date(b?.createdAt || 0);
+      const latestDiff = threadLatestTime(b) - threadLatestTime(a);
+      if (latestDiff !== 0) return latestDiff;
+      const latestIdDiff =
+        Number(b?.lastChatId || 0) - Number(a?.lastChatId || 0);
+      if (latestIdDiff !== 0) return latestIdDiff;
+      return new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0);
     });
   },
 
@@ -354,5 +407,12 @@ const WorkspaceThread = {
     }
   },
 };
+
+function threadLatestTime(thread = null) {
+  const timestamp =
+    thread?.lastChatAt || thread?.lastUpdatedAt || thread?.createdAt || 0;
+  const time = new Date(timestamp).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
 
 module.exports = { WorkspaceThread };

@@ -43,6 +43,7 @@ export default forwardRef(function (
     onLoadOlderHistory = null,
     contentClassName = "",
     bottomInset = null,
+    sendScrollRequest = 0,
   },
   ref
 ) {
@@ -84,6 +85,15 @@ export default forwardRef(function (
       : 8,
   });
 
+  const scrollToBottom = useCallback((smooth = false) => {
+    if (chatHistoryRef.current) {
+      chatHistoryRef.current.scrollTo({
+        top: chatHistoryRef.current.scrollHeight,
+        ...(smooth ? { behavior: "smooth" } : {}),
+      });
+    }
+  }, []);
+
   useEffect(() => {
     const assistantTurns = items
       .filter((item) => item.type === "assistant_turn")
@@ -112,7 +122,7 @@ export default forwardRef(function (
     if (!isUserScrolling && (isAtBottom || isStreaming)) {
       scrollToBottom(false);
     }
-  }, [items, isAtBottom, isStreaming, isUserScrolling]);
+  }, [items, isAtBottom, isStreaming, isUserScrolling, scrollToBottom]);
 
   useLayoutEffect(() => {
     const element = chatHistoryRef.current;
@@ -136,6 +146,19 @@ export default forwardRef(function (
       lastScrollTopRef.current = current.scrollTop;
     });
   }, [chatKey]);
+
+  useLayoutEffect(() => {
+    if (!sendScrollRequest) return;
+
+    setIsUserScrolling(false);
+    setIsAtBottom(true);
+    scrollToBottom(true);
+
+    const frame = window.requestAnimationFrame(() => {
+      scrollToBottom(true);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [sendScrollRequest, scrollToBottom]);
 
   const handleScroll = (e) => {
     const { scrollTop, scrollHeight, clientHeight } = e.target;
@@ -163,15 +186,6 @@ export default forwardRef(function (
         chatHistoryElement.removeEventListener("scroll", debouncedScroll);
     }
   }, [debouncedScroll]);
-
-  const scrollToBottom = (smooth = false) => {
-    if (chatHistoryRef.current) {
-      chatHistoryRef.current.scrollTo({
-        top: chatHistoryRef.current.scrollHeight,
-        ...(smooth ? { behavior: "smooth" } : {}),
-      });
-    }
-  };
 
   useChatHistoryScrollHandle(ref, chatHistoryRef, {
     setIsUserScrolling,

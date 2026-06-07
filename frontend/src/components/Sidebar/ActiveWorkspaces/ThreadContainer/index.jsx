@@ -1,7 +1,13 @@
 import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import showToast from "@/utils/toast";
-import { Plus, CircleNotch, Trash } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  CaretUp,
+  Plus,
+  CircleNotch,
+  Trash,
+} from "@phosphor-icons/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ThreadItem from "./ThreadItem";
 import { useNavigate, useParams } from "react-router-dom";
@@ -18,6 +24,7 @@ import {
 } from "@/utils/workspaceThreads";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
+const COLLAPSED_THREAD_LIMIT = 5;
 
 export default function ThreadContainer({
   workspace,
@@ -28,10 +35,11 @@ export default function ThreadContainer({
   const [threads, setThreads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [ctrlPressed, setCtrlPressed] = useState(false);
+  const [showAllThreads, setShowAllThreads] = useState(false);
   const titleAnimationTimers = useRef(new Map());
   const lastAnimatedTitle = useRef(new Map());
   const threadsRef = useRef([]);
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { hasThreadActivity, clearThreadActivity } = useChatThreadDrafts();
   useThreadActivitySnapshot();
 
@@ -139,6 +147,7 @@ export default function ThreadContainer({
   useEffect(() => {
     async function fetchThreads() {
       if (!workspace.slug) return;
+      setShowAllThreads(false);
       const { threads } = await Workspace.threads.all(workspace.slug);
       setLoading(false);
       setThreads(threads);
@@ -265,18 +274,6 @@ export default function ThreadContainer({
     ]);
   }
 
-  function getActiveThreadIdx() {
-    const rows = getSortedThreadRows(
-      threads,
-      workspace.slug,
-      hasThreadActivity
-    );
-    const idx = rows.findIndex((row) => row.thread?.slug === threadSlug);
-    if (idx >= 0) return idx;
-    if (isVirtualThread) return rows.length;
-    return -1;
-  }
-
   useEffect(() => {
     const currentActivity = hasThreadActivity(workspace.slug, threadSlug);
     if (["completed", "failed"].includes(currentActivity?.status)) {
@@ -284,12 +281,35 @@ export default function ThreadContainer({
     }
   }, [workspace.slug, threadSlug, hasThreadActivity, clearThreadActivity]);
 
-  const threadRows = getSortedThreadRows(
+  const sortedThreadRows = getSortedThreadRows(
     threads,
     workspace.slug,
     hasThreadActivity
   );
-  const activeThreadIdx = getActiveThreadIdx();
+  const overviewThreadRows = sortedThreadRows.filter(({ thread }) =>
+    isOverviewThread(thread)
+  );
+  const chatThreadRows = sortedThreadRows.filter(
+    ({ thread }) => !isOverviewThread(thread)
+  );
+  const canToggleThreadList = chatThreadRows.length > COLLAPSED_THREAD_LIMIT;
+  const hiddenThreadCount = Math.max(
+    chatThreadRows.length - COLLAPSED_THREAD_LIMIT,
+    0
+  );
+  const threadRows = showAllThreads
+    ? sortedThreadRows
+    : [
+        ...overviewThreadRows,
+        ...chatThreadRows.slice(0, COLLAPSED_THREAD_LIMIT),
+      ];
+  const activeThreadIdx = (() => {
+    const idx = threadRows.findIndex((row) => row.thread?.slug === threadSlug);
+    if (idx >= 0) return idx;
+    if (isVirtualThread) return threadRows.length;
+    return -1;
+  })();
+
   useEffect(() => {
     debugChatTurn("ThreadContainer:renderState", {
       workspaceSlug: workspace.slug,
@@ -341,6 +361,14 @@ export default function ThreadContainer({
           hasNext={false}
         />
       )}
+      {canToggleThreadList && (
+        <ThreadListToggleButton
+          expanded={showAllThreads}
+          hiddenCount={hiddenThreadCount}
+          language={i18n.language}
+          onClick={() => setShowAllThreads((prev) => !prev)}
+        />
+      )}
       <DeleteAllThreadButton
         ctrlPressed={ctrlPressed}
         threads={threads}
@@ -361,6 +389,45 @@ function displayActivity(activity, isActive) {
 
 function getSortedThreadRows(threads, workspaceSlug, hasThreadActivity) {
   return sortThreadsForDisplay(threads, workspaceSlug, hasThreadActivity);
+}
+
+function ThreadListToggleButton({
+  expanded = false,
+  hiddenCount = 0,
+  language = "en",
+  onClick,
+}) {
+  const isChinese = String(language || "").startsWith("zh");
+  const label = expanded
+    ? isChinese
+      ? "收起"
+      : "Show first 5"
+    : isChinese
+      ? `展开全部（还有 ${hiddenCount} 个）`
+      : `Show all (${hiddenCount} more)`;
+  const Icon = expanded ? CaretUp : CaretDown;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full relative flex h-[34px] items-center border-none hover:bg-[var(--theme-sidebar-thread-selected)] light:hover:bg-slate-300 hover:light:bg-theme-sidebar-subitem-hover rounded-lg"
+      aria-expanded={expanded}
+    >
+      <div className="flex w-full gap-x-2 items-center pl-4">
+        <div className="bg-zinc-800 light:bg-slate-50 p-2 rounded-lg h-[24px] w-[24px] flex items-center justify-center">
+          <Icon
+            weight="bold"
+            size={14}
+            className="shrink-0 text-white light:text-theme-text-primary"
+          />
+        </div>
+        <p className="text-left text-white light:text-theme-text-primary text-sm font-semibold truncate">
+          {label}
+        </p>
+      </div>
+    </button>
+  );
 }
 
 function NewThreadButton({ workspace, onThreadCreated }) {
