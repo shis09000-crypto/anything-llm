@@ -44,7 +44,7 @@ import type {
 
 const CRYPTO_CENTER_BACKGROUND_URL =
   "/crypto-center-backgrounds/crypto-center-background.png";
-const FIXED_YESTERDAY_BASELINE_USD = 51685.38;
+const FALLBACK_YESTERDAY_BASELINE_USD = 51685.38;
 const BTC_PAIR = "BTC_USDT";
 const BTC_MARKET = "spot";
 const btcPreset = presetById(BTC_PAIR);
@@ -152,7 +152,7 @@ const defaultTotalAssetParams: CryptoTotalAssetCardProps = {
   todayPnlUsd: 0,
   todayPnlPct: 0,
   yesterdayChangePct: 0,
-  yesterdayBaselineUsd: FIXED_YESTERDAY_BASELINE_USD,
+  yesterdayBaselineUsd: FALLBACK_YESTERDAY_BASELINE_USD,
   connectionStatus: "degraded",
   lastUpdatedAt: "--:--:--",
   lastUpdatedDate: "",
@@ -761,7 +761,7 @@ export default function CryptoCenter() {
       totalEquityUsd: gateHistory.latestEquityUsd,
       todayPnlUsd: gateHistory.todayPnlUsd,
       todayPnlPct: gateHistory.todayPnlPct,
-      yesterdayBaselineUsd: FIXED_YESTERDAY_BASELINE_USD,
+      yesterdayBaselineUsd: gateHistory.yesterdayBaselineUsd,
       yesterdayChangePct: gateHistory.yesterdayChangePct,
       trendPoints: gateHistory.points,
     };
