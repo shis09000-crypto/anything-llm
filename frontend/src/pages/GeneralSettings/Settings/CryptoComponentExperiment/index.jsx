@@ -3,12 +3,25 @@ import Sidebar from "@/components/SettingsSidebar";
 import { CurrencyBtc } from "@phosphor-icons/react";
 import { isMobile } from "react-device-detect";
 import BtcSpotAssetCardExperiment from "./BtcSpotAssetCardExperiment";
+import AssetAllocationDonutExperiment from "./AssetAllocationDonutExperiment";
 import CryptoTotalAssetCardExperiment from "./CryptoTotalAssetCardExperiment";
+import OpenFuturesPositionsExperiment from "./OpenFuturesPositionsExperiment";
 import TradingPairCandlestickChartExperiment from "./TradingPairCandlestickChartExperiment";
 import TradingPairDetailCardExperiment from "./TradingPairDetailCardExperiment";
+import TradeRecordsExperiment from "./TradeRecordsExperiment";
 
 const experimentTabs = [
   { id: "total-asset", label: "总资产组件实验", hint: "Crypto Portfolio" },
+  {
+    id: "asset-allocation-donut",
+    label: "资产分布组件实验",
+    hint: "Asset Allocation Donut",
+  },
+  {
+    id: "open-futures-positions",
+    label: "未平仓合约显示组件实验",
+    hint: "Open Futures Positions",
+  },
   { id: "btc-spot", label: "BTC 现货卡片实验", hint: "BTC Spot Card" },
   {
     id: "trading-pair-detail",
@@ -19,6 +32,11 @@ const experimentTabs = [
     id: "trading-pair-candlestick",
     label: "交易对K线趋势图实验",
     hint: "Candlestick Chart",
+  },
+  {
+    id: "trade-records",
+    label: "交易明细组件实验",
+    hint: "Trade Records Experiment",
   },
 ];
 
@@ -59,7 +77,7 @@ export default function CryptoComponentExperiment() {
           </div>
 
           <div className="mt-6">
-            <div className="mb-5 grid gap-3 rounded-[22px] border border-white/10 bg-white/[.035] p-2 shadow-[0_18px_44px_rgb(0_0_0_/_0.12)] light:border-slate-200 light:bg-white/70 md:grid-cols-4">
+            <div className="mb-5 grid gap-3 rounded-[22px] border border-white/10 bg-white/[.035] p-2 shadow-[0_18px_44px_rgb(0_0_0_/_0.12)] light:border-slate-200 light:bg-white/70 md:grid-cols-4 xl:grid-cols-7">
               {experimentTabs.map((tab) => {
                 const active = activeExperiment === tab.id;
                 return (
@@ -85,10 +103,16 @@ export default function CryptoComponentExperiment() {
 
             {activeExperiment === "total-asset" ? (
               <CryptoTotalAssetCardExperiment />
+            ) : activeExperiment === "asset-allocation-donut" ? (
+              <AssetAllocationDonutExperiment />
+            ) : activeExperiment === "open-futures-positions" ? (
+              <OpenFuturesPositionsExperiment />
             ) : activeExperiment === "btc-spot" ? (
               <BtcSpotAssetCardExperiment />
             ) : activeExperiment === "trading-pair-candlestick" ? (
               <TradingPairCandlestickChartExperiment />
+            ) : activeExperiment === "trade-records" ? (
+              <TradeRecordsExperiment />
             ) : (
               <TradingPairDetailCardExperiment />
             )}

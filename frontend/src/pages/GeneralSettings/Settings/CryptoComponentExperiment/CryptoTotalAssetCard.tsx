@@ -369,8 +369,8 @@ function mergeAmountSlots(
 
 function chartGeometry(points: CryptoTrendPoint[], baseline: number) {
   const width = 700;
-  const height = 300;
-  const padding = { top: 34, right: 26, bottom: 38, left: 64 };
+  const height = 500;
+  const padding = { top: 58, right: 26, bottom: 60, left: 64 };
   const values = [...points.map((point) => point.value), baseline];
   const min = Math.min(...values) - 280;
   const max = Math.max(...values) + 280;
@@ -415,6 +415,11 @@ function chartGeometry(points: CryptoTrendPoint[], baseline: number) {
 type ChartGeometry = ReturnType<typeof chartGeometry>;
 type ChartCoord = ChartGeometry["coords"][number];
 
+function clampNumber(value: number, min: number, max: number) {
+  if (max < min) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
 function downsampleCoords<T extends { x: number; y: number }>(
   coords: T[],
   maxPoints = 1400
@@ -453,7 +458,6 @@ export default function CryptoTotalAssetCard({
   totalEquityUsd,
   todayPnlUsd,
   todayPnlPct,
-  yesterdayChangePct,
   yesterdayBaselineUsd,
   connectionStatus,
   lastUpdatedAt,
@@ -523,11 +527,8 @@ export default function CryptoTotalAssetCard({
             </div>
             <div className="min-w-0">
               <h2 className="truncate text-xl font-bold leading-tight md:text-2xl">
-                Crypto Portfolio
-              </h2>
-              <p className="mt-1 text-sm font-semibold text-[#9CA3AF]">
                 总资产概览
-              </p>
+              </h2>
             </div>
           </div>
 
@@ -569,7 +570,7 @@ export default function CryptoTotalAssetCard({
             </div>
           </div>
 
-          <div className="grid min-w-0 grid-cols-3 items-end gap-4">
+          <div className="grid min-w-0 grid-cols-2 items-end gap-4">
             <AssetStat
               label="今日盈亏 (USD)"
               value={formatSignedUsd(todayPnlUsd)}
@@ -580,21 +581,14 @@ export default function CryptoTotalAssetCard({
               value={formatSignedPct(todayPnlPct)}
               tone={tone}
             />
-            <AssetStat
-              label="较昨日"
-              value={formatSignedPct(yesterdayChangePct)}
-              tone={
-                yesterdayChangePct >= 0 ? "text-[#4ADE80]" : "text-[#FCA5A5]"
-              }
-            />
           </div>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-start gap-3 text-sm font-semibold text-[#9CA3AF] lg:justify-end">
+        <div className="flex min-h-0 min-w-0 flex-col gap-2">
+          <div className="flex h-11 shrink-0 items-start justify-between gap-3 text-sm font-semibold text-[#9CA3AF]">
             {showStatusBadge && (
               <span
-                className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${status.bg} ${status.text}`}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-full px-3 py-1.5 text-sm font-bold ${status.bg} ${status.text}`}
               >
                 <span
                   className="h-2.5 w-2.5 rounded-full shadow-[0_0_18px_currentColor]"
@@ -603,14 +597,17 @@ export default function CryptoTotalAssetCard({
                 {status.label}
               </span>
             )}
-            <span className="hidden h-8 w-px bg-white/18 sm:block" />
-            <span className="font-mono text-sm text-[#D1D5DB]">
-              {lastUpdatedDate}
-            </span>
-            <span>当前时间</span>
-            <span className="font-mono text-base text-[#D1D5DB]">
-              {lastUpdatedAt}
-            </span>
+            <div className="grid min-w-0 justify-items-end gap-1 leading-none">
+              <div className="flex min-w-0 items-center gap-2 text-[11px] font-bold text-[#9CA3AF]">
+                <span className="truncate font-mono text-[#D1D5DB]">
+                  {lastUpdatedDate}
+                </span>
+                <span className="shrink-0">当前时间</span>
+              </div>
+              <span className="min-w-[150px] text-right font-mono text-[34px] font-black leading-none tracking-[0.1em] text-[#F8FAFC]">
+                {lastUpdatedAt}
+              </span>
+            </div>
           </div>
 
           {showTrendChart && (
@@ -828,7 +825,7 @@ const AssetStat = React.memo(function AssetStat({
     <div className="min-w-0">
       <div className="text-xs font-bold text-[#9CA3AF]">{label}</div>
       <div
-        className={`mt-1 truncate text-xl font-bold leading-none md:text-2xl xl:text-3xl ${tone}`}
+        className={`mt-1 truncate text-xl font-bold leading-none md:text-2xl ${tone}`}
       >
         {value}
       </div>
@@ -858,10 +855,19 @@ const TrendChart = React.memo(function TrendChart({
   );
   const hoveredPoint =
     hoveredIndex === null ? null : chart.coords[hoveredIndex] || null;
-  const tooltipWidth = 246;
-  const tooltipHeight = 116;
-  const tooltipX = hoveredPoint ? hoveredPoint.x + 16 : 0;
-  const tooltipY = hoveredPoint ? hoveredPoint.y + 16 : 0;
+  const tooltipWidth = 390;
+  const tooltipHeight = 190;
+  const tooltipGap = 18;
+  const tooltipMinX = chart.padding.left + 4;
+  const tooltipMaxX = chart.width - chart.padding.right - tooltipWidth;
+  const tooltipMinY = chart.padding.top + 4;
+  const tooltipMaxY = chart.height - chart.padding.bottom - tooltipHeight;
+  const tooltipX = hoveredPoint
+    ? clampNumber(hoveredPoint.x + tooltipGap, tooltipMinX, tooltipMaxX)
+    : 0;
+  const tooltipY = hoveredPoint
+    ? clampNumber(hoveredPoint.y + tooltipGap, tooltipMinY, tooltipMaxY)
+    : 0;
   const hoveredDelta = hoveredPoint ? hoveredPoint.value - baseline : 0;
   const hoveredDeltaPct = baseline ? (hoveredDelta / baseline) * 100 : 0;
   const hoveredTone = hoveredDelta >= 0 ? profitColor : lossColor;
@@ -915,7 +921,7 @@ const TrendChart = React.memo(function TrendChart({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-[14px] bg-transparent p-1">
+    <div className="flex min-h-0 flex-1 flex-col rounded-[14px] bg-transparent p-1">
       <div className="mb-1 flex items-center justify-between gap-3 text-sm font-bold text-[#9CA3AF]">
         <span>24H 资产趋势</span>
         <span className="font-mono text-[11px] text-[#D6A84F]">
@@ -925,7 +931,7 @@ const TrendChart = React.memo(function TrendChart({
       <svg
         ref={svgRef}
         viewBox={`0 0 ${chart.width} ${chart.height}`}
-        className="min-h-0 flex-1 overflow-visible"
+        className="min-h-0 w-full flex-1 overflow-visible"
         role="img"
         aria-label="以基准金额为参考的24H资产趋势折线图"
         onPointerLeave={handlePointerLeave}
@@ -1169,7 +1175,7 @@ function TrendHoverLayer({
       <circle
         cx={hoveredPoint.x}
         cy={hoveredPoint.y}
-        r="7"
+        r="8"
         fill={hoveredTone}
         filter={`url(#${gradientId}-glow)`}
       />
@@ -1178,52 +1184,52 @@ function TrendHoverLayer({
         y={tooltipY}
         width={tooltipWidth}
         height={tooltipHeight}
-        rx="16"
+        rx="18"
         fill="rgba(8,9,11,.94)"
         stroke="rgba(255,255,255,.16)"
       />
       <text
-        x={tooltipX + 18}
-        y={tooltipY + 31}
+        x={tooltipX + 28}
+        y={tooltipY + 52}
         fill="#F8FAFC"
-        fontSize="20"
+        fontSize="34"
         fontWeight="800"
       >
         {formatUsd(hoveredPoint.value)}
       </text>
       <text
-        x={tooltipX + 18}
-        y={tooltipY + 61}
+        x={tooltipX + 28}
+        y={tooltipY + 100}
         fill={hoveredTone}
-        fontSize="15"
+        fontSize="23"
         fontWeight="800"
       >
         {formatDeltaUsd(hoveredDelta)}
       </text>
       <text
-        x={tooltipX + tooltipWidth - 18}
-        y={tooltipY + 61}
+        x={tooltipX + tooltipWidth - 28}
+        y={tooltipY + 100}
         fill={hoveredTone}
-        fontSize="15"
+        fontSize="23"
         fontWeight="800"
         textAnchor="end"
       >
         {formatDeltaPct(hoveredDeltaPct)}
       </text>
       <text
-        x={tooltipX + 18}
-        y={tooltipY + 88}
+        x={tooltipX + 28}
+        y={tooltipY + 146}
         fill="#D1D5DB"
-        fontSize="13"
+        fontSize="20"
         fontWeight="700"
       >
         {hoveredDateTime.time}
       </text>
       <text
-        x={tooltipX + 18}
-        y={tooltipY + 106}
+        x={tooltipX + 28}
+        y={tooltipY + 174}
         fill="#8B9099"
-        fontSize="12"
+        fontSize="18"
         fontWeight="700"
       >
         {hoveredDateTime.date}

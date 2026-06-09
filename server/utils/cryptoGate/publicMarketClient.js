@@ -168,6 +168,16 @@ class GatePublicMarketClient {
       },
     });
   }
+
+  getFuturesUsdtContractRaw({ contract } = {}) {
+    const normalized = String(contract || "")
+      .trim()
+      .toUpperCase()
+      .replace(/-/g, "_");
+    return this.requestRaw(
+      `/futures/usdt/contracts/${encodeURIComponent(normalized)}`
+    );
+  }
 }
 
 module.exports = {

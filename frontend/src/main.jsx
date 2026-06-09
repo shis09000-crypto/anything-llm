@@ -290,7 +290,11 @@ const router = createBrowserRouter([
             "@/pages/GeneralSettings/Settings/CryptoComponentExperiment"
           );
           return {
-            element: <ManagerRoute Component={CryptoComponentExperiment} />,
+            element: isCryptoCenterDevAuthBypassEnabled() ? (
+              <CryptoComponentExperiment />
+            ) : (
+              <ManagerRoute Component={CryptoComponentExperiment} />
+            ),
           };
         },
       },

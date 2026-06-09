@@ -9,19 +9,31 @@ import React, {
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 import { useMotion } from "@/contexts/MotionProvider";
+import AssetAllocationDonutCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/AssetAllocationDonutCard";
 import CryptoTotalAssetCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/CryptoTotalAssetCard";
+import OpenFuturesPositionsCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/OpenFuturesPositionsCard";
+import TradeRecordsTable from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/TradeRecordsTable";
 import TradingPairDetailCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/TradingPairDetailCard";
 import TradingPairCandlestickChart from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/TradingPairCandlestickChart";
+import {
+  mockOpenFuturesPositions,
+  mockOpenFuturesSummary,
+} from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/openFuturesPositionsMockData";
 import {
   presetById,
   tradingPairMockPresets,
 } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/tradingPairMockPresets";
 import { useTradingPairCandlestickData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradingPairCandlestickData";
+import { useAssetAllocationDonutData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useAssetAllocationDonutData";
+import { useOpenFuturesPositionsData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useOpenFuturesPositionsData";
+import { useTradeRecordsTableController } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradeRecordsTableController";
 import { useTradingPairDetailData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradingPairDetailData";
+import type { AssetAllocationDonutCardProps } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutTypes";
 import type {
   CryptoTotalAssetCardProps,
   CryptoTrendPoint,
 } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/cryptoTotalAssetTypes";
+import type { OpenFuturesPositionsCardProps } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/openFuturesPositionsTypes";
 import type { TradingPairCandlestickRange } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/tradingPairCandlestickTypes";
 import type {
   TradingPairDetailCardProps,
@@ -44,12 +56,18 @@ const BTC_SPOT_DETAIL_CARD_WIDTH = 480;
 const BTC_SPOT_CARD_HEIGHT = 560;
 const BTC_SPOT_CHART_MAX_WIDTH = 720;
 const BTC_SPOT_CONTENT_MAX_WIDTH = 1224;
+const HERO_TOTAL_ASSET_CARD_WIDTH = 640;
+const HERO_ASSET_ALLOCATION_CARD_WIDTH = 560;
+const HERO_PORTFOLIO_CARD_HEIGHT = 380;
 const TOP_SPOT_ASSET_LIMIT = 6;
 const TOP_SPOT_EXCLUDED_ASSETS = ["BTC", "ETH", "USDT", "GUSD"];
 const TOP_SPOT_CARD_HEIGHT = 560;
 const TOP_SPOT_CARD_GAP = 24;
 const TOP_SPOT_REORDER_DURATION_MS = 360;
 const TOP_SPOT_MIN_TWO_COLUMN_WIDTH = 760;
+const OPEN_FUTURES_POSITIONS_CARD_HEIGHT = 645;
+const OPEN_FUTURES_VISIBLE_POSITION_COUNT = 6;
+const TRADE_RECORDS_CARD_HEIGHT = 680;
 
 const btcDetailVisual = {
   cardWidth: BTC_SPOT_DETAIL_CARD_WIDTH,
@@ -138,7 +156,7 @@ const defaultTotalAssetParams: CryptoTotalAssetCardProps = {
   connectionStatus: "degraded",
   lastUpdatedAt: "--:--:--",
   lastUpdatedDate: "",
-  cardHeight: 318,
+  cardHeight: HERO_PORTFOLIO_CARD_HEIGHT,
   borderRadius: 23,
   backgroundMode: "gradient",
   backgroundImage: "",
@@ -150,7 +168,7 @@ const defaultTotalAssetParams: CryptoTotalAssetCardProps = {
   profitChartTone: "gold",
   lossChartTone: "red",
   trendScenario: "mixed",
-  numberSize: 48,
+  numberSize: 42,
   compactMode: false,
 };
 
@@ -574,6 +592,9 @@ export default function CryptoCenter() {
   const [gateHistoryStatus, setGateHistoryStatus] = useState<
     "idle" | "loading" | "connected" | "error"
   >("idle");
+  const [selectedAllocationAsset, setSelectedAllocationAsset] = useState<
+    string | null
+  >(null);
   const [currentDateTime, setCurrentDateTime] = useState(
     currentShanghaiDateTime
   );
@@ -605,6 +626,19 @@ export default function CryptoCenter() {
     change24hPctFallback: ethPreset.change24hPct,
   });
   const topSpotAssets = useTopSpotAssets();
+  const assetAllocation = useAssetAllocationDonutData({
+    initialMode: "gate",
+  });
+  const openFuturesPositions = useOpenFuturesPositionsData({
+    mode: "gate-api",
+    mockPositions: mockOpenFuturesPositions,
+    mockSummary: mockOpenFuturesSummary,
+  });
+  const tradeRecordsController = useTradeRecordsTableController({
+    mode: "gate-api",
+    initialRangePreset: "30d",
+    initialPageSize: 10,
+  });
 
   useEffect(() => {
     gateHistoryRef.current = gateHistory;
@@ -755,6 +789,52 @@ export default function CryptoCenter() {
     });
   }, [ethDetail.error, ethDetail.response, currentDateTime.time]);
 
+  const assetAllocationParams = useMemo<AssetAllocationDonutCardProps>(
+    () => ({
+      title: "资产分布",
+      totalValueUsd: assetAllocation.activeTotalValueUsd,
+      items: assetAllocation.activeItems,
+      selectedAsset: selectedAllocationAsset,
+      onSelectAsset: setSelectedAllocationAsset,
+      maxVisibleItems: 6,
+      showFooterNote: true,
+      cardWidth: HERO_ASSET_ALLOCATION_CARD_WIDTH,
+      cardHeight: HERO_PORTFOLIO_CARD_HEIGHT,
+      borderRadius: 23,
+      donutSize: 210,
+      donutThickness: 44,
+      glowIntensity: 0.45,
+      dimInactiveOnFocus: true,
+      compactMode: true,
+    }),
+    [
+      assetAllocation.activeItems,
+      assetAllocation.activeTotalValueUsd,
+      selectedAllocationAsset,
+    ]
+  );
+
+  const openFuturesPositionsParams = useMemo<OpenFuturesPositionsCardProps>(
+    () => ({
+      positions: openFuturesPositions.positions,
+      summary: openFuturesPositions.summary,
+      filterLabel: "全部合约",
+      lastUpdatedAt: openFuturesPositions.lastUpdatedAt,
+      loading: openFuturesPositions.loading,
+      error: openFuturesPositions.error,
+      status: openFuturesPositions.status,
+      onRefresh: openFuturesPositions.refresh,
+      cardWidth: BTC_SPOT_CONTENT_MAX_WIDTH,
+      cardHeight: OPEN_FUTURES_POSITIONS_CARD_HEIGHT,
+      visiblePositionCount: OPEN_FUTURES_VISIBLE_POSITION_COUNT,
+      borderRadius: 28,
+      compactMode: false,
+      showSummaryFooter: true,
+      showLeverageBars: true,
+    }),
+    [openFuturesPositions]
+  );
+
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#08090b] text-slate-100">
       <div className="pointer-events-none fixed inset-0 z-0 h-screen w-screen">
@@ -783,9 +863,20 @@ export default function CryptoCenter() {
                 </p>
                 <div className="mt-5 h-px w-full bg-gradient-to-r from-[#D6A84F]/85 via-[#D6A84F]/42 to-transparent shadow-[0_0_18px_rgba(214,168,79,.26)]" />
               </header>
-              <div className="flex w-fit max-w-full justify-start gap-6">
-                <div className="h-[318px] w-[920px] min-w-[920px] max-w-[920px]">
+              <div
+                className="grid w-full max-w-full items-start gap-6 xl:grid-cols-[var(--crypto-hero-columns)]"
+                style={
+                  {
+                    "--crypto-hero-columns": `${HERO_TOTAL_ASSET_CARD_WIDTH}px ${HERO_ASSET_ALLOCATION_CARD_WIDTH}px`,
+                    maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH,
+                  } as React.CSSProperties
+                }
+              >
+                <div className="min-h-[380px] w-full min-w-0 xl:h-[380px] xl:w-[640px]">
                   <CryptoTotalAssetCard {...totalAssetParams} />
+                </div>
+                <div className="h-[380px] w-full min-w-0 xl:w-[560px]">
+                  <AssetAllocationDonutCard {...assetAllocationParams} />
                 </div>
               </div>
               <div className="h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]" />
@@ -861,7 +952,7 @@ export default function CryptoCenter() {
                 </div>
               </div>
               <div
-                className="mx-auto h-px w-full bg-gradient-to-r from-transparent via-[#D6A84F]/62 to-transparent shadow-[0_0_18px_rgba(214,168,79,.24)]"
+                className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
                 style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
               />
               <div
@@ -927,7 +1018,7 @@ export default function CryptoCenter() {
                 </div>
               </div>
               <div
-                className="mx-auto h-px w-full bg-gradient-to-r from-transparent via-[#D6A84F]/62 to-transparent shadow-[0_0_18px_rgba(214,168,79,.24)]"
+                className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
                 style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
               />
               <div className="flex w-full items-end justify-between gap-6">
@@ -963,6 +1054,38 @@ export default function CryptoCenter() {
                     正在读取 Gate 现货资产...
                   </div>
                 )}
+              </div>
+              <div
+                className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
+                style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+              />
+              <div className="flex w-full items-end justify-between gap-6">
+                <div>
+                  <h2 className="text-2xl font-black tracking-normal text-[#D6A84F] drop-shadow-[0_0_18px_rgba(214,168,79,.20)] md:text-3xl">
+                    合约与交易详情专区
+                  </h2>
+                  <p className="mt-1 text-xs font-semibold uppercase tracking-normal text-[#E8C46B]/62">
+                    Futures & Trading Details
+                  </p>
+                </div>
+              </div>
+              <div
+                className="mx-auto w-full max-w-full overflow-x-hidden"
+                style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+              >
+                <OpenFuturesPositionsCard {...openFuturesPositionsParams} />
+              </div>
+              <div
+                className="mx-auto w-full max-w-full overflow-x-hidden"
+                style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+              >
+                <TradeRecordsTable
+                  {...tradeRecordsController.tableProps}
+                  cardWidth={BTC_SPOT_CONTENT_MAX_WIDTH}
+                  cardHeight={TRADE_RECORDS_CARD_HEIGHT}
+                  borderRadius={28}
+                  compactMode={false}
+                />
               </div>
             </div>
           </section>

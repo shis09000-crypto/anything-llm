@@ -198,6 +198,18 @@ class GatePrivateAccountClient {
     return this.request("/futures/usdt/positions");
   }
 
+  getFuturesUsdtAccountRaw() {
+    return this.requestRaw("/futures/usdt/accounts");
+  }
+
+  getFuturesUsdtPositionsRaw({ holding = true } = {}) {
+    return this.requestRaw("/futures/usdt/positions", {
+      query: {
+        ...(holding === undefined ? {} : { holding: String(holding) }),
+      },
+    });
+  }
+
   getOpenOrders() {
     return this.request("/spot/open_orders");
   }
@@ -212,7 +224,7 @@ class GatePrivateAccountClient {
   }
 
   getSpotMyTradesRaw({
-    currencyPair = DEFAULT_SPOT_PAIR,
+    currencyPair = null,
     limit = "100",
     page,
     from,
@@ -220,7 +232,7 @@ class GatePrivateAccountClient {
   } = {}) {
     return this.requestRaw("/spot/my_trades", {
       query: {
-        currency_pair: currencyPair,
+        ...(currencyPair ? { currency_pair: currencyPair } : {}),
         limit: String(limit),
         ...(page ? { page: String(page) } : {}),
         ...(from ? { from: String(from) } : {}),
@@ -229,28 +241,93 @@ class GatePrivateAccountClient {
     });
   }
 
+  getFuturesUsdtMyTradesRaw({
+    contract,
+    limit = "100",
+    offset,
+    from,
+    to,
+  } = {}) {
+    return this.requestRaw("/futures/usdt/my_trades", {
+      query: {
+        ...(contract ? { contract: String(contract).toUpperCase() } : {}),
+        limit: String(limit),
+        ...(offset ? { offset: String(offset) } : {}),
+        ...(from ? { from: String(from) } : {}),
+        ...(to ? { to: String(to) } : {}),
+      },
+    });
+  }
+
+  getFuturesUsdtPositionCloseRaw({
+    contract,
+    limit = "100",
+    offset,
+    from,
+    to,
+    side,
+    pnl,
+  } = {}) {
+    return this.requestRaw("/futures/usdt/position_close", {
+      query: {
+        ...(contract ? { contract: String(contract).toUpperCase() } : {}),
+        limit: String(limit),
+        ...(offset ? { offset: String(offset) } : {}),
+        ...(from ? { from: String(from) } : {}),
+        ...(to ? { to: String(to) } : {}),
+        ...(side ? { side: String(side).toLowerCase() } : {}),
+        ...(pnl ? { pnl: String(pnl) } : {}),
+      },
+    });
+  }
+
+  getFuturesUsdtOrderRaw({ contract, orderId } = {}) {
+    return this.requestRaw(
+      `/futures/usdt/orders/${encodeURIComponent(String(orderId || ""))}`,
+      {
+        query: {
+          ...(contract ? { contract: String(contract).toUpperCase() } : {}),
+        },
+      }
+    );
+  }
+
   getWalletHistory() {
     return this.request("/wallet/deposits", {
       query: { limit: "20" },
     });
   }
 
-  getSpotAccountBook({ from, to, limit = "100" } = {}) {
+  getSpotAccountBook({
+    currency,
+    from,
+    to,
+    page,
+    limit = "100",
+    type,
+    code,
+  } = {}) {
     return this.requestRaw("/spot/account_book", {
       query: {
+        ...(currency ? { currency: String(currency).toUpperCase() } : {}),
         ...(from ? { from: String(from) } : {}),
         ...(to ? { to: String(to) } : {}),
+        ...(page ? { page: String(page) } : {}),
         limit: String(limit),
+        ...(type ? { type: String(type) } : {}),
+        ...(code ? { code: String(code) } : {}),
       },
     });
   }
 
-  getFuturesUsdtAccountBook({ from, to, limit = "100" } = {}) {
+  getFuturesUsdtAccountBook({ from, to, limit = "100", offset, type } = {}) {
     return this.requestRaw("/futures/usdt/account_book", {
       query: {
         ...(from ? { from: String(from) } : {}),
         ...(to ? { to: String(to) } : {}),
         limit: String(limit),
+        ...(offset ? { offset: String(offset) } : {}),
+        ...(type ? { type: String(type) } : {}),
       },
     });
   }
@@ -319,6 +396,10 @@ class GateRestClient extends GatePrivateAccountClient {
 
   getSpotCandlesticksRaw(options = {}) {
     return this.publicMarketClient.getSpotCandlesticksRaw(options);
+  }
+
+  getFuturesUsdtContractRaw(options = {}) {
+    return this.publicMarketClient.getFuturesUsdtContractRaw(options);
   }
 }
 

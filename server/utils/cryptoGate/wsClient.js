@@ -228,6 +228,7 @@ class GateWsManager {
     const spotPair = process.env.GATE_PROBE_SPOT_PAIR || DEFAULT_SPOT_PAIR;
     this.eventBuffer = eventBuffer;
     this.onPrivateEvent = null;
+    this.privateEventListeners = new Set();
     this.spot = new GateWsConnection({
       source: "spot",
       url: GATE_WS_SPOT_URL,
@@ -258,8 +259,28 @@ class GateWsManager {
     this.onPrivateEvent = handler;
   }
 
+  addPrivateEventListener(listener) {
+    if (typeof listener !== "function") return () => {};
+    this.privateEventListeners.add(listener);
+    return () => this.privateEventListeners.delete(listener);
+  }
+
   handlePrivateEvent(event) {
     if (this.onPrivateEvent) this.onPrivateEvent(event);
+    for (const listener of this.privateEventListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        this.eventBuffer.push({
+          source: event?.source || "private_ws",
+          eventType: "listener_error",
+          channel: event?.payload?.channel || "private.listener",
+          payload: {
+            error: error?.message || "Gate private listener failed",
+          },
+        });
+      }
+    }
   }
 
   start(credentials) {
