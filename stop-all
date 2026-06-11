@@ -16,6 +16,16 @@ pid_alive() {
   [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
 }
 
+pid_cwd() {
+  local pid="$1"
+  lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1
+}
+
+pid_command() {
+  local pid="$1"
+  ps -p "$pid" -o command= 2>/dev/null || true
+}
+
 kill_pid() {
   local pid="${1:-}"
   local name="${2:-process}"
@@ -30,22 +40,107 @@ kill_pid() {
   kill -9 "$pid" >/dev/null 2>&1 || true
 }
 
+kill_pid_tree() {
+  local pid="${1:-}"
+  local name="${2:-process}"
+  local children
+  local child
+
+  if ! pid_alive "$pid"; then return 0; fi
+  children="$(pgrep -P "$pid" 2>/dev/null || true)"
+  for child in $children; do
+    kill_pid_tree "$child" "$name child"
+  done
+  kill_pid "$pid" "$name"
+}
+
 pid_cwd_under_root() {
   local pid="$1"
   local cwd
-  cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+  cwd="$(pid_cwd "$pid")"
   [[ "$cwd" == "$ROOT_DIR"* ]]
+}
+
+pid_is_repo_dev_process() {
+  local pid="$1"
+  local cwd
+  local command
+
+  cwd="$(pid_cwd "$pid")"
+  command="$(pid_command "$pid")"
+  if [[ -z "$cwd" || -z "$command" ]]; then return 1; fi
+
+  case "$cwd" in
+    "$ROOT_DIR/server"|"$ROOT_DIR/server"/*)
+      [[ "$command" == *"node_modules/.bin/cross-env"* && "$command" == *"nodemon"* ]] && return 0
+      [[ "$command" == *"node_modules/.bin/nodemon"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/server/node_modules/.bin/cross-env"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/server/node_modules/.bin/nodemon"* ]] && return 0
+      [[ "$command" == *"node --trace-warnings index.js"* ]] && return 0
+      ;;
+    "$ROOT_DIR/collector"|"$ROOT_DIR/collector"/*)
+      [[ "$command" == *"node_modules/.bin/cross-env"* && "$command" == *"nodemon"* ]] && return 0
+      [[ "$command" == *"node_modules/.bin/nodemon"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/collector/node_modules/.bin/cross-env"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/collector/node_modules/.bin/nodemon"* ]] && return 0
+      [[ "$command" == *"node --trace-warnings index.js"* ]] && return 0
+      ;;
+    "$ROOT_DIR/frontend"|"$ROOT_DIR/frontend"/*)
+      [[ "$command" == *"node_modules/.bin/cross-env"* && "$command" == *"vite"* ]] && return 0
+      [[ "$command" == *"node_modules/.bin/vite"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/frontend/node_modules/.bin/cross-env"* ]] && return 0
+      [[ "$command" == *"$ROOT_DIR/frontend/node_modules/.bin/vite"* ]] && return 0
+      [[ "$command" == *" vite "* ]] && return 0
+      ;;
+  esac
+
+  return 1
+}
+
+repo_dev_pids() {
+  local pid
+  ps -axo pid= | while read -r pid; do
+    [[ -z "$pid" ]] && continue
+    if pid_is_repo_dev_process "$pid"; then
+      printf '%s\n' "$pid"
+    fi
+  done
+}
+
+kill_repo_dev_processes() {
+  local pass
+  local pids
+  local pid
+
+  for pass in 1 2 3; do
+    pids="$(repo_dev_pids | sort -nr | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+    if [[ -z "$pids" ]]; then return 0; fi
+    for pid in $pids; do
+      kill_pid_tree "$pid" "repo-dev"
+    done
+    sleep 0.25
+  done
+
+  pids="$(repo_dev_pids | sort -n | tr '\n' ' ' | sed 's/[[:space:]]*$//' || true)"
+  if [[ -n "$pids" ]]; then
+    log "warning: repo dev processes still alive after cleanup: $pids"
+  fi
+}
+
+listen_pids_for_port() {
+  local port="$1"
+  lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
 }
 
 kill_port_if_owned() {
   local port="$1"
   local pids
-  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  pids="$(listen_pids_for_port "$port")"
   if [[ -z "$pids" ]]; then return 0; fi
   while IFS= read -r pid; do
     [[ -z "$pid" ]] && continue
-    if pid_cwd_under_root "$pid"; then
-      kill_pid "$pid" "port:$port"
+    if pid_is_repo_dev_process "$pid" || pid_cwd_under_root "$pid"; then
+      kill_pid_tree "$pid" "port:$port"
     fi
   done <<<"$pids"
 }
@@ -55,13 +150,17 @@ if [[ -f "$STATE_FILE" ]]; then
   # shellcheck disable=SC1090
   source "$STATE_FILE" >/dev/null 2>&1
   set -e
-  kill_pid "${FRONTEND_PID:-}" frontend
-  kill_pid "${COLLECTOR_PID:-}" collector
-  kill_pid "${SERVER_PID:-}" server
+  kill_pid_tree "${FRONTEND_PID:-}" frontend
+  kill_pid_tree "${COLLECTOR_PID:-}" collector
+  kill_pid_tree "${SERVER_PID:-}" server
 else
   log "no runtime state file found"
 fi
 
+kill_port_if_owned "${SERVER_PORT:-3001}"
+kill_port_if_owned "${COLLECTOR_PORT:-8888}"
+kill_port_if_owned "${FRONTEND_PORT:-3000}"
+kill_repo_dev_processes
 kill_port_if_owned "${SERVER_PORT:-3001}"
 kill_port_if_owned "${COLLECTOR_PORT:-8888}"
 kill_port_if_owned "${FRONTEND_PORT:-3000}"

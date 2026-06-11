@@ -32,6 +32,7 @@ function AssistantTurn({
   forkThread,
   isLastMessage = false,
   readOnly = false,
+  onContentLayoutChange = null,
 }) {
   const { t } = useTranslation();
   const { continueInterruptedAgentTurn } = useChatThreadDrafts();
@@ -157,6 +158,7 @@ function AssistantTurn({
                 content={turn.finalContent}
                 messageId={turn.id}
                 deferEnhancement={!isLastMessage}
+                onLayoutChange={onContentLayoutChange}
               />
             ) : isRunning ? (
               <div className="mt-3 ml-1 dot-falling light:invert" />

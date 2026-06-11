@@ -12,7 +12,9 @@ const {
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
 const { EventLogs } = require("../models/eventLogs");
+const { Workspace } = require("../models/workspace");
 const { WorkspaceThread } = require("../models/workspaceThread");
+const { WeChatGatewayThread } = require("../models/wechatGatewayThread");
 const {
   validWorkspaceSlug,
   validWorkspaceAndThreadSlug,
@@ -89,6 +91,13 @@ async function historyPageMeta(baseClause = {}, history = [], options = {}) {
     totalReturned: history.length,
     hasMore,
   };
+}
+
+async function accessibleWorkspaceBySlug(response, user, slug = null) {
+  if (!slug) return null;
+  return multiUserMode(response)
+    ? await Workspace.getWithUser(user, { slug: String(slug) })
+    : await Workspace.get({ slug: String(slug) });
 }
 
 function workspaceThreadEndpoints(app) {
@@ -405,6 +414,116 @@ function workspaceThreadEndpoints(app) {
           data
         );
         response.status(200).json({ thread, message });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/move",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
+        const thread = response.locals.thread;
+        const { targetWorkspaceSlug = null } = reqBody(request);
+
+        if (!targetWorkspaceSlug) {
+          return response.status(400).json({
+            success: false,
+            error: "targetWorkspaceSlug is required.",
+          });
+        }
+
+        if (Number(thread.workspace_id) !== Number(workspace.id)) {
+          return response.status(404).json({
+            success: false,
+            error: "Workspace thread does not exist.",
+          });
+        }
+
+        if (WorkspaceThread.isOverviewThread(thread)) {
+          return response.status(400).json({
+            success: false,
+            error: "Overview thread cannot be moved.",
+          });
+        }
+
+        if (String(targetWorkspaceSlug) === String(workspace.slug)) {
+          return response.status(400).json({
+            success: false,
+            error: "Thread is already in the target workspace.",
+          });
+        }
+
+        const targetWorkspace = await accessibleWorkspaceBySlug(
+          response,
+          user,
+          targetWorkspaceSlug
+        );
+        if (!targetWorkspace) {
+          return response.status(404).json({
+            success: false,
+            error: "Target workspace does not exist.",
+          });
+        }
+
+        const connectorMapping = await WeChatGatewayThread.getByThreadSlug(
+          thread.slug
+        );
+        if (connectorMapping) {
+          return response.status(400).json({
+            success: false,
+            error: "Connector-managed threads cannot be moved.",
+          });
+        }
+
+        const {
+          thread: movedThread,
+          message,
+          movedChatCount = 0,
+        } = await WorkspaceThread.moveToWorkspace({
+          thread,
+          sourceWorkspace: workspace,
+          targetWorkspace,
+        });
+        if (message || !movedThread) {
+          const status = String(message || "").includes("does not belong")
+            ? 404
+            : String(message || "").includes("cannot be moved") ||
+                String(message || "").includes("target workspace")
+              ? 400
+              : 500;
+          return response.status(status).json({
+            success: false,
+            error: message || "Failed to move thread.",
+          });
+        }
+
+        await EventLogs.logEvent(
+          "workspace_thread_moved",
+          {
+            sourceWorkspaceName: workspace?.name || "Unknown Workspace",
+            targetWorkspaceName: targetWorkspace?.name || "Unknown Workspace",
+            threadName: movedThread?.name || "Unknown Thread",
+          },
+          user?.id
+        );
+
+        response.status(200).json({
+          success: true,
+          thread: movedThread,
+          sourceWorkspaceSlug: workspace.slug,
+          targetWorkspaceSlug: targetWorkspace.slug,
+          movedChatCount,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

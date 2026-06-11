@@ -432,10 +432,10 @@ function apiWorkspaceEndpoints(app) {
               workspace.id,
               apiSessionId,
               validLimit,
-              { createdAt: validOrderBy }
+              { id: validOrderBy }
             )
           : await WorkspaceChats.forWorkspace(workspace.id, validLimit, {
-              createdAt: validOrderBy,
+              id: validOrderBy,
             });
         response.status(200).json({ history: convertToChatHistory(history) });
       } catch (e) {

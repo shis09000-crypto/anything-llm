@@ -22,6 +22,7 @@ import {
   isOverviewThread,
   sortThreadsForDisplay,
 } from "@/utils/workspaceThreads";
+import { Draggable, Droppable } from "react-beautiful-dnd";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const COLLAPSED_THREAD_LIMIT = 5;
@@ -29,6 +30,8 @@ const COLLAPSED_THREAD_LIMIT = 5;
 export default function ThreadContainer({
   workspace,
   isVirtualThread = false,
+  threadDraggableId = null,
+  threadDndType = "THREAD",
 }) {
   const navigate = useNavigate();
   const { threadSlug = null } = useParams();
@@ -332,53 +335,89 @@ export default function ThreadContainer({
   }
 
   return (
-    <div className="flex flex-col" role="list" aria-label="Threads">
-      {threadRows.map(({ thread, activity }, i) => {
-        const isActiveThread = activeThreadIdx === i;
-        return (
-          <ThreadItem
-            key={thread.slug}
-            idx={i}
+    <Droppable droppableId={`threads:${workspace.slug}`} type={threadDndType}>
+      {(provided) => (
+        <div
+          ref={provided.innerRef}
+          {...provided.droppableProps}
+          className="flex flex-col"
+          role="list"
+          aria-label="Threads"
+        >
+          {threadRows.map(({ thread, activity }, i) => {
+            const isActiveThread = activeThreadIdx === i;
+            const rowActivity = displayActivity(activity, isActiveThread);
+            const dragDisabled =
+              !thread.slug ||
+              thread.virtual ||
+              isOverviewThread(thread) ||
+              rowActivity?.status === "running";
+            return (
+              <Draggable
+                key={thread.slug || thread.id}
+                draggableId={
+                  thread.slug
+                    ? threadDraggableId?.(workspace.slug, thread.slug) ||
+                      `thread:${workspace.slug}:${thread.slug}`
+                    : `thread:${workspace.slug}:missing-${thread.id || i}`
+                }
+                index={i}
+                isDragDisabled={dragDisabled}
+              >
+                {(dragProvided, snapshot) => (
+                  <ThreadItem
+                    idx={i}
+                    dragProvided={dragProvided}
+                    isDragging={snapshot.isDragging}
+                    ctrlPressed={ctrlPressed}
+                    toggleMarkForDeletion={toggleForDeletion}
+                    activeIdx={activeThreadIdx}
+                    isActive={isActiveThread}
+                    workspace={workspace}
+                    onRemove={removeThread}
+                    thread={thread}
+                    activity={rowActivity}
+                    hasNext={i !== threadRows.length - 1 || isVirtualThread}
+                  />
+                )}
+              </Draggable>
+            );
+          })}
+          {provided.placeholder}
+          {isVirtualThread && (
+            <ThreadItem
+              idx={activeThreadIdx}
+              activeIdx={activeThreadIdx}
+              isActive={true}
+              workspace={workspace}
+              thread={{
+                slug: null,
+                name: t("common.newThread"),
+                virtual: true,
+              }}
+              hasNext={false}
+            />
+          )}
+          {canToggleThreadList && (
+            <ThreadListToggleButton
+              expanded={showAllThreads}
+              hiddenCount={hiddenThreadCount}
+              language={i18n.language}
+              onClick={() => setShowAllThreads((prev) => !prev)}
+            />
+          )}
+          <DeleteAllThreadButton
             ctrlPressed={ctrlPressed}
-            toggleMarkForDeletion={toggleForDeletion}
-            activeIdx={activeThreadIdx}
-            isActive={isActiveThread}
-            workspace={workspace}
-            onRemove={removeThread}
-            thread={thread}
-            activity={displayActivity(activity, isActiveThread)}
-            hasNext={i !== threadRows.length - 1 || isVirtualThread}
+            threads={threads}
+            onDelete={handleDeleteAll}
           />
-        );
-      })}
-      {isVirtualThread && (
-        <ThreadItem
-          idx={activeThreadIdx}
-          activeIdx={activeThreadIdx}
-          isActive={true}
-          workspace={workspace}
-          thread={{ slug: null, name: t("common.newThread"), virtual: true }}
-          hasNext={false}
-        />
+          <NewThreadButton
+            workspace={workspace}
+            onThreadCreated={handleThreadCreated}
+          />
+        </div>
       )}
-      {canToggleThreadList && (
-        <ThreadListToggleButton
-          expanded={showAllThreads}
-          hiddenCount={hiddenThreadCount}
-          language={i18n.language}
-          onClick={() => setShowAllThreads((prev) => !prev)}
-        />
-      )}
-      <DeleteAllThreadButton
-        ctrlPressed={ctrlPressed}
-        threads={threads}
-        onDelete={handleDeleteAll}
-      />
-      <NewThreadButton
-        workspace={workspace}
-        onThreadCreated={handleThreadCreated}
-      />
-    </div>
+    </Droppable>
   );
 }
 

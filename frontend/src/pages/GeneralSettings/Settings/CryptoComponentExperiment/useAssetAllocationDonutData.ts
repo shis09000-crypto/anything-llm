@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import { mockAssetAllocationItems } from "./assetAllocationMockData";
 import type { AssetAllocationItem } from "./assetAllocationDonutTypes";
 
-const GATE_ALLOCATION_ENDPOINT = `${API_BASE}/crypto/gate/portfolio/allocation`;
+const GATE_ALLOCATION_ENDPOINT = `${API_BASE}/crypto-hub/allocation`;
 const REAL_GATE_REFRESH_MS = 60_000;
 const IMMEDIATE_RECONNECT_MS = 0;
 const MAX_RECONNECT_MS = 30_000;
@@ -126,6 +127,16 @@ export function useAssetAllocationDonutData({
     setGateStatus("idle");
     setGateStatusText("使用 mock 数据");
   }, []);
+
+  useCryptoHubWatchedConnection({
+    key: "allocation.rest",
+    active: useRealGateData,
+    status:
+      gateStatus === "error" || gateStatus === "degraded"
+        ? gateStatus
+        : "connected",
+    reconnect: connectRealGate,
+  });
 
   useEffect(() => {
     if (!useRealGateData) return;

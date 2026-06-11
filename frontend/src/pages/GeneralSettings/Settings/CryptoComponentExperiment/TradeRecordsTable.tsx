@@ -20,6 +20,10 @@ import {
   TrendUp,
 } from "@phosphor-icons/react";
 import { tradingPairMockPresets } from "./tradingPairMockPresets";
+import {
+  type CryptoRealtimeStatusLabel,
+  useCryptoStatusLabel,
+} from "./cryptoStatusI18n";
 import type {
   TradeActionType,
   TradeMarketType,
@@ -461,6 +465,11 @@ export default function TradeRecordsTable({
   onActionHighlightToggle,
   onActionJump,
 }: TradeRecordsTableProps) {
+  const statusLabelKey: CryptoRealtimeStatusLabel =
+    connectionStatus === "degraded" && error
+      ? "reconnecting"
+      : connectionStatus;
+  const statusLabel = useCryptoStatusLabel(statusLabelKey);
   const rowRefs = React.useRef<Record<string, HTMLTableRowElement | null>>({});
   const tableViewportRef = React.useRef<HTMLDivElement | null>(null);
   const scrollSnapshotRef = React.useRef({
@@ -941,13 +950,7 @@ export default function TradeRecordsTable({
                       : "#EF4444",
               }}
             >
-              {connectionStatus === "connected"
-                ? "实时"
-                : connectionStatus === "degraded"
-                  ? error
-                    ? "重连中"
-                    : "降级"
-                  : "离线"}
+              {statusLabel}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">

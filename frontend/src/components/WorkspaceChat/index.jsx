@@ -23,6 +23,10 @@ import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "@/utils/chat/performanceBudget";
 import {
+  findChatHistoryOrderIssue,
+  normalizeChatHistoryOrder,
+} from "@/utils/chat/historyOrder";
+import {
   defaultWorkspacePath,
   isOverviewThread,
 } from "@/utils/workspaceThreads";
@@ -47,8 +51,25 @@ function debugThreadSwitchFlicker(label, payload = {}) {
   console.debug("[thread-switch-flicker]", label, payload);
 }
 
-function mergeHistoryMessages(existing = [], incoming = [], mode = "replace") {
-  if (mode === "replace") return incoming;
+function warnHistoryOrderIssue(issue = null, context = {}) {
+  if (!issue || !threadSwitchFlickerDebugEnabled()) return;
+  console.warn("[workspacechat-history-order]", {
+    ...context,
+    ...issue,
+  });
+}
+
+function mergeHistoryMessages(
+  existing = [],
+  incoming = [],
+  mode = "replace",
+  context = {}
+) {
+  if (mode === "replace") {
+    const issue = findChatHistoryOrderIssue(incoming);
+    warnHistoryOrderIssue(issue, context);
+    return normalizeChatHistoryOrder(incoming);
+  }
   const next =
     mode === "prepend"
       ? [...incoming, ...existing]
@@ -60,7 +81,10 @@ function mergeHistoryMessages(existing = [], incoming = [], mode = "replace") {
     if (!byKey.has(key)) order.push(key);
     byKey.set(key, message);
   }
-  return order.map((key) => byKey.get(key));
+  const merged = order.map((key) => byKey.get(key));
+  const issue = findChatHistoryOrderIssue(merged);
+  warnHistoryOrderIssue(issue, context);
+  return normalizeChatHistoryOrder(merged);
 }
 
 function lightChatIdsFromHistory(history = []) {
@@ -157,7 +181,10 @@ export default function WorkspaceChat({ loading, workspace }) {
           workspace,
           threadSlug,
           activeThread,
-          history: mergeHistoryMessages(base.history, history, mode),
+          history: mergeHistoryMessages(base.history, history, mode, {
+            key,
+            mode,
+          }),
         };
       });
       if (page) {

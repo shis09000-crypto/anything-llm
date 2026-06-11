@@ -16,25 +16,23 @@ import type {
   BtcConnectionStatus,
   BtcSpotAssetCardProps,
 } from "./btcSpotAssetTypes";
+import { useCryptoStatusLabel } from "./cryptoStatusI18n";
 
 const statusMeta: Record<
   BtcConnectionStatus,
-  { label: string; dot: string; text: string; bg: string }
+  { dot: string; text: string; bg: string }
 > = {
   connected: {
-    label: "Live",
     dot: "#22C55E",
     text: "text-[#4ADE80]",
     bg: "bg-[#22C55E]/10",
   },
   degraded: {
-    label: "Degraded",
     dot: "#F5C451",
     text: "text-[#F5C451]",
     bg: "bg-[#F5C451]/10",
   },
   disconnected: {
-    label: "Offline",
     dot: "#EF4444",
     text: "text-[#FCA5A5]",
     bg: "bg-[#EF4444]/10",
@@ -239,6 +237,7 @@ function BtcCandleChart({
   autoRefreshSeconds: number;
 }) {
   const status = statusMeta[connectionStatus];
+  const statusLabel = useCryptoStatusLabel(connectionStatus);
   const validCandles = candles.filter(
     (candle) =>
       Number(candle.open) > 0 &&
@@ -307,7 +306,7 @@ function BtcCandleChart({
                 className="h-2 w-2 rounded-full shadow-[0_0_16px_currentColor]"
                 style={{ backgroundColor: status.dot }}
               />
-              {status.label}
+              {statusLabel}
             </span>
             {showAutoRefreshBadge ? (
               <span className="inline-flex items-center gap-2 rounded-xl border border-[#D6A84F]/20 bg-[#D6A84F]/10 px-4 py-2 text-sm font-bold text-[#F5C451]">

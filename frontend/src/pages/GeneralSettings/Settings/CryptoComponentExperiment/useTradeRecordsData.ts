@@ -3,6 +3,11 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 import {
+  parseCryptoHubSse,
+  cryptoHubSseData,
+} from "@/hooks/cryptoHub/useCryptoHubStream";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
+import {
   mockTradeRecords,
   mockTradeRecordsSummary,
   summarizeTradeRecords,
@@ -17,7 +22,7 @@ import type {
 
 export type TradeRecordsDataMode = "mock" | "gate-api";
 
-const TRADE_RECORDS_ENDPOINT = `${API_BASE}/crypto/gate/trade-records`;
+const TRADE_RECORDS_ENDPOINT = `${API_BASE}/crypto-hub/trade-records`;
 const TRADE_RECORDS_STREAM_ENDPOINT = `${TRADE_RECORDS_ENDPOINT}/stream`;
 const TRADE_RECORDS_FEE_SUMMARY_ENDPOINT = `${TRADE_RECORDS_ENDPOINT}/fee-summary`;
 const BATCH_LIMIT = 50;
@@ -266,6 +271,7 @@ export function useTradeRecordsData({
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(mode === "mock");
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
   const [nextCursorTs, setNextCursorTs] = useState<number | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() =>
@@ -273,6 +279,7 @@ export function useTradeRecordsData({
   );
   const [connectionStatus, setConnectionStatus] =
     useState<TradeRecordsConnectionStatus>("connected");
+  const [streamReconnectNonce, setStreamReconnectNonce] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const recordsRef = useRef<TradeRecordItem[]>(records);
@@ -355,6 +362,7 @@ export function useTradeRecordsData({
           );
         }
         applyPayload(payload, append ? "append" : "replace");
+        if (!append) setHasLoadedOnce(true);
       } catch (requestError) {
         const hasCachedRecords = recordsRef.current.length > 0;
         setConnectionStatus(hasCachedRecords ? "degraded" : "disconnected");
@@ -369,6 +377,7 @@ export function useTradeRecordsData({
           setHasMoreHistory(false);
           setNextCursorTs(null);
         }
+        if (!append) setHasLoadedOnce(true);
         scheduleReconnect({ cursorTs, append });
       } finally {
         if (append) setLoadingMore(false);
@@ -429,6 +438,7 @@ export function useTradeRecordsData({
       );
       setHasMoreHistory(false);
       setNextCursorTs(null);
+      setHasLoadedOnce(true);
       setConnectionStatus(
         previewState === "error" ? "disconnected" : "connected"
       );
@@ -451,6 +461,24 @@ export function useTradeRecordsData({
     await loadSnapshot({ cursorTs: nextCursorTs, append: true });
   }, [hasMoreHistory, loadSnapshot, loading, loadingMore, mode, nextCursorTs]);
 
+  const forceHubWatchdogReconnect = useCallback(() => {
+    if (mode !== "gate-api") return;
+    clearReconnectTimer();
+    abortRef.current?.abort();
+    abortRef.current = null;
+    loadSnapshot({ append: false });
+    loadFeeSummary();
+    setStreamReconnectNonce((current) => current + 1);
+  }, [clearReconnectTimer, loadFeeSummary, loadSnapshot, mode]);
+
+  useCryptoHubWatchedConnection({
+    key: `tradeRecords.stream.${fromSec}.${toSec}`,
+    active: mode === "gate-api",
+    status: connectionStatus,
+    lastConnectedAt: lastUpdatedAt,
+    reconnect: forceHubWatchdogReconnect,
+  });
+
   useEffect(() => {
     if (mode === "mock") {
       clearReconnectTimer();
@@ -466,12 +494,14 @@ export function useTradeRecordsData({
       );
       setHasMoreHistory(false);
       setNextCursorTs(null);
+      setHasLoadedOnce(true);
       setConnectionStatus(
         previewState === "error" ? "disconnected" : "connected"
       );
       return;
     }
 
+    setHasLoadedOnce(false);
     loadSnapshot({ append: false });
     loadFeeSummary();
   }, [
@@ -514,7 +544,13 @@ export function useTradeRecordsData({
           );
         },
         onmessage(message) {
-          const payload = parseSseJson<TradeRecordsResponse>(message.data);
+          const envelope = parseCryptoHubSse<TradeRecordsResponse>(
+            message.data
+          );
+          const payload =
+            envelope?.data ||
+            cryptoHubSseData<TradeRecordsResponse>(message.data) ||
+            parseSseJson<TradeRecordsResponse>(message.data);
           if (!payload) return;
           if (payload.success === false) {
             setConnectionStatus("disconnected");
@@ -525,7 +561,9 @@ export function useTradeRecordsData({
           }
           applyPayload(
             payload,
-            message.event === "snapshot" ? "replace" : "prepend"
+            envelope?.type === "snapshot" || message.event === "snapshot"
+              ? "replace"
+              : "prepend"
           );
         },
         onerror(error) {
@@ -552,6 +590,7 @@ export function useTradeRecordsData({
     fromSec,
     mode,
     scheduleReconnect,
+    streamReconnectNonce,
     toSec,
   ]);
 
@@ -567,6 +606,7 @@ export function useTradeRecordsData({
     feeSummary,
     loading,
     loadingMore,
+    hasLoadedOnce,
     error,
     hasMoreHistory,
     lastUpdatedAt,

@@ -52,6 +52,12 @@ function uniqueFunctions(functions = []) {
   return [...new Set((functions || []).filter(Boolean))];
 }
 
+function sortedDynamicFunctions(functions = []) {
+  return uniqueFunctions(functions).sort((a, b) =>
+    String(a).localeCompare(String(b))
+  );
+}
+
 function functionsForFileAccessPolicy(functions = [], fileAccessPolicy = {}) {
   const nextFunctions = uniqueFunctions(functions);
   if (fileAccessPolicy?.mode === "open") {
@@ -93,9 +99,11 @@ const WORKSPACE_AGENT = {
       role: basePrompt,
       functions: [
         ...(await agentSkillsFromSystemSettings()),
-        ...ImportedPlugin.activeImportedPlugins(),
-        ...AgentFlows.activeFlowPlugins(),
-        ...(await new MCPCompatibilityLayer().activeMCPServers()),
+        ...sortedDynamicFunctions(ImportedPlugin.activeImportedPlugins()),
+        ...sortedDynamicFunctions(AgentFlows.activeFlowPlugins()),
+        ...sortedDynamicFunctions(
+          await new MCPCompatibilityLayer().activeMCPServers()
+        ),
       ],
     };
   },
@@ -182,5 +190,6 @@ module.exports = {
   WORKSPACE_AGENT,
   agentSkillsFromSystemSettings,
   functionsForFileAccessPolicy,
+  sortedDynamicFunctions,
   SHELL_AGENT_NAME,
 };

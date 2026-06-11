@@ -1,17 +1,20 @@
 import { X } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import { READER_EVENT_OPEN_DRAWER } from "./storage";
+import {
+  dedupeReaderTextSources,
+  isReaderTextSource,
+  readerTextSourceIdentity,
+} from "@/utils/chat/readerTextSources";
 
 export function readerSourcesForTurn(sourcesByTurn = {}, chatKey, turn = {}) {
   const keys = [
     `${chatKey}:${turn.turnId}`,
     turn.chatId ? `${chatKey}:chat:${turn.chatId}` : null,
   ].filter(Boolean);
-  return keys.flatMap((key) => sourcesByTurn[key] || []);
-}
-
-function isTextSource(source = {}) {
-  return source.delivery === "txt" || source.mime === "text/plain";
+  return dedupeReaderTextSources(
+    keys.flatMap((key) => sourcesByTurn[key] || [])
+  );
 }
 
 export default function ReaderTextSourceCards({
@@ -23,7 +26,9 @@ export default function ReaderTextSourceCards({
   removable = false,
 }) {
   const refs = useRef({});
-  const textSources = sources.filter(isTextSource);
+  const textSources = dedupeReaderTextSources(sources).filter(
+    (source) => isReaderTextSource(source) && source?.selectedText
+  );
 
   useEffect(() => {
     const sourceKey = focusedSignal?.sourceKey;
@@ -57,7 +62,7 @@ export default function ReaderTextSourceCards({
     >
       {textSources.map((source) => (
         <button
-          key={source.sourceKey || source.textHash}
+          key={readerTextSourceIdentity(source) || source.textHash}
           ref={(node) => {
             if (node && source.sourceKey) refs.current[source.sourceKey] = node;
           }}

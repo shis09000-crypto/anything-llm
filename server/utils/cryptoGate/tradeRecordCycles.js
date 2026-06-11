@@ -1,4 +1,5 @@
 const { SystemSettings } = require("../../models/systemSettings");
+const { readSecret, saveSecret } = require("../security");
 
 const TRADE_RECORDS_CYCLE_MEMORY_KEY =
   "anythingllm_crypto_trade_records_cycle_memory_v1";
@@ -834,7 +835,8 @@ class SystemSettingsTradeCycleMemoryStore {
   async load() {
     try {
       const setting = await this.settings.get({ label: this.key });
-      const parsed = setting?.value ? JSON.parse(setting.value) : null;
+      const rawValue = setting?.value ? readSecret(setting.value) : null;
+      const parsed = rawValue ? JSON.parse(rawValue) : null;
       return asArray(parsed);
     } catch {
       return [];
@@ -864,12 +866,13 @@ class SystemSettingsTradeCycleMemoryStore {
           numberValue(right.closedAt) - numberValue(left.closedAt)
       )
       .slice(0, this.maxItems);
+    const payload = {
+      version: 1,
+      updatedAt: Date.now(),
+      cycles: next,
+    };
     await this.settings._updateSettings({
-      [this.key]: JSON.stringify({
-        version: 1,
-        updatedAt: Date.now(),
-        cycles: next,
-      }),
+      [this.key]: saveSecret(JSON.stringify(payload)),
     });
     return next;
   }

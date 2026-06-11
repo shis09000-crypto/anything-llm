@@ -14,15 +14,15 @@ import type {
   TradingPairDetailCardProps,
   TradingPairMarketType,
 } from "./tradingPairDetailTypes";
+import { useCryptoStatusLabel } from "./cryptoStatusI18n";
 
 const statusMeta: Record<
   TradingPairConnectionStatus,
-  { label: string; color: string; bg: string }
+  { color: string; bg: string }
 > = {
-  connected: { label: "Live", color: "#22C55E", bg: "rgba(34,197,94,.10)" },
-  degraded: { label: "Degraded", color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
+  connected: { color: "#22C55E", bg: "rgba(34,197,94,.10)" },
+  degraded: { color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
   disconnected: {
-    label: "Offline",
     color: "#EF4444",
     bg: "rgba(239,68,68,.10)",
   },
@@ -360,6 +360,7 @@ export default function TradingPairDetailCard({
   glowIntensity,
 }: TradingPairDetailCardProps) {
   const status = statusMeta[connectionStatus];
+  const statusLabel = useCryptoStatusLabel(connectionStatus);
   const positive = (numeric(change24hPct) || 0) >= 0;
   const isCompact = compactMode || cardHeight < 390 || cardWidth < 760;
   const valueDecimals = quoteAsset === "USDT" || quoteAsset === "USD" ? 2 : 4;
@@ -441,7 +442,7 @@ export default function TradingPairDetailCard({
               className="h-2.5 w-2.5 rounded-full shadow-[0_0_16px_currentColor]"
               style={{ backgroundColor: status.color }}
             />
-            {status.label}
+            {statusLabel}
           </div>
         </header>
 

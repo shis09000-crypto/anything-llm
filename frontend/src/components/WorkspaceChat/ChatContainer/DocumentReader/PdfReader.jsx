@@ -19,6 +19,11 @@ import "react-pdf-highlighter/dist/esm/style/Tip.css";
 import "react-pdf-highlighter/dist/esm/style/pdf_viewer.css";
 import ReaderDocument from "@/models/readerDocument";
 import showToast from "@/utils/toast";
+import {
+  pdfProgressRestoreKey,
+  pdfProgressRestoreTarget,
+  shouldSuppressPdfProgressDuringRestore,
+} from "@/utils/chat/readerProgress";
 import { detectPdfTextLayer } from "./pdfOcrDetection";
 import { textHash } from "./storage";
 
@@ -47,6 +52,9 @@ const SCREENSHOT_OCR_STATUS = {
 };
 const SOURCE_HIGHLIGHT_RESTORE_MAX_ATTEMPTS = 12;
 const SOURCE_HIGHLIGHT_RESTORE_DELAY_MS = 80;
+const PDF_PROGRESS_RESTORE_MAX_ATTEMPTS = 40;
+const PDF_PROGRESS_RESTORE_DELAY_MS = 150;
+const PDF_PROGRESS_RESTORE_DONE_GUARD_MS = 900;
 
 async function thumbnailFromPdfDocument(pdfDocument) {
   const page = await pdfDocument.getPage(1);
@@ -216,6 +224,7 @@ export default function PdfReader({
   const selectionCleanupTimerRef = useRef(null);
   const sourceHighlightRestoreTimerRef = useRef(null);
   const restoredDocumentRef = useRef(null);
+  const progressRestoreRef = useRef(null);
   const thumbnailDocumentIdRef = useRef(null);
   const detectionRequestRef = useRef({ key: null, runId: 0 });
   const ocrConfigRequestRef = useRef({ key: null, runId: 0 });
@@ -333,6 +342,61 @@ export default function PdfReader({
 
   function viewerContainer() {
     return highlighterRef.current?.viewer?.container || null;
+  }
+
+  function ensurePdfProgressRestoreState() {
+    const key = pdfProgressRestoreKey(document, document?.progress);
+    const existing = progressRestoreRef.current;
+    if (
+      existing?.documentId === documentId &&
+      existing?.fingerprint === pdfFingerprint
+    ) {
+      return existing;
+    }
+    const targetProgress = document?.progress || null;
+    const target = pdfProgressRestoreTarget(targetProgress);
+    const nextState = {
+      documentId,
+      fingerprint: pdfFingerprint,
+      key,
+      target,
+      targetProgress,
+      status: target ? "pending" : "done",
+      startedAt: Date.now(),
+      completedAt: target ? 0 : Date.now(),
+      userInteracted: false,
+    };
+    progressRestoreRef.current = nextState;
+    return nextState;
+  }
+
+  function pdfRestoreGuard() {
+    const state = progressRestoreRef.current || ensurePdfProgressRestoreState();
+    const recentlyCompleted =
+      state.status === "done" &&
+      Date.now() - Number(state.completedAt || 0) <
+        PDF_PROGRESS_RESTORE_DONE_GUARD_MS;
+    return {
+      ...state,
+      active:
+        state.status === "pending" ||
+        state.status === "failed" ||
+        recentlyCompleted,
+    };
+  }
+
+  function finishPdfProgressRestore(status) {
+    const state = progressRestoreRef.current || ensurePdfProgressRestoreState();
+    progressRestoreRef.current = {
+      ...state,
+      status,
+      completedAt: Date.now(),
+    };
+  }
+
+  function markPdfUserInteraction() {
+    const state = progressRestoreRef.current || ensurePdfProgressRestoreState();
+    progressRestoreRef.current = { ...state, userInteracted: true };
   }
 
   function pageElements(container) {
@@ -613,7 +677,12 @@ export default function PdfReader({
 
   function reportPdfProgress() {
     const progress = capturePdfProgress();
-    if (progress) onProgressChange?.(progress);
+    if (
+      progress &&
+      !shouldSuppressPdfProgressDuringRestore(progress, pdfRestoreGuard())
+    ) {
+      onProgressChange?.(progress);
+    }
     if (screenshotSelection) scheduleScreenshotLayoutUpdate();
   }
 
@@ -653,20 +722,13 @@ export default function PdfReader({
     )
       return;
 
-    const workspaceSlug = document?.workspaceSlug;
-    if (!workspaceSlug) {
-      showToast("无法识别当前工作区，不能执行 OCR。", "error");
-      return;
-    }
-
     try {
       setScreenshotOcrStatus(SCREENSHOT_OCR_STATUS.processing);
       showToast("正在识别截图文字", "info");
       const imageDataUrl = cropScreenshotSelectionDataUrl(screenshotSelection);
-      const { response, data } = await ReaderDocument.ocrScreenshot(
-        workspaceSlug,
-        { imageDataUrl }
-      );
+      const { response, data } = await ReaderDocument.ocrScreenshot(null, {
+        imageDataUrl,
+      });
       if (!response.ok || !data?.success) {
         throw new Error(data?.error || "OCR 识别失败。");
       }
@@ -798,11 +860,32 @@ export default function PdfReader({
     restoreTextSourceHighlightWhenReady(source, pageNumber);
   }
 
+  function schedulePdfProgressRestore(attempt = 0) {
+    window.clearTimeout(restoreTimerRef.current);
+    restoreTimerRef.current = window.setTimeout(
+      () => restorePdfProgress(attempt + 1),
+      PDF_PROGRESS_RESTORE_DELAY_MS
+    );
+  }
+
   function restorePdfProgress(attempt = 0) {
-    const progress = document.progress || {};
+    const state = progressRestoreRef.current || ensurePdfProgressRestoreState();
+    const target =
+      state.target || pdfProgressRestoreTarget(state.targetProgress);
+    if (!target) {
+      finishPdfProgressRestore("done");
+      return;
+    }
     const container = viewerContainer();
-    if (!container) return;
-    const pageNumber = Number(progress.locator?.page || 0);
+    if (!container) {
+      if (attempt < PDF_PROGRESS_RESTORE_MAX_ATTEMPTS) {
+        schedulePdfProgressRestore(attempt);
+        return;
+      }
+      finishPdfProgressRestore("failed");
+      return;
+    }
+    const pageNumber = Number(target.page || 0);
     const pages = pageElements(container);
     const page = pageNumber
       ? pages.find(
@@ -811,24 +894,32 @@ export default function PdfReader({
         )
       : null;
     if (page) {
-      const pageOffsetRatio = Number(progress.locator?.pageOffsetRatio || 0);
+      const pageOffsetRatio = Number(target.pageOffsetRatio || 0);
       container.scrollTop =
         page.offsetTop + page.clientHeight * Math.max(0, pageOffsetRatio);
+      finishPdfProgressRestore("done");
+      window.setTimeout(reportPdfProgress, 60);
       return;
     }
-    if (attempt < 10 && (pageNumber || pages.length === 0)) {
-      restoreTimerRef.current = window.setTimeout(
-        () => restorePdfProgress(attempt + 1),
-        150
-      );
+    if (
+      attempt < PDF_PROGRESS_RESTORE_MAX_ATTEMPTS &&
+      (pageNumber || pages.length === 0)
+    ) {
+      schedulePdfProgressRestore(attempt);
       return;
     }
-    const ratio =
-      typeof progress.scrollRatio === "number"
-        ? progress.scrollRatio
-        : Number(progress.percent || 0) / 100;
     const range = container.scrollHeight - container.clientHeight;
-    if (range > 0 && ratio) container.scrollTop = range * ratio;
+    if (range > 0 && target.ratio) {
+      container.scrollTop = range * target.ratio;
+      finishPdfProgressRestore("done");
+      window.setTimeout(reportPdfProgress, 60);
+      return;
+    }
+    if (attempt < PDF_PROGRESS_RESTORE_MAX_ATTEMPTS && target.ratio) {
+      schedulePdfProgressRestore(attempt);
+      return;
+    }
+    finishPdfProgressRestore("failed");
   }
 
   function rememberScrollPosition() {
@@ -930,6 +1021,20 @@ export default function PdfReader({
   }, [pdfScaleKey]);
 
   useEffect(() => {
+    const targetProgress = document?.progress || null;
+    progressRestoreRef.current = {
+      documentId,
+      fingerprint: pdfFingerprint,
+      key: pdfProgressRestoreKey(document, targetProgress),
+      target: pdfProgressRestoreTarget(targetProgress),
+      targetProgress,
+      status: pdfProgressRestoreTarget(targetProgress) ? "pending" : "done",
+      startedAt: Date.now(),
+      completedAt: pdfProgressRestoreTarget(targetProgress) ? 0 : Date.now(),
+      userInteracted: false,
+    };
+    restoredDocumentRef.current = null;
+    window.clearTimeout(restoreTimerRef.current);
     detectionRequestRef.current = {
       key: null,
       runId: detectionRequestRef.current.runId + 1,
@@ -952,31 +1057,17 @@ export default function PdfReader({
     setScreenshotDrag(EMPTY_SCREENSHOT_DRAG_STATE);
     setScreenshotPanelOpen(false);
     setScreenshotOcrStatus(SCREENSHOT_OCR_STATUS.idle);
-  }, [isOriginalPdf, pdfDetectionKey]);
+  }, [documentId, isOriginalPdf, pdfDetectionKey, pdfFingerprint]);
 
   useEffect(() => {
     if (!showOcrTools) return;
-    const workspaceSlug = document?.workspaceSlug;
-    const key = `${pdfDetectionKey}:${workspaceSlug || "no-workspace"}`;
+    const key = `${pdfDetectionKey}:global-reader`;
     if (ocrConfigRequestRef.current.key === key) return;
-
-    if (!workspaceSlug) {
-      setOcrConfigStatus("missing");
-      setOcrConfig({
-        success: true,
-        configured: false,
-        provider: "dashscope",
-        modelConfigured: false,
-        apiKeyConfigured: false,
-        reason: "missing_workspace",
-      });
-      return;
-    }
 
     const runId = ocrConfigRequestRef.current.runId + 1;
     ocrConfigRequestRef.current = { key, runId };
     setOcrConfigStatus("checking");
-    ReaderDocument.ocrConfig(workspaceSlug)
+    ReaderDocument.ocrConfig(null)
       .then(({ response, data }) => {
         const current = ocrConfigRequestRef.current;
         if (current.key !== key || current.runId !== runId) return;
@@ -1232,10 +1323,16 @@ export default function PdfReader({
       className={`relative h-full min-h-0 overflow-hidden rounded-xl border border-white/10 bg-slate-100 light:border-slate-200 ${
         toolMode === "screenshot" ? "cursor-crosshair select-none" : ""
       }`}
-      onPointerDownCapture={handleScreenshotPointerDown}
+      onPointerDownCapture={(event) => {
+        markPdfUserInteraction();
+        handleScreenshotPointerDown(event);
+      }}
       onPointerMoveCapture={handleScreenshotPointerMove}
       onPointerUpCapture={handleScreenshotPointerUp}
       onPointerCancelCapture={handleScreenshotPointerCancel}
+      onWheelCapture={markPdfUserInteraction}
+      onTouchStartCapture={markPdfUserInteraction}
+      onKeyDownCapture={markPdfUserInteraction}
     >
       <PdfLoader
         url={url}
@@ -1278,16 +1375,16 @@ export default function PdfReader({
                 enableAreaSelection={() => false}
                 scrollRef={(scrollTo) => {
                   scrollToRef.current = scrollTo;
-                  const restoreKey =
-                    document.readerDocumentId ||
-                    document.localDocumentId ||
-                    document.title;
-                  if (restoredDocumentRef.current !== restoreKey) {
-                    restoredDocumentRef.current = restoreKey;
+                  const restoreState = ensurePdfProgressRestoreState();
+                  if (
+                    restoreState.target &&
+                    restoredDocumentRef.current !== restoreState.key
+                  ) {
+                    restoredDocumentRef.current = restoreState.key;
                     window.clearTimeout(restoreTimerRef.current);
                     restoreTimerRef.current = window.setTimeout(
                       () => restorePdfProgress(0),
-                      150
+                      PDF_PROGRESS_RESTORE_DELAY_MS
                     );
                   }
                 }}

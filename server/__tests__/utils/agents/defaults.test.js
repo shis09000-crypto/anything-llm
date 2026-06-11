@@ -21,7 +21,10 @@ jest.mock("../../../utils/MCP", () => {
   }));
 });
 
-const { WORKSPACE_AGENT } = require("../../../utils/agents/defaults");
+const {
+  WORKSPACE_AGENT,
+  sortedDynamicFunctions,
+} = require("../../../utils/agents/defaults");
 
 describe("WORKSPACE_AGENT.getDefinition", () => {
   beforeEach(() => {
@@ -129,5 +132,11 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
 
     expect(definition.role).toBe(await Provider.systemPrompt({ provider, workspace, user }));
     expect(definition.role).toContain("helpful ai assistant");
+  });
+
+  it("sorts and deduplicates dynamic agent functions", () => {
+    expect(sortedDynamicFunctions(["@@flow_b", "@@flow_a", "@@flow_b"])).toEqual(
+      ["@@flow_a", "@@flow_b"]
+    );
   });
 });

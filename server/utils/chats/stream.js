@@ -10,6 +10,7 @@ const {
   VALID_COMMANDS,
   chatPrompt,
   sourceIdentifier,
+  cacheStableHistoryStrategyFor,
 } = require("./index");
 const {
   injectCompactionIntoSystemPrompt,
@@ -39,6 +40,24 @@ function emptyVectorSearchResult(message = null) {
     contextTexts: [],
     sources: [],
     message,
+  };
+}
+
+function promptCacheDiagnosticsFor(llm, messages = [], historyWindow = null) {
+  if (!llm?.cacheStableHistory) return {};
+  if (typeof llm.promptCacheDiagnostics !== "function") return {};
+  return {
+    promptCacheDiagnostics: llm.promptCacheDiagnostics(messages, {
+      historyWindow,
+    }),
+  };
+}
+
+function withPromptCacheDiagnostics(metrics = {}, diagnostics = {}) {
+  if (!diagnostics?.promptCacheDiagnostics) return metrics || {};
+  return {
+    ...(metrics || {}),
+    ...diagnostics,
   };
 }
 
@@ -138,6 +157,10 @@ async function streamChatWithWorkspace(
   const VectorDb = getVectorDbClass();
 
   const messageLimit = workspace?.openAiHistory || 20;
+  const historyStrategy = cacheStableHistoryStrategyFor({
+    llm: LLMConnector,
+    messageLimit,
+  });
   let hasVectorizedSpace = false;
   let embeddingsCount = 0;
   try {
@@ -192,16 +215,19 @@ async function streamChatWithWorkspace(
   let rawHistory = [];
   let chatHistory = [];
   let compaction = null;
+  let historyWindow = null;
   try {
     const history = await recentChatHistoryWithCompaction({
       user,
       workspace,
       thread,
       messageLimit,
+      historyStrategy,
     });
     rawHistory = history.rawHistory || [];
     chatHistory = history.chatHistory || [];
     compaction = history.compaction || null;
+    historyWindow = history.historyWindow || null;
   } catch (error) {
     logRecoverableChatError("recent_chat_history", error, {
       workspaceSlug: workspace.slug,
@@ -401,6 +427,7 @@ async function streamChatWithWorkspace(
       workspace,
       thread,
       messageLimit,
+      historyStrategy,
     }).catch((error) => {
       logRecoverableChatError("post_compaction_history_refresh", error, {
         workspaceSlug: workspace.slug,
@@ -410,6 +437,7 @@ async function streamChatWithWorkspace(
     rawHistory = nextHistory.rawHistory;
     chatHistory = nextHistory.chatHistory;
     compaction = nextHistory.compaction;
+    historyWindow = nextHistory.historyWindow || null;
   }
 
   const messages = await LLMConnector.compressMessages(
@@ -421,6 +449,11 @@ async function streamChatWithWorkspace(
       attachments: llmAttachments,
     },
     rawHistory
+  );
+  const promptCacheDiagnostics = promptCacheDiagnosticsFor(
+    LLMConnector,
+    messages,
+    historyWindow
   );
 
   // If streaming is not explicitly enabled for connector
@@ -436,7 +469,10 @@ async function streamChatWithWorkspace(
       });
 
     completeText = textResponse;
-    metrics = performanceMetrics;
+    metrics = withPromptCacheDiagnostics(
+      performanceMetrics,
+      promptCacheDiagnostics
+    );
     writeResponseChunk(response, {
       uuid,
       sources,
@@ -455,7 +491,11 @@ async function streamChatWithWorkspace(
       uuid,
       sources,
     });
-    metrics = stream.metrics;
+    metrics = withPromptCacheDiagnostics(
+      stream.metrics,
+      promptCacheDiagnostics
+    );
+    stream.metrics = metrics;
   }
 
   if (completeText?.length > 0) {
@@ -494,6 +534,7 @@ async function streamChatWithWorkspace(
       contextTexts,
       attachments: llmAttachments,
       compaction,
+      historyPressureLimit: historyWindow?.historyPressureLimit || null,
       phase: "turn_end",
     }).catch((error) =>
       console.warn(

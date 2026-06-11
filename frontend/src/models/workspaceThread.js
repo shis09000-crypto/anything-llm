@@ -103,6 +103,37 @@ const WorkspaceThread = {
 
     return { thread, message };
   },
+  move: async function (workspaceSlug, threadSlug, targetWorkspaceSlug) {
+    try {
+      const response = await fetch(
+        `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/move`,
+        {
+          method: "POST",
+          headers: baseHeaders(),
+          body: JSON.stringify({ targetWorkspaceSlug }),
+        }
+      );
+      const payload = await response.json().catch(() => ({}));
+      const error =
+        payload?.error ||
+        payload?.message ||
+        (!response.ok ? `Request failed with status ${response.status}` : null);
+      if (error) return { success: false, error, thread: null };
+
+      threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+      threadHistoryCache.invalidateThread(targetWorkspaceSlug, threadSlug);
+      return {
+        success: !!payload.success,
+        thread: payload.thread || null,
+        sourceWorkspaceSlug: payload.sourceWorkspaceSlug || workspaceSlug,
+        targetWorkspaceSlug: payload.targetWorkspaceSlug || targetWorkspaceSlug,
+        movedChatCount: payload.movedChatCount || 0,
+        error: null,
+      };
+    } catch (e) {
+      return { success: false, error: e.message, thread: null };
+    }
+  },
   delete: async function (workspaceSlug, threadSlug) {
     return await fetch(
       `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}`,

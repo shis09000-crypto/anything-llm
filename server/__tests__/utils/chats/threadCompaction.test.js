@@ -1,4 +1,5 @@
 const mockWorkspaceChatsWhere = jest.fn();
+const mockWorkspaceChatsCount = jest.fn();
 const mockLatest = jest.fn();
 const mockCompactionWhere = jest.fn();
 const mockCreate = jest.fn();
@@ -27,6 +28,7 @@ function mockNormalizeScope(scope = {}) {
 jest.mock("../../../models/workspaceChats", () => ({
   WorkspaceChats: {
     where: mockWorkspaceChatsWhere,
+    count: mockWorkspaceChatsCount,
   },
 }));
 
@@ -76,6 +78,7 @@ describe("Thread compaction memory", () => {
     delete process.env.THREAD_COMPACTION_TARGET_MAX_SUMMARY_TOKENS;
     delete process.env.THREAD_COMPACTION_TARGET_SUMMARY_BUDGET_RATIO;
     mockWorkspaceChatsWhere.mockResolvedValue([chat(1)]);
+    mockWorkspaceChatsCount.mockResolvedValue(1);
     mockLatest.mockResolvedValue(null);
     mockCompactionWhere.mockResolvedValue([]);
     mockCreate.mockImplementation(async (row) => ({ id: 123, ...row }));
@@ -126,6 +129,83 @@ describe("Thread compaction memory", () => {
       { id: "desc" }
     );
     expect(result.rawHistory).toHaveLength(1);
+  });
+
+  it("uses cache-stable history blocks without sliding every turn", async () => {
+    const {
+      CACHE_STABLE_HISTORY_STRATEGY,
+      recentChatHistory,
+    } = require("../../../utils/chats");
+    mockWorkspaceChatsWhere.mockImplementation(
+      async (_clause, limit, _orderBy, offset = 0) =>
+        Array.from({ length: limit }, (_, index) => chat(offset + index + 1))
+    );
+
+    for (const totalCount of [58, 59, 60]) {
+      mockWorkspaceChatsCount.mockResolvedValueOnce(totalCount);
+      const result = await recentChatHistory({
+        user,
+        workspace,
+        thread,
+        messageLimit: 20,
+        historyStrategy: {
+          type: CACHE_STABLE_HISTORY_STRATEGY,
+          blockSize: 20,
+          maxBlocks: 2,
+        },
+      });
+
+      expect(result.rawHistory[0].id).toBe(21);
+      expect(result.historyWindow.offset).toBe(20);
+      expect(result.historyWindow.windowStartOrdinal).toBe(21);
+      expect(result.historyWindow.windowEndOrdinal).toBe(totalCount);
+    }
+
+    mockWorkspaceChatsCount.mockResolvedValueOnce(61);
+    const nextBlock = await recentChatHistory({
+      user,
+      workspace,
+      thread,
+      messageLimit: 20,
+      historyStrategy: {
+        type: CACHE_STABLE_HISTORY_STRATEGY,
+        blockSize: 20,
+        maxBlocks: 2,
+      },
+    });
+
+    expect(nextBlock.rawHistory[0].id).toBe(41);
+    expect(nextBlock.historyWindow.offset).toBe(40);
+    expect(nextBlock.historyWindow.windowStartOrdinal).toBe(41);
+    expect(nextBlock.historyWindow.windowEndOrdinal).toBe(61);
+  });
+
+  it("keeps short cache-stable history equivalent to the full short history", async () => {
+    const {
+      CACHE_STABLE_HISTORY_STRATEGY,
+      recentChatHistory,
+    } = require("../../../utils/chats");
+    mockWorkspaceChatsCount.mockResolvedValueOnce(5);
+    mockWorkspaceChatsWhere.mockImplementationOnce(
+      async (_clause, limit, _orderBy, offset = 0) =>
+        Array.from({ length: limit }, (_, index) => chat(offset + index + 1))
+    );
+
+    const result = await recentChatHistory({
+      user,
+      workspace,
+      thread,
+      messageLimit: 20,
+      historyStrategy: {
+        type: CACHE_STABLE_HISTORY_STRATEGY,
+        blockSize: 20,
+        maxBlocks: 2,
+      },
+    });
+
+    expect(result.rawHistory.map((row) => row.id)).toEqual([1, 2, 3, 4, 5]);
+    expect(result.historyWindow.offset).toBe(0);
+    expect(result.historyWindow.limit).toBe(5);
   });
 
   it("falls back to old history when no compact summary exists", async () => {
@@ -183,6 +263,51 @@ describe("Thread compaction memory", () => {
     expect(system).toContain("summary");
   });
 
+  it("applies cache-stable blocks only after covered_to_chat_id", async () => {
+    mockLatest.mockResolvedValue({
+      id: 88,
+      summary: "summary",
+      covered_to_chat_id: 40,
+    });
+    mockWorkspaceChatsCount.mockResolvedValueOnce(58);
+    mockWorkspaceChatsWhere.mockImplementationOnce(
+      async (_clause, limit, _orderBy, offset = 0) =>
+        Array.from({ length: limit }, (_, index) => chat(41 + offset + index))
+    );
+    const {
+      CACHE_STABLE_HISTORY_STRATEGY,
+    } = require("../../../utils/chats");
+    const {
+      recentChatHistoryWithCompaction,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const result = await recentChatHistoryWithCompaction({
+      user,
+      workspace,
+      thread,
+      messageLimit: 20,
+      historyStrategy: {
+        type: CACHE_STABLE_HISTORY_STRATEGY,
+        blockSize: 20,
+        maxBlocks: 2,
+      },
+    });
+
+    expect(mockWorkspaceChatsCount).toHaveBeenCalledWith(
+      expect.objectContaining({ id: { gt: 40 } })
+    );
+    expect(mockWorkspaceChatsWhere).toHaveBeenCalledWith(
+      expect.objectContaining({ id: { gt: 40 } }),
+      38,
+      { id: "asc" },
+      20
+    );
+    expect(mockCompactionWhere).not.toHaveBeenCalled();
+    expect(result.compaction.summary).toBe("summary");
+    expect(result.rawHistory[0].id).toBe(61);
+    expect(result.historyWindow.windowStartOrdinal).toBe(21);
+  });
+
   it("strips provider thinking text before storing or injecting summaries", async () => {
     const {
       injectCompactionIntoSystemPrompt,
@@ -236,6 +361,32 @@ describe("Thread compaction memory", () => {
     });
 
     expect(result.reason).toBe("not_turn_end");
+    expect(mockCreate).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a full cache-stable history window as auto-compaction pressure", async () => {
+    process.env.THREAD_COMPACTION_AUTO_ENABLED = "true";
+    const {
+      maybeAutoCompact,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const result = await maybeAutoCompact({
+      workspace,
+      user,
+      thread,
+      llm: {
+        ...mockGetLLMProvider(),
+        promptWindowLimit: () => 1_000_000,
+      },
+      chatHistory: Array.from({ length: 80 }, (_, index) => ({
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: "small",
+      })),
+      historyPressureLimit: 40,
+      phase: "turn_end",
+    });
+
+    expect(result.reason).toBe("below_threshold");
     expect(mockCreate).not.toHaveBeenCalled();
   });
 

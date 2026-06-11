@@ -1,12 +1,18 @@
 import { FileText, MapPin } from "@phosphor-icons/react";
 import { useDocumentReader } from "./Provider";
+import {
+  dedupeReaderTextSources,
+  readerTextSourceIdentity,
+} from "@/utils/chat/readerTextSources";
 
 function sourcesForTurn(sourcesByTurn = {}, chatKey, turn) {
   const keys = [
     `${chatKey}:${turn.turnId}`,
     turn.chatId ? `${chatKey}:chat:${turn.chatId}` : null,
   ].filter(Boolean);
-  return keys.flatMap((key) => sourcesByTurn[key] || []);
+  return dedupeReaderTextSources(
+    keys.flatMap((key) => sourcesByTurn[key] || [])
+  );
 }
 
 export default function DocumentSourceChips({ chatKey, turn }) {
@@ -28,7 +34,9 @@ export default function DocumentSourceChips({ chatKey, turn }) {
           source.delivery === "txt" || source.mime === "text/plain";
         return (
           <button
-            key={`${source.textHash}-${index}`}
+            key={
+              readerTextSourceIdentity(source) || `${source.textHash}-${index}`
+            }
             type="button"
             onClick={() => jump(source)}
             className={`flex max-w-[280px] items-center gap-1 rounded-full border px-3 py-1 text-xs ${

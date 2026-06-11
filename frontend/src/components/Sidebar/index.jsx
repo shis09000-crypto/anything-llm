@@ -95,7 +95,7 @@ export default function Sidebar() {
     window.requestAnimationFrame(() => setCryptoEntryProgress(100));
     cryptoEntryTimerRef.current = window.setTimeout(() => {
       navigate(paths.settings.cryptoCenter());
-    }, 900);
+    }, 260);
   }
 
   return (
@@ -112,7 +112,7 @@ export default function Sidebar() {
                   正在进入加密货币专区
                 </div>
                 <div className="mt-1 text-xs font-semibold text-white/45">
-                  正在预热行情视图与账户概览缓存...
+                  正在打开页面，真实数据将在专区内同步...
                 </div>
               </div>
             </div>
@@ -121,7 +121,7 @@ export default function Sidebar() {
                 className="h-full rounded-full bg-[#D6A84F] shadow-[0_0_24px_rgba(214,168,79,.55)]"
                 style={{
                   width: `${cryptoEntryProgress}%`,
-                  transition: "width 850ms cubic-bezier(.22,1,.36,1)",
+                  transition: "width 240ms cubic-bezier(.22,1,.36,1)",
                 }}
               />
             </div>

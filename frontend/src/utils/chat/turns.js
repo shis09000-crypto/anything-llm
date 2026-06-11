@@ -1,4 +1,6 @@
 import { v4 } from "uuid";
+import { normalizeTurnItemsOrder } from "./historyOrder.js";
+import { dedupeReaderTextSources } from "./readerTextSources.js";
 
 export const TURN_STATUSES = {
   running: "running",
@@ -58,6 +60,8 @@ export function createTurn({
   turnId = createTurnId(),
   createdAt = nowMs(),
 } = {}) {
+  const normalizedReaderTextSources =
+    dedupeReaderTextSources(readerTextSources);
   const userMessage = {
     id: userItemId(turnId),
     type: "user",
@@ -65,7 +69,7 @@ export function createTurn({
     turnId,
     content: prompt,
     attachments,
-    readerTextSources,
+    readerTextSources: normalizedReaderTextSources,
     chatId,
     createdAt,
   };
@@ -208,9 +212,7 @@ export function normalizeTurnItem(item = {}) {
       role: "user",
       turnId,
       attachments: Array.isArray(item.attachments) ? item.attachments : [],
-      readerTextSources: Array.isArray(item.readerTextSources)
-        ? item.readerTextSources
-        : [],
+      readerTextSources: dedupeReaderTextSources(item.readerTextSources),
       createdAt,
       hydrationStatus: item.hydrationStatus || null,
     };
@@ -269,7 +271,7 @@ export function normalizeTurnItems(items = []) {
       : { ...existing, ...next };
   }
 
-  return normalized;
+  return normalizeTurnItemsOrder(normalized);
 }
 
 function normalizeOldAgentEvent(event = {}) {
@@ -392,7 +394,7 @@ function serverGroupToItems(group, chatKey = null) {
     turnId,
     content: group.user?.content || "",
     attachments: group.user?.attachments || [],
-    readerTextSources: group.user?.readerTextSources || [],
+    readerTextSources: dedupeReaderTextSources(group.user?.readerTextSources),
     chatId: group.chatId,
     createdAt,
     hydrationStatus: group.user?.hydrationStatus || null,

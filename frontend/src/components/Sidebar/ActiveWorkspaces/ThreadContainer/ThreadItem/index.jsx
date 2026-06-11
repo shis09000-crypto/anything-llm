@@ -47,6 +47,8 @@ export default function ThreadItem({
   hasNext,
   activity = null,
   ctrlPressed = false,
+  dragProvided = null,
+  isDragging = false,
 }) {
   const { slug: urlSlug, threadSlug = null } = useParams();
   const navigate = useNavigate();
@@ -86,8 +88,14 @@ export default function ThreadItem({
   });
   return (
     <div
-      className="w-full relative flex h-[38px] items-center border-none rounded-lg"
+      ref={dragProvided?.innerRef}
+      {...(dragProvided?.draggableProps || {})}
+      {...(dragProvided?.dragHandleProps || {})}
+      className={`w-full relative flex h-[38px] items-center border-none rounded-lg ${
+        isDragging ? "opacity-80" : ""
+      }`}
       role="listitem"
+      style={dragProvided?.draggableProps?.style}
     >
       {/* Curved line Element and leader if required */}
       <div

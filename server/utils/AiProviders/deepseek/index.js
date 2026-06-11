@@ -8,6 +8,12 @@ const {
   writeResponseChunk,
   clientAbortedHandler,
 } = require("../../helpers/chat/responses");
+const {
+  deepSeekUsageMetrics,
+  deepSeekPromptShape,
+  deepSeekPromptFingerprint,
+  deepSeekPromptCacheDiagnostics,
+} = require("./promptCache");
 
 class DeepSeekLLM {
   constructor(embedder = null, modelPreference = null) {
@@ -30,6 +36,7 @@ class DeepSeekLLM {
 
     this.embedder = embedder ?? new NativeEmbedder();
     this.defaultTemp = 0.7;
+    this.cacheStableHistory = true;
     this.log(
       `Initialized ${this.model} with context window ${this.promptWindowLimit()}`
     );
@@ -39,16 +46,22 @@ class DeepSeekLLM {
     console.log(`\x1b[36m[${this.className}]\x1b[0m ${text}`, ...args);
   }
 
-  #appendContext(contextTexts = []) {
+  #formatContext(contextTexts = []) {
     if (!contextTexts || !contextTexts.length) return "";
     return (
-      "\nContext:\n" +
+      "Context:\n" +
       contextTexts
         .map((text, i) => {
           return `[CONTEXT ${i}]:\n${text}\n[END CONTEXT ${i}]\n\n`;
         })
         .join("")
     );
+  }
+
+  #userPromptWithContext({ contextTexts = [], userPrompt = "" }) {
+    const context = this.#formatContext(contextTexts);
+    if (!context) return userPrompt;
+    return `${context}${userPrompt}`;
   }
 
   streamingEnabled() {
@@ -76,9 +89,26 @@ class DeepSeekLLM {
   }) {
     const prompt = {
       role: "system",
-      content: `${systemPrompt}${this.#appendContext(contextTexts)}`,
+      content: systemPrompt,
     };
-    return [prompt, ...chatHistory, { role: "user", content: userPrompt }];
+    return [
+      prompt,
+      ...chatHistory,
+      {
+        role: "user",
+        content: this.#userPromptWithContext({ contextTexts, userPrompt }),
+      },
+    ];
+  }
+
+  promptCacheDiagnostics(messages = [], { historyWindow = null } = {}) {
+    return deepSeekPromptCacheDiagnostics({
+      provider: this.className,
+      model: this.model,
+      messages,
+      historyWindow,
+      providerPath: "workspace-chat",
+    });
   }
 
   /**
@@ -126,18 +156,23 @@ class DeepSeekLLM {
         `Invalid response body returned from DeepSeek: ${JSON.stringify(result.output)}`
       );
 
+    const usage = result.output.usage || {};
+    const completionTokens = usage.completion_tokens || 0;
+    const metrics = {
+      prompt_tokens: usage.prompt_tokens || 0,
+      completion_tokens: completionTokens,
+      total_tokens: usage.total_tokens || 0,
+      ...deepSeekUsageMetrics(usage),
+      outputTps: completionTokens / result.duration,
+      duration: result.duration,
+      model: this.model,
+      provider: this.className,
+      timestamp: new Date(),
+    };
+
     return {
       textResponse: this.#parseReasoningFromResponse(result.output.choices[0]),
-      metrics: {
-        prompt_tokens: result.output.usage.prompt_tokens || 0,
-        completion_tokens: result.output.usage.completion_tokens || 0,
-        total_tokens: result.output.usage.total_tokens || 0,
-        outputTps: result.output.usage.completion_tokens / result.duration,
-        duration: result.duration,
-        model: this.model,
-        provider: this.className,
-        timestamp: new Date(),
-      },
+      metrics,
     };
   }
 
@@ -156,6 +191,9 @@ class DeepSeekLLM {
         stream: true,
         messages,
         temperature,
+        stream_options: {
+          include_usage: true,
+        },
         ...(responseFormat ? { response_format: responseFormat } : {}),
       }),
       messages,
@@ -202,13 +240,14 @@ class DeepSeekLLM {
             !!chunk.usage && // is not null
             Object.values(chunk.usage).length > 0 // has values
           ) {
-            if (chunk.usage.hasOwnProperty("prompt_tokens")) {
-              usage.prompt_tokens = Number(chunk.usage.prompt_tokens);
-            }
+            const usageMetrics = deepSeekUsageMetrics(chunk.usage);
+            usage = {
+              ...usage,
+              ...usageMetrics,
+            };
 
-            if (chunk.usage.hasOwnProperty("completion_tokens")) {
+            if (usageMetrics.hasOwnProperty("completion_tokens")) {
               hasUsageMetrics = true; // to stop estimating counter
-              usage.completion_tokens = Number(chunk.usage.completion_tokens);
             }
           }
 
@@ -276,20 +315,21 @@ class DeepSeekLLM {
             message.finish_reason !== "" &&
             message.finish_reason !== null
           ) {
-            writeResponseChunk(response, {
-              uuid,
-              sources,
-              type: "textResponseChunk",
-              textResponse: "",
-              close: true,
-              error: false,
-            });
-            response.removeListener("close", handleAbort);
-            stream?.endMeasurement(usage);
-            resolve(fullText);
-            break; // Break streaming when a valid finish_reason is first encountered
+            continue;
           }
         }
+
+        writeResponseChunk(response, {
+          uuid,
+          sources,
+          type: "textResponseChunk",
+          textResponse: "",
+          close: true,
+          error: false,
+        });
+        response.removeListener("close", handleAbort);
+        stream?.endMeasurement(usage);
+        resolve(fullText);
       } catch (e) {
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
         writeResponseChunk(response, {
@@ -322,4 +362,8 @@ class DeepSeekLLM {
 
 module.exports = {
   DeepSeekLLM,
+  deepSeekUsageMetrics,
+  deepSeekPromptShape,
+  deepSeekPromptFingerprint,
+  deepSeekPromptCacheDiagnostics,
 };

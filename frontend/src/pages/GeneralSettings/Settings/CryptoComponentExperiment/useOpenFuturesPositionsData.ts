@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { cryptoHubSseData } from "@/hooks/cryptoHub/useCryptoHubStream";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import type {
   OpenFuturesPositionItem,
   OpenFuturesConnectionStatus,
@@ -11,7 +13,7 @@ import type {
 
 type DataMode = "mock" | "gate-api";
 
-const OPEN_POSITIONS_ENDPOINT = `${API_BASE}/crypto/gate/futures/open-positions`;
+const OPEN_POSITIONS_ENDPOINT = `${API_BASE}/crypto-hub/open-futures-positions`;
 const OPEN_POSITIONS_STREAM_ENDPOINT = `${OPEN_POSITIONS_ENDPOINT}/stream`;
 const STREAM_RENDER_THROTTLE_MS = 500;
 const STREAM_RECONNECT_MS = 1_500;
@@ -59,6 +61,7 @@ export function useOpenFuturesPositionsData({
     useState<OpenFuturesConnectionStatus>("connected");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(mode === "mock");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(() =>
     Date.now()
   );
@@ -171,6 +174,7 @@ export function useOpenFuturesPositionsData({
       }
 
       applyPayload(payload);
+      setHasLoadedOnce(true);
       return payload;
     } catch (requestError) {
       setStatus("disconnected");
@@ -179,6 +183,7 @@ export function useOpenFuturesPositionsData({
           ? requestError.message
           : "Gate futures positions request failed."
       );
+      setHasLoadedOnce(true);
       return null;
     } finally {
       setLoading(false);
@@ -206,9 +211,9 @@ export function useOpenFuturesPositionsData({
         );
       },
       onmessage(message) {
-        const payload = parseSseJson<OpenFuturesPositionsResponse>(
-          message.data
-        );
+        const payload =
+          cryptoHubSseData<OpenFuturesPositionsResponse>(message.data) ||
+          parseSseJson<OpenFuturesPositionsResponse>(message.data);
         if (!payload) return;
         if (payload.success === false) {
           setStatus("disconnected");
@@ -250,12 +255,27 @@ export function useOpenFuturesPositionsData({
     await loadSnapshot();
   }
 
+  function forceHubWatchdogReconnect() {
+    if (mode !== "gate-api") return;
+    stopStream({ keepIntent: true });
+    loadSnapshot().then(() => startStream());
+  }
+
+  useCryptoHubWatchedConnection({
+    key: "openFuturesPositions.stream",
+    active: mode === "gate-api",
+    status,
+    lastConnectedAt: lastUpdatedAt,
+    reconnect: forceHubWatchdogReconnect,
+  });
+
   useEffect(() => {
     stopStream();
     setError(null);
 
     if (mode === "mock") {
       setLoading(false);
+      setHasLoadedOnce(true);
       setPositions(mockPositions);
       setSummary(mockSummary);
       setStatus("connected");
@@ -266,6 +286,7 @@ export function useOpenFuturesPositionsData({
     }
 
     shouldStreamRef.current = true;
+    setHasLoadedOnce(false);
     setPositions([]);
     setSummary(emptySummary);
     loadSnapshot().then(() => startStream());
@@ -297,6 +318,7 @@ export function useOpenFuturesPositionsData({
     status,
     error,
     loading,
+    hasLoadedOnce,
     lastUpdatedAt,
     lastRestFetchAt,
     lastWsMessageAt,

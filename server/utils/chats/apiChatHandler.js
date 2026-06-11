@@ -7,6 +7,7 @@ const {
   chatPrompt,
   sourceIdentifier,
   grepAllSlashCommands,
+  cacheStableHistoryStrategyFor,
 } = require("./index");
 const {
   injectCompactionIntoSystemPrompt,
@@ -31,6 +32,24 @@ const {
   prepareImageAnalysisContext,
   shouldUseVisionTool,
 } = require("../vision/viewTool");
+
+function promptCacheDiagnosticsFor(llm, messages = [], historyWindow = null) {
+  if (!llm?.cacheStableHistory) return {};
+  if (typeof llm.promptCacheDiagnostics !== "function") return {};
+  return {
+    promptCacheDiagnostics: llm.promptCacheDiagnostics(messages, {
+      historyWindow,
+    }),
+  };
+}
+
+function withPromptCacheDiagnostics(metrics = {}, diagnostics = {}) {
+  if (!diagnostics?.promptCacheDiagnostics) return metrics || {};
+  return {
+    ...(metrics || {}),
+    ...diagnostics,
+  };
+}
 /**
  * @typedef ResponseObject
  * @property {string} id - uuid of response
@@ -257,6 +276,10 @@ async function chatSync({
   });
   const VectorDb = getVectorDbClass();
   const messageLimit = workspace?.openAiHistory || 20;
+  const historyStrategy = cacheStableHistoryStrategyFor({
+    llm: LLMConnector,
+    messageLimit,
+  });
   const hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
   const embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
 
@@ -299,13 +322,14 @@ async function chatSync({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  let { rawHistory, chatHistory, compaction } =
+  let { rawHistory, chatHistory, compaction, historyWindow } =
     await recentChatHistoryWithCompaction({
       user,
       workspace,
       thread,
       messageLimit,
       apiSessionId: sessionId,
+      historyStrategy,
     });
 
   await new DocumentManager({
@@ -451,10 +475,12 @@ async function chatSync({
       thread,
       messageLimit,
       apiSessionId: sessionId,
+      historyStrategy,
     });
     rawHistory = nextHistory.rawHistory;
     chatHistory = nextHistory.chatHistory;
     compaction = nextHistory.compaction;
+    historyWindow = nextHistory.historyWindow || null;
   }
 
   const messages = await LLMConnector.compressMessages(
@@ -467,6 +493,11 @@ async function chatSync({
     },
     rawHistory
   );
+  const promptCacheDiagnostics = promptCacheDiagnosticsFor(
+    LLMConnector,
+    messages,
+    historyWindow
+  );
 
   // Send the text completion.
   const { textResponse, metrics: performanceMetrics } =
@@ -474,6 +505,10 @@ async function chatSync({
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       user: user,
     });
+  const metrics = withPromptCacheDiagnostics(
+    performanceMetrics,
+    promptCacheDiagnostics
+  );
 
   if (!textResponse) {
     return {
@@ -483,7 +518,7 @@ async function chatSync({
       sources: [],
       close: true,
       error: "No text completion could be completed with this input.",
-      metrics: performanceMetrics,
+      metrics,
     };
   }
 
@@ -495,7 +530,7 @@ async function chatSync({
       sources,
       attachments: historyAttachments,
       type: chatMode,
-      metrics: performanceMetrics,
+      metrics,
       ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
     },
     threadId: thread?.id || null,
@@ -518,6 +553,7 @@ async function chatSync({
     contextTexts,
     attachments: llmAttachments,
     compaction,
+    historyPressureLimit: historyWindow?.historyPressureLimit || null,
     phase: "turn_end",
   }).catch((error) =>
     console.warn(
@@ -534,7 +570,7 @@ async function chatSync({
     chatId: chat.id,
     textResponse,
     sources,
-    metrics: performanceMetrics,
+    metrics,
   };
 }
 
@@ -713,6 +749,10 @@ async function streamChat({
 
   const VectorDb = getVectorDbClass();
   const messageLimit = workspace?.openAiHistory || 20;
+  const historyStrategy = cacheStableHistoryStrategyFor({
+    llm: LLMConnector,
+    messageLimit,
+  });
   const hasVectorizedSpace = await VectorDb.hasNamespace(workspace.slug);
   const embeddingsCount = await VectorDb.namespaceCount(workspace.slug);
 
@@ -759,13 +799,14 @@ async function streamChat({
   let contextTexts = [];
   let sources = [];
   let pinnedDocIdentifiers = [];
-  let { rawHistory, chatHistory, compaction } =
+  let { rawHistory, chatHistory, compaction, historyWindow } =
     await recentChatHistoryWithCompaction({
       user,
       workspace,
       thread,
       messageLimit,
       apiSessionId: sessionId,
+      historyStrategy,
     });
 
   // Look for pinned documents and see if the user decided to use this feature. We will also do a vector search
@@ -918,10 +959,12 @@ async function streamChat({
       thread,
       messageLimit,
       apiSessionId: sessionId,
+      historyStrategy,
     });
     rawHistory = nextHistory.rawHistory;
     chatHistory = nextHistory.chatHistory;
     compaction = nextHistory.compaction;
+    historyWindow = nextHistory.historyWindow || null;
   }
 
   const messages = await LLMConnector.compressMessages(
@@ -933,6 +976,11 @@ async function streamChat({
       attachments: llmAttachments,
     },
     rawHistory
+  );
+  const promptCacheDiagnostics = promptCacheDiagnosticsFor(
+    LLMConnector,
+    messages,
+    historyWindow
   );
 
   // If streaming is not explicitly enabled for connector
@@ -947,7 +995,10 @@ async function streamChat({
         user: user,
       });
     completeText = textResponse;
-    metrics = performanceMetrics;
+    metrics = withPromptCacheDiagnostics(
+      performanceMetrics,
+      promptCacheDiagnostics
+    );
     writeResponseChunk(response, {
       uuid,
       sources,
@@ -963,7 +1014,11 @@ async function streamChat({
       user: user,
     });
     completeText = await LLMConnector.handleStream(response, stream, { uuid });
-    metrics = stream.metrics;
+    metrics = withPromptCacheDiagnostics(
+      stream.metrics,
+      promptCacheDiagnostics
+    );
+    stream.metrics = metrics;
   }
 
   if (completeText?.length > 0) {
@@ -998,6 +1053,7 @@ async function streamChat({
       contextTexts,
       attachments: llmAttachments,
       compaction,
+      historyPressureLimit: historyWindow?.historyPressureLimit || null,
       phase: "turn_end",
     }).catch((error) =>
       console.warn(

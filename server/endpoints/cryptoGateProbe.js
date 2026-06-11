@@ -1,14 +1,7 @@
+const { cryptoDataHub } = require("../utils/cryptoHub");
 const {
   cryptoGateEventBuffer,
-  cryptoGateBtcSpotSummaryService,
-  cryptoGateEquityHistoryService,
-  cryptoGateMarketCandlesService,
   cryptoGateMarketStreamManager,
-  cryptoGateOpenFuturesPositionsService,
-  cryptoGateTradeRecordsFeeSummaryService,
-  cryptoGateTradeRecordsService,
-  cryptoGateTopSpotAssetsService,
-  cryptoGateTradingPairDetailService,
   cryptoGateWsManager,
   GateRestClient,
   getGateConfigStatus,
@@ -23,17 +16,6 @@ const { validatedRequest } = require("../utils/middleware/validatedRequest");
 
 let lastRestSnapshotAt = null;
 const CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER = "x-crypto-center-dev-auth-bypass";
-const STABLE_ALLOCATION_ASSETS = new Set(["USDT", "GUSD", "USDC"]);
-const ASSET_COLORS = {
-  BTC: "#1683FF",
-  ETH: "#A855F7",
-  USDT: "#FF8A00",
-  GUSD: "#14C8B8",
-  USDC: "#2775CA",
-  SOL: "#4F63FF",
-  BNB: "#F6B91A",
-  XRP: "#F05272",
-};
 
 function isCryptoCenterDevAuthBypassEnabled(request) {
   if (process.env.NODE_ENV === "production") return false;
@@ -58,7 +40,6 @@ function gateAccessMiddleware() {
         response.locals.multiUserMode = false;
         return next();
       }
-
       return validatedRequest(request, response, (error) => {
         if (error) return next(error);
         return roleCheck(request, response, next);
@@ -83,94 +64,45 @@ function safeConfigStatus() {
   }
 }
 
-function normalizeAsset(value) {
-  return String(value || "")
-    .trim()
-    .toUpperCase();
+function legacyErrorResponse(response, error, fallback, extra = {}) {
+  response.status(500).json({
+    success: false,
+    asOf: Date.now(),
+    exchange: "gate",
+    connectionStatus: "disconnected",
+    safeErrorMessage: safeErrorMessage(error?.message || fallback),
+    partialFailures: Array.isArray(error?.partialFailures)
+      ? error.partialFailures
+      : [],
+    ...extra,
+  });
 }
 
-function numberValue(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function decimalString(value, fractionDigits = 2) {
-  if (!Number.isFinite(value)) return "0";
-  return value.toFixed(fractionDigits);
-}
-
-function addAllocationBalance(balances, asset, amount) {
-  const symbol = normalizeAsset(asset);
-  const value = numberValue(amount);
-  if (!symbol || value <= 0) return;
-  balances.set(symbol, (balances.get(symbol) || 0) + value);
-}
-
-function collectAllocationBalances(accounts = [], earns = []) {
-  const balances = new Map();
-  if (Array.isArray(accounts)) {
-    for (const account of accounts) {
-      addAllocationBalance(
-        balances,
-        account?.currency,
-        numberValue(account?.available) + numberValue(account?.locked)
-      );
-    }
-  }
-  if (Array.isArray(earns)) {
-    for (const lend of earns) {
-      addAllocationBalance(
-        balances,
-        lend?.currency,
-        lend?.amount || lend?.lent_amount
-      );
-    }
-  }
-  return balances;
-}
-
-function tickerMapByPair(tickers = []) {
-  const map = new Map();
-  if (!Array.isArray(tickers)) return map;
-  for (const ticker of tickers) {
-    const pair = normalizeAsset(ticker?.currency_pair);
-    if (!pair) continue;
-    const price = numberValue(ticker?.last || ticker?.close);
-    if (price <= 0) continue;
-    map.set(pair, {
-      price,
-      change24hPct:
-        ticker?.change_percentage ??
-        ticker?.change_utc0 ??
-        ticker?.change_utc8 ??
-        ticker?.change,
-    });
-  }
-  return map;
-}
-
-function allocationItemFor({ symbol, amount, quoteAsset, ticker }) {
-  const stable = STABLE_ALLOCATION_ASSETS.has(symbol);
-  const priceUsd = stable ? 1 : ticker?.price;
-  if (!priceUsd || priceUsd <= 0) return null;
-  const valueUsd = amount * priceUsd;
-  if (valueUsd <= 0) return null;
-
-  return {
-    symbol,
-    name: stable ? "USD Stablecoin" : symbol,
-    nameCn: stable ? symbol : symbol,
-    color: ASSET_COLORS[symbol] || "#9CA3AF",
-    valueUsd: decimalString(valueUsd, 2),
-    percentage: "0",
-    amount: decimalString(amount, stable ? 2 : 8),
-    priceUsd: decimalString(priceUsd, stable ? 2 : 8),
-    change24hPct:
-      ticker?.change24hPct === undefined || ticker?.change24hPct === null
-        ? null
-        : String(ticker.change24hPct),
-    quoteAsset,
-  };
+function marketErrorResponse(request, response, error, fallback) {
+  const statusCode =
+    error?.code === "invalid_pair" ||
+    error?.code === "unsupported_range" ||
+    error?.code === "unsupported_market"
+      ? 400
+      : 500;
+  response.status(statusCode).json({
+    success: false,
+    asOf: Date.now(),
+    exchange: "gate",
+    gateCurrencyPair: String(request.query?.pair || "BTC_USDT")
+      .trim()
+      .toUpperCase(),
+    range: String(request.query?.range || "1d")
+      .trim()
+      .toLowerCase(),
+    marketType: String(request.query?.market || "spot").toLowerCase(),
+    connectionStatus: "disconnected",
+    safeErrorMessage: safeErrorMessage(error?.message || fallback),
+    partialFailures: Array.isArray(error?.partialFailures)
+      ? error.partialFailures
+      : [],
+    candles: [],
+  });
 }
 
 function cryptoGateProbeEndpoints(app) {
@@ -181,114 +113,15 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (request, response) => {
       try {
-        const quoteAsset = normalizeAsset(request.query?.quote || "USDT");
-        const client = new GateRestClient();
-        const [spotResult, earnResult, tickersResult] =
-          await Promise.allSettled([
-            client.getSpotAccountsRaw(),
-            client.getEarnUniLendsRaw(),
-            client.getSpotTickersRaw(),
-          ]);
-
-        if (spotResult.status !== "fulfilled" || !spotResult.value.success) {
-          throw new Error(
-            spotResult.status === "fulfilled"
-              ? spotResult.value.safeErrorMessage ||
-                "Gate spot accounts failed."
-              : safeErrorMessage(spotResult.reason)
-          );
-        }
-        if (
-          tickersResult.status !== "fulfilled" ||
-          !tickersResult.value.success
-        ) {
-          throw new Error(
-            tickersResult.status === "fulfilled"
-              ? tickersResult.value.safeErrorMessage ||
-                "Gate spot tickers failed."
-              : safeErrorMessage(tickersResult.reason)
-          );
-        }
-
-        const partialFailures = [];
-        if (earnResult.status !== "fulfilled" || !earnResult.value.success) {
-          partialFailures.push({
-            source: "earn_uni_lends",
-            message:
-              earnResult.status === "fulfilled"
-                ? earnResult.value.safeErrorMessage ||
-                  "Gate earn balance failed."
-                : safeErrorMessage(earnResult.reason),
-          });
-        }
-
-        const balances = collectAllocationBalances(
-          spotResult.value.data,
-          earnResult.status === "fulfilled" && earnResult.value.success
-            ? earnResult.value.data
-            : []
+        response.status(200).json(
+          await cryptoDataHub.getAllocation({
+            quote: request.query?.quote || "USDT",
+          })
         );
-        const tickers = tickerMapByPair(tickersResult.value.data);
-        const rawItems = [];
-
-        for (const [symbol, amount] of balances.entries()) {
-          const ticker = tickers.get(`${symbol}_${quoteAsset}`);
-          const item = allocationItemFor({
-            symbol,
-            amount,
-            quoteAsset,
-            ticker,
-          });
-          if (item) rawItems.push(item);
-        }
-
-        const totalValue = rawItems.reduce(
-          (sum, item) => sum + numberValue(item.valueUsd),
-          0
-        );
-        const items = rawItems
-          .map((item) => ({
-            ...item,
-            percentage:
-              totalValue > 0
-                ? decimalString(
-                    (numberValue(item.valueUsd) / totalValue) * 100,
-                    2
-                  )
-                : "0.00",
-          }))
-          .sort(
-            (left, right) =>
-              numberValue(right.valueUsd) - numberValue(left.valueUsd)
-          );
-
-        response.status(200).json({
-          success: true,
-          asOf: Date.now(),
-          exchange: "gate",
-          marketType: "spot",
-          scope: "all",
-          quoteAsset,
-          totalValueUsd: decimalString(totalValue, 2),
-          items,
-          connectionStatus: partialFailures.length ? "degraded" : "connected",
-          config: safeConfigStatus(),
-          partialFailures,
-        });
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
+        legacyErrorResponse(response, error, "Gate allocation failed", {
           marketType: "spot",
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate allocation failed"
-          ),
           items: [],
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
         });
       }
     }
@@ -301,18 +134,11 @@ function cryptoGateProbeEndpoints(app) {
       try {
         response
           .status(200)
-          .json(await cryptoGateOpenFuturesPositionsService.snapshot());
+          .json(await cryptoDataHub.getOpenFuturesPositions());
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
+        legacyErrorResponse(response, error, "Gate futures positions failed", {
           marketType: "futures",
           settle: "usdt",
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate futures positions failed"
-          ),
           positions: [],
           summary: {
             totalUnrealizedPnlUsd: "0.00",
@@ -321,7 +147,6 @@ function cryptoGateProbeEndpoints(app) {
             accountEquityUsd: "0.00",
             marginRatioPct: "0.00",
           },
-          partialFailures: [],
         });
       }
     }
@@ -331,7 +156,7 @@ function cryptoGateProbeEndpoints(app) {
     "/crypto/gate/futures/open-positions/stream",
     gateAccessMiddleware(),
     async (_request, response) => {
-      await cryptoGateOpenFuturesPositionsService.subscribe(response);
+      await cryptoDataHub.subscribeOpenFuturesPositionsLegacy(response);
     }
   );
 
@@ -341,7 +166,7 @@ function cryptoGateProbeEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoGateTradeRecordsService.snapshot({
+          await cryptoDataHub.getTradeRecords({
             from: request.query?.from,
             to: request.query?.to,
             cursorTs: request.query?.cursorTs,
@@ -350,15 +175,8 @@ function cryptoGateProbeEndpoints(app) {
           })
         );
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
+        legacyErrorResponse(response, error, "Gate trade records failed", {
           marketType: "all",
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate trade records failed"
-          ),
           records: [],
           summary: {
             totalNotionalUsd: "0.00",
@@ -369,9 +187,6 @@ function cryptoGateProbeEndpoints(app) {
             spotNotionalUsd: "0.00",
             futuresNotionalUsd: "0.00",
           },
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
         });
       }
     }
@@ -383,38 +198,29 @@ function cryptoGateProbeEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoGateTradeRecordsFeeSummaryService.snapshot({
+          await cryptoDataHub.getTradeRecordsFeeSummary({
             from: request.query?.from,
             to: request.query?.to,
             includeYear: request.query?.includeYear !== "false",
           })
         );
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          exchange: "gate",
-          asOf: Date.now(),
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate trade records fee summary failed"
-          ),
-          range: {
-            from: Number(request.query?.from) || 0,
-            to: Number(request.query?.to) || 0,
-          },
-          totalFeeUsd: "0.00",
-          yearTotalFeeUsd: "0.00",
-          feeSources: {
-            spotUsd: "0.00",
-            futuresUsd: "0.00",
-            gtUsd: "0.00",
-            pointAmount: "0.00000000",
-            unknownUsd: "0.00",
-          },
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
-        });
+        legacyErrorResponse(
+          response,
+          error,
+          "Gate trade records fee summary failed",
+          {
+            totalFeeUsd: "0.00",
+            yearTotalFeeUsd: "0.00",
+            feeSources: {
+              spotUsd: "0.00",
+              futuresUsd: "0.00",
+              gtUsd: "0.00",
+              pointAmount: "0.00000000",
+              unknownUsd: "0.00",
+            },
+          }
+        );
       }
     }
   );
@@ -423,7 +229,7 @@ function cryptoGateProbeEndpoints(app) {
     "/crypto/gate/trade-records/stream",
     gateAccessMiddleware(),
     async (request, response) => {
-      await cryptoGateTradeRecordsService.subscribe(response, {
+      await cryptoDataHub.subscribeTradeRecordsLegacy(response, {
         from: request.query?.from,
         to: request.query?.to,
         limit: request.query?.limit,
@@ -436,41 +242,22 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (request, response) => {
       try {
-        const result = await cryptoGateMarketCandlesService.marketCandles({
-          pair: request.query?.pair || "BTC_USDT",
-          range: request.query?.range || "1d",
-          market: request.query?.market || "spot",
-          beforeTs: request.query?.beforeTs,
-          afterTs: request.query?.afterTs,
-        });
-        response.status(200).json(result);
+        response.status(200).json(
+          await cryptoDataHub.getMarketCandles({
+            pair: request.query?.pair || "BTC_USDT",
+            range: request.query?.range || "1d",
+            market: request.query?.market || "spot",
+            beforeTs: request.query?.beforeTs,
+            afterTs: request.query?.afterTs,
+          })
+        );
       } catch (error) {
-        const statusCode =
-          error?.code === "invalid_pair" ||
-          error?.code === "unsupported_range" ||
-          error?.code === "unsupported_market"
-            ? 400
-            : 500;
-        response.status(statusCode).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
-          gateCurrencyPair: String(request.query?.pair || "BTC_USDT")
-            .trim()
-            .toUpperCase(),
-          range: String(request.query?.range || "1d")
-            .trim()
-            .toLowerCase(),
-          marketType: String(request.query?.market || "spot").toLowerCase(),
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate market candles failed"
-          ),
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
-          candles: [],
-        });
+        marketErrorResponse(
+          request,
+          response,
+          error,
+          "Gate market candles failed"
+        );
       }
     }
   );
@@ -479,29 +266,11 @@ function cryptoGateProbeEndpoints(app) {
     "/crypto/gate/market/candles/stream",
     gateAccessMiddleware(),
     async (request, response) => {
-      try {
-        cryptoGateMarketStreamManager.subscribe({
-          pair: request.query?.pair || "BTC_USDT",
-          range: request.query?.range || "1d",
-          market: request.query?.market || "spot",
-          response,
-        });
-      } catch (error) {
-        const statusCode =
-          error?.code === "invalid_pair" ||
-          error?.code === "unsupported_range" ||
-          error?.code === "unsupported_market"
-            ? 400
-            : 500;
-        response.status(statusCode).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate market candles stream failed"
-          ),
-        });
-      }
+      await cryptoDataHub.subscribeMarketCandlesLegacy(response, {
+        pair: request.query?.pair || "BTC_USDT",
+        range: request.query?.range || "1d",
+        market: request.query?.market || "spot",
+      });
     }
   );
 
@@ -510,13 +279,12 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (request, response) => {
       try {
-        const pair = request.query?.pair || "BTC_USDT";
-        const market = request.query?.market || "spot";
-        const detail = await cryptoGateTradingPairDetailService.detail({
-          pair,
-          market,
-        });
-        response.status(200).json(detail);
+        response.status(200).json(
+          await cryptoDataHub.getTradingPairDetail({
+            pair: request.query?.pair || "BTC_USDT",
+            market: request.query?.market || "spot",
+          })
+        );
       } catch (error) {
         const statusCode =
           error?.code === "invalid_pair" || error?.code === "unsupported_market"
@@ -547,26 +315,20 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (request, response) => {
       try {
-        const result = await cryptoGateTopSpotAssetsService.topAssets({
-          limit: request.query?.limit,
-          exclude: request.query?.exclude,
-          quote: request.query?.quote || "USDT",
-        });
-        response.status(200).json(result);
+        const {
+          cryptoGateTopSpotAssetsService,
+        } = require("../utils/cryptoGate");
+        response.status(200).json(
+          await cryptoGateTopSpotAssetsService.topAssets({
+            limit: request.query?.limit,
+            exclude: request.query?.exclude,
+            quote: request.query?.quote || "USDT",
+          })
+        );
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
+        legacyErrorResponse(response, error, "Gate top spot assets failed", {
           marketType: "spot",
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate top spot assets failed"
-          ),
           assets: [],
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
         });
       }
     }
@@ -577,24 +339,14 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (request, response) => {
       try {
-        const range = request.query?.range || "1d";
-        const summary = await cryptoGateBtcSpotSummaryService.summary({
-          range,
-        });
-        response.status(200).json(summary);
+        response.status(200).json(
+          await cryptoDataHub.getBtcSummary({
+            range: request.query?.range || "1d",
+          })
+        );
       } catch (error) {
-        response.status(500).json({
-          success: false,
-          asOf: Date.now(),
-          exchange: "gate",
+        legacyErrorResponse(response, error, "Gate BTC summary failed", {
           symbol: "BTC_USDT",
-          connectionStatus: "disconnected",
-          safeErrorMessage: safeErrorMessage(
-            error?.message || "Gate BTC summary failed"
-          ),
-          partialFailures: Array.isArray(error?.partialFailures)
-            ? error.partialFailures
-            : [],
         });
       }
     }
@@ -608,6 +360,7 @@ function cryptoGateProbeEndpoints(app) {
         response.status(200).json({
           success: true,
           config: safeConfigStatus(),
+          hub: cryptoDataHub.getStatus(),
           ws: cryptoGateWsManager.status(),
           marketStreams: cryptoGateMarketStreamManager.status(),
           lastRestSnapshotAt,
@@ -629,7 +382,7 @@ function cryptoGateProbeEndpoints(app) {
       try {
         const credentials = getGateCredentials();
         const snapshot = await new GateRestClient(credentials).snapshot();
-        await cryptoGateEquityHistoryService.recordSnapshot("snapshot");
+        await cryptoDataHub.getEquityHistory({ equityMode: "api_total" });
         lastRestSnapshotAt = Date.now();
         cryptoGateEventBuffer.push({
           source: "rest",
@@ -657,19 +410,12 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (_request, response) => {
       try {
-        const credentials = getGateCredentials();
-        cryptoGateEquityHistoryService.startPolling();
-        cryptoGateWsManager.setEventHandler((event) =>
-          cryptoGateEquityHistoryService.markDirty(
-            `${event?.source || "ws"}:${event?.eventType || "event"}`
-          )
-        );
-        const ws = cryptoGateWsManager.start(credentials);
+        const result = cryptoDataHub.start();
         response.status(200).json({
           success: true,
           config: safeConfigStatus(),
-          ws,
-          freshness: cryptoGateEquityHistoryService.freshness(),
+          ws: cryptoGateWsManager.status(),
+          freshness: result.serviceDetails?.equity?.freshness || null,
         });
       } catch (error) {
         response.status(500).json({
@@ -686,11 +432,7 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (_request, response) => {
       try {
-        cryptoGateEquityHistoryService.stopPolling();
-        response.status(200).json({
-          success: true,
-          ws: cryptoGateWsManager.stop(),
-        });
+        response.status(200).json(cryptoDataHub.stopIfIdle());
       } catch (error) {
         response.status(500).json({
           success: false,
@@ -735,14 +477,12 @@ function cryptoGateProbeEndpoints(app) {
           return;
         }
 
-        response.status(200).json({
-          success: true,
-          config: safeConfigStatus(),
-          history: await cryptoGateEquityHistoryService.today({
+        response.status(200).json(
+          await cryptoDataHub.getEquityHistory({
             equityMode: request.query?.equityMode,
             sinceTs: request.query?.sinceTs,
-          }),
-        });
+          })
+        );
       } catch (error) {
         response.status(500).json({
           success: false,

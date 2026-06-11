@@ -30,6 +30,8 @@ import XlsxReader from "./XlsxReader";
 import PdfReader from "./PdfReader";
 import EpubReader from "./EpubReader";
 
+const READER_PROGRESS_AUTO_SAVE_INTERVAL_MS = 5000;
+
 const HISTORY_TYPE_STYLES = {
   pdf: { label: "PDF", className: "bg-rose-500 text-white" },
   docx: { label: "W", className: "bg-blue-500 text-white" },
@@ -1572,6 +1574,7 @@ export default function DocumentReaderPanel({
     resolveLocalFileConflict,
     docxPreviewStatus,
     recordCurrentProgress,
+    backupCurrentDocumentProgress,
     pendingReaderTextSources,
     focusReaderTextSource,
     removePendingReaderTextSource,
@@ -1591,6 +1594,7 @@ export default function DocumentReaderPanel({
   const readerBodyRef = useRef(null);
   const progressTimerRef = useRef(null);
   const latestPagedProgressRef = useRef(null);
+  const saveProgressSnapshotRef = useRef(null);
 
   const active = !!currentDocument || !!drawerOpen;
   useEffect(() => {
@@ -1604,6 +1608,51 @@ export default function DocumentReaderPanel({
 
   useEffect(() => {
     latestPagedProgressRef.current = null;
+  }, [
+    currentDocument?.readerDocumentId,
+    currentDocument?.localDocumentId,
+    currentDocument?.bookKey,
+    currentDocument?.branchId,
+  ]);
+
+  useEffect(() => {
+    saveProgressSnapshotRef.current = (options = {}) => {
+      if (!currentDocument) return;
+      const progress = latestReadingProgress();
+      if (!progress) return;
+      backupCurrentDocumentProgress?.(progress);
+      recordCurrentProgress?.(progress, {
+        force: true,
+        skipCurrentDocumentPersist: !!options.skipCurrentDocumentPersist,
+      });
+    };
+  });
+
+  useEffect(() => {
+    if (!currentDocument) return;
+
+    const save = (options = {}) => saveProgressSnapshotRef.current?.(options);
+    const handleVisibilityChange = () => {
+      if (window.document.visibilityState === "hidden") save();
+    };
+    const interval = window.setInterval(
+      save,
+      READER_PROGRESS_AUTO_SAVE_INTERVAL_MS
+    );
+    window.document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    );
+    window.addEventListener("pagehide", save);
+    return () => {
+      window.clearInterval(interval);
+      window.document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      );
+      window.removeEventListener("pagehide", save);
+      save({ skipCurrentDocumentPersist: true });
+    };
   }, [
     currentDocument?.readerDocumentId,
     currentDocument?.localDocumentId,
@@ -1715,7 +1764,8 @@ export default function DocumentReaderPanel({
   }
 
   function scheduleProgressUpdate(progress) {
-    if (isPagedReader) latestPagedProgressRef.current = progress;
+    if (!progress) return;
+    if (isPagedReader && progress) latestPagedProgressRef.current = progress;
     window.clearTimeout(progressTimerRef.current);
     progressTimerRef.current = window.setTimeout(() => {
       recordCurrentProgress?.(progress);
@@ -1723,7 +1773,7 @@ export default function DocumentReaderPanel({
   }
 
   function latestReadingProgress() {
-    if (currentDocument?.documentType === "epub")
+    if (isPagedReader)
       return latestPagedProgressRef.current || currentDocument.progress || null;
     return captureCurrentReadingProgress();
   }
@@ -1734,10 +1784,12 @@ export default function DocumentReaderPanel({
   }
 
   function handleCloseReader() {
+    window.clearTimeout(progressTimerRef.current);
     closeReader?.(latestReadingProgress());
   }
 
   function handleExitCurrentDocument() {
+    window.clearTimeout(progressTimerRef.current);
     exitCurrentDocument?.(latestReadingProgress());
   }
 

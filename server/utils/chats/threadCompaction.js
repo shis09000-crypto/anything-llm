@@ -335,6 +335,7 @@ async function recentChatHistoryWithCompaction({
   thread = null,
   messageLimit = 20,
   apiSessionId = null,
+  historyStrategy = null,
 } = {}) {
   const config = getConfig();
   if (!config.enabled) {
@@ -344,6 +345,7 @@ async function recentChatHistoryWithCompaction({
       thread,
       messageLimit,
       apiSessionId,
+      historyStrategy,
     });
   }
 
@@ -361,10 +363,27 @@ async function recentChatHistoryWithCompaction({
       thread,
       messageLimit,
       apiSessionId,
+      historyStrategy,
     });
   }
 
   try {
+    if (historyStrategy) {
+      const history = await recentChatHistory({
+        user,
+        workspace,
+        thread,
+        messageLimit,
+        apiSessionId,
+        afterChatId: compaction.covered_to_chat_id,
+        historyStrategy,
+      });
+      return {
+        compaction,
+        ...history,
+      };
+    }
+
     const rawHistory = (
       await WorkspaceChatCompaction.where(scope, {
         afterChatId: compaction.covered_to_chat_id,
@@ -388,6 +407,7 @@ async function recentChatHistoryWithCompaction({
       thread,
       messageLimit,
       apiSessionId,
+      historyStrategy,
     });
   }
 }
@@ -1076,6 +1096,7 @@ async function maybeAutoCompact({
   attachments = [],
   compaction = null,
   keepRecentMessages = null,
+  historyPressureLimit = null,
   phase = "prompt_assembly",
 } = {}) {
   const config = getConfig();
@@ -1143,8 +1164,15 @@ async function maybeAutoCompact({
     attachments,
   });
   const triggerTokens = llm.promptWindowLimit() * config.triggerRatio;
-  const historyLimitPressure =
-    chatHistory.length / 2 >= Number(workspace?.openAiHistory || 20);
+  const chatPairs = chatHistory.length / 2;
+  const hasCustomHistoryPressureLimit =
+    historyPressureLimit !== null &&
+    historyPressureLimit !== undefined &&
+    Number.isFinite(Number(historyPressureLimit));
+  const customHistoryPressureLimit = Number(historyPressureLimit);
+  const historyLimitPressure = hasCustomHistoryPressureLimit
+    ? chatPairs > customHistoryPressureLimit
+    : chatPairs >= Number(workspace?.openAiHistory || 20);
 
   if (promptTokens < triggerTokens && !historyLimitPressure) {
     return { success: true, skipped: true, reason: "below_threshold" };

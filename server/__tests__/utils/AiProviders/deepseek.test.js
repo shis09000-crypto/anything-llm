@@ -28,7 +28,11 @@ jest.mock("../../../utils/helpers/chat/LLMPerformanceMonitor", () => ({
   },
 }));
 
-const { DeepSeekLLM } = require("../../../utils/AiProviders/deepseek");
+const {
+  DeepSeekLLM,
+  deepSeekPromptFingerprint,
+  deepSeekPromptShape,
+} = require("../../../utils/AiProviders/deepseek");
 
 describe("DeepSeekLLM", () => {
   const originalEnv = { ...process.env };
@@ -66,5 +70,217 @@ describe("DeepSeekLLM", () => {
       temperature: 0.1,
       response_format: { type: "json_object" },
     });
+  });
+
+  it("uses the official DeepSeek V4 context window", () => {
+    expect(DeepSeekLLM.promptWindowLimit("deepseek-v4-flash")).toBe(1_000_000);
+    expect(DeepSeekLLM.promptWindowLimit("deepseek-v4-pro")).toBe(1_000_000);
+  });
+
+  it("opts into cache-stable history and emits redacted cache diagnostics", () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-pro");
+    const messages = [
+      { role: "system", content: "stable system" },
+      { role: "user", content: "secret history" },
+      { role: "user", content: "current question" },
+    ];
+
+    const diagnostics = llm.promptCacheDiagnostics(messages, {
+      historyWindow: {
+        strategy: "cache-stable-blocks",
+        blockSize: 20,
+        maxBlocks: 2,
+        totalCount: 58,
+        offset: 20,
+        limit: 38,
+        windowStartOrdinal: 21,
+        windowEndOrdinal: 58,
+        currentBlockIndex: 2,
+      },
+    });
+
+    expect(llm.cacheStableHistory).toBe(true);
+    expect(diagnostics).toEqual(
+      expect.objectContaining({
+        provider: "DeepSeekLLM",
+        model: "deepseek-v4-pro",
+        stablePrefixFingerprint: expect.any(String),
+        historyWindow: expect.objectContaining({
+          strategy: "cache-stable-blocks",
+          offset: 20,
+          limit: 38,
+        }),
+      })
+    );
+    expect(JSON.stringify(diagnostics)).not.toContain("secret history");
+    expect(JSON.stringify(diagnostics)).not.toContain("current question");
+  });
+
+  it("keeps dynamic context out of the stable system and history prefix", () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-pro");
+    const chatHistory = [
+      { role: "user", content: "previous question" },
+      { role: "assistant", content: "previous answer" },
+    ];
+    const firstPrompt = llm.constructPrompt({
+      systemPrompt: "stable system",
+      chatHistory,
+      contextTexts: ["alpha context"],
+      userPrompt: "current question",
+    });
+    const secondPrompt = llm.constructPrompt({
+      systemPrompt: "stable system",
+      chatHistory,
+      contextTexts: ["beta context"],
+      userPrompt: "current question",
+    });
+
+    expect(firstPrompt.slice(0, -1)).toEqual(secondPrompt.slice(0, -1));
+    expect(deepSeekPromptFingerprint(firstPrompt.slice(0, -1))).toBe(
+      deepSeekPromptFingerprint(secondPrompt.slice(0, -1))
+    );
+    expect(firstPrompt[0]).toEqual({
+      role: "system",
+      content: "stable system",
+    });
+    expect(firstPrompt.at(-1).content).toContain("alpha context");
+    expect(secondPrompt.at(-1).content).toContain("beta context");
+  });
+
+  it("creates redacted prompt shape fingerprints for diagnostics", () => {
+    const promptShape = deepSeekPromptShape([
+      { role: "system", content: "stable system" },
+      { role: "user", content: "secret user text" },
+    ]);
+
+    expect(promptShape).toEqual([
+      {
+        index: 0,
+        role: "system",
+        contentLength: 13,
+        contentSha256: expect.any(String),
+      },
+      {
+        index: 1,
+        role: "user",
+        contentLength: 16,
+        contentSha256: expect.any(String),
+      },
+    ]);
+    expect(JSON.stringify(promptShape)).not.toContain("secret user text");
+    expect(
+      deepSeekPromptFingerprint([{ role: "user", content: "secret user text" }])
+    ).toEqual(expect.any(String));
+  });
+
+  it("leaves prompt shape unchanged when context is empty", () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-pro");
+    const chatHistory = [{ role: "assistant", content: "hello" }];
+
+    expect(
+      llm.constructPrompt({
+        systemPrompt: "system",
+        chatHistory,
+        contextTexts: [],
+        userPrompt: "question",
+      })
+    ).toEqual([
+      { role: "system", content: "system" },
+      { role: "assistant", content: "hello" },
+      { role: "user", content: "question" },
+    ]);
+  });
+
+  it("preserves DeepSeek cache usage metrics in non-streaming responses", async () => {
+    mockCreate.mockResolvedValueOnce({
+      choices: [{ message: { content: '{"ok":true}' } }],
+      usage: {
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+        prompt_cache_hit_tokens: 7,
+        prompt_cache_miss_tokens: 3,
+      },
+    });
+
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    const result = await llm.getChatCompletion([
+      { role: "user", content: "classify" },
+    ]);
+
+    expect(result.metrics).toEqual(
+      expect.objectContaining({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+        prompt_cache_hit_tokens: 7,
+        prompt_cache_miss_tokens: 3,
+        prompt_cache_hit_rate: 0.7,
+      })
+    );
+  });
+
+  it("requests stream usage metrics from DeepSeek", async () => {
+    const {
+      LLMPerformanceMonitor,
+    } = require("../../../utils/helpers/chat/LLMPerformanceMonitor");
+    LLMPerformanceMonitor.measureStream.mockResolvedValueOnce("stream");
+
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    await llm.streamGetChatCompletion([{ role: "user", content: "hello" }]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "deepseek-v4-flash",
+        stream: true,
+        stream_options: {
+          include_usage: true,
+        },
+      })
+    );
+  });
+
+  it("preserves cache usage metrics from final streaming usage chunks", async () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    const response = {
+      write: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const stream = {
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [{ delta: { content: "ok" }, finish_reason: null }],
+        };
+        yield {
+          choices: [{ delta: {}, finish_reason: "stop" }],
+        };
+        yield {
+          choices: [],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 1,
+            total_tokens: 11,
+            prompt_cache_hit_tokens: 8,
+            prompt_cache_miss_tokens: 2,
+          },
+        };
+      },
+    };
+
+    await expect(
+      llm.handleStream(response, stream, { sources: [] })
+    ).resolves.toBe("ok");
+
+    expect(stream.endMeasurement).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt_tokens: 10,
+        completion_tokens: 1,
+        prompt_cache_hit_tokens: 8,
+        prompt_cache_miss_tokens: 2,
+        prompt_cache_hit_rate: 0.8,
+      })
+    );
   });
 });

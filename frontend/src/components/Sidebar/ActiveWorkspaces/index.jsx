@@ -16,14 +16,49 @@ import {
   DotsSixVertical,
 } from "@phosphor-icons/react";
 import useUser from "@/hooks/useUser";
-import ThreadContainer from "./ThreadContainer";
+import ThreadContainer, {
+  WORKSPACE_THREADS_REFRESH_EVENT,
+} from "./ThreadContainer";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import showToast from "@/utils/toast";
 import {
+  clearLastVisitedThread,
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
+  rememberLastVisitedWorkspace,
 } from "@/utils/lastVisitedWorkspace";
 import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
+
+const WORKSPACE_DND_TYPE = "WORKSPACE";
+const THREAD_DND_TYPE = "THREAD";
+const WORKSPACE_DROP_PREFIX = "workspace-drop:";
+const THREAD_DRAG_PREFIX = "thread:";
+
+function threadDraggableId(workspaceSlug, threadSlug) {
+  return `${THREAD_DRAG_PREFIX}${workspaceSlug}:${threadSlug}`;
+}
+
+function parseThreadDraggableId(draggableId = "") {
+  if (!draggableId.startsWith(THREAD_DRAG_PREFIX)) return null;
+  const [, workspaceSlug, ...threadSlugParts] = draggableId.split(":");
+  const threadSlug = threadSlugParts.join(":");
+  if (!workspaceSlug || !threadSlug) return null;
+  return { sourceWorkspaceSlug: workspaceSlug, threadSlug };
+}
+
+function parseWorkspaceDropId(droppableId = "") {
+  if (!droppableId.startsWith(WORKSPACE_DROP_PREFIX)) return null;
+  return droppableId.slice(WORKSPACE_DROP_PREFIX.length) || null;
+}
+
+function refreshWorkspaceThreads(workspaceSlug) {
+  if (!workspaceSlug) return;
+  window.dispatchEvent(
+    new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
+      detail: { workspaceSlug },
+    })
+  );
+}
 
 export default function ActiveWorkspaces() {
   const { t } = useTranslation();
@@ -33,6 +68,7 @@ export default function ActiveWorkspaces() {
   const [workspaces, setWorkspaces] = useState([]);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
   const [selectedWs, setSelectedWs] = useState(null);
+  const [draggingThread, setDraggingThread] = useState(null);
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
   const { user } = useUser();
   const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/:tab");
@@ -107,9 +143,71 @@ export default function ActiveWorkspaces() {
     }
   }
 
-  const onDragEnd = (result) => {
+  const onDragStart = (start) => {
+    if (start.type !== THREAD_DND_TYPE) {
+      setDraggingThread(null);
+      return;
+    }
+    setDraggingThread(parseThreadDraggableId(start.draggableId));
+  };
+
+  const onDragEnd = async (result) => {
+    setDraggingThread(null);
     if (!result.destination) return;
-    reorderWorkspaces(result.source.index, result.destination.index);
+
+    if (result.type === WORKSPACE_DND_TYPE) {
+      reorderWorkspaces(result.source.index, result.destination.index);
+      return;
+    }
+
+    if (result.type !== THREAD_DND_TYPE) return;
+    const draggedThread = parseThreadDraggableId(result.draggableId);
+    const targetWorkspaceSlug = parseWorkspaceDropId(
+      result.destination.droppableId
+    );
+    if (!draggedThread || !targetWorkspaceSlug) return;
+    if (draggedThread.sourceWorkspaceSlug === targetWorkspaceSlug) return;
+
+    const targetWorkspace = workspaces.find(
+      (workspace) => workspace.slug === targetWorkspaceSlug
+    );
+    if (!targetWorkspace) {
+      showToast("Target workspace is no longer available.", "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    const resultPayload = await Workspace.threads.move(
+      draggedThread.sourceWorkspaceSlug,
+      draggedThread.threadSlug,
+      targetWorkspaceSlug
+    );
+    if (!resultPayload.success) {
+      showToast(
+        `Could not move thread - ${resultPayload.error || "Unknown error"}`,
+        "error",
+        { clear: true }
+      );
+      refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
+      refreshWorkspaceThreads(targetWorkspaceSlug);
+      return;
+    }
+
+    clearLastVisitedThread(
+      draggedThread.sourceWorkspaceSlug,
+      draggedThread.threadSlug
+    );
+    rememberLastVisitedWorkspace(targetWorkspace, draggedThread.threadSlug);
+    refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
+    refreshWorkspaceThreads(targetWorkspaceSlug);
+    navigate(
+      paths.workspace.thread(targetWorkspaceSlug, draggedThread.threadSlug),
+      {
+        state: { userSelectedThread: true },
+      }
+    );
+    showToast("Thread moved.", "success", { clear: true });
   };
 
   function toggleWorkspaceThreads(workspaceSlug) {
@@ -143,8 +241,8 @@ export default function ActiveWorkspaces() {
   })();
 
   return (
-    <DragDropContext onDragEnd={onDragEnd}>
-      <Droppable droppableId="workspaces">
+    <DragDropContext onDragStart={onDragStart} onDragEnd={onDragEnd}>
+      <Droppable droppableId="workspaces" type={WORKSPACE_DND_TYPE}>
         {(provided) => (
           <div
             role="list"
@@ -160,7 +258,7 @@ export default function ActiveWorkspaces() {
               return (
                 <Draggable
                   key={workspace.id}
-                  draggableId={workspace.id.toString()}
+                  draggableId={`workspace:${workspace.id}`}
                   index={index}
                 >
                   {(provided, snapshot) => (
@@ -172,133 +270,160 @@ export default function ActiveWorkspaces() {
                       }`}
                       role="listitem"
                     >
-                      <div className="flex gap-x-2 items-center justify-between">
-                        <Link
-                          to={pathForLastVisitedThread(workspace.slug)}
-                          onClick={(event) => {
-                            if (event.defaultPrevented) return;
-                            if (isActive) {
-                              event.preventDefault();
-                              toggleWorkspaceThreads(workspace.slug);
-                              return;
-                            }
-                            expandWorkspaceThreads(workspace.slug);
-                          }}
-                          aria-expanded={isActive ? !isCollapsed : undefined}
-                          aria-current={isActive ? "page" : ""}
-                          className={`
-                            motion-hover duration-[200ms]
-                            flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-white justify-start items-center
-                            bg-theme-sidebar-item-default
-                            ${isActive ? "light:bg-blue-200 font-bold" : "hover:bg-theme-sidebar-subitem-hover light:hover:bg-slate-300"}
-                          `}
-                        >
-                          <div className="flex flex-row justify-between w-full items-center">
-                            <div
-                              {...provided.dragHandleProps}
-                              className="cursor-grab mr-[3px]"
+                      <Droppable
+                        droppableId={`${WORKSPACE_DROP_PREFIX}${workspace.slug}`}
+                        type={THREAD_DND_TYPE}
+                        isDropDisabled={
+                          draggingThread?.sourceWorkspaceSlug === workspace.slug
+                        }
+                      >
+                        {(dropProvided, dropSnapshot) => (
+                          <div
+                            ref={dropProvided.innerRef}
+                            {...dropProvided.droppableProps}
+                            className={`flex gap-x-2 items-center justify-between rounded-[4px] ${
+                              dropSnapshot.isDraggingOver
+                                ? "ring-2 ring-sky-400/80 light:ring-blue-500"
+                                : ""
+                            }`}
+                          >
+                            <Link
+                              to={pathForLastVisitedThread(workspace.slug)}
+                              onClick={(event) => {
+                                if (event.defaultPrevented) return;
+                                if (isActive) {
+                                  event.preventDefault();
+                                  toggleWorkspaceThreads(workspace.slug);
+                                  return;
+                                }
+                                expandWorkspaceThreads(workspace.slug);
+                              }}
+                              aria-expanded={
+                                isActive ? !isCollapsed : undefined
+                              }
+                              aria-current={isActive ? "page" : ""}
+                              className={`
+                                motion-hover duration-[200ms]
+                                flex flex-grow w-[75%] gap-x-2 py-[6px] pl-[4px] pr-[6px] rounded-[4px] text-white justify-start items-center
+                                bg-theme-sidebar-item-default
+                                ${isActive ? "light:bg-blue-200 font-bold" : "hover:bg-theme-sidebar-subitem-hover light:hover:bg-slate-300"}
+                              `}
                             >
-                              <DotsSixVertical
-                                size={20}
-                                className={`${isActive ? "text-white light:text-blue-800" : ""}`}
-                                weight="bold"
-                              />
-                            </div>
-                            <div className="w-[16px] h-[16px] flex items-center justify-center shrink-0">
-                              {isCollapsed ? (
-                                <CaretRight
-                                  size={14}
-                                  weight="bold"
-                                  className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
-                                />
-                              ) : (
-                                <CaretDown
-                                  size={14}
-                                  weight="bold"
-                                  className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
-                                />
-                              )}
-                            </div>
-                            <div
-                              data-tooltip-id="workspace-name"
-                              data-tooltip-content={workspace.name}
-                              className="flex items-center space-x-2 overflow-hidden flex-grow"
-                            >
-                              <div className="w-[130px] overflow-hidden">
-                                <p
-                                  className={`
-                                  text-[14px] leading-loose whitespace-nowrap overflow-hidden
-                                  ${isActive ? "font-bold text-white light:text-blue-900" : "font-medium "} truncate
-                                  w-full group-hover:w-[130px] group-hover:`}
+                              <div className="flex flex-row justify-between w-full items-center">
+                                <div
+                                  {...provided.dragHandleProps}
+                                  className="cursor-grab mr-[3px]"
                                 >
-                                  {workspace.name}
-                                </p>
-                              </div>
-                            </div>
-                            {user?.role !== "default" && (
-                              <div
-                                className={`flex items-center gap-x-[2px] motion-hover ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
-                              >
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setSelectedWs(workspace);
-                                    showModal();
-                                  }}
-                                  data-tooltip-id="upload-workspace"
-                                  data-tooltip-content={t(
-                                    "chat_window.controls.upload.workspaceDescription"
-                                  )}
-                                  aria-label={t(
-                                    "chat_window.controls.upload.workspaceDescription"
-                                  )}
-                                  className={`group/upload border-none rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
-                                >
-                                  <UploadSimple
-                                    className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/upload:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/upload:text-slate-950"}`}
+                                  <DotsSixVertical
+                                    size={20}
+                                    className={`${isActive ? "text-white light:text-blue-800" : ""}`}
+                                    weight="bold"
                                   />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    navigate(
-                                      isInWorkspaceSettings
-                                        ? paths.workspace.chat(workspace.slug)
-                                        : paths.workspace.settings.generalAppearance(
-                                            workspace.slug
-                                          )
-                                    );
-                                  }}
-                                  className={`group/gear rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
-                                  aria-label={t(
-                                    "common.controls.workspaceSettings"
+                                </div>
+                                <div className="w-[16px] h-[16px] flex items-center justify-center shrink-0">
+                                  {isCollapsed ? (
+                                    <CaretRight
+                                      size={14}
+                                      weight="bold"
+                                      className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
+                                    />
+                                  ) : (
+                                    <CaretDown
+                                      size={14}
+                                      weight="bold"
+                                      className={`${isActive ? "text-white light:text-blue-800" : "text-zinc-400 light:text-slate-600"}`}
+                                    />
                                   )}
-                                  data-tooltip-id="gear-workspace"
-                                  data-tooltip-content={t(
-                                    "common.controls.workspaceSettingsDescription"
-                                  )}
+                                </div>
+                                <div
+                                  data-tooltip-id="workspace-name"
+                                  data-tooltip-content={workspace.name}
+                                  className="flex items-center space-x-2 overflow-hidden flex-grow"
                                 >
-                                  <GearSix
-                                    color={
-                                      isInWorkspaceSettings &&
-                                      workspace.slug === slug
-                                        ? "#46C8FF"
-                                        : undefined
-                                    }
-                                    className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/gear:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/gear:text-slate-950"}`}
-                                  />
-                                </button>
+                                  <div className="w-[130px] overflow-hidden">
+                                    <p
+                                      className={`
+                                      text-[14px] leading-loose whitespace-nowrap overflow-hidden
+                                      ${isActive ? "font-bold text-white light:text-blue-900" : "font-medium "} truncate
+                                      w-full group-hover:w-[130px] group-hover:`}
+                                    >
+                                      {workspace.name}
+                                    </p>
+                                  </div>
+                                </div>
+                                {user?.role !== "default" && (
+                                  <div
+                                    className={`flex items-center gap-x-[2px] motion-hover ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        setSelectedWs(workspace);
+                                        showModal();
+                                      }}
+                                      data-tooltip-id="upload-workspace"
+                                      data-tooltip-content={t(
+                                        "chat_window.controls.upload.workspaceDescription"
+                                      )}
+                                      aria-label={t(
+                                        "chat_window.controls.upload.workspaceDescription"
+                                      )}
+                                      className={`group/upload border-none rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
+                                    >
+                                      <UploadSimple
+                                        className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/upload:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/upload:text-slate-950"}`}
+                                      />
+                                    </button>
+                                    <button
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        navigate(
+                                          isInWorkspaceSettings
+                                            ? paths.workspace.chat(
+                                                workspace.slug
+                                              )
+                                            : paths.workspace.settings.generalAppearance(
+                                                workspace.slug
+                                              )
+                                        );
+                                      }}
+                                      className={`group/gear rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
+                                      aria-label={t(
+                                        "common.controls.workspaceSettings"
+                                      )}
+                                      data-tooltip-id="gear-workspace"
+                                      data-tooltip-content={t(
+                                        "common.controls.workspaceSettingsDescription"
+                                      )}
+                                    >
+                                      <GearSix
+                                        color={
+                                          isInWorkspaceSettings &&
+                                          workspace.slug === slug
+                                            ? "#46C8FF"
+                                            : undefined
+                                        }
+                                        className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/gear:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/gear:text-slate-950"}`}
+                                      />
+                                    </button>
+                                  </div>
+                                )}
                               </div>
-                            )}
+                            </Link>
+                            <div className="hidden">
+                              {dropProvided.placeholder}
+                            </div>
                           </div>
-                        </Link>
-                      </div>
+                        )}
+                      </Droppable>
                       {isActive && !isCollapsed && (
                         <ThreadContainer
                           workspace={workspace}
                           isActive={isActive}
+                          threadDraggableId={threadDraggableId}
+                          threadDndType={THREAD_DND_TYPE}
                           isVirtualThread={
                             isVirtuallyActive && !hasValidLastVisitedWorkspace
                           }

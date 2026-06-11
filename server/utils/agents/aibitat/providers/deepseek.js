@@ -5,6 +5,10 @@ const UnTooled = require("./helpers/untooled.js");
 const { tooledStream, tooledComplete } = require("./helpers/tooled.js");
 const { RetryError } = require("../error.js");
 const { toValidNumber } = require("../../../http/index.js");
+const {
+  deepSeekUsageMetrics,
+  deepSeekPromptCacheDiagnostics,
+} = require("../../../AiProviders/deepseek/promptCache.js");
 
 class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   model;
@@ -31,6 +35,10 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   }
 
   get supportsAgentStreaming() {
+    return true;
+  }
+
+  get cacheStableHistory() {
     return true;
   }
 
@@ -77,6 +85,45 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     };
   }
 
+  #historyWindow() {
+    return this.handlerProps?.promptCacheDiagnostics?.historyWindow || null;
+  }
+
+  #recordPromptCacheDiagnostics(messages = [], functions = []) {
+    const promptCacheDiagnostics = deepSeekPromptCacheDiagnostics({
+      provider: this.constructor.name,
+      model: this.model,
+      messages,
+      functions,
+      historyWindow: this.#historyWindow(),
+      providerPath: "agent",
+    });
+    this.lastUsage = {
+      ...this.lastUsage,
+      promptCacheDiagnostics,
+      historyWindow: promptCacheDiagnostics.historyWindow,
+    };
+    return promptCacheDiagnostics;
+  }
+
+  recordUsage(usage = {}) {
+    Provider.prototype.recordUsage.call(this, usage);
+    this.lastUsage = {
+      ...this.lastUsage,
+      ...deepSeekUsageMetrics(usage),
+    };
+  }
+
+  #usageRecordingStream(stream) {
+    const provider = this;
+    return (async function* () {
+      for await (const chunk of stream) {
+        if (chunk?.usage) provider.recordUsage(chunk.usage);
+        yield chunk;
+      }
+    })();
+  }
+
   async #handleFunctionCallChat({ messages = [] }) {
     return await this.client.chat.completions
       .create({
@@ -85,6 +132,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
         max_tokens: this.maxTokens,
       })
       .then((result) => {
+        if (result?.usage) this.recordUsage(result.usage);
         if (!result.hasOwnProperty("choices"))
           throw new Error("DeepSeek chat: No results!");
         if (result.choices.length === 0)
@@ -97,11 +145,13 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   }
 
   async #handleFunctionCallStream({ messages = [] }) {
-    return await this.client.chat.completions.create({
+    const stream = await this.client.chat.completions.create({
       model: this.model,
       stream: true,
+      stream_options: { include_usage: true },
       messages,
     });
+    return this.#usageRecordingStream(stream);
   }
 
   /**
@@ -132,13 +182,16 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     const cleanedMessages = this.#stripAttachments(messages);
 
     if (!useNative) {
-      return await UnTooled.prototype.stream.call(
+      this.resetUsage();
+      const result = await UnTooled.prototype.stream.call(
         this,
         cleanedMessages,
         functions,
         this.#handleFunctionCallStream.bind(this),
         eventHandler
       );
+      this.#recordPromptCacheDiagnostics(cleanedMessages, functions);
+      return result;
     }
 
     this.providerLog(
@@ -146,7 +199,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     );
 
     try {
-      return await tooledStream(
+      const result = await tooledStream(
         this.client,
         this.model,
         cleanedMessages,
@@ -154,6 +207,8 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
         eventHandler,
         this.#tooledOptions
       );
+      this.#recordPromptCacheDiagnostics(cleanedMessages, functions);
+      return result;
     } catch (error) {
       console.error(error.message, error);
       if (error instanceof OpenAI.AuthenticationError) throw error;
@@ -173,12 +228,15 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     const cleanedMessages = this.#stripAttachments(messages);
 
     if (!useNative) {
-      return await UnTooled.prototype.complete.call(
+      this.resetUsage();
+      const result = await UnTooled.prototype.complete.call(
         this,
         cleanedMessages,
         functions,
         this.#handleFunctionCallChat.bind(this)
       );
+      this.#recordPromptCacheDiagnostics(cleanedMessages, functions);
+      return result;
     }
 
     try {
@@ -195,6 +253,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
         return this.complete([...messages, result.retryWithError], functions);
       }
 
+      this.#recordPromptCacheDiagnostics(cleanedMessages, functions);
       return result;
     } catch (error) {
       if (error instanceof OpenAI.AuthenticationError) throw error;

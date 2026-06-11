@@ -9,25 +9,23 @@ import type {
   CryptoTrendScenario,
   CryptoTrendPoint,
 } from "./cryptoTotalAssetTypes";
+import { useCryptoStatusLabel } from "./cryptoStatusI18n";
 
 const statusMeta: Record<
   CryptoConnectionStatus,
-  { label: string; dot: string; text: string; bg: string }
+  { dot: string; text: string; bg: string }
 > = {
   connected: {
-    label: "Live",
     dot: "#22C55E",
     text: "text-[#4ADE80]",
     bg: "bg-[#22C55E]/10",
   },
   degraded: {
-    label: "Degraded",
     dot: "#F5C451",
     text: "text-[#F5C451]",
     bg: "bg-[#F5C451]/10",
   },
   disconnected: {
-    label: "Offline",
     dot: "#EF4444",
     text: "text-[#FCA5A5]",
     bg: "bg-[#EF4444]/10",
@@ -482,6 +480,7 @@ export default function CryptoTotalAssetCard({
     ? yesterdayBaselineUsd
     : defaultBaselineFromTrend();
   const status = statusMeta[connectionStatus];
+  const statusLabel = useCryptoStatusLabel(connectionStatus);
   const tone = todayPnlUsd >= 0 ? "text-[#4ADE80]" : "text-[#FCA5A5]";
   const isSlim = compactMode || cardHeight <= 220;
   const cardPadding = isSlim ? "p-4 md:p-5" : "p-5 md:p-6";
@@ -594,7 +593,7 @@ export default function CryptoTotalAssetCard({
                   className="h-2.5 w-2.5 rounded-full shadow-[0_0_18px_currentColor]"
                   style={{ backgroundColor: status.dot }}
                 />
-                {status.label}
+                {statusLabel}
               </span>
             )}
             <div className="grid min-w-0 justify-items-end gap-1 leading-none">

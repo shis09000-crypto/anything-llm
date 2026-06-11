@@ -73,6 +73,12 @@ const readerPostprocessQueue = new PQueue({
 const CLASSIFICATION_TIMEOUT_MS = 20_000;
 const CLASSIFICATION_LLM_TEXT_LIMIT = 3_000;
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.55;
+const STANDALONE_READER_SCOPE = Object.freeze({
+  slug: "global-reader",
+  readerStorageSegment: "__global_reader__",
+  readerApiPrefix: "/api/reader-documents",
+  readerStandalone: true,
+});
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -252,7 +258,8 @@ function safeResolve(root, ...segments) {
 
 function readerWorkspaceRoot(workspace) {
   const root = path.resolve(readerDocumentsPath);
-  const workspaceSegment = safeWorkspaceSegment(workspace);
+  const workspaceSegment =
+    workspace?.readerStorageSegment || safeWorkspaceSegment(workspace);
   return safeResolve(root, workspaceSegment);
 }
 
@@ -335,12 +342,17 @@ function validNonEmptyFile(filePath) {
   }
 }
 
+function readerApiPrefix(workspace) {
+  if (workspace?.readerApiPrefix) return workspace.readerApiPrefix;
+  return `/api/workspace/${workspace.slug}/reader-documents`;
+}
+
 function previewUrlForDocument(workspace, readerDocumentId) {
-  return `/api/workspace/${workspace.slug}/reader-documents/${readerDocumentId}/preview.pdf`;
+  return `${readerApiPrefix(workspace)}/${readerDocumentId}/preview.pdf`;
 }
 
 function thumbnailUrlForDocument(workspace, readerDocumentId) {
-  return `/api/workspace/${workspace.slug}/reader-documents/${readerDocumentId}/thumbnail.jpg`;
+  return `${readerApiPrefix(workspace)}/${readerDocumentId}/thumbnail.jpg`;
 }
 
 function metadataIsDocx(metadata = {}) {
@@ -693,7 +705,7 @@ async function ensureDocxPreview({
     };
   }
 
-  const jobKey = `${safeWorkspaceSegment(workspace)}:${readerDocumentId}:${fingerprint}`;
+  const jobKey = `${workspace?.readerStorageSegment || safeWorkspaceSegment(workspace)}:${readerDocumentId}:${fingerprint}`;
   if (docxPreviewJobs.has(jobKey)) return await docxPreviewJobs.get(jobKey);
 
   const job = (async () => {
@@ -741,7 +753,10 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
   return {
     ...metadata,
     originalName: decodeMaybeMojibakeFilename(metadata.originalName),
-    originalUrl: `/api/workspace/${workspace.slug}/reader-documents/${readerDocumentId}/original`,
+    readerDocumentWorkspaceSlug: workspace?.readerStandalone
+      ? null
+      : workspace?.slug || metadata.readerDocumentWorkspaceSlug || null,
+    originalUrl: `${readerApiPrefix(workspace)}/${readerDocumentId}/original`,
     ...(metadata.previewPdfName
       ? {
           previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
@@ -812,7 +827,7 @@ function isoNow() {
 }
 
 function readerPostprocessKey(workspace, readerDocumentId) {
-  return `${safeWorkspaceSegment(workspace)}:${assertReaderDocumentId(readerDocumentId)}`;
+  return `${workspace?.readerStorageSegment || safeWorkspaceSegment(workspace)}:${assertReaderDocumentId(readerDocumentId)}`;
 }
 
 function defaultReaderPostprocessStatus(readerDocumentId) {
@@ -1985,6 +2000,477 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
 function workspaceReaderDocumentsEndpoints(app) {
   if (!app) return;
 
+  const standaloneReaderScope = (_request, response, next) => {
+    response.locals.workspace = STANDALONE_READER_SCOPE;
+    next();
+  };
+
+  app.post(
+    "/reader-documents/upload",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      upload(request, response, async (uploadError) => {
+        try {
+          if (uploadError) return sendUploadError(response, uploadError);
+          const workspace = response.locals.workspace;
+          const { ext, mime } = assertAllowedUpload(request.file);
+          const originalName = decodeMaybeMojibakeFilename(
+            request.file.originalname
+          );
+          const readerDocumentId = crypto.randomUUID();
+          const documentType = documentTypeFromExt(ext);
+          const storedName = `original${ext}`;
+          const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+          fs.mkdirSync(documentRoot, { recursive: true });
+
+          const originalPath = safeResolve(documentRoot, storedName);
+          fs.writeFileSync(originalPath, request.file.buffer);
+
+          const content = contentForUpload({
+            readerDocumentId,
+            documentType,
+            buffer: request.file.buffer,
+          });
+          const metadata = {
+            schemaVersion: SCHEMA_VERSION,
+            readerDocumentId,
+            source: "reader_upload",
+            originalName,
+            storedName,
+            mimeType: mime,
+            size: request.file.size,
+            originalFingerprint: fingerprintForBuffer(request.file.buffer),
+            createdAt: new Date().toISOString(),
+          };
+
+          writeReaderJsonFile(documentRoot, "content.json", content);
+          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
+          const finalMetadata = await finalizeReaderDocumentMetadata({
+            workspace,
+            readerDocumentId,
+            metadata,
+            originalPath,
+            buffer: request.file.buffer,
+            waitForDocxPreview: false,
+          });
+          writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+
+          return response.status(200).json({
+            success: true,
+            warning: finalMetadata.previewWarning || null,
+            readerDocumentId,
+            content,
+            metadata: metadataWithOriginalUrl(
+              workspace,
+              readerDocumentId,
+              finalMetadata
+            ),
+          });
+        } catch (error) {
+          return sendUploadError(response, error);
+        }
+      });
+    }
+  );
+
+  app.post(
+    "/reader-documents/from-local-path",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const { absolutePath, stat } = await validateLocalReaderPath(
+          request.body?.absolutePath,
+          request.body?.fileAccessContext || {}
+        );
+        const readerDocumentId = crypto.randomUUID();
+        const buffer = fs.readFileSync(absolutePath);
+        const { content, metadata } = contentAndMetadataForLocalPath({
+          readerDocumentId,
+          absolutePath,
+          buffer,
+          stat,
+        });
+        const documentRoot = writeReaderDocumentFiles(
+          workspace,
+          readerDocumentId,
+          content,
+          metadata
+        );
+        const finalMetadata = await finalizeReaderDocumentMetadata({
+          workspace,
+          readerDocumentId,
+          metadata,
+          originalPath: absolutePath,
+          buffer,
+        });
+        writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+
+        return response.status(200).json({
+          success: true,
+          warning: finalMetadata.previewWarning || null,
+          readerDocumentId,
+          content,
+          metadata: metadataWithOriginalUrl(
+            workspace,
+            readerDocumentId,
+            finalMetadata
+          ),
+        });
+      } catch (error) {
+        return response.status(error.status || 400).json({
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/reader-documents/classify",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      const result = await classifyReaderDocumentWithDeepSeek(
+        request.body || {}
+      );
+      return response.status(200).json(result);
+    }
+  );
+
+  app.get(
+    "/reader-documents/ocr-config",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (_request, response) => {
+      return response.status(200).json(readerOcrConfigStatus());
+    }
+  );
+
+  app.post(
+    "/reader-documents/ocr-screenshot",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const result = await recognizeReaderScreenshot(request.body || {});
+        return response.status(200).json(result);
+      } catch (error) {
+        return response.status(error.status || 500).json({
+          success: false,
+          error: error.message || "OCR request failed.",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/reader-documents/:readerDocumentId/postprocess",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "postprocess.enqueue",
+        });
+        const status = enqueueReaderPostprocessJob({
+          workspace,
+          readerDocumentId,
+          tasks: request.body?.tasks,
+          categories: request.body?.categories,
+        });
+        return response.status(202).json({
+          ...readerPostprocessResponse(workspace, readerDocumentId),
+          postprocess: status,
+          status: status.status,
+        });
+      } catch (error) {
+        return response
+          .status(400)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/reader-documents/:readerDocumentId/postprocess",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "postprocess.status",
+        });
+        return response
+          .status(200)
+          .json(readerPostprocessResponse(workspace, readerDocumentId));
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/reader-documents/:readerDocumentId/reopen-local-path",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        const previousMetadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          { readerDocumentId, endpoint: "reopen-local-path" }
+        );
+        if (!previousMetadata.localPath) {
+          const error = new Error("Reader document has no local path binding.");
+          error.status = 400;
+          throw error;
+        }
+
+        const { absolutePath, stat } = await validateLocalReaderPath(
+          previousMetadata.localPath,
+          request.body?.fileAccessContext || {}
+        );
+        const buffer = fs.readFileSync(absolutePath);
+        const { content, metadata } = contentAndMetadataForLocalPath({
+          readerDocumentId,
+          absolutePath,
+          buffer,
+          stat,
+        });
+        const nextMetadata = {
+          ...previousMetadata,
+          ...metadata,
+          reopenedAt: new Date().toISOString(),
+        };
+
+        writeReaderDocumentFiles(
+          workspace,
+          readerDocumentId,
+          content,
+          nextMetadata
+        );
+        const finalMetadata = await finalizeReaderDocumentMetadata({
+          workspace,
+          readerDocumentId,
+          metadata: nextMetadata,
+          originalPath: absolutePath,
+          buffer,
+        });
+        writeReaderDocumentFiles(
+          workspace,
+          readerDocumentId,
+          content,
+          finalMetadata
+        );
+
+        return response.status(200).json({
+          success: true,
+          warning: finalMetadata.previewWarning || null,
+          readerDocumentId,
+          content,
+          metadata: metadataWithOriginalUrl(
+            workspace,
+            readerDocumentId,
+            finalMetadata
+          ),
+        });
+      } catch (error) {
+        return response.status(error.status || 400).json({
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+  );
+
+  app.get(
+    "/reader-documents/:readerDocumentId/preview.pdf",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "preview",
+        });
+        const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
+        if (!validNonEmptyFile(previewPath))
+          return response.status(404).json({
+            success: false,
+            error: "DOCX preview PDF not found.",
+          });
+        response.setHeader("Content-Type", "application/pdf");
+        response.setHeader(
+          "Content-Disposition",
+          `inline; filename="${DOCX_PREVIEW_NAME}"`
+        );
+        return response.sendFile(previewPath);
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/reader-documents/:readerDocumentId/thumbnail.jpg",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        readReaderJsonFile(documentRoot, "metadata.json", null, {
+          readerDocumentId,
+          endpoint: "thumbnail",
+        });
+        const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
+        if (!validNonEmptyFile(thumbnailPath))
+          return response.status(404).json({
+            success: false,
+            error: "Reader document thumbnail not found.",
+          });
+        response.setHeader("Content-Type", "image/jpeg");
+        response.setHeader(
+          "Content-Disposition",
+          `inline; filename="${READER_THUMBNAIL_NAME}"`
+        );
+        return response.sendFile(thumbnailPath);
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/reader-documents/:readerDocumentId/original",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "original",
+          }
+        );
+        const originalPath = metadata.localPath
+          ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
+          : safeResolve(documentRoot, metadata.storedName);
+        return response.sendFile(originalPath);
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/reader-documents/:readerDocumentId",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        const { content, metadata: initialMetadata } =
+          readReaderContentAndMetadata(documentRoot, {
+            readerDocumentId,
+            endpoint: "get",
+          });
+        let metadata = initialMetadata;
+        if (metadataIsDocx(metadata)) {
+          const originalPath = metadata.localPath
+            ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
+            : safeResolve(documentRoot, metadata.storedName);
+          metadata = await finalizeReaderDocumentMetadata({
+            workspace,
+            readerDocumentId,
+            metadata,
+            originalPath,
+          });
+          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
+        }
+
+        return response.status(200).json({
+          success: true,
+          warning: metadata.previewWarning || null,
+          content,
+          metadata: metadataWithOriginalUrl(
+            workspace,
+            readerDocumentId,
+            metadata
+          ),
+        });
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.delete(
+    "/reader-documents/:readerDocumentId",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const workspaceRoot = readerWorkspaceRoot(workspace);
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        if (!isWithin(workspaceRoot, documentRoot))
+          throw new Error("Invalid reader document path.");
+        if (!fs.existsSync(documentRoot))
+          return response
+            .status(404)
+            .json({ success: false, error: "Reader document not found." });
+        fs.rmSync(documentRoot, { recursive: true, force: true });
+        return response.status(200).json({ success: true });
+      } catch (error) {
+        return response
+          .status(400)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
   app.post(
     "/workspace/:slug/reader-documents/upload",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
@@ -2528,6 +3014,7 @@ module.exports = {
     readEpubPackage,
     parseClassificationJson,
     readerDocumentRoot,
+    readerWorkspaceRoot,
     readerOcrConfigStatus,
     readerOcrProviderOptions,
     readerPostprocessResponse,
@@ -2536,6 +3023,7 @@ module.exports = {
     sanitizedClassificationCategories,
     sanitizedPostprocessTasks,
     safeClassificationReason,
+    STANDALONE_READER_SCOPE,
     validateClassificationResult,
   },
 };

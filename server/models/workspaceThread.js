@@ -10,6 +10,100 @@ const THREAD_CREATED_FROM = {
   workspaceDefault: "workspace_default",
 };
 
+function placeholders(values = []) {
+  return values.map(() => "?").join(",");
+}
+
+async function ensureThreadMoveTables() {
+  const { WorkspaceChatCompaction } = require("./workspaceChatCompaction");
+  const { WorkspaceMindMaps } = require("./workspaceMindMaps");
+  const { ensureQuizLearningTables } = require("../utils/quiz/learningRecords");
+
+  await WorkspaceChatCompaction.ensureTable();
+  await WorkspaceMindMaps.ensureTable();
+  await ensureQuizLearningTables();
+}
+
+async function quizAttemptIdsForChatIds(tx, sourceWorkspaceId, chatIds = []) {
+  if (chatIds.length === 0) return [];
+  const rows = await tx.$queryRawUnsafe(
+    `SELECT "id" FROM "workspace_quiz_attempts"
+      WHERE "workspaceId" = ? AND "quizChatId" IN (${placeholders(chatIds)})`,
+    Number(sourceWorkspaceId),
+    ...chatIds
+  );
+  return rows.map((row) => Number(row.id)).filter((id) => id > 0);
+}
+
+async function moveQuizLearningRecords({
+  tx,
+  sourceWorkspaceId,
+  targetWorkspaceId,
+  chatIds = [],
+  attemptIds = [],
+}) {
+  if (chatIds.length > 0) {
+    await tx.$executeRawUnsafe(
+      `UPDATE "workspace_quiz_attempts"
+        SET "workspaceId" = ?, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "workspaceId" = ? AND "quizChatId" IN (${placeholders(chatIds)})`,
+      Number(targetWorkspaceId),
+      Number(sourceWorkspaceId),
+      ...chatIds
+    );
+
+    await tx.$executeRawUnsafe(
+      `UPDATE "workspace_quiz_favorite_questions"
+        SET "workspaceId" = ?, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "workspaceId" = ? AND "quizChatId" IN (${placeholders(chatIds)})`,
+      Number(targetWorkspaceId),
+      Number(sourceWorkspaceId),
+      ...chatIds
+    );
+  }
+
+  if (attemptIds.length > 0) {
+    await tx.$executeRawUnsafe(
+      `UPDATE "workspace_quiz_wrong_questions"
+        SET "workspaceId" = ?, "updatedAt" = CURRENT_TIMESTAMP
+        WHERE "workspaceId" = ? AND "attemptId" IN (${placeholders(attemptIds)})`,
+      Number(targetWorkspaceId),
+      Number(sourceWorkspaceId),
+      ...attemptIds
+    );
+  }
+}
+
+async function moveThreadMindMaps({
+  tx,
+  sourceWorkspaceId,
+  targetWorkspaceId,
+  threadId,
+}) {
+  await tx.$executeRawUnsafe(
+    `DELETE FROM "workspace_mind_maps"
+      WHERE "workspaceId" = ? AND "thread_id" = ?
+        AND EXISTS (
+          SELECT 1 FROM "workspace_mind_maps" target
+          WHERE target."workspaceId" = ?
+            AND target."cacheUserKey" = "workspace_mind_maps"."cacheUserKey"
+            AND target."sourceHash" = "workspace_mind_maps"."sourceHash"
+        )`,
+    Number(sourceWorkspaceId),
+    Number(threadId),
+    Number(targetWorkspaceId)
+  );
+
+  await tx.$executeRawUnsafe(
+    `UPDATE "workspace_mind_maps"
+      SET "workspaceId" = ?, "lastUpdatedAt" = CURRENT_TIMESTAMP
+      WHERE "workspaceId" = ? AND "thread_id" = ?`,
+    Number(targetWorkspaceId),
+    Number(sourceWorkspaceId),
+    Number(threadId)
+  );
+}
+
 const WorkspaceThread = {
   defaultName: "New Thread",
   defaultChatName: "New Thread",
@@ -308,6 +402,139 @@ const WorkspaceThread = {
     } catch (error) {
       console.error(error.message);
       return false;
+    }
+  },
+
+  moveToWorkspace: async function ({
+    thread = null,
+    sourceWorkspace = null,
+    targetWorkspace = null,
+  } = {}) {
+    if (!thread?.id) return { thread: null, message: "No thread provided." };
+    if (!sourceWorkspace?.id)
+      return { thread: null, message: "No source workspace provided." };
+    if (!targetWorkspace?.id)
+      return { thread: null, message: "No target workspace provided." };
+    if (this.isOverviewThread(thread)) {
+      return {
+        thread: this.withDisplayTitle(thread),
+        message: "Overview thread cannot be moved.",
+      };
+    }
+
+    const sourceWorkspaceId = Number(sourceWorkspace.id);
+    const targetWorkspaceId = Number(targetWorkspace.id);
+    const threadId = Number(thread.id);
+    if (sourceWorkspaceId === targetWorkspaceId) {
+      return {
+        thread: this.withDisplayTitle(thread),
+        message: "Thread is already in the target workspace.",
+      };
+    }
+
+    try {
+      await ensureThreadMoveTables();
+      return await prisma.$transaction(async (tx) => {
+        const sourceThread = await tx.workspace_threads.findFirst({
+          where: {
+            id: threadId,
+            workspace_id: sourceWorkspaceId,
+            user_id: thread.user_id ?? null,
+          },
+        });
+
+        if (!sourceThread)
+          throw new Error("Thread does not belong to source workspace.");
+        if (this.isOverviewThread(sourceThread))
+          throw new Error("Overview thread cannot be moved.");
+
+        const chatRows = await tx.workspace_chats.findMany({
+          where: {
+            workspaceId: sourceWorkspaceId,
+            thread_id: threadId,
+          },
+          select: { id: true },
+        });
+        const chatIds = chatRows.map((row) => Number(row.id));
+        const quizAttemptIds = await quizAttemptIdsForChatIds(
+          tx,
+          sourceWorkspaceId,
+          chatIds
+        );
+
+        await moveThreadMindMaps({
+          tx,
+          sourceWorkspaceId,
+          targetWorkspaceId,
+          threadId,
+        });
+
+        const updatedThread = await tx.workspace_threads.update({
+          where: { id: threadId },
+          data: {
+            workspace_id: targetWorkspaceId,
+            lastUpdatedAt: new Date(),
+          },
+        });
+
+        const movedChats = await tx.workspace_chats.updateMany({
+          where: {
+            workspaceId: sourceWorkspaceId,
+            thread_id: threadId,
+          },
+          data: {
+            workspaceId: targetWorkspaceId,
+            lastUpdatedAt: new Date(),
+          },
+        });
+
+        await tx.workspace_parsed_files.updateMany({
+          where: {
+            workspaceId: sourceWorkspaceId,
+            threadId,
+          },
+          data: {
+            workspaceId: targetWorkspaceId,
+          },
+        });
+
+        await tx.$executeRawUnsafe(
+          `UPDATE "workspace_chat_compactions"
+            SET "workspace_id" = ?, "updated_at" = CURRENT_TIMESTAMP
+            WHERE "workspace_id" = ? AND "thread_id" = ?`,
+          targetWorkspaceId,
+          sourceWorkspaceId,
+          threadId
+        );
+
+        await tx.workspace_agent_invocations.updateMany({
+          where: {
+            workspace_id: sourceWorkspaceId,
+            thread_id: threadId,
+          },
+          data: {
+            workspace_id: targetWorkspaceId,
+            lastUpdatedAt: new Date(),
+          },
+        });
+
+        await moveQuizLearningRecords({
+          tx,
+          sourceWorkspaceId,
+          targetWorkspaceId,
+          chatIds,
+          attemptIds: quizAttemptIds,
+        });
+
+        return {
+          thread: this.withDisplayTitle(updatedThread),
+          message: null,
+          movedChatCount: movedChats.count || 0,
+        };
+      });
+    } catch (error) {
+      console.error(error.message);
+      return { thread: null, message: error.message };
     }
   },
 

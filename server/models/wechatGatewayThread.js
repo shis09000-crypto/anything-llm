@@ -41,6 +41,20 @@ const WeChatGatewayThread = {
     }
   },
 
+  getByThreadSlug: async function (threadSlug = null) {
+    if (!threadSlug) return null;
+    try {
+      await this.ensureTable();
+      const rows = await prisma.$queryRaw`
+        SELECT * FROM wechat_gateway_threads WHERE thread_slug = ${String(threadSlug)} LIMIT 1
+      `;
+      return rows?.[0] || null;
+    } catch (error) {
+      console.error("WeChatGatewayThread.getByThreadSlug", error.message);
+      return null;
+    }
+  },
+
   upsert: async function ({
     wxid = null,
     nickname = null,

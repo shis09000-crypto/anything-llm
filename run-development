@@ -76,17 +76,93 @@ start_process() {
   log "starting $name..."
   (
     cd "$dir"
-    nohup env \
-      APP_ENV=development \
-      SERVER_PORT="$SERVER_PORT" \
-      COLLECTOR_PORT="$COLLECTOR_PORT" \
-      ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
-      ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
-      STORAGE_DIR="$ENV_STORAGE_ROOT" \
-      VITE_API_BASE="$API_URL" \
-      "$@" >"$logfile" 2>&1 &
-    echo $!
+    if command -v python3 >/dev/null 2>&1; then
+      env \
+        APP_ENV=development \
+        SERVER_PORT="$SERVER_PORT" \
+        COLLECTOR_PORT="$COLLECTOR_PORT" \
+        ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+        ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+        STORAGE_DIR="$ENV_STORAGE_ROOT" \
+        VITE_API_BASE="$API_URL" \
+        python3 - "$logfile" "$@" <<'PY' &
+import os
+import sys
+
+logfile = sys.argv[1]
+cmd = sys.argv[2:]
+
+stdin_fd = os.open(os.devnull, os.O_RDONLY)
+log_fd = os.open(logfile, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+os.dup2(stdin_fd, 0)
+os.dup2(log_fd, 1)
+os.dup2(log_fd, 2)
+os.close(stdin_fd)
+os.close(log_fd)
+os.setsid()
+
+try:
+    os.execvp(cmd[0], cmd)
+except Exception as error:
+    print(f"failed to exec {cmd[0]}: {error}", file=sys.stderr, flush=True)
+    sys.exit(127)
+PY
+      echo $!
+    else
+      nohup env \
+        APP_ENV=development \
+        SERVER_PORT="$SERVER_PORT" \
+        COLLECTOR_PORT="$COLLECTOR_PORT" \
+        ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+        ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+        STORAGE_DIR="$ENV_STORAGE_ROOT" \
+        VITE_API_BASE="$API_URL" \
+        "$@" </dev/null >"$logfile" 2>&1 &
+      local pid=$!
+      disown "$pid" >/dev/null 2>&1 || true
+      echo "$pid"
+    fi
   )
+}
+
+ensure_process_alive() {
+  local name="$1"
+  local pid="$2"
+  local logfile="$3"
+
+  sleep 0.5
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  log "error: $name exited during startup. Last log lines:"
+  tail -n 80 "$logfile" >&2 2>/dev/null || true
+  return 1
+}
+
+listen_pids_for_port() {
+  local port="$1"
+  lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
+}
+
+assert_single_listener() {
+  local name="$1"
+  local port="$2"
+  local pids
+  local count
+
+  pids="$(listen_pids_for_port "$port" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  if [[ -z "$pids" ]]; then
+    log "warning: $name has no listener on port $port"
+    return 1
+  fi
+
+  count="$(printf '%s\n' "$pids" | wc -w | tr -d ' ')"
+  if [[ "$count" != "1" ]]; then
+    log "warning: $name has multiple listeners on port $port: $pids"
+    return 1
+  fi
+  return 0
 }
 
 prepare_storage_dirs() {
@@ -339,15 +415,43 @@ FRONTEND_LOG="$LOG_DIR/development-frontend.log"
 : >"$COLLECTOR_LOG"
 : >"$FRONTEND_LOG"
 
-SERVER_PID="$(start_process server "$ROOT_DIR/server" "$SERVER_LOG" yarn dev)"
-COLLECTOR_PID="$(start_process collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" yarn dev)"
-FRONTEND_PID="$(start_process frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" yarn dev --host 0.0.0.0 --port "$FRONTEND_PORT")"
+SERVER_PID="$(start_process server "$ROOT_DIR/server" "$SERVER_LOG" \
+  ./node_modules/.bin/cross-env NODE_ENV=development \
+  ./node_modules/.bin/nodemon \
+    --ignore documents \
+    --ignore vector-cache \
+    --ignore storage \
+    --ignore swagger \
+    --ignore swagger/openapi.json \
+    --no-stdin \
+    --trace-warnings index.js)"
+COLLECTOR_PID="$(start_process collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" \
+  ./node_modules/.bin/cross-env NODE_ENV=development \
+  ./node_modules/.bin/nodemon \
+    --ignore hotdir \
+    --ignore storage \
+    --no-stdin \
+    --trace-warnings index.js)"
+FRONTEND_PID="$(start_process frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" \
+  ./node_modules/.bin/cross-env NODE_ENV=development \
+  ./node_modules/.bin/vite \
+    --debug \
+    --host 0.0.0.0 \
+    --port "$FRONTEND_PORT" \
+    --strictPort)"
+
+ensure_process_alive server "$SERVER_PID" "$SERVER_LOG"
+ensure_process_alive collector "$COLLECTOR_PID" "$COLLECTOR_LOG"
+ensure_process_alive frontend "$FRONTEND_PID" "$FRONTEND_LOG"
 
 write_state
 
 wait_for_port server "$SERVER_PORT" 90 || true
 wait_for_port collector "$COLLECTOR_PORT" 60 || true
 wait_for_port frontend "$FRONTEND_PORT" 90 || true
+assert_single_listener server "$SERVER_PORT" || true
+assert_single_listener collector "$COLLECTOR_PORT" || true
+assert_single_listener frontend "$FRONTEND_PORT" || true
 
 open_or_refresh_frontend "development" "$FRONTEND_URL"
 

@@ -34,7 +34,12 @@ function hasHeavyMarkdown(content = "") {
   return /```|\|.+\||<table|!\[/.test(content);
 }
 
-function MarkdownOutput({ content = "", messageId, deferEnhancement = false }) {
+function MarkdownOutput({
+  content = "",
+  messageId,
+  deferEnhancement = false,
+  onLayoutChange = null,
+}) {
   const shouldDefer = deferEnhancement && hasHeavyMarkdown(content);
   const [enhanced, setEnhanced] = useState(!shouldDefer);
   useEffect(() => {
@@ -54,6 +59,16 @@ function MarkdownOutput({ content = "", messageId, deferEnhancement = false }) {
     () => (enhanced ? DOMPurify.sanitize(renderMarkdown(markdown)) : null),
     [enhanced, markdown]
   );
+
+  useEffect(() => {
+    if (!content || typeof onLayoutChange !== "function") return;
+
+    const frame = requestAnimationFrame(() =>
+      onLayoutChange(enhanced ? "markdown-enhanced" : "markdown-plain")
+    );
+    return () => cancelAnimationFrame(frame);
+  }, [content, enhanced, onLayoutChange]);
+
   if (!content) return null;
 
   return (
@@ -62,7 +77,7 @@ function MarkdownOutput({ content = "", messageId, deferEnhancement = false }) {
         <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
       )}
       {markdown && enhanced && (
-        <span
+        <div
           className="break-words flex flex-col gap-y-1 text-white light:text-slate-900"
           dangerouslySetInnerHTML={{
             __html: html,
@@ -70,9 +85,9 @@ function MarkdownOutput({ content = "", messageId, deferEnhancement = false }) {
         />
       )}
       {markdown && !enhanced && (
-        <span className="whitespace-pre-wrap break-words text-white light:text-slate-900">
+        <div className="whitespace-pre-wrap break-words text-white light:text-slate-900">
           {markdown}
-        </span>
+        </div>
       )}
     </div>
   );

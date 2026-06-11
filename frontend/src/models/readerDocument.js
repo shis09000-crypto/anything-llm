@@ -10,22 +10,25 @@ function apiUrl(pathOrUrl) {
   return pathOrUrl;
 }
 
+function readerDocumentsBase(slug = null) {
+  return slug
+    ? `${API_BASE}/workspace/${slug}/reader-documents`
+    : `${API_BASE}/reader-documents`;
+}
+
 const ReaderDocument = {
   upload: async function (slug, formData) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/upload`,
-      {
-        method: "POST",
-        body: formData,
-        headers: baseHeaders(),
-      }
-    );
+    const response = await fetch(`${readerDocumentsBase(slug)}/upload`, {
+      method: "POST",
+      body: formData,
+      headers: baseHeaders(),
+    });
     const data = await response.json();
     return { response, data };
   },
   get: async function (slug, readerDocumentId) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}`,
+      `${readerDocumentsBase(slug)}/${readerDocumentId}`,
       { method: "GET", headers: baseHeaders() }
     );
     const data = await response.json();
@@ -33,7 +36,7 @@ const ReaderDocument = {
   },
   delete: async function (slug, readerDocumentId) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}`,
+      `${readerDocumentsBase(slug)}/${readerDocumentId}`,
       { method: "DELETE", headers: baseHeaders() }
     );
     const data = await response.json();
@@ -72,7 +75,7 @@ const ReaderDocument = {
   },
   fromLocalPath: async function (slug, absolutePath) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/from-local-path`,
+      `${readerDocumentsBase(slug)}/from-local-path`,
       {
         method: "POST",
         headers: { ...baseHeaders(), "Content-Type": "application/json" },
@@ -84,7 +87,7 @@ const ReaderDocument = {
   },
   reopenLocalPath: async function (slug, readerDocumentId) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/reopen-local-path`,
+      `${readerDocumentsBase(slug)}/${readerDocumentId}/reopen-local-path`,
       {
         method: "POST",
         headers: baseHeaders(),
@@ -94,20 +97,17 @@ const ReaderDocument = {
     return { response, data };
   },
   classify: async function (slug, payload = {}) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/classify`,
-      {
-        method: "POST",
-        headers: { ...baseHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    const response = await fetch(`${readerDocumentsBase(slug)}/classify`, {
+      method: "POST",
+      headers: { ...baseHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
     const data = await response.json();
     return { response, data };
   },
   postprocess: async function (slug, readerDocumentId, payload = {}) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/postprocess`,
+      `${readerDocumentsBase(slug)}/${readerDocumentId}/postprocess`,
       {
         method: "POST",
         headers: { ...baseHeaders(), "Content-Type": "application/json" },
@@ -119,23 +119,23 @@ const ReaderDocument = {
   },
   postprocessStatus: async function (slug, readerDocumentId) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/${readerDocumentId}/postprocess`,
+      `${readerDocumentsBase(slug)}/${readerDocumentId}/postprocess`,
       { method: "GET", headers: baseHeaders() }
     );
     const data = await response.json();
     return { response, data };
   },
   ocrConfig: async function (slug) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/ocr-config`,
-      { method: "GET", headers: baseHeaders() }
-    );
+    const response = await fetch(`${readerDocumentsBase(slug)}/ocr-config`, {
+      method: "GET",
+      headers: baseHeaders(),
+    });
     const data = await response.json();
     return { response, data };
   },
   ocrScreenshot: async function (slug, payload = {}) {
     const response = await fetch(
-      `${API_BASE}/workspace/${slug}/reader-documents/ocr-screenshot`,
+      `${readerDocumentsBase(slug)}/ocr-screenshot`,
       {
         method: "POST",
         headers: { ...baseHeaders(), "Content-Type": "application/json" },

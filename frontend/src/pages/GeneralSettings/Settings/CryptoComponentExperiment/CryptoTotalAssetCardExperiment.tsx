@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import CryptoTotalAssetCard from "./CryptoTotalAssetCard";
 import type {
   CryptoBackgroundMode,
@@ -225,6 +226,7 @@ export default function CryptoTotalAssetCardExperiment() {
   >("idle");
   const [gateHistoryError, setGateHistoryError] = useState<string | null>(null);
   const [equityMode, setEquityMode] = useState<GateEquityMode>("api_total");
+  const [watchdogRefreshNonce, setWatchdogRefreshNonce] = useState(0);
   const [currentDateTime, setCurrentDateTime] = useState(
     currentShanghaiDateTime
   );
@@ -256,6 +258,14 @@ export default function CryptoTotalAssetCardExperiment() {
     gateHistoryRef.current = gateHistory;
   }, [gateHistory]);
 
+  useCryptoHubWatchedConnection({
+    key: `equityHistory.rest.${equityMode}`,
+    active: useRealGateData,
+    status: gateHistoryStatus === "error" ? "error" : "connected",
+    lastConnectedAt: gateHistory?.freshness?.latestSnapshotAt || null,
+    reconnect: () => setWatchdogRefreshNonce((current) => current + 1),
+  });
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       setCurrentDateTime(currentShanghaiDateTime());
@@ -273,7 +283,7 @@ export default function CryptoTotalAssetCardExperiment() {
 
     async function startGateStream() {
       try {
-        await fetch(`${API_BASE}/crypto/gate/probe/ws/start`, {
+        await fetch(`${API_BASE}/crypto-hub/init`, {
           method: "POST",
           headers: baseHeaders(),
         });
@@ -285,10 +295,8 @@ export default function CryptoTotalAssetCardExperiment() {
     startGateStream();
 
     return () => {
-      fetch(`${API_BASE}/crypto/gate/probe/ws/stop`, {
-        method: "POST",
-        headers: baseHeaders(),
-      }).catch(() => {});
+      // Crypto Hub owns the shared Gate WS lifecycle. Component unmount should
+      // not stop private WS globally while other crypto surfaces may need it.
     };
   }, [useRealGateData]);
 
@@ -320,7 +328,7 @@ export default function CryptoTotalAssetCardExperiment() {
           query.set("sinceTs", String(lastPointTs));
         }
         const response = await fetch(
-          `${API_BASE}/crypto/gate/probe/equity-history?${query.toString()}`,
+          `${API_BASE}/crypto-hub/equity-history?${query.toString()}`,
           { headers: baseHeaders() }
         );
         const payload = await response.json();
@@ -364,7 +372,7 @@ export default function CryptoTotalAssetCardExperiment() {
       cancelled = true;
       if (timer) window.clearInterval(timer);
     };
-  }, [equityMode, useRealGateData]);
+  }, [equityMode, useRealGateData, watchdogRefreshNonce]);
 
   const gateStatusText = useMemo(() => {
     if (!useRealGateData) return "未启用，使用 mock 参数";

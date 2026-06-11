@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import BtcSpotAssetCard from "./BtcSpotAssetCard";
 import { btcMockCandles } from "./btcMockCandles";
 import type {
@@ -80,6 +81,7 @@ export default function BtcSpotAssetCardExperiment() {
     null
   );
   const [gateError, setGateError] = useState<string | null>(null);
+  const [watchdogRefreshNonce, setWatchdogRefreshNonce] = useState(0);
   const lastAsOfRef = useRef<number | null>(null);
 
   const cardProps = useMemo<BtcSpotAssetCardProps>(() => {
@@ -125,6 +127,18 @@ export default function BtcSpotAssetCardExperiment() {
     };
   }, [autoRefreshSeconds, gateSummary, mock, mode, range, visual]);
 
+  useCryptoHubWatchedConnection({
+    key: "btcSummary.rest",
+    active: mode === "gate-real" && range === "1d",
+    status: gateError
+      ? gateSummary
+        ? "degraded"
+        : "error"
+      : gateSummary?.connectionStatus || "connected",
+    lastConnectedAt: gateSummary?.asOf || null,
+    reconnect: () => setWatchdogRefreshNonce((current) => current + 1),
+  });
+
   useEffect(() => {
     if (mode !== "gate-real") {
       setGateError(null);
@@ -138,7 +152,7 @@ export default function BtcSpotAssetCardExperiment() {
       if (range !== "1d") return;
       try {
         const response = await fetch(
-          `${API_BASE}/crypto/gate/spot/btc-summary?range=1d`,
+          `${API_BASE}/crypto-hub/btc-summary?range=1d`,
           { headers: baseHeaders() }
         );
         const payload = (await response.json()) as BtcSpotSummaryResponse;
@@ -177,7 +191,7 @@ export default function BtcSpotAssetCardExperiment() {
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [autoRefresh, autoRefreshSeconds, mode, range]);
+  }, [autoRefresh, autoRefreshSeconds, mode, range, watchdogRefreshNonce]);
 
   function updateVisual<K extends keyof typeof visualDefaults>(
     key: K,

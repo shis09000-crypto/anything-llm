@@ -210,11 +210,18 @@ function convertToPromptHistory(history = []) {
       },
       {
         role: "assistant",
-        content: data.text,
+        content: stripReasoningBlocks(data.text),
       },
     ]);
   }
   return formattedHistory.flat();
+}
+
+function stripReasoningBlocks(text = "") {
+  return String(text || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .trimStart();
 }
 
 /**
@@ -281,6 +288,7 @@ module.exports = {
   handleDefaultStreamResponseV2,
   convertToChatHistory,
   convertToPromptHistory,
+  stripReasoningBlocks,
   writeResponseChunk,
   clientAbortedHandler,
   formatChatHistory,

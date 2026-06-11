@@ -129,7 +129,7 @@ async function messageArrayCompressor(llm, messages = [], rawHistory = []) {
     const eligibleHistoryItems = [];
     var historyTokenCount = 0;
 
-    for (const [i, history] of rawHistory.reverse().entries()) {
+    for (const [i, history] of [...rawHistory].reverse().entries()) {
       const [user, assistant] = convertToPromptHistory([history]);
       const [userTokens, assistantTokens] = [
         tokenManager.countFromString(user.content),
@@ -243,7 +243,7 @@ async function messageStringCompressor(llm, promptArgs = {}, rawHistory = []) {
     const eligibleHistoryItems = [];
     var historyTokenCount = 0;
 
-    for (const [i, history] of rawHistory.reverse().entries()) {
+    for (const [i, history] of [...rawHistory].reverse().entries()) {
       const [user, assistant] = convertToPromptHistory([history]);
       const [userTokens, assistantTokens] = [
         tokenManager.countFromString(user.content),
@@ -401,13 +401,13 @@ function fillSourceWindow({
   log(
     `Need to backfill ${nDocs - searchResults.length} chunks to fill in the source window for RAG!`
   );
-  const seenChunks = new Set(searchResults.map((source) => source.id));
+  const seenChunks = new Set(searchResults.map(stableSourceKey));
 
   // We need to reverse again because we need to iterate from bottom of array (most recent chats)
   // Looking at this function by itself you may think that this loop could be extreme for long history chats,
   // but this was already handled where `history` we derived. This comes from `recentChatHistory` which
   // includes a limit for history (default: 20). So this loop does not look as extreme as on first glance.
-  for (const chat of history.reverse()) {
+  for (const chat of [...history].reverse()) {
     if (sources.length >= nDocs) {
       log(
         `Citations backfilled to ${nDocs} references from ${searchResults.length} original citations.`
@@ -424,14 +424,14 @@ function fillSourceWindow({
         filterIdentifiers.includes(sourceIdentifier(source)) == false && // source cannot be in current pins
         source.hasOwnProperty("score") && // source cannot have come from a pinned document that was previously pinned
         source.hasOwnProperty("text") && // source has a valid text property we can use
-        seenChunks.has(source.id) == false // is unique
+        seenChunks.has(stableSourceKey(source)) == false // is unique
       );
     });
 
     for (const validSource of validSources) {
       if (sources.length >= nDocs) break;
       sources.push(validSource);
-      seenChunks.add(validSource.id);
+      seenChunks.add(stableSourceKey(validSource));
     }
   }
 
@@ -441,8 +441,21 @@ function fillSourceWindow({
   };
 }
 
+function stableSourceKey(source = {}) {
+  if (source?.id !== undefined && source?.id !== null)
+    return `id:${String(source.id)}`;
+  if (source?.title && source?.published)
+    return `identifier:${sourceIdentifier(source)}`;
+  return `fallback:${JSON.stringify({
+    title: source?.title || "",
+    published: source?.published || "",
+    text: source?.text || "",
+  })}`;
+}
+
 module.exports = {
   messageArrayCompressor,
   messageStringCompressor,
   fillSourceWindow,
+  stableSourceKey,
 };

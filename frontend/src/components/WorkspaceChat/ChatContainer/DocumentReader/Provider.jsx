@@ -12,25 +12,26 @@ import showToast from "@/utils/toast";
 import { safeJsonParse } from "@/utils/request";
 import {
   clearDeletedReaderDocumentIdsFromAllStorage,
-  clearPendingBookshelfOpen,
   compactDocumentForStorage,
   clearReaderHistory as clearStoredReaderHistory,
   deleteReaderHistoryItem as deleteStoredReaderHistoryItem,
   deleteReaderBookshelfItems as deleteStoredReaderBookshelfItems,
   createReaderBookshelfCategory,
   deleteReaderBookshelfCategory,
+  deleteReaderProgressBackup,
   fallbackReaderCategory,
   hasSignificantProgressChange,
   manualReaderCategory,
+  migrateReaderStorage,
   normalizeBookTitle,
   normalizeReaderCategoryPatch,
   normalizedReaderProgress,
   pendingReaderCategory,
   readerTextSourceKey,
-  readPendingBookshelfOpen,
   readReaderBookshelf,
   readReaderBookshelfCategories,
   readReaderHistory,
+  readerItemWithLatestProgressBackup,
   readerSourcesStorageKey,
   readerStorageKey,
   renameReaderBookshelfCategory,
@@ -41,10 +42,10 @@ import {
   tempTextSourceFromSelection,
   updateReaderBookshelfItem,
   updateReaderHistoryItem,
+  upsertReaderProgressBackup,
   upsertReaderBookshelfItems,
   upsertReaderHistory,
   validateReaderFile,
-  writePendingBookshelfOpen,
 } from "./storage";
 import {
   parseDocxFile,
@@ -53,6 +54,10 @@ import {
   parsePdfFile,
   parseXlsxFile,
 } from "./parsers";
+import {
+  dedupeReaderTextSources,
+  readerTextSourceIdentity,
+} from "@/utils/chat/readerTextSources";
 
 const DocumentReaderContext = createContext(null);
 
@@ -79,6 +84,12 @@ function uuid() {
   return crypto.randomUUID();
 }
 
+function retryableReaderOpenFailure(response = null, error = null) {
+  if (error) return true;
+  const status = Number(response?.status || 0);
+  return !status || status >= 500;
+}
+
 export function DocumentReaderProvider({
   workspace,
   threadSlug = null,
@@ -99,16 +110,42 @@ export function DocumentReaderProvider({
   const [localFileConflict, setLocalFileConflict] = useState(null);
   const [docxPreviewStatus, setDocxPreviewStatus] = useState(null);
   const objectUrlRef = useRef(null);
+  const readerClosingRef = useRef(false);
   const postprocessQueueRef = useRef(new Set());
   const pendingSelectionsRef = useRef([]);
   const pendingReaderTextSourcesRef = useRef([]);
   const nextCitationNoRef = useRef(1);
   const lastCitedRef = useRef({ signature: "", at: 0 });
   const localFileConflictResolverRef = useRef(null);
+  const pendingReaderOpenRef = useRef(null);
 
   const setReaderObjectUrl = useCallback((url = null) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = url;
+  }, []);
+
+  const queuePendingReaderOpen = useCallback(
+    (pendingOpen, message, options = {}) => {
+      pendingReaderOpenRef.current = {
+        ...pendingOpen,
+        queuedAt: Date.now(),
+        lastRetryAt: 0,
+      };
+      if (options.silentRetry) return;
+      showToast(
+        `${message || "伴读文档暂时无法打开"}，已保留本地阅读位置，连接恢复后会自动重试。`,
+        "warning"
+      );
+    },
+    []
+  );
+
+  const clearPendingReaderOpen = useCallback((kind, readerDocumentId) => {
+    const pending = pendingReaderOpenRef.current;
+    if (!pending) return;
+    if (pending.kind !== kind || pending.readerDocumentId !== readerDocumentId)
+      return;
+    pendingReaderOpenRef.current = null;
   }, []);
 
   const historyItemFromDocument = useCallback((doc) => {
@@ -123,6 +160,11 @@ export function DocumentReaderProvider({
       size: doc.metadata?.size ?? doc.file?.size ?? null,
       readerDocumentId: doc.readerDocumentId || null,
       backupReaderDocumentId: doc.backupReaderDocumentId || null,
+      readerDocumentWorkspaceSlug:
+        doc.readerDocumentWorkspaceSlug ||
+        doc.metadata?.readerDocumentWorkspaceSlug ||
+        doc.workspaceSlug ||
+        null,
       workspaceDocPath: doc.workspaceDocPath || doc.metadata?.workspaceDocPath,
       localDocumentId: doc.localDocumentId || null,
       localPath: doc.localPath || doc.metadata?.localPath || null,
@@ -139,44 +181,42 @@ export function DocumentReaderProvider({
       if (!item) return null;
       return {
         ...item,
-        workspaceSlug: doc.workspaceSlug || workspace?.slug || null,
-        threadSlug,
+        readerDocumentWorkspaceSlug:
+          doc.readerDocumentWorkspaceSlug ||
+          doc.metadata?.readerDocumentWorkspaceSlug ||
+          null,
       };
     },
-    [historyItemFromDocument, threadSlug, workspace?.slug]
+    [historyItemFromDocument]
   );
 
-  const bookshelfItemFromServerData = useCallback(
-    (data) => {
-      if (!data?.content || !data?.metadata) return null;
-      const title = data.metadata.originalName;
-      return {
-        source: data.metadata.source || "reader_upload",
-        title,
-        bookKey: normalizeBookTitle(title),
-        branchId: null,
-        branchLabel: null,
-        documentType: data.content.documentType,
-        size: data.metadata.size ?? null,
-        readerDocumentId: data.metadata.readerDocumentId,
-        backupReaderDocumentId: data.metadata.readerDocumentId,
-        workspaceSlug: workspace?.slug || null,
-        threadSlug,
-        uploaded: true,
-        progress: { label: "阅读进度", percent: 0, updatedAt: null },
-      };
-    },
-    [threadSlug, workspace?.slug]
-  );
+  const bookshelfItemFromServerData = useCallback((data) => {
+    if (!data?.content || !data?.metadata) return null;
+    const title = data.metadata.originalName;
+    return {
+      source: data.metadata.source || "reader_upload",
+      title,
+      bookKey: normalizeBookTitle(title),
+      branchId: null,
+      branchLabel: null,
+      documentType: data.content.documentType,
+      size: data.metadata.size ?? null,
+      readerDocumentId: data.metadata.readerDocumentId,
+      backupReaderDocumentId: data.metadata.readerDocumentId,
+      readerDocumentWorkspaceSlug:
+        data.metadata.readerDocumentWorkspaceSlug || null,
+      uploaded: true,
+      progress: { label: "阅读进度", percent: 0, updatedAt: null },
+    };
+  }, []);
 
   const rememberDocument = useCallback(
     (doc) => {
-      if (!workspace?.slug) return;
       const item = historyItemFromDocument(doc);
       if (!item) return;
-      setReaderHistory(upsertReaderHistory(workspace.slug, threadSlug, item));
+      setReaderHistory(upsertReaderHistory(null, null, item));
     },
-    [historyItemFromDocument, threadSlug, workspace?.slug]
+    [historyItemFromDocument]
   );
 
   const addItemsToBookshelf = useCallback((items = []) => {
@@ -185,23 +225,13 @@ export function DocumentReaderProvider({
     return next;
   }, []);
 
-  const patchStoredCategoryForItem = useCallback(
-    (item, patch = {}) => {
-      if (!item) return;
-      const nextBookshelf = updateReaderBookshelfItem(item, patch);
-      setReaderBookshelf(nextBookshelf);
-      if (!workspace?.slug) return;
-      const historyThreadSlug = item.threadSlug ?? threadSlug;
-      const nextHistory = updateReaderHistoryItem(
-        workspace.slug,
-        historyThreadSlug,
-        item,
-        patch
-      );
-      if (historyThreadSlug === threadSlug) setReaderHistory(nextHistory);
-    },
-    [threadSlug, workspace?.slug]
-  );
+  const patchStoredCategoryForItem = useCallback((item, patch = {}) => {
+    if (!item) return;
+    const nextBookshelf = updateReaderBookshelfItem(item, patch);
+    setReaderBookshelf(nextBookshelf);
+    const nextHistory = updateReaderHistoryItem(null, null, item, patch);
+    setReaderHistory(nextHistory);
+  }, []);
 
   const markItemCategoryPending = useCallback(
     (item, stage = "extracting", reason = "正在提取分类文本") => {
@@ -214,40 +244,35 @@ export function DocumentReaderProvider({
 
   const patchHistoryForDocument = useCallback(
     (doc, patch = {}) => {
-      if (!workspace?.slug || !doc) return [];
+      if (!doc) return [];
       const item = historyItemFromDocument(doc);
-      if (!item) return readReaderHistory(workspace.slug, threadSlug);
-      const next = updateReaderHistoryItem(
-        workspace.slug,
-        threadSlug,
-        item,
-        patch
-      );
+      if (!item) return readReaderHistory();
+      const next = updateReaderHistoryItem(null, null, item, patch);
       setReaderHistory(next);
       setReaderBookshelf(updateReaderBookshelfItem(item, patch));
       return next;
     },
-    [historyItemFromDocument, threadSlug, workspace?.slug]
+    [historyItemFromDocument]
   );
 
-  const patchStoredThumbnailForItem = useCallback(
-    (item, thumbnailDataUrl) => {
-      if (!item || !thumbnailDataUrl) return;
-      setReaderBookshelf(updateReaderBookshelfItem(item, { thumbnailDataUrl }));
-      if (!workspace?.slug) return;
-      const historyThreadSlug = item.threadSlug ?? threadSlug;
-      const nextHistory = updateReaderHistoryItem(
-        workspace.slug,
-        historyThreadSlug,
-        item,
-        {
-          thumbnailDataUrl,
-        }
-      );
-      if (historyThreadSlug === threadSlug) setReaderHistory(nextHistory);
+  const backupCurrentDocumentProgress = useCallback(
+    (progress = null) => {
+      if (!currentDocument || !progress) return null;
+      const item = historyItemFromDocument(currentDocument);
+      if (!item) return null;
+      return upsertReaderProgressBackup(item, progress);
     },
-    [threadSlug, workspace?.slug]
+    [currentDocument, historyItemFromDocument]
   );
+
+  const patchStoredThumbnailForItem = useCallback((item, thumbnailDataUrl) => {
+    if (!item || !thumbnailDataUrl) return;
+    setReaderBookshelf(updateReaderBookshelfItem(item, { thumbnailDataUrl }));
+    const nextHistory = updateReaderHistoryItem(null, null, item, {
+      thumbnailDataUrl,
+    });
+    setReaderHistory(nextHistory);
+  }, []);
 
   const applyPostprocessResult = useCallback(
     (item, data = {}, options = {}) => {
@@ -301,10 +326,12 @@ export function DocumentReaderProvider({
 
   const queueBookshelfPostprocess = useCallback(
     async ({ item, tasks = ["thumbnail", "classification"] }) => {
-      if (!workspace?.slug || !item) return;
+      if (!item) return;
       const readerDocumentId =
         item.readerDocumentId || item.backupReaderDocumentId || null;
       if (!readerDocumentId) return;
+      const readerDocumentWorkspaceSlug =
+        item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
       const key = `${readerDocumentId}:${tasks.slice().sort().join(",")}`;
       if (postprocessQueueRef.current.has(key)) return;
       postprocessQueueRef.current.add(key);
@@ -330,7 +357,7 @@ export function DocumentReaderProvider({
           name: category.name,
         }));
         const { response } = await ReaderDocument.postprocess(
-          workspace.slug,
+          readerDocumentWorkspaceSlug,
           readerDocumentId,
           { tasks, categories }
         );
@@ -346,7 +373,7 @@ export function DocumentReaderProvider({
           await new Promise((resolve) => window.setTimeout(resolve, delayMs));
           const { response: statusResponse, data } =
             await ReaderDocument.postprocessStatus(
-              workspace.slug,
+              readerDocumentWorkspaceSlug,
               readerDocumentId
             );
           if (!statusResponse.ok || !data?.success) {
@@ -378,7 +405,6 @@ export function DocumentReaderProvider({
       applyPostprocessResult,
       markItemCategoryPending,
       patchStoredCategoryForItem,
-      workspace?.slug,
     ]
   );
 
@@ -388,8 +414,8 @@ export function DocumentReaderProvider({
         .filter(Boolean)
         .map((item) => ({
           ...item,
-          workspaceSlug: item.workspaceSlug || workspace?.slug || null,
-          threadSlug: item.threadSlug ?? threadSlug,
+          readerDocumentWorkspaceSlug:
+            item.readerDocumentWorkspaceSlug || item.workspaceSlug || null,
           ...(item.category?.source === "manual"
             ? {}
             : pendingReaderCategory("extracting", "等待自动分类")),
@@ -408,32 +434,24 @@ export function DocumentReaderProvider({
       });
       return next;
     },
-    [
-      addItemsToBookshelf,
-      queueBookshelfPostprocess,
-      readerBookshelf,
-      threadSlug,
-      workspace?.slug,
-    ]
+    [addItemsToBookshelf, queueBookshelfPostprocess, readerBookshelf]
   );
 
   const persistDocument = useCallback(
     (doc) => {
-      if (!workspace?.slug) return;
       localStorage.setItem(
         storageKey,
         JSON.stringify(compactDocumentForStorage(doc))
       );
     },
-    [storageKey, workspace?.slug]
+    [storageKey]
   );
 
   const persistSources = useCallback(
     (nextSources) => {
-      if (!workspace?.slug) return;
       localStorage.setItem(sourcesKey, JSON.stringify(nextSources || {}));
     },
-    [sourcesKey, workspace?.slug]
+    [sourcesKey]
   );
 
   const setSources = useCallback(
@@ -450,14 +468,18 @@ export function DocumentReaderProvider({
   const setPendingSelectionSources = useCallback((updater) => {
     const current = pendingSelectionsRef.current || [];
     const next = typeof updater === "function" ? updater(current) : updater;
-    pendingSelectionsRef.current = Array.isArray(next) ? next : [];
+    pendingSelectionsRef.current = dedupeReaderTextSources(
+      Array.isArray(next) ? next : []
+    );
     setPendingSelections(pendingSelectionsRef.current);
   }, []);
 
   const setPendingTextSources = useCallback((updater) => {
     const current = pendingReaderTextSourcesRef.current || [];
     const next = typeof updater === "function" ? updater(current) : updater;
-    pendingReaderTextSourcesRef.current = Array.isArray(next) ? next : [];
+    pendingReaderTextSourcesRef.current = dedupeReaderTextSources(
+      Array.isArray(next) ? next : []
+    );
     setPendingReaderTextSources(pendingReaderTextSourcesRef.current);
   }, []);
 
@@ -523,6 +545,8 @@ export function DocumentReaderProvider({
   const openServerDocumentData = useCallback(
     async (data, historyItem = null) => {
       if (!data?.content || !data?.metadata) return null;
+      readerClosingRef.current = false;
+      const progressItem = readerItemWithLatestProgressBackup(historyItem);
       const readerDocumentId = data.metadata.readerDocumentId;
       let parsedContent = data.content;
       let objectUrl = null;
@@ -574,17 +598,21 @@ export function DocumentReaderProvider({
         renderType,
         title: data.metadata.originalName,
         bookKey:
-          historyItem?.bookKey ||
+          progressItem?.bookKey ||
           normalizeBookTitle(data.metadata.originalName),
-        branchId: historyItem?.branchId || null,
-        branchLabel: historyItem?.branchLabel || null,
+        branchId: progressItem?.branchId || null,
+        branchLabel: progressItem?.branchLabel || null,
         metadata: data.metadata,
         content: parsedContent,
         objectUrl,
-        localPath: data.metadata.localPath || historyItem?.localPath || null,
-        progress: normalizedReaderProgress(historyItem?.progress),
-        thumbnailDataUrl: historyItem?.thumbnailDataUrl || null,
-        workspaceSlug: historyItem?.workspaceSlug || workspace?.slug || null,
+        localPath: data.metadata.localPath || progressItem?.localPath || null,
+        progress: normalizedReaderProgress(progressItem?.progress),
+        thumbnailDataUrl: progressItem?.thumbnailDataUrl || null,
+        readerDocumentWorkspaceSlug:
+          data.metadata.readerDocumentWorkspaceSlug ||
+          progressItem?.readerDocumentWorkspaceSlug ||
+          progressItem?.workspaceSlug ||
+          null,
         previewWarning,
       };
       setCurrentDocument(doc);
@@ -594,41 +622,160 @@ export function DocumentReaderProvider({
       if (previewWarning) showToast(previewWarning, "warning");
       return doc;
     },
-    [persistDocument, rememberDocument, setReaderObjectUrl, workspace?.slug]
+    [persistDocument, rememberDocument, setReaderObjectUrl]
   );
 
   const openReaderDocument = useCallback(
-    async (readerDocumentId, historyItem = null) => {
-      if (!workspace?.slug || !readerDocumentId) return;
-      const { response, data } = await ReaderDocument.get(
-        workspace.slug,
-        readerDocumentId
-      );
-      if (!response.ok || !data?.success) {
-        showToast(data?.error || "服务器伴读文档打开失败", "error");
-        return;
+    async (readerDocumentId, historyItem = null, options = {}) => {
+      if (!readerDocumentId) return;
+      const readerDocumentWorkspaceSlug =
+        historyItem?.readerDocumentWorkspaceSlug ||
+        historyItem?.workspaceSlug ||
+        null;
+      let response;
+      let data;
+      let requestError = null;
+      try {
+        const result = await ReaderDocument.get(
+          readerDocumentWorkspaceSlug,
+          readerDocumentId
+        );
+        response = result.response;
+        data = result.data;
+      } catch (error) {
+        requestError = error;
       }
-      return await openServerDocumentData(data, historyItem);
+      if (!response?.ok || !data?.success) {
+        const message =
+          data?.error || requestError?.message || "服务器伴读文档打开失败";
+        if (retryableReaderOpenFailure(response, requestError)) {
+          queuePendingReaderOpen(
+            {
+              kind: "server",
+              readerDocumentId,
+              historyItem,
+            },
+            message,
+            options
+          );
+        } else {
+          showToast(message, "error");
+        }
+        return null;
+      }
+      try {
+        const opened = await openServerDocumentData(data, historyItem);
+        if (opened) clearPendingReaderOpen("server", readerDocumentId);
+        return opened;
+      } catch (error) {
+        queuePendingReaderOpen(
+          {
+            kind: "server",
+            readerDocumentId,
+            historyItem,
+          },
+          error.message || "服务器伴读文档打开失败",
+          options
+        );
+        return null;
+      }
     },
-    [openServerDocumentData, workspace?.slug]
+    [clearPendingReaderOpen, openServerDocumentData, queuePendingReaderOpen]
   );
 
   const reopenLocalPathDocument = useCallback(
-    async (readerDocumentId, historyItem = null) => {
-      if (!workspace?.slug || !readerDocumentId) return false;
-      const { response, data } = await ReaderDocument.reopenLocalPath(
-        workspace.slug,
-        readerDocumentId
-      );
-      if (!response.ok || !data?.success) {
-        showToast(data?.error || "本地路径文档打开失败", "warning");
+    async (readerDocumentId, historyItem = null, options = {}) => {
+      if (!readerDocumentId) return false;
+      const readerDocumentWorkspaceSlug =
+        historyItem?.readerDocumentWorkspaceSlug ||
+        historyItem?.workspaceSlug ||
+        null;
+      let response;
+      let data;
+      let requestError = null;
+      try {
+        const result = await ReaderDocument.reopenLocalPath(
+          readerDocumentWorkspaceSlug,
+          readerDocumentId
+        );
+        response = result.response;
+        data = result.data;
+      } catch (error) {
+        requestError = error;
+      }
+      if (!response?.ok || !data?.success) {
+        const message =
+          data?.error || requestError?.message || "本地路径文档打开失败";
+        if (retryableReaderOpenFailure(response, requestError)) {
+          queuePendingReaderOpen(
+            {
+              kind: "localPath",
+              readerDocumentId,
+              historyItem,
+            },
+            message,
+            options
+          );
+        } else {
+          showToast(message, "warning");
+        }
         return false;
       }
-      await openServerDocumentData(data, historyItem);
-      return true;
+      try {
+        const opened = await openServerDocumentData(data, historyItem);
+        if (opened) clearPendingReaderOpen("localPath", readerDocumentId);
+        return !!opened;
+      } catch (error) {
+        queuePendingReaderOpen(
+          {
+            kind: "localPath",
+            readerDocumentId,
+            historyItem,
+          },
+          error.message || "本地路径文档打开失败",
+          options
+        );
+        return false;
+      }
     },
-    [openServerDocumentData, workspace?.slug]
+    [clearPendingReaderOpen, openServerDocumentData, queuePendingReaderOpen]
   );
+
+  const retryPendingReaderOpen = useCallback(() => {
+    const pending = pendingReaderOpenRef.current;
+    if (!pending || readerClosingRef.current || currentDocument) return;
+    const now = Date.now();
+    if (now - Number(pending.lastRetryAt || 0) < 1500) return;
+    pendingReaderOpenRef.current = { ...pending, lastRetryAt: now };
+    if (pending.kind === "localPath") {
+      void reopenLocalPathDocument(
+        pending.readerDocumentId,
+        pending.historyItem,
+        {
+          silentRetry: true,
+        }
+      );
+      return;
+    }
+    void openReaderDocument(pending.readerDocumentId, pending.historyItem, {
+      silentRetry: true,
+    });
+  }, [currentDocument, openReaderDocument, reopenLocalPathDocument]);
+
+  useEffect(() => {
+    const retryWhenVisible = () => {
+      if (window.document.visibilityState === "visible")
+        retryPendingReaderOpen();
+    };
+    window.addEventListener("online", retryPendingReaderOpen);
+    window.addEventListener("focus", retryPendingReaderOpen);
+    window.document.addEventListener("visibilitychange", retryWhenVisible);
+    return () => {
+      window.removeEventListener("online", retryPendingReaderOpen);
+      window.removeEventListener("focus", retryPendingReaderOpen);
+      window.document.removeEventListener("visibilitychange", retryWhenVisible);
+    };
+  }, [retryPendingReaderOpen]);
 
   useEffect(() => {
     const ensureDocumentForJump = async (event) => {
@@ -672,13 +819,16 @@ export function DocumentReaderProvider({
   }, [currentDocument, openReaderDocument]);
 
   useEffect(() => {
+    migrateReaderStorage(workspace?.slug, threadSlug);
     const storedSources = safeJsonParse(localStorage.getItem(sourcesKey), {});
     setSourcesByTurn(storedSources || {});
-    setReaderHistory(readReaderHistory(workspace?.slug, threadSlug));
+    setReaderHistory(readReaderHistory());
     setReaderBookshelf(readReaderBookshelf());
     setReaderCategories(readReaderBookshelfCategories());
 
-    const stored = safeJsonParse(localStorage.getItem(storageKey), null);
+    const stored = readerItemWithLatestProgressBackup(
+      safeJsonParse(localStorage.getItem(storageKey), null)
+    );
     if (!stored) return;
     if (stored.source === "local") {
       if (stored.backupReaderDocumentId) {
@@ -720,6 +870,7 @@ export function DocumentReaderProvider({
     reopenLocalPathDocument,
     sourcesKey,
     storageKey,
+    migrateReaderStorage,
     threadSlug,
     workspace?.slug,
   ]);
@@ -731,7 +882,10 @@ export function DocumentReaderProvider({
   }, [setReaderObjectUrl]);
 
   useEffect(() => {
-    const open = () => setDrawerOpen(true);
+    const open = () => {
+      readerClosingRef.current = false;
+      setDrawerOpen(true);
+    };
     window.addEventListener(READER_EVENT_OPEN_DRAWER, open);
     return () => window.removeEventListener(READER_EVENT_OPEN_DRAWER, open);
   }, []);
@@ -740,11 +894,14 @@ export function DocumentReaderProvider({
     const associate = (event) => {
       const { chatKey, clientGeneratedTurnId, turnId } = event.detail || {};
       const selections = pendingSelectionsRef.current || [];
-      if (!selections.length || !clientGeneratedTurnId) return;
+      if (!chatKey || !selections.length || !clientGeneratedTurnId) return;
       const mapKey = `${chatKey}:${clientGeneratedTurnId || turnId}`;
       setSources((prev) => ({
         ...prev,
-        [mapKey]: [...(prev[mapKey] || []), ...selections],
+        [mapKey]: dedupeReaderTextSources([
+          ...(prev[mapKey] || []),
+          ...selections,
+        ]),
       }));
       pendingSelectionsRef.current = [];
       setPendingSelections([]);
@@ -755,11 +912,15 @@ export function DocumentReaderProvider({
       const fromKey = `${chatKey}:${turnId}`;
       const toKey = `${chatKey}:chat:${chatId}`;
       setSources((prev) => {
-        if (!prev[fromKey]) return prev;
-        return {
-          ...prev,
-          [toKey]: prev[fromKey].map((source) => ({ ...source, chatId })),
-        };
+        const fromSources = prev[fromKey] || [];
+        if (!fromSources.length) return prev;
+        const next = { ...prev };
+        next[toKey] = dedupeReaderTextSources([
+          ...(prev[toKey] || []),
+          ...fromSources.map((source) => ({ ...source, chatId })),
+        ]);
+        delete next[fromKey];
+        return next;
       });
     };
     window.addEventListener(READER_EVENT_ASSOCIATE_SELECTION, associate);
@@ -773,18 +934,24 @@ export function DocumentReaderProvider({
   useEffect(() => {
     const consume = (event) => {
       const sources = pendingReaderTextSourcesRef.current || [];
-      const readySources = sources.filter(
-        (source) =>
-          source?.selectedText &&
-          (!source.ocrStatus || source.ocrStatus === "ready")
+      const readySources = dedupeReaderTextSources(
+        sources.filter(
+          (source) =>
+            source?.selectedText &&
+            (!source.ocrStatus || source.ocrStatus === "ready")
+        )
       );
       if (readySources.length) {
-        setPendingSelectionSources((current) => [...current, ...readySources]);
-        const readyKeys = new Set(
-          readySources.map((source) => source.sourceKey).filter(Boolean)
+        setPendingSelectionSources((current) =>
+          dedupeReaderTextSources([...current, ...readySources])
+        );
+        const readyIdentities = new Set(
+          readySources.map(readerTextSourceIdentity).filter(Boolean)
         );
         setPendingTextSources((current) =>
-          current.filter((source) => !readyKeys.has(source.sourceKey))
+          current.filter(
+            (source) => !readyIdentities.has(readerTextSourceIdentity(source))
+          )
         );
       }
       event.detail?.reply?.({ sources: readySources });
@@ -794,20 +961,15 @@ export function DocumentReaderProvider({
       window.removeEventListener(READER_EVENT_CONSUME_TEXT_SOURCES, consume);
   }, [setPendingSelectionSources, setPendingTextSources]);
 
-  const findUploadedHistoryForTitle = useCallback(
-    (title) => {
-      const bookKey = normalizeBookTitle(title);
-      return readReaderHistory(workspace?.slug, threadSlug).find(
-        (item) =>
-          item.bookKey === bookKey &&
-          !item.branchId &&
-          (item.readerDocumentId ||
-            item.backupReaderDocumentId ||
-            item.uploaded)
-      );
-    },
-    [threadSlug, workspace?.slug]
-  );
+  const findUploadedHistoryForTitle = useCallback((title) => {
+    const bookKey = normalizeBookTitle(title);
+    return readReaderHistory().find(
+      (item) =>
+        item.bookKey === bookKey &&
+        !item.branchId &&
+        (item.readerDocumentId || item.backupReaderDocumentId || item.uploaded)
+    );
+  }, []);
 
   const openUploadedHistoryItem = useCallback(
     async (historyItem) => {
@@ -829,15 +991,18 @@ export function DocumentReaderProvider({
           );
         }
         if (historyItem.readerDocumentId) {
-          await openReaderDocument(historyItem.readerDocumentId, historyItem);
-          return true;
+          const opened = await openReaderDocument(
+            historyItem.readerDocumentId,
+            historyItem
+          );
+          return !!opened;
         }
         if (historyItem.backupReaderDocumentId) {
-          await openReaderDocument(
+          const opened = await openReaderDocument(
             historyItem.backupReaderDocumentId,
             historyItem
           );
-          return true;
+          return !!opened;
         }
         return false;
       } finally {
@@ -886,8 +1051,10 @@ export function DocumentReaderProvider({
           if (options.addToBookshelf) {
             const item = {
               ...existingUploaded,
-              workspaceSlug: workspace?.slug || existingUploaded.workspaceSlug,
-              threadSlug,
+              readerDocumentWorkspaceSlug:
+                existingUploaded.readerDocumentWorkspaceSlug ||
+                existingUploaded.workspaceSlug ||
+                null,
               ...(existingUploaded.category?.source === "manual"
                 ? {}
                 : pendingReaderCategory("extracting", "等待自动分类")),
@@ -907,48 +1074,41 @@ export function DocumentReaderProvider({
         options = { ...options, branch: true, skipConflict: true };
       }
       const localDocumentId = uuid();
-      if (workspace?.slug) {
-        const formData = new FormData();
-        formData.append("file", file, file.name);
-        setDocxPreviewStatus({
-          fileName: file.name,
-          message: loadingMessageForDocumentType(validation.documentType),
+      const formData = new FormData();
+      formData.append("file", file, file.name);
+      setDocxPreviewStatus({
+        fileName: file.name,
+        message: loadingMessageForDocumentType(validation.documentType),
+      });
+      try {
+        const { response, data } = await ReaderDocument.upload(null, formData);
+        if (!response.ok || !data?.success)
+          throw new Error(data?.error || "自动上传失败");
+        const doc = await openServerDocumentData(data, {
+          bookKey,
+          branchId: options.branch ? `local-${localDocumentId}` : null,
+          branchLabel: options.branch ? "本地分支" : null,
+          progress: { label: "阅读进度", percent: 0, updatedAt: null },
         });
-        try {
-          const { response, data } = await ReaderDocument.upload(
-            workspace.slug,
-            formData
-          );
-          if (!response.ok || !data?.success)
-            throw new Error(data?.error || "自动上传失败");
-          const doc = await openServerDocumentData(data, {
-            bookKey,
-            branchId: options.branch ? `local-${localDocumentId}` : null,
-            branchLabel: options.branch ? "本地分支" : null,
-            progress: { label: "阅读进度", percent: 0, updatedAt: null },
+        if (options.addToBookshelf && doc) {
+          const item = {
+            ...bookshelfItemFromDocument(doc),
+            ...pendingReaderCategory("extracting", "等待自动分类"),
+          };
+          addItemsToBookshelf([item]);
+          void queueBookshelfPostprocess({
+            item,
+            tasks: ["thumbnail", "classification"],
           });
-          if (options.addToBookshelf && doc) {
-            const item = {
-              ...bookshelfItemFromDocument(doc),
-              ...pendingReaderCategory("extracting", "等待自动分类"),
-            };
-            addItemsToBookshelf([item]);
-            void queueBookshelfPostprocess({
-              item,
-              tasks: ["thumbnail", "classification"],
-            });
-          }
-          return doc;
-        } catch (error) {
-          showToast(
-            `${error.message || "自动上传失败"}，已临时本地预览。`,
-            "warning"
-          );
-        } finally {
-          setDocxPreviewStatus(null);
         }
-      } else {
-        showToast("工作区不可用，已临时本地预览。", "warning");
+        return doc;
+      } catch (error) {
+        showToast(
+          `${error.message || "自动上传失败"}，已临时本地预览。`,
+          "warning"
+        );
+      } finally {
+        setDocxPreviewStatus(null);
       }
       const objectUrl = URL.createObjectURL(file);
       setReaderObjectUrl(objectUrl);
@@ -977,6 +1137,7 @@ export function DocumentReaderProvider({
         file,
         progress: { label: "阅读进度", percent: 0, updatedAt: null },
       };
+      readerClosingRef.current = false;
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
@@ -1000,8 +1161,6 @@ export function DocumentReaderProvider({
       rememberDocument,
       requestLocalFileConflictChoice,
       setReaderObjectUrl,
-      threadSlug,
-      workspace?.slug,
     ]
   );
 
@@ -1009,10 +1168,6 @@ export function DocumentReaderProvider({
     async (files = []) => {
       const selectedFiles = Array.from(files || []).filter(Boolean);
       if (!selectedFiles.length) return [];
-      if (!workspace?.slug) {
-        showToast("工作区不可用，无法上传到书架。", "warning");
-        return [];
-      }
       const itemsToAdd = [];
       const postprocessTasks = [];
       for (const file of selectedFiles) {
@@ -1054,7 +1209,7 @@ export function DocumentReaderProvider({
         });
         try {
           const { response, data } = await ReaderDocument.upload(
-            workspace.slug,
+            null,
             formData
           );
           if (!response.ok || !data?.success)
@@ -1096,12 +1251,11 @@ export function DocumentReaderProvider({
       addItemsToBookshelf,
       bookshelfItemFromServerData,
       queueBookshelfPostprocess,
-      workspace?.slug,
     ]
   );
 
   const uploadCurrentDocument = useCallback(async () => {
-    if (!workspace?.slug || !currentDocument?.file) {
+    if (!currentDocument?.file) {
       showToast("当前文档没有可上传的本地文件。", "warning");
       return;
     }
@@ -1116,7 +1270,7 @@ export function DocumentReaderProvider({
     let response;
     let data;
     try {
-      const result = await ReaderDocument.upload(workspace.slug, formData);
+      const result = await ReaderDocument.upload(null, formData);
       response = result.response;
       data = result.data;
     } finally {
@@ -1135,11 +1289,11 @@ export function DocumentReaderProvider({
       thumbnailDataUrl: currentDocument.thumbnailDataUrl,
     });
     showToast("已上传到服务器备份", "success");
-  }, [currentDocument, openServerDocumentData, workspace?.slug]);
+  }, [currentDocument, openServerDocumentData]);
 
   const bindCurrentDocumentLocalPath = useCallback(
     async (absolutePath) => {
-      if (!workspace?.slug || !absolutePath?.trim()) return;
+      if (!absolutePath?.trim()) return;
       const pathDocumentType = /\.docx$/i.test(absolutePath.trim())
         ? "docx"
         : /\.epub$/i.test(absolutePath.trim())
@@ -1155,7 +1309,7 @@ export function DocumentReaderProvider({
       let data;
       try {
         const result = await ReaderDocument.fromLocalPath(
-          workspace.slug,
+          null,
           absolutePath.trim()
         );
         response = result.response;
@@ -1170,8 +1324,8 @@ export function DocumentReaderProvider({
       const previous = currentDocument;
       if (previous?.source === "local") {
         deleteStoredReaderHistoryItem(
-          workspace.slug,
-          threadSlug,
+          null,
+          null,
           historyItemFromDocument(previous)
         );
       }
@@ -1192,8 +1346,6 @@ export function DocumentReaderProvider({
       openServerDocumentData,
       historyItemFromDocument,
       rememberDocument,
-      threadSlug,
-      workspace?.slug,
     ]
   );
 
@@ -1204,30 +1356,43 @@ export function DocumentReaderProvider({
         ...progress,
         updatedAt: progress?.updatedAt || new Date().toISOString(),
       });
+      backupCurrentDocumentProgress(nextProgress);
       if (
         !options.force &&
         !hasSignificantProgressChange(currentDocument.progress, nextProgress)
       ) {
         return;
       }
+      patchHistoryForDocument(currentDocument, { progress: nextProgress });
+      if (readerClosingRef.current || options.skipCurrentDocumentPersist) {
+        return;
+      }
       const nextDocument = { ...currentDocument, progress: nextProgress };
       setCurrentDocument(nextDocument);
       persistDocument(nextDocument);
-      patchHistoryForDocument(currentDocument, { progress: nextProgress });
     },
-    [currentDocument, patchHistoryForDocument, persistDocument]
+    [
+      backupCurrentDocumentProgress,
+      currentDocument,
+      patchHistoryForDocument,
+      persistDocument,
+    ]
   );
 
   const exitCurrentDocument = useCallback(
     (progress = null) => {
+      readerClosingRef.current = true;
       if (currentDocument && progress)
-        recordCurrentProgress(progress, { force: true });
+        recordCurrentProgress(progress, {
+          force: true,
+          skipCurrentDocumentPersist: true,
+        });
       setCurrentDocument(null);
       setPendingSelectionSources([]);
       setPendingTextSources([]);
       setFocusedReaderTextSource(null);
       setDrawerOpen(true);
-      if (workspace?.slug) localStorage.removeItem(storageKey);
+      localStorage.removeItem(storageKey);
       setReaderObjectUrl(null);
     },
     [
@@ -1237,20 +1402,23 @@ export function DocumentReaderProvider({
       setPendingSelectionSources,
       setPendingTextSources,
       storageKey,
-      workspace?.slug,
     ]
   );
 
   const closeReader = useCallback(
     (progress = null) => {
+      readerClosingRef.current = true;
       if (currentDocument && progress)
-        recordCurrentProgress(progress, { force: true });
+        recordCurrentProgress(progress, {
+          force: true,
+          skipCurrentDocumentPersist: true,
+        });
       setDrawerOpen(false);
       setCurrentDocument(null);
       setPendingSelectionSources([]);
       setPendingTextSources([]);
       setFocusedReaderTextSource(null);
-      if (workspace?.slug) localStorage.removeItem(storageKey);
+      localStorage.removeItem(storageKey);
       setReaderObjectUrl(null);
     },
     [
@@ -1260,36 +1428,44 @@ export function DocumentReaderProvider({
       setPendingSelectionSources,
       setPendingTextSources,
       storageKey,
-      workspace?.slug,
     ]
   );
 
   const openWorkspaceParsedDocument = useCallback(
-    async (docPath) => {
-      if (!workspace?.slug || !docPath) return;
+    async (
+      docPath,
+      sourceWorkspaceSlug = workspace?.slug,
+      historyItem = null
+    ) => {
+      if (!sourceWorkspaceSlug || !docPath) return;
       setDrawerInitialSection("history");
       const { response, data } = await ReaderDocument.fromWorkspace(
-        workspace.slug,
+        sourceWorkspaceSlug,
         docPath
       );
       if (!response.ok || !data?.success) {
         showToast(data?.error || "解析文本预览打开失败", "error");
         return;
       }
+      const progressItem = readerItemWithLatestProgressBackup(historyItem);
       const doc = {
         source: "workspace_parsed",
         readerDocumentId: data.metadata.readerDocumentId,
         documentType: "markdown",
         title: data.metadata.originalName,
-        bookKey: normalizeBookTitle(data.metadata.originalName),
-        branchId: null,
-        branchLabel: null,
+        bookKey:
+          progressItem?.bookKey ||
+          normalizeBookTitle(data.metadata.originalName),
+        branchId: progressItem?.branchId || null,
+        branchLabel: progressItem?.branchLabel || null,
         metadata: { ...data.metadata, workspaceDocPath: docPath },
         workspaceDocPath: docPath,
+        readerDocumentWorkspaceSlug: sourceWorkspaceSlug,
         content: data.content,
-        progress: { label: "阅读进度", percent: 0 },
+        progress: normalizedReaderProgress(progressItem?.progress),
       };
       setReaderObjectUrl(null);
+      readerClosingRef.current = false;
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
@@ -1300,7 +1476,7 @@ export function DocumentReaderProvider({
 
   const openHistoryDocument = useCallback(
     async (historyItem, options = {}) => {
-      if (!historyItem || !workspace?.slug) return { ok: false };
+      if (!historyItem) return { ok: false };
       setDrawerInitialSection(options.origin || "history");
       if (
         historyItem.localPath ||
@@ -1313,7 +1489,13 @@ export function DocumentReaderProvider({
         historyItem.source === "workspace_parsed" &&
         historyItem.workspaceDocPath
       ) {
-        await openWorkspaceParsedDocument(historyItem.workspaceDocPath);
+        await openWorkspaceParsedDocument(
+          historyItem.workspaceDocPath,
+          historyItem.readerDocumentWorkspaceSlug ||
+            historyItem.workspaceSlug ||
+            workspace?.slug,
+          historyItem
+        );
         return { ok: true };
       }
       if (
@@ -1341,45 +1523,22 @@ export function DocumentReaderProvider({
     async (bookshelfItem) => {
       if (!bookshelfItem) return { ok: false };
       setDrawerInitialSection("bookshelf");
-      const targetWorkspaceSlug =
-        bookshelfItem.workspaceSlug || workspace?.slug;
-      if (targetWorkspaceSlug && targetWorkspaceSlug !== workspace?.slug) {
-        writePendingBookshelfOpen(bookshelfItem);
-        const targetThreadSlug = bookshelfItem.threadSlug || null;
-        window.location.href = `/workspace/${targetWorkspaceSlug}${
-          targetThreadSlug ? `/t/${targetThreadSlug}` : ""
-        }`;
-        return { ok: true, pendingNavigation: true };
-      }
       return await openHistoryDocument(bookshelfItem, { origin: "bookshelf" });
     },
-    [openHistoryDocument, workspace?.slug]
+    [openHistoryDocument]
   );
-
-  useEffect(() => {
-    if (!workspace?.slug) return;
-    const pendingOpen = readPendingBookshelfOpen();
-    if (!pendingOpen) return;
-    if ((pendingOpen.workspaceSlug || workspace.slug) !== workspace.slug)
-      return;
-    clearPendingBookshelfOpen();
-    openBookshelfDocument({ ...pendingOpen, workspaceSlug: workspace.slug });
-  }, [openBookshelfDocument, workspace?.slug]);
 
   const clearReaderHistory = useCallback(() => {
-    setReaderHistory(clearStoredReaderHistory(workspace?.slug, threadSlug));
+    deleteReaderProgressBackup(readReaderHistory());
+    setReaderHistory(clearStoredReaderHistory());
     showToast("已清空伴读历史记录", "success");
-  }, [threadSlug, workspace?.slug]);
+  }, []);
 
-  const deleteReaderHistoryItem = useCallback(
-    (historyItem) => {
-      setReaderHistory(
-        deleteStoredReaderHistoryItem(workspace?.slug, threadSlug, historyItem)
-      );
-      showToast("已删除历史记录", "success");
-    },
-    [threadSlug, workspace?.slug]
-  );
+  const deleteReaderHistoryItem = useCallback((historyItem) => {
+    deleteReaderProgressBackup(historyItem);
+    setReaderHistory(deleteStoredReaderHistoryItem(null, null, historyItem));
+    showToast("已删除历史记录", "success");
+  }, []);
 
   const deleteReaderBookshelfItems = useCallback(
     async (items = []) => {
@@ -1390,8 +1549,8 @@ export function DocumentReaderProvider({
 
       const idsByWorkspace = new Map();
       for (const item of selectedItems) {
-        const targetWorkspaceSlug = item.workspaceSlug || workspace?.slug;
-        if (!targetWorkspaceSlug) continue;
+        const targetWorkspaceSlug =
+          item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
         for (const readerDocumentId of [
           item.readerDocumentId,
           item.backupReaderDocumentId,
@@ -1422,6 +1581,7 @@ export function DocumentReaderProvider({
       const nextBookshelf = deleteStoredReaderBookshelfItems(
         selectedItems.map((item) => item.key)
       );
+      deleteReaderProgressBackup(selectedItems);
       setReaderBookshelf(nextBookshelf);
 
       if (deletedIds.length) {
@@ -1456,9 +1616,9 @@ export function DocumentReaderProvider({
       }
 
       for (const item of selectedItems) {
-        deleteStoredReaderHistoryItem(workspace?.slug, threadSlug, item);
+        deleteStoredReaderHistoryItem(null, null, item);
       }
-      setReaderHistory(readReaderHistory(workspace?.slug, threadSlug));
+      setReaderHistory(readReaderHistory());
 
       if (failedDeletes.length) {
         showToast(
@@ -1469,7 +1629,7 @@ export function DocumentReaderProvider({
         showToast(`已删除 ${selectedItems.length} 本书`, "success");
       }
     },
-    [currentDocument, persistDocument, threadSlug, workspace?.slug]
+    [currentDocument, persistDocument]
   );
 
   const createBookshelfCategory = useCallback((name) => {
@@ -1517,6 +1677,7 @@ export function DocumentReaderProvider({
   const updateCurrentDocumentThumbnail = useCallback(
     (thumbnailDataUrl) => {
       if (!thumbnailDataUrl || !currentDocument) return;
+      if (readerClosingRef.current) return;
       const nextDocument = { ...currentDocument, thumbnailDataUrl };
       setCurrentDocument(nextDocument);
       persistDocument(nextDocument);
@@ -1580,6 +1741,7 @@ export function DocumentReaderProvider({
       closeReader,
       exitCurrentDocument,
       recordCurrentProgress,
+      backupCurrentDocumentProgress,
       readerHistory,
       readerBookshelf,
       readerCategories,
@@ -1623,6 +1785,7 @@ export function DocumentReaderProvider({
       citeSelection,
       clearReaderHistory,
       closeReader,
+      backupCurrentDocumentProgress,
       deleteReaderHistoryItem,
       createBookshelfCategory,
       deleteReaderBookshelfItems,

@@ -54,6 +54,12 @@ class Provider {
   invocation = {};
 
   /**
+   * Handler props attached by the agent runtime for provider-specific metrics.
+   * @type {Object}
+   */
+  handlerProps = {};
+
+  /**
    * The user ID for the chat completion to send to the LLM provider for user tracking.
    * In order for this to be set, the handler props must be attached to the provider after instantiation.
    * ex: this.attachHandlerProps({ ..., invocation: { ..., user_id: 123 } });
@@ -104,6 +110,7 @@ class Provider {
    * @param {Object} handlerProps - The handler props to attach to the provider.
    */
   attachHandlerProps(handlerProps = {}) {
+    this.handlerProps = handlerProps || {};
     this.invocation = handlerProps?.invocation || {};
     this.executingUserId = this.invocation?.user_id
       ? `user_${this.invocation.user_id}`

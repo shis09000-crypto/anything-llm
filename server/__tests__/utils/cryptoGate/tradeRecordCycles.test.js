@@ -3,8 +3,12 @@ const {
   buildTradeCycles,
   serializeCycleForMemory,
 } = require("../../../utils/cryptoGate/tradeRecordCycles");
+const { isSecretEncrypted, readSecret } = require("../../../utils/security");
 
 const baseTs = 1_800_000_000_000;
+const TEST_KEY =
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+const originalEncryptionMasterKey = process.env.ENCRYPTION_MASTER_KEY;
 const historyCoverage = {
   requestedFrom: Math.floor((baseTs - 24 * 60 * 60 * 1000) / 1000),
   requestedTo: Math.floor((baseTs + 24 * 60 * 60 * 1000) / 1000),
@@ -66,6 +70,18 @@ function build(records, options = {}) {
 }
 
 describe("Futures trade cycle matching", () => {
+  beforeEach(() => {
+    process.env.ENCRYPTION_MASTER_KEY = TEST_KEY;
+  });
+
+  afterEach(() => {
+    if (originalEncryptionMasterKey === undefined) {
+      delete process.env.ENCRYPTION_MASTER_KEY;
+    } else {
+      process.env.ENCRYPTION_MASTER_KEY = originalEncryptionMasterKey;
+    }
+  });
+
   test("matches only within symbol, contract type, and long or short side pools", () => {
     const result = build([
       futuresRecord({
@@ -166,10 +182,12 @@ describe("Futures trade cycle matching", () => {
       remainingQty: "0",
     });
     expect(result.cycles[0].matches).toHaveLength(3);
-    expect(new Set(result.records.map((record) => record.cycleId)).size).toBe(1);
-    expect(result.records.every((record) => record.cycleStatus === "closed")).toBe(
-      true
+    expect(new Set(result.records.map((record) => record.cycleId)).size).toBe(
+      1
     );
+    expect(
+      result.records.every((record) => record.cycleStatus === "closed")
+    ).toBe(true);
   });
 
   test("starts a new cycle after the position returns to zero", () => {
@@ -218,8 +236,12 @@ describe("Futures trade cycle matching", () => {
       }),
     ]);
 
-    const firstClose = result.records.find((record) => record.id === "first-close");
-    const laterOpen = result.records.find((record) => record.id === "later-open");
+    const firstClose = result.records.find(
+      (record) => record.id === "first-close"
+    );
+    const laterOpen = result.records.find(
+      (record) => record.id === "later-open"
+    );
     expect(firstClose).toMatchObject({
       cycleConfidence: "unmatched",
       matchRole: "unmatched_close",
@@ -245,7 +267,9 @@ describe("Futures trade cycle matching", () => {
       }),
     ]);
 
-    const close = result.records.find((record) => record.id === "oversized-close");
+    const close = result.records.find(
+      (record) => record.id === "oversized-close"
+    );
     expect(result.cycles[0]).toMatchObject({
       status: "partial",
       cycleConfidence: "partial_history",
@@ -324,8 +348,40 @@ describe("Futures trade cycle matching", () => {
     ]);
 
     expect(saved).toHaveLength(1);
-    expect(JSON.parse(Object.values(updates[0])[0]).cycles).toHaveLength(1);
+    const storedValue = Object.values(updates[0])[0];
+    expect(isSecretEncrypted(storedValue)).toBe(true);
+    expect(JSON.parse(readSecret(storedValue)).cycles).toHaveLength(1);
     expect(saved[0].cycleId).toBe(completeResult.cycles[0].id);
+  });
+
+  test("loads old plaintext complete-cycle memory", async () => {
+    const completeResult = build([
+      futuresRecord({
+        id: "legacy-open",
+        ts: baseTs,
+        action: "futures_open_long",
+        quantity: "1",
+      }),
+      futuresRecord({
+        id: "legacy-close",
+        ts: baseTs + 1,
+        action: "futures_close_long",
+        quantity: "1",
+      }),
+    ]);
+    const legacyMemory = serializeCycleForMemory(completeResult.cycles[0]);
+    const store = new SystemSettingsTradeCycleMemoryStore({
+      settings: {
+        get: jest.fn(async () => ({
+          value: JSON.stringify({
+            version: 1,
+            cycles: [legacyMemory],
+          }),
+        })),
+      },
+    });
+
+    await expect(store.load()).resolves.toEqual([legacyMemory]);
   });
 
   test("restores a remembered cycle id from complete-cycle memory", () => {
@@ -354,11 +410,13 @@ describe("Futures trade cycle matching", () => {
 
     expect(second.cycles[0].id).toBe("cycle:remembered:stable");
     expect(
-      second.records.every((record) => record.cycleId === "cycle:remembered:stable")
+      second.records.every(
+        (record) => record.cycleId === "cycle:remembered:stable"
+      )
     ).toBe(true);
-    expect(second.records.every((record) => record.cycleConfidence === "complete")).toBe(
-      true
-    );
+    expect(
+      second.records.every((record) => record.cycleConfidence === "complete")
+    ).toBe(true);
   });
 
   test("uses memory to recover cycle context when only one side is loaded", () => {
@@ -383,7 +441,9 @@ describe("Futures trade cycle matching", () => {
       ...serializeCycleForMemory(complete.cycles[0]),
       cycleId: "cycle:memory:partial-window",
     };
-    const partialWindow = build([completeRecords[1]], { cycleMemory: [memory] });
+    const partialWindow = build([completeRecords[1]], {
+      cycleMemory: [memory],
+    });
 
     expect(partialWindow.records[0]).toMatchObject({
       cycleId: "cycle:memory:partial-window",

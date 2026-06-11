@@ -11,6 +11,7 @@ const {
   agentThreadMemory,
   recentChatHistoryWithCompaction,
 } = require("../chats/threadCompaction");
+const { cacheStableHistoryStrategyFor } = require("../chats");
 const {
   USER_AGENT,
   WORKSPACE_AGENT,
@@ -28,6 +29,17 @@ const { DocumentManager } = require("../DocumentManager");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
 const { resolveTaskProviderModel } = require("../llmTasks");
 
+function agentCacheStableHistoryStrategyFor({
+  provider = null,
+  limit = 20,
+} = {}) {
+  if (provider !== "deepseek") return null;
+  return cacheStableHistoryStrategyFor({
+    llm: { cacheStableHistory: true },
+    messageLimit: limit,
+  });
+}
+
 class AgentHandler {
   #invocationUUID;
   #funcsToLoad = [];
@@ -41,6 +53,7 @@ class AgentHandler {
   displayPrompt = null;
   visionAnalysisContext = null;
   fileAccessContext = {};
+  historyWindow = null;
 
   constructor({ uuid }) {
     this.#invocationUUID = uuid;
@@ -97,13 +110,20 @@ class AgentHandler {
       const thread = this.invocation.thread_id
         ? { id: this.invocation.thread_id }
         : null;
-      const { rawHistory } = await recentChatHistoryWithCompaction({
-        workspace: this.invocation.workspace,
-        user,
-        thread,
-        messageLimit: limit,
-        apiSessionId: null,
+      const historyStrategy = agentCacheStableHistoryStrategyFor({
+        provider: this.provider,
+        limit,
       });
+      const { rawHistory, historyWindow = null } =
+        await recentChatHistoryWithCompaction({
+          workspace: this.invocation.workspace,
+          user,
+          thread,
+          messageLimit: limit,
+          apiSessionId: null,
+          historyStrategy,
+        });
+      this.historyWindow = historyWindow;
 
       const agentHistory = [];
       rawHistory.forEach((chatLog) => {
@@ -585,10 +605,13 @@ class AgentHandler {
         this.aibitat.agents.get("@agent").functions = this.aibitat.agents
           .get("@agent")
           .functions.filter((f) => f.name !== name);
-        for (const plugin of plugins)
+        const sortedPlugins = [...plugins].sort((a, b) =>
+          String(a.name).localeCompare(String(b.name))
+        );
+        for (const plugin of sortedPlugins)
           this.aibitat.agents.get("@agent").functions.push(plugin.name);
 
-        plugins.forEach((plugin) => {
+        sortedPlugins.forEach((plugin) => {
           this.aibitat.use(plugin.plugin());
           this.log(
             `Attached MCP::${plugin.toolName} MCP tool to Agent cluster`
@@ -799,10 +822,12 @@ If the user asks about book structure, reading order, timeline, person relations
       apiSessionId: null,
     });
 
+    const chats = await this.#chatHistory(20);
+
     this.aibitat = new AIbitat({
       provider: this.provider ?? "openai",
       model: this.model ?? "gpt-4o",
-      chats: await this.#chatHistory(20),
+      chats,
       handlerProps: {
         invocation: this.invocation,
         log: this.log,
@@ -811,6 +836,9 @@ If the user asks about book structure, reading order, timeline, person relations
         visionAnalysisContext: this.visionAnalysisContext,
         fileAccessContext: this.fileAccessContext,
         compactedThreadMemory,
+        promptCacheDiagnostics: {
+          historyWindow: this.historyWindow,
+        },
       },
     });
 
@@ -876,3 +904,5 @@ If the user asks about book structure, reading order, timeline, person relations
 }
 
 module.exports.AgentHandler = AgentHandler;
+module.exports.agentCacheStableHistoryStrategyFor =
+  agentCacheStableHistoryStrategyFor;

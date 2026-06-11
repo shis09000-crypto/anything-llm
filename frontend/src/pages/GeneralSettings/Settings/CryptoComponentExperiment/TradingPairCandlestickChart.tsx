@@ -6,6 +6,7 @@ import type {
   TradingPairCandlestickRange,
   TradingPairVisibleWindow,
 } from "./tradingPairCandlestickTypes";
+import { useCryptoStatusLabel } from "./cryptoStatusI18n";
 
 const DEFAULT_VISIBLE_CANDLES = 50;
 const MIN_VISIBLE_CANDLES = 21;
@@ -46,12 +47,11 @@ const marketLabels: Record<TradingPairCandlestickChartProps["market"], string> =
 
 const statusMeta: Record<
   TradingPairCandlestickChartProps["status"],
-  { label: string; color: string; bg: string }
+  { color: string; bg: string }
 > = {
-  connected: { label: "实时", color: "#22C55E", bg: "rgba(34,197,94,.10)" },
-  degraded: { label: "降级", color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
+  connected: { color: "#22C55E", bg: "rgba(34,197,94,.10)" },
+  degraded: { color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
   disconnected: {
-    label: "离线",
     color: "#EF4444",
     bg: "rgba(239,68,68,.10)",
   },
@@ -615,6 +615,7 @@ export default function TradingPairCandlestickChart({
   const price = currentPriceQuote || candles[candles.length - 1]?.close || null;
   const change = numeric(change24hPct);
   const statusDisplay = statusMeta[status];
+  const statusLabel = useCryptoStatusLabel(status);
   const coinSize = compactMode
     ? Math.max(56, Math.min(iconSize + 6, 72))
     : Math.max(70, Math.min(iconSize + 18, 86));
@@ -2095,7 +2096,7 @@ export default function TradingPairCandlestickChart({
                   className="h-2.5 w-2.5 rounded-full shadow-[0_0_16px_currentColor]"
                   style={{ backgroundColor: statusDisplay.color }}
                 />
-                {statusDisplay.label}
+                {statusLabel}
               </div>
             </div>
             <div className="mt-1 text-xs font-bold text-white/50">

@@ -1,4 +1,5 @@
 import { storageKeys } from "@/utils/appEnvironment";
+import { shouldUseReaderProgressBackup } from "@/utils/chat/readerProgress";
 
 export const READER_SCHEMA_VERSION = 1;
 export const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -13,8 +14,14 @@ export const READER_BOOKSHELF_STORAGE_KEY =
   "anythingllm_document_reader_bookshelf:v1";
 export const READER_BOOKSHELF_CATEGORIES_STORAGE_KEY =
   "anythingllm_document_reader_bookshelf_categories:v1";
-export const READER_BOOKSHELF_PENDING_OPEN_KEY =
-  "anythingllm_document_reader_bookshelf_pending_open:v1";
+export const READER_CURRENT_DOCUMENT_STORAGE_KEY =
+  "anythingllm_document_reader:v1:global";
+export const READER_SOURCES_STORAGE_KEY =
+  "anythingllm_document_reader_sources:v1:global";
+export const READER_HISTORY_STORAGE_KEY =
+  "anythingllm_document_reader_history:v1:global";
+export const READER_PROGRESS_BACKUP_STORAGE_KEY =
+  "anythingllm_document_reader_progress_backup:v1";
 export const UNKNOWN_READER_CATEGORY_ID = "unknown";
 
 export const ALLOWED_READER_EXTENSIONS = [
@@ -26,16 +33,20 @@ export const ALLOWED_READER_EXTENSIONS = [
   ".epub",
 ];
 
-export function readerStorageKey(workspaceSlug, threadSlug = null) {
-  return `anythingllm_document_reader:v1:${workspaceSlug}:${threadSlug || "default"}`;
+export function readerStorageKey() {
+  return READER_CURRENT_DOCUMENT_STORAGE_KEY;
 }
 
-export function readerSourcesStorageKey(workspaceSlug, threadSlug = null) {
-  return `anythingllm_document_reader_sources:v1:${workspaceSlug}:${threadSlug || "default"}`;
+export function readerSourcesStorageKey() {
+  return READER_SOURCES_STORAGE_KEY;
 }
 
-export function readerHistoryStorageKey(workspaceSlug, threadSlug = null) {
-  return `anythingllm_document_reader_history:v1:${workspaceSlug}:${threadSlug || "default"}`;
+export function readerHistoryStorageKey() {
+  return READER_HISTORY_STORAGE_KEY;
+}
+
+export function readerProgressBackupStorageKey() {
+  return READER_PROGRESS_BACKUP_STORAGE_KEY;
 }
 
 function safeJson(value, fallback) {
@@ -44,6 +55,139 @@ function safeJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+function legacyReaderStorageKey(workspaceSlug, threadSlug = null) {
+  if (!workspaceSlug) return null;
+  return `anythingllm_document_reader:v1:${workspaceSlug}:${threadSlug || "default"}`;
+}
+
+function legacyStorageKeysForPrefix(prefix, globalKey) {
+  return storageKeys(localStorage).filter(
+    (key) => key?.startsWith(prefix) && key !== globalKey
+  );
+}
+
+function workspaceSlugFromLegacyKey(key = "", prefix = "") {
+  const rest = String(key || "").slice(prefix.length);
+  return rest.split(":")[0] || null;
+}
+
+function withLegacyReaderWorkspace(item = null, key = "", prefix = "") {
+  if (!item) return item;
+  if (
+    item.readerDocumentWorkspaceSlug ||
+    item.workspaceSlug ||
+    !(item.readerDocumentId || item.backupReaderDocumentId)
+  ) {
+    return item;
+  }
+  const readerDocumentWorkspaceSlug = workspaceSlugFromLegacyKey(key, prefix);
+  return readerDocumentWorkspaceSlug
+    ? { ...item, readerDocumentWorkspaceSlug }
+    : item;
+}
+
+function readerDocumentTimestamp(document = {}) {
+  return Math.max(
+    timestampValue(document.restoredAt),
+    timestampValue(document.progress?.updatedAt),
+    timestampValue(document.metadata?.createdAt),
+    timestampValue(document.metadata?.reopenedAt)
+  );
+}
+
+function migrateReaderHistoryToGlobal() {
+  const prefix = "anythingllm_document_reader_history:v1:";
+  const legacyKeys = legacyStorageKeysForPrefix(
+    prefix,
+    READER_HISTORY_STORAGE_KEY
+  );
+  if (!legacyKeys.length) return;
+  const merged = normalizeHistory([
+    ...safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []),
+    ...legacyKeys.flatMap((key) =>
+      safeJson(localStorage.getItem(key), []).map((item) =>
+        withLegacyReaderWorkspace(item, key, prefix)
+      )
+    ),
+  ]);
+  localStorage.setItem(READER_HISTORY_STORAGE_KEY, JSON.stringify(merged));
+}
+
+function migrateReaderSourcesToGlobal() {
+  const legacyKeys = legacyStorageKeysForPrefix(
+    "anythingllm_document_reader_sources:v1:",
+    READER_SOURCES_STORAGE_KEY
+  );
+  if (!legacyKeys.length) return;
+  const merged = {
+    ...safeJson(localStorage.getItem(READER_SOURCES_STORAGE_KEY), {}),
+  };
+  for (const key of legacyKeys) {
+    Object.assign(merged, safeJson(localStorage.getItem(key), {}));
+  }
+  localStorage.setItem(READER_SOURCES_STORAGE_KEY, JSON.stringify(merged));
+}
+
+function migrateCurrentReaderDocumentToGlobal(
+  workspaceSlug,
+  threadSlug = null
+) {
+  if (localStorage.getItem(READER_CURRENT_DOCUMENT_STORAGE_KEY)) return;
+  const prefix = "anythingllm_document_reader:v1:";
+  const legacyKeys = legacyStorageKeysForPrefix(
+    prefix,
+    READER_CURRENT_DOCUMENT_STORAGE_KEY
+  ).filter(
+    (key) =>
+      !key.startsWith("anythingllm_document_reader_history:v1:") &&
+      !key.startsWith("anythingllm_document_reader_sources:v1:")
+  );
+  if (!legacyKeys.length) return;
+
+  const preferredKeys = [
+    legacyReaderStorageKey(workspaceSlug, threadSlug),
+    legacyReaderStorageKey(workspaceSlug, null),
+  ].filter(Boolean);
+  const preferred = preferredKeys
+    .map((key) =>
+      withLegacyReaderWorkspace(
+        safeJson(localStorage.getItem(key), null),
+        key,
+        prefix
+      )
+    )
+    .find(Boolean);
+  if (preferred) {
+    localStorage.setItem(
+      READER_CURRENT_DOCUMENT_STORAGE_KEY,
+      JSON.stringify(preferred)
+    );
+    return;
+  }
+
+  const newest = legacyKeys
+    .map((key) =>
+      withLegacyReaderWorkspace(
+        safeJson(localStorage.getItem(key), null),
+        key,
+        prefix
+      )
+    )
+    .filter(Boolean)
+    .sort((a, b) => readerDocumentTimestamp(b) - readerDocumentTimestamp(a))[0];
+  if (newest)
+    localStorage.setItem(
+      READER_CURRENT_DOCUMENT_STORAGE_KEY,
+      JSON.stringify(newest)
+    );
+}
+
+export function migrateReaderStorage(workspaceSlug, threadSlug = null) {
+  migrateReaderHistoryToGlobal();
+  migrateReaderSourcesToGlobal();
+  migrateCurrentReaderDocumentToGlobal(workspaceSlug, threadSlug);
 }
 
 function isoNow() {
@@ -417,6 +561,12 @@ function mergeHistoryItems(primary = {}, secondary = {}) {
       primary.backupReaderDocumentId ||
       secondary.backupReaderDocumentId ||
       null,
+    readerDocumentWorkspaceSlug:
+      primary.readerDocumentWorkspaceSlug ||
+      secondary.readerDocumentWorkspaceSlug ||
+      primary.workspaceSlug ||
+      secondary.workspaceSlug ||
+      null,
     workspaceDocPath:
       primary.workspaceDocPath || secondary.workspaceDocPath || null,
     localDocumentId:
@@ -443,6 +593,8 @@ function normalizeHistoryItem(item = {}) {
     bookKey,
     branchId,
     branchLabel: branchId ? item.branchLabel || "本地分支" : null,
+    readerDocumentWorkspaceSlug:
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null,
     uploaded: isUploadedHistoryItem(item),
     progress: normalizedReaderProgress(item.progress),
     key,
@@ -456,6 +608,8 @@ function normalizeBookshelfItem(item = {}) {
     ...normalized,
     workspaceSlug: item.workspaceSlug || null,
     threadSlug: item.threadSlug || null,
+    readerDocumentWorkspaceSlug:
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null,
     addedAt: item.addedAt || item.lastOpenedAt || now,
     updatedAt: item.updatedAt || item.lastOpenedAt || now,
   };
@@ -481,12 +635,8 @@ function normalizeHistory(history = []) {
   return [...byKey.values()].sort(historySort);
 }
 
-export function readReaderHistory(workspaceSlug, threadSlug = null) {
-  if (!workspaceSlug) return [];
-  const parsed = safeJson(
-    localStorage.getItem(readerHistoryStorageKey(workspaceSlug, threadSlug)),
-    []
-  );
+export function readReaderHistory() {
+  const parsed = safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []);
   return normalizeHistory(parsed);
 }
 
@@ -495,18 +645,17 @@ export function writeReaderHistory(
   threadSlug = null,
   history = []
 ) {
-  if (!workspaceSlug) return [];
+  void workspaceSlug;
+  void threadSlug;
   const next = normalizeHistory(history).slice(0, 20);
-  localStorage.setItem(
-    readerHistoryStorageKey(workspaceSlug, threadSlug),
-    JSON.stringify(next)
-  );
+  localStorage.setItem(READER_HISTORY_STORAGE_KEY, JSON.stringify(next));
   return next;
 }
 
 export function clearReaderHistory(workspaceSlug, threadSlug = null) {
-  if (!workspaceSlug) return [];
-  localStorage.removeItem(readerHistoryStorageKey(workspaceSlug, threadSlug));
+  void workspaceSlug;
+  void threadSlug;
+  localStorage.removeItem(READER_HISTORY_STORAGE_KEY);
   return [];
 }
 
@@ -587,6 +736,12 @@ export function upsertReaderBookshelfItems(items = []) {
         readerDocumentId: item.readerDocumentId || previous?.readerDocumentId,
         backupReaderDocumentId:
           item.backupReaderDocumentId || previous?.backupReaderDocumentId,
+        readerDocumentWorkspaceSlug:
+          item.readerDocumentWorkspaceSlug ||
+          previous?.readerDocumentWorkspaceSlug ||
+          item.workspaceSlug ||
+          previous?.workspaceSlug ||
+          null,
         thumbnailDataUrl: item.thumbnailDataUrl || previous?.thumbnailDataUrl,
         categoryStatus: item.categoryStatus || previous?.categoryStatus,
         categoryStage: item.categoryStage || previous?.categoryStage,
@@ -624,25 +779,6 @@ export function deleteReaderBookshelfItems(keys = []) {
   return writeReaderBookshelf(
     readReaderBookshelf().filter((item) => !selected.has(item.key))
   );
-}
-
-export function writePendingBookshelfOpen(item = null) {
-  if (!item) return;
-  localStorage.setItem(
-    READER_BOOKSHELF_PENDING_OPEN_KEY,
-    JSON.stringify({ ...item, requestedAt: new Date().toISOString() })
-  );
-}
-
-export function readPendingBookshelfOpen() {
-  return safeJson(
-    localStorage.getItem(READER_BOOKSHELF_PENDING_OPEN_KEY),
-    null
-  );
-}
-
-export function clearPendingBookshelfOpen() {
-  localStorage.removeItem(READER_BOOKSHELF_PENDING_OPEN_KEY);
 }
 
 export function normalizedReaderProgress(progress = null) {
@@ -704,13 +840,134 @@ export function readerHistoryItemKey(item = {}) {
   return branchId ? `${bookKey}:branch:${branchId}` : `${bookKey}:main`;
 }
 
+function normalizeReaderProgressBackup(item = {}) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key) return null;
+  const progress = normalizedReaderProgress(item.progress);
+  return {
+    key,
+    title: item.title || null,
+    bookKey: item.bookKey || fallbackBookKey(item),
+    branchId: item.branchId || null,
+    branchLabel: item.branchLabel || null,
+    documentType: item.documentType || null,
+    readerDocumentId: item.readerDocumentId || null,
+    backupReaderDocumentId: item.backupReaderDocumentId || null,
+    readerDocumentWorkspaceSlug:
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null,
+    workspaceDocPath: item.workspaceDocPath || null,
+    localDocumentId: item.localDocumentId || null,
+    localPath: item.localPath || null,
+    progress,
+    updatedAt: progress.updatedAt || item.updatedAt || null,
+  };
+}
+
+function readerProgressBackupSort(a, b) {
+  return (
+    timestampValue(b.updatedAt || b.progress?.updatedAt) -
+    timestampValue(a.updatedAt || a.progress?.updatedAt)
+  );
+}
+
+export function readReaderProgressBackups() {
+  const parsed = safeJson(
+    localStorage.getItem(READER_PROGRESS_BACKUP_STORAGE_KEY),
+    []
+  );
+  const rawItems = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
+  const byKey = new Map();
+  for (const rawItem of rawItems) {
+    const item = normalizeReaderProgressBackup(rawItem);
+    if (!item) continue;
+    const previous = byKey.get(item.key);
+    if (
+      !previous ||
+      timestampValue(item.updatedAt || item.progress?.updatedAt) >=
+        timestampValue(previous.updatedAt || previous.progress?.updatedAt)
+    ) {
+      byKey.set(item.key, item);
+    }
+  }
+  return [...byKey.values()].sort(readerProgressBackupSort).slice(0, 100);
+}
+
+export function writeReaderProgressBackups(backups = []) {
+  const next = (Array.isArray(backups) ? backups : Object.values(backups || {}))
+    .map(normalizeReaderProgressBackup)
+    .filter(Boolean)
+    .sort(readerProgressBackupSort)
+    .slice(0, 100);
+  localStorage.setItem(
+    READER_PROGRESS_BACKUP_STORAGE_KEY,
+    JSON.stringify(next)
+  );
+  return next;
+}
+
+export function findReaderProgressBackup(item = {}) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key) return null;
+  return (
+    readReaderProgressBackups().find((backup) => backup.key === key) || null
+  );
+}
+
+export function upsertReaderProgressBackup(item = {}, progress = null) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key || !progress) return null;
+  const nextProgress = normalizedReaderProgress({
+    ...progress,
+    updatedAt: progress.updatedAt || new Date().toISOString(),
+  });
+  const backup = normalizeReaderProgressBackup({
+    ...item,
+    key,
+    progress: nextProgress,
+    updatedAt: nextProgress.updatedAt,
+  });
+  if (!backup) return null;
+  const current = readReaderProgressBackups().filter(
+    (entry) => entry.key !== key
+  );
+  writeReaderProgressBackups([backup, ...current]);
+  return backup;
+}
+
+export function deleteReaderProgressBackup(items = []) {
+  const selected = new Set(
+    (Array.isArray(items) ? items : [items])
+      .map((item) =>
+        typeof item === "string"
+          ? item
+          : item?.key || readerHistoryItemKey(item)
+      )
+      .filter(Boolean)
+  );
+  if (!selected.size) return readReaderProgressBackups();
+  return writeReaderProgressBackups(
+    readReaderProgressBackups().filter((backup) => !selected.has(backup.key))
+  );
+}
+
+export function readerItemWithLatestProgressBackup(item = null) {
+  if (!item) return item;
+  const backup = findReaderProgressBackup(item);
+  if (!backup?.progress) return item;
+  if (!shouldUseReaderProgressBackup(item.progress, backup.progress))
+    return item;
+  return {
+    ...item,
+    progress: normalizedReaderProgress(backup.progress),
+  };
+}
+
 export function upsertReaderHistory(
   workspaceSlug,
   threadSlug = null,
   item = {}
 ) {
-  if (!workspaceSlug || !item?.title)
-    return readReaderHistory(workspaceSlug, threadSlug);
+  if (!item?.title) return readReaderHistory(workspaceSlug, threadSlug);
   const normalizedItem = normalizeHistoryItem(item);
   const itemKey = readerHistoryItemKey(normalizedItem);
   const now = new Date().toISOString();
@@ -732,6 +989,12 @@ export function upsertReaderHistory(
     backupReaderDocumentId:
       normalizedItem.backupReaderDocumentId ||
       previous?.backupReaderDocumentId ||
+      null,
+    readerDocumentWorkspaceSlug:
+      normalizedItem.readerDocumentWorkspaceSlug ||
+      previous?.readerDocumentWorkspaceSlug ||
+      normalizedItem.workspaceSlug ||
+      previous?.workspaceSlug ||
       null,
     workspaceDocPath:
       normalizedItem.workspaceDocPath || previous?.workspaceDocPath || null,
@@ -762,7 +1025,6 @@ export function updateReaderHistoryItem(
   item = {},
   patch = {}
 ) {
-  if (!workspaceSlug) return [];
   const key = item.key || readerHistoryItemKey(item);
   if (!key) return readReaderHistory(workspaceSlug, threadSlug);
   const current = readReaderHistory(workspaceSlug, threadSlug);
@@ -789,7 +1051,6 @@ export function deleteReaderHistoryItem(
   threadSlug = null,
   item = {}
 ) {
-  if (!workspaceSlug) return [];
   const key = item.key || readerHistoryItemKey(item);
   if (!key) return readReaderHistory(workspaceSlug, threadSlug);
   const current = readReaderHistory(workspaceSlug, threadSlug);
@@ -982,6 +1243,11 @@ export function compactDocumentForStorage(document) {
     localDocumentId: document.localDocumentId || null,
     readerDocumentId: document.readerDocumentId || null,
     backupReaderDocumentId: document.backupReaderDocumentId || null,
+    readerDocumentWorkspaceSlug:
+      document.readerDocumentWorkspaceSlug ||
+      document.metadata?.readerDocumentWorkspaceSlug ||
+      document.workspaceSlug ||
+      null,
     documentType: document.documentType,
     renderType: document.renderType || null,
     title: document.title,

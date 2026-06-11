@@ -34,6 +34,7 @@ async function validWorkspaceAndThreadSlug(request, response, next) {
 
   const thread = await WorkspaceThread.get({
     slug: threadSlug,
+    workspace_id: workspace.id,
     user_id: user?.id || null,
   });
   if (!thread) {

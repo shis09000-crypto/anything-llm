@@ -113,11 +113,31 @@ describe("workspace reader documents", () => {
     expect(root).toContain(
       path.join(
         storageDir,
+        "production",
         "reader-documents",
         "workspace-a",
         "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a"
       )
     );
+  });
+
+  it("resolves standalone reader document roots outside workspace scopes", () => {
+    const { readerDocumentRoot, STANDALONE_READER_SCOPE } =
+      loadEndpoint(storageDir);
+    const root = readerDocumentRoot(
+      STANDALONE_READER_SCOPE,
+      "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a"
+    );
+    expect(root).toContain(
+      path.join(
+        storageDir,
+        "production",
+        "reader-documents",
+        "__global_reader__",
+        "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a"
+      )
+    );
+    expect(root).not.toContain(path.join("reader-documents", "workspace-a"));
   });
 
   it("reports reader OCR config without leaking secrets", () => {

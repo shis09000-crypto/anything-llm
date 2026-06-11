@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { cryptoHubSseData } from "@/hooks/cryptoHub/useCryptoHubStream";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import { generateMockCandles } from "./tradingPairMockCandles";
 import type {
   TradingPairCandle,
@@ -17,8 +19,8 @@ import type {
 } from "./tradingPairDetailTypes";
 
 const MAX_CACHED_CANDLES = 720;
-const CANDLES_ENDPOINT = `${API_BASE}/crypto/gate/market/candles`;
-const CANDLES_STREAM_ENDPOINT = `${API_BASE}/crypto/gate/market/candles/stream`;
+const CANDLES_ENDPOINT = `${API_BASE}/crypto-hub/market-candles`;
+const HUB_CANDLES_STREAM_ENDPOINT = `${API_BASE}/crypto-hub/market-candles/stream`;
 const STREAM_RENDER_THROTTLE_MS = 250;
 const STREAM_RECONNECT_MS = 1_500;
 
@@ -222,7 +224,7 @@ export function useTradingPairCandlestickData({
       range,
       market,
     });
-    return `${CANDLES_STREAM_ENDPOINT}?${params.toString()}`;
+    return `${HUB_CANDLES_STREAM_ENDPOINT}?${params.toString()}`;
   }
 
   function flushStreamPayload() {
@@ -322,9 +324,9 @@ export function useTradingPairCandlestickData({
         throw new Error(`Gate market stream failed: ${response.status}`);
       },
       onmessage(message) {
-        const payload = parseSseJson<TradingPairCandlesStreamEvent>(
-          message.data
-        );
+        const payload =
+          cryptoHubSseData<TradingPairCandlesStreamEvent>(message.data) ||
+          parseSseJson<TradingPairCandlesStreamEvent>(message.data);
         if (payload) scheduleStreamPayload(payload);
       },
       onclose() {
@@ -358,6 +360,14 @@ export function useTradingPairCandlestickData({
       restartGateRealtime("snapshot");
     }, STREAM_RECONNECT_MS);
   }
+
+  useCryptoHubWatchedConnection({
+    key: `marketCandles.stream.${market}.${pair}.${range}`,
+    active: mode === "gate-api" && market === "spot",
+    status,
+    lastConnectedAt: apiMeta?.asOf || null,
+    reconnect: () => restartGateRealtime("snapshot"),
+  });
 
   const initialLoadingActive =
     loading && initialLoadingViewKey === activeViewKey;

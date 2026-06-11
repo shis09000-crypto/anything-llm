@@ -5,6 +5,8 @@ const { convertToPromptHistory } = require("../helpers/chat/responses");
 const { SlashCommandPresets } = require("../../models/slashCommandsPresets");
 const { SystemPromptVariables } = require("../../models/systemPromptVariables");
 
+const CACHE_STABLE_HISTORY_STRATEGY = "cache-stable-blocks";
+
 const VALID_COMMANDS = {
   "/reset": resetMemory,
 };
@@ -64,21 +66,104 @@ async function recentChatHistory({
   thread = null,
   messageLimit = 20,
   apiSessionId = null,
+  afterChatId = null,
+  historyStrategy = null,
 }) {
+  const clause = {
+    workspaceId: workspace.id,
+    user_id: user?.id || null,
+    thread_id: thread?.id || null,
+    api_session_id: apiSessionId || null,
+    include: true,
+  };
+  if (afterChatId !== null) clause.id = { gt: Number(afterChatId) };
+
+  if (historyStrategy?.type === CACHE_STABLE_HISTORY_STRATEGY) {
+    const totalCount = await WorkspaceChats.count(clause);
+    const historyWindow = cacheStableHistoryWindow({
+      totalCount,
+      blockSize: historyStrategy.blockSize || messageLimit,
+      maxBlocks: historyStrategy.maxBlocks || 2,
+    });
+    const rawHistory =
+      historyWindow.limit > 0
+        ? await WorkspaceChats.where(
+            clause,
+            historyWindow.limit,
+            { id: "asc" },
+            historyWindow.offset
+          )
+        : [];
+
+    return {
+      rawHistory,
+      chatHistory: convertToPromptHistory(rawHistory),
+      historyWindow,
+    };
+  }
+
   const rawHistory = (
-    await WorkspaceChats.where(
-      {
-        workspaceId: workspace.id,
-        user_id: user?.id || null,
-        thread_id: thread?.id || null,
-        api_session_id: apiSessionId || null,
-        include: true,
-      },
-      messageLimit,
-      { id: "desc" }
-    )
+    await WorkspaceChats.where(clause, messageLimit, { id: "desc" })
   ).reverse();
   return { rawHistory, chatHistory: convertToPromptHistory(rawHistory) };
+}
+
+function cacheStableHistoryStrategyFor({ llm = null, messageLimit = 20 } = {}) {
+  if (!llm?.cacheStableHistory) return null;
+  const blockSize = Math.max(1, Number(messageLimit || 20));
+  return {
+    type: CACHE_STABLE_HISTORY_STRATEGY,
+    blockSize,
+    maxBlocks: 2,
+  };
+}
+
+function cacheStableHistoryWindow({
+  totalCount = 0,
+  blockSize = 20,
+  maxBlocks = 2,
+} = {}) {
+  const normalizedCount = Math.max(0, Number(totalCount || 0));
+  const normalizedBlockSize = Math.max(1, Number(blockSize || 20));
+  const normalizedMaxBlocks = Math.max(1, Number(maxBlocks || 2));
+
+  if (normalizedCount === 0) {
+    return {
+      strategy: CACHE_STABLE_HISTORY_STRATEGY,
+      totalCount: 0,
+      blockSize: normalizedBlockSize,
+      maxBlocks: normalizedMaxBlocks,
+      offset: 0,
+      limit: 0,
+      windowStartOrdinal: null,
+      windowEndOrdinal: null,
+      currentBlockIndex: null,
+      historyPressureLimit: normalizedBlockSize * normalizedMaxBlocks,
+    };
+  }
+
+  const currentBlockIndex = Math.floor(
+    (normalizedCount - 1) / normalizedBlockSize
+  );
+  const firstBlockIndex = Math.max(
+    0,
+    currentBlockIndex - (normalizedMaxBlocks - 1)
+  );
+  const offset = firstBlockIndex * normalizedBlockSize;
+  const limit = normalizedCount - offset;
+
+  return {
+    strategy: CACHE_STABLE_HISTORY_STRATEGY,
+    totalCount: normalizedCount,
+    blockSize: normalizedBlockSize,
+    maxBlocks: normalizedMaxBlocks,
+    offset,
+    limit,
+    windowStartOrdinal: offset + 1,
+    windowEndOrdinal: normalizedCount,
+    currentBlockIndex,
+    historyPressureLimit: normalizedBlockSize * normalizedMaxBlocks,
+  };
 }
 
 /**
@@ -112,6 +197,9 @@ function sourceIdentifier(sourceDocument) {
 module.exports = {
   sourceIdentifier,
   recentChatHistory,
+  cacheStableHistoryStrategyFor,
+  cacheStableHistoryWindow,
+  CACHE_STABLE_HISTORY_STRATEGY,
   chatPrompt,
   grepCommand,
   grepAllSlashCommands,

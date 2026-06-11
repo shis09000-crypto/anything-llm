@@ -128,6 +128,7 @@ function orderSql(orderBy = { lastUpdatedAt: "desc" }) {
 }
 
 const WorkspaceMindMaps = {
+  ensureTable,
   cacheUserKey,
   toPayload,
 

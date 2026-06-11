@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
+import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import type {
   TradingPairDataMode,
   TradingPairDetailResponse,
   TradingPairMarketType,
 } from "./tradingPairDetailTypes";
 
-const DETAIL_ENDPOINT = `${API_BASE}/crypto/gate/trading-pair/detail`;
+const DETAIL_ENDPOINT = `${API_BASE}/crypto-hub/trading-pair-detail`;
 
 export function useTradingPairDetailData({
   mode,
@@ -22,17 +23,34 @@ export function useTradingPairDetailData({
     null
   );
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
+  const [watchdogRefreshNonce, setWatchdogRefreshNonce] = useState(0);
   const lastAsOfRef = useRef<number | null>(null);
   const failureCountRef = useRef(0);
 
   const clear = useCallback(() => {
     setResponse(null);
     setError(null);
+    setLoading(false);
+    setHasLoadedOnce(false);
     setReconnectAttempt(0);
     failureCountRef.current = 0;
     lastAsOfRef.current = null;
   }, []);
+
+  useCryptoHubWatchedConnection({
+    key: `tradingPairDetail.rest.${market}.${pair}`,
+    active: mode === "gate-api" && market === "spot",
+    status: error
+      ? response
+        ? "degraded"
+        : "error"
+      : response?.connectionStatus || "connected",
+    lastConnectedAt: response?.asOf || null,
+    reconnect: () => setWatchdogRefreshNonce((current) => current + 1),
+  });
 
   useEffect(() => {
     if (mode !== "gate-api" || market !== "spot") {
@@ -44,6 +62,7 @@ export function useTradingPairDetailData({
     let timer: number | null = null;
 
     async function loadDetail() {
+      setLoading(true);
       try {
         const params = new URLSearchParams({
           pair,
@@ -61,6 +80,7 @@ export function useTradingPairDetailData({
         failureCountRef.current = 0;
         setReconnectAttempt(0);
         setError(null);
+        setHasLoadedOnce(true);
         if (lastAsOfRef.current === payload.asOf) return true;
         lastAsOfRef.current = payload.asOf;
         setResponse(payload);
@@ -74,7 +94,10 @@ export function useTradingPairDetailData({
             ? requestError.message
             : "交易对详情读取失败"
         );
+        setHasLoadedOnce(true);
         return false;
+      } finally {
+        if (!cancelled) setLoading(false);
       }
     }
 
@@ -103,11 +126,13 @@ export function useTradingPairDetailData({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [mode, market, pair]);
+  }, [mode, market, pair, watchdogRefreshNonce]);
 
   return {
     response,
     error,
+    loading,
+    hasLoadedOnce,
     reconnectAttempt,
     clear,
   };

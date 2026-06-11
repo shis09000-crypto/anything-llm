@@ -7,6 +7,7 @@ import type {
   OpenFuturesPositionItem,
   OpenFuturesPositionsCardProps,
 } from "./openFuturesPositionsTypes";
+import { useCryptoStatusLabel } from "./cryptoStatusI18n";
 
 type PositionFilter = "all" | "long" | "short" | "risk";
 
@@ -50,12 +51,11 @@ const LIQUIDATION_RISK_META: Record<
 
 const statusMeta: Record<
   NonNullable<OpenFuturesPositionsCardProps["status"]>,
-  { label: string; color: string; bg: string }
+  { color: string; bg: string }
 > = {
-  connected: { label: "实时", color: "#22C55E", bg: "rgba(34,197,94,.10)" },
-  degraded: { label: "降级", color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
+  connected: { color: "#22C55E", bg: "rgba(34,197,94,.10)" },
+  degraded: { color: "#F4B23E", bg: "rgba(244,178,62,.10)" },
   disconnected: {
-    label: "离线",
     color: "#EF4444",
     bg: "rgba(239,68,68,.10)",
   },
@@ -300,6 +300,7 @@ export default function OpenFuturesPositionsCard({
   const [internalUpdatedAt, setInternalUpdatedAt] = useState<number | null>(
     lastUpdatedAt
   );
+  const statusLabel = useCryptoStatusLabel(status);
 
   const activeFilterLabel =
     FILTER_OPTIONS.find((option) => option.id === filter)?.label || filterLabel;
@@ -376,7 +377,7 @@ export default function OpenFuturesPositionsCard({
               backgroundColor: statusMeta[status].bg,
             }}
           >
-            {statusMeta[status].label}
+            {statusLabel}
           </div>
           <div className="relative">
             <button
