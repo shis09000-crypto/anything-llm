@@ -68,61 +68,34 @@ wait_for_port() {
 }
 
 start_process() {
-  local name="$1"
-  local dir="$2"
-  local logfile="$3"
-  shift 3
+  local pid_var="$1"
+  local name="$2"
+  local dir="$3"
+  local logfile="$4"
+  local pid_file
+  local pid
+  shift 4
 
   log "starting $name..."
-  (
-    cd "$dir"
-    if command -v python3 >/dev/null 2>&1; then
-      env \
-        APP_ENV=development \
-        SERVER_PORT="$SERVER_PORT" \
-        COLLECTOR_PORT="$COLLECTOR_PORT" \
-        ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
-        ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
-        STORAGE_DIR="$ENV_STORAGE_ROOT" \
-        VITE_API_BASE="$API_URL" \
-        python3 - "$logfile" "$@" <<'PY' &
-import os
-import sys
-
-logfile = sys.argv[1]
-cmd = sys.argv[2:]
-
-stdin_fd = os.open(os.devnull, os.O_RDONLY)
-log_fd = os.open(logfile, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
-os.dup2(stdin_fd, 0)
-os.dup2(log_fd, 1)
-os.dup2(log_fd, 2)
-os.close(stdin_fd)
-os.close(log_fd)
-os.setsid()
-
-try:
-    os.execvp(cmd[0], cmd)
-except Exception as error:
-    print(f"failed to exec {cmd[0]}: {error}", file=sys.stderr, flush=True)
-    sys.exit(127)
-PY
-      echo $!
-    else
-      nohup env \
-        APP_ENV=development \
-        SERVER_PORT="$SERVER_PORT" \
-        COLLECTOR_PORT="$COLLECTOR_PORT" \
-        ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
-        ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
-        STORAGE_DIR="$ENV_STORAGE_ROOT" \
-        VITE_API_BASE="$API_URL" \
-        "$@" </dev/null >"$logfile" 2>&1 &
-      local pid=$!
-      disown "$pid" >/dev/null 2>&1 || true
-      echo "$pid"
-    fi
-  )
+  pid_file="$(mktemp "${TMPDIR:-/tmp}/anythingllm-${name}-pid.XXXXXX")"
+  pushd "$dir" >/dev/null
+  nohup env \
+    APP_ENV=development \
+    NODE_ENV=development \
+    SERVER_PORT="$SERVER_PORT" \
+    COLLECTOR_PORT="$COLLECTOR_PORT" \
+    ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+    ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+    STORAGE_DIR="$ENV_STORAGE_ROOT" \
+    VITE_API_BASE="$API_URL" \
+    "$@" </dev/null >"$logfile" 2>&1 &
+  pid=$!
+  disown "$pid" >/dev/null 2>&1 || true
+  popd >/dev/null
+  printf '%s' "$pid" >"$pid_file"
+  pid="$(cat "$pid_file")"
+  rm -f "$pid_file"
+  printf -v "$pid_var" '%s' "$pid"
 }
 
 ensure_process_alive() {
@@ -196,15 +169,67 @@ migration_id() {
   node -e 'console.log(require("crypto").randomUUID())'
 }
 
+sqlite_scalar() {
+  local db_path="$1"
+  local sql="$2"
+  sqlite3 "$db_path" "$sql" 2>/dev/null || printf '0'
+}
+
+migration_applied() {
+  local db_path="$1"
+  local migration_name="$2"
+  local applied
+
+  applied="$(sqlite_scalar "$db_path" "select count(*) from \"_prisma_migrations\" where migration_name = '$(sqlite_quote "$migration_name")' and rolled_back_at is null;")"
+  [[ "$applied" != "0" ]]
+}
+
+record_sqlite_migration() {
+  local db_path="$1"
+  local migration_name="$2"
+  local migration_sql="$3"
+  local id
+  local checksum
+
+  id="$(migration_id)"
+  checksum="$(shasum -a 256 "$migration_sql" | awk '{print $1}')"
+  sqlite3 "$db_path" "insert into \"_prisma_migrations\" (id, checksum, finished_at, migration_name, started_at, applied_steps_count) values ('$(sqlite_quote "$id")', '$(sqlite_quote "$checksum")', datetime('now'), '$(sqlite_quote "$migration_name")', datetime('now'), 1);"
+}
+
+email_verification_schema_exists() {
+  local db_path="$1"
+  local table_count
+  local user_column_count
+
+  table_count="$(sqlite_scalar "$db_path" "select count(*) from sqlite_master where type='table' and name='email_verification_codes';")"
+  user_column_count="$(sqlite_scalar "$db_path" "select count(*) from pragma_table_info('users') where name in ('email','email_verified_at');")"
+  [[ "$table_count" == "1" && "$user_column_count" == "2" ]]
+}
+
+reconcile_known_sqlite_migration() {
+  local db_path="$1"
+  local migration_name="$2"
+  local migration_sql="$3"
+
+  case "$migration_name" in
+    20260612090000_add_email_verification)
+      if email_verification_schema_exists "$db_path"; then
+        log "recording already-applied migration $migration_name"
+        record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
+        return 0
+      fi
+      ;;
+  esac
+
+  return 1
+}
+
 apply_sqlite_migrations() {
   local db_path="$1"
   local migrations_dir="$ROOT_DIR/server/prisma/migrations"
   local migration_dir
   local migration_name
   local migration_sql
-  local applied
-  local id
-  local checksum
 
   sqlite3 "$db_path" <<'SQL'
 CREATE TABLE IF NOT EXISTS "_prisma_migrations" (
@@ -225,16 +250,17 @@ SQL
     migration_sql="$migration_dir/migration.sql"
     [[ -f "$migration_sql" ]] || continue
 
-    applied="$(sqlite3 "$db_path" "select count(*) from \"_prisma_migrations\" where migration_name = '$(sqlite_quote "$migration_name")' and rolled_back_at is null;" 2>/dev/null || printf '0')"
-    if [[ "$applied" != "0" ]]; then
+    if migration_applied "$db_path" "$migration_name"; then
+      continue
+    fi
+
+    if reconcile_known_sqlite_migration "$db_path" "$migration_name" "$migration_sql"; then
       continue
     fi
 
     log "applying migration $migration_name"
     sqlite3 "$db_path" <"$migration_sql"
-    id="$(migration_id)"
-    checksum="$(shasum -a 256 "$migration_sql" | awk '{print $1}')"
-    sqlite3 "$db_path" "insert into \"_prisma_migrations\" (id, checksum, finished_at, migration_name, started_at, applied_steps_count) values ('$(sqlite_quote "$id")', '$(sqlite_quote "$checksum")', datetime('now'), '$(sqlite_quote "$migration_name")', datetime('now'), 1);"
+    record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
   done
 }
 
@@ -242,6 +268,7 @@ ensure_env_database() {
   local db_path="$ENV_STORAGE_ROOT/anythingllm.db"
 
   if database_has_core_schema "$db_path"; then
+    apply_sqlite_migrations "$db_path"
     log "development database schema is ready"
     return 0
   fi
@@ -415,30 +442,22 @@ FRONTEND_LOG="$LOG_DIR/development-frontend.log"
 : >"$COLLECTOR_LOG"
 : >"$FRONTEND_LOG"
 
-SERVER_PID="$(start_process server "$ROOT_DIR/server" "$SERVER_LOG" \
-  ./node_modules/.bin/cross-env NODE_ENV=development \
-  ./node_modules/.bin/nodemon \
-    --ignore documents \
-    --ignore vector-cache \
-    --ignore storage \
-    --ignore swagger \
-    --ignore swagger/openapi.json \
-    --no-stdin \
-    --trace-warnings index.js)"
-COLLECTOR_PID="$(start_process collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" \
+start_process SERVER_PID server "$ROOT_DIR/server" "$SERVER_LOG" \
+  node --trace-warnings index.js
+start_process COLLECTOR_PID collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" \
   ./node_modules/.bin/cross-env NODE_ENV=development \
   ./node_modules/.bin/nodemon \
     --ignore hotdir \
     --ignore storage \
     --no-stdin \
-    --trace-warnings index.js)"
-FRONTEND_PID="$(start_process frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" \
+    --trace-warnings index.js
+start_process FRONTEND_PID frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" \
   ./node_modules/.bin/cross-env NODE_ENV=development \
   ./node_modules/.bin/vite \
     --debug \
     --host 0.0.0.0 \
     --port "$FRONTEND_PORT" \
-    --strictPort)"
+    --strictPort
 
 ensure_process_alive server "$SERVER_PID" "$SERVER_LOG"
 ensure_process_alive collector "$COLLECTOR_PID" "$COLLECTOR_LOG"

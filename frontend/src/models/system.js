@@ -143,6 +143,50 @@ const System = {
         return { success: false, error: e.message };
       });
   },
+  requestEmailPasswordReset: async function (username, email) {
+    return await fetch(`${API_BASE}/system/recover-account/email/request`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ username, email }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.message || "Error requesting reset code.",
+            errorCode: data.errorCode,
+          };
+        }
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  confirmEmailPasswordReset: async function (username, email, code) {
+    return await fetch(`${API_BASE}/system/recover-account/email/confirm`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ username, email, code }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "Error confirming reset code.",
+            errorCode: data.errorCode,
+          };
+        }
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
   resetPassword: async function (token, newPassword, confirmPassword) {
     return await fetch(`${API_BASE}/system/reset-password`, {
       method: "POST",
@@ -153,6 +197,61 @@ const System = {
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data.message || "Error resetting password.");
+        }
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  emailVerificationStatus: async function () {
+    return await fetch(`${API_BASE}/system/user/email-verification`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  requestEmailVerification: async function ({ email }) {
+    return await fetch(`${API_BASE}/system/user/email-verification/request`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ email }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "Error sending code.",
+            errorCode: data.errorCode,
+          };
+        }
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  confirmEmailVerification: async function ({ email, code }) {
+    return await fetch(`${API_BASE}/system/user/email-verification/confirm`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ email, code }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "Error verifying code.",
+            errorCode: data.errorCode,
+          };
         }
         return data;
       })

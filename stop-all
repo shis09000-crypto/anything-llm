@@ -70,6 +70,14 @@ pid_is_repo_dev_process() {
   command="$(pid_command "$pid")"
   if [[ -z "$cwd" || -z "$command" ]]; then return 1; fi
 
+  if [[ "$command" == *"python3 - "* && "$command" == *".anythingllm-runtime/logs/development-"*".log"* ]]; then
+    case "$cwd" in
+      "$ROOT_DIR/server"|"$ROOT_DIR/server"/*|"$ROOT_DIR/collector"|"$ROOT_DIR/collector"/*|"$ROOT_DIR/frontend"|"$ROOT_DIR/frontend"/*)
+        return 0
+        ;;
+    esac
+  fi
+
   case "$cwd" in
     "$ROOT_DIR/server"|"$ROOT_DIR/server"/*)
       [[ "$command" == *"node_modules/.bin/cross-env"* && "$command" == *"nodemon"* ]] && return 0

@@ -247,6 +247,8 @@ model users {
   role                         String                        @default("default")
   suspended                    Int                           @default(0)
   seen_recovery_codes          Boolean?                      @default(false)
+  email                        String?                       @unique
+  email_verified_at            DateTime?
   createdAt                    DateTime                      @default(now())
   lastUpdatedAt                DateTime                      @default(now())
   dailyMessageLimit            Int?
@@ -259,6 +261,7 @@ model users {
   threads                      workspace_threads[]
   recovery_codes               recovery_codes[]
   password_reset_tokens        password_reset_tokens[]
+  email_verification_codes     email_verification_codes[]
   workspace_agent_invocations  workspace_agent_invocations[]
   slash_command_presets        slash_command_presets[]
   browser_extension_api_keys   browser_extension_api_keys[]
@@ -394,6 +397,25 @@ model password_reset_tokens {
   user      users    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+}
+
+model email_verification_codes {
+  id          Int       @id @default(autoincrement())
+  user_id     Int
+  email       String
+  purpose     String
+  code_hash   String
+  expiresAt   DateTime
+  attempts    Int       @default(0)
+  consumedAt  DateTime?
+  request_ip  String?
+  createdAt   DateTime  @default(now())
+  user        users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([user_id, purpose])
+  @@index([email, purpose])
+  @@index([request_ip, createdAt])
 }
 
 model document_vectors {

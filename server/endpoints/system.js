@@ -51,7 +51,13 @@ const { EventLogs } = require("../models/eventLogs");
 const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
 const { CollectorApi } = require("../utils/collectorApi");
 const {
+  confirmAuthenticatedEmailVerification,
+  confirmEmailPasswordReset,
+  emailStatus,
+  EMAIL_RECOVERY_GENERIC_RESPONSE,
   recoverAccount,
+  requestAuthenticatedEmailVerification,
+  requestEmailPasswordReset,
   resetPassword,
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
@@ -104,6 +110,13 @@ const PROVIDER_PRESETS = {
     },
   },
 };
+
+function requestLanguage(request = {}) {
+  const header = String(request?.headers?.["accept-language"] || "en");
+  const primary = header.split(",")[0]?.trim().toLowerCase() || "en";
+  if (primary.startsWith("zh")) return "zh";
+  return primary.split("-")[0] || "en";
+}
 
 function systemEndpoints(app) {
   if (!app) return;
@@ -547,6 +560,56 @@ function systemEndpoints(app) {
   );
 
   app.post(
+    "/system/recover-account/email/request",
+    [isMultiUserSetup],
+    async (request, response) => {
+      try {
+        const { username, email } = reqBody(request);
+        const result = await requestEmailPasswordReset({
+          username,
+          email,
+          language: requestLanguage(request),
+          ip: request.ip,
+        });
+        response.status(200).json(result);
+      } catch (error) {
+        console.error("Error requesting email password reset:", error);
+        response.status(200).json({
+          success: true,
+          message: EMAIL_RECOVERY_GENERIC_RESPONSE,
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/recover-account/email/confirm",
+    [isMultiUserSetup],
+    async (request, response) => {
+      try {
+        const { username, email, code } = reqBody(request);
+        const { success, resetToken, error } = await confirmEmailPasswordReset({
+          username,
+          email,
+          code,
+          ip: request.ip,
+        });
+
+        if (success) {
+          response.status(200).json({ success, resetToken });
+        } else {
+          response.status(400).json({ success, error });
+        }
+      } catch (error) {
+        console.error("Error confirming email password reset:", error);
+        response
+          .status(500)
+          .json({ success: false, error: "Internal server error" });
+      }
+    }
+  );
+
+  app.post(
     "/system/reset-password",
     [isMultiUserSetup],
     async (request, response) => {
@@ -561,7 +624,7 @@ function systemEndpoints(app) {
         if (success) {
           response.status(200).json({ success, message });
         } else {
-          response.status(400).json({ success, error });
+          response.status(400).json({ success, error: error || message });
         }
       } catch (error) {
         console.error("Error resetting password:", error);
@@ -1581,6 +1644,72 @@ function systemEndpoints(app) {
         .json({ success: false, error: e.message || "Internal server error" });
     }
   });
+
+  app.get(
+    "/system/user/email-verification",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const result = await emailStatus(sessionUser.id);
+        response.status(result.success ? 200 : 400).json(result);
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Internal server error",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/email-verification/request",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const { email } = reqBody(request);
+        const result = await requestAuthenticatedEmailVerification({
+          userId: sessionUser.id,
+          email,
+          language: requestLanguage(request),
+          ip: request.ip,
+        });
+        response.status(result.success ? 200 : 400).json(result);
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Internal server error",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/email-verification/confirm",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const { email, code } = reqBody(request);
+        const result = await confirmAuthenticatedEmailVerification({
+          userId: sessionUser.id,
+          email,
+          code,
+          ip: request.ip,
+        });
+        response.status(result.success ? 200 : 400).json(result);
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Internal server error",
+        });
+      }
+    }
+  );
 
   app.get(
     "/system/slash-command-presets",

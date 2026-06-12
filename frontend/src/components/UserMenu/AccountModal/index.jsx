@@ -20,6 +20,9 @@ import { safeJsonParse } from "@/utils/request";
 import Toggle from "@/components/lib/Toggle";
 import AppButton from "@/components/lib/AppButton";
 import AppIcon from "@/components/lib/AppIcon";
+import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
+import { normalizeEmailInput } from "@/utils/emailInput";
+import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
 import paths from "@/utils/paths";
 import { createPortal } from "react-dom";
 import {
@@ -40,6 +43,19 @@ export default function AccountModal({ user, hideModal }) {
     })
   );
   const closingRef = useRef(false);
+  const [emailStatus, setEmailStatus] = useState({
+    email: user.email || "",
+    verified: Boolean(user.email && user.email_verified_at),
+    pendingEmail: "",
+  });
+  const [emailDraft, setEmailDraft] = useState(user.email || "");
+  const [emailStep, setEmailStep] = useState("request");
+  const [emailLoading, setEmailLoading] = useState(false);
+  const [emailCodeResetSignal, setEmailCodeResetSignal] = useState(0);
+  const [emailResendRemaining, setEmailResendRemaining] = useState(0);
+  const [emailEditMode, setEmailEditMode] = useState(
+    !(user.email && user.email_verified_at)
+  );
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -56,6 +72,31 @@ export default function AccountModal({ user, hideModal }) {
       bio: user.bio || "",
     });
   }, [user.bio, user.username]);
+
+  useEffect(() => {
+    async function fetchEmailStatus() {
+      const result = await System.emailVerificationStatus();
+      if (!result.success) return;
+      setEmailStatus({
+        email: result.email || "",
+        verified: Boolean(result.verified),
+        verifiedAt: result.verifiedAt || null,
+        pendingEmail: result.pendingEmail || "",
+      });
+      setEmailDraft(result.pendingEmail || result.email || "");
+      setEmailStep(result.pendingEmail ? "verify" : "request");
+      setEmailEditMode(Boolean(result.pendingEmail || !result.verified));
+    }
+    fetchEmailStatus();
+  }, []);
+
+  useEffect(() => {
+    if (emailResendRemaining <= 0) return;
+    const timer = setTimeout(() => {
+      setEmailResendRemaining((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => clearTimeout(timer);
+  }, [emailResendRemaining]);
 
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
@@ -135,7 +176,93 @@ export default function AccountModal({ user, hideModal }) {
     window.location.replace(paths.home());
   }
 
+  async function requestEmailCode() {
+    if (emailLoading || emailResendRemaining > 0) return;
+    if (!emailDraft) {
+      showToast(t("profile_settings.email-required"), "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    setEmailLoading(true);
+    const result = await System.requestEmailVerification({
+      email: emailDraft,
+    });
+    setEmailLoading(false);
+
+    if (!result.success) {
+      if (result.resendCooldownSeconds) {
+        setEmailResendRemaining(Number(result.resendCooldownSeconds));
+      }
+      showToast(emailVerificationErrorMessage(t, result), "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    setEmailStatus((current) => ({
+      ...current,
+      pendingEmail: result.pendingEmail || emailDraft,
+    }));
+    setEmailStep("verify");
+    setEmailResendRemaining(Number(result.resendCooldownSeconds) || 60);
+    showToast(t("profile_settings.email-code-sent"), "success", {
+      clear: true,
+    });
+  }
+
+  function startEmailEdit() {
+    setEmailEditMode(true);
+    setEmailDraft("");
+    setEmailStep("request");
+    setEmailResendRemaining(0);
+    setEmailCodeResetSignal((current) => current + 1);
+  }
+
+  async function confirmEmailCode(code) {
+    if (emailLoading) return;
+    setEmailLoading(true);
+    const result = await System.confirmEmailVerification({
+      email: emailStatus.pendingEmail || emailDraft,
+      code,
+    });
+    setEmailLoading(false);
+
+    if (!result.success) {
+      setEmailCodeResetSignal((current) => current + 1);
+      showToast(emailVerificationErrorMessage(t, result), "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    const nextStatus = {
+      email: result.email,
+      verified: true,
+      verifiedAt: result.verifiedAt,
+      pendingEmail: "",
+    };
+    setEmailStatus(nextStatus);
+    setEmailDraft(result.email);
+    setEmailStep("request");
+    setEmailEditMode(false);
+
+    let storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+    if (storedUser) {
+      storedUser.email = result.email;
+      storedUser.email_verified_at = result.verifiedAt;
+      localStorage.setItem(AUTH_USER, JSON.stringify(storedUser));
+    }
+    showToast(t("profile_settings.email-verified-success"), "success", {
+      clear: true,
+    });
+  }
+
   if (typeof document === "undefined") return null;
+
+  const showEmailEditor =
+    !emailStatus.verified || Boolean(emailStatus.pendingEmail) || emailEditMode;
 
   return createPortal(
     <div
@@ -256,6 +383,111 @@ export default function AccountModal({ user, hideModal }) {
                   <p className="mt-2 text-xs text-theme-text-secondary">
                     {t("profile_settings.password_description")}
                   </p>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-white/[0.02] p-4 light:border-slate-200 light:bg-slate-50">
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <label className="block text-sm font-medium text-theme-text-primary">
+                        {t("profile_settings.email")}
+                      </label>
+                      <p className="mt-1 text-sm text-theme-text-secondary">
+                        {emailStatus.verified ? (
+                          <>
+                            <span className="font-semibold text-base text-theme-text-primary">
+                              {emailStatus.email}
+                            </span>{" "}
+                            <span>
+                              · {t("profile_settings.email-verified")}
+                            </span>
+                          </>
+                        ) : emailStatus.pendingEmail ? (
+                          <>
+                            <span className="font-semibold text-base text-theme-text-primary">
+                              {emailStatus.pendingEmail}
+                            </span>{" "}
+                            <span>· {t("profile_settings.email-pending")}</span>
+                          </>
+                        ) : (
+                          t("profile_settings.email-unbound")
+                        )}
+                      </p>
+                    </div>
+                    {emailStatus.verified && (
+                      <span className="w-fit rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-semibold text-emerald-300 light:text-emerald-700">
+                        {t("profile_settings.email-verified")}
+                      </span>
+                    )}
+                    {!emailStatus.verified && emailStatus.pendingEmail && (
+                      <span className="w-fit rounded-md bg-amber-500/15 px-2 py-1 text-xs font-semibold text-amber-300 light:text-amber-700">
+                        {t("profile_settings.email-pending")}
+                      </span>
+                    )}
+                  </div>
+                  {showEmailEditor && (
+                    <div className="mt-4">
+                      <input
+                        type="email"
+                        value={emailDraft}
+                        onChange={(event) => {
+                          setEmailDraft(
+                            normalizeEmailInput(event.target.value)
+                          );
+                          setEmailStep("request");
+                        }}
+                        className="border border-white/10 bg-theme-settings-input-bg placeholder:text-theme-settings-input-placeholder text-theme-settings-input-text text-sm rounded-2xl focus:border-primary-button focus:outline-none outline-none block w-full p-3 light:border-slate-200 light:bg-white"
+                        placeholder="noreply@example.com"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        lang="en"
+                      />
+                    </div>
+                  )}
+                  <div
+                    className={`mt-4 flex flex-col gap-3 sm:flex-row sm:items-center ${
+                      showEmailEditor ? "sm:justify-between" : "sm:justify-end"
+                    }`}
+                  >
+                    {showEmailEditor &&
+                      (emailStep === "verify" ? (
+                        <EmailVerificationCodeInput
+                          disabled={emailLoading}
+                          onComplete={confirmEmailCode}
+                          resetSignal={emailCodeResetSignal}
+                          inputClassName="h-10 w-9 rounded-lg border border-white/10 bg-theme-settings-input-bg text-center text-base font-semibold text-theme-settings-input-text outline-none focus:border-primary-button light:border-slate-200 light:bg-white"
+                        />
+                      ) : (
+                        <span className="text-xs text-theme-text-secondary">
+                          {emailStatus.verified
+                            ? t("profile_settings.email-change-hint")
+                            : t("profile_settings.email-bind-hint")}
+                        </span>
+                      ))}
+                    <button
+                      type="button"
+                      disabled={
+                        showEmailEditor &&
+                        (emailLoading || emailResendRemaining > 0)
+                      }
+                      onClick={
+                        showEmailEditor ? requestEmailCode : startEmailEdit
+                      }
+                      className="h-10 rounded-lg bg-white px-4 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300"
+                    >
+                      {!showEmailEditor
+                        ? t("profile_settings.change-email")
+                        : emailLoading
+                          ? t("profile_settings.processing")
+                          : emailResendRemaining > 0
+                            ? t(
+                                "profile_settings.resend-verification-code-in",
+                                {
+                                  seconds: emailResendRemaining,
+                                }
+                              )
+                            : t("profile_settings.send-verification-code")}
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label

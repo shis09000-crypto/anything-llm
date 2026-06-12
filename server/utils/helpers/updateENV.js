@@ -1749,6 +1749,16 @@ function dumpENV() {
     "FEEDBACK_GMAIL_SCRIPT_URL",
     "FEEDBACK_GMAIL_API_KEY",
     "FEEDBACK_TO_EMAIL",
+
+    // Official account email delivery channel. Intended for Tencent Exmail SMTP.
+    "EMAIL_SMTP_HOST",
+    "EMAIL_SMTP_PORT",
+    "EMAIL_SMTP_USER",
+    "EMAIL_SMTP_PASSWORD",
+    "EMAIL_SMTP_FROM",
+    "EMAIL_SMTP_SECURE",
+    "EMAIL_VERIFICATION_IP_HOURLY_LIMIT",
+    "EMAIL_VERIFICATION_USERNAME_HOURLY_LIMIT",
   ];
 
   // Simple sanitization of each value to prevent ENV injection via newline or quote escaping.

@@ -165,6 +165,18 @@ const TRANSLATIONS = {
         "Provide the necessary information below to reset your password.",
       "recovery-codes": "Recovery Codes",
       "back-to-login": "Back to Login",
+      "email-title": "Email Password Reset",
+      "email-description":
+        "Use a verified account email to receive a 6-digit code.",
+      "verified-email": "Verified email",
+      "verification-code": "Verification code",
+      "send-code": "Send verification code",
+      "resend-code-in": "Resend in {{seconds}}s",
+      sending: "Sending...",
+      "use-email": "Use email verification instead",
+      "use-recovery-codes": "Use recovery codes instead",
+      "generic-email-sent":
+        "If the account and verified email exist, a verification code has been sent.",
     },
   },
   "main-page": {
@@ -2236,8 +2248,36 @@ const readable = true;
     profile_updated: "Profile updated.",
     failed_update_user: "Failed to update user: {{error}}",
     account: "Account",
+    email: "Email",
+    "email-verified": "Verified",
+    "email-pending": "Pending verification",
+    "email-unbound": "Not bound",
+    "email-bind-hint": "Enter an email to receive a verification code.",
+    "email-change-hint": "Enter a new email to receive a verification code.",
+    "email-required": "Email is required.",
+    "email-code-sent": "Verification code sent.",
+    "email-verified-success": "Email verified.",
+    "change-email": "Change email",
+    "send-verification-code": "Send verification code",
+    "resend-verification-code-in": "Resend in {{seconds}}s",
+    processing: "Processing...",
     support: "Support",
     signout: "Sign out",
+  },
+  email_verification_errors: {
+    not_found:
+      "No active verification code was found. Please request a new code.",
+    invalid_format: "Enter the 6-digit verification code.",
+    expired: "This verification code has expired. Please request a new code.",
+    consumed:
+      "This verification code has already been used. Please request a new code.",
+    attempts_exceeded:
+      "Too many failed attempts. Please request a new verification code.",
+    mismatch:
+      "The verification code is incorrect. Please check the latest email.",
+    resend_cooldown: "Please wait before requesting another verification code.",
+    smtp_not_configured: "Email SMTP is not configured.",
+    default: "Verification failed. Please request a new code and try again.",
   },
   "keyboard-shortcuts": {
     title: "Keyboard Shortcuts",

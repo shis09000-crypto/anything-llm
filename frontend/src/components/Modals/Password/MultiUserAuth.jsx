@@ -8,8 +8,33 @@ import { useModal } from "@/hooks/useModal";
 import RecoveryCodeModal from "@/components/Modals/DisplayRecoveryCodeModal";
 import { useTranslation } from "react-i18next";
 import { t } from "i18next";
+import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
+import { normalizeEmailInput } from "@/utils/emailInput";
+import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
 
-const RecoveryForm = ({ onSubmit, setShowRecoveryForm }) => {
+const RecoveryForm = ({ onSubmit, setShowRecoveryForm, onEmailResetToken }) => {
+  const [method, setMethod] = useState("email");
+
+  if (method === "email") {
+    return (
+      <EmailRecoveryForm
+        setMethod={setMethod}
+        setShowRecoveryForm={setShowRecoveryForm}
+        onEmailResetToken={onEmailResetToken}
+      />
+    );
+  }
+
+  return (
+    <RecoveryCodeForm
+      onSubmit={onSubmit}
+      setShowRecoveryForm={setShowRecoveryForm}
+      setMethod={setMethod}
+    />
+  );
+};
+
+const RecoveryCodeForm = ({ onSubmit, setShowRecoveryForm, setMethod }) => {
   const [username, setUsername] = useState("");
   const [recoveryCodeInputs, setRecoveryCodeInputs] = useState(
     Array(2).fill("")
@@ -89,6 +114,178 @@ const RecoveryForm = ({ onSubmit, setShowRecoveryForm }) => {
           className="text-zinc-950 bg-white hover:bg-zinc-300 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
         >
           {t("login.password-reset.title")}
+        </button>
+        <button
+          type="button"
+          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
+          onClick={() => setMethod("email")}
+        >
+          {t("login.password-reset.use-email")}
+        </button>
+        <button
+          type="button"
+          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
+          onClick={() => setShowRecoveryForm(false)}
+        >
+          {t("login.password-reset.back-to-login")}
+        </button>
+      </div>
+    </form>
+  );
+};
+
+const EmailRecoveryForm = ({
+  setMethod,
+  setShowRecoveryForm,
+  onEmailResetToken,
+}) => {
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [step, setStep] = useState("request");
+  const [loading, setLoading] = useState(false);
+  const [codeResetSignal, setCodeResetSignal] = useState(0);
+  const [resendRemaining, setResendRemaining] = useState(0);
+
+  useEffect(() => {
+    if (resendRemaining <= 0) return;
+    const timer = setTimeout(() => {
+      setResendRemaining((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => clearTimeout(timer);
+  }, [resendRemaining]);
+
+  const handleRequest = async (event) => {
+    event.preventDefault();
+    if (loading || resendRemaining > 0) return;
+    setLoading(true);
+    const result = await System.requestEmailPasswordReset(username, email);
+    setLoading(false);
+    if (!result.success) {
+      if (result.resendCooldownSeconds) {
+        setResendRemaining(Number(result.resendCooldownSeconds));
+      }
+      showToast(emailVerificationErrorMessage(t, result), "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    showToast(
+      result.message || t("login.password-reset.generic-email-sent"),
+      "success",
+      { clear: true }
+    );
+    setStep("verify");
+    setResendRemaining(Number(result.resendCooldownSeconds) || 60);
+  };
+
+  const handleVerify = async (code) => {
+    if (loading) return;
+    setLoading(true);
+    const { success, resetToken, error, errorCode } =
+      await System.confirmEmailPasswordReset(username, email, code);
+    setLoading(false);
+
+    if (success && resetToken) {
+      onEmailResetToken(resetToken);
+    } else {
+      setCodeResetSignal((current) => current + 1);
+      showToast(
+        emailVerificationErrorMessage(t, { error, errorCode }),
+        "error",
+        { clear: true }
+      );
+    }
+  };
+
+  return (
+    <form
+      onSubmit={handleRequest}
+      className="flex flex-col justify-center items-center"
+    >
+      <div className="flex items-start justify-between pt-7 pb-9">
+        <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
+          <div className="flex gap-x-1">
+            <h3 className="text-white light:text-slate-950 text-3xl leading-[28px] font-medium text-center white-space-nowrap block">
+              {t("login.password-reset.email-title")}
+            </h3>
+          </div>
+          <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
+            {t("login.password-reset.email-description")}
+          </p>
+        </div>
+      </div>
+      <div className="w-full px-12">
+        <div className="w-full flex flex-col gap-y-3">
+          <div className="w-full flex flex-col gap-y-2">
+            <label className="text-zinc-300 light:text-slate-800 text-sm">
+              {t("login.multi-user.placeholder-username")}
+            </label>
+            <input
+              name="username"
+              type="text"
+              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              required
+              disabled={step === "verify"}
+              autoComplete="off"
+            />
+          </div>
+          <div className="w-full flex flex-col gap-y-2">
+            <label className="text-zinc-300 light:text-slate-800 text-sm">
+              {t("login.password-reset.verified-email")}
+            </label>
+            <input
+              name="email"
+              type="email"
+              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
+              value={email}
+              onChange={(event) =>
+                setEmail(normalizeEmailInput(event.target.value))
+              }
+              required
+              disabled={step === "verify"}
+              autoComplete="email"
+              autoCapitalize="none"
+              spellCheck={false}
+              lang="en"
+            />
+          </div>
+          {step === "verify" && (
+            <div className="w-full flex flex-col gap-y-2">
+              <label className="text-zinc-300 light:text-slate-800 text-sm">
+                {t("login.password-reset.verification-code")}
+              </label>
+              <EmailVerificationCodeInput
+                disabled={loading}
+                onComplete={handleVerify}
+                resetSignal={codeResetSignal}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center px-12 mt-9 space-x-2 w-full flex-col gap-y-6">
+        <button
+          disabled={loading || resendRemaining > 0}
+          type="submit"
+          className="text-zinc-950 bg-white hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
+        >
+          {loading
+            ? t("login.password-reset.sending")
+            : resendRemaining > 0
+              ? t("login.password-reset.resend-code-in", {
+                  seconds: resendRemaining,
+                })
+              : t("login.password-reset.send-code")}
+        </button>
+        <button
+          type="button"
+          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
+          onClick={() => setMethod("recovery")}
+        >
+          {t("login.password-reset.use-recovery-codes")}
         </button>
         <button
           type="button"
@@ -233,6 +430,12 @@ export default function MultiUserAuth() {
     }
   };
 
+  const handleEmailResetToken = (resetToken) => {
+    window.localStorage.setItem("resetToken", resetToken);
+    setShowRecoveryForm(false);
+    setShowResetPasswordForm(true);
+  };
+
   const handleResetSubmit = async (newPassword, confirmPassword) => {
     const resetToken = window.localStorage.getItem("resetToken");
 
@@ -277,6 +480,7 @@ export default function MultiUserAuth() {
       <RecoveryForm
         onSubmit={handleRecoverySubmit}
         setShowRecoveryForm={setShowRecoveryForm}
+        onEmailResetToken={handleEmailResetToken}
       />
     );
   }
