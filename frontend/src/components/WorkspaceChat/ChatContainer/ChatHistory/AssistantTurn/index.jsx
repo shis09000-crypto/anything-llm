@@ -129,6 +129,7 @@ function AssistantTurn({
           events={thoughtEvents}
           toolEvents={normalToolEvents}
           isRunning={isRunning}
+          stateId={`${turn.id}:timeline`}
         />
         {approvalEvents.map((event) => (
           <ToolEvent

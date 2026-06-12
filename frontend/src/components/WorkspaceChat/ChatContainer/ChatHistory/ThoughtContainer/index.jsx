@@ -6,6 +6,7 @@ import {
   createContext,
   useContext,
   useCallback,
+  useRef,
 } from "react";
 import renderMarkdown from "@/utils/chat/markdown";
 import { CaretDown } from "@phosphor-icons/react";
@@ -13,6 +14,11 @@ import DOMPurify from "dompurify";
 import { isMobile } from "react-device-detect";
 import ThinkingAnimation from "@/media/animations/thinking-animation.webm";
 import ThinkingStatic from "@/media/animations/thinking-static.png";
+import {
+  readChatFoldStates,
+  writeChatFoldState,
+} from "@/utils/chat/chatScrollMemory";
+import { debugChatTurn } from "@/utils/chat/debug";
 
 /**
  * Context to persist thought expansion state across component transitions
@@ -20,8 +26,14 @@ import ThinkingStatic from "@/media/animations/thinking-static.png";
  */
 const ThoughtExpansionContext = createContext(null);
 
-export function ThoughtExpansionProvider({ children }) {
-  const [expansionStates, setExpansionStates] = useState({});
+export function ThoughtExpansionProvider({ chatKey = null, children }) {
+  const [expansionStates, setExpansionStates] = useState(() =>
+    readChatFoldStates(chatKey)
+  );
+
+  useEffect(() => {
+    setExpansionStates(readChatFoldStates(chatKey));
+  }, [chatKey]);
 
   const getExpanded = useCallback(
     (messageId) => {
@@ -31,13 +43,20 @@ export function ThoughtExpansionProvider({ children }) {
     [expansionStates]
   );
 
-  const setExpanded = useCallback((messageId, expanded) => {
-    if (!messageId) return;
-    setExpansionStates((prev) => ({
-      ...prev,
-      [messageId]: expanded,
-    }));
-  }, []);
+  const setExpanded = useCallback(
+    (messageId, expanded) => {
+      if (!messageId) return;
+      setExpansionStates((prev) => {
+        const next = {
+          ...prev,
+          [messageId]: expanded,
+        };
+        writeChatFoldState(chatKey, messageId, expanded);
+        return next;
+      });
+    },
+    [chatKey]
+  );
 
   return (
     <ThoughtExpansionContext.Provider value={{ getExpanded, setExpanded }}>
@@ -96,11 +115,15 @@ function contentIsNotEmpty(content = "") {
  * @returns {JSX.Element}
  */
 export const ThoughtChainComponent = forwardRef(
-  ({ content: initialContent, messageId }, ref) => {
+  (
+    { content: initialContent, messageId, onContentLayoutChange = null },
+    ref
+  ) => {
     const [content, setContent] = useState(initialContent);
     const [hasReadableContent, setHasReadableContent] = useState(
       contentIsNotEmpty(initialContent)
     );
+    const initialLayoutRef = useRef(true);
     const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
       useThoughtExpansion(messageId);
     const [localExpanded, setLocalExpanded] = useState(false);
@@ -133,6 +156,21 @@ export const ThoughtChainComponent = forwardRef(
       .replace(THOUGHT_REGEX_OPEN, "")
       .replace(THOUGHT_REGEX_CLOSE, "");
     const canExpand = tagStrippedContent.length > THOUGHT_PREVIEW_LENGTH;
+
+    useEffect(() => {
+      if (initialLayoutRef.current) {
+        initialLayoutRef.current = false;
+        return;
+      }
+
+      onContentLayoutChange?.("thoughtchain-layout");
+      debugChatTurn("ThoughtChain:layoutChange", {
+        messageId,
+        isExpanded,
+        canExpand,
+      });
+    }, [isExpanded, canExpand, messageId, onContentLayoutChange]);
+
     if (!content || !content.length || !hasReadableContent) return null;
 
     function handleExpandClick() {

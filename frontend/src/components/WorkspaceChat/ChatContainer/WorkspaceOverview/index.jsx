@@ -21,6 +21,7 @@ import AppButton from "@/components/lib/AppButton";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import { API_BASE } from "@/utils/constants";
+import { baseHeaders } from "@/utils/request";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 import { useTranslation } from "react-i18next";
@@ -258,20 +259,78 @@ function resolveOverviewAssetUrl(url = null) {
   return url;
 }
 
+function isPrivateOverviewAssetUrl(url = null) {
+  const value = String(url || "");
+  return value.includes("/api/workspace/") && value.includes("/visual-assets/");
+}
+
+function useOverviewImageUrl(url = null) {
+  const [state, setState] = useState({
+    src: null,
+    failed: false,
+  });
+
+  useEffect(() => {
+    if (!url) {
+      setState({ src: null, failed: false });
+      return;
+    }
+
+    if (!isPrivateOverviewAssetUrl(url)) {
+      setState({ src: url, failed: false });
+      return;
+    }
+
+    const controller = new AbortController();
+    let objectUrl = null;
+    let cancelled = false;
+    setState({ src: null, failed: false });
+
+    fetch(url, {
+      headers: baseHeaders(),
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("overview_asset_fetch_failed");
+        const blob = await response.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setState({ src: objectUrl, failed: false });
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError" || cancelled) return;
+        setState({ src: null, failed: true });
+      });
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [url]);
+
+  return state;
+}
+
 function VisualBackground({
   userUrl = null,
   defaultUrl = null,
   className = "",
 }) {
   const resolvedUserUrl = resolveOverviewAssetUrl(userUrl);
+  const userImage = useOverviewImageUrl(resolvedUserUrl);
   const [source, setSource] = useState(resolvedUserUrl ? "user" : "default");
   useEffect(() => {
     setSource(resolvedUserUrl ? "user" : "default");
   }, [defaultUrl, resolvedUserUrl]);
 
+  useEffect(() => {
+    if (userImage.failed) setSource(defaultUrl ? "default" : "css");
+  }, [defaultUrl, userImage.failed]);
+
   const src =
     source === "user" && resolvedUserUrl
-      ? resolvedUserUrl
+      ? userImage.src || defaultUrl
       : source === "default" && defaultUrl
         ? defaultUrl
         : null;

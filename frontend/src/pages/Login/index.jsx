@@ -5,6 +5,7 @@ import { Navigate } from "react-router-dom";
 import paths from "@/utils/paths";
 import useQuery from "@/hooks/useQuery";
 import useSimpleSSO from "@/hooks/useSimpleSSO";
+import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 
 /**
  * Login page that handles both single and multi-user login.
@@ -20,6 +21,8 @@ export default function Login() {
   const { loading, requiresAuth, mode } = usePasswordModal(!!query.get("nt"));
 
   if (loading || ssoLoading) return <FullScreenLoader />;
+
+  if (isCodexDevAuthBypassEnabled()) return <Navigate to={paths.home()} />;
 
   // If simple SSO is enabled and no login is allowed, redirect to the SSO login page.
   if (ssoConfig.enabled && ssoConfig.noLogin) {

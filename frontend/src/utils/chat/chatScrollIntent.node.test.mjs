@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   clearSavedChatScrollPosition,
   getChatScrollIntent,
+  isExplicitChatScrollNavigationIntent,
   markChatUserScrollIntent,
   markProgrammaticChatScroll,
   shouldLoadOlderChatHistory,
@@ -99,4 +100,12 @@ test("prepend correction without user intent does not save position", () => {
 
   assert.equal(intent.canSavePosition, false);
   assert.equal(intent.shouldLeaveFollowOutput, false);
+});
+
+test("layout transitions are cancelled only by explicit scroll navigation", () => {
+  assert.equal(isExplicitChatScrollNavigationIntent("wheel"), true);
+  assert.equal(isExplicitChatScrollNavigationIntent("touch"), true);
+  assert.equal(isExplicitChatScrollNavigationIntent("keyboard"), true);
+  assert.equal(isExplicitChatScrollNavigationIntent("pointer"), false);
+  assert.equal(isExplicitChatScrollNavigationIntent("click"), false);
 });

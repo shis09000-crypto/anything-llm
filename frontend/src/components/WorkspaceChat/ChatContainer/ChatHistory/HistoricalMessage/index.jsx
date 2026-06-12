@@ -1,4 +1,10 @@
-import React, { memo, useLayoutEffect, useRef, useState } from "react";
+import React, {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { Info, Warning } from "@phosphor-icons/react";
 import Actions from "./Actions";
 import renderMarkdown from "@/utils/chat/markdown";
@@ -13,6 +19,7 @@ import {
   THOUGHT_REGEX_COMPLETE,
   THOUGHT_REGEX_OPEN,
   ThoughtChainComponent,
+  useThoughtExpansion,
 } from "../ThoughtContainer";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
@@ -24,6 +31,7 @@ import ReaderTextSourceCards, {
   readerSourcesForTurn,
 } from "../../DocumentReader/ReaderTextSourceCards";
 import { useDocumentReader } from "../../DocumentReader/Provider";
+import { debugChatTurn } from "@/utils/chat/debug";
 
 const HistoricalMessage = ({
   uuid: uuidProp,
@@ -46,6 +54,7 @@ const HistoricalMessage = ({
   outputs = [],
   hydrationStatus = null,
   readOnly = false,
+  onContentLayoutChange = null,
 }) => {
   // Freeze uuid on first render. User messages arrive without a uuid and this value
   // is used as the wrapper div's `key` — a default param fallback would regenerate
@@ -118,7 +127,11 @@ const HistoricalMessage = ({
       >
         <div className="py-4 px-4 flex flex-col items-end">
           <div className="bg-zinc-800 light:bg-slate-100 rounded-[20px] rounded-br-none px-4 py-3.5 max-w-[720px] [&_p]:m-0">
-            <TruncatableContent>
+            <TruncatableContent
+              stateId={`${uuid}:truncatable`}
+              messageId={uuid}
+              onContentLayoutChange={onContentLayoutChange}
+            >
               <ReaderTextSourceCards
                 sources={documentReaderTextSources}
                 className="mb-3 max-w-[540px]"
@@ -128,6 +141,7 @@ const HistoricalMessage = ({
                 role={role}
                 message={message}
                 messageId={uuid}
+                onContentLayoutChange={onContentLayoutChange}
               />
               <ChatAttachments attachments={attachments} />
             </TruncatableContent>
@@ -169,7 +183,12 @@ const HistoricalMessage = ({
           />
         ) : (
           <div className="break-words">
-            <RenderChatContent role={role} message={message} messageId={uuid} />
+            <RenderChatContent
+              role={role}
+              message={message}
+              messageId={uuid}
+              onContentLayoutChange={onContentLayoutChange}
+            />
             {isRefusalMessage && (
               <Link
                 data-tooltip-id="query-refusal-info"
@@ -272,11 +291,21 @@ function ChatAttachments({ attachments = [] }) {
   );
 }
 
-function TruncatableContent({ children }) {
+function TruncatableContent({
+  children,
+  stateId = null,
+  messageId,
+  onContentLayoutChange = null,
+}) {
   const contentRef = useRef(null);
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
+    useThoughtExpansion(stateId);
+  const [localExpanded, setLocalExpanded] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
+  const initialLayoutRef = useRef(true);
   const { t } = useTranslation();
+  const isExpanded = stateId ? persistedExpanded : localExpanded;
+  const setIsExpanded = stateId ? setPersistedExpanded : setLocalExpanded;
 
   // useLayoutEffect (not useEffect) so collapse applies before paint — avoids a
   // one-frame flash of uncollapsed content on mount.
@@ -285,6 +314,21 @@ function TruncatableContent({ children }) {
       setIsOverflowing(contentRef.current.scrollHeight > 250);
     }
   }, []);
+
+  useEffect(() => {
+    if (initialLayoutRef.current) {
+      initialLayoutRef.current = false;
+      return;
+    }
+
+    onContentLayoutChange?.("truncatable-content-toggle");
+    debugChatTurn("TruncatableContent:layoutChange", {
+      messageId,
+      stateId,
+      isExpanded,
+      isOverflowing,
+    });
+  }, [isExpanded, isOverflowing, messageId, onContentLayoutChange, stateId]);
 
   const showTruncation = !isExpanded && isOverflowing;
 
@@ -318,7 +362,14 @@ function TruncatableContent({ children }) {
       </div>
       {isOverflowing && (
         <button
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={() => {
+            debugChatTurn("TruncatableContent:toggle", {
+              messageId,
+              stateId,
+              nextExpanded: !isExpanded,
+            });
+            setIsExpanded(!isExpanded);
+          }}
           className="text-zinc-300 light:text-slate-700 hover:text-white light:hover:text-slate-900 text-xs font-medium leading-4 mt-2"
         >
           {isExpanded ? t("chat_window.see_less") : t("chat_window.see_more")}
@@ -329,7 +380,7 @@ function TruncatableContent({ children }) {
 }
 
 const RenderChatContent = memo(
-  ({ role, message, messageId }) => {
+  ({ role, message, messageId, onContentLayoutChange = null }) => {
     // If the message is not from the assistant, we can render it directly
     // as normal since the user cannot think (lol)
     if (role !== "assistant")
@@ -366,7 +417,11 @@ const RenderChatContent = memo(
     return (
       <>
         {thoughtChain && (
-          <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
+          <ThoughtChainComponent
+            content={thoughtChain}
+            messageId={messageId}
+            onContentLayoutChange={onContentLayoutChange}
+          />
         )}
         <div
           className="flex flex-col gap-y-1 text-white light:text-slate-900"

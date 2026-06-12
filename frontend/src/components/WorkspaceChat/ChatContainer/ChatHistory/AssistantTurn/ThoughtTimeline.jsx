@@ -9,6 +9,7 @@ import {
   formatToolPayloadPreview,
   formatToolStatus,
 } from "@/utils/chat/toolTimelineI18n";
+import { useThoughtExpansion } from "../ThoughtContainer";
 
 function formatPayload(data) {
   if (data === undefined || data === null) return "";
@@ -95,9 +96,14 @@ export default function ThoughtTimeline({
   events = [],
   toolEvents = [],
   isRunning = false,
+  stateId = null,
 }) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
+    useThoughtExpansion(stateId);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const isExpanded = stateId ? persistedExpanded : localExpanded;
+  const setIsExpanded = stateId ? setPersistedExpanded : setLocalExpanded;
   const visibleEvents = useMemo(
     () =>
       [...events, ...toolEvents]

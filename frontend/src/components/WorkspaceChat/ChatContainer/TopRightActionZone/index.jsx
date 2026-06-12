@@ -4,6 +4,7 @@ import { isMobile } from "react-device-detect";
 import useLoginMode from "@/hooks/useLoginMode";
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
+import { debugChatTurn } from "@/utils/chat/debug";
 
 const MIND_MAP_REVEAL_DELAY_MS = 125;
 const HIDE_DELAY_MS = 2000;
@@ -140,10 +141,14 @@ function ActionDivider() {
 }
 
 function DocumentReaderQuickEntry({ onOpen }) {
+  function handleClick() {
+    debugChatTurn("TopRightActionZone:documentReaderClick");
+    onOpen?.();
+  }
   return (
     <>
       <ActionDivider />
-      <ActionRailButton onClick={onOpen} title="伴读文档">
+      <ActionRailButton onClick={handleClick} title="伴读文档">
         <BookOpenText
           size={18}
           className="text-zinc-200 light:text-slate-600 group-hover:text-white light:group-hover:text-blue-600"

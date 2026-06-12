@@ -2,9 +2,15 @@ const { SystemSettings } = require("../../models/systemSettings");
 const { User } = require("../../models/user");
 const { EncryptionManager } = require("../EncryptionManager");
 const { decodeJWT } = require("../http");
+const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {
+  if (applyCodexDevAuthBypass(request, response)) {
+    next();
+    return;
+  }
+
   const multiUserMode = await SystemSettings.isMultiUserMode();
   response.locals.multiUserMode = multiUserMode;
   if (multiUserMode)

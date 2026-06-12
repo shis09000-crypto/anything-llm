@@ -46,6 +46,12 @@ export function hasRecentChatUserScrollIntent(
   return Boolean(state?.at && now - state.at <= windowMs);
 }
 
+export function isExplicitChatScrollNavigationIntent(source = null) {
+  return ["wheel", "touch", "keyboard", "shortcut-top"].includes(
+    String(source || "")
+  );
+}
+
 export function shouldLoadOlderChatHistory({
   scrollTop = 0,
   hasMoreHistory = false,

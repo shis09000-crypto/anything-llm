@@ -5,6 +5,10 @@ const JWT = require("jsonwebtoken");
 const { User } = require("../../models/user");
 const { jsonrepair } = require("jsonrepair");
 const extract = require("extract-json-from-string");
+const {
+  codexDevAuthUser,
+  isCodexDevAuthBypassEnabled,
+} = require("../codexDevAuthBypass");
 
 function reqBody(request) {
   return typeof request.body === "string"
@@ -39,6 +43,9 @@ function makeJWT(info = {}, expiry = "30d") {
 async function userFromSession(request, response = null) {
   if (!!response && !!response.locals?.user) {
     return response.locals.user;
+  }
+  if (isCodexDevAuthBypassEnabled(request)) {
+    return codexDevAuthUser();
   }
 
   const auth = request.header("Authorization");

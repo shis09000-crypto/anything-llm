@@ -8,7 +8,14 @@ import {
   Mouse,
   X,
 } from "@phosphor-icons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { PdfLoader, PdfHighlighter, Highlight } from "react-pdf-highlighter";
 import "pdfjs-dist/web/pdf_viewer.css";
 import "react-pdf-highlighter/dist/esm/style/PdfHighlighter.css";
@@ -205,15 +212,18 @@ function PdfDocumentLifecycle({ pdfDocument, onReady }) {
   return null;
 }
 
-export default function PdfReader({
-  document,
-  onCite,
-  onThumbnailReady,
-  onProgressChange,
-  readerTextSources = [],
-  onFocusTextSource,
-  onRemoveTextSource,
-}) {
+const PdfReader = forwardRef(function PdfReader(
+  {
+    document,
+    onCite,
+    onThumbnailReady,
+    onProgressChange,
+    readerTextSources = [],
+    onFocusTextSource,
+    onRemoveTextSource,
+  },
+  ref
+) {
   const containerRef = useRef(null);
   const highlighterRef = useRef(null);
   const scrollToRef = useRef(null);
@@ -685,6 +695,14 @@ export default function PdfReader({
     }
     if (screenshotSelection) scheduleScreenshotLayoutUpdate();
   }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCurrentProgress: () => capturePdfProgress(),
+    }),
+    [capturePdfProgress]
+  );
 
   function flashHighlight(highlightId) {
     setFlashHighlightId(highlightId);
@@ -1852,4 +1870,6 @@ export default function PdfReader({
       </style>
     </div>
   );
-}
+});
+
+export default PdfReader;

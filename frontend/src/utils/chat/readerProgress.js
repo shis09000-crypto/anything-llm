@@ -27,21 +27,70 @@ export function readerProgressHasPosition(progress = null) {
   );
 }
 
+export function readerProgressAllowsStartPosition(progress = null) {
+  return (
+    progress?.trusted === true ||
+    progress?.trustStartPosition === true ||
+    progress?.source === "reader-event" ||
+    progress?.source === "user"
+  );
+}
+
+export function shouldUseReaderProgressCandidate(
+  currentProgress = null,
+  candidateProgress = null,
+  options = {}
+) {
+  if (!candidateProgress) return false;
+  if (!currentProgress) return true;
+
+  const currentHasPosition = readerProgressHasPosition(currentProgress);
+  const candidateHasPosition = readerProgressHasPosition(candidateProgress);
+  const trustStartPosition =
+    options.trustStartPosition ||
+    readerProgressAllowsStartPosition(candidateProgress);
+
+  if (!candidateHasPosition && currentHasPosition && !trustStartPosition)
+    return false;
+  if (candidateHasPosition && !currentHasPosition) return true;
+
+  const candidateTime = readerProgressTimestamp(candidateProgress);
+  const currentTime = readerProgressTimestamp(currentProgress);
+  if (candidateTime && (!currentTime || candidateTime >= currentTime))
+    return true;
+  if (currentTime && !candidateTime) return false;
+  if (!candidateTime && !currentTime) {
+    if (candidateHasPosition && !currentHasPosition) return true;
+    if (options.preferCandidateWithoutTimestamp) return true;
+  }
+  return false;
+}
+
+export function selectReaderProgress(candidates = [], options = {}) {
+  let selected = null;
+  for (const candidate of candidates) {
+    const entry =
+      candidate && Object.prototype.hasOwnProperty.call(candidate, "progress")
+        ? candidate
+        : { progress: candidate };
+    if (
+      shouldUseReaderProgressCandidate(selected, entry.progress, {
+        ...options,
+        trustStartPosition:
+          entry.trustStartPosition || options.trustStartPosition,
+      })
+    ) {
+      selected = entry.progress;
+    }
+  }
+  return selected;
+}
+
 export function shouldUseReaderProgressBackup(
   itemProgress = null,
   backupProgress = null
 ) {
-  if (!backupProgress) return false;
-  const backupTime = readerProgressTimestamp(backupProgress);
-  const itemTime = readerProgressTimestamp(itemProgress);
-  if (backupTime && (!itemTime || backupTime > itemTime)) return true;
-  if (!itemTime && !backupTime) {
-    return (
-      readerProgressHasPosition(backupProgress) &&
-      !readerProgressHasPosition(itemProgress)
-    );
-  }
-  return false;
+  return shouldUseReaderProgressCandidate(itemProgress, backupProgress);
 }
 
 export function pdfProgressRestoreTarget(progress = null) {

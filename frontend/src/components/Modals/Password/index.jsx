@@ -8,6 +8,7 @@ import {
   AUTH_TIMESTAMP,
 } from "../../../utils/constants";
 import useLogo from "../../../hooks/useLogo";
+import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 
 export default function PasswordModal({ mode = "single" }) {
   const { loginLogo, isCustomLogo } = useLogo();
@@ -34,6 +35,15 @@ export function usePasswordModal(notry = false) {
   useEffect(() => {
     async function checkAuthReq() {
       if (!window) return;
+
+      if (isCodexDevAuthBypassEnabled()) {
+        setAuth({
+          loading: false,
+          requiresAuth: false,
+          mode: "multi",
+        });
+        return;
+      }
 
       // If the last validity check is still valid
       // we can skip the loading.

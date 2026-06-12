@@ -1,5 +1,14 @@
 import { storageKeys } from "@/utils/appEnvironment";
-import { shouldUseReaderProgressBackup } from "@/utils/chat/readerProgress";
+import {
+  readerProgressAllowsStartPosition,
+  selectReaderProgress,
+} from "@/utils/chat/readerProgress";
+import {
+  isReaderCurrentDocumentFresh,
+  readReaderCurrentDocumentClearedAt,
+  READER_DRAWER_OPEN_STORAGE_KEY,
+} from "@/utils/chat/readerDrawerState";
+export { READER_DRAWER_OPEN_STORAGE_KEY };
 
 export const READER_SCHEMA_VERSION = 1;
 export const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -22,6 +31,8 @@ export const READER_HISTORY_STORAGE_KEY =
   "anythingllm_document_reader_history:v1:global";
 export const READER_PROGRESS_BACKUP_STORAGE_KEY =
   "anythingllm_document_reader_progress_backup:v1";
+export const READER_BOOK_MEMORY_STORAGE_KEY =
+  "anythingllm_document_reader_book_memory:v1";
 export const UNKNOWN_READER_CATEGORY_ID = "unknown";
 
 export const ALLOWED_READER_EXTENSIONS = [
@@ -47,6 +58,10 @@ export function readerHistoryStorageKey() {
 
 export function readerProgressBackupStorageKey() {
   return READER_PROGRESS_BACKUP_STORAGE_KEY;
+}
+
+export function readerBookMemoryStorageKey() {
+  return READER_BOOK_MEMORY_STORAGE_KEY;
 }
 
 function safeJson(value, fallback) {
@@ -134,7 +149,15 @@ function migrateCurrentReaderDocumentToGlobal(
   workspaceSlug,
   threadSlug = null
 ) {
-  if (localStorage.getItem(READER_CURRENT_DOCUMENT_STORAGE_KEY)) return;
+  const clearedAt = readReaderCurrentDocumentClearedAt();
+  const currentDocument = safeJson(
+    localStorage.getItem(READER_CURRENT_DOCUMENT_STORAGE_KEY),
+    null
+  );
+  if (currentDocument) {
+    if (isReaderCurrentDocumentFresh(currentDocument, clearedAt)) return;
+    localStorage.removeItem(READER_CURRENT_DOCUMENT_STORAGE_KEY);
+  }
   const prefix = "anythingllm_document_reader:v1:";
   const legacyKeys = legacyStorageKeysForPrefix(
     prefix,
@@ -158,6 +181,7 @@ function migrateCurrentReaderDocumentToGlobal(
         prefix
       )
     )
+    .filter((document) => isReaderCurrentDocumentFresh(document, clearedAt))
     .find(Boolean);
   if (preferred) {
     localStorage.setItem(
@@ -175,7 +199,7 @@ function migrateCurrentReaderDocumentToGlobal(
         prefix
       )
     )
-    .filter(Boolean)
+    .filter((document) => isReaderCurrentDocumentFresh(document, clearedAt))
     .sort((a, b) => readerDocumentTimestamp(b) - readerDocumentTimestamp(a))[0];
   if (newest)
     localStorage.setItem(
@@ -579,7 +603,9 @@ function mergeHistoryItems(primary = {}, secondary = {}) {
     categoryStage: primary.categoryStage || secondary.categoryStage || "",
     categoryReason: primary.categoryReason || secondary.categoryReason || "",
     category: primary.category || secondary.category || undefined,
-    progress: normalizedReaderProgress(primary.progress || secondary.progress),
+    progress: mergeReaderProgress(secondary.progress, primary.progress, {
+      trustStartPosition: readerProgressAllowsStartPosition(primary.progress),
+    }),
     uploaded: primaryUploaded || secondaryUploaded,
   };
 }
@@ -637,7 +663,7 @@ function normalizeHistory(history = []) {
 
 export function readReaderHistory() {
   const parsed = safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []);
-  return normalizeHistory(parsed);
+  return readerItemsWithLatestBookMemory(normalizeHistory(parsed));
 }
 
 export function writeReaderHistory(
@@ -684,10 +710,12 @@ export function readReaderBookshelf() {
       normalizeBookshelfItem(mergeHistoryItems(newer, older))
     );
   }
-  return [...byKey.values()].sort(
-    (a, b) =>
-      timestampValue(b.updatedAt || b.addedAt) -
-      timestampValue(a.updatedAt || a.addedAt)
+  return readerItemsWithLatestBookMemory(
+    [...byKey.values()].sort(
+      (a, b) =>
+        timestampValue(b.updatedAt || b.addedAt) -
+        timestampValue(a.updatedAt || a.addedAt)
+    )
   );
 }
 
@@ -747,7 +775,9 @@ export function upsertReaderBookshelfItems(items = []) {
         categoryStage: item.categoryStage || previous?.categoryStage,
         categoryReason: item.categoryReason || previous?.categoryReason,
         category: item.category || previous?.category,
-        progress: normalizedReaderProgress(item.progress || previous?.progress),
+        progress: mergeReaderProgress(previous?.progress, item.progress, {
+          trustStartPosition: readerProgressAllowsStartPosition(item.progress),
+        }),
       })
     );
   }
@@ -767,7 +797,11 @@ export function updateReaderBookshelfItem(item = {}, patch = {}) {
         updatedAt: patch.updatedAt || now,
         uploaded: isUploadedHistoryItem({ ...bookshelfItem, ...patch }),
         progress: patch.progress
-          ? normalizedReaderProgress(patch.progress)
+          ? mergeReaderProgress(bookshelfItem.progress, patch.progress, {
+              trustStartPosition: readerProgressAllowsStartPosition(
+                patch.progress
+              ),
+            })
           : bookshelfItem.progress,
       });
     })
@@ -799,7 +833,46 @@ export function normalizedReaderProgress(progress = null) {
         ? null
         : Number(progress.scrollTop) || 0,
     updatedAt: progress?.updatedAt || null,
+    source: progress?.source || null,
+    trusted:
+      progress?.trusted === true || progress?.trustStartPosition === true
+        ? true
+        : null,
   };
+}
+
+function progressWithSource(progress = null, options = {}) {
+  if (!progress) return null;
+  return normalizedReaderProgress({
+    ...progress,
+    source: progress.source || options.source || null,
+    trusted:
+      progress.trusted === true ||
+      progress.trustStartPosition === true ||
+      options.trustStartPosition === true,
+  });
+}
+
+function selectNormalizedReaderProgress(candidates = [], options = {}) {
+  const selected = selectReaderProgress(candidates, options);
+  return selected ? normalizedReaderProgress(selected) : null;
+}
+
+function mergeReaderProgress(previous = null, next = null, options = {}) {
+  return (
+    selectNormalizedReaderProgress(
+      [
+        { progress: previous },
+        {
+          progress: next,
+          trustStartPosition:
+            options.trustStartPosition ||
+            readerProgressAllowsStartPosition(next),
+        },
+      ],
+      options
+    ) || normalizedReaderProgress(next || previous)
+  );
 }
 
 function locatorChangedSignificantly(previousLocator, nextLocator) {
@@ -838,6 +911,279 @@ export function readerHistoryItemKey(item = {}) {
   const bookKey = item.bookKey || fallbackBookKey(item);
   const branchId = item.branchId || null;
   return branchId ? `${bookKey}:branch:${branchId}` : `${bookKey}:main`;
+}
+
+function compactString(value = "") {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function uniqueStrings(values = []) {
+  return [...new Set(values.map(compactString).filter(Boolean).slice(0, 20))];
+}
+
+function readerBookAliases(item = {}) {
+  const aliases = item.aliases || {};
+  return {
+    readerDocumentIds: uniqueStrings([
+      ...(aliases.readerDocumentIds || []),
+      item.readerDocumentId,
+      item.backupReaderDocumentId,
+    ]),
+    localDocumentIds: uniqueStrings([
+      ...(aliases.localDocumentIds || []),
+      item.localDocumentId,
+    ]),
+    workspaceDocPaths: uniqueStrings([
+      ...(aliases.workspaceDocPaths || []),
+      item.workspaceDocPath,
+      item.metadata?.workspaceDocPath,
+    ]),
+    localPaths: uniqueStrings([
+      ...(aliases.localPaths || []),
+      item.localPath,
+      item.metadata?.localPath,
+    ]),
+    titles: uniqueStrings([...(aliases.titles || []), item.title]),
+  };
+}
+
+function mergeReaderBookAliases(primary = {}, secondary = {}) {
+  return {
+    readerDocumentIds: uniqueStrings([
+      ...(primary.readerDocumentIds || []),
+      ...(secondary.readerDocumentIds || []),
+    ]),
+    localDocumentIds: uniqueStrings([
+      ...(primary.localDocumentIds || []),
+      ...(secondary.localDocumentIds || []),
+    ]),
+    workspaceDocPaths: uniqueStrings([
+      ...(primary.workspaceDocPaths || []),
+      ...(secondary.workspaceDocPaths || []),
+    ]),
+    localPaths: uniqueStrings([
+      ...(primary.localPaths || []),
+      ...(secondary.localPaths || []),
+    ]),
+    titles: uniqueStrings([
+      ...(primary.titles || []),
+      ...(secondary.titles || []),
+    ]),
+  };
+}
+
+function normalizeReaderBookMemoryItem(item = {}) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key) return null;
+  const bookKey = item.bookKey || fallbackBookKey(item);
+  const branchId = item.branchId || null;
+  const progress = normalizedReaderProgress(item.progress);
+  return {
+    key,
+    title: item.title || item.aliases?.titles?.[0] || null,
+    bookKey,
+    branchId,
+    branchLabel: branchId ? item.branchLabel || "本地分支" : null,
+    documentType: item.documentType || null,
+    readerDocumentId: item.readerDocumentId || null,
+    backupReaderDocumentId: item.backupReaderDocumentId || null,
+    readerDocumentWorkspaceSlug:
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null,
+    workspaceDocPath:
+      item.workspaceDocPath || item.metadata?.workspaceDocPath || null,
+    localDocumentId: item.localDocumentId || null,
+    localPath: item.localPath || item.metadata?.localPath || null,
+    thumbnailDataUrl: item.thumbnailDataUrl || null,
+    aliases: readerBookAliases(item),
+    progress,
+    lastOpenedAt: item.lastOpenedAt || null,
+    updatedAt:
+      item.updatedAt || progress.updatedAt || item.lastOpenedAt || null,
+  };
+}
+
+function mergeReaderBookMemoryItems(
+  current = null,
+  incoming = null,
+  options = {}
+) {
+  if (!current) return incoming;
+  if (!incoming) return current;
+  const incomingNewer =
+    timestampValue(incoming.updatedAt || incoming.lastOpenedAt) >=
+    timestampValue(current.updatedAt || current.lastOpenedAt);
+  const primary = incomingNewer ? incoming : current;
+  const secondary = incomingNewer ? current : incoming;
+  const progress = mergeReaderProgress(current.progress, incoming.progress, {
+    trustStartPosition:
+      options.trustStartPosition ||
+      readerProgressAllowsStartPosition(incoming.progress),
+  });
+  return normalizeReaderBookMemoryItem({
+    ...secondary,
+    ...primary,
+    readerDocumentId:
+      primary.readerDocumentId || secondary.readerDocumentId || null,
+    backupReaderDocumentId:
+      primary.backupReaderDocumentId ||
+      secondary.backupReaderDocumentId ||
+      null,
+    readerDocumentWorkspaceSlug:
+      primary.readerDocumentWorkspaceSlug ||
+      secondary.readerDocumentWorkspaceSlug ||
+      primary.workspaceSlug ||
+      secondary.workspaceSlug ||
+      null,
+    workspaceDocPath:
+      primary.workspaceDocPath || secondary.workspaceDocPath || null,
+    localDocumentId:
+      primary.localDocumentId || secondary.localDocumentId || null,
+    localPath: primary.localPath || secondary.localPath || null,
+    thumbnailDataUrl:
+      primary.thumbnailDataUrl || secondary.thumbnailDataUrl || null,
+    aliases: mergeReaderBookAliases(primary.aliases, secondary.aliases),
+    progress,
+    updatedAt:
+      progress?.updatedAt ||
+      primary.updatedAt ||
+      primary.lastOpenedAt ||
+      secondary.updatedAt ||
+      secondary.lastOpenedAt ||
+      null,
+  });
+}
+
+function readerBookMemorySort(a, b) {
+  return (
+    timestampValue(b.updatedAt || b.progress?.updatedAt || b.lastOpenedAt) -
+    timestampValue(a.updatedAt || a.progress?.updatedAt || a.lastOpenedAt)
+  );
+}
+
+export function readReaderBookMemories() {
+  const parsed = safeJson(
+    localStorage.getItem(READER_BOOK_MEMORY_STORAGE_KEY),
+    []
+  );
+  const rawItems = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
+  const byKey = new Map();
+  for (const rawItem of rawItems) {
+    const item = normalizeReaderBookMemoryItem(rawItem);
+    if (!item) continue;
+    byKey.set(item.key, mergeReaderBookMemoryItems(byKey.get(item.key), item));
+  }
+  return [...byKey.values()].sort(readerBookMemorySort).slice(0, 200);
+}
+
+export function writeReaderBookMemories(memories = []) {
+  const byKey = new Map();
+  for (const rawItem of Array.isArray(memories)
+    ? memories
+    : Object.values(memories || {})) {
+    const item = normalizeReaderBookMemoryItem(rawItem);
+    if (!item) continue;
+    byKey.set(item.key, mergeReaderBookMemoryItems(byKey.get(item.key), item));
+  }
+  const next = [...byKey.values()].sort(readerBookMemorySort).slice(0, 200);
+  localStorage.setItem(READER_BOOK_MEMORY_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+export function findReaderBookMemory(item = {}) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key) return null;
+  return readReaderBookMemories().find((memory) => memory.key === key) || null;
+}
+
+export function upsertReaderBookMemory(
+  item = {},
+  progress = null,
+  options = {}
+) {
+  const key = item.key || readerHistoryItemKey(item);
+  if (!key) return null;
+  const now = new Date().toISOString();
+  const memories = readReaderBookMemories();
+  const current = memories.filter((memory) => memory.key !== key);
+  const previous = memories.find((memory) => memory.key === key);
+  const nextProgress = progressWithSource(progress || item.progress, {
+    source: options.source,
+    trustStartPosition: options.trustStartPosition,
+  });
+  const incoming = normalizeReaderBookMemoryItem({
+    ...item,
+    key,
+    progress: nextProgress,
+    lastOpenedAt: item.lastOpenedAt || now,
+    updatedAt: nextProgress?.updatedAt || item.updatedAt || now,
+  });
+  if (!incoming) return null;
+  const merged = mergeReaderBookMemoryItems(previous, incoming, options);
+  writeReaderBookMemories([merged, ...current]);
+  return merged;
+}
+
+export function registerReaderBookMemoryAlias(item = {}) {
+  return upsertReaderBookMemory(item, item.progress, {
+    trustStartPosition: false,
+  });
+}
+
+export function readerItemWithLatestBookMemory(item = null) {
+  if (!item) return item;
+  const backup = findReaderProgressBackup(item);
+  const memory = findReaderBookMemory(item);
+  const progress =
+    selectNormalizedReaderProgress([
+      { progress: item.progress },
+      { progress: backup?.progress },
+      { progress: memory?.progress },
+    ]) || normalizedReaderProgress(item.progress);
+  return {
+    ...memory,
+    ...backup,
+    ...item,
+    readerDocumentId:
+      item.readerDocumentId ||
+      memory?.readerDocumentId ||
+      backup?.readerDocumentId ||
+      null,
+    backupReaderDocumentId:
+      item.backupReaderDocumentId ||
+      memory?.backupReaderDocumentId ||
+      backup?.backupReaderDocumentId ||
+      null,
+    readerDocumentWorkspaceSlug:
+      item.readerDocumentWorkspaceSlug ||
+      item.workspaceSlug ||
+      memory?.readerDocumentWorkspaceSlug ||
+      backup?.readerDocumentWorkspaceSlug ||
+      null,
+    workspaceDocPath:
+      item.workspaceDocPath ||
+      memory?.workspaceDocPath ||
+      backup?.workspaceDocPath ||
+      null,
+    localDocumentId:
+      item.localDocumentId ||
+      memory?.localDocumentId ||
+      backup?.localDocumentId ||
+      null,
+    localPath: item.localPath || memory?.localPath || backup?.localPath || null,
+    thumbnailDataUrl:
+      item.thumbnailDataUrl ||
+      memory?.thumbnailDataUrl ||
+      backup?.thumbnailDataUrl ||
+      null,
+    progress,
+  };
+}
+
+export function readerItemsWithLatestBookMemory(items = []) {
+  return (Array.isArray(items) ? items : []).map(
+    readerItemWithLatestBookMemory
+  );
 }
 
 function normalizeReaderProgressBackup(item = {}) {
@@ -927,6 +1273,10 @@ export function upsertReaderProgressBackup(item = {}, progress = null) {
     updatedAt: nextProgress.updatedAt,
   });
   if (!backup) return null;
+  upsertReaderBookMemory(item, nextProgress, {
+    source: nextProgress.source,
+    trustStartPosition: readerProgressAllowsStartPosition(nextProgress),
+  });
   const current = readReaderProgressBackups().filter(
     (entry) => entry.key !== key
   );
@@ -951,15 +1301,7 @@ export function deleteReaderProgressBackup(items = []) {
 }
 
 export function readerItemWithLatestProgressBackup(item = null) {
-  if (!item) return item;
-  const backup = findReaderProgressBackup(item);
-  if (!backup?.progress) return item;
-  if (!shouldUseReaderProgressBackup(item.progress, backup.progress))
-    return item;
-  return {
-    ...item,
-    progress: normalizedReaderProgress(backup.progress),
-  };
+  return readerItemWithLatestBookMemory(item);
 }
 
 export function upsertReaderHistory(
@@ -973,6 +1315,25 @@ export function upsertReaderHistory(
   const now = new Date().toISOString();
   const current = readReaderHistory(workspaceSlug, threadSlug);
   const previous = current.find((historyItem) => historyItem.key === itemKey);
+  const memory = upsertReaderBookMemory(
+    normalizedItem,
+    normalizedItem.progress,
+    {
+      source: normalizedItem.progress?.source,
+      trustStartPosition: readerProgressAllowsStartPosition(
+        normalizedItem.progress
+      ),
+    }
+  );
+  const progress = mergeReaderProgress(
+    previous?.progress || memory?.progress,
+    normalizedItem.progress,
+    {
+      trustStartPosition: readerProgressAllowsStartPosition(
+        normalizedItem.progress
+      ),
+    }
+  );
   const nextItem = {
     ...previous,
     source: normalizedItem.source,
@@ -1010,9 +1371,7 @@ export function upsertReaderHistory(
     categoryReason:
       normalizedItem.categoryReason || previous?.categoryReason || "",
     category: normalizedItem.category || previous?.category || undefined,
-    progress: normalizedReaderProgress(
-      normalizedItem.progress || previous?.progress
-    ),
+    progress,
     key: itemKey,
   };
   const deduped = current.filter((historyItem) => historyItem.key !== itemKey);
@@ -1027,6 +1386,12 @@ export function updateReaderHistoryItem(
 ) {
   const key = item.key || readerHistoryItemKey(item);
   if (!key) return readReaderHistory(workspaceSlug, threadSlug);
+  if (patch.progress) {
+    upsertReaderBookMemory({ ...item, key }, patch.progress, {
+      source: patch.progress.source,
+      trustStartPosition: readerProgressAllowsStartPosition(patch.progress),
+    });
+  }
   const current = readReaderHistory(workspaceSlug, threadSlug);
   const now = new Date().toISOString();
   const next = current.map((historyItem) => {
@@ -1038,7 +1403,11 @@ export function updateReaderHistoryItem(
       lastOpenedAt:
         patch.lastOpenedAt || (patch.progress ? now : historyItem.lastOpenedAt),
       progress: patch.progress
-        ? normalizedReaderProgress(patch.progress)
+        ? mergeReaderProgress(historyItem.progress, patch.progress, {
+            trustStartPosition: readerProgressAllowsStartPosition(
+              patch.progress
+            ),
+          })
         : historyItem.progress,
       key,
     };

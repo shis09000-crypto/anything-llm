@@ -85,6 +85,9 @@ const MEMORY_COMPACTION_STATUS_REFRESH_MS = 900;
 const MEMORY_COMPACTION_TIMEOUT_MS = 60_000;
 const MEMORY_COMPACTION_SUCCESS_MS = 2_800;
 const MEMORY_COMPACTION_ERROR_MS = 4_500;
+const CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS = [
+  0, 80, 180, 360, 700, 1200, 1800, 2400,
+];
 const DUAL_THREAD_RESUME_PROMPT =
   "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
 
@@ -112,6 +115,261 @@ function writeReaderSplitPercent(value) {
   );
 }
 
+const CHAT_LAYOUT_DOM_ANCHOR_SELECTOR = [
+  "[data-chat-anchor-block='true']",
+  "p",
+  "li",
+  "pre",
+  "blockquote",
+  "td",
+  "th",
+  "table",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "img",
+  "video",
+  "button",
+].join(",");
+
+function clearChatLayoutDomRestoreHandles(handles) {
+  if (!handles || typeof window === "undefined") return;
+  handles.frames?.forEach((handle) => window.cancelAnimationFrame(handle));
+  handles.timeouts?.forEach((handle) => window.clearTimeout(handle));
+  handles.observer?.disconnect?.();
+  handles.frames = [];
+  handles.timeouts = [];
+  handles.observer = null;
+}
+
+function recordChatLayoutDebug(event) {
+  if (typeof window === "undefined") return;
+  try {
+    const events = Array.isArray(window.__chatLayoutDebugEvents)
+      ? window.__chatLayoutDebugEvents
+      : [];
+    events.push({ ...event, at: Date.now() });
+    window.__chatLayoutDebugEvents = events.slice(-80);
+  } catch {
+    // Debug storage must never interfere with layout preservation.
+  }
+}
+
+function chatLayoutTextFingerprint(value = "") {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return text ? `${text.length}:${(hash >>> 0).toString(16)}` : null;
+}
+
+function chatLayoutCandidateBlocks(row) {
+  if (!row) return [];
+  const rawCandidates = Array.from(
+    row.querySelectorAll(CHAT_LAYOUT_DOM_ANCHOR_SELECTOR)
+  );
+  const meaningfulCandidates = rawCandidates
+    .filter((candidate) => {
+      const rect = candidate.getBoundingClientRect();
+      return rect.height > 0 && rect.width > 0;
+    })
+    .filter((candidate) => {
+      const text = candidate.textContent?.trim() || "";
+      return (
+        text.length > 0 || ["IMG", "VIDEO", "TABLE"].includes(candidate.tagName)
+      );
+    });
+  const candidates = meaningfulCandidates.filter((candidate) => {
+    if (["IMG", "VIDEO"].includes(candidate.tagName)) return true;
+    return !meaningfulCandidates.some(
+      (other) => other !== candidate && candidate.contains(other)
+    );
+  });
+  return candidates.length ? candidates : [row];
+}
+
+function chatLayoutBlockFingerprint(block) {
+  return chatLayoutTextFingerprint(
+    block?.textContent ||
+      block?.getAttribute?.("alt") ||
+      block?.getAttribute?.("aria-label") ||
+      block?.tagName ||
+      ""
+  );
+}
+
+function captureChatLayoutDomAnchor() {
+  if (typeof document === "undefined") return null;
+  const element = document.querySelector("#chat-history");
+  if (!element) return null;
+  const viewport = element.getBoundingClientRect();
+  const bottomGap =
+    element.scrollHeight - element.scrollTop - element.clientHeight;
+  if (bottomGap < 2) {
+    return {
+      isAtBottom: true,
+      scrollTop: element.scrollTop,
+      bottomGap,
+    };
+  }
+
+  const rows = Array.from(
+    element.querySelectorAll("[data-chat-message-row='true']")
+  );
+  const row = rows.find((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
+  });
+  if (!row) {
+    return {
+      isAtBottom: false,
+      scrollTop: element.scrollTop,
+      bottomGap,
+    };
+  }
+
+  const rowRect = row.getBoundingClientRect();
+  const blocks = chatLayoutCandidateBlocks(row);
+  const blockIndex = blocks.findIndex((candidate) => {
+    const rect = candidate.getBoundingClientRect();
+    return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
+  });
+  const block = blockIndex >= 0 ? blocks[blockIndex] : null;
+  const blockRect = block?.getBoundingClientRect();
+  return {
+    isAtBottom: false,
+    itemId: row.dataset.itemId || null,
+    rowOffsetTop: rowRect.top - viewport.top,
+    scrollTop: element.scrollTop,
+    bottomGap,
+    innerAnchor: block
+      ? {
+          blockIndex,
+          offsetTop: blockRect.top - viewport.top,
+          textFingerprint: chatLayoutBlockFingerprint(block),
+        }
+      : null,
+  };
+}
+
+function restoreChatLayoutDomAnchor(anchor) {
+  if (typeof document === "undefined" || !anchor) return false;
+  const element = document.querySelector("#chat-history");
+  if (!element) return false;
+
+  if (anchor.isAtBottom) {
+    element.scrollTop = element.scrollHeight;
+    const bottomGap =
+      element.scrollHeight - element.scrollTop - element.clientHeight;
+    return bottomGap < 2;
+  }
+
+  const rows = Array.from(
+    element.querySelectorAll("[data-chat-message-row='true']")
+  );
+  const row = rows.find(
+    (candidate) => candidate.dataset.itemId === anchor.itemId
+  );
+  if (!row) return false;
+
+  const viewport = element.getBoundingClientRect();
+  const innerAnchor = anchor.innerAnchor;
+  if (innerAnchor) {
+    const blocks = chatLayoutCandidateBlocks(row);
+    const expectedFingerprint = innerAnchor.textFingerprint || null;
+    const fingerprintIndex = expectedFingerprint
+      ? blocks.findIndex(
+          (candidate) =>
+            chatLayoutBlockFingerprint(candidate) === expectedFingerprint
+        )
+      : -1;
+    const requestedIndex = Number(innerAnchor.blockIndex);
+    const fallbackIndex = Number.isFinite(requestedIndex)
+      ? Math.max(0, Math.min(blocks.length - 1, requestedIndex))
+      : 0;
+    const block =
+      blocks[fingerprintIndex >= 0 ? fingerprintIndex : fallbackIndex];
+    if (block) {
+      const rect = block.getBoundingClientRect();
+      const offsetTop = Number(innerAnchor.offsetTop);
+      element.scrollTop +=
+        rect.top - viewport.top - (Number.isFinite(offsetTop) ? offsetTop : 0);
+      return true;
+    }
+  }
+
+  const rowRect = row.getBoundingClientRect();
+  const rowOffsetTop = Number(anchor.rowOffsetTop);
+  element.scrollTop +=
+    rowRect.top -
+    viewport.top -
+    (Number.isFinite(rowOffsetTop) ? rowOffsetTop : 0);
+  return true;
+}
+
+function scheduleChatLayoutDomRestore({
+  signal,
+  anchorRef,
+  handlesRef,
+  chatKey,
+}) {
+  if (typeof window === "undefined" || !anchorRef?.current?.anchor) return;
+  const handles = handlesRef.current;
+  clearChatLayoutDomRestoreHandles(handles);
+  const run = (reason) => {
+    const transition = anchorRef.current;
+    if (!transition?.active || transition.seq !== signal.seq) return;
+    const restored = restoreChatLayoutDomAnchor(transition.anchor);
+    recordChatLayoutDebug({
+      label: "layoutDomRestore",
+      reason,
+      seq: signal.seq,
+      itemId: transition.anchor?.itemId || null,
+      isAtBottom: !!transition.anchor?.isAtBottom,
+      restored,
+    });
+    debugChatTurn("ChatContainer:layoutDomRestore", {
+      chatKey,
+      reason,
+      seq: signal.seq,
+      itemId: transition.anchor?.itemId || null,
+      hasInnerAnchor: !!transition.anchor?.innerAnchor,
+      restored,
+    });
+  };
+
+  const firstFrame = window.requestAnimationFrame(() => {
+    run("raf");
+    const secondFrame = window.requestAnimationFrame(() => run("raf-2"));
+    handles.frames.push(secondFrame);
+  });
+  handles.frames.push(firstFrame);
+
+  const element = document.querySelector("#chat-history");
+  if (element && typeof ResizeObserver !== "undefined") {
+    handles.observer = new ResizeObserver(() => run("resize"));
+    handles.observer.observe(element);
+  }
+
+  CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS.forEach((delayMs) => {
+    const timeout = window.setTimeout(() => {
+      run(`timeout-${delayMs}`);
+      if (delayMs === CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS.at(-1)) {
+        anchorRef.current = null;
+        clearChatLayoutDomRestoreHandles(handles);
+      }
+    }, delayMs);
+    handles.timeouts.push(timeout);
+  });
+}
+
 function setSidebarForMindMap(open) {
   window.dispatchEvent(
     new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
@@ -136,6 +394,7 @@ export default function ChatContainer({
   hasMoreHistory = false,
   isLoadingOlderHistory = false,
   onLoadOlderHistory = null,
+  chatScrollMemory = null,
 }) {
   const navigate = useNavigate();
   const { user } = useUser();
@@ -150,6 +409,8 @@ export default function ChatContainer({
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
+  const activeThreadSlug = activeThread?.slug || null;
+  const activeThreadId = activeThread?.id || null;
   const draft = useChatDraft(workspace?.slug, threadSlug);
   const knownItems = useMemo(
     () => mergeServerHistoryIntoTurns(knownHistory, [], { chatKey }),
@@ -198,6 +459,17 @@ export default function ChatContainer({
   const [readerPanelPercent, setReaderPanelPercent] = useState(() =>
     readReaderSplitPercent()
   );
+  const readerActiveRef = useRef(false);
+  const readerActiveInitializedRef = useRef(false);
+  const readerLayoutTransitionSeqRef = useRef(0);
+  const chatLayoutDomAnchorRef = useRef(null);
+  const chatLayoutDomRestoreHandlesRef = useRef({
+    frames: [],
+    timeouts: [],
+    observer: null,
+  });
+  const [chatLayoutTransitionSignal, setChatLayoutTransitionSignal] =
+    useState(null);
   const [memoryCompactionStatus, setMemoryCompactionStatus] = useState(null);
   const [memoryCompactionLoading, setMemoryCompactionLoading] = useState(false);
   const [memoryCompactionPending, setMemoryCompactionPending] = useState(false);
@@ -462,9 +734,92 @@ export default function ChatContainer({
     );
   }, []);
 
+  const beginChatLayoutTransition = useCallback(
+    (reason = "layout-transition") => {
+      const signal = {
+        seq: (readerLayoutTransitionSeqRef.current += 1),
+        reason,
+        at: Date.now(),
+      };
+      clearChatLayoutDomRestoreHandles(chatLayoutDomRestoreHandlesRef.current);
+      chatLayoutDomAnchorRef.current = {
+        active: true,
+        seq: signal.seq,
+        reason,
+        anchor: captureChatLayoutDomAnchor(),
+      };
+      recordChatLayoutDebug({
+        label: "layoutTransitionStart",
+        reason,
+        seq: signal.seq,
+        itemId: chatLayoutDomAnchorRef.current.anchor?.itemId || null,
+        isAtBottom: !!chatLayoutDomAnchorRef.current.anchor?.isAtBottom,
+        hasInnerAnchor: !!chatLayoutDomAnchorRef.current.anchor?.innerAnchor,
+      });
+      chatHistoryRef.current?.beginLayoutTransition?.(signal);
+      setChatLayoutTransitionSignal(signal);
+      scheduleChatLayoutDomRestore({
+        signal,
+        anchorRef: chatLayoutDomAnchorRef,
+        handlesRef: chatLayoutDomRestoreHandlesRef,
+        chatKey,
+      });
+      debugChatTurn("ChatContainer:layoutTransition", {
+        chatKey,
+        reason,
+        seq: signal.seq,
+        readerActive: readerActiveRef.current,
+        readerPanelPercent,
+        itemId: chatLayoutDomAnchorRef.current.anchor?.itemId || null,
+        hasInnerAnchor: !!chatLayoutDomAnchorRef.current.anchor?.innerAnchor,
+      });
+      return signal;
+    },
+    [chatHistoryRef, chatKey, readerPanelPercent]
+  );
+
+  const setReaderActiveWithLayoutTransition = useCallback(
+    (
+      nextActive,
+      reason = nextActive ? "reader-open" : "reader-close",
+      { force = false } = {}
+    ) => {
+      if (!force && readerActiveRef.current === nextActive) return;
+      beginChatLayoutTransition(reason);
+      readerActiveRef.current = nextActive;
+      setReaderActive(nextActive);
+    },
+    [beginChatLayoutTransition]
+  );
+
+  const syncReaderActiveFromPanel = useCallback(
+    (nextActive, reason = nextActive ? "reader-open" : "reader-close") => {
+      if (!readerActiveInitializedRef.current) {
+        readerActiveInitializedRef.current = true;
+        readerActiveRef.current = nextActive;
+        setReaderActive(nextActive);
+        return;
+      }
+      setReaderActiveWithLayoutTransition(nextActive, reason);
+    },
+    [setReaderActiveWithLayoutTransition]
+  );
+
+  useEffect(() => {
+    readerActiveRef.current = readerActive;
+  }, [readerActive]);
+
+  useEffect(() => {
+    return () => {
+      clearChatLayoutDomRestoreHandles(chatLayoutDomRestoreHandlesRef.current);
+      chatLayoutDomAnchorRef.current = null;
+    };
+  }, []);
+
   const startReaderResize = useCallback(
     (event) => {
       event.preventDefault();
+      beginChatLayoutTransition("reader-resize");
       event.currentTarget.setPointerCapture?.(event.pointerId);
       const layoutRect = readerLayoutRef.current?.getBoundingClientRect();
       if (!layoutRect?.width) return;
@@ -495,7 +850,7 @@ export default function ChatContainer({
       window.addEventListener("pointerup", stopResize);
       window.addEventListener("pointercancel", stopResize);
     },
-    [readerPanelPercent]
+    [beginChatLayoutTransition, readerPanelPercent]
   );
 
   function chatItemComparableText(item) {
@@ -578,9 +933,47 @@ export default function ChatContainer({
   }
 
   const openDocumentReader = useCallback(() => {
-    setReaderActive(true);
+    debugChatTurn("ChatContainer:openDocumentReader", {
+      chatKey,
+      activeThreadSlug,
+      activeThreadId,
+      threadSlug,
+      activeThreadIsOverview,
+      readerActiveBefore: readerActive,
+      isEmptyThread,
+      itemCount: chatItems.length,
+    });
+    setReaderActiveWithLayoutTransition(true, "reader-open", { force: true });
     window.dispatchEvent(new CustomEvent(READER_EVENT_OPEN_DRAWER));
-  }, []);
+  }, [
+    activeThreadId,
+    activeThreadIsOverview,
+    activeThreadSlug,
+    chatKey,
+    chatItems.length,
+    readerActive,
+    setReaderActiveWithLayoutTransition,
+    threadSlug,
+  ]);
+
+  useEffect(() => {
+    debugChatTurn("ChatContainer:readerActive", {
+      chatKey,
+      threadSlug,
+      activeThreadSlug,
+      readerActive,
+      activeThreadIsOverview,
+      hasMessages: chatItems.length > 0,
+      promptDraftKey: threadSlug || "default",
+    });
+  }, [
+    activeThreadIsOverview,
+    activeThreadSlug,
+    chatKey,
+    chatItems.length,
+    readerActive,
+    threadSlug,
+  ]);
 
   function consumeReaderTempTextSources() {
     let sources = [];
@@ -1626,6 +2019,9 @@ export default function ChatContainer({
                           contentClassName={DUAL_THREAD_CONTENT_PADDING}
                           bottomInset={promptBottomInset}
                           sendScrollRequest={sendScrollRequest}
+                          tailHydrationSignal={draft?.tailHydration || null}
+                          layoutTransitionSignal={chatLayoutTransitionSignal}
+                          chatScrollMemory={chatScrollMemory}
                         />
                       </MetricsProvider>
                       <MemoryCompactionDivider
@@ -1666,7 +2062,9 @@ export default function ChatContainer({
               )}
               <DocumentReaderPanel
                 percent={readerPanelPercent}
-                onActiveChange={setReaderActive}
+                onActiveChange={syncReaderActiveFromPanel}
+                onBeforeActiveChange={setReaderActiveWithLayoutTransition}
+                onReaderLayoutTransition={beginChatLayoutTransition}
               />
               <MindMapPanel
                 workspace={workspace}
@@ -1851,6 +2249,9 @@ export default function ChatContainer({
                       contentClassName={DUAL_THREAD_CONTENT_PADDING}
                       bottomInset={promptBottomInset}
                       sendScrollRequest={sendScrollRequest}
+                      tailHydrationSignal={draft?.tailHydration || null}
+                      layoutTransitionSignal={chatLayoutTransitionSignal}
+                      chatScrollMemory={chatScrollMemory}
                     />
                   </MetricsProvider>
                   <MemoryCompactionDivider
@@ -1890,7 +2291,9 @@ export default function ChatContainer({
           )}
           <DocumentReaderPanel
             percent={readerPanelPercent}
-            onActiveChange={setReaderActive}
+            onActiveChange={syncReaderActiveFromPanel}
+            onBeforeActiveChange={setReaderActiveWithLayoutTransition}
+            onReaderLayoutTransition={beginChatLayoutTransition}
           />
           <MindMapPanel
             workspace={workspace}

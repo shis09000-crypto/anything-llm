@@ -5,10 +5,19 @@ import AgentAnimation from "@/media/animations/agent-animation.webm";
 import AgentStatic from "@/media/animations/agent-static.png";
 import { useTranslation } from "react-i18next";
 import { formatTimelineContent } from "@/utils/chat/toolTimelineI18n";
+import { useThoughtExpansion } from "../ThoughtContainer";
 
-export default function StatusResponse({ messages = [], isThinking = false }) {
+export default function StatusResponse({
+  messages = [],
+  isThinking = false,
+  stateId = null,
+}) {
   const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
+  const { expanded: persistedExpanded, setExpanded: setPersistedExpanded } =
+    useThoughtExpansion(stateId);
+  const [localExpanded, setLocalExpanded] = useState(false);
+  const isExpanded = stateId ? persistedExpanded : localExpanded;
+  const setIsExpanded = stateId ? setPersistedExpanded : setLocalExpanded;
   const currentThought = messages[messages.length - 1];
   const previousThoughts = messages.slice(0, -1);
 

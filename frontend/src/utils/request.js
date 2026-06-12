@@ -1,5 +1,10 @@
 import { AUTH_TOKEN, AUTH_USER } from "./constants";
 import {
+  CODEX_DEV_AUTH_BYPASS_HEADER,
+  CODEX_DEV_AUTH_BYPASS_KEY,
+  isCodexDevAuthBypassEnabled,
+} from "./codexDevAuthBypass";
+import {
   CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER,
   isCryptoCenterDevAuthBypassEnabled,
 } from "./cryptoCenterDevAuthBypass";
@@ -19,6 +24,9 @@ export function baseHeaders(providedToken = null) {
   };
   if (isCryptoCenterDevAuthBypassEnabled()) {
     headers[CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER] = "1";
+  }
+  if (isCodexDevAuthBypassEnabled()) {
+    headers[CODEX_DEV_AUTH_BYPASS_HEADER] = CODEX_DEV_AUTH_BYPASS_KEY;
   }
   return headers;
 }

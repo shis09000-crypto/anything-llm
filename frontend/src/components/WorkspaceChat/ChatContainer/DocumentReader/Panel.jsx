@@ -20,6 +20,7 @@ import AppButton from "@/components/lib/AppButton";
 import AppDropdownButton from "@/components/lib/AppDropdownButton";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import AppIcon from "@/components/lib/AppIcon";
+import { debugChatTurn } from "@/utils/chat/debug";
 import {
   effectiveReaderCategoryId,
   UNKNOWN_READER_CATEGORY_ID,
@@ -755,6 +756,7 @@ function CategoryManagerModal({
 function ReaderDrawer({
   workspace,
   initialSection = "history",
+  onSectionChange,
   onOpenFile,
   onUploadBookshelfFiles,
   onOpenWorkspaceDoc,
@@ -797,6 +799,7 @@ function ReaderDrawer({
     hasBookshelf && selectedBookshelfKeys.length === readerBookshelf.length;
   const showingHistory = activeSection === "history";
   const showingBookshelf = activeSection === "bookshelf";
+  const showingWorkspace = activeSection === "workspace";
   const bookshelfGroupedSections = bookshelfSections(
     readerBookshelf,
     readerCategories,
@@ -809,6 +812,10 @@ function ReaderDrawer({
   useEffect(() => {
     setActiveSection(initialSection);
   }, [initialSection]);
+
+  useEffect(() => {
+    onSectionChange?.(activeSection);
+  }, [activeSection, onSectionChange]);
 
   useEffect(() => {
     if (!highlightedBookshelfKeys.length) return;
@@ -844,6 +851,13 @@ function ReaderDrawer({
   const openBookshelfSection = () => {
     setWorkspacePickerOpen(false);
     setActiveSection("bookshelf");
+  };
+
+  const openWorkspaceSection = () => {
+    setWorkspacePickerOpen(false);
+    setBookshelfAddOpen(false);
+    cancelBookshelfSelection();
+    setActiveSection("workspace");
   };
 
   const openHistorySection = () => {
@@ -1062,9 +1076,14 @@ function ReaderDrawer({
           >
             <button
               type="button"
-              onClick={() => setWorkspacePickerOpen((open) => !open)}
-              className="motion-hover group flex min-h-[92px] w-full items-center gap-3 rounded-2xl border border-white/70 bg-white/66 px-4 text-left shadow-[0_14px_30px_rgba(15,23,42,0.08)] hover:-translate-y-0.5 hover:border-blue-200 hover:bg-white/82"
-              aria-expanded={workspacePickerOpen}
+              onClick={openWorkspaceSection}
+              className={[
+                "motion-hover group flex min-h-[92px] w-full items-center gap-3 rounded-2xl border px-4 text-left shadow-[0_14px_30px_rgba(15,23,42,0.08)] hover:-translate-y-0.5",
+                showingWorkspace
+                  ? "border-blue-200 bg-blue-50/78 shadow-[0_16px_34px_rgba(59,130,246,0.14)]"
+                  : "border-white/70 bg-white/66 hover:border-blue-200 hover:bg-white/82",
+              ].join(" ")}
+              aria-current={showingWorkspace ? "page" : undefined}
             >
               <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/88 text-blue-600 shadow-[0_12px_26px_rgba(59,130,246,0.12)]">
                 <FolderOpen size={24} />
@@ -1161,16 +1180,28 @@ function ReaderDrawer({
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
               <span className="mt-1 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-slate-800 shadow-[0_10px_24px_rgba(15,23,42,0.1)]">
-                {showingBookshelf ? <Books size={20} /> : <Clock size={20} />}
+                {showingWorkspace ? (
+                  <FolderOpen size={20} />
+                ) : showingBookshelf ? (
+                  <Books size={20} />
+                ) : (
+                  <Clock size={20} />
+                )}
               </span>
               <div>
                 <h2 className="m-0 text-lg font-bold text-slate-950">
-                  {showingBookshelf ? "我的书架" : "历史阅读文档"}
+                  {showingWorkspace
+                    ? "工作区文档"
+                    : showingBookshelf
+                      ? "我的书架"
+                      : "历史阅读文档"}
                 </h2>
                 <p className="m-0 mt-1 text-xs font-medium text-slate-500">
-                  {showingBookshelf
-                    ? "可以放置常看书籍，系统会自动整理"
-                    : "查看并继续阅读最近打开的文档"}
+                  {showingWorkspace
+                    ? "从当前工作区选择已解析文档"
+                    : showingBookshelf
+                      ? "可以放置常看书籍，系统会自动整理"
+                      : "查看并继续阅读最近打开的文档"}
                 </p>
               </div>
             </div>
@@ -1315,7 +1346,42 @@ function ReaderDrawer({
               .filter(Boolean)
               .join(" ")}
           >
-            {showingHistory && hasHistory ? (
+            {showingWorkspace ? (
+              documents.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {documents.map((doc) => {
+                    const docPath = doc.docpath || doc.name;
+                    return (
+                      <button
+                        key={docPath}
+                        type="button"
+                        onClick={() => onOpenWorkspaceDoc(docPath)}
+                        className="block w-full rounded-2xl border border-slate-200/80 bg-white/74 px-4 py-3 text-left text-sm font-semibold text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.05)] hover:border-sky-200 hover:bg-sky-50 hover:text-sky-700 focus:bg-sky-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
+                      >
+                        <span className="block truncate">
+                          {doc.title || doc.name || docPath}
+                        </span>
+                        {docPath && (
+                          <span className="mt-1 block truncate text-xs font-medium text-slate-400">
+                            {docPath}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-white/40 px-6 text-center">
+                  <FolderOpen size={34} className="text-slate-300" />
+                  <p className="m-0 mt-3 text-sm font-semibold text-slate-700">
+                    当前工作区没有可预览的解析文本
+                  </p>
+                  <p className="m-0 mt-1 max-w-[280px] text-xs leading-5 text-slate-500">
+                    上传并解析文档后，可以从这里进入伴读。
+                  </p>
+                </div>
+              )
+            ) : showingHistory && hasHistory ? (
               <div className="flex flex-col gap-3">
                 {readerHistory.map((item) => (
                   <HistoryDocumentCard
@@ -1553,10 +1619,13 @@ function LocalFileConflictModal({ conflict, onResolve }) {
 export default function DocumentReaderPanel({
   percent = 50,
   onActiveChange = null,
+  onBeforeActiveChange = null,
+  onReaderLayoutTransition = null,
 }) {
   const {
     currentDocument,
     drawerOpen,
+    setDrawerSection,
     openLocalFile,
     uploadCurrentDocument,
     bindCurrentDocumentLocalPath,
@@ -1595,12 +1664,26 @@ export default function DocumentReaderPanel({
   const progressTimerRef = useRef(null);
   const latestPagedProgressRef = useRef(null);
   const saveProgressSnapshotRef = useRef(null);
+  const onActiveChangeRef = useRef(onActiveChange);
 
   const active = !!currentDocument || !!drawerOpen;
   useEffect(() => {
+    onActiveChangeRef.current = onActiveChange;
+  }, [onActiveChange]);
+
+  useEffect(() => {
+    debugChatTurn("DocumentReaderPanel:activeState", {
+      active,
+      hasCurrentDocument: !!currentDocument,
+      drawerOpen: !!drawerOpen,
+      currentDocumentId: currentDocument?.readerDocumentId || null,
+    });
     onActiveChange?.(active);
-    return () => onActiveChange?.(false);
   }, [active, onActiveChange]);
+
+  useEffect(() => {
+    return () => onActiveChangeRef.current?.(false);
+  }, []);
 
   useEffect(() => {
     return () => window.clearTimeout(progressTimerRef.current);
@@ -1784,11 +1867,25 @@ export default function DocumentReaderPanel({
   }
 
   function handleCloseReader() {
+    debugChatTurn("DocumentReaderPanel:closeReader", {
+      currentDocumentId: currentDocument?.readerDocumentId || null,
+      documentType: currentDocument?.documentType || null,
+      hasDocument: !!currentDocument,
+      drawerOpen: !!drawerOpen,
+    });
+    onBeforeActiveChange?.(false, "reader-close");
     window.clearTimeout(progressTimerRef.current);
     closeReader?.(latestReadingProgress());
   }
 
   function handleExitCurrentDocument() {
+    debugChatTurn("DocumentReaderPanel:exitDocument", {
+      currentDocumentId: currentDocument?.readerDocumentId || null,
+      documentType: currentDocument?.documentType || null,
+      hasDocument: !!currentDocument,
+      drawerOpen: !!drawerOpen,
+    });
+    onReaderLayoutTransition?.("reader-exit-document");
     window.clearTimeout(progressTimerRef.current);
     exitCurrentDocument?.(latestReadingProgress());
   }
@@ -1814,8 +1911,8 @@ export default function DocumentReaderPanel({
           type="button"
           onClick={handleCloseReader}
           className="motion-hover absolute right-3 top-2 z-50 flex h-10 w-10 items-center justify-center rounded-full border-none bg-transparent p-0 hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300"
-          title="退出伴读"
-          aria-label="退出伴读"
+          title="取消伴读"
+          aria-label="取消伴读"
         >
           <AppIcon name="close" size="md" tone="muted" weight="bold" />
         </button>
@@ -1823,6 +1920,7 @@ export default function DocumentReaderPanel({
           <ReaderDrawer
             workspace={workspace}
             initialSection={drawerInitialSection}
+            onSectionChange={setDrawerSection}
             onOpenFile={openLocalFile}
             onUploadBookshelfFiles={uploadFilesToBookshelf}
             onOpenWorkspaceDoc={openWorkspaceParsedDocument}

@@ -37,6 +37,10 @@ import {
   estimatePayloadBytes,
   setDraftMemoryStatsProvider,
 } from "@/utils/chat/memoryDiagnostics";
+import {
+  fetchPersistedChatHydration,
+  persistedHydratedChatHistory,
+} from "@/utils/chat/persistedTurn";
 import { storageKeys } from "@/utils/appEnvironment";
 
 const ChatThreadDraftContext = createContext(null);
@@ -140,6 +144,7 @@ function createDraft({ workspaceSlug, threadSlug = null, items = [] }) {
     isAgentRunning: false,
     updatedAt: Date.now(),
     persistError: null,
+    tailHydration: null,
   };
 }
 
@@ -178,6 +183,7 @@ function draftFromStorageValue(value) {
       (value.isAgentRunning || !!activeTurn?.websocketUUID),
     updatedAt,
     persistError: removedTurnIds.length > 0 ? null : value.persistError || null,
+    tailHydration: null,
   };
   return draft;
 }
@@ -1736,22 +1742,21 @@ export function ChatThreadDraftProvider({ children }) {
       });
 
       try {
-        const history = draft.threadSlug
-          ? await Workspace.threads.chatHistory(
-              draft.workspaceSlug,
-              draft.threadSlug
-            )
-          : await Workspace.chatHistory(draft.workspaceSlug);
-        const persisted = history.find(
-          (msg) => msg.role === "assistant" && msg.chatId === chatId
-        );
-        if (persisted) {
+        const hydration = await fetchPersistedChatHydration({
+          workspaceModel: Workspace,
+          workspaceSlug: draft.workspaceSlug,
+          threadSlug: draft.threadSlug,
+          chatId,
+        });
+        const history = persistedHydratedChatHistory(hydration, chatId);
+        if (history.length > 0) {
           debugRuntime("confirmPersisted:found", {
             chatKey,
             turnId,
             chatId,
             attempt,
             historyLength: history.length,
+            hydratedChatIds: hydration?.hydratedChatIds || [],
           });
           updateDraft(chatKey, (current) => {
             const items = mergeServerHistoryIntoTurnItems(
@@ -1767,6 +1772,12 @@ export function ChatThreadDraftProvider({ children }) {
               ...current,
               items,
               persistError: null,
+              tailHydration: {
+                seq: Number(current.tailHydration?.seq || 0) + 1,
+                chatId,
+                turnId,
+                updatedAt: Date.now(),
+              },
             };
           });
           return;

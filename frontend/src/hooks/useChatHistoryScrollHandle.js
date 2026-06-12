@@ -10,10 +10,17 @@ import { useImperativeHandle } from "react";
  * @param {boolean} options.isStreaming - Whether chat is currently streaming a response
  * @param {Function} options.scrollToBottom - Internal scroll to bottom function
  * @param {Function} options.scrollToTop - Internal scroll to top function
+ * @param {Function} options.beginLayoutTransition - Capture current anchor before layout changes
  */
 export default function useChatHistoryScrollHandle(
   ref,
-  { setIsUserScrolling, isStreaming, scrollToBottom, scrollToTop }
+  {
+    setIsUserScrolling,
+    isStreaming,
+    scrollToBottom,
+    scrollToTop,
+    beginLayoutTransition = null,
+  }
 ) {
   useImperativeHandle(
     ref,
@@ -29,7 +36,16 @@ export default function useChatHistoryScrollHandle(
           resetSavedPosition: true,
         });
       },
+      beginLayoutTransition(signal = {}) {
+        beginLayoutTransition?.(signal);
+      },
     }),
-    [isStreaming, scrollToBottom, scrollToTop, setIsUserScrolling]
+    [
+      beginLayoutTransition,
+      isStreaming,
+      scrollToBottom,
+      scrollToTop,
+      setIsUserScrolling,
+    ]
   );
 }

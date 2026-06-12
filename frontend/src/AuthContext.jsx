@@ -8,14 +8,43 @@ import {
 import System from "./models/system";
 import { useNavigate } from "react-router-dom";
 import { safeJsonParse } from "@/utils/request";
+import {
+  CODEX_DEV_AUTH_BYPASS_KEY,
+  CODEX_DEV_AUTH_BYPASS_USER_ID,
+  isCodexDevAuthBypassEnabled,
+} from "@/utils/codexDevAuthBypass";
 
 export const AuthContext = createContext(null);
+
+function codexDevAuthUser() {
+  return {
+    id:
+      Number.isFinite(CODEX_DEV_AUTH_BYPASS_USER_ID) &&
+      CODEX_DEV_AUTH_BYPASS_USER_ID > 0
+        ? CODEX_DEV_AUTH_BYPASS_USER_ID
+        : 1,
+    username: "codex-dev",
+    role: "admin",
+    suspended: false,
+    __codexDevAuthBypass: true,
+  };
+}
+
 export function AuthProvider(props) {
   const localUser = localStorage.getItem(AUTH_USER);
   const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+  const codexDevAuthBypass = isCodexDevAuthBypassEnabled();
   const [store, setStore] = useState({
-    user: localUser ? safeJsonParse(localUser, null) : null,
-    authToken: localAuthToken ? localAuthToken : null,
+    user: codexDevAuthBypass
+      ? codexDevAuthUser()
+      : localUser
+        ? safeJsonParse(localUser, null)
+        : null,
+    authToken: codexDevAuthBypass
+      ? CODEX_DEV_AUTH_BYPASS_KEY
+      : localAuthToken
+        ? localAuthToken
+        : null,
   });
 
   const navigate = useNavigate();
@@ -49,6 +78,14 @@ export function AuthProvider(props) {
    */
   useEffect(() => {
     async function refreshUser() {
+      if (isCodexDevAuthBypassEnabled()) {
+        setStore({
+          user: codexDevAuthUser(),
+          authToken: CODEX_DEV_AUTH_BYPASS_KEY,
+        });
+        return;
+      }
+
       const { success, user: refreshedUser } = await System.refreshUser();
       if (success && refreshedUser === null) return;
 

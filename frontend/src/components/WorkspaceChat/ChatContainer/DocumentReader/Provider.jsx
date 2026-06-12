@@ -31,7 +31,8 @@ import {
   readReaderBookshelf,
   readReaderBookshelfCategories,
   readReaderHistory,
-  readerItemWithLatestProgressBackup,
+  readerItemWithLatestBookMemory,
+  registerReaderBookMemoryAlias,
   readerSourcesStorageKey,
   readerStorageKey,
   renameReaderBookshelfCategory,
@@ -42,6 +43,7 @@ import {
   tempTextSourceFromSelection,
   updateReaderBookshelfItem,
   updateReaderHistoryItem,
+  upsertReaderBookMemory,
   upsertReaderProgressBackup,
   upsertReaderBookshelfItems,
   upsertReaderHistory,
@@ -58,6 +60,14 @@ import {
   dedupeReaderTextSources,
   readerTextSourceIdentity,
 } from "@/utils/chat/readerTextSources";
+import {
+  clearReaderCurrentDocumentClearMarker,
+  clearReaderCurrentDocumentStorage,
+  readReaderDrawerState,
+  readReaderDrawerOpenIntent,
+  setReaderDrawerSection,
+  setReaderDrawerOpenIntent,
+} from "@/utils/chat/readerDrawerState";
 
 const DocumentReaderContext = createContext(null);
 
@@ -97,6 +107,7 @@ export function DocumentReaderProvider({
 }) {
   const storageKey = readerStorageKey(workspace?.slug, threadSlug);
   const sourcesKey = readerSourcesStorageKey(workspace?.slug, threadSlug);
+  const initialDrawerState = readReaderDrawerState();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentDocument, setCurrentDocument] = useState(null);
   const [, setPendingSelections] = useState([]);
@@ -106,7 +117,10 @@ export function DocumentReaderProvider({
   const [readerHistory, setReaderHistory] = useState([]);
   const [readerBookshelf, setReaderBookshelf] = useState([]);
   const [readerCategories, setReaderCategories] = useState([]);
-  const [drawerInitialSection, setDrawerInitialSection] = useState("history");
+  const [drawerInitialSection, setDrawerInitialSection] = useState(
+    initialDrawerState.section
+  );
+  const drawerSectionRef = useRef(initialDrawerState.section);
   const [localFileConflict, setLocalFileConflict] = useState(null);
   const [docxPreviewStatus, setDocxPreviewStatus] = useState(null);
   const objectUrlRef = useRef(null);
@@ -123,6 +137,29 @@ export function DocumentReaderProvider({
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = url;
   }, []);
+
+  const setDrawerOpenPersisted = useCallback((open, options = {}) => {
+    const nextState = setReaderDrawerOpenIntent(open, {
+      section: options.section || drawerSectionRef.current,
+    });
+    drawerSectionRef.current = nextState.section;
+    setDrawerInitialSection(nextState.section);
+    setDrawerOpen(nextState.open);
+    return nextState;
+  }, []);
+
+  const setDrawerSectionPersisted = useCallback(
+    (section, options = {}) => {
+      const nextState = setReaderDrawerSection(section, {
+        open: options.open === undefined ? drawerOpen : options.open,
+      });
+      drawerSectionRef.current = nextState.section;
+      setDrawerInitialSection(nextState.section);
+      setDrawerOpen(nextState.open);
+      return nextState;
+    },
+    [drawerOpen]
+  );
 
   const queuePendingReaderOpen = useCallback(
     (pendingOpen, message, options = {}) => {
@@ -214,6 +251,7 @@ export function DocumentReaderProvider({
     (doc) => {
       const item = historyItemFromDocument(doc);
       if (!item) return;
+      registerReaderBookMemoryAlias(item);
       setReaderHistory(upsertReaderHistory(null, null, item));
     },
     [historyItemFromDocument]
@@ -260,6 +298,10 @@ export function DocumentReaderProvider({
       if (!currentDocument || !progress) return null;
       const item = historyItemFromDocument(currentDocument);
       if (!item) return null;
+      upsertReaderBookMemory(item, progress, {
+        source: progress.source,
+        trustStartPosition: progress.trusted === true,
+      });
       return upsertReaderProgressBackup(item, progress);
     },
     [currentDocument, historyItemFromDocument]
@@ -439,6 +481,7 @@ export function DocumentReaderProvider({
 
   const persistDocument = useCallback(
     (doc) => {
+      clearReaderCurrentDocumentClearMarker();
       localStorage.setItem(
         storageKey,
         JSON.stringify(compactDocumentForStorage(doc))
@@ -546,8 +589,33 @@ export function DocumentReaderProvider({
     async (data, historyItem = null) => {
       if (!data?.content || !data?.metadata) return null;
       readerClosingRef.current = false;
-      const progressItem = readerItemWithLatestProgressBackup(historyItem);
       const readerDocumentId = data.metadata.readerDocumentId;
+      const progressItem = readerItemWithLatestBookMemory({
+        ...historyItem,
+        source: data.metadata.source || historyItem?.source || "reader_upload",
+        title: historyItem?.title || data.metadata.originalName,
+        bookKey:
+          historyItem?.bookKey ||
+          normalizeBookTitle(data.metadata.originalName),
+        branchId: historyItem?.branchId || null,
+        branchLabel: historyItem?.branchLabel || null,
+        documentType: data.content.documentType,
+        readerDocumentId:
+          historyItem?.readerDocumentId || readerDocumentId || null,
+        backupReaderDocumentId:
+          historyItem?.backupReaderDocumentId || readerDocumentId || null,
+        readerDocumentWorkspaceSlug:
+          data.metadata.readerDocumentWorkspaceSlug ||
+          historyItem?.readerDocumentWorkspaceSlug ||
+          historyItem?.workspaceSlug ||
+          null,
+        localPath: data.metadata.localPath || historyItem?.localPath || null,
+        progress: historyItem?.progress || {
+          label: "阅读进度",
+          percent: 0,
+          updatedAt: null,
+        },
+      });
       let parsedContent = data.content;
       let objectUrl = null;
       let renderType = null;
@@ -618,11 +686,16 @@ export function DocumentReaderProvider({
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
-      setDrawerOpen(false);
+      setDrawerOpenPersisted(false);
       if (previewWarning) showToast(previewWarning, "warning");
       return doc;
     },
-    [persistDocument, rememberDocument, setReaderObjectUrl]
+    [
+      persistDocument,
+      rememberDocument,
+      setDrawerOpenPersisted,
+      setReaderObjectUrl,
+    ]
   );
 
   const openReaderDocument = useCallback(
@@ -741,6 +814,76 @@ export function DocumentReaderProvider({
     [clearPendingReaderOpen, openServerDocumentData, queuePendingReaderOpen]
   );
 
+  const openWorkspaceParsedDocument = useCallback(
+    async (
+      docPath,
+      sourceWorkspaceSlug = workspace?.slug,
+      historyItem = null
+    ) => {
+      if (!sourceWorkspaceSlug || !docPath) return;
+      if (!historyItem) setDrawerSectionPersisted("workspace");
+      const { response, data } = await ReaderDocument.fromWorkspace(
+        sourceWorkspaceSlug,
+        docPath
+      );
+      if (!response.ok || !data?.success) {
+        showToast(data?.error || "解析文本预览打开失败", "error");
+        return;
+      }
+      const progressItem = readerItemWithLatestBookMemory({
+        ...historyItem,
+        source: "workspace_parsed",
+        title: historyItem?.title || data.metadata.originalName,
+        bookKey:
+          historyItem?.bookKey ||
+          normalizeBookTitle(data.metadata.originalName),
+        documentType: "markdown",
+        readerDocumentId:
+          historyItem?.readerDocumentId || data.metadata.readerDocumentId,
+        workspaceDocPath: historyItem?.workspaceDocPath || docPath,
+        readerDocumentWorkspaceSlug:
+          historyItem?.readerDocumentWorkspaceSlug ||
+          historyItem?.workspaceSlug ||
+          sourceWorkspaceSlug,
+        progress: historyItem?.progress || {
+          label: "阅读进度",
+          percent: 0,
+          updatedAt: null,
+        },
+      });
+      const doc = {
+        source: "workspace_parsed",
+        readerDocumentId: data.metadata.readerDocumentId,
+        documentType: "markdown",
+        title: data.metadata.originalName,
+        bookKey:
+          progressItem?.bookKey ||
+          normalizeBookTitle(data.metadata.originalName),
+        branchId: progressItem?.branchId || null,
+        branchLabel: progressItem?.branchLabel || null,
+        metadata: { ...data.metadata, workspaceDocPath: docPath },
+        workspaceDocPath: docPath,
+        readerDocumentWorkspaceSlug: sourceWorkspaceSlug,
+        content: data.content,
+        progress: normalizedReaderProgress(progressItem?.progress),
+      };
+      setReaderObjectUrl(null);
+      readerClosingRef.current = false;
+      setCurrentDocument(doc);
+      persistDocument(doc);
+      rememberDocument(doc);
+      setDrawerOpenPersisted(false);
+    },
+    [
+      persistDocument,
+      rememberDocument,
+      setDrawerSectionPersisted,
+      setDrawerOpenPersisted,
+      setReaderObjectUrl,
+      workspace?.slug,
+    ]
+  );
+
   const retryPendingReaderOpen = useCallback(() => {
     const pending = pendingReaderOpenRef.current;
     if (!pending || readerClosingRef.current || currentDocument) return;
@@ -791,7 +934,7 @@ export function DocumentReaderProvider({
         (source.localDocumentId &&
           currentDocument?.localDocumentId === source.localDocumentId);
       if (alreadyOpen || !sourceReaderDocumentId) return;
-      setDrawerOpen(true);
+      setDrawerOpenPersisted(true);
       const opened = await openReaderDocument(sourceReaderDocumentId, {
         title: source.documentTitle,
         documentType: source.documentType,
@@ -826,17 +969,23 @@ export function DocumentReaderProvider({
     setReaderBookshelf(readReaderBookshelf());
     setReaderCategories(readReaderBookshelfCategories());
 
-    const stored = readerItemWithLatestProgressBackup(
+    const stored = readerItemWithLatestBookMemory(
       safeJsonParse(localStorage.getItem(storageKey), null)
     );
-    if (!stored) return;
+    if (!stored) {
+      const restoredDrawerState = readReaderDrawerState();
+      drawerSectionRef.current = restoredDrawerState.section;
+      setDrawerInitialSection(restoredDrawerState.section);
+      if (readReaderDrawerOpenIntent()) setDrawerOpen(true);
+      return;
+    }
     if (stored.source === "local") {
       if (stored.backupReaderDocumentId) {
         showToast("本地文档不可恢复，已尝试使用服务器备份打开。", "info");
         openReaderDocument(stored.backupReaderDocumentId, stored);
       } else {
         showToast("本地文档不可恢复，请重新选择文件。", "warning");
-        setDrawerOpen(true);
+        setDrawerOpenPersisted(true);
       }
       return;
     }
@@ -853,6 +1002,14 @@ export function DocumentReaderProvider({
       });
       return;
     }
+    if (stored.source === "workspace_parsed" && stored.workspaceDocPath) {
+      openWorkspaceParsedDocument(
+        stored.workspaceDocPath,
+        stored.readerDocumentWorkspaceSlug || workspace?.slug,
+        stored
+      );
+      return;
+    }
     if (stored.readerDocumentId) {
       if (["docx", "epub"].includes(stored.documentType)) {
         setDocxPreviewStatus({
@@ -867,7 +1024,9 @@ export function DocumentReaderProvider({
     }
   }, [
     openReaderDocument,
+    openWorkspaceParsedDocument,
     reopenLocalPathDocument,
+    setDrawerOpenPersisted,
     sourcesKey,
     storageKey,
     migrateReaderStorage,
@@ -884,11 +1043,11 @@ export function DocumentReaderProvider({
   useEffect(() => {
     const open = () => {
       readerClosingRef.current = false;
-      setDrawerOpen(true);
+      setDrawerOpenPersisted(true);
     };
     window.addEventListener(READER_EVENT_OPEN_DRAWER, open);
     return () => window.removeEventListener(READER_EVENT_OPEN_DRAWER, open);
-  }, []);
+  }, [setDrawerOpenPersisted]);
 
   useEffect(() => {
     const associate = (event) => {
@@ -1033,7 +1192,7 @@ export function DocumentReaderProvider({
 
   const openLocalFile = useCallback(
     async (file, options = {}) => {
-      if (!options.addToBookshelf) setDrawerInitialSection("history");
+      if (!options.addToBookshelf) setDrawerSectionPersisted("history");
       const validation = validateReaderFile(file);
       if (!validation.ok) {
         showToast(validation.error, "error");
@@ -1117,6 +1276,16 @@ export function DocumentReaderProvider({
         localDocumentId,
         validation.documentType
       );
+      const progressItem = readerItemWithLatestBookMemory({
+        source: "local",
+        title: file.name,
+        bookKey,
+        branchId: options.branch ? `local-${localDocumentId}` : null,
+        branchLabel: options.branch ? "本地分支" : null,
+        localDocumentId,
+        documentType: validation.documentType,
+        progress: { label: "阅读进度", percent: 0, updatedAt: null },
+      });
       const doc = {
         source: "local",
         localDocumentId,
@@ -1135,7 +1304,7 @@ export function DocumentReaderProvider({
         content,
         objectUrl,
         file,
-        progress: { label: "阅读进度", percent: 0, updatedAt: null },
+        progress: normalizedReaderProgress(progressItem?.progress),
       };
       readerClosingRef.current = false;
       setCurrentDocument(doc);
@@ -1147,7 +1316,7 @@ export function DocumentReaderProvider({
         };
         addItemsToBookshelf([item]);
       }
-      setDrawerOpen(false);
+      setDrawerOpenPersisted(false);
       return doc;
     },
     [
@@ -1160,6 +1329,8 @@ export function DocumentReaderProvider({
       queueBookshelfPostprocess,
       rememberDocument,
       requestLocalFileConflictChoice,
+      setDrawerSectionPersisted,
+      setDrawerOpenPersisted,
       setReaderObjectUrl,
     ]
   );
@@ -1354,8 +1525,19 @@ export function DocumentReaderProvider({
       if (!currentDocument) return;
       const nextProgress = normalizedReaderProgress({
         ...progress,
+        source: progress?.source || options.source || null,
+        trusted:
+          progress?.trusted === true || options.trustStartPosition === true,
         updatedAt: progress?.updatedAt || new Date().toISOString(),
       });
+      upsertReaderBookMemory(
+        historyItemFromDocument(currentDocument),
+        nextProgress,
+        {
+          source: nextProgress.source,
+          trustStartPosition: nextProgress.trusted === true,
+        }
+      );
       backupCurrentDocumentProgress(nextProgress);
       if (
         !options.force &&
@@ -1374,6 +1556,7 @@ export function DocumentReaderProvider({
     [
       backupCurrentDocumentProgress,
       currentDocument,
+      historyItemFromDocument,
       patchHistoryForDocument,
       persistDocument,
     ]
@@ -1391,17 +1574,17 @@ export function DocumentReaderProvider({
       setPendingSelectionSources([]);
       setPendingTextSources([]);
       setFocusedReaderTextSource(null);
-      setDrawerOpen(true);
-      localStorage.removeItem(storageKey);
+      clearReaderCurrentDocumentStorage();
+      setDrawerOpenPersisted(true);
       setReaderObjectUrl(null);
     },
     [
       currentDocument,
       recordCurrentProgress,
+      setDrawerOpenPersisted,
       setReaderObjectUrl,
       setPendingSelectionSources,
       setPendingTextSources,
-      storageKey,
     ]
   );
 
@@ -1413,98 +1596,56 @@ export function DocumentReaderProvider({
           force: true,
           skipCurrentDocumentPersist: true,
         });
-      setDrawerOpen(false);
+      setDrawerOpenPersisted(false);
       setCurrentDocument(null);
       setPendingSelectionSources([]);
       setPendingTextSources([]);
       setFocusedReaderTextSource(null);
-      localStorage.removeItem(storageKey);
+      clearReaderCurrentDocumentStorage();
       setReaderObjectUrl(null);
     },
     [
       currentDocument,
       recordCurrentProgress,
+      setDrawerOpenPersisted,
       setReaderObjectUrl,
       setPendingSelectionSources,
       setPendingTextSources,
-      storageKey,
     ]
-  );
-
-  const openWorkspaceParsedDocument = useCallback(
-    async (
-      docPath,
-      sourceWorkspaceSlug = workspace?.slug,
-      historyItem = null
-    ) => {
-      if (!sourceWorkspaceSlug || !docPath) return;
-      setDrawerInitialSection("history");
-      const { response, data } = await ReaderDocument.fromWorkspace(
-        sourceWorkspaceSlug,
-        docPath
-      );
-      if (!response.ok || !data?.success) {
-        showToast(data?.error || "解析文本预览打开失败", "error");
-        return;
-      }
-      const progressItem = readerItemWithLatestProgressBackup(historyItem);
-      const doc = {
-        source: "workspace_parsed",
-        readerDocumentId: data.metadata.readerDocumentId,
-        documentType: "markdown",
-        title: data.metadata.originalName,
-        bookKey:
-          progressItem?.bookKey ||
-          normalizeBookTitle(data.metadata.originalName),
-        branchId: progressItem?.branchId || null,
-        branchLabel: progressItem?.branchLabel || null,
-        metadata: { ...data.metadata, workspaceDocPath: docPath },
-        workspaceDocPath: docPath,
-        readerDocumentWorkspaceSlug: sourceWorkspaceSlug,
-        content: data.content,
-        progress: normalizedReaderProgress(progressItem?.progress),
-      };
-      setReaderObjectUrl(null);
-      readerClosingRef.current = false;
-      setCurrentDocument(doc);
-      persistDocument(doc);
-      rememberDocument(doc);
-      setDrawerOpen(false);
-    },
-    [persistDocument, rememberDocument, setReaderObjectUrl, workspace?.slug]
   );
 
   const openHistoryDocument = useCallback(
     async (historyItem, options = {}) => {
       if (!historyItem) return { ok: false };
-      setDrawerInitialSection(options.origin || "history");
+      const rememberedItem = readerItemWithLatestBookMemory(historyItem);
+      setDrawerSectionPersisted(options.origin || "history");
       if (
-        historyItem.localPath ||
-        ["reader_upload", "local_path"].includes(historyItem.source)
+        rememberedItem.localPath ||
+        ["reader_upload", "local_path"].includes(rememberedItem.source)
       ) {
-        const ok = await openUploadedHistoryItem(historyItem);
+        const ok = await openUploadedHistoryItem(rememberedItem);
         if (ok) return { ok: true };
       }
       if (
-        historyItem.source === "workspace_parsed" &&
-        historyItem.workspaceDocPath
+        rememberedItem.source === "workspace_parsed" &&
+        rememberedItem.workspaceDocPath
       ) {
         await openWorkspaceParsedDocument(
-          historyItem.workspaceDocPath,
-          historyItem.readerDocumentWorkspaceSlug ||
-            historyItem.workspaceSlug ||
+          rememberedItem.workspaceDocPath,
+          rememberedItem.readerDocumentWorkspaceSlug ||
+            rememberedItem.workspaceSlug ||
             workspace?.slug,
-          historyItem
+          rememberedItem
         );
         return { ok: true };
       }
       if (
-        historyItem.source === "local" &&
-        historyItem.backupReaderDocumentId
+        rememberedItem.source === "local" &&
+        rememberedItem.backupReaderDocumentId
       ) {
         await openReaderDocument(
-          historyItem.backupReaderDocumentId,
-          historyItem
+          rememberedItem.backupReaderDocumentId,
+          rememberedItem
         );
         return { ok: true };
       }
@@ -1515,6 +1656,7 @@ export function DocumentReaderProvider({
       openReaderDocument,
       openUploadedHistoryItem,
       openWorkspaceParsedDocument,
+      setDrawerSectionPersisted,
       workspace?.slug,
     ]
   );
@@ -1522,10 +1664,10 @@ export function DocumentReaderProvider({
   const openBookshelfDocument = useCallback(
     async (bookshelfItem) => {
       if (!bookshelfItem) return { ok: false };
-      setDrawerInitialSection("bookshelf");
+      setDrawerSectionPersisted("bookshelf");
       return await openHistoryDocument(bookshelfItem, { origin: "bookshelf" });
     },
-    [openHistoryDocument]
+    [openHistoryDocument, setDrawerSectionPersisted]
   );
 
   const clearReaderHistory = useCallback(() => {
@@ -1733,6 +1875,7 @@ export function DocumentReaderProvider({
       currentDocument,
       drawerOpen,
       setDrawerOpen,
+      setDrawerSection: setDrawerSectionPersisted,
       openLocalFile,
       uploadCurrentDocument,
       bindCurrentDocumentLocalPath,
@@ -1777,6 +1920,7 @@ export function DocumentReaderProvider({
     [
       currentDocument,
       drawerOpen,
+      setDrawerSectionPersisted,
       bindCurrentDocumentLocalPath,
       openLocalFile,
       addHistoryItemsToBookshelf,

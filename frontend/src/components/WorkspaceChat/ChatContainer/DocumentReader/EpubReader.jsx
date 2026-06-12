@@ -11,7 +11,15 @@ import {
   X,
 } from "@phosphor-icons/react";
 import ePub from "epubjs";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { readerTextSourceKey, textHash } from "./storage";
 import { thumbnailFromEpubBook } from "./thumbnails";
 
@@ -343,15 +351,18 @@ function isEpubSourceForDocument(source = {}, document = {}) {
   );
 }
 
-export default function EpubReader({
-  document,
-  onCite,
-  onThumbnailReady,
-  onProgressChange,
-  readerTextSources = [],
-  onFocusTextSource,
-  onRemoveTextSource,
-}) {
+const EpubReader = forwardRef(function EpubReader(
+  {
+    document,
+    onCite,
+    onThumbnailReady,
+    onProgressChange,
+    readerTextSources = [],
+    onFocusTextSource,
+    onRemoveTextSource,
+  },
+  ref
+) {
   const readerShellRef = useRef(null);
   const containerRef = useRef(null);
   const previewHostRef = useRef(null);
@@ -4461,34 +4472,52 @@ export default function EpubReader({
     } catch {}
   }
 
+  const progressFromLocation = useCallback(
+    (location) => {
+      const start = location?.start || {};
+      const percentage =
+        typeof start.percentage === "number"
+          ? start.percentage
+          : typeof location?.percentage === "number"
+            ? location.percentage
+            : null;
+      const displayed = start.displayed || location?.displayed || {};
+      const displayedPercent =
+        displayed.total > 0 ? displayed.page / displayed.total : null;
+      const percent =
+        percentage !== null
+          ? percentage * 100
+          : displayedPercent !== null
+            ? displayedPercent * 100
+            : Number(document?.progress?.percent || 0);
+      return {
+        label: "阅读进度",
+        percent,
+        locator: {
+          type: "epub-cfi",
+          cfi: start.cfi || location?.cfi || null,
+          href: start.href || location?.href || null,
+        },
+        scrollRatio: percent / 100,
+      };
+    },
+    [document?.progress?.percent]
+  );
+
   function reportProgress(location) {
-    const start = location?.start || {};
-    const percentage =
-      typeof start.percentage === "number"
-        ? start.percentage
-        : typeof location?.percentage === "number"
-          ? location.percentage
-          : null;
-    const displayed = start.displayed || location?.displayed || {};
-    const displayedPercent =
-      displayed.total > 0 ? displayed.page / displayed.total : null;
-    const percent =
-      percentage !== null
-        ? percentage * 100
-        : displayedPercent !== null
-          ? displayedPercent * 100
-          : Number(document?.progress?.percent || 0);
-    onProgressChange?.({
-      label: "阅读进度",
-      percent,
-      locator: {
-        type: "epub-cfi",
-        cfi: start.cfi || location?.cfi || null,
-        href: start.href || location?.href || null,
-      },
-      scrollRatio: percent / 100,
-    });
+    onProgressChange?.(progressFromLocation(location));
   }
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      getCurrentProgress: () =>
+        currentLocationRef.current
+          ? progressFromLocation(currentLocationRef.current)
+          : document?.progress || null,
+    }),
+    [document?.progress, progressFromLocation]
+  );
 
   useEffect(() => {
     if (!url || !containerRef.current) return;
@@ -5569,4 +5598,6 @@ export default function EpubReader({
       )}
     </div>
   );
-}
+});
+
+export default EpubReader;
