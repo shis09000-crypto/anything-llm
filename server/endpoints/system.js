@@ -15,10 +15,17 @@ const {
 const {
   reqBody,
   makeJWT,
+  decodeJWT,
   userFromSession,
   multiUserMode,
   queryParams,
 } = require("../utils/http");
+const {
+  USER_ACTION_REFRESH_THROTTLE_MS,
+  isAllowedUserActionReason,
+  issueUserSessionToken,
+  jwtIdleState,
+} = require("../utils/sessionIdle");
 const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
 const { SystemSettings } = require("../models/systemSettings");
@@ -280,7 +287,12 @@ function systemEndpoints(app) {
             return;
           }
 
-          response.sendStatus(200).end();
+          const idleState = jwtIdleState(decodeJWT(bearerToken(request)));
+          response.status(200).json({
+            valid: true,
+            idleExpiresAt: idleState.idleExpiresAt,
+            idleRemainingMs: idleState.idleRemainingMs,
+          });
           return;
         }
 
@@ -288,6 +300,60 @@ function systemEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/system/user-action",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        if (!multiUserMode(response)) {
+          response.status(404).json({ success: false });
+          return;
+        }
+
+        const user = await userFromSession(request, response);
+        if (!user || user.suspended) {
+          response.status(403).json({ success: false });
+          return;
+        }
+
+        const { reason } = reqBody(request) || {};
+        if (!isAllowedUserActionReason(reason)) {
+          response.status(400).json({
+            success: false,
+            error: "Invalid user action reason.",
+          });
+          return;
+        }
+
+        const currentToken = bearerToken(request);
+        const currentState = jwtIdleState(decodeJWT(currentToken));
+        const now = Date.now();
+        const throttled =
+          now - Number(currentState.lastUserActionAt || 0) <
+          USER_ACTION_REFRESH_THROTTLE_MS;
+        const lastUserActionAt = throttled
+          ? currentState.lastUserActionAt
+          : now;
+        const nextState = jwtIdleState({ lastUserActionAt });
+        const nextToken = throttled
+          ? null
+          : issueUserSessionToken(user, lastUserActionAt);
+
+        response.status(200).json({
+          success: true,
+          token: nextToken,
+          throttled,
+          lastUserActionAt,
+          idleExpiresAt: nextState.idleExpiresAt,
+          idleRemainingMs: nextState.idleRemainingMs,
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.status(500).json({ success: false, error: e.message });
       }
     }
   );
@@ -354,15 +420,16 @@ function systemEndpoints(app) {
           return;
         }
 
-        const { username, password } = reqBody(request);
-        const existingUser = await User._get({ username: String(username) });
+        const { identifier, username, password } = reqBody(request);
+        const loginIdentifier = String(identifier || username || "").trim();
+        const existingUser = await findUserByLoginIdentifier(loginIdentifier);
 
         if (!existingUser) {
           await EventLogs.logEvent(
             "failed_login_invalid_username",
             {
               ip: request.ip || "Unknown IP",
-              username: username || "Unknown user",
+              username: loginIdentifier || "Unknown user",
             },
             existingUser?.id
           );
@@ -380,7 +447,7 @@ function systemEndpoints(app) {
             "failed_login_invalid_password",
             {
               ip: request.ip || "Unknown IP",
-              username: username || "Unknown user",
+              username: loginIdentifier || "Unknown user",
             },
             existingUser?.id
           );
@@ -388,7 +455,7 @@ function systemEndpoints(app) {
             user: null,
             valid: false,
             token: null,
-            message: "[002] Invalid login credentials.",
+            message: "[001] Invalid login credentials.",
           });
           return;
         }
@@ -398,7 +465,7 @@ function systemEndpoints(app) {
             "failed_login_account_suspended",
             {
               ip: request.ip || "Unknown IP",
-              username: username || "Unknown user",
+              username: loginIdentifier || "Unknown user",
             },
             existingUser?.id
           );
@@ -428,10 +495,7 @@ function systemEndpoints(app) {
 
         // Generate a session token for the user then check if they have seen the recovery codes
         // and if not, generate recovery codes and return them to the frontend.
-        const sessionToken = makeJWT(
-          { id: existingUser.id, username: existingUser.username },
-          process.env.JWT_EXPIRY
-        );
+        const sessionToken = issueUserSessionToken(existingUser);
         if (!existingUser.seen_recovery_codes) {
           const plainTextCodes = await generateRecoveryCodes(existingUser.id);
           response.status(200).json({
@@ -1608,7 +1672,7 @@ function systemEndpoints(app) {
     try {
       const sessionUser = await userFromSession(request, response);
       const body = reqBody(request);
-      const { username, password, bio } = body;
+      const { displayName, password, currentPassword, bio } = body;
       const id = Number(sessionUser.id);
 
       if (!id) {
@@ -1617,14 +1681,32 @@ function systemEndpoints(app) {
       }
 
       const updates = {};
-      // If the username is being changed, validate it.
-      // Otherwise, do not attempt to validate it to allow existing users to keep their username if not changing it.
-      if (
-        Object.prototype.hasOwnProperty.call(body, "username") &&
-        username !== sessionUser.username
-      )
-        updates.username = User.validations.username(String(username));
-      if (password) updates.password = String(password);
+      if (Object.prototype.hasOwnProperty.call(body, "displayName"))
+        updates.displayName = User.validations.displayName(displayName);
+      if (password) {
+        if (!currentPassword) {
+          response.status(400).json({
+            success: false,
+            error: "Current password is required to change password",
+          });
+          return;
+        }
+
+        const storedUser = await User._get({ id });
+        const bcrypt = require("bcryptjs");
+        if (
+          !storedUser?.password ||
+          !bcrypt.compareSync(String(currentPassword), storedUser.password)
+        ) {
+          response.status(400).json({
+            success: false,
+            error: "Current password is incorrect",
+          });
+          return;
+        }
+
+        updates.password = String(password);
+      }
       if (Object.prototype.hasOwnProperty.call(body, "bio"))
         updates.bio = String(bio ?? "");
 
@@ -1996,6 +2078,24 @@ function systemEndpoints(app) {
       }
     }
   );
+}
+
+function bearerToken(request) {
+  const auth = request.header("Authorization");
+  return auth ? auth.split(" ")[1] : null;
+}
+
+async function findUserByLoginIdentifier(identifier = "") {
+  const value = String(identifier || "").trim();
+  if (!value) return null;
+
+  const byUsername = await User._get({ username: value });
+  if (byUsername) return byUsername;
+
+  const byEmail = await User._get({ email: value });
+  if (byEmail) return byEmail;
+
+  return User._get({ phone: value });
 }
 
 module.exports = { systemEndpoints };

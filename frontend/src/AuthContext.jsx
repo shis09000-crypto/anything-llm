@@ -3,6 +3,7 @@ import {
   AUTH_TIMESTAMP,
   AUTH_TOKEN,
   AUTH_USER,
+  LAST_USER_ACTION_AT,
   USER_PROMPT_INPUT_MAP,
 } from "@/utils/constants";
 import System from "./models/system";
@@ -13,6 +14,7 @@ import {
   CODEX_DEV_AUTH_BYPASS_USER_ID,
   isCodexDevAuthBypassEnabled,
 } from "@/utils/codexDevAuthBypass";
+import { setLoginUserActionNow } from "@/utils/userAction";
 
 export const AuthContext = createContext(null);
 
@@ -59,12 +61,14 @@ export function AuthProvider(props) {
     updateUser: (user, authToken = "") => {
       localStorage.setItem(AUTH_USER, JSON.stringify(user));
       localStorage.setItem(AUTH_TOKEN, authToken);
+      setLoginUserActionNow();
       setStore({ user, authToken });
     },
     unsetUser: () => {
       localStorage.removeItem(AUTH_USER);
       localStorage.removeItem(AUTH_TOKEN);
       localStorage.removeItem(AUTH_TIMESTAMP);
+      localStorage.removeItem(LAST_USER_ACTION_AT);
       localStorage.removeItem(USER_PROMPT_INPUT_MAP);
       setStore({ user: null, authToken: null });
     },
@@ -93,6 +97,7 @@ export function AuthProvider(props) {
         localStorage.removeItem(AUTH_USER);
         localStorage.removeItem(AUTH_TOKEN);
         localStorage.removeItem(AUTH_TIMESTAMP);
+        localStorage.removeItem(LAST_USER_ACTION_AT);
         localStorage.removeItem(USER_PROMPT_INPUT_MAP);
         setStore({ user: null, authToken: null });
         navigate("/login");

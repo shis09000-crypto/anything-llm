@@ -4,6 +4,7 @@ import paths from "@/utils/paths";
 import useQuery from "@/hooks/useQuery";
 import System from "@/models/system";
 import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import { setLoginUserActionNow } from "@/utils/userAction";
 
 export default function SimpleSSOPassthrough() {
   const query = useQuery();
@@ -27,6 +28,7 @@ export default function SimpleSSOPassthrough() {
           window.localStorage.setItem(AUTH_USER, JSON.stringify(res.user));
           window.localStorage.setItem(AUTH_TOKEN, res.token);
           window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
+          setLoginUserActionNow();
           setReady(res.valid);
         })
         .catch((e) => {

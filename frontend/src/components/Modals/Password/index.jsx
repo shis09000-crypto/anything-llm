@@ -6,12 +6,17 @@ import {
   AUTH_TOKEN,
   AUTH_USER,
   AUTH_TIMESTAMP,
+  LAST_USER_ACTION_AT,
 } from "../../../utils/constants";
 import useLogo from "../../../hooks/useLogo";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 
 export default function PasswordModal({ mode = "single" }) {
   const { loginLogo, isCustomLogo } = useLogo();
+  if (mode === "multi") {
+    return <MultiUserAuth loginLogo={loginLogo} isCustomLogo={isCustomLogo} />;
+  }
+
   return (
     <div className="fixed inset-0 bg-zinc-950 light:bg-slate-50 flex flex-col items-center justify-center overflow-hidden">
       <img
@@ -20,7 +25,7 @@ export default function PasswordModal({ mode = "single" }) {
         className={`max-h-[80px] ${isCustomLogo ? "rounded-lg" : ""}`}
         style={{ objectFit: "contain" }}
       />
-      {mode === "single" ? <SingleUserAuth /> : <MultiUserAuth />}
+      <SingleUserAuth />
     </div>
   );
 }
@@ -70,6 +75,7 @@ export function usePasswordModal(notry = false) {
             window.localStorage.removeItem(AUTH_USER);
             window.localStorage.removeItem(AUTH_TOKEN);
             window.localStorage.removeItem(AUTH_TIMESTAMP);
+            window.localStorage.removeItem(LAST_USER_ACTION_AT);
             return;
           } else {
             setAuth({
@@ -112,6 +118,7 @@ export function usePasswordModal(notry = false) {
             window.localStorage.removeItem(AUTH_TOKEN);
             window.localStorage.removeItem(AUTH_USER);
             window.localStorage.removeItem(AUTH_TIMESTAMP);
+            window.localStorage.removeItem(LAST_USER_ACTION_AT);
             return;
           } else {
             setAuth({

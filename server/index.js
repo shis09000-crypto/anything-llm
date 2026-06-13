@@ -19,6 +19,11 @@ const cors = require("cors");
 const path = require("path");
 const { reqBody } = require("./utils/http");
 const { systemEndpoints } = require("./endpoints/system");
+const { authPasskeyEndpoints } = require("./endpoints/authPasskeys");
+const {
+  authTrustedDeviceEndpoints,
+} = require("./endpoints/authTrustedDevices");
+const { authZkLoginEndpoints } = require("./endpoints/authZkLogin");
 const { workspaceEndpoints } = require("./endpoints/workspaces");
 const { workspaceHealthEndpoints } = require("./endpoints/workspaceHealth");
 const { workspaceOverviewEndpoints } = require("./endpoints/workspaceOverview");
@@ -107,6 +112,9 @@ if (!!process.env.ENABLE_HTTPS) {
 
 app.use("/api", apiRouter);
 systemEndpoints(apiRouter);
+authPasskeyEndpoints(apiRouter);
+authTrustedDeviceEndpoints(apiRouter);
+authZkLoginEndpoints(apiRouter);
 extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
 workspaceHealthEndpoints(apiRouter);

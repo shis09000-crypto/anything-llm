@@ -8,6 +8,7 @@ import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import { USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH } from "@/utils/username";
 import { PW_REGEX } from "@/pages/GeneralSettings/Security";
+import { setLoginUserActionNow } from "@/utils/userAction";
 
 export default function UserSetup({ setHeader, setForwardBtn, setBackBtn }) {
   const { t } = useTranslation();
@@ -150,6 +151,7 @@ const JustMe = ({
     window.localStorage.removeItem(AUTH_USER);
     window.localStorage.removeItem(AUTH_TIMESTAMP);
     window.localStorage.setItem(AUTH_TOKEN, token);
+    setLoginUserActionNow();
 
     navigate(paths.onboarding.dataHandling());
   };
@@ -270,6 +272,7 @@ const MyTeam = ({ setMultiUserLoginValid, myTeamSubmitRef, navigate }) => {
     window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
     window.localStorage.setItem(AUTH_TOKEN, token);
     window.localStorage.removeItem(AUTH_TIMESTAMP);
+    setLoginUserActionNow();
   };
 
   const setNewUsername = (e) => setUsername(e.target.value);

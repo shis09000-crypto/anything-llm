@@ -4,7 +4,12 @@ import { isMobile } from "react-device-detect";
 import showToast from "@/utils/toast";
 import System from "@/models/system";
 import paths from "@/utils/paths";
-import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import {
+  AUTH_TIMESTAMP,
+  AUTH_TOKEN,
+  AUTH_USER,
+  LAST_USER_ACTION_AT,
+} from "@/utils/constants";
 import PreLoader from "@/components/Preloader";
 import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
@@ -63,6 +68,7 @@ function MultiUserMode() {
           window.localStorage.removeItem(AUTH_USER);
           window.localStorage.removeItem(AUTH_TOKEN);
           window.localStorage.removeItem(AUTH_TIMESTAMP);
+          window.localStorage.removeItem(LAST_USER_ACTION_AT);
           window.location = paths.settings.users();
         }, 2_000);
         return;
@@ -237,6 +243,7 @@ function PasswordProtection() {
         window.localStorage.removeItem(AUTH_USER);
         window.localStorage.removeItem(AUTH_TOKEN);
         window.localStorage.removeItem(AUTH_TIMESTAMP);
+        window.localStorage.removeItem(LAST_USER_ACTION_AT);
         window.location.reload();
       }, 3_000);
       return;

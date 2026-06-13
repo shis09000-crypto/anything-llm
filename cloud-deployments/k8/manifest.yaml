@@ -114,8 +114,8 @@ spec:
             echo "STORAGE_DIR: $STORAGE_DIR"
             {
               cd /app/server/ &&
-                npx prisma generate --schema=./prisma/schema.prisma &&
-                npx prisma migrate deploy --schema=./prisma/schema.prisma &&
+                node scripts/prisma-runtime.js generate &&
+                node scripts/prisma-runtime.js migrate deploy &&
                 node /app/server/index.js
               echo "Server process exited with status $?"
             } &

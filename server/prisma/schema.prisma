@@ -12,7 +12,7 @@ generator client {
 // }
 datasource db {
   provider = "sqlite"
-  url      = "file:../storage/anythingllm.db"
+  url      = env("DATABASE_URL")
 }
 
 model api_keys {
@@ -25,57 +25,57 @@ model api_keys {
 }
 
 model workspace_documents {
-  id                   Int                   @id @default(autoincrement())
-  docId                String                @unique
-  filename             String
-  docpath              String
-  workspaceId          Int
-  metadata             String?
-  pinned               Boolean?              @default(false)
-  watched              Boolean?              @default(false)
-  embeddingStatus      String                @default("completed")
-  embeddingError       String?
-  embeddingBatchJobId  String?
-  createdAt            DateTime              @default(now())
-  lastUpdatedAt        DateTime              @default(now())
-  workspace            workspaces            @relation(fields: [workspaceId], references: [id])
-  document_sync_queues document_sync_queues?
-  node_supplements     NodeSupplement[]
+  id                    Int                   @id @default(autoincrement())
+  docId                 String                @unique
+  filename              String
+  docpath               String
+  workspaceId           Int
+  metadata              String?
+  pinned                Boolean?              @default(false)
+  watched               Boolean?              @default(false)
+  embeddingStatus       String                @default("completed")
+  embeddingError        String?
+  embeddingBatchJobId   String?
+  createdAt             DateTime              @default(now())
+  lastUpdatedAt         DateTime              @default(now())
+  workspace             workspaces            @relation(fields: [workspaceId], references: [id])
+  document_sync_queues  document_sync_queues?
+  node_supplements      NodeSupplement[]
   workspace_supplements WorkspaceSupplement[]
 }
 
 model WorkspaceVisualAsset {
-  id           Int      @id @default(autoincrement())
+  id           Int       @id @default(autoincrement())
   workspaceId  Int
-  scopeType    String   @default("workspace")
+  scopeType    String    @default("workspace")
   nodeKey      String?
   nodeLabel    String?
   nodeType     String?
-  role         String   @default("hero_background")
+  role         String    @default("hero_background")
   filename     String
   mime         String
-  size         Int      @default(0)
-  metadataJson String   @default("{}")
+  size         Int       @default(0)
+  metadataJson String    @default("{}")
   deletedAt    DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([workspaceId, scopeType, role])
 }
 
 model WorkspaceOverviewNarrative {
   id              Int       @id @default(autoincrement())
-  workspaceId      Int       @unique
-  tagline          String?
-  sourceHash       String    @default("")
-  model            String?
-  promptVersion    String    @default("workspace-overview-tagline-v2")
-  status           String    @default("empty")
-  errorType        String?
-  metadataJson     String    @default("{}")
-  lastGeneratedAt  DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  workspaceId     Int       @unique
+  tagline         String?
+  sourceHash      String    @default("")
+  model           String?
+  promptVersion   String    @default("workspace-overview-tagline-v2")
+  status          String    @default("empty")
+  errorType       String?
+  metadataJson    String    @default("{}")
+  lastGeneratedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([status])
@@ -122,26 +122,26 @@ model WorkspaceSupplement {
 }
 
 model WorkspaceKnowledgeProfile {
-  id                    Int      @id @default(autoincrement())
-  workspaceId           Int      @unique
-  profileType           String   @default("mixed")
-  confidence            Float    @default(0)
-  primaryDocumentIdsJson String  @default("[]")
-  mainTopic             String?
-  detectedStructureJson String   @default("{}")
+  id                     Int       @id @default(autoincrement())
+  workspaceId            Int       @unique
+  profileType            String    @default("mixed")
+  confidence             Float     @default(0)
+  primaryDocumentIdsJson String    @default("[]")
+  mainTopic              String?
+  detectedStructureJson  String    @default("{}")
   suggestedGraphStrategy String?
-  profileVersion        String   @default("workspace-profile-v1")
-  manualOverride        Boolean  @default(false)
-  overrideSource        String?
-  overrideReason        String?
-  originalProfileType   String?
-  originalConfidence    Float?
-  userDescription       String?
-  metadataJson          String   @default("{}")
-  lastAnalyzedAt        DateTime?
-  nextRefreshAfter      DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  profileVersion         String    @default("workspace-profile-v1")
+  manualOverride         Boolean   @default(false)
+  overrideSource         String?
+  overrideReason         String?
+  originalProfileType    String?
+  originalConfidence     Float?
+  userDescription        String?
+  metadataJson           String    @default("{}")
+  lastAnalyzedAt         DateTime?
+  nextRefreshAfter       DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([profileType])
@@ -149,27 +149,27 @@ model WorkspaceKnowledgeProfile {
 }
 
 model BookStructureAnalysis {
-  id                       Int      @id @default(autoincrement())
-  workspaceId              Int      @unique
-  structureType            String   @default("mixed_structure")
-  confidence               Float    @default(0)
+  id                       Int       @id @default(autoincrement())
+  workspaceId              Int       @unique
+  structureType            String    @default("mixed_structure")
+  confidence               Float     @default(0)
   primaryAxis              String?
-  secondaryAxesJson        String   @default("[]")
-  recommendedNodeTypesJson String   @default("[]")
-  recommendedPathTypesJson String   @default("[]")
-  extractionFocusJson      String   @default("[]")
-  recommendationFocusJson  String   @default("[]")
-  structureVersion         String   @default("book-structure-v1")
-  manualOverride           Boolean  @default(false)
+  secondaryAxesJson        String    @default("[]")
+  recommendedNodeTypesJson String    @default("[]")
+  recommendedPathTypesJson String    @default("[]")
+  extractionFocusJson      String    @default("[]")
+  recommendationFocusJson  String    @default("[]")
+  structureVersion         String    @default("book-structure-v1")
+  manualOverride           Boolean   @default(false)
   overrideSource           String?
   overrideReason           String?
   originalStructureType    String?
   originalConfidence       Float?
-  metadataJson             String   @default("{}")
+  metadataJson             String    @default("{}")
   lastAnalyzedAt           DateTime?
   nextRefreshAfter         DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   @@index([workspaceId])
   @@index([structureType])
@@ -196,7 +196,7 @@ model NodeChunkBinding {
 
 model NodeLearningState {
   id                  Int       @id @default(autoincrement())
-  workspaceId          Int
+  workspaceId         Int
   userId              Int       @default(0)
   nodeKey             String
   viewedCount         Int       @default(0)
@@ -242,6 +242,7 @@ model system_settings {
 model users {
   id                           Int                           @id @default(autoincrement())
   username                     String?                       @unique
+  displayName                  String?
   password                     String
   pfpFilename                  String?
   role                         String                        @default("default")
@@ -249,6 +250,8 @@ model users {
   seen_recovery_codes          Boolean?                      @default(false)
   email                        String?                       @unique
   email_verified_at            DateTime?
+  phone                        String?                       @unique
+  phone_verified_at            DateTime?
   createdAt                    DateTime                      @default(now())
   lastUpdatedAt                DateTime                      @default(now())
   dailyMessageLimit            Int?
@@ -266,6 +269,10 @@ model users {
   slash_command_presets        slash_command_presets[]
   browser_extension_api_keys   browser_extension_api_keys[]
   temporary_auth_tokens        temporary_auth_tokens[]
+  passkey_credentials          PasskeyCredential[]
+  passkey_challenges           PasskeyChallenge[]
+  trusted_login_devices        TrustedLoginDevice[]
+  zk_login_attempts            ZkLoginAttempt[]
   system_prompt_variables      system_prompt_variables[]
   prompt_history               prompt_history[]
   desktop_mobile_devices       desktop_mobile_devices[]
@@ -274,25 +281,25 @@ model users {
 }
 
 model workspace_quiz_attempts {
-  id                 Int      @id @default(autoincrement())
-  workspaceId        Int
-  userId             Int?
-  cacheUserKey       String   @default("anonymous")
-  quizId             String
-  quizChatId         Int
-  topic              String?
-  keywordsJson       String   @default("[]")
-  difficulty         String?
-  totalQuestions     Int      @default(0)
-  completedQuestions Int      @default(0)
-  score              Float?
-  accuracy           Float?
-  analysis           String?
-  questionResultsReliable Int      @default(1)
+  id                        Int       @id @default(autoincrement())
+  workspaceId               Int
+  userId                    Int?
+  cacheUserKey              String    @default("anonymous")
+  quizId                    String
+  quizChatId                Int
+  topic                     String?
+  keywordsJson              String    @default("[]")
+  difficulty                String?
+  totalQuestions            Int       @default(0)
+  completedQuestions        Int       @default(0)
+  score                     Float?
+  accuracy                  Float?
+  analysis                  String?
+  questionResultsReliable   Int       @default(1)
   questionResultsParseError String?
-  submittedAt        DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @default(now())
+  submittedAt               DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @default(now())
 
   @@unique([workspaceId, cacheUserKey, quizChatId])
   @@index([workspaceId])
@@ -400,22 +407,99 @@ model password_reset_tokens {
 }
 
 model email_verification_codes {
-  id          Int       @id @default(autoincrement())
-  user_id     Int
-  email       String
-  purpose     String
-  code_hash   String
-  expiresAt   DateTime
-  attempts    Int       @default(0)
-  consumedAt  DateTime?
-  request_ip  String?
-  createdAt   DateTime  @default(now())
-  user        users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id         Int       @id @default(autoincrement())
+  user_id    Int
+  email      String
+  purpose    String
+  code_hash  String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  request_ip String?
+  createdAt  DateTime  @default(now())
+  user       users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([user_id, purpose])
   @@index([email, purpose])
   @@index([request_ip, createdAt])
+}
+
+model PasskeyCredential {
+  id           Int       @id @default(autoincrement())
+  userId       Int
+  credentialId String    @unique
+  publicKey    String
+  counter      Int       @default(0)
+  transports   String    @default("[]")
+  deviceType   String    @default("platform")
+  deviceName   String    @default("This Device")
+  browserName  String?
+  platformName String?
+  aaguid       String?
+  provider     String    @default("unknown")
+  providerName String    @default("来源待确认")
+  backedUp     Boolean?
+  createdAt    DateTime  @default(now())
+  lastUsedAt   DateTime?
+  user         users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+model PasskeyChallenge {
+  id        Int      @id @default(autoincrement())
+  challenge String   @unique
+  type      String
+  userId    Int?
+  requestIp String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      users?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([type, userId])
+  @@index([requestIp, createdAt])
+  @@index([expiresAt])
+}
+
+model TrustedLoginDevice {
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  deviceId         String
+  deviceName       String    @default("This Device")
+  verifier         String
+  publicCommitment String
+  opaqueRegistrationRecord String?
+  deviceSalt       String?
+  lastChallengeAt  DateTime?
+  failureCount     Int       @default(0)
+  lockedUntil      DateTime?
+  createdAt        DateTime  @default(now())
+  lastUsedAt       DateTime?
+  revokedAt        DateTime?
+  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, deviceId])
+  @@index([userId])
+  @@index([userId, revokedAt])
+}
+
+model ZkLoginAttempt {
+  id               String    @id
+  userId           Int
+  deviceId         String
+  serverLoginState String
+  requestIp        String?
+  userAgent        String?
+  expiresAt        DateTime
+  consumedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, deviceId])
+  @@index([expiresAt])
 }
 
 model document_vectors {
@@ -449,27 +533,27 @@ model DocumentIndexStatus {
 }
 
 model KnowledgeNode {
-  id                       Int      @id @default(autoincrement())
+  id                       Int       @id @default(autoincrement())
   workspaceId              Int
   canonicalName            String
   canonicalKey             String
-  aliases                  String   @default("[]")
+  aliases                  String    @default("[]")
   displayNameZh            String?
   displayNameEn            String?
-  entityType               String   @default("concept")
+  entityType               String    @default("concept")
   summary                  String?
-  globalImportanceScore    Float    @default(0)
-  workspaceImportanceScore Float    @default(0)
-  recentImportanceScore    Float    @default(0)
-  usageCount               Int      @default(0)
-  recentUsageCount         Int      @default(0)
+  globalImportanceScore    Float     @default(0)
+  workspaceImportanceScore Float     @default(0)
+  recentImportanceScore    Float     @default(0)
+  usageCount               Int       @default(0)
+  recentUsageCount         Int       @default(0)
   lastReferencedAt         DateTime?
   embedding                String?
   embeddingModel           String?
   embeddingVersion         String?
   mergeLogicVersion        String
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
 
   @@unique([workspaceId, canonicalKey])
   @@index([workspaceId, entityType])
@@ -481,24 +565,24 @@ model KnowledgeNode {
 }
 
 model KnowledgeEdge {
-  id                       Int      @id @default(autoincrement())
-  workspaceId              Int
-  sourceNodeId             Int
-  targetNodeId             Int
-  relationType             String
-  relationLabel            String?
-  relationLabelZh          String?
-  relationLabelEn          String?
-  confidence               Float    @default(0)
-  weight                   Float    @default(1)
-  usageCount               Int      @default(0)
-  lastReferencedAt         DateTime?
-  extractionPromptVersion  String
-  mergeLogicVersion        String
-  relationOntologyVersion  String
-  graphVersion             String
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  id                      Int       @id @default(autoincrement())
+  workspaceId             Int
+  sourceNodeId            Int
+  targetNodeId            Int
+  relationType            String
+  relationLabel           String?
+  relationLabelZh         String?
+  relationLabelEn         String?
+  confidence              Float     @default(0)
+  weight                  Float     @default(1)
+  usageCount              Int       @default(0)
+  lastReferencedAt        DateTime?
+  extractionPromptVersion String
+  mergeLogicVersion       String
+  relationOntologyVersion String
+  graphVersion            String
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   @@unique([workspaceId, sourceNodeId, targetNodeId, relationType])
   @@index([workspaceId, sourceNodeId])
@@ -543,21 +627,21 @@ model ConceptChunkMap {
 }
 
 model GraphExtractionJob {
-  id                       Int       @id @default(autoincrement())
-  workspaceId              Int
-  chunkId                  String
-  documentId               String
-  status                   String    @default("pending")
-  graphVersion             String
-  extractionPromptVersion  String
-  promptDomain             String
-  mergeLogicVersion        String
-  relationOntologyVersion  String
-  extractedAt              DateTime?
-  errorMessage             String?
-  retryCount               Int       @default(0)
-  createdAt                DateTime  @default(now())
-  updatedAt                DateTime  @updatedAt
+  id                      Int       @id @default(autoincrement())
+  workspaceId             Int
+  chunkId                 String
+  documentId              String
+  status                  String    @default("pending")
+  graphVersion            String
+  extractionPromptVersion String
+  promptDomain            String
+  mergeLogicVersion       String
+  relationOntologyVersion String
+  extractedAt             DateTime?
+  errorMessage            String?
+  retryCount              Int       @default(0)
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   @@unique([workspaceId, chunkId])
   @@index([status])
@@ -566,15 +650,15 @@ model GraphExtractionJob {
 }
 
 model GraphRetrievalCache {
-  id            Int      @id @default(autoincrement())
-  workspaceId   Int
-  conceptKey    String
-  paramsHash    String
-  resultJson    String
-  hitCount      Int      @default(0)
-  expiresAt     DateTime
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  conceptKey  String
+  paramsHash  String
+  resultJson  String
+  hitCount    Int      @default(0)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@unique([workspaceId, conceptKey, paramsHash])
   @@index([workspaceId, conceptKey])
@@ -679,29 +763,29 @@ model KnowledgeGraphEvidenceUsage {
 }
 
 model KnowledgeNodeMetrics {
-  id                   Int       @id @default(autoincrement())
-  workspaceId          Int
-  nodeId               Int
-  evidenceStrength     Int       @default(0)
-  bridgeValue          Int       @default(0)
-  knowledgeConnectivity Int      @default(0)
-  traversalImportance  Int       @default(0)
-  crossDocumentPresence Int      @default(0)
-  freshness            Int       @default(0)
-  relationDiversity    Int       @default(0)
-  sourceAuthority      Int       @default(0)
-  stability            Int       @default(0)
-  conflictSafety       Int       @default(0)
-  reasonsJson          String    @default("{}")
-  normalizedInputsJson String    @default("{}")
-  formulaVersion       String    @default("metrics-v1")
-  stale                Boolean   @default(true)
-  warning              String?
-  lastError            String?
-  lockedAt             DateTime?
-  lockedBy             String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  id                    Int       @id @default(autoincrement())
+  workspaceId           Int
+  nodeId                Int
+  evidenceStrength      Int       @default(0)
+  bridgeValue           Int       @default(0)
+  knowledgeConnectivity Int       @default(0)
+  traversalImportance   Int       @default(0)
+  crossDocumentPresence Int       @default(0)
+  freshness             Int       @default(0)
+  relationDiversity     Int       @default(0)
+  sourceAuthority       Int       @default(0)
+  stability             Int       @default(0)
+  conflictSafety        Int       @default(0)
+  reasonsJson           String    @default("{}")
+  normalizedInputsJson  String    @default("{}")
+  formulaVersion        String    @default("metrics-v1")
+  stale                 Boolean   @default(true)
+  warning               String?
+  lastError             String?
+  lockedAt              DateTime?
+  lockedBy              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
   @@unique([workspaceId, nodeId])
   @@index([workspaceId])
@@ -750,24 +834,24 @@ model KnowledgeNodeMetricsRecomputeRun {
 }
 
 model WorkspaceOverviewRecommendationUsage {
-  id                 Int       @id @default(autoincrement())
-  workspaceId        Int
-  userId             Int       @default(0)
-  recommendationId   String
-  type               String
-  targetType         String
-  targetId           String
-  formulaVersion     String
-  impressionCount    Int       @default(0)
-  clickCount         Int       @default(0)
-  dismissCount       Int       @default(0)
-  continueCount      Int       @default(0)
-  lastShownAt        DateTime?
-  lastInteractedAt   DateTime?
-  cooldownUntil      DateTime?
-  metadata           String    @default("{}")
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id               Int       @id @default(autoincrement())
+  workspaceId      Int
+  userId           Int       @default(0)
+  recommendationId String
+  type             String
+  targetType       String
+  targetId         String
+  formulaVersion   String
+  impressionCount  Int       @default(0)
+  clickCount       Int       @default(0)
+  dismissCount     Int       @default(0)
+  continueCount    Int       @default(0)
+  lastShownAt      DateTime?
+  lastInteractedAt DateTime?
+  cooldownUntil    DateTime?
+  metadata         String    @default("{}")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@unique([workspaceId, userId, recommendationId])
   @@index([workspaceId])
@@ -851,21 +935,21 @@ model workspace_suggested_messages {
 }
 
 model workspace_chats {
-  id             Int      @id @default(autoincrement())
-  workspaceId    Int
-  prompt         String
-  response       String
-  include        Boolean  @default(true)
-  user_id        Int?
-  thread_id      Int? // No relation to prevent whole table migration
-  original_thread_id Int?
+  id                  Int      @id @default(autoincrement())
+  workspaceId         Int
+  prompt              String
+  response            String
+  include             Boolean  @default(true)
+  user_id             Int?
+  thread_id           Int? // No relation to prevent whole table migration
+  original_thread_id  Int?
   original_message_id Int?
-  created_from   String?
-  api_session_id String? // String identifier for only the dev API to partition chats in any mode.
-  createdAt      DateTime @default(now())
-  lastUpdatedAt  DateTime @default(now())
-  feedbackScore  Boolean?
-  users          users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  created_from        String?
+  api_session_id      String? // String identifier for only the dev API to partition chats in any mode.
+  createdAt           DateTime @default(now())
+  lastUpdatedAt       DateTime @default(now())
+  feedbackScore       Boolean?
+  users               users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 }
 
 model workspace_chat_compactions {
@@ -892,29 +976,29 @@ model workspace_chat_compactions {
 }
 
 model workspace_mind_maps {
-  id             Int        @id @default(autoincrement())
-  workspaceId    Int
-  user_id        Int?
-  thread_id      Int?
-  cacheUserKey   String     @default("anonymous")
-  sourceType     String
-  sourceId       String?
-  sourceTitle    String?
-  sourceHash     String
-  title          String
-  layout         String
-  theme          String
-  schema         String
-  markdown       String?
-  viewport       String?
-  promptVersion  String
-  schemaVersion  String
+  id              Int        @id @default(autoincrement())
+  workspaceId     Int
+  user_id         Int?
+  thread_id       Int?
+  cacheUserKey    String     @default("anonymous")
+  sourceType      String
+  sourceId        String?
+  sourceTitle     String?
+  sourceHash      String
+  title           String
+  layout          String
+  theme           String
+  schema          String
+  markdown        String?
+  viewport        String?
+  promptVersion   String
+  schemaVersion   String
   generationModel String?
-  suitability    String?
-  createdAt      DateTime   @default(now())
-  lastUpdatedAt  DateTime   @default(now())
-  workspace      workspaces @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user           users?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  suitability     String?
+  createdAt       DateTime   @default(now())
+  lastUpdatedAt   DateTime   @default(now())
+  workspace       workspaces @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user            users?     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([workspaceId, cacheUserKey, sourceHash])
   @@index([workspaceId])
@@ -1006,26 +1090,26 @@ model event_logs {
 }
 
 model embedding_batch_jobs {
-  id           Int      @id @default(autoincrement())
-  jobId        String   @unique
-  workspaceId  Int
-  workspaceSlug String
-  documentIds  String
-  documentPaths String
-  status       String   @default("queued")
-  provider     String
-  model        String
-  inputFileId  String?
-  batchId      String?
-  outputFileId String?
-  errorFileId  String?
-  createdBy    Int?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @default(now())
-  completedAt  DateTime?
-  lastError    String?
-  retryCount   Int      @default(0)
-  nextRetryAt  DateTime?
+  id                 Int       @id @default(autoincrement())
+  jobId              String    @unique
+  workspaceId        Int
+  workspaceSlug      String
+  documentIds        String
+  documentPaths      String
+  status             String    @default("queued")
+  provider           String
+  model              String
+  inputFileId        String?
+  batchId            String?
+  outputFileId       String?
+  errorFileId        String?
+  createdBy          Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now())
+  completedAt        DateTime?
+  lastError          String?
+  retryCount         Int       @default(0)
+  nextRetryAt        DateTime?
   lastTransientError String?
 
   @@index([status])

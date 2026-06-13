@@ -18,6 +18,7 @@ const User = {
   writable: [
     // Used for generic updates so we can validate keys in request body
     "username",
+    "displayName",
     "password",
     "pfpFilename",
     "role",
@@ -73,6 +74,14 @@ const User = {
         throw new Error("Bio cannot be longer than 1,000 characters");
       return String(bio);
     },
+    displayName: (displayName = "") => {
+      const value = String(displayName || "")
+        .replace(/[<>]/g, "")
+        .trim();
+      if (value.length > 80)
+        throw new Error("Display name cannot be longer than 80 characters");
+      return value;
+    },
   },
   // validations for the above writable fields.
   castColumnValue: function (key, value) {
@@ -126,6 +135,7 @@ const User = {
       const user = await prisma.users.create({
         data: {
           username: validatedUsername,
+          displayName: this.validations.displayName(username),
           password: hashedPassword,
           role: this.validations.role(role),
           bio: this.validations.bio(bio),

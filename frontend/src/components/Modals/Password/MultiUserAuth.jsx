@@ -1,4 +1,12 @@
 import React, { useEffect, useState } from "react";
+import {
+  EnvelopeSimple,
+  Eye,
+  EyeSlash,
+  Fingerprint,
+  LockKey,
+  UserCircle,
+} from "@phosphor-icons/react";
 import System from "../../../models/system";
 import { AUTH_TOKEN, AUTH_USER } from "../../../utils/constants";
 import paths from "../../../utils/paths";
@@ -6,11 +14,46 @@ import showToast from "@/utils/toast";
 import ModalWrapper from "@/components/ModalWrapper";
 import { useModal } from "@/hooks/useModal";
 import RecoveryCodeModal from "@/components/Modals/DisplayRecoveryCodeModal";
-import { useTranslation } from "react-i18next";
 import { t } from "i18next";
 import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
 import { normalizeEmailInput } from "@/utils/emailInput";
 import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
+import AccountSettingsApi from "@/pages/UserSettings/AccountSettings/accountSettingsApi";
+import AppButton from "@/components/lib/AppButton";
+import { detectAuthCapability } from "@/utils/authCapability";
+import { getPreferredLocalZkDevice } from "@/utils/zkLoginStorage";
+import { setLoginUserActionNow } from "@/utils/userAction";
+
+const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
+
+const appleButtonStyle = {
+  "--app-button-lg-height": "56px",
+  "--app-button-lg-px": "24px",
+  "--app-button-lg-font-size": "15px",
+  "--app-button-radius": "16px",
+  "--app-button-gradient-start": "#5ab0ff",
+  "--app-button-gradient-middle": "#007aff",
+  "--app-button-gradient-end": "#0066d6",
+  "--app-button-shadow-strength": "0.18",
+  "--app-button-glow-blur": "18px",
+  "--app-button-hover-lift": "1px",
+};
+
+const secondaryAppleButtonStyle = {
+  ...appleButtonStyle,
+  "--app-button-secondary-text": "#111827",
+  "--app-button-secondary-start": "#ffffff",
+  "--app-button-secondary-mid": "#ffffff",
+  "--app-button-secondary-end": "#f4f5f7",
+  "--app-button-secondary-border-alpha": "0.42",
+  "--app-button-secondary-shadow-alpha": "0.06",
+};
+
+const appleInputClass =
+  "h-14 w-full rounded-2xl border border-slate-200 bg-white/90 px-12 text-[15px] text-slate-950 outline-none transition placeholder:text-slate-400 focus:border-[#007AFF]/70 focus:bg-white focus:ring-4 focus:ring-[#007AFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500";
+
+const codeInputClass =
+  "h-12 w-10 rounded-xl border border-slate-200 bg-white text-center text-lg font-semibold text-slate-950 outline-none transition focus:border-[#007AFF]/70 focus:ring-4 focus:ring-[#007AFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100";
 
 const RecoveryForm = ({ onSubmit, setShowRecoveryForm, onEmailResetToken }) => {
   const [method, setMethod] = useState("email");
@@ -55,48 +98,37 @@ const RecoveryCodeForm = ({ onSubmit, setShowRecoveryForm, setMethod }) => {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col justify-center items-center"
-    >
-      <div className="flex items-start justify-between pt-7 pb-9">
-        <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
-          <div className="flex gap-x-1">
-            <h3 className="text-white light:text-slate-950 text-3xl leading-[28px] font-medium text-center white-space-nowrap block">
-              {t("login.password-reset.title")}
-            </h3>
-          </div>
-          <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
-            {t("login.password-reset.description")}
-          </p>
-        </div>
-      </div>
-      <div className="w-full px-12">
-        <div className="w-full flex flex-col gap-y-3">
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              {t("login.multi-user.placeholder-username")}
-            </label>
-            <input
-              name="username"
-              type="text"
-              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              autoComplete="off"
-            />
-          </div>
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              {t("login.password-reset.recovery-codes")}
-            </label>
+    <form onSubmit={handleSubmit} className="w-full space-y-6">
+      <AuthSectionHeader
+        title={t("login.password-reset.title")}
+        description={t("login.password-reset.description")}
+      />
+      <div className="space-y-4">
+        <AppleInput
+          label="账号名"
+          name="username"
+          type="text"
+          icon={<UserCircle className="h-5 w-5" />}
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          required
+          autoComplete="username"
+        />
+        <div className="space-y-2">
+          <label className="block text-sm font-semibold text-slate-700">
+            {t("login.password-reset.recovery-codes")}
+          </label>
+          <div className="space-y-3">
             {recoveryCodeInputs.map((code, index) => (
-              <input
+              <AppleInput
                 key={index}
+                label={`${t("login.password-reset.recovery-codes")} ${
+                  index + 1
+                }`}
+                hideLabel
                 type="text"
                 name={`recoveryCode${index + 1}`}
-                className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
+                icon={<LockKey className="h-5 w-5" />}
                 value={code}
                 onChange={(e) =>
                   handleRecoveryCodeChange(index, e.target.value)
@@ -108,27 +140,16 @@ const RecoveryCodeForm = ({ onSubmit, setShowRecoveryForm, setMethod }) => {
           </div>
         </div>
       </div>
-      <div className="flex items-center px-12 mt-9 space-x-2 w-full flex-col gap-y-6">
-        <button
-          type="submit"
-          className="text-zinc-950 bg-white hover:bg-zinc-300 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
-        >
+      <div className="space-y-4">
+        <AppButton type="submit" size="lg" fullWidth style={appleButtonStyle}>
           {t("login.password-reset.title")}
-        </button>
-        <button
-          type="button"
-          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
-          onClick={() => setMethod("email")}
-        >
+        </AppButton>
+        <AuthTextButton onClick={() => setMethod("email")}>
           {t("login.password-reset.use-email")}
-        </button>
-        <button
-          type="button"
-          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
-          onClick={() => setShowRecoveryForm(false)}
-        >
+        </AuthTextButton>
+        <AuthTextButton onClick={() => setShowRecoveryForm(false)}>
           {t("login.password-reset.back-to-login")}
-        </button>
+        </AuthTextButton>
       </div>
     </form>
   );
@@ -199,101 +220,76 @@ const EmailRecoveryForm = ({
   };
 
   return (
-    <form
-      onSubmit={handleRequest}
-      className="flex flex-col justify-center items-center"
-    >
-      <div className="flex items-start justify-between pt-7 pb-9">
-        <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
-          <div className="flex gap-x-1">
-            <h3 className="text-white light:text-slate-950 text-3xl leading-[28px] font-medium text-center white-space-nowrap block">
-              {t("login.password-reset.email-title")}
-            </h3>
-          </div>
-          <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
-            {t("login.password-reset.email-description")}
-          </p>
-        </div>
-      </div>
-      <div className="w-full px-12">
-        <div className="w-full flex flex-col gap-y-3">
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              {t("login.multi-user.placeholder-username")}
+    <form onSubmit={handleRequest} className="w-full space-y-6">
+      <AuthSectionHeader
+        title={t("login.password-reset.email-title")}
+        description={t("login.password-reset.email-description")}
+      />
+      <div className="space-y-4">
+        <AppleInput
+          label="账号名"
+          name="username"
+          type="text"
+          icon={<UserCircle className="h-5 w-5" />}
+          value={username}
+          onChange={(event) => setUsername(event.target.value)}
+          required
+          disabled={step === "verify"}
+          autoComplete="username"
+        />
+        <AppleInput
+          label={t("login.password-reset.verified-email")}
+          name="email"
+          type="email"
+          icon={<EnvelopeSimple className="h-5 w-5" />}
+          value={email}
+          onChange={(event) =>
+            setEmail(normalizeEmailInput(event.target.value))
+          }
+          required
+          disabled={step === "verify"}
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          lang="en"
+        />
+        {step === "verify" && (
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold text-slate-700">
+              {t("login.password-reset.verification-code")}
             </label>
-            <input
-              name="username"
-              type="text"
-              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              required
-              disabled={step === "verify"}
-              autoComplete="off"
-            />
-          </div>
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              {t("login.password-reset.verified-email")}
-            </label>
-            <input
-              name="email"
-              type="email"
-              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-              value={email}
-              onChange={(event) =>
-                setEmail(normalizeEmailInput(event.target.value))
-              }
-              required
-              disabled={step === "verify"}
-              autoComplete="email"
-              autoCapitalize="none"
-              spellCheck={false}
-              lang="en"
-            />
-          </div>
-          {step === "verify" && (
-            <div className="w-full flex flex-col gap-y-2">
-              <label className="text-zinc-300 light:text-slate-800 text-sm">
-                {t("login.password-reset.verification-code")}
-              </label>
+            <div className="flex justify-center">
               <EmailVerificationCodeInput
                 disabled={loading}
                 onComplete={handleVerify}
                 resetSignal={codeResetSignal}
+                inputClassName={codeInputClass}
               />
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
-      <div className="flex items-center px-12 mt-9 space-x-2 w-full flex-col gap-y-6">
-        <button
+      <div className="space-y-4">
+        <AppButton
           disabled={loading || resendRemaining > 0}
+          loading={loading}
           type="submit"
-          className="text-zinc-950 bg-white hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
+          size="lg"
+          fullWidth
+          style={appleButtonStyle}
         >
-          {loading
-            ? t("login.password-reset.sending")
-            : resendRemaining > 0
-              ? t("login.password-reset.resend-code-in", {
-                  seconds: resendRemaining,
-                })
-              : t("login.password-reset.send-code")}
-        </button>
-        <button
-          type="button"
-          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
-          onClick={() => setMethod("recovery")}
-        >
+          {resendRemaining > 0
+            ? t("login.password-reset.resend-code-in", {
+                seconds: resendRemaining,
+              })
+            : t("login.password-reset.send-code")}
+        </AppButton>
+        <AuthTextButton onClick={() => setMethod("recovery")}>
           {t("login.password-reset.use-recovery-codes")}
-        </button>
-        <button
-          type="button"
-          className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
-          onClick={() => setShowRecoveryForm(false)}
-        >
+        </AuthTextButton>
+        <AuthTextButton onClick={() => setShowRecoveryForm(false)}>
           {t("login.password-reset.back-to-login")}
-        </button>
+        </AuthTextButton>
       </div>
     </form>
   );
@@ -309,66 +305,38 @@ const ResetPasswordForm = ({ onSubmit }) => {
   };
 
   return (
-    <form
-      onSubmit={handleSubmit}
-      className="flex flex-col justify-center items-center"
-    >
-      <div className="flex items-start justify-between pt-7 pb-9">
-        <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
-          <div className="flex gap-x-1">
-            <h3 className="text-white light:text-slate-950 text-[38px] leading-[28px] font-medium text-center white-space-nowrap block">
-              Reset Password
-            </h3>
-          </div>
-          <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
-            Enter your new password.
-          </p>
-        </div>
+    <form onSubmit={handleSubmit} className="w-full space-y-6">
+      <AuthSectionHeader title="重置密码" description="请输入新的账号密码。" />
+      <div className="space-y-4">
+        <AppleInput
+          label="新密码"
+          type="password"
+          name="newPassword"
+          icon={<LockKey className="h-5 w-5" />}
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          required
+          autoComplete="new-password"
+        />
+        <AppleInput
+          label="确认新密码"
+          type="password"
+          name="confirmPassword"
+          icon={<LockKey className="h-5 w-5" />}
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          required
+          autoComplete="new-password"
+        />
       </div>
-      <div className="w-full px-12">
-        <div className="w-full flex flex-col gap-y-3">
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              New Password
-            </label>
-            <input
-              type="password"
-              name="newPassword"
-              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              required
-            />
-          </div>
-          <div className="w-full flex flex-col gap-y-2">
-            <label className="text-zinc-300 light:text-slate-800 text-sm">
-              Confirm Password
-            </label>
-            <input
-              type="password"
-              name="confirmPassword"
-              className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              required
-            />
-          </div>
-        </div>
-      </div>
-      <div className="flex items-center px-12 mt-9 space-x-2 w-full flex-col gap-y-6">
-        <button
-          type="submit"
-          className="text-zinc-950 bg-white hover:bg-zinc-300 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
-        >
-          Reset Password
-        </button>
-      </div>
+      <AppButton type="submit" size="lg" fullWidth style={appleButtonStyle}>
+        重置密码
+      </AppButton>
     </form>
   );
 };
 
-export default function MultiUserAuth() {
-  const { t } = useTranslation();
+export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [recoveryCodes, setRecoveryCodes] = useState([]);
@@ -377,7 +345,17 @@ export default function MultiUserAuth() {
   const [token, setToken] = useState(null);
   const [showRecoveryForm, setShowRecoveryForm] = useState(false);
   const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
-  const [customAppName, setCustomAppName] = useState(null);
+  const [authCapability, setAuthCapability] = useState(() =>
+    detectAuthCapability()
+  );
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+  const [loginIdentifier, setLoginIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [rememberAccount, setRememberAccount] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [trustedDevice, setTrustedDevice] = useState(null);
+  const [trustedDeviceLoading, setTrustedDeviceLoading] = useState(false);
+  const [loginMode, setLoginMode] = useState("password");
 
   const {
     isOpen: isRecoveryCodeModalOpen,
@@ -386,35 +364,89 @@ export default function MultiUserAuth() {
   } = useModal();
 
   const handleLogin = async (e) => {
+    e.preventDefault();
     setError(null);
     setLoading(true);
-    e.preventDefault();
-    const data = {};
-    const form = new FormData(e.target);
-    for (var [key, value] of form.entries()) data[key] = value;
-    const { valid, user, token, message, recoveryCodes } =
-      await System.requestToken(data);
-    if (valid && !!token && !!user) {
-      setUser(user);
-      setToken(token);
 
-      if (recoveryCodes) {
-        setRecoveryCodes(recoveryCodes);
-        openRecoveryCodeModal();
+    persistRememberedAccount(loginIdentifier, rememberAccount);
+
+    try {
+      const { valid, user, token, recoveryCodes } = await System.requestToken({
+        identifier: loginIdentifier,
+        password,
+      });
+
+      if (valid && !!token && !!user) {
+        setUser(user);
+        setToken(token);
+
+        if (recoveryCodes) {
+          setRecoveryCodes(recoveryCodes);
+          openRecoveryCodeModal();
+        } else {
+          window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
+          window.localStorage.setItem(AUTH_TOKEN, token);
+          setLoginUserActionNow();
+          window.location = paths.home();
+        }
       } else {
-        window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-        window.localStorage.setItem(AUTH_TOKEN, token);
-        window.location = paths.home();
+        setError("账号或密码不正确");
+        showToast("账号或密码不正确", "error", { clear: true });
       }
-    } else {
-      setError(message);
+    } catch {
+      setError("账号或密码不正确");
+      showToast("账号或密码不正确", "error", { clear: true });
+    } finally {
       setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDownloadComplete = () => setDownloadComplete(true);
-  const handleResetPassword = () => setShowRecoveryForm(true);
+  const handleResetPassword = () => {
+    setError(null);
+    setShowRecoveryForm(true);
+  };
+  const handleRememberChange = (event) => {
+    const checked = event.target.checked;
+    setRememberAccount(checked);
+    if (!checked) window.localStorage.removeItem(REMEMBERED_ACCOUNT_KEY);
+  };
+
+  const handlePasskeyLogin = async () => {
+    if (!authCapability.showPasskey) {
+      return;
+    }
+
+    setError(null);
+    setPasskeyLoading(true);
+    const result = await AccountSettingsApi.loginWithPasskey().catch(
+      (error) => {
+        if (isPasskeyCancel(error)) {
+          return { valid: false, cancelled: true };
+        }
+        return { valid: false, message: error.message };
+      }
+    );
+    setPasskeyLoading(false);
+
+    if (result.cancelled) {
+      showToast("已取消通行密钥验证。", "info", { clear: true });
+      return;
+    }
+
+    if (result.valid && result.token && result.user) {
+      window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
+      window.localStorage.setItem(AUTH_TOKEN, result.token);
+      setLoginUserActionNow();
+      window.location = paths.home();
+      return;
+    }
+
+    const message = result.message || "无法验证通行密钥。";
+    setError(message);
+    showToast(message, "error", { clear: true });
+  };
+
   const handleRecoverySubmit = async (username, recoveryCodes) => {
     const { success, resetToken, error } = await System.recoverAccount(
       username,
@@ -426,7 +458,7 @@ export default function MultiUserAuth() {
       setShowRecoveryForm(false);
       setShowResetPasswordForm(true);
     } else {
-      showToast(error, "error", { clear: true });
+      showToast(error || "恢复码验证失败。", "error", { clear: true });
     }
   };
 
@@ -434,6 +466,30 @@ export default function MultiUserAuth() {
     window.localStorage.setItem("resetToken", resetToken);
     setShowRecoveryForm(false);
     setShowResetPasswordForm(true);
+  };
+
+  const handleTrustedDeviceLogin = async () => {
+    if (!trustedDevice) return;
+    setError(null);
+    setTrustedDeviceLoading(true);
+    const result = await AccountSettingsApi.loginWithZkDevice(trustedDevice);
+    setTrustedDeviceLoading(false);
+
+    if (result.valid && result.token && result.user) {
+      window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
+      window.localStorage.setItem(AUTH_TOKEN, result.token);
+      setLoginUserActionNow();
+      window.location = paths.home();
+      return;
+    }
+
+    const message = result.message || "快速登录失败，请使用密码登录。";
+    if (result.resetLocalDevice) {
+      setTrustedDevice(null);
+      setLoginMode("password");
+    }
+    setError(message);
+    showToast(message, "error", { clear: true });
   };
 
   const handleResetSubmit = async (newPassword, confirmPassword) => {
@@ -449,12 +505,12 @@ export default function MultiUserAuth() {
       if (success) {
         window.localStorage.removeItem("resetToken");
         setShowResetPasswordForm(false);
-        showToast("Password reset successful", "success", { clear: true });
+        showToast("密码已重置。", "success", { clear: true });
       } else {
-        showToast(error, "error", { clear: true });
+        showToast(error || "密码重置失败。", "error", { clear: true });
       }
     } else {
-      showToast("Invalid reset token", "error", { clear: true });
+      showToast("重置令牌无效，请重新发起找回。", "error", { clear: true });
     }
   };
 
@@ -462,21 +518,59 @@ export default function MultiUserAuth() {
     if (downloadComplete && user && token) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
       window.localStorage.setItem(AUTH_TOKEN, token);
+      setLoginUserActionNow();
       window.location = paths.home();
     }
   }, [downloadComplete, user, token]);
 
   useEffect(() => {
-    const fetchCustomAppName = async () => {
-      const { appName } = await System.fetchCustomAppName();
-      setCustomAppName(appName || "");
-      setLoading(false);
-    };
-    fetchCustomAppName();
+    setAuthCapability(detectAuthCapability());
+    const rememberedAccount = window.localStorage.getItem(
+      REMEMBERED_ACCOUNT_KEY
+    );
+    if (rememberedAccount) {
+      setLoginIdentifier(rememberedAccount);
+      setRememberAccount(true);
+    }
+    getPreferredLocalZkDevice()
+      .then((device) => {
+        if (!device) return;
+        setTrustedDevice(device);
+        setLoginMode("quick");
+        if (device.username) {
+          setLoginIdentifier((current) => current || device.username);
+        }
+      })
+      .catch(() => setTrustedDevice(null));
   }, []);
 
+  let content = (
+    <LoginForm
+      loginIdentifier={loginIdentifier}
+      setLoginIdentifier={setLoginIdentifier}
+      password={password}
+      setPassword={setPassword}
+      showPassword={showPassword}
+      setShowPassword={setShowPassword}
+      rememberAccount={rememberAccount}
+      handleRememberChange={handleRememberChange}
+      loading={loading}
+      passkeyLoading={passkeyLoading}
+      trustedDevice={trustedDevice}
+      trustedDeviceLoading={trustedDeviceLoading}
+      loginMode={loginMode}
+      setLoginMode={setLoginMode}
+      authCapability={authCapability}
+      error={error}
+      onSubmit={handleLogin}
+      onPasskeyLogin={handlePasskeyLogin}
+      onTrustedDeviceLogin={handleTrustedDeviceLogin}
+      onResetPassword={handleResetPassword}
+    />
+  );
+
   if (showRecoveryForm) {
-    return (
+    content = (
       <RecoveryForm
         onSubmit={handleRecoverySubmit}
         setShowRecoveryForm={setShowRecoveryForm}
@@ -485,80 +579,15 @@ export default function MultiUserAuth() {
     );
   }
 
-  if (showResetPasswordForm)
-    return <ResetPasswordForm onSubmit={handleResetSubmit} />;
+  if (showResetPasswordForm) {
+    content = <ResetPasswordForm onSubmit={handleResetSubmit} />;
+  }
+
   return (
     <>
-      <form
-        onSubmit={handleLogin}
-        className="flex flex-col justify-center items-center"
-      >
-        <div className="flex items-start justify-between pt-7 pb-9">
-          <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
-            <div className="flex gap-x-1">
-              <h3 className="text-white light:text-slate-950 text-[38px] leading-[28px] font-medium text-center white-space-nowrap block">
-                {t("login.multi-user.welcome")}
-              </h3>
-            </div>
-            <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
-              {t("login.sign-in", {
-                appName: customAppName || t("common.productName"),
-              })}
-            </p>
-          </div>
-        </div>
-        <div className="w-full px-12">
-          <div className="w-full flex flex-col gap-y-3">
-            <div className="w-full flex flex-col gap-y-2">
-              <label className="text-zinc-300 light:text-slate-800 text-sm">
-                {t("login.multi-user.placeholder-username")}
-              </label>
-              <input
-                name="username"
-                type="text"
-                className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-                required={true}
-                autoComplete="off"
-              />
-            </div>
-            <div className="w-full px-0 flex flex-col gap-y-2">
-              <label className="text-zinc-300 light:text-slate-800 text-sm">
-                {t("login.multi-user.placeholder-password")}
-              </label>
-              <input
-                name="password"
-                type="password"
-                className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
-                required={true}
-                autoComplete="off"
-              />
-            </div>
-            {error && <p className="text-red-400 text-sm">Error: {error}</p>}
-          </div>
-        </div>
-        <div className="flex items-center px-12 mt-9 space-x-2 w-full flex-col gap-y-6">
-          <button
-            disabled={loading}
-            type="submit"
-            className="text-zinc-950 bg-white hover:bg-zinc-300 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
-          >
-            {loading
-              ? t("login.multi-user.validating")
-              : t("login.multi-user.login")}
-          </button>
-          <button
-            type="button"
-            className="text-zinc-200 light:text-zinc-600 hover:text-sky-300 light:hover:text-sky-600 hover:underline text-sm flex gap-x-1"
-            onClick={handleResetPassword}
-          >
-            {t("login.multi-user.forgot-pass")}?
-            <b className="font-semibold text-sky-300 light:text-sky-600">
-              {t("login.multi-user.reset")}
-            </b>
-          </button>
-        </div>
-      </form>
-
+      <AppleAuthShell loginLogo={loginLogo} isCustomLogo={isCustomLogo}>
+        {content}
+      </AppleAuthShell>
       <ModalWrapper isOpen={isRecoveryCodeModalOpen} noPortal={true}>
         <RecoveryCodeModal
           recoveryCodes={recoveryCodes}
@@ -568,4 +597,366 @@ export default function MultiUserAuth() {
       </ModalWrapper>
     </>
   );
+}
+
+function LoginForm({
+  loginIdentifier,
+  setLoginIdentifier,
+  password,
+  setPassword,
+  showPassword,
+  setShowPassword,
+  rememberAccount,
+  handleRememberChange,
+  loading,
+  passkeyLoading,
+  trustedDevice,
+  trustedDeviceLoading,
+  loginMode,
+  setLoginMode,
+  authCapability,
+  error,
+  onSubmit,
+  onPasskeyLogin,
+  onTrustedDeviceLogin,
+  onResetPassword,
+}) {
+  const isTrustedQuickMode = Boolean(trustedDevice && loginMode === "quick");
+  const showPasswordForm = !isTrustedQuickMode;
+
+  return (
+    <form onSubmit={onSubmit} className="w-full space-y-5">
+      {isTrustedQuickMode ? (
+        <TrustedDeviceQuickLoginSlot
+          device={trustedDevice}
+          loading={trustedDeviceLoading}
+          onQuickLogin={onTrustedDeviceLogin}
+          onUsePassword={() => {
+            setLoginMode("password");
+            window.requestAnimationFrame(() => {
+              document.querySelector('input[name="password"]')?.focus();
+            });
+          }}
+          onUseOtherAccount={() => {
+            setLoginMode("password");
+            setLoginIdentifier("");
+            window.requestAnimationFrame(() => {
+              document.querySelector('input[name="identifier"]')?.focus();
+            });
+          }}
+        />
+      ) : null}
+
+      {showPasswordForm ? (
+        <>
+          <div className="space-y-4">
+            <AppleInput
+              label="账号名 / 邮箱 / 手机号"
+              name="identifier"
+              type="text"
+              icon={<UserCircle className="h-5 w-5" />}
+              placeholder="账号名 / 邮箱 / 手机号"
+              value={loginIdentifier}
+              onChange={(event) => setLoginIdentifier(event.target.value)}
+              required
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+            />
+            <AppleInput
+              label="密码"
+              name="password"
+              type={showPassword ? "text" : "password"}
+              icon={<LockKey className="h-5 w-5" />}
+              placeholder="密码"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              required
+              autoComplete="current-password"
+              rightAdornment={
+                <button
+                  type="button"
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#007AFF]/10"
+                  aria-label={showPassword ? "隐藏密码" : "显示密码"}
+                  onClick={() => setShowPassword((current) => !current)}
+                >
+                  {showPassword ? (
+                    <EyeSlash className="h-5 w-5" />
+                  ) : (
+                    <Eye className="h-5 w-5" />
+                  )}
+                </button>
+              }
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <label className="inline-flex cursor-pointer items-center gap-2 text-sm font-medium text-slate-600">
+              <input
+                type="checkbox"
+                checked={rememberAccount}
+                onChange={handleRememberChange}
+                className="h-4 w-4 rounded border-slate-300 text-[#007AFF] focus:ring-[#007AFF]/30"
+              />
+              记住账号
+            </label>
+            <button
+              type="button"
+              className="text-sm font-medium text-[#007AFF] transition hover:text-[#0056cc]"
+              onClick={onResetPassword}
+            >
+              忘记密码？
+            </button>
+          </div>
+
+          {error && (
+            <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+              {error}
+            </div>
+          )}
+
+          <AppButton
+            disabled={loading}
+            loading={loading}
+            type="submit"
+            size="lg"
+            fullWidth
+            style={appleButtonStyle}
+          >
+            登录
+          </AppButton>
+
+          {authCapability.showPasskey ? (
+            <>
+              <div className="flex items-center gap-3 py-1 text-xs font-medium text-slate-400">
+                <span className="h-px flex-1 bg-slate-200" />
+                或
+                <span className="h-px flex-1 bg-slate-200" />
+              </div>
+
+              <AppButton
+                disabled={passkeyLoading || loading}
+                loading={passkeyLoading}
+                type="button"
+                variant="secondary"
+                size="lg"
+                fullWidth
+                leftIcon={<Fingerprint className="h-5 w-5" />}
+                onClick={onPasskeyLogin}
+                style={secondaryAppleButtonStyle}
+              >
+                使用通行密钥登录
+              </AppButton>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {error && (
+            <div className="rounded-2xl border border-red-100 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
+              {error}
+            </div>
+          )}
+        </>
+      )}
+    </form>
+  );
+}
+
+function TrustedDeviceQuickLoginSlot({
+  device,
+  loading = false,
+  onQuickLogin,
+  onUsePassword,
+  onUseOtherAccount,
+}) {
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const accountUsername =
+    device.accountUsername ||
+    device.username ||
+    device.user?.username ||
+    "Account";
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [device?.avatarUrl]);
+
+  if (!device) return null;
+
+  return (
+    <div className="min-h-[228px] rounded-[32px] border border-slate-200 bg-slate-50/80 p-6 text-center">
+      <div className="mx-auto flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border border-white bg-white text-slate-500 shadow-[0_12px_34px_rgba(15,23,42,0.14)]">
+        {device.avatarUrl && !avatarFailed ? (
+          <img
+            src={device.avatarUrl}
+            alt={accountUsername}
+            className="h-full w-full object-cover"
+            onError={() => setAvatarFailed(true)}
+          />
+        ) : (
+          <UserCircle className="h-12 w-12" />
+        )}
+      </div>
+      <p className="mt-4 text-xl font-semibold text-slate-950">
+        {accountUsername}
+      </p>
+      <p className="mt-2 text-sm font-medium text-slate-500">
+        {device.deviceName || "此浏览器"} 已启用快速登录
+      </p>
+      <div className="mt-4 grid gap-2">
+        <AppButton
+          type="button"
+          size="md"
+          fullWidth
+          loading={loading}
+          disabled={loading}
+          onClick={onQuickLogin}
+          style={appleButtonStyle}
+        >
+          快速登录
+        </AppButton>
+        <div className="mt-0 flex items-center justify-between">
+          <button
+            type="button"
+            className="text-sm font-medium text-[#007AFF] transition hover:text-[#0056cc]"
+            onClick={onUsePassword}
+          >
+            使用密码登录
+          </button>
+          <button
+            type="button"
+            className="text-sm font-medium text-slate-500 transition hover:text-slate-800"
+            onClick={onUseOtherAccount}
+          >
+            使用其他账号
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppleAuthShell({ children, loginLogo, isCustomLogo }) {
+  return (
+    <div
+      className="fixed inset-0 flex min-h-screen flex-col overflow-y-auto overflow-x-hidden px-4 py-8 text-slate-950"
+      style={{
+        fontFamily:
+          '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+        backgroundColor: "#F5F5F7",
+        backgroundImage:
+          "radial-gradient(circle at 50% -8%, rgba(255,255,255,0.95) 0, rgba(255,255,255,0.62) 28%, rgba(245,245,247,0) 58%), radial-gradient(circle at 6% 12%, rgba(0,122,255,0.08) 0, rgba(0,122,255,0) 30%), radial-gradient(circle at 94% 80%, rgba(142,142,147,0.11) 0, rgba(142,142,147,0) 34%)",
+      }}
+    >
+      <main className="flex flex-1 items-center justify-center py-8">
+        <section className="w-full min-h-[560px] max-w-[540px] rounded-[34px] border border-white/80 bg-white/90 px-8 py-10 shadow-[0_24px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:px-14 sm:py-14">
+          <BrandHeader loginLogo={loginLogo} isCustomLogo={isCustomLogo} />
+          {children}
+        </section>
+      </main>
+      <footer className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-2 text-xs font-medium text-slate-400">
+        <span>Athena</span>
+        <span>Privacy</span>
+        <span>Terms</span>
+        <span>Version</span>
+      </footer>
+    </div>
+  );
+}
+
+function BrandHeader({ loginLogo, isCustomLogo }) {
+  return (
+    <header className="mb-9 flex flex-col items-center text-center">
+      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[20px] border border-white bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)]">
+        <img
+          src={loginLogo}
+          alt="Athena"
+          className={`max-h-10 max-w-10 object-contain ${
+            isCustomLogo ? "rounded-xl" : ""
+          }`}
+        />
+      </div>
+      <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950">
+        Athena
+      </h1>
+      <p className="mt-2 text-[13px] font-medium text-slate-500">
+        Knowledge Operating System
+      </p>
+    </header>
+  );
+}
+
+function AuthSectionHeader({ title, description }) {
+  return (
+    <div className="text-center">
+      <h2 className="text-2xl font-semibold tracking-normal text-slate-950">
+        {title}
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function AppleInput({
+  label,
+  hideLabel = false,
+  icon,
+  rightAdornment,
+  className = "",
+  ...props
+}) {
+  return (
+    <div className="space-y-2">
+      <label
+        className={
+          hideLabel ? "sr-only" : "block text-sm font-semibold text-slate-700"
+        }
+      >
+        {label}
+      </label>
+      <div className="relative">
+        <span className="pointer-events-none absolute left-4 top-1/2 flex -translate-y-1/2 text-slate-400">
+          {icon}
+        </span>
+        <input
+          {...props}
+          className={`${appleInputClass} ${
+            rightAdornment ? "pr-14" : "pr-4"
+          } ${className}`}
+        />
+        {rightAdornment && (
+          <span className="absolute right-2 top-1/2 flex -translate-y-1/2">
+            {rightAdornment}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AuthTextButton({ children, onClick }) {
+  return (
+    <button
+      type="button"
+      className="mx-auto flex text-sm font-medium text-[#007AFF] transition hover:text-[#0056cc]"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function persistRememberedAccount(username, rememberAccount) {
+  if (!rememberAccount) {
+    window.localStorage.removeItem(REMEMBERED_ACCOUNT_KEY);
+    return;
+  }
+
+  const account = String(username || "").trim();
+  if (!account) return;
+  window.localStorage.setItem(REMEMBERED_ACCOUNT_KEY, account);
+}
+
+function isPasskeyCancel(error) {
+  return ["AbortError", "NotAllowedError"].includes(error?.name);
 }

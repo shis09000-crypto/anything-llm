@@ -6,6 +6,7 @@ import {
   AUTH_TIMESTAMP,
   AUTH_TOKEN,
   AUTH_USER,
+  LAST_USER_ACTION_AT,
   LAST_VISITED_WORKSPACE,
   LAST_VISITED_WORKSPACE_THREADS,
   USER_PROMPT_INPUT_MAP,
@@ -170,6 +171,7 @@ export default function AccountModal({ user, hideModal }) {
     window.localStorage.removeItem(AUTH_USER);
     window.localStorage.removeItem(AUTH_TOKEN);
     window.localStorage.removeItem(AUTH_TIMESTAMP);
+    window.localStorage.removeItem(LAST_USER_ACTION_AT);
     window.localStorage.removeItem(LAST_VISITED_WORKSPACE);
     window.localStorage.removeItem(LAST_VISITED_WORKSPACE_THREADS);
     window.localStorage.removeItem(USER_PROMPT_INPUT_MAP);
@@ -463,7 +465,8 @@ export default function AccountModal({ user, hideModal }) {
                             : t("profile_settings.email-bind-hint")}
                         </span>
                       ))}
-                    <button
+                    <AppButton
+                      variant="secondary"
                       type="button"
                       disabled={
                         showEmailEditor &&
@@ -472,7 +475,7 @@ export default function AccountModal({ user, hideModal }) {
                       onClick={
                         showEmailEditor ? requestEmailCode : startEmailEdit
                       }
-                      className="h-10 rounded-lg bg-white px-4 text-sm font-semibold text-zinc-950 transition hover:bg-zinc-300 disabled:cursor-not-allowed disabled:opacity-60 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300"
+                      className="h-10 min-w-36 rounded-lg"
                     >
                       {!showEmailEditor
                         ? t("profile_settings.change-email")
@@ -486,7 +489,7 @@ export default function AccountModal({ user, hideModal }) {
                                 }
                               )
                             : t("profile_settings.send-verification-code")}
-                    </button>
+                    </AppButton>
                   </div>
                 </div>
                 <div>

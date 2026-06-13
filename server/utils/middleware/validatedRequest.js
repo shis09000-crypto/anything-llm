@@ -3,6 +3,7 @@ const { User } = require("../../models/user");
 const { EncryptionManager } = require("../EncryptionManager");
 const { decodeJWT } = require("../http");
 const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
+const { jwtIdleState } = require("../sessionIdle");
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {
@@ -89,6 +90,16 @@ async function validateMultiUserRequest(request, response, next) {
   if (!valid || !valid.id) {
     response.status(401).json({
       error: "Invalid auth token.",
+    });
+    return;
+  }
+
+  const idleState = jwtIdleState(valid);
+  if (idleState.idleExpired) {
+    response.status(401).json({
+      error: "Session expired due to inactivity.",
+      idleExpiresAt: idleState.idleExpiresAt,
+      idleRemainingMs: 0,
     });
     return;
   }

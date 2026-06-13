@@ -3,12 +3,19 @@ import { Navigate } from "react-router-dom";
 import { FullScreenLoader } from "../Preloader";
 import validateSessionTokenForUser from "@/utils/session";
 import paths from "@/utils/paths";
-import { AUTH_TIMESTAMP, AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import {
+  AUTH_TIMESTAMP,
+  AUTH_TOKEN,
+  AUTH_USER,
+  LAST_USER_ACTION_AT,
+} from "@/utils/constants";
 import { userFromStorage } from "@/utils/request";
 import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
+import UserActionActivityTracker from "@/components/UserActionActivityTracker";
+import { localIdleExpired } from "@/utils/userAction";
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.
 // When in single user mode we just bypass any authchecks.
@@ -64,11 +71,21 @@ function useIsAuthenticated() {
         return;
       }
 
+      if (localIdleExpired()) {
+        localStorage.removeItem(AUTH_USER);
+        localStorage.removeItem(AUTH_TOKEN);
+        localStorage.removeItem(AUTH_TIMESTAMP);
+        localStorage.removeItem(LAST_USER_ACTION_AT);
+        setIsAuthed(false);
+        return;
+      }
+
       const isValid = await validateSessionTokenForUser();
       if (!isValid) {
         localStorage.removeItem(AUTH_USER);
         localStorage.removeItem(AUTH_TOKEN);
         localStorage.removeItem(AUTH_TIMESTAMP);
+        localStorage.removeItem(LAST_USER_ACTION_AT);
         setIsAuthed(false);
         return;
       }
@@ -96,11 +113,13 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
   return isAuthd && (user?.role === "admin" || !multiUserMode) ? (
     hideUserMenu ? (
       <KeyboardShortcutWrapper>
+        <UserActionActivityTracker />
         <Component />
       </KeyboardShortcutWrapper>
     ) : (
       <KeyboardShortcutWrapper>
         <UserMenu>
+          <UserActionActivityTracker />
           <Component />
         </UserMenu>
       </KeyboardShortcutWrapper>
@@ -125,6 +144,7 @@ export function ManagerRoute({ Component }) {
   return isAuthd && (user?.role !== "default" || !multiUserMode) ? (
     <KeyboardShortcutWrapper>
       <UserMenu>
+        <UserActionActivityTracker />
         <Component />
       </UserMenu>
     </KeyboardShortcutWrapper>
@@ -163,6 +183,7 @@ export default function PrivateRoute({ Component }) {
   return isAuthd ? (
     <KeyboardShortcutWrapper>
       <UserMenu>
+        <UserActionActivityTracker />
         <Component />
       </UserMenu>
     </KeyboardShortcutWrapper>

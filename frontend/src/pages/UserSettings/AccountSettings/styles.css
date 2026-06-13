@@ -1,0 +1,61 @@
+.account-settings-page {
+  min-height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  background: #f5f5f7;
+  color: #0f172a;
+}
+
+.account-settings-shell {
+  display: flex;
+  min-height: 100vh;
+  width: 100%;
+}
+
+.account-settings-main {
+  height: 100vh;
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px;
+  background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.72),
+      rgba(245, 245, 247, 0)
+    ),
+    #f5f5f7;
+}
+
+.account-card {
+  scroll-margin-top: 24px;
+  border-radius: 28px;
+  border: 1px solid rgba(226, 232, 240, 0.78);
+  background: #ffffff;
+  padding: 24px;
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+}
+
+.account-button-danger {
+  --app-button-secondary-text: #dc2626;
+  --app-button-secondary-border-alpha: 0.42;
+  --app-button-secondary-start: #fff7f7;
+  --app-button-secondary-mid: #fff1f2;
+  --app-button-secondary-end: #ffe4e6;
+  --app-button-secondary-shadow-alpha: 0.06;
+}
+
+@media (max-width: 860px) {
+  .account-settings-shell {
+    min-height: 100vh;
+    flex-direction: column;
+  }
+
+  .account-settings-page {
+    overflow: auto;
+  }
+
+  .account-settings-main {
+    height: auto;
+    overflow: visible;
+    padding: 20px;
+  }
+}

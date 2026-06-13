@@ -10,6 +10,7 @@ import {
   USERNAME_MAX_LENGTH,
   USERNAME_PATTERN,
 } from "@/utils/username";
+import { setLoginUserActionNow } from "@/utils/userAction";
 
 export default function NewUserModal() {
   const { code } = useParams();
@@ -28,6 +29,7 @@ export default function NewUserModal() {
       if (valid && !!token && !!user) {
         window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
         window.localStorage.setItem(AUTH_TOKEN, token);
+        setLoginUserActionNow();
         window.location = paths.home();
       } else {
         setError(message);

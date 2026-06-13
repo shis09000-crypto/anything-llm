@@ -64,6 +64,15 @@ const router = createBrowserRouter([
           return { element: <InvitePage /> };
         },
       },
+      {
+        path: "/settings/account",
+        lazy: async () => {
+          const { default: AccountSettings } = await import(
+            "@/pages/UserSettings/AccountSettings"
+          );
+          return { element: <PrivateRoute Component={AccountSettings} /> };
+        },
+      },
       // Admin routes
       {
         path: "/settings/llm-preference",
