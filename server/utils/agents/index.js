@@ -114,16 +114,20 @@ class AgentHandler {
         provider: this.provider,
         limit,
       });
-      const { rawHistory, historyWindow = null } =
-        await recentChatHistoryWithCompaction({
-          workspace: this.invocation.workspace,
-          user,
-          thread,
-          messageLimit: limit,
-          apiSessionId: null,
-          historyStrategy,
-        });
+      const {
+        rawHistory,
+        historyWindow = null,
+        compaction = null,
+      } = await recentChatHistoryWithCompaction({
+        workspace: this.invocation.workspace,
+        user,
+        thread,
+        messageLimit: limit,
+        apiSessionId: null,
+        historyStrategy,
+      });
       this.historyWindow = historyWindow;
+      this.compaction = compaction;
 
       const agentHistory = [];
       rawHistory.forEach((chatLog) => {
@@ -838,6 +842,7 @@ If the user asks about book structure, reading order, timeline, person relations
         compactedThreadMemory,
         promptCacheDiagnostics: {
           historyWindow: this.historyWindow,
+          compaction: this.compaction,
         },
       },
     });

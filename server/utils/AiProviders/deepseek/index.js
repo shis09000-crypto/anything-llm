@@ -13,6 +13,8 @@ const {
   deepSeekPromptShape,
   deepSeekPromptFingerprint,
   deepSeekPromptCacheDiagnostics,
+  deepSeekCacheDiagnosis,
+  withDeepSeekCacheDiagnosis,
 } = require("./promptCache");
 
 class DeepSeekLLM {
@@ -101,12 +103,16 @@ class DeepSeekLLM {
     ];
   }
 
-  promptCacheDiagnostics(messages = [], { historyWindow = null } = {}) {
+  promptCacheDiagnostics(
+    messages = [],
+    { historyWindow = null, compaction = null } = {}
+  ) {
     return deepSeekPromptCacheDiagnostics({
       provider: this.className,
       model: this.model,
       messages,
       historyWindow,
+      compaction,
       providerPath: "workspace-chat",
     });
   }
@@ -366,4 +372,6 @@ module.exports = {
   deepSeekPromptShape,
   deepSeekPromptFingerprint,
   deepSeekPromptCacheDiagnostics,
+  deepSeekCacheDiagnosis,
+  withDeepSeekCacheDiagnosis,
 };

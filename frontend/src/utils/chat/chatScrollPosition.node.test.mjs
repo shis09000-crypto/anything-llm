@@ -11,6 +11,7 @@ import {
   shouldPreserveParkedChatAnchor,
   shouldRestoreExplicitPrepend,
   shouldSkipChatRestoreForLayoutTransition,
+  tailCleanupFollowDecision,
   tailHydrationFollowDecision,
 } from "./chatScrollPosition.js";
 
@@ -278,6 +279,42 @@ test("tail hydration does not run during explicit older-history prepend", () => 
       shouldFollowBottom: false,
       blockedByUserIntent: false,
       blockedByOlderHistory: true,
+    }
+  );
+});
+
+test("tail cleanup follows bottom when no user anchor blocks it", () => {
+  assert.deepEqual(
+    tailCleanupFollowDecision({
+      signalChanged: true,
+      isAtBottom: false,
+      shouldFollowOutput: true,
+      hasParkedAnchor: false,
+      hasSavedPosition: false,
+      hasRecentUserIntent: false,
+    }),
+    {
+      shouldFollowBottom: true,
+      blockedByUserIntent: false,
+      blockedByOlderHistory: false,
+    }
+  );
+});
+
+test("tail cleanup respects a user parked history anchor", () => {
+  assert.deepEqual(
+    tailCleanupFollowDecision({
+      signalChanged: true,
+      isAtBottom: false,
+      shouldFollowOutput: false,
+      hasParkedAnchor: true,
+      hasSavedPosition: true,
+      hasRecentUserIntent: true,
+    }),
+    {
+      shouldFollowBottom: false,
+      blockedByUserIntent: true,
+      blockedByOlderHistory: false,
     }
   );
 });

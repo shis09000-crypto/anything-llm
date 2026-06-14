@@ -103,6 +103,9 @@ const TRANSLATIONS = {
     "vector-database": "ベクターデータベース",
     embeds: "チャット埋め込み",
     security: "セキュリティ",
+    "button-lab": "ボタンラボ",
+    "crypto-component-experiment": "暗号コンポーネント実験",
+    "crypto-center": "Crypto Center",
     "event-logs": "イベントログ",
     privacy: "プライバシーとデータ",
     "ai-providers": "AIプロバイダー",
@@ -2081,6 +2084,200 @@ const readable = true;
       "pending-description":
         "本人情報の確認待ちのユーザー。ここに表示されているペアリングコードを、彼らがTelegramで表示しているコードと照合してください。",
       unknown: "不明",
+    },
+  },
+  admin: {
+    common: {
+      genericError: "エラー: {{error}}",
+      close: "閉じる",
+    },
+    users: {
+      title: "ユーザー",
+      description:
+        "これはこのインスタンスに登録済みのアカウント一覧です。アカウントを削除すると、このインスタンスへのアクセスが即座に取り消されます。",
+      add: "ユーザー追加",
+      table: {
+        username: "ユーザー名",
+        role: "ロール",
+        dateAdded: "作成日",
+      },
+      roles: {
+        default: "一般ユーザー",
+        manager: "マネージャー",
+        admin: "管理者",
+      },
+      permissions: {
+        title: "権限",
+        default: [
+          "管理者またはマネージャーが追加したワークスペースでのみチャットを送信できます。",
+          "設定は一切変更できません。",
+        ],
+        manager: [
+          "任意のワークスペースを表示・作成・削除でき、ワークスペース固有の設定を変更できます。",
+          "新しいユーザーを作成・更新・招待できます。",
+          "LLM、ベクトル DB、埋め込み、他の接続は変更できません。",
+        ],
+        admin: [
+          "最高レベルのユーザー権限です。",
+          "システム全体の操作が可能です。",
+        ],
+      },
+      messageLimit: {
+        label: "1日のメッセージ数を制限",
+        description:
+          "このユーザーを、24 時間内の成功クエリまたはチャット数に制限します。",
+        inputLabel: "1日のメッセージ上限",
+      },
+      actions: {
+        add: "ユーザー追加",
+        cancel: "キャンセル",
+        update: "ユーザー更新",
+        edit: "編集",
+        unsuspend: "再開",
+        suspend: "停止",
+        delete: "削除",
+      },
+      modal: {
+        addTitle: "インスタンスにユーザーを追加",
+        editTitle: "ユーザーの編集 {{username}}",
+        usernameLabel: "ユーザー名",
+        usernamePlaceholder: "ユーザー名",
+        passwordLabel: "パスワード",
+        passwordPlaceholder: "ユーザーの初期パスワード",
+        passwordHint: "パスワードは 8 文字以上である必要があります",
+        passwordNewLabel: "新しいパスワード",
+        passwordNewPlaceholder: "{{username}} の新しいパスワード",
+        bioLabel: "自己紹介",
+        bioPlaceholder: "ユーザーの自己紹介",
+        roleLabel: "ロール",
+        noteAfterCreate:
+          "ユーザー作成後、初期ログイン情報でログインする必要があります。",
+      },
+      confirm: {
+        suspend: {
+          title: "ユーザーを停止しますか？",
+          description:
+            "{{username}} はログアウトされ、管理者が回復するまで再ログインできなくなります。",
+          confirm: "停止",
+        },
+        unsuspend: {
+          title: "ユーザーを復元しますか？",
+          description: "{{username}} はこのインスタンスへ再ログインできます。",
+          confirm: "復元",
+        },
+        delete: {
+          title: "ユーザーを削除しますか？",
+          description:
+            "{{username}} はログアウトされ、この Athena インスタンスの利用が停止されます。元に戻せません。",
+          confirm: "削除",
+        },
+      },
+      toast: {
+        suspended: "ユーザーを停止しました。",
+        unsuspended: "ユーザーを再開しました。",
+        deleted: "ユーザーをシステムから削除しました。",
+      },
+    },
+    workspaces: {
+      title: "インスタンスワークスペース",
+      description:
+        "このインスタンスに存在するすべてのワークスペースです。ワークスペースを削除すると、関連するチャットと設定もすべて削除されます。",
+      create: "新しいワークスペース",
+      table: {
+        name: "名称",
+        link: "リンク",
+        users: "ユーザー",
+        createdOn: "作成日",
+      },
+      modal: {
+        createTitle: "新規ワークスペース作成",
+        create: "ワークスペース作成",
+        namePlaceholder: "マイワークスペース",
+        noteAfterCreate:
+          "管理者のみが新規ワークスペースを表示できます。作成後にユーザー追加が可能です。",
+      },
+      actions: {
+        cancel: "キャンセル",
+      },
+      confirm: {
+        delete: {
+          title: "ワークスペースを削除しますか？",
+          description:
+            "{{workspaceName}} はこの Athena インスタンスで使用できなくなり、元に戻せません。",
+          confirm: "削除",
+        },
+      },
+    },
+    invites: {
+      title: "招待",
+      description:
+        "組織内のユーザーに対して受け入れ可能な招待リンクを作成します。各招待は1人のユーザーのみ使用できます。",
+      create: "招待リンクを作成",
+      publicRegistration: {
+        title: "公開登録を許可",
+        description:
+          "有効時、ログイン画面に「アカウント作成」が表示され、公開登録では一般ユーザーのみ作成できます。",
+        enabled: "有効",
+        disabled: "無効",
+        enableAction: "有効化",
+        disableAction: "無効化",
+      },
+      table: {
+        status: "ステータス",
+        role: "ロール",
+        acceptedBy: "受諾者",
+        createdBy: "作成者",
+        expires: "期限",
+        created: "作成日",
+      },
+      noInvitations: "招待が見つかりません",
+      toasts: {
+        updateError: "公開登録設定の更新に失敗しました。",
+        updateEnabled: "公開登録を有効化しました。",
+        updateDisabled: "公開登録を無効化しました。",
+      },
+      modal: {
+        title: "新規招待を作成",
+        roleLabel: "招待ロール",
+        copyToast: "招待リンクをクリップボードにコピーしました。",
+        note: "作成後、完全な招待リンクは1回のみコピー可能で、トークンはリストでは再表示されません。",
+        expiresLabel: "有効期限",
+        role: {
+          default: "一般ユーザー",
+          manager: "マネージャー",
+          admin: "管理者",
+        },
+        expires: {
+          24: "24時間",
+          72: "3日",
+          168: "7日",
+        },
+        autoAssignTitle: "招待ユーザーをワークスペースへ自動追加",
+        autoAssignDescription:
+          "必要に応じて、選択したワークスペースへ自動的にユーザーを割り当てられます。初期状態では、ユーザーはワークスペースを持ちません。",
+        cancel: "キャンセル",
+        create: "招待を作成",
+        close: "閉じる",
+      },
+      status: {
+        pending: "保留中",
+        accepted: "受諾済み",
+        claimed: "引き取り済み",
+        revoked: "失効",
+      },
+      role: {
+        default: "一般ユーザー",
+        manager: "マネージャー",
+        admin: "管理者",
+      },
+      deletedUser: "削除済みユーザー",
+      confirm: {
+        disable: {
+          title: "招待を無効化しますか？",
+          description: "無効化すると、この招待は再利用できず、元に戻せません。",
+          confirm: "無効化",
+        },
+      },
     },
   },
   scheduledJobs: {

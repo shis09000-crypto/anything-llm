@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import {
+  ArrowLeft,
   EnvelopeSimple,
   Eye,
   EyeSlash,
@@ -54,6 +55,12 @@ const appleInputClass =
 
 const codeInputClass =
   "h-12 w-10 rounded-xl border border-slate-200 bg-white text-center text-lg font-semibold text-slate-950 outline-none transition focus:border-[#007AFF]/70 focus:ring-4 focus:ring-[#007AFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100";
+
+const registrationEmailFormatMessage = "请输入有效邮箱地址，需包含 @ 和域名。";
+
+function isValidRegistrationEmail(email = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
+}
 
 const RecoveryForm = ({ onSubmit, setShowRecoveryForm, onEmailResetToken }) => {
   const [method, setMethod] = useState("email");
@@ -240,13 +247,14 @@ const EmailRecoveryForm = ({
         <AppleInput
           label={t("login.password-reset.verified-email")}
           name="email"
-          type="email"
+          type="text"
           icon={<EnvelopeSimple className="h-5 w-5" />}
           value={email}
           onChange={(event) =>
             setEmail(normalizeEmailInput(event.target.value))
           }
           required
+          inputMode="email"
           disabled={step === "verify"}
           autoComplete="email"
           autoCapitalize="none"
@@ -336,6 +344,341 @@ const ResetPasswordForm = ({ onSubmit }) => {
   );
 };
 
+const RegistrationForm = ({ onBack, onSuccess }) => {
+  const [email, setEmail] = useState("");
+  const [step, setStep] = useState("email");
+  const [loading, setLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [resendRemaining, setResendRemaining] = useState(0);
+  const [code, setCode] = useState("");
+  const [codeResetSignal, setCodeResetSignal] = useState(0);
+  const [autoSendAttemptedEmail, setAutoSendAttemptedEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showRegistrationPassword, setShowRegistrationPassword] =
+    useState(false);
+  const [showRegistrationConfirmPassword, setShowRegistrationConfirmPassword] =
+    useState(false);
+
+  useEffect(() => {
+    if (resendRemaining <= 0) return;
+    const timer = setTimeout(() => {
+      setResendRemaining((current) => Math.max(0, current - 1));
+    }, 1_000);
+    return () => clearTimeout(timer);
+  }, [resendRemaining]);
+
+  useEffect(() => {
+    if (step !== "email") return;
+    const normalizedEmail = normalizeEmailInput(email);
+    if (!normalizedEmail) return;
+
+    const timer = setTimeout(() => {
+      if (!isValidRegistrationEmail(normalizedEmail)) {
+        showToast(registrationEmailFormatMessage, "warning", {
+          toastId: "registration-email-format",
+        });
+      }
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [email, step]);
+
+  useEffect(() => {
+    if (step !== "code") return;
+    if (!email || autoSendAttemptedEmail === email) return;
+    setAutoSendAttemptedEmail(email);
+    sendRegistrationCode({ clearToast: true });
+  }, [autoSendAttemptedEmail, email, step]);
+
+  async function sendRegistrationCode({ clearToast = false } = {}) {
+    if (sendingCode || resendRemaining > 0) return;
+    setSendingCode(true);
+    const result = await System.requestRegistrationCode({ email });
+    setSendingCode(false);
+    if (!result.success) {
+      showToast(result.error || "无法发送注册验证码。", "error", {
+        clear: clearToast,
+      });
+      return;
+    }
+
+    setEmail(result.email || email);
+    setCode("");
+    setCodeResetSignal((current) => current + 1);
+    setResendRemaining(Number(result.resendCooldownSeconds) || 60);
+    showToast(result.message || "验证码已发送，请检查邮箱。", "success", {
+      clear: clearToast,
+    });
+  }
+
+  const requestCode = async (event) => {
+    event.preventDefault();
+    if (loading) return;
+    const normalizedEmail = normalizeEmailInput(email);
+    if (!isValidRegistrationEmail(normalizedEmail)) {
+      showToast(registrationEmailFormatMessage, "warning", { clear: true });
+      return;
+    }
+
+    setLoading(true);
+    const check = await System.checkRegistrationEmail({
+      email: normalizedEmail,
+    });
+    if (!check.success) {
+      setLoading(false);
+      showToast(check.error || "该邮箱暂时无法注册。", "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    setEmail(check.email || normalizedEmail);
+    setLoading(false);
+    setCode("");
+    setCodeResetSignal((current) => current + 1);
+    setResendRemaining(0);
+    setAutoSendAttemptedEmail("");
+    setStep("code");
+  };
+
+  const verifyCode = async (event) => {
+    event.preventDefault();
+    if (loading) return;
+    if (!/^\d{6}$/.test(code)) {
+      setCodeResetSignal((current) => current + 1);
+      showToast("请输入 6 位邮箱验证码。", "error", { clear: true });
+      return;
+    }
+
+    setLoading(true);
+    const result = await System.verifyRegistrationCode({ email, code });
+    setLoading(false);
+    if (!result.success) {
+      setCodeResetSignal((current) => current + 1);
+      showToast(result.error || "验证码不正确或已过期。", "error", {
+        clear: true,
+      });
+      return;
+    }
+
+    setEmail(result.email || email);
+    setStep("password");
+  };
+
+  const completeRegistration = async (event) => {
+    event.preventDefault();
+    if (loading) return;
+    if (password !== confirmPassword) {
+      showToast("两次输入的密码不一致。", "error", { clear: true });
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      setCodeResetSignal((current) => current + 1);
+      showToast("请输入 6 位邮箱验证码。", "error", { clear: true });
+      return;
+    }
+
+    setLoading(true);
+    const result = await System.registerAccount({
+      email,
+      code,
+      password,
+      confirmPassword,
+    });
+    setLoading(false);
+
+    if (result.success && result.token && result.user) {
+      showToast("账号已创建。", "success", { clear: true });
+      onSuccess(result);
+      return;
+    }
+
+    setCodeResetSignal((current) => current + 1);
+    showToast(result.error || "无法完成注册，请检查信息后重试。", "error", {
+      clear: true,
+    });
+  };
+
+  if (step === "email") {
+    return (
+      <form onSubmit={requestCode} className="w-full space-y-6">
+        <AuthStepBackButton onClick={onBack} />
+        <AuthSectionHeader
+          title="创建账号"
+          description="先确认邮箱未被注册，再发送邮箱验证码。"
+        />
+        <AppleInput
+          label="邮箱"
+          name="email"
+          type="text"
+          icon={<EnvelopeSimple className="h-5 w-5" />}
+          placeholder="name@example.com"
+          value={email}
+          onChange={(event) =>
+            setEmail(normalizeEmailInput(event.target.value))
+          }
+          required
+          inputMode="email"
+          autoComplete="email"
+          autoCapitalize="none"
+          spellCheck={false}
+          lang="en"
+        />
+        <div className="space-y-4">
+          <AppButton
+            disabled={loading || resendRemaining > 0}
+            loading={loading}
+            type="submit"
+            size="lg"
+            fullWidth
+            style={appleButtonStyle}
+          >
+            {resendRemaining > 0 ? `${resendRemaining} 秒后可重新发送` : "继续"}
+          </AppButton>
+        </div>
+      </form>
+    );
+  }
+
+  if (step === "code") {
+    return (
+      <form onSubmit={verifyCode} className="w-full space-y-6">
+        <AuthStepBackButton
+          onClick={() => {
+            setStep("email");
+            setCode("");
+            setCodeResetSignal((current) => current + 1);
+          }}
+        />
+        <AuthSectionHeader
+          title="验证邮箱"
+          description="输入发送到该邮箱的 6 位验证码。"
+        />
+        <div className="space-y-4">
+          <AppleInput
+            label="邮箱"
+            name="email"
+            type="text"
+            icon={<EnvelopeSimple className="h-5 w-5" />}
+            value={email}
+            inputMode="email"
+            disabled
+            readOnly
+          />
+          <div className="space-y-3">
+            <label className="block text-sm font-semibold text-slate-700">
+              邮箱验证码
+            </label>
+            <div className="flex justify-center">
+              <EmailVerificationCodeInput
+                disabled={loading}
+                onComplete={setCode}
+                resetSignal={codeResetSignal}
+                inputClassName={codeInputClass}
+              />
+            </div>
+          </div>
+        </div>
+        <AppButton
+          disabled={sendingCode || resendRemaining > 0}
+          loading={sendingCode}
+          type="button"
+          variant="secondary"
+          size="lg"
+          fullWidth
+          onClick={() => sendRegistrationCode({ clearToast: true })}
+          style={secondaryAppleButtonStyle}
+        >
+          {resendRemaining > 0
+            ? `${resendRemaining} 秒后可重新发送`
+            : "发送验证码"}
+        </AppButton>
+        <AppButton
+          disabled={loading || sendingCode}
+          loading={loading}
+          type="submit"
+          size="lg"
+          fullWidth
+          style={appleButtonStyle}
+        >
+          验证并继续
+        </AppButton>
+      </form>
+    );
+  }
+
+  return (
+    <form onSubmit={completeRegistration} className="w-full space-y-6">
+      <AuthStepBackButton onClick={() => setStep("code")} />
+      <AuthSectionHeader
+        title="创建账号"
+        description="邮箱已验证，请设置账号密码。"
+      />
+      <div className="space-y-4">
+        <AppleInput
+          label="邮箱"
+          name="email"
+          type="text"
+          icon={<EnvelopeSimple className="h-5 w-5" />}
+          value={email}
+          inputMode="email"
+          disabled
+          readOnly
+        />
+        <AppleInput
+          label="密码"
+          name="password"
+          type={showRegistrationPassword ? "text" : "password"}
+          icon={<LockKey className="h-5 w-5" />}
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          required
+          minLength={8}
+          autoComplete="new-password"
+          rightAdornment={
+            <PasswordVisibilityButton
+              visible={showRegistrationPassword}
+              onClick={() => setShowRegistrationPassword((current) => !current)}
+            />
+          }
+        />
+        <AppleInput
+          label="确认密码"
+          name="confirmPassword"
+          type={showRegistrationConfirmPassword ? "text" : "password"}
+          icon={<LockKey className="h-5 w-5" />}
+          value={confirmPassword}
+          onChange={(event) => setConfirmPassword(event.target.value)}
+          required
+          minLength={8}
+          autoComplete="new-password"
+          rightAdornment={
+            <PasswordVisibilityButton
+              visible={showRegistrationConfirmPassword}
+              onClick={() =>
+                setShowRegistrationConfirmPassword((current) => !current)
+              }
+            />
+          }
+        />
+      </div>
+      <div className="space-y-4">
+        <AppButton
+          disabled={loading}
+          loading={loading}
+          type="submit"
+          size="lg"
+          fullWidth
+          style={appleButtonStyle}
+        >
+          注册
+        </AppButton>
+      </div>
+    </form>
+  );
+};
+
 export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -356,6 +699,8 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   const [trustedDevice, setTrustedDevice] = useState(null);
   const [trustedDeviceLoading, setTrustedDeviceLoading] = useState(false);
   const [loginMode, setLoginMode] = useState("password");
+  const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
+  const [showRegisterForm, setShowRegisterForm] = useState(false);
 
   const {
     isOpen: isRecoveryCodeModalOpen,
@@ -371,7 +716,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     persistRememberedAccount(loginIdentifier, rememberAccount);
 
     try {
-      const { valid, user, token, recoveryCodes } = await System.requestToken({
+      const { valid, user, token, recoveryCodes, message } = await System.requestToken({
         identifier: loginIdentifier,
         password,
       });
@@ -390,8 +735,10 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
           window.location = paths.home();
         }
       } else {
-        setError("账号或密码不正确");
-        showToast("账号或密码不正确", "error", { clear: true });
+        const errorMessage =
+          message === "账号已被禁用" ? message : "账号或密码不正确";
+        setError(errorMessage);
+        showToast(errorMessage, "error", { clear: true });
       }
     } catch {
       setError("账号或密码不正确");
@@ -404,6 +751,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   const handleDownloadComplete = () => setDownloadComplete(true);
   const handleResetPassword = () => {
     setError(null);
+    setShowRegisterForm(false);
     setShowRecoveryForm(true);
   };
   const handleRememberChange = (event) => {
@@ -514,6 +862,22 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     }
   };
 
+  const handleRegistrationSuccess = ({ user, token, recoveryCodes }) => {
+    if (!user || !token) return;
+    setUser(user);
+    setToken(token);
+    setShowRegisterForm(false);
+    if (recoveryCodes) {
+      setRecoveryCodes(recoveryCodes);
+      openRecoveryCodeModal();
+      return;
+    }
+    window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
+    window.localStorage.setItem(AUTH_TOKEN, token);
+    setLoginUserActionNow();
+    window.location = paths.home();
+  };
+
   useEffect(() => {
     if (downloadComplete && user && token) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
@@ -532,6 +896,9 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       setLoginIdentifier(rememberedAccount);
       setRememberAccount(true);
     }
+    System.registrationConfig().then((config) => {
+      setAllowPublicRegistration(Boolean(config?.allowPublicRegistration));
+    });
     getPreferredLocalZkDevice()
       .then((device) => {
         if (!device) return;
@@ -566,8 +933,22 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       onPasskeyLogin={handlePasskeyLogin}
       onTrustedDeviceLogin={handleTrustedDeviceLogin}
       onResetPassword={handleResetPassword}
+      allowPublicRegistration={allowPublicRegistration}
+      onCreateAccount={() => {
+        setError(null);
+        setShowRegisterForm(true);
+      }}
     />
   );
+
+  if (showRegisterForm && allowPublicRegistration) {
+    content = (
+      <RegistrationForm
+        onBack={() => setShowRegisterForm(false)}
+        onSuccess={handleRegistrationSuccess}
+      />
+    );
+  }
 
   if (showRecoveryForm) {
     content = (
@@ -620,6 +1001,8 @@ function LoginForm({
   onPasskeyLogin,
   onTrustedDeviceLogin,
   onResetPassword,
+  allowPublicRegistration,
+  onCreateAccount,
 }) {
   const isTrustedQuickMode = Boolean(trustedDevice && loginMode === "quick");
   const showPasswordForm = !isTrustedQuickMode;
@@ -749,6 +1132,19 @@ function LoginForm({
               </AppButton>
             </>
           ) : null}
+
+          {allowPublicRegistration ? (
+            <div className="pt-1 text-center text-sm font-medium text-slate-500">
+              还没有账号？
+              <button
+                type="button"
+                className="ml-1 text-[#007AFF] transition hover:text-[#0056cc]"
+                onClick={onCreateAccount}
+              >
+                创建账号
+              </button>
+            </div>
+          ) : null}
         </>
       ) : (
         <>
@@ -849,7 +1245,7 @@ function AppleAuthShell({ children, loginLogo, isCustomLogo }) {
       }}
     >
       <main className="flex flex-1 items-center justify-center py-8">
-        <section className="w-full min-h-[560px] max-w-[540px] rounded-[34px] border border-white/80 bg-white/90 px-8 py-10 shadow-[0_24px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:px-14 sm:py-14">
+        <section className="relative w-full min-h-[560px] max-w-[540px] rounded-[34px] border border-white/80 bg-white/90 px-8 py-10 shadow-[0_24px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:px-14 sm:py-14">
           <BrandHeader loginLogo={loginLogo} isCustomLogo={isCustomLogo} />
           {children}
         </section>
@@ -894,6 +1290,32 @@ function AuthSectionHeader({ title, description }) {
       </h2>
       <p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
     </div>
+  );
+}
+
+function AuthStepBackButton({ onClick }) {
+  return (
+    <button
+      type="button"
+      aria-label="返回上一步"
+      className="absolute left-6 top-6 flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:bg-slate-50 hover:text-slate-900 focus:outline-none focus:ring-4 focus:ring-[#007AFF]/10 sm:left-8 sm:top-8"
+      onClick={onClick}
+    >
+      <ArrowLeft className="h-5 w-5" />
+    </button>
+  );
+}
+
+function PasswordVisibilityButton({ visible, onClick }) {
+  return (
+    <button
+      type="button"
+      className="flex h-10 w-10 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus:outline-none focus:ring-4 focus:ring-[#007AFF]/10"
+      aria-label={visible ? "隐藏密码" : "显示密码"}
+      onClick={onClick}
+    >
+      {visible ? <EyeSlash className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+    </button>
   );
 }
 

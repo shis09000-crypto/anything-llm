@@ -1,5 +1,5 @@
 const { v4 } = require("uuid");
-const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
 const bcrypt = require("bcryptjs");
 
 const RecoveryCode = {
@@ -8,7 +8,7 @@ const RecoveryCode = {
   create: async function (userId, code) {
     try {
       const codeHash = await bcrypt.hash(code, 10);
-      const recoveryCode = await prisma.recovery_codes.create({
+      const recoveryCode = await authPrisma.recovery_codes.create({
         data: { user_id: userId, code_hash: codeHash },
       });
       return { recoveryCode, error: null };
@@ -19,9 +19,9 @@ const RecoveryCode = {
   },
   createMany: async function (data) {
     try {
-      const recoveryCodes = await prisma.$transaction(
+      const recoveryCodes = await authPrisma.$transaction(
         data.map((recoveryCode) =>
-          prisma.recovery_codes.create({ data: recoveryCode })
+          authPrisma.recovery_codes.create({ data: recoveryCode })
         )
       );
       return { recoveryCodes, error: null };
@@ -32,7 +32,7 @@ const RecoveryCode = {
   },
   findFirst: async function (clause = {}) {
     try {
-      const recoveryCode = await prisma.recovery_codes.findFirst({
+      const recoveryCode = await authPrisma.recovery_codes.findFirst({
         where: clause,
       });
       return recoveryCode;
@@ -43,7 +43,7 @@ const RecoveryCode = {
   },
   findMany: async function (clause = {}) {
     try {
-      const recoveryCodes = await prisma.recovery_codes.findMany({
+      const recoveryCodes = await authPrisma.recovery_codes.findMany({
         where: clause,
       });
       return recoveryCodes;
@@ -54,7 +54,7 @@ const RecoveryCode = {
   },
   deleteMany: async function (clause = {}) {
     try {
-      await prisma.recovery_codes.deleteMany({ where: clause });
+      await authPrisma.recovery_codes.deleteMany({ where: clause });
       return true;
     } catch (error) {
       console.error("FAILED TO DELETE RECOVERY CODES.", error.message);
@@ -78,7 +78,7 @@ const PasswordResetToken = {
   },
   create: async function (userId) {
     try {
-      const passwordResetToken = await prisma.password_reset_tokens.create({
+      const passwordResetToken = await authPrisma.password_reset_tokens.create({
         data: { user_id: userId, token: v4(), expiresAt: this.calcExpiry() },
       });
       return { passwordResetToken, error: null };
@@ -89,7 +89,7 @@ const PasswordResetToken = {
   },
   findUnique: async function (clause = {}) {
     try {
-      const passwordResetToken = await prisma.password_reset_tokens.findUnique({
+      const passwordResetToken = await authPrisma.password_reset_tokens.findUnique({
         where: clause,
       });
       return passwordResetToken;
@@ -100,7 +100,7 @@ const PasswordResetToken = {
   },
   deleteMany: async function (clause = {}) {
     try {
-      await prisma.password_reset_tokens.deleteMany({ where: clause });
+      await authPrisma.password_reset_tokens.deleteMany({ where: clause });
       return true;
     } catch (error) {
       console.error("FAILED TO DELETE PASSWORD RESET TOKEN.", error.message);

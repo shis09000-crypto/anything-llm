@@ -15,7 +15,6 @@ import {
   UploadSimple,
   DotsSixVertical,
 } from "@phosphor-icons/react";
-import useUser from "@/hooks/useUser";
 import ThreadContainer, {
   WORKSPACE_THREADS_REFRESH_EVENT,
 } from "./ThreadContainer";
@@ -70,7 +69,6 @@ export default function ActiveWorkspaces() {
   const [selectedWs, setSelectedWs] = useState(null);
   const [draggingThread, setDraggingThread] = useState(null);
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
-  const { user } = useUser();
   const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/:tab");
   const isHomePage = !!useMatch("/");
 
@@ -351,65 +349,61 @@ export default function ActiveWorkspaces() {
                                     </p>
                                   </div>
                                 </div>
-                                {user?.role !== "default" && (
-                                  <div
-                                    className={`flex items-center gap-x-[2px] motion-hover ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                <div
+                                  className={`flex items-center gap-x-[2px] motion-hover ${isActive ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      setSelectedWs(workspace);
+                                      showModal();
+                                    }}
+                                    data-tooltip-id="upload-workspace"
+                                    data-tooltip-content={t(
+                                      "chat_window.controls.upload.workspaceDescription"
+                                    )}
+                                    aria-label={t(
+                                      "chat_window.controls.upload.workspaceDescription"
+                                    )}
+                                    className={`group/upload border-none rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
                                   >
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        setSelectedWs(workspace);
-                                        showModal();
-                                      }}
-                                      data-tooltip-id="upload-workspace"
-                                      data-tooltip-content={t(
-                                        "chat_window.controls.upload.workspaceDescription"
-                                      )}
-                                      aria-label={t(
-                                        "chat_window.controls.upload.workspaceDescription"
-                                      )}
-                                      className={`group/upload border-none rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
-                                    >
-                                      <UploadSimple
-                                        className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/upload:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/upload:text-slate-950"}`}
-                                      />
-                                    </button>
-                                    <button
-                                      onClick={(e) => {
-                                        e.preventDefault();
-                                        e.stopPropagation();
-                                        navigate(
-                                          isInWorkspaceSettings
-                                            ? paths.workspace.chat(
-                                                workspace.slug
-                                              )
-                                            : paths.workspace.settings.generalAppearance(
-                                                workspace.slug
-                                              )
-                                        );
-                                      }}
-                                      className={`group/gear rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
-                                      aria-label={t(
-                                        "common.controls.workspaceSettings"
-                                      )}
-                                      data-tooltip-id="gear-workspace"
-                                      data-tooltip-content={t(
-                                        "common.controls.workspaceSettingsDescription"
-                                      )}
-                                    >
-                                      <GearSix
-                                        color={
-                                          isInWorkspaceSettings &&
-                                          workspace.slug === slug
-                                            ? "#46C8FF"
-                                            : undefined
-                                        }
-                                        className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/gear:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/gear:text-slate-950"}`}
-                                      />
-                                    </button>
-                                  </div>
-                                )}
+                                    <UploadSimple
+                                      className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/upload:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/upload:text-slate-950"}`}
+                                    />
+                                  </button>
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      navigate(
+                                        isInWorkspaceSettings
+                                          ? paths.workspace.chat(workspace.slug)
+                                          : paths.workspace.settings.generalAppearance(
+                                              workspace.slug
+                                            )
+                                      );
+                                    }}
+                                    className={`group/gear rounded-md flex items-center justify-center ml-auto p-[2px] ${isActive ? "hover:bg-zinc-500 light:hover:bg-sky-800/30" : "hover:bg-zinc-500 light:hover:bg-slate-400"}`}
+                                    aria-label={t(
+                                      "common.controls.workspaceSettings"
+                                    )}
+                                    data-tooltip-id="gear-workspace"
+                                    data-tooltip-content={t(
+                                      "common.controls.workspaceSettingsDescription"
+                                    )}
+                                  >
+                                    <GearSix
+                                      color={
+                                        isInWorkspaceSettings &&
+                                        workspace.slug === slug
+                                          ? "#46C8FF"
+                                          : undefined
+                                      }
+                                      className={`h-[20px] w-[20px] ${isActive ? "text-zinc-400 hover:text-white light:text-blue-700 light:group-hover/gear:text-blue-900" : "text-zinc-400 hover:text-white light:text-slate-600 light:group-hover/gear:text-slate-950"}`}
+                                    />
+                                  </button>
+                                </div>
                               </div>
                             </Link>
                             <div className="hidden">

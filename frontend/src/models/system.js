@@ -5,6 +5,22 @@ import LiveDocumentSync from "./experimental/liveSync";
 import AgentPlugins from "./experimental/agentPlugins";
 import SystemPromptVariable from "./systemPromptVariable";
 
+function localizedApiError(error, fallback = "请求失败，请稍后重试。") {
+  const message =
+    typeof error === "string" ? error : String(error?.message || "").trim();
+  if (!message) return fallback;
+  if (
+    /failed to fetch/i.test(message) ||
+    /networkerror/i.test(message) ||
+    /load failed/i.test(message)
+  ) {
+    return "无法连接服务，请确认后端已启动后重试。";
+  }
+  if (/not found/i.test(message))
+    return "服务接口不存在，请刷新或重启后端后重试。";
+  return message;
+}
+
 const System = {
   cacheKeys: {
     footerIcons: "anythingllm_footer_links",
@@ -107,6 +123,78 @@ const System = {
       .then((res) => res)
       .catch((e) => {
         return { valid: false, message: e.message };
+      });
+  },
+  registrationConfig: async function () {
+    return await fetch(`${API_BASE}/auth/registration/config`)
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, allowPublicRegistration: false };
+      });
+  },
+  requestRegistrationCode: async function ({ email }) {
+    return await fetch(`${API_BASE}/auth/register/request-code`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ email }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return { success: false, error: data.error };
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: localizedApiError(e) };
+      });
+  },
+  checkRegistrationEmail: async function ({ email }) {
+    return await fetch(`${API_BASE}/auth/register/check-email`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ email }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return { success: false, error: data.error };
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: localizedApiError(e) };
+      });
+  },
+  verifyRegistrationCode: async function ({ email, code }) {
+    return await fetch(`${API_BASE}/auth/register/verify-code`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify({ email, code }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return { success: false, error: data.error };
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: localizedApiError(e) };
+      });
+  },
+  registerAccount: async function (data) {
+    return await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: baseHeaders(),
+      body: JSON.stringify(data),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) return { success: false, error: data.error };
+        return data;
+      })
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: localizedApiError(e) };
       });
   },
   /**
@@ -796,6 +884,75 @@ const System = {
         console.error(e);
         return { success: false, error: e.message };
       });
+  },
+  accountDeletePreview: async () => {
+    return await fetch(`${API_BASE}/system/user/delete-preview`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "无法生成删除预览。",
+          };
+        }
+        return data;
+      })
+      .catch((e) => ({
+        success: false,
+        error: localizedApiError(e, "无法生成删除预览。"),
+      }));
+  },
+  reauthAccountDeleteWithPassword: async ({ currentPassword }) => {
+    return await fetch(`${API_BASE}/system/user/delete/reauth/password`, {
+      method: "POST",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ currentPassword }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "安全验证失败。",
+          };
+        }
+        return data;
+      })
+      .catch((e) => ({
+        success: false,
+        error: localizedApiError(e, "安全验证失败。"),
+      }));
+  },
+  deleteAccount: async ({ confirm, reauthToken }) => {
+    return await fetch(`${API_BASE}/system/user`, {
+      method: "DELETE",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ confirm, reauthToken }),
+    })
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          return {
+            success: false,
+            error: data.error || "删除账户失败。",
+            deletionJobId: data.deletionJobId,
+          };
+        }
+        return data;
+      })
+      .catch((e) => ({
+        success: false,
+        error: localizedApiError(e, "删除账户失败。"),
+      }));
   },
   dataConnectors: DataConnector,
 

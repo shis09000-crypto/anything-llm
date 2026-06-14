@@ -1,6 +1,25 @@
 import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 
+async function responseJson(res) {
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text || res.statusText };
+  }
+
+  if (!res.ok) {
+    return {
+      success: false,
+      error: data?.error || data?.message || res.statusText,
+      ...data,
+    };
+  }
+  return data;
+}
+
 const Admin = {
   // User Management
   users: async () => {
@@ -40,11 +59,59 @@ const Admin = {
       });
   },
   deleteUser: async (userId) => {
-    return await fetch(`${API_BASE}/admin/user/${userId}`, {
-      method: "DELETE",
+    return await Admin.deleteUserWithReauth(userId, {});
+  },
+  userDeletePreview: async (userId) => {
+    return await fetch(`${API_BASE}/admin/users/${userId}/delete-preview`, {
+      method: "GET",
       headers: baseHeaders(),
     })
-      .then((res) => res.json())
+      .then(responseJson)
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  deleteUserWithReauth: async (userId, { confirm = false, reauthToken } = {}) => {
+    return await fetch(`${API_BASE}/admin/user/${userId}`, {
+      method: "DELETE",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ confirm, reauthToken }),
+    })
+      .then(responseJson)
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  banUser: async (userId, reason = "") => {
+    return await fetch(`${API_BASE}/admin/users/${userId}/ban`, {
+      method: "POST",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason }),
+    })
+      .then(responseJson)
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
+  unbanUser: async (userId, { restoreRole, restoreAllowedEnvs } = {}) => {
+    return await fetch(`${API_BASE}/admin/users/${userId}/unban`, {
+      method: "POST",
+      headers: {
+        ...baseHeaders(),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ restoreRole, restoreAllowedEnvs }),
+    })
+      .then(responseJson)
       .catch((e) => {
         console.error(e);
         return { success: false, error: e.message };
@@ -64,19 +131,37 @@ const Admin = {
         return [];
       });
   },
-  newInvite: async ({ role = null, workspaceIds = null }) => {
+  newInvite: async ({
+    role = "default",
+    workspaceIds = null,
+    expiresInHours = 24,
+  }) => {
     return await fetch(`${API_BASE}/admin/invite/new`, {
       method: "POST",
       headers: baseHeaders(),
       body: JSON.stringify({
         role,
         workspaceIds,
+        expiresInHours,
       }),
     })
-      .then((res) => res.json())
+      .then(responseJson)
       .catch((e) => {
         console.error(e);
         return { invite: null, error: e.message };
+      });
+  },
+  systemPreferences: async (labels = []) => {
+    const query = labels.length ? `?labels=${labels.join(",")}` : "";
+    return await fetch(`${API_BASE}/admin/system-preferences-for${query}`, {
+      method: "GET",
+      headers: baseHeaders(),
+    })
+      .then((res) => res.json())
+      .then((res) => res?.settings || {})
+      .catch((e) => {
+        console.error(e);
+        return {};
       });
   },
   disableInvite: async (inviteId) => {
@@ -181,7 +266,7 @@ const Admin = {
       headers: baseHeaders(),
       body: JSON.stringify(updates),
     })
-      .then((res) => res.json())
+      .then(responseJson)
       .catch((e) => {
         console.error(e);
         return { success: false, error: e.message };

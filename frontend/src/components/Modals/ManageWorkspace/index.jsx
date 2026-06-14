@@ -5,7 +5,6 @@ import { useParams } from "react-router-dom";
 import Workspace from "../../../models/workspace";
 import System from "../../../models/system";
 import { isMobileOnly } from "react-device-detect";
-import useUser from "../../../hooks/useUser";
 import DocumentSettings from "./Documents";
 import DataConnectors from "./DataConnectors";
 import ModalWrapper from "@/components/ModalWrapper";
@@ -15,7 +14,6 @@ const noop = () => {};
 const ManageWorkspace = ({ hideModal = noop, providedSlug = null }) => {
   const { t } = useTranslation();
   const { slug } = useParams();
-  const { user } = useUser();
   const [workspace, setWorkspace] = useState(null);
   const [settings, setSettings] = useState({});
   const [selectedTab, setSelectedTab] = useState("documents");
@@ -95,12 +93,10 @@ const ManageWorkspace = ({ hideModal = noop, providedSlug = null }) => {
             </button>
           </div>
 
-          {user?.role !== "default" && (
-            <ModalTabSwitcher
-              selectedTab={selectedTab}
-              setSelectedTab={setSelectedTab}
-            />
-          )}
+          <ModalTabSwitcher
+            selectedTab={selectedTab}
+            setSelectedTab={setSelectedTab}
+          />
 
           {selectedTab === "documents" ? (
             <EmbeddingProgressProvider>
@@ -148,13 +144,10 @@ const ModalTabSwitcher = ({ selectedTab, setSelectedTab }) => {
 };
 
 export function useManageWorkspaceModal() {
-  const { user } = useUser();
   const [showing, setShowing] = useState(false);
 
   function showModal() {
-    if (user?.role !== "default") {
-      setShowing(true);
-    }
+    setShowing(true);
   }
 
   function hideModal() {

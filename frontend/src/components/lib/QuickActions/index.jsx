@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import useUser from "@/hooks/useUser";
+import { canSeeAdmin } from "@/utils/authz";
 
 /**
  * Quick action buttons for home and empty workspace states.
@@ -23,15 +24,12 @@ export default function QuickActions({
       <QuickActionButton
         label={t("main-page.quickActions.createAgent")}
         onClick={onCreateAgent}
-        show={!user || ["admin"].includes(user?.role)}
+        show={!user || canSeeAdmin(user)}
       />
       <QuickActionButton
         label={t("main-page.quickActions.editWorkspace")}
         onClick={onEditWorkspace}
-        show={
-          hasAvailableWorkspace &&
-          (!user || ["admin", "manager"].includes(user?.role))
-        }
+        show={hasAvailableWorkspace}
       />
       <QuickActionButton
         label={t("main-page.quickActions.uploadDocument")}

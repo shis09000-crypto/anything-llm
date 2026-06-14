@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { X } from "@phosphor-icons/react";
 import Admin from "@/models/admin";
 import { useTranslation } from "react-i18next";
+import AppButton from "@/components/lib/AppButton";
 
 export default function NewWorkspaceModal({ closeModal }) {
   const [error, setError] = useState(null);
@@ -21,16 +22,19 @@ export default function NewWorkspaceModal({ closeModal }) {
         <div className="relative p-6 border-b rounded-t border-theme-modal-border">
           <div className="w-full flex gap-x-2 items-center">
             <h3 className="text-xl font-semibold text-white overflow-hidden overflow-ellipsis whitespace-nowrap">
-              Create new workspace
+              {t("admin.workspaces.modal.createTitle")}
             </h3>
           </div>
-          <button
+          <AppButton
             onClick={closeModal}
             type="button"
+            variant="secondary"
+            size="sm"
+            iconOnly
+            aria-label={t("admin.common.close")}
             className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
-          >
-            <X size={24} weight="bold" className="text-white" />
-          </button>
+            leftIcon={<X size={24} weight="bold" className="text-white" />}
+          />
         </div>
         <div className="p-6">
           <form onSubmit={handleCreate}>
@@ -46,32 +50,37 @@ export default function NewWorkspaceModal({ closeModal }) {
                   name="name"
                   type="text"
                   className="border-none bg-theme-settings-input-bg w-full text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
-                  placeholder="My workspace"
+                  placeholder={t("admin.workspaces.modal.namePlaceholder")}
                   minLength={4}
                   required={true}
                   autoComplete="off"
                 />
               </div>
-              {error && <p className="text-red-400 text-sm">Error: {error}</p>}
+              {error && (
+                <p className="text-red-400 text-sm">
+                  {t("admin.common.genericError", { error })}
+                </p>
+              )}
               <p className="text-white text-opacity-60 text-xs md:text-sm">
-                After creating this workspace only admins will be able to see
-                it. You can add users after it has been created.
+                {t("admin.workspaces.modal.noteAfterCreate")}
               </p>
             </div>
             <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border">
-              <button
-                onClick={closeModal}
+              <AppButton
                 type="button"
-                className="motion-hover text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
+                variant="secondary"
+                onClick={closeModal}
+                className="motion-hover"
               >
-                Cancel
-              </button>
-              <button
+                {t("admin.workspaces.actions.cancel")}
+              </AppButton>
+              <AppButton
                 type="submit"
-                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                variant="primary"
+                className="motion-hover"
               >
-                Create workspace
-              </button>
+                {t("admin.workspaces.modal.create")}
+              </AppButton>
             </div>
           </form>
         </div>

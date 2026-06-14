@@ -145,6 +145,7 @@ function createDraft({ workspaceSlug, threadSlug = null, items = [] }) {
     updatedAt: Date.now(),
     persistError: null,
     tailHydration: null,
+    tailCleanup: null,
   };
 }
 
@@ -152,11 +153,16 @@ function draftFromStorageValue(value) {
   if (!value || !value.workspaceSlug) return null;
   const now = Date.now();
   const updatedAt = value.updatedAt || now;
-  const { items, removedTurnIds } = cleanupTransientDraftItems(
-    Array.isArray(value.items) ? value.items : [],
-    { now }
+  const storedItems = normalizeTurnItems(
+    Array.isArray(value.items) ? value.items : []
   );
+  const { items, removedTurnIds } = cleanupTransientDraftItems(storedItems, {
+    now,
+  });
   const removedTurnIdSet = new Set(removedTurnIds);
+  const storedTail = storedItems[storedItems.length - 1] || null;
+  const removedTail =
+    storedTail?.turnId && removedTurnIdSet.has(storedTail.turnId);
   const activeTurnId =
     value.activeTurnId && !removedTurnIdSet.has(value.activeTurnId)
       ? value.activeTurnId
@@ -184,6 +190,18 @@ function draftFromStorageValue(value) {
     updatedAt,
     persistError: removedTurnIds.length > 0 ? null : value.persistError || null,
     tailHydration: null,
+    tailCleanup: removedTail
+      ? {
+          seq: 1,
+          turnIds: removedTurnIds,
+          removedItemIds: storedItems
+            .filter((item) => removedTurnIdSet.has(item.turnId))
+            .map((item) => item.id)
+            .filter(Boolean),
+          reason: "storage-restore",
+          updatedAt: now,
+        }
+      : null,
   };
   return draft;
 }
@@ -797,6 +815,64 @@ function failTurnItems(items = [], turnId, reason) {
   );
 }
 
+function cleanupTransientDraftState(
+  draft = {},
+  { chatKey = null, reason = "updateDraft" } = {}
+) {
+  const beforeItems = normalizeTurnItems(draft.items || []);
+  const beforeTail = beforeItems[beforeItems.length - 1] || null;
+  const { items, removedTurnIds, removedTurns } = cleanupTransientDraftItems(
+    beforeItems,
+    { now: Date.now(), removeRunning: false }
+  );
+  if (removedTurnIds.length === 0) return { ...draft, items };
+
+  const removedTurnIdSet = new Set(removedTurnIds);
+  const removedItemIds = beforeItems
+    .filter((item) => removedTurnIdSet.has(item.turnId))
+    .map((item) => item.id)
+    .filter(Boolean);
+  const activeRemoved =
+    draft.activeTurnId && removedTurnIdSet.has(draft.activeTurnId);
+  const tailRemoved =
+    beforeTail?.turnId && removedTurnIdSet.has(beforeTail.turnId);
+  const next = {
+    ...draft,
+    items,
+    activeTurnId: activeRemoved ? null : draft.activeTurnId,
+    pendingApproval: activeRemoved ? null : draft.pendingApproval,
+    activeToolCall: activeRemoved ? null : draft.activeToolCall,
+    isStreaming: activeRemoved ? false : draft.isStreaming,
+    isAgentRunning: activeRemoved ? false : draft.isAgentRunning,
+    persistError: activeRemoved || tailRemoved ? null : draft.persistError,
+    tailCleanup: tailRemoved
+      ? {
+          seq: Number(draft.tailCleanup?.seq || 0) + 1,
+          turnIds: removedTurnIds,
+          removedItemIds,
+          reason,
+          updatedAt: Date.now(),
+        }
+      : draft.tailCleanup || null,
+  };
+
+  debugChatTurn("draftTransientCleanup", {
+    chatKey:
+      chatKey ||
+      getChatThreadKey(draft.workspaceSlug, draft.threadSlug) ||
+      null,
+    reason,
+    removedTurnIds,
+    removedTurns,
+    tailRemoved,
+    activeRemoved,
+    beforeTailTurnId: beforeTail?.turnId || null,
+    afterTailTurnId: items[items.length - 1]?.turnId || null,
+  });
+
+  return next;
+}
+
 function withoutTransientAgentReconnectEvents(timeline = []) {
   return (timeline || []).filter((event) => {
     if (event?.type !== "thought") return true;
@@ -982,7 +1058,7 @@ export function ChatThreadDraftProvider({ children }) {
   );
 
   const updateDraft = useCallback(
-    (chatKey, updater) => {
+    (chatKey, updater, options = {}) => {
       setDrafts((prev) => {
         let current = prev[chatKey];
         if (!current) {
@@ -1003,6 +1079,10 @@ export function ChatThreadDraftProvider({ children }) {
           updatedAt: Date.now(),
         };
         next.items = normalizeTurnItems(next.items || []);
+        next = cleanupTransientDraftState(next, {
+          chatKey,
+          reason: options.cleanupReason || "updateDraft",
+        });
         next = clearSettledRuntimeState(next);
         debugRuntime("updateDraft:after", {
           chatKey,
@@ -1130,26 +1210,30 @@ export function ChatThreadDraftProvider({ children }) {
         });
         return next;
       });
-      updateDraft(chatKey, (draft) => {
-        const next = {
-          ...draft,
-          items: failTurnItems(draft.items, turnId, failureReason),
-          activeTurnId:
-            draft.activeTurnId === turnId ? null : draft.activeTurnId,
-          pendingApproval: null,
-          activeToolCall: null,
-          isStreaming: false,
-          isAgentRunning: false,
-          persistError: failureReason,
-        };
-        debugChatTurn("assistant_error:after", {
-          chatKey,
-          turnId,
-          reason: failureReason,
-          ...turnRuntimeSnapshot(next, turnId),
-        });
-        return next;
-      });
+      updateDraft(
+        chatKey,
+        (draft) => {
+          const next = {
+            ...draft,
+            items: failTurnItems(draft.items, turnId, failureReason),
+            activeTurnId:
+              draft.activeTurnId === turnId ? null : draft.activeTurnId,
+            pendingApproval: null,
+            activeToolCall: null,
+            isStreaming: false,
+            isAgentRunning: false,
+            persistError: failureReason,
+          };
+          debugChatTurn("assistant_error:after", {
+            chatKey,
+            turnId,
+            reason: failureReason,
+            ...turnRuntimeSnapshot(next, turnId),
+          });
+          return next;
+        },
+        { cleanupReason: "markThreadFailed" }
+      );
     },
     [debugRuntime, updateDraft, updateRunningState]
   );
@@ -1758,28 +1842,32 @@ export function ChatThreadDraftProvider({ children }) {
             historyLength: history.length,
             hydratedChatIds: hydration?.hydratedChatIds || [],
           });
-          updateDraft(chatKey, (current) => {
-            const items = mergeServerHistoryIntoTurnItems(
-              history,
-              current.items,
-              { chatKey }
-            );
-            const shouldKeepDraft = hasUnfinishedDraft({ ...current, items });
-            if (!shouldKeepDraft) {
-              removeStoredDraft(current.workspaceSlug, current.threadSlug);
-            }
-            return {
-              ...current,
-              items,
-              persistError: null,
-              tailHydration: {
-                seq: Number(current.tailHydration?.seq || 0) + 1,
-                chatId,
-                turnId,
-                updatedAt: Date.now(),
-              },
-            };
-          });
+          updateDraft(
+            chatKey,
+            (current) => {
+              const items = mergeServerHistoryIntoTurnItems(
+                history,
+                current.items,
+                { chatKey }
+              );
+              const shouldKeepDraft = hasUnfinishedDraft({ ...current, items });
+              if (!shouldKeepDraft) {
+                removeStoredDraft(current.workspaceSlug, current.threadSlug);
+              }
+              return {
+                ...current,
+                items,
+                persistError: null,
+                tailHydration: {
+                  seq: Number(current.tailHydration?.seq || 0) + 1,
+                  chatId,
+                  turnId,
+                  updatedAt: Date.now(),
+                },
+              };
+            },
+            { cleanupReason: "confirmPersisted" }
+          );
           return;
         }
 
@@ -2108,33 +2196,37 @@ export function ChatThreadDraftProvider({ children }) {
           retryCount: session.retryCount,
           websocketUUID,
         };
-        updateDraft(chatKey, (current) => ({
-          ...current,
-          items: updateAssistantTurnInItems(current.items, turnId, {
-            status: TURN_STATUSES.interrupted,
-            reconnectState: "offer",
-            retryCount: session.retryCount,
-            maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
-            websocketUUID,
-            agentProvider: session.agentProvider,
-            agentModel: session.agentModel,
-            agentModelTier: session.agentModelTier,
-            silenceTimeoutMs: session.silenceTimeoutMs,
-            reconnectAttemptStartedAt: null,
-            reconnectDueAt: null,
-            lastEventSeq: session.lastEventSeq || 0,
-            interruptedContext,
-            error: null,
-            updatedAt: Date.now(),
+        updateDraft(
+          chatKey,
+          (current) => ({
+            ...current,
+            items: updateAssistantTurnInItems(current.items, turnId, {
+              status: TURN_STATUSES.interrupted,
+              reconnectState: "offer",
+              retryCount: session.retryCount,
+              maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
+              websocketUUID,
+              agentProvider: session.agentProvider,
+              agentModel: session.agentModel,
+              agentModelTier: session.agentModelTier,
+              silenceTimeoutMs: session.silenceTimeoutMs,
+              reconnectAttemptStartedAt: null,
+              reconnectDueAt: null,
+              lastEventSeq: session.lastEventSeq || 0,
+              interruptedContext,
+              error: null,
+              updatedAt: Date.now(),
+            }),
+            activeTurnId:
+              current.activeTurnId === turnId ? null : current.activeTurnId,
+            pendingApproval: null,
+            activeToolCall: null,
+            isStreaming: false,
+            isAgentRunning: false,
+            persistError: null,
           }),
-          activeTurnId:
-            current.activeTurnId === turnId ? null : current.activeTurnId,
-          pendingApproval: null,
-          activeToolCall: null,
-          isStreaming: false,
-          isAgentRunning: false,
-          persistError: null,
-        }));
+          { cleanupReason: "offerReconnect" }
+        );
         clearThreadRunning(chatKey, turnId);
         setAgentSessionActive(false);
         window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
@@ -2591,13 +2683,17 @@ export function ChatThreadDraftProvider({ children }) {
       if (!draft || !turn?.interruptedContext) return;
 
       if (!shouldReconnect) {
-        updateDraft(chatKey, (current) => ({
-          ...current,
-          items: updateAssistantTurnInItems(current.items, turnId, {
-            reconnectState: "failed",
-            updatedAt: Date.now(),
+        updateDraft(
+          chatKey,
+          (current) => ({
+            ...current,
+            items: updateAssistantTurnInItems(current.items, turnId, {
+              reconnectState: "failed",
+              updatedAt: Date.now(),
+            }),
           }),
-        }));
+          { cleanupReason: "declineInterruptedReconnect" }
+        );
         return;
       }
 
@@ -2687,28 +2783,32 @@ export function ChatThreadDraftProvider({ children }) {
         historyLength: history.length,
         ...draftHistoryIntegrity(draftsRef.current[chatKey]),
       });
-      updateDraft(chatKey, (draft) => {
-        const beforeIntegrity = draftHistoryIntegrity(draft);
-        const items = mergeServerHistoryIntoTurnItems(history, draft.items, {
-          chatKey,
-        });
-        const next = {
-          ...draft,
-          items,
-        };
-        const afterIntegrity = draftHistoryIntegrity(next);
-        debugRuntime("mergeServerHistory:after", {
-          chatKey,
-          turnId: next.activeTurnId || null,
-          draft: next,
-          historyLength: history.length,
-          beforeBlankServerBackedUserItemCount:
-            beforeIntegrity.blankServerBackedUserItemCount,
-          beforeUserItemCount: beforeIntegrity.userItemCount,
-          ...afterIntegrity,
-        });
-        return next;
-      });
+      updateDraft(
+        chatKey,
+        (draft) => {
+          const beforeIntegrity = draftHistoryIntegrity(draft);
+          const items = mergeServerHistoryIntoTurnItems(history, draft.items, {
+            chatKey,
+          });
+          const next = {
+            ...draft,
+            items,
+          };
+          const afterIntegrity = draftHistoryIntegrity(next);
+          debugRuntime("mergeServerHistory:after", {
+            chatKey,
+            turnId: next.activeTurnId || null,
+            draft: next,
+            historyLength: history.length,
+            beforeBlankServerBackedUserItemCount:
+              beforeIntegrity.blankServerBackedUserItemCount,
+            beforeUserItemCount: beforeIntegrity.userItemCount,
+            ...afterIntegrity,
+          });
+          return next;
+        },
+        { cleanupReason: "mergeServerHistory" }
+      );
       return chatKey;
     },
     [debugRuntime, ensureDraft, updateDraft]

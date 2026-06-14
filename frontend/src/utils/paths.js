@@ -87,9 +87,6 @@ export default {
       readingTools: (slug) => {
         return `/workspace/${slug}/settings/reading-tools`;
       },
-      members: (slug) => {
-        return `/workspace/${slug}/settings/members`;
-      },
       agentConfig: (slug) => {
         return `/workspace/${slug}/settings/agent-config`;
       },

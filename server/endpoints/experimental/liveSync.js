@@ -86,7 +86,7 @@ function liveSyncEndpoints(app) {
     "/workspace/:slug/update-watch-status",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.admin]),
       validWorkspaceSlug,
       featureFlagEnabled(DocumentSyncQueue.featureKey),
     ],

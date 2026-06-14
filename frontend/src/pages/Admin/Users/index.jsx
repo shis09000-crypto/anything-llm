@@ -3,18 +3,15 @@ import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
-import { UserPlus } from "@phosphor-icons/react";
 import Admin from "@/models/admin";
 import UserRow from "./UserRow";
 import useUser from "@/hooks/useUser";
-import NewUserModal from "./NewUserModal";
-import { useModal } from "@/hooks/useModal";
-import ModalWrapper from "@/components/ModalWrapper";
-import CTAButton from "@/components/lib/CTAButton";
 import Toggle from "@/components/lib/Toggle";
+import { useTranslation } from "react-i18next";
+import { normalizeRole } from "@/utils/authz";
 
 export default function AdminUsers() {
-  const { isOpen, openModal, closeModal } = useModal();
+  const { t } = useTranslation();
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
@@ -27,36 +24,24 @@ export default function AdminUsers() {
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="items-center flex gap-x-4">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">
-                Users
+                {t("admin.users.title")}
               </p>
             </div>
             <p className="text-xs leading-[18px] font-base text-theme-text-secondary">
-              These are all the accounts which have an account on this instance.
-              Removing an account will instantly remove their access to this
-              instance.
+              {t("admin.users.description")}
             </p>
           </div>
-          <div className="w-full justify-end flex">
-            <CTAButton
-              onClick={openModal}
-              className="mt-3 mr-0 mb-4 md:-mb-6 z-10"
-            >
-              <UserPlus className="h-4 w-4" weight="bold" /> Add user
-            </CTAButton>
-          </div>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto mt-6">
             <UsersContainer />
           </div>
         </div>
-        <ModalWrapper isOpen={isOpen}>
-          <NewUserModal closeModal={closeModal} />
-        </ModalWrapper>
       </div>
     </div>
   );
 }
 
 function UsersContainer() {
+  const { t } = useTranslation();
   const { user: currUser } = useUser();
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
@@ -89,13 +74,13 @@ function UsersContainer() {
       <thead className="text-theme-text-secondary text-xs leading-[18px] font-bold uppercase border-white/10 border-b">
         <tr>
           <th scope="col" className="px-6 py-3 rounded-tl-lg">
-            Username
+            {t("admin.users.table.username")}
           </th>
           <th scope="col" className="px-6 py-3">
-            Role
+            {t("admin.users.table.role")}
           </th>
           <th scope="col" className="px-6 py-3">
-            Date Added
+            {t("admin.users.table.dateAdded")}
           </th>
           <th scope="col" className="px-6 py-3 rounded-tr-lg">
             {" "}
@@ -111,28 +96,49 @@ function UsersContainer() {
   );
 }
 
-const ROLE_HINT = {
-  default: [
-    "Can only send chats with workspaces they are added to by admin or managers.",
-    "Cannot modify any settings at all.",
-  ],
-  manager: [
-    "Can view, create, and delete any workspaces and modify workspace-specific settings.",
-    "Can create, update and invite new users to the instance.",
-    "Cannot modify LLM, vectorDB, embedding, or other connections.",
-  ],
-  admin: [
-    "Highest user level privilege.",
-    "Can see and do everything across the system.",
-  ],
-};
-
 export function RoleHintDisplay({ role }) {
+  const { t } = useTranslation();
+  const ROLE_HINT = {
+    user: [
+      t("admin.users.permissions.default.0"),
+      t("admin.users.permissions.default.1"),
+    ],
+    developer: [
+      t("admin.users.permissions.developer.0", {
+        defaultValue: "Can sign in to development only.",
+      }),
+      t("admin.users.permissions.developer.1", {
+        defaultValue: "Can test experimental features.",
+      }),
+    ],
+    admin: [
+      t("admin.users.permissions.adminScoped.0", {
+        defaultValue:
+          "Can access the admin dashboard and manage users, workspaces, invites, and system settings.",
+      }),
+      t("admin.users.permissions.adminScoped.1", {
+        defaultValue: "Can sign in to production and development.",
+      }),
+    ],
+    owner: [
+      t("admin.users.permissions.owner.0", {
+        defaultValue: "Highest permission level.",
+      }),
+      t("admin.users.permissions.owner.1", {
+        defaultValue:
+          "Can manage admins, security policy, audit logs, and global configuration.",
+      }),
+    ],
+  };
+  const normalizedRole = normalizeRole(role);
+
   return (
     <div className="flex flex-col gap-y-1 py-1 pb-4">
-      <p className="text-sm font-medium text-theme-text-primary">Permissions</p>
+      <p className="text-sm font-medium text-theme-text-primary">
+        {t("admin.users.permissions.title")}
+      </p>
       <ul className="flex flex-col gap-y-1 list-disc px-4">
-        {ROLE_HINT[role ?? "default"].map((hints, i) => {
+        {(ROLE_HINT[normalizedRole] ?? ROLE_HINT.user).map((hints, i) => {
           return (
             <li key={i} className="text-xs text-theme-text-secondary">
               {hints}
@@ -145,14 +151,16 @@ export function RoleHintDisplay({ role }) {
 }
 
 export function MessageLimitInput({ enabled, limit, updateState, role }) {
-  if (role === "admin") return null;
+  const { t } = useTranslation();
+  if (["admin", "owner"].includes(normalizeRole(role))) return null;
+
   return (
     <div className="mt-4 mb-8">
       <Toggle
         size="md"
         variant="horizontal"
-        label="Limit messages per day"
-        description="Restrict this user to a number of successful queries or chats within a 24 hour window."
+        label={t("admin.users.messageLimit.label")}
+        description={t("admin.users.messageLimit.description")}
         enabled={enabled}
         onChange={(checked) => {
           updateState((prev) => ({
@@ -164,7 +172,7 @@ export function MessageLimitInput({ enabled, limit, updateState, role }) {
       {enabled && (
         <div className="mt-4">
           <label className="text-white text-sm font-semibold block mb-4">
-            Message limit per day
+            {t("admin.users.messageLimit.inputLabel")}
           </label>
           <div className="relative mt-2">
             <input

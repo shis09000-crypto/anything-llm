@@ -112,6 +112,9 @@ const TRANSLATIONS = {
     "vector-database": "向量数据库",
     embeds: "嵌入式对话",
     security: "用户与安全",
+    "button-lab": "按钮实验",
+    "crypto-component-experiment": "加密组件实验",
+    "crypto-center": "Crypto Center",
     "event-logs": "事件日志",
     privacy: "隐私与数据",
     "ai-providers": "人工智能提供商",
@@ -2242,6 +2245,193 @@ const readable = true;
       tested: "高级连接器测试完成。",
       "save-failed": "高级连接器设置保存失败。",
       "test-failed": "高级连接器测试失败。",
+    },
+  },
+  admin: {
+    common: {
+      genericError: "错误：{{error}}",
+      close: "关闭",
+    },
+    users: {
+      title: "用户",
+      description:
+        "这里是当前实例内的全部账户。移除用户后将立刻失去该实例访问权限。",
+      add: "新增用户",
+      table: {
+        username: "用户名",
+        role: "角色",
+        dateAdded: "创建时间",
+      },
+      roles: {
+        default: "普通用户",
+        manager: "管理员助理",
+        admin: "管理员",
+      },
+      permissions: {
+        title: "权限说明",
+        default: [
+          "只能在管理员或管理员助理分配的工作区内发送会话。",
+          "不能修改任何系统设置。",
+        ],
+        manager: [
+          "可以查看、创建和删除任意工作区，并修改工作区内设置。",
+          "可以创建、更新并邀请新用户加入实例。",
+          "不可修改 LLM、向量数据库、向量化与其他连接。",
+        ],
+        admin: ["最高权限用户。", "可查看并执行实例内全部功能。"],
+      },
+      messageLimit: {
+        label: "限制每日消息数",
+        description: "将该用户的有效查询或会话次数限制在 24 小时窗口内。",
+        inputLabel: "每日消息上限",
+      },
+      actions: {
+        add: "添加用户",
+        cancel: "取消",
+        update: "更新用户",
+        edit: "编辑",
+        unsuspend: "恢复",
+        suspend: "暂停",
+        delete: "删除",
+      },
+      modal: {
+        addTitle: "向实例添加用户",
+        editTitle: "编辑 {{username}}",
+        usernameLabel: "用户名",
+        usernamePlaceholder: "用户的用户名",
+        passwordLabel: "密码",
+        passwordPlaceholder: "用户初始登录密码",
+        passwordHint: "密码必须至少包含 8 个字符",
+        passwordNewLabel: "新密码",
+        passwordNewPlaceholder: "{{username}} 的新密码",
+        bioLabel: "简介",
+        bioPlaceholder: "用户简介",
+        roleLabel: "角色",
+        noteAfterCreate: "创建账号后，用户需使用该初始账号登录后才能访问系统。",
+      },
+      confirm: {
+        suspend: {
+          title: "暂停用户？",
+          description: "该用户将被登出，并在管理员恢复前无法再次登录。",
+          confirm: "暂停",
+        },
+        unsuspend: {
+          title: "恢复用户？",
+          description: "该用户将可以重新登录此实例。",
+          confirm: "恢复",
+        },
+        delete: {
+          title: "删除用户？",
+          description:
+            "该用户将被登出，并无法继续使用此 Athena 实例。此操作不可恢复。",
+          confirm: "删除",
+        },
+      },
+      toast: {
+        suspended: "用户已暂停。",
+        unsuspended: "用户已恢复。",
+        deleted: "用户已从系统移除。",
+      },
+    },
+    workspaces: {
+      title: "实例工作区",
+      description:
+        "这是当前实例下全部工作区。删除工作区后，其相关聊天与设置也会一并删除。",
+      create: "新建工作区",
+      table: {
+        name: "名称",
+        link: "链接",
+        users: "用户",
+        createdOn: "创建时间",
+      },
+      modal: {
+        createTitle: "创建新工作区",
+        create: "创建工作区",
+        namePlaceholder: "我的工作区",
+        noteAfterCreate: "仅管理员可见新建的工作区，创建后可再分配成员。",
+      },
+      actions: {
+        cancel: "取消",
+      },
+      confirm: {
+        delete: {
+          title: "删除工作区？",
+          description:
+            "{{workspaceName}} 将不再在此 Athena 实例中使用，该操作不可恢复。",
+          confirm: "删除",
+        },
+      },
+    },
+    invites: {
+      title: "邀请",
+      description:
+        "为组织内成员创建可领取的邀请链接。每条邀请仅能被一个账号使用。",
+      create: "创建邀请链接",
+      publicRegistration: {
+        title: "允许公开注册",
+        description: "开启后登录页显示“创建账号”。公开注册仅允许创建普通用户。",
+        enabled: "已开启",
+        disabled: "已关闭",
+        enableAction: "开启",
+        disableAction: "关闭",
+      },
+      table: {
+        status: "状态",
+        role: "角色",
+        acceptedBy: "接受人",
+        createdBy: "创建人",
+        expires: "到期",
+        created: "创建时间",
+      },
+      noInvitations: "未找到邀请",
+      toasts: {
+        updateError: "更新公开注册设置失败。",
+        updateEnabled: "公开注册已开启。",
+        updateDisabled: "公开注册已关闭。",
+      },
+      modal: {
+        title: "创建新邀请",
+        roleLabel: "邀请角色",
+        copyToast: "邀请链接已复制到剪贴板",
+        note: "创建后仅可复制一次完整链接，列表内不再显示 token 明文。",
+        expiresLabel: "过期时间",
+        role: {
+          default: "普通用户",
+          manager: "管理员助理",
+          admin: "管理员",
+        },
+        expires: {
+          24: "24 小时",
+          72: "3 天",
+          168: "7 天",
+        },
+        autoAssignTitle: "自动添加邀请用户到工作区",
+        autoAssignDescription:
+          "可选：勾选后会在创建时自动将用户加入所选工作区。默认不加入任何工作区。",
+        cancel: "取消",
+        create: "创建邀请",
+        createError: "创建邀请失败，请稍后重试。",
+        close: "关闭",
+      },
+      status: {
+        pending: "待使用",
+        accepted: "已接受",
+        claimed: "已领取",
+        revoked: "已失效",
+      },
+      role: {
+        default: "普通用户",
+        manager: "管理员助理",
+        admin: "管理员",
+      },
+      deletedUser: "已删除用户",
+      confirm: {
+        disable: {
+          title: "停用邀请？",
+          description: "停用后该邀请将不再可用，且操作不可撤销。",
+          confirm: "停用",
+        },
+      },
     },
   },
   scheduledJobs: {

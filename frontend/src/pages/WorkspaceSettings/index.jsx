@@ -12,20 +12,16 @@ import {
   Heartbeat,
   Robot,
   TextAa,
-  User,
   Wrench,
 } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
-import { Link } from "react-router-dom";
-import { NavLink } from "react-router-dom";
+import { Link, Navigate, NavLink } from "react-router-dom";
 import GeneralAppearance from "./GeneralAppearance";
 import ChatSettings from "./ChatSettings";
 import VectorDatabase from "./VectorDatabase";
-import Members from "./Members";
 import WorkspaceAgentConfiguration from "./AgentConfig";
 import HealthCenter from "./HealthCenter";
 import ReadingTools from "./ReadingTools";
-import useUser from "@/hooks/useUser";
 import { useTranslation } from "react-i18next";
 import System from "@/models/system";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
@@ -36,7 +32,6 @@ const TABS = {
   "vector-database": VectorDatabase,
   "health-center": HealthCenter,
   "reading-tools": ReadingTools,
-  members: Members,
   "agent-config": WorkspaceAgentConfiguration,
 };
 
@@ -54,7 +49,6 @@ export default function WorkspaceSettings() {
 function ShowWorkspaceChat() {
   const { t } = useTranslation();
   const { slug, tab } = useParams();
-  const { user } = useUser();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -82,6 +76,12 @@ function ShowWorkspaceChat() {
   if (loading) return <WorkspaceSettingsSkeleton />;
 
   const TabContent = TABS[tab];
+  if (!TabContent) {
+    return (
+      <Navigate to={paths.workspace.settings.generalAppearance(slug)} replace />
+    );
+  }
+
   return (
     <WorkspaceHealthProvider workspaceSlug={slug}>
       <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
@@ -121,12 +121,6 @@ function ShowWorkspaceChat() {
               title={t("workspaces—settings.reading")}
               icon={<TextAa className="h-6 w-6" />}
               to={paths.workspace.settings.readingTools(slug)}
-            />
-            <TabItem
-              title={t("workspaces—settings.members")}
-              icon={<User className="h-6 w-6" />}
-              to={paths.workspace.settings.members(slug)}
-              visible={["admin", "manager"].includes(user?.role)}
             />
             <TabItem
               title={t("workspaces—settings.agent")}

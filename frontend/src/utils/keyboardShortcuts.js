@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { userFromStorage } from "./request";
 import { TOGGLE_LLM_SELECTOR_EVENT } from "@/components/WorkspaceChat/ChatContainer/PromptInput/LLMSelector/action";
+import { canSeeAdmin } from "@/utils/authz";
 
 export const KEYBOARD_SHORTCUTS_HELP_EVENT = "keyboard-shortcuts-help";
 export const isMac = navigator.platform.toUpperCase().indexOf("MAC") >= 0;
@@ -123,7 +124,7 @@ function useKeyboardShortcuts() {
     // If there is a user and the user is not an admin do not register the event listener
     // since some of the shortcuts are only available in multi-user mode as admin
     const user = userFromStorage();
-    if (!!user && user?.role !== "admin") return;
+    if (!!user && !canSeeAdmin(user)) return;
     const cleanup = initKeyboardShortcuts(navigate);
 
     return () => cleanup();

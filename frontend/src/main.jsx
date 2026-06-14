@@ -4,6 +4,7 @@ import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import App from "@/App.jsx";
 import PrivateRoute, {
   AdminRoute,
+  DeveloperRoute,
   ManagerRoute,
   SingleUserRoute,
 } from "@/components/PrivateRoute";
@@ -44,7 +45,7 @@ const router = createBrowserRouter([
           const { default: WorkspaceSettings } = await import(
             "@/pages/WorkspaceSettings"
           );
-          return { element: <ManagerRoute Component={WorkspaceSettings} /> };
+          return { element: <PrivateRoute Component={WorkspaceSettings} /> };
         },
       },
       {
@@ -59,6 +60,13 @@ const router = createBrowserRouter([
       },
       {
         path: "/accept-invite/:code",
+        lazy: async () => {
+          const { default: InvitePage } = await import("@/pages/Invite");
+          return { element: <InvitePage /> };
+        },
+      },
+      {
+        path: "/auth/admin-invite",
         lazy: async () => {
           const { default: InvitePage } = await import("@/pages/Invite");
           return { element: <InvitePage /> };
@@ -271,7 +279,7 @@ const router = createBrowserRouter([
           const { default: InterfaceSettings } = await import(
             "@/pages/GeneralSettings/Settings/Interface"
           );
-          return { element: <ManagerRoute Component={InterfaceSettings} /> };
+          return { element: <PrivateRoute Component={InterfaceSettings} /> };
         },
       },
       {
@@ -302,7 +310,7 @@ const router = createBrowserRouter([
             element: isCryptoCenterDevAuthBypassEnabled() ? (
               <CryptoComponentExperiment />
             ) : (
-              <ManagerRoute Component={CryptoComponentExperiment} />
+              <DeveloperRoute Component={CryptoComponentExperiment} />
             ),
           };
         },
@@ -371,7 +379,7 @@ const router = createBrowserRouter([
           const { default: GeneralChats } = await import(
             "@/pages/GeneralSettings/Chats"
           );
-          return { element: <ManagerRoute Component={GeneralChats} /> };
+          return { element: <AdminRoute Component={GeneralChats} /> };
         },
       },
       {
@@ -380,14 +388,14 @@ const router = createBrowserRouter([
           const { default: AdminInvites } = await import(
             "@/pages/Admin/Invitations"
           );
-          return { element: <ManagerRoute Component={AdminInvites} /> };
+          return { element: <AdminRoute Component={AdminInvites} /> };
         },
       },
       {
         path: "/settings/users",
         lazy: async () => {
           const { default: AdminUsers } = await import("@/pages/Admin/Users");
-          return { element: <ManagerRoute Component={AdminUsers} /> };
+          return { element: <AdminRoute Component={AdminUsers} /> };
         },
       },
       {
@@ -396,7 +404,7 @@ const router = createBrowserRouter([
           const { default: AdminWorkspaces } = await import(
             "@/pages/Admin/Workspaces"
           );
-          return { element: <ManagerRoute Component={AdminWorkspaces} /> };
+          return { element: <AdminRoute Component={AdminWorkspaces} /> };
         },
       },
       // Onboarding Flow

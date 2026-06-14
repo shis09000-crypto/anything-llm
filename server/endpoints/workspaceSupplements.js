@@ -150,7 +150,7 @@ function workspaceSupplementEndpoints(app) {
     "/workspace/:slug/workspace-supplements/bind",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {
@@ -223,7 +223,7 @@ function workspaceSupplementEndpoints(app) {
     "/workspace/:slug/workspace-supplements/upload",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
       handleFileUpload,
     ],
@@ -277,7 +277,7 @@ function workspaceSupplementEndpoints(app) {
     "/workspace/:slug/workspace-supplements/text",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {
@@ -332,7 +332,7 @@ function workspaceSupplementEndpoints(app) {
     "/workspace/:slug/workspace-supplements/:id",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {

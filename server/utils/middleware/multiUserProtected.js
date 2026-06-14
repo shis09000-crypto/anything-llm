@@ -1,12 +1,15 @@
 const { SystemSettings } = require("../../models/systemSettings");
 const { userFromSession } = require("../http");
-const ROLES = {
-  all: "<all>",
-  admin: "admin",
-  manager: "manager",
-  default: "default",
-};
-const DEFAULT_ROLES = [ROLES.admin, ROLES.admin];
+const { ROLES, normalizeRole } = require("../authz/accountRoles");
+const DEFAULT_ROLES = [ROLES.admin, ROLES.owner];
+
+function rolePermitted(userRole, allowedRoles = DEFAULT_ROLES) {
+  const role = normalizeRole(userRole);
+  const allowed = allowedRoles.map((allowedRole) => normalizeRole(allowedRole));
+  if (allowed.includes(role)) return true;
+  if (role === ROLES.owner && allowed.includes(ROLES.admin)) return true;
+  return false;
+}
 
 /**
  * Explicitly check that single user mode is enabled as well as that the
@@ -51,7 +54,7 @@ function strictMultiUserRoleValid(allowedRoles = DEFAULT_ROLES) {
 
     const user =
       response.locals?.user ?? (await userFromSession(request, response));
-    if (allowedRoles.includes(user?.role)) {
+    if (rolePermitted(user?.role, allowedRoles)) {
       next();
       return;
     }
@@ -90,7 +93,7 @@ function flexUserRoleValid(allowedRoles = DEFAULT_ROLES) {
 
     const user =
       response.locals?.user ?? (await userFromSession(request, response));
-    if (allowedRoles.includes(user?.role)) {
+    if (rolePermitted(user?.role, allowedRoles)) {
       next();
       return;
     }
@@ -115,6 +118,7 @@ async function isMultiUserSetup(_request, response, next) {
 
 module.exports = {
   ROLES,
+  rolePermitted,
   isSingleUserMode,
   strictMultiUserRoleValid,
   flexUserRoleValid,

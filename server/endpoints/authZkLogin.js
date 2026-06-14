@@ -5,22 +5,27 @@ const {
   verifyAuthenticationResponse,
 } = require("@simplewebauthn/server");
 const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
 const { EventLogs } = require("../models/eventLogs");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
+const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const { issueUserSessionToken } = require("../utils/sessionIdle");
 const { readSecret, saveSecret } = require("../utils/security");
+const {
+  issueReauthToken,
+  validateReauthToken,
+  consumeReauthToken,
+} = require("../utils/authz/reauthTokens");
 
-const REAUTH_TTL_MS = 5 * 60 * 1000;
 const OPAQUE_ATTEMPT_TTL_MS = 5 * 60 * 1000;
 const LOCK_FAILURE_LIMIT = 5;
 const LOCK_MS = 10 * 60 * 1000;
 const OPAQUE_SERVER_SETUP_SETTING = "opaque_server_setup";
 const TRUSTED_DEVICE_SCHEMA_ERROR =
   "可信设备数据库未初始化，请应用迁移后重启服务。";
-const reauthTokens = new Map();
 
 let opaqueModule = null;
 let cachedOpaqueServerSetup = null;
@@ -53,7 +58,7 @@ function authZkLoginEndpoints(app) {
 
         return response.status(200).json({
           success: true,
-          reauthToken: issueReauthToken(user.id, "password"),
+          reauthToken: issueReauthToken(user.id, "password", "zk_enroll"),
         });
       } catch (error) {
         console.error("[ZK reauth password failed]", error.message);
@@ -75,8 +80,9 @@ function authZkLoginEndpoints(app) {
         }
 
         const user = response.locals.user;
-        const passkeys = await prisma.passkeyCredential.findMany({
-          where: { userId: user.id },
+        const authUserId = await currentAuthUserId(user);
+        const passkeys = await authPrisma.passkeyCredential.findMany({
+          where: { userId: authUserId },
           select: { credentialId: true, transports: true },
         });
         if (passkeys.length === 0) {
@@ -99,7 +105,7 @@ function authZkLoginEndpoints(app) {
 
         await rememberPasskeyChallenge({
           challenge: normalizeBase64Url(options.challenge),
-          userId: user.id,
+          userId: authUserId,
           request,
         });
 
@@ -124,6 +130,7 @@ function authZkLoginEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const body = reqBody(request) || {};
         const authResponse = body.response;
         const credentialId = normalizeBase64Url(authResponse?.id);
@@ -134,7 +141,7 @@ function authZkLoginEndpoints(app) {
         );
         const challengeRecord = await consumePasskeyChallenge({
           challenge,
-          userId: user.id,
+          userId: authUserId,
         });
         if (!challengeRecord) {
           return response.status(400).json({
@@ -143,8 +150,8 @@ function authZkLoginEndpoints(app) {
           });
         }
 
-        const passkey = await prisma.passkeyCredential.findFirst({
-          where: { credentialId, userId: user.id },
+        const passkey = await authPrisma.passkeyCredential.findFirst({
+          where: { credentialId, userId: authUserId },
         });
         if (!passkey) {
           await audit(request, "zk_login_reauth_failed", {
@@ -185,7 +192,7 @@ function authZkLoginEndpoints(app) {
           });
         }
 
-        await prisma.passkeyCredential.update({
+        await authPrisma.passkeyCredential.update({
           where: { id: passkey.id },
           data: {
             counter: Number(
@@ -197,7 +204,7 @@ function authZkLoginEndpoints(app) {
 
         return response.status(200).json({
           success: true,
-          reauthToken: issueReauthToken(user.id, "passkey"),
+          reauthToken: issueReauthToken(user.id, "passkey", "zk_enroll"),
         });
       } catch (error) {
         console.error("[ZK reauth passkey verify failed]", error.message);
@@ -219,8 +226,13 @@ function authZkLoginEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const body = reqBody(request) || {};
-        const reauth = validateReauthToken(body.reauthToken, user.id);
+        const reauth = validateReauthToken(
+          body.reauthToken,
+          user.id,
+          "zk_enroll"
+        );
         if (!reauth) {
           return response.status(401).json({
             success: false,
@@ -244,7 +256,7 @@ function authZkLoginEndpoints(app) {
         const { registrationResponse } =
           opaque.server.createRegistrationResponse({
             serverSetup,
-            userIdentifier: zkUserIdentifier(user.id, deviceId),
+            userIdentifier: zkUserIdentifier(authUserId, deviceId),
             registrationRequest,
           });
 
@@ -272,8 +284,13 @@ function authZkLoginEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const body = reqBody(request) || {};
-        const reauth = validateReauthToken(body.reauthToken, user.id);
+        const reauth = validateReauthToken(
+          body.reauthToken,
+          user.id,
+          "zk_enroll"
+        );
         if (!reauth) {
           return response.status(401).json({
             success: false,
@@ -293,10 +310,10 @@ function authZkLoginEndpoints(app) {
         }
 
         consumeReauthToken(body.reauthToken);
-        const device = await prisma.trustedLoginDevice.upsert({
-          where: { userId_deviceId: { userId: user.id, deviceId } },
+        const device = await authPrisma.trustedLoginDevice.upsert({
+          where: { userId_deviceId: { userId: authUserId, deviceId } },
           create: {
-            userId: user.id,
+            userId: authUserId,
             deviceId,
             deviceName: normalizeDeviceName(body.deviceName),
             verifier: "opaque-v1",
@@ -317,7 +334,7 @@ function authZkLoginEndpoints(app) {
         });
 
         await audit(request, "zk_login_device_enrolled", {
-          userId: user.id,
+          userId: authUserId,
           device: fingerprint(deviceId),
           method: reauth.method,
         });
@@ -360,7 +377,7 @@ function authZkLoginEndpoints(app) {
         });
       }
 
-      const device = await prisma.trustedLoginDevice.findFirst({
+      const device = await authPrisma.trustedLoginDevice.findFirst({
         where: {
           userId,
           deviceId,
@@ -369,7 +386,12 @@ function authZkLoginEndpoints(app) {
         },
         include: { user: true },
       });
-      if (!device || !device.user || device.user.suspended) {
+      if (
+        !device ||
+        !device.user ||
+        device.user.suspended ||
+        !(await AuthIdentity.canLoginInCurrentEnvAsync(device.user))
+      ) {
         return response.status(200).json({
           success: false,
           error: "未找到可用的可信设备。",
@@ -393,7 +415,7 @@ function authZkLoginEndpoints(app) {
         identifiers: opaqueIdentifiers(deviceId),
       });
       const attemptId = crypto.randomUUID();
-      await prisma.zkLoginAttempt.create({
+      await authPrisma.zkLoginAttempt.create({
         data: {
           id: attemptId,
           userId,
@@ -404,7 +426,7 @@ function authZkLoginEndpoints(app) {
           expiresAt: new Date(Date.now() + OPAQUE_ATTEMPT_TTL_MS),
         },
       });
-      await prisma.trustedLoginDevice.update({
+      await authPrisma.trustedLoginDevice.update({
         where: { id: device.id },
         data: { lastChallengeAt: new Date() },
       });
@@ -447,7 +469,7 @@ function authZkLoginEndpoints(app) {
         });
       }
 
-      device = await prisma.trustedLoginDevice.findFirst({
+      device = await authPrisma.trustedLoginDevice.findFirst({
         where: {
           userId: attempt.userId,
           deviceId: attempt.deviceId,
@@ -455,7 +477,12 @@ function authZkLoginEndpoints(app) {
         },
         include: { user: true },
       });
-      if (!device || !device.user || device.user.suspended) {
+      if (
+        !device ||
+        !device.user ||
+        device.user.suspended ||
+        !(await AuthIdentity.canLoginInCurrentEnvAsync(device.user))
+      ) {
         return response.status(200).json({
           valid: false,
           user: null,
@@ -483,7 +510,7 @@ function authZkLoginEndpoints(app) {
         serverLoginState: attempt.serverLoginState,
       });
 
-      await prisma.trustedLoginDevice.update({
+      await authPrisma.trustedLoginDevice.update({
         where: { id: device.id },
         data: {
           lastUsedAt: new Date(),
@@ -496,10 +523,20 @@ function authZkLoginEndpoints(app) {
         device: fingerprint(device.deviceId),
       });
 
+      const localUser = await AuthIdentity.ensureShadowUser(device.user);
+      if (!localUser) {
+        return response.status(200).json({
+          valid: false,
+          user: null,
+          token: null,
+          message: "快速登录验证失败。",
+        });
+      }
+
       return response.status(200).json({
         valid: true,
-        user: User.filterFields(device.user),
-        token: issueUserSessionToken(device.user),
+        user: User.filterFields(localUser),
+        token: issueUserSessionToken(localUser),
         message: null,
       });
     } catch (error) {
@@ -533,9 +570,10 @@ function authZkLoginEndpoints(app) {
           return response.status(404).json({ success: false });
         }
 
-        const devices = await prisma.trustedLoginDevice.findMany({
+        const authUserId = await currentAuthUserId(response.locals.user);
+        const devices = await authPrisma.trustedLoginDevice.findMany({
           where: {
-            userId: response.locals.user.id,
+            userId: authUserId,
             revokedAt: null,
             opaqueRegistrationRecord: { not: null },
           },
@@ -573,8 +611,9 @@ function authZkLoginEndpoints(app) {
         }
 
         const user = response.locals.user;
-        const device = await prisma.trustedLoginDevice.findFirst({
-          where: { id: Number(request.params.id), userId: user.id },
+        const authUserId = await currentAuthUserId(user);
+        const device = await authPrisma.trustedLoginDevice.findFirst({
+          where: { id: Number(request.params.id), userId: authUserId },
         });
         if (!device) {
           return response.status(404).json({
@@ -583,7 +622,7 @@ function authZkLoginEndpoints(app) {
           });
         }
 
-        await prisma.trustedLoginDevice.update({
+        await authPrisma.trustedLoginDevice.update({
           where: { id: device.id },
           data: { revokedAt: new Date() },
         });
@@ -608,33 +647,6 @@ function authZkLoginEndpoints(app) {
       }
     }
   );
-}
-
-function issueReauthToken(userId, method) {
-  const token = crypto.randomBytes(32).toString("base64url");
-  reauthTokens.set(token, {
-    userId: Number(userId),
-    method,
-    expiresAt: Date.now() + REAUTH_TTL_MS,
-  });
-  return token;
-}
-
-function validateReauthToken(token, userId) {
-  const record = reauthTokens.get(token);
-  if (
-    !record ||
-    record.userId !== Number(userId) ||
-    record.expiresAt < Date.now()
-  ) {
-    if (record) reauthTokens.delete(token);
-    return null;
-  }
-  return record;
-}
-
-function consumeReauthToken(token) {
-  reauthTokens.delete(token);
 }
 
 async function opaqueApi() {
@@ -683,10 +695,10 @@ function zkUnavailableError(error) {
 }
 
 async function rememberPasskeyChallenge({ challenge, userId, request }) {
-  await prisma.passkeyChallenge.deleteMany({
+  await authPrisma.passkeyChallenge.deleteMany({
     where: { expiresAt: { lte: new Date() } },
   });
-  return prisma.passkeyChallenge.create({
+  return authPrisma.passkeyChallenge.create({
     data: {
       challenge,
       type: "zk_reauth",
@@ -700,7 +712,7 @@ async function rememberPasskeyChallenge({ challenge, userId, request }) {
 
 async function consumePasskeyChallenge({ challenge, userId }) {
   if (!challenge) return null;
-  const record = await prisma.passkeyChallenge.findFirst({
+  const record = await authPrisma.passkeyChallenge.findFirst({
     where: {
       challenge,
       type: "zk_reauth",
@@ -709,19 +721,19 @@ async function consumePasskeyChallenge({ challenge, userId }) {
     },
   });
   if (!record) return null;
-  await prisma.passkeyChallenge.delete({ where: { id: record.id } });
+  await authPrisma.passkeyChallenge.delete({ where: { id: record.id } });
   return record;
 }
 
 async function cleanupExpiredAttempts() {
-  await prisma.zkLoginAttempt.deleteMany({
+  await authPrisma.zkLoginAttempt.deleteMany({
     where: { expiresAt: { lte: new Date() } },
   });
 }
 
 async function consumeLoginAttempt(id) {
   if (!id) return null;
-  const attempt = await prisma.zkLoginAttempt.findFirst({
+  const attempt = await authPrisma.zkLoginAttempt.findFirst({
     where: {
       id: String(id),
       consumedAt: null,
@@ -729,7 +741,7 @@ async function consumeLoginAttempt(id) {
     },
   });
   if (!attempt) return null;
-  await prisma.zkLoginAttempt.update({
+  await authPrisma.zkLoginAttempt.update({
     where: { id: attempt.id },
     data: { consumedAt: new Date() },
   });
@@ -740,7 +752,7 @@ async function recordDeviceFailure(request, device, reason) {
   const failureCount = Number(device.failureCount || 0) + 1;
   const lockedUntil =
     failureCount >= LOCK_FAILURE_LIMIT ? new Date(Date.now() + LOCK_MS) : null;
-  await prisma.trustedLoginDevice.update({
+  await authPrisma.trustedLoginDevice.update({
     where: { id: device.id },
     data: { failureCount, lockedUntil },
   });
@@ -754,6 +766,15 @@ async function recordDeviceFailure(request, device, reason) {
       failureCount,
     }
   );
+}
+
+async function currentAuthUserId(user = null) {
+  if (!user?.id) return null;
+  if (user.authUserId) return user.authUserId;
+  const shadow = await User._get({ id: user.id });
+  if (shadow?.authUserId) return shadow.authUserId;
+  const authUser = await AuthIdentity.bootstrapAuthUserFromShadow(shadow);
+  return authUser?.id || null;
 }
 
 function passkeyRpConfig(request) {

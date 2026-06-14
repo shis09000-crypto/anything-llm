@@ -11,6 +11,7 @@ import {
 } from "@serenity-kit/opaque";
 import { detectAuthCapability } from "@/utils/authCapability";
 import {
+  clearLocalZkDevices,
   createLocalZkDevice,
   readLocalZkDeviceSecret,
   removeLocalZkDevice,
@@ -376,7 +377,12 @@ const AccountSettingsApi = {
   signOutAllSessions: async () => ({ success: true }),
   exportAccountData: async () => ({ success: true }),
   exportChatRecords: async () => ({ success: true }),
-  requestAccountDeletion: async () => ({ success: true }),
+  fetchAccountDeletePreview: () => System.accountDeletePreview(),
+  reauthAccountDeleteWithPassword: ({ currentPassword }) =>
+    System.reauthAccountDeleteWithPassword({ currentPassword }),
+  deleteAccount: ({ confirm, reauthToken }) =>
+    System.deleteAccount({ confirm, reauthToken }),
+  clearLocalZkDevices: () => clearLocalZkDevices(),
 };
 
 export default AccountSettingsApi;

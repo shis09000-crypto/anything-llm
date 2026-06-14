@@ -89,6 +89,10 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     return this.handlerProps?.promptCacheDiagnostics?.historyWindow || null;
   }
 
+  #compaction() {
+    return this.handlerProps?.promptCacheDiagnostics?.compaction || null;
+  }
+
   #recordPromptCacheDiagnostics(messages = [], functions = []) {
     const promptCacheDiagnostics = deepSeekPromptCacheDiagnostics({
       provider: this.constructor.name,
@@ -96,6 +100,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
       messages,
       functions,
       historyWindow: this.#historyWindow(),
+      compaction: this.#compaction(),
       providerPath: "agent",
     });
     this.lastUsage = {

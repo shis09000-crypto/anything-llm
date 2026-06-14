@@ -4,6 +4,7 @@ import { Link, useLocation } from "react-router-dom";
 import { safeJsonParse } from "@/utils/request";
 import useScrollActiveItemIntoView from "@/hooks/useScrollActiveItemIntoView";
 import { prefetchSettingsRoute } from "@/utils/chat/workspaceChatPrefetch";
+import { roleMatches } from "@/utils/authz";
 
 export default function MenuOption({
   btnText,
@@ -45,16 +46,16 @@ export default function MenuOption({
   if (!isChild) {
     // and has no children then use its flex props and roles prop directly
     if (!hasChildren) {
-      if (!flex && !roles.includes(user?.role)) return null;
-      if (flex && !!user && !roles.includes(user?.role)) return null;
+      if (!flex && !roleMatches(user, roles)) return null;
+      if (flex && !!user && !roleMatches(user, roles)) return null;
     }
 
     // if has children and no visible children - remove it.
     if (hasChildren && !hasVisibleChildren) return null;
   } else {
     // is a child so we use it's permissions
-    if (!flex && !roles.includes(user?.role)) return null;
-    if (flex && !!user && !roles.includes(user?.role)) return null;
+    if (!flex && !roleMatches(user, roles)) return null;
+    if (flex && !!user && !roleMatches(user, roles)) return null;
   }
 
   const handleClick = (e) => {
@@ -183,8 +184,8 @@ function hasVisibleOptions(user = null, childOptions = []) {
     hidden = false,
   }) {
     if (hidden) return false;
-    if (!flex && !roles.includes(user?.role)) return false;
-    if (flex && !!user && !roles.includes(user?.role)) return false;
+    if (!flex && !roleMatches(user, roles)) return false;
+    if (flex && !!user && !roleMatches(user, roles)) return false;
     return true;
   }
 

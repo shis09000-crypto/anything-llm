@@ -2020,6 +2020,7 @@ export default function ChatContainer({
                           bottomInset={promptBottomInset}
                           sendScrollRequest={sendScrollRequest}
                           tailHydrationSignal={draft?.tailHydration || null}
+                          tailCleanupSignal={draft?.tailCleanup || null}
                           layoutTransitionSignal={chatLayoutTransitionSignal}
                           chatScrollMemory={chatScrollMemory}
                         />
@@ -2250,6 +2251,7 @@ export default function ChatContainer({
                       bottomInset={promptBottomInset}
                       sendScrollRequest={sendScrollRequest}
                       tailHydrationSignal={draft?.tailHydration || null}
+                      tailCleanupSignal={draft?.tailCleanup || null}
                       layoutTransitionSignal={chatLayoutTransitionSignal}
                       chatScrollMemory={chatScrollMemory}
                     />

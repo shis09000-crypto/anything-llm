@@ -13,7 +13,7 @@ const {
   cacheStableHistoryStrategyFor,
 } = require("./index");
 const {
-  injectCompactionIntoSystemPrompt,
+  contextTextsWithCompaction,
   maybeAutoCompact,
   recentChatHistoryWithCompaction,
 } = require("./threadCompaction");
@@ -43,12 +43,18 @@ function emptyVectorSearchResult(message = null) {
   };
 }
 
-function promptCacheDiagnosticsFor(llm, messages = [], historyWindow = null) {
+function promptCacheDiagnosticsFor(
+  llm,
+  messages = [],
+  historyWindow = null,
+  compaction = null
+) {
   if (!llm?.cacheStableHistory) return {};
   if (typeof llm.promptCacheDiagnostics !== "function") return {};
   return {
     promptCacheDiagnostics: llm.promptCacheDiagnostics(messages, {
       historyWindow,
+      compaction,
     }),
   };
 }
@@ -442,9 +448,9 @@ async function streamChatWithWorkspace(
 
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
+      systemPrompt,
       userPrompt: updatedMessage,
-      contextTexts,
+      contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
     },
@@ -453,7 +459,8 @@ async function streamChatWithWorkspace(
   const promptCacheDiagnostics = promptCacheDiagnosticsFor(
     LLMConnector,
     messages,
-    historyWindow
+    historyWindow,
+    compaction
   );
 
   // If streaming is not explicitly enabled for connector

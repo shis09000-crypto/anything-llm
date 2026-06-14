@@ -4508,13 +4508,27 @@ const EpubReader = forwardRef(function EpubReader(
     onProgressChange?.(progressFromLocation(location));
   }
 
+  function currentEpubLocationSnapshot() {
+    try {
+      const liveLocation =
+        renditionRef.current?.currentLocation?.() ||
+        renditionRef.current?.location;
+      if (liveLocation) return liveLocation;
+    } catch {
+      // Fall back to the last relocated event below.
+    }
+    return currentLocationRef.current || null;
+  }
+
   useImperativeHandle(
     ref,
     () => ({
-      getCurrentProgress: () =>
-        currentLocationRef.current
-          ? progressFromLocation(currentLocationRef.current)
-          : document?.progress || null,
+      getCurrentProgress: () => {
+        const location = currentEpubLocationSnapshot();
+        return location
+          ? progressFromLocation(location)
+          : document?.progress || null;
+      },
     }),
     [document?.progress, progressFromLocation]
   );

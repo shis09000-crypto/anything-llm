@@ -82,7 +82,7 @@ function nodeSupplementEndpoints(app) {
     "/workspace/:slug/node-supplements",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {
@@ -117,7 +117,7 @@ function nodeSupplementEndpoints(app) {
     "/workspace/:slug/node-supplements/upload",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
       handleFileUpload,
     ],
@@ -179,7 +179,7 @@ function nodeSupplementEndpoints(app) {
     "/workspace/:slug/node-supplements/text",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {
@@ -242,7 +242,7 @@ function nodeSupplementEndpoints(app) {
     "/workspace/:slug/node-supplements/:id",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {

@@ -1095,12 +1095,18 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
         </span>
         <CaretDown size={12} className={current.color} />
       </button>
-      <Tooltip
-        id="file-access-mode"
-        place="bottom"
-        delayShow={300}
-        className="tooltip !text-xs z-99"
-      />
+      {typeof document !== "undefined" &&
+        createPortal(
+          <Tooltip
+            id="file-access-mode"
+            place="bottom"
+            delayShow={300}
+            positionStrategy="fixed"
+            style={{ zIndex: 10050 }}
+            className="tooltip file-access-mode-tooltip !text-xs"
+          />,
+          document.body
+        )}
       {showMenu &&
         typeof document !== "undefined" &&
         createPortal(

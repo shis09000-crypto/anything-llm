@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import {
   Books,
   Clock,
@@ -254,15 +254,18 @@ function ReaderHeader({ document, onUpload, onBindLocalPath, onExit }) {
   );
 }
 
-function ReaderBody({
-  document,
-  onCite,
-  onThumbnailReady,
-  onProgressChange,
-  readerTextSources = [],
-  onFocusTextSource,
-  onRemoveTextSource,
-}) {
+const ReaderBody = forwardRef(function ReaderBody(
+  {
+    document,
+    onCite,
+    onThumbnailReady,
+    onProgressChange,
+    readerTextSources = [],
+    onFocusTextSource,
+    onRemoveTextSource,
+  },
+  ref
+) {
   if (!document) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/65 light:text-slate-600">
@@ -277,6 +280,7 @@ function ReaderBody({
   ) {
     return (
       <PdfReader
+        ref={ref}
         document={document}
         onCite={onCite}
         onThumbnailReady={onThumbnailReady}
@@ -290,6 +294,7 @@ function ReaderBody({
   if (document.documentType === "epub") {
     return (
       <EpubReader
+        ref={ref}
         document={document}
         onCite={onCite}
         onThumbnailReady={onThumbnailReady}
@@ -319,7 +324,7 @@ function ReaderBody({
       当前格式只能 fallback 预览，暂不支持结构化引用。
     </p>
   );
-}
+});
 
 function DocxPreviewLoadingOverlay({ status }) {
   if (!status) return null;
@@ -1661,6 +1666,7 @@ export default function DocumentReaderPanel({
     workspace,
   } = useDocumentReader() || {};
   const readerBodyRef = useRef(null);
+  const pagedReaderRef = useRef(null);
   const progressTimerRef = useRef(null);
   const latestPagedProgressRef = useRef(null);
   const saveProgressSnapshotRef = useRef(null);
@@ -1856,8 +1862,14 @@ export default function DocumentReaderPanel({
   }
 
   function latestReadingProgress() {
-    if (isPagedReader)
+    if (isPagedReader) {
+      const liveProgress = pagedReaderRef.current?.getCurrentProgress?.();
+      if (liveProgress) {
+        latestPagedProgressRef.current = liveProgress;
+        return liveProgress;
+      }
       return latestPagedProgressRef.current || currentDocument.progress || null;
+    }
     return captureCurrentReadingProgress();
   }
 
@@ -1959,6 +1971,7 @@ export default function DocumentReaderPanel({
             }`}
           >
             <ReaderBody
+              ref={pagedReaderRef}
               document={currentDocument}
               onCite={citeSelection}
               onThumbnailReady={updateCurrentDocumentThumbnail}

@@ -3,12 +3,90 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
-STATE_FILE="$RUNTIME_DIR/status.env"
+LEGACY_STATE_FILE="$RUNTIME_DIR/status.env"
 QUIET=0
-if [[ "${1:-}" == "--quiet" ]]; then QUIET=1; fi
+TARGET_ENV="all"
+
+usage() {
+  cat <<EOF
+Usage: bash ./stop-all [--env development|production|all] [--quiet]
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --quiet)
+      QUIET=1
+      ;;
+    --env)
+      TARGET_ENV="${2:-}"
+      shift
+      ;;
+    --env=*)
+      TARGET_ENV="${1#--env=}"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+case "$TARGET_ENV" in
+  development|production|all) ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
 
 log() {
   if [[ "$QUIET" != "1" ]]; then printf '[stop-all] %s\n' "$*"; fi
+}
+
+state_file_for_env() {
+  printf '%s/status-%s.env' "$RUNTIME_DIR" "$1"
+}
+
+supervisor_lock_dir_for_env() {
+  printf '%s/supervisor-%s.lock' "$RUNTIME_DIR" "$1"
+}
+
+default_server_port() {
+  case "$1" in
+    development) printf '3002' ;;
+    production) printf '3001' ;;
+  esac
+}
+
+default_collector_port() {
+  case "$1" in
+    development) printf '8889' ;;
+    production) printf '8888' ;;
+  esac
+}
+
+default_frontend_port() {
+  case "$1" in
+    development) printf '3000' ;;
+    production) printf '' ;;
+  esac
+}
+
+state_file_app_env() {
+  local state_file="$1"
+  local raw
+  raw="$(sed -n 's/^APP_ENV=//p' "$state_file" 2>/dev/null | tail -1 || true)"
+  raw="${raw#\'}"
+  raw="${raw%\'}"
+  raw="${raw#\"}"
+  raw="${raw%\"}"
+  printf '%s' "$raw"
 }
 
 pid_alive() {
@@ -69,6 +147,14 @@ pid_is_repo_dev_process() {
   cwd="$(pid_cwd "$pid")"
   command="$(pid_command "$pid")"
   if [[ -z "$cwd" || -z "$command" ]]; then return 1; fi
+
+  if [[ "$command" == *"scripts/runtime-supervisor.sh"* ]]; then
+    case "$cwd" in
+      "$ROOT_DIR"|"$ROOT_DIR"/*)
+        return 0
+        ;;
+    esac
+  fi
 
   if [[ "$command" == *"python3 - "* && "$command" == *".anythingllm-runtime/logs/development-"*".log"* ]]; then
     case "$cwd" in
@@ -137,12 +223,14 @@ kill_repo_dev_processes() {
 
 listen_pids_for_port() {
   local port="$1"
+  if [[ -z "$port" ]]; then return 0; fi
   lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true
 }
 
 kill_port_if_owned() {
   local port="$1"
   local pids
+  [[ -z "$port" ]] && return 0
   pids="$(listen_pids_for_port "$port")"
   if [[ -z "$pids" ]]; then return 0; fi
   while IFS= read -r pid; do
@@ -153,25 +241,80 @@ kill_port_if_owned() {
   done <<<"$pids"
 }
 
-if [[ -f "$STATE_FILE" ]]; then
-  set +e
-  # shellcheck disable=SC1090
-  source "$STATE_FILE" >/dev/null 2>&1
-  set -e
-  kill_pid_tree "${FRONTEND_PID:-}" frontend
-  kill_pid_tree "${COLLECTOR_PID:-}" collector
-  kill_pid_tree "${SERVER_PID:-}" server
+stop_env() {
+  local env_name="$1"
+  local env_state_file
+  local loaded_state_file=""
+  local loaded=0
+  local APP_ENV=""
+  local SERVER_PORT=""
+  local COLLECTOR_PORT=""
+  local FRONTEND_PORT=""
+  local SERVER_PID=""
+  local COLLECTOR_PID=""
+  local FRONTEND_PID=""
+  local SUPERVISOR_PID=""
+  local supervisor_lock_dir
+  local lock_pid
+
+  env_state_file="$(state_file_for_env "$env_name")"
+  supervisor_lock_dir="$(supervisor_lock_dir_for_env "$env_name")"
+  if [[ -f "$env_state_file" ]]; then
+    set +e
+    # shellcheck disable=SC1090
+    source "$env_state_file" >/dev/null 2>&1
+    set -e
+    loaded=1
+    loaded_state_file="$env_state_file"
+  elif [[ -f "$LEGACY_STATE_FILE" ]] &&
+    [[ "$(state_file_app_env "$LEGACY_STATE_FILE")" == "$env_name" ]]; then
+    set +e
+    # shellcheck disable=SC1090
+    source "$LEGACY_STATE_FILE" >/dev/null 2>&1
+    set -e
+    loaded=1
+    loaded_state_file="$LEGACY_STATE_FILE"
+  fi
+
+  SERVER_PORT="${SERVER_PORT:-$(default_server_port "$env_name")}"
+  COLLECTOR_PORT="${COLLECTOR_PORT:-$(default_collector_port "$env_name")}"
+  FRONTEND_PORT="${FRONTEND_PORT:-$(default_frontend_port "$env_name")}"
+  lock_pid="$(cat "$supervisor_lock_dir/pid" 2>/dev/null || true)"
+  SUPERVISOR_PID="${SUPERVISOR_PID:-$lock_pid}"
+
+  if [[ "$loaded" == "1" ]]; then
+    kill_pid_tree "${SUPERVISOR_PID:-}" "$env_name supervisor"
+    sleep 0.5
+    kill_pid_tree "${FRONTEND_PID:-}" "$env_name frontend"
+    kill_pid_tree "${COLLECTOR_PID:-}" "$env_name collector"
+    kill_pid_tree "${SERVER_PID:-}" "$env_name server"
+  else
+    log "no $env_name runtime state file found"
+    kill_pid_tree "${SUPERVISOR_PID:-}" "$env_name supervisor"
+    sleep 0.5
+  fi
+
+  kill_port_if_owned "$SERVER_PORT"
+  kill_port_if_owned "$COLLECTOR_PORT"
+  kill_port_if_owned "$FRONTEND_PORT"
+  kill_port_if_owned "$SERVER_PORT"
+  kill_port_if_owned "$COLLECTOR_PORT"
+  kill_port_if_owned "$FRONTEND_PORT"
+
+  rm -f "$env_state_file"
+  rm -rf "$supervisor_lock_dir"
+  if [[ "$loaded_state_file" == "$LEGACY_STATE_FILE" ]]; then
+    rm -f "$LEGACY_STATE_FILE"
+  fi
+  log "stopped $env_name AnythingLLM processes"
+}
+
+if [[ "$TARGET_ENV" == "all" ]]; then
+  stop_env development
+  stop_env production
+  kill_repo_dev_processes
+  rm -f "$LEGACY_STATE_FILE"
+  log "stopped AnythingLLM processes"
 else
-  log "no runtime state file found"
+  stop_env "$TARGET_ENV"
 fi
-
-kill_port_if_owned "${SERVER_PORT:-3001}"
-kill_port_if_owned "${COLLECTOR_PORT:-8888}"
-kill_port_if_owned "${FRONTEND_PORT:-3000}"
-kill_repo_dev_processes
-kill_port_if_owned "${SERVER_PORT:-3001}"
-kill_port_if_owned "${COLLECTOR_PORT:-8888}"
-kill_port_if_owned "${FRONTEND_PORT:-3000}"
-
-rm -f "$STATE_FILE"
-log "stopped AnythingLLM processes"

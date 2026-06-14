@@ -2029,6 +2029,10 @@ dialog::backdrop {
   @apply !bg-black !text-white !py-2 !px-3 !rounded-md !z-10;
 }
 
+.tooltip.file-access-mode-tooltip {
+  z-index: 10050 !important;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;

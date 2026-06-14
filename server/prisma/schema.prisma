@@ -221,14 +221,27 @@ model NodeLearningState {
 }
 
 model invites {
-  id            Int      @id @default(autoincrement())
-  code          String   @unique
-  status        String   @default("pending")
-  claimedBy     Int?
-  workspaceIds  String?
-  createdAt     DateTime @default(now())
-  createdBy     Int
-  lastUpdatedAt DateTime @default(now())
+  id               Int       @id @default(autoincrement())
+  code             String    @unique
+  tokenHash        String?   @unique
+  role             String    @default("default")
+  status           String    @default("pending")
+  claimedBy        Int?
+  workspaceIds     String?
+  createdAt        DateTime  @default(now())
+  createdBy        Int
+  createdByAdminId Int?
+  expiresAt        DateTime?
+  consumedAt       DateTime?
+  revokedAt        DateTime?
+  usedByUserId     Int?
+  lastUpdatedAt    DateTime  @default(now())
+
+  @@index([tokenHash])
+  @@index([role])
+  @@index([expiresAt])
+  @@index([consumedAt])
+  @@index([revokedAt])
 }
 
 model system_settings {
@@ -241,11 +254,16 @@ model system_settings {
 
 model users {
   id                           Int                           @id @default(autoincrement())
+  authUserId                   Int?                          @unique
+  originEnv                    String?
   username                     String?                       @unique
   displayName                  String?
   password                     String
   pfpFilename                  String?
   role                         String                        @default("default")
+  status                       String                        @default("active")
+  allowedEnvs                  String                        @default("[]")
+  ownerType                    String?
   suspended                    Int                           @default(0)
   seen_recovery_codes          Boolean?                      @default(false)
   email                        String?                       @unique
@@ -278,6 +296,24 @@ model users {
   desktop_mobile_devices       desktop_mobile_devices[]
   workspace_parsed_files       workspace_parsed_files[]
   workspace_mind_maps          workspace_mind_maps[]
+
+  @@index([originEnv])
+  @@index([role])
+  @@index([status])
+  @@index([ownerType])
+}
+
+model AuthEnvironmentDeletion {
+  id                  Int      @id @default(autoincrement())
+  authUserId          Int
+  env                 String
+  deletedAt           DateTime @default(now())
+  deletedByAuthUserId Int?
+
+  @@unique([authUserId, env])
+  @@index([authUserId])
+  @@index([env])
+  @@index([deletedAt])
 }
 
 model workspace_quiz_attempts {
@@ -408,7 +444,7 @@ model password_reset_tokens {
 
 model email_verification_codes {
   id         Int       @id @default(autoincrement())
-  user_id    Int
+  user_id    Int?
   email      String
   purpose    String
   code_hash  String
@@ -417,7 +453,7 @@ model email_verification_codes {
   consumedAt DateTime?
   request_ip String?
   createdAt  DateTime  @default(now())
-  user       users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user       users?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([user_id, purpose])
@@ -960,6 +996,7 @@ model workspace_chat_compactions {
   api_session_id        String?
   summary               String
   summary_format        String   @default("thread-compact-markdown-v1")
+  capsule_json          String?
   covered_chat_ids      String   @default("[]")
   covered_from_chat_id  Int?
   covered_to_chat_id    Int?

@@ -16,6 +16,7 @@ import usePfp from "@/hooks/usePfp";
 import { useLanguageOptions } from "@/hooks/useLanguageOptions";
 import { useTheme } from "@/hooks/useTheme";
 import AccountSettingsApi from "./accountSettingsApi";
+import { roleLabel as accountRoleLabel } from "@/utils/authz";
 
 export default function ProfileCard({ user, onUserUpdated }) {
   const { pfp, setPfp } = usePfp();
@@ -563,10 +564,7 @@ function clamp(value, min, max) {
 }
 
 function roleLabel(role) {
-  if (role === "admin") return "管理员";
-  if (role === "manager") return "管理者";
-  if (role === "default") return "成员";
-  return "本地账户";
+  return accountRoleLabel(role);
 }
 
 function formatDate(value) {

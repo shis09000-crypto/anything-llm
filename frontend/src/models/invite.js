@@ -22,6 +22,17 @@ const Invite = {
         return { success: false, error: e.message };
       });
   },
+  requestEmailCode: async (inviteCode, email) => {
+    return await fetch(`${API_BASE}/invite/${inviteCode}/email/request`, {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    })
+      .then((res) => res.json())
+      .catch((e) => {
+        console.error(e);
+        return { success: false, error: e.message };
+      });
+  },
 };
 
 export default Invite;

@@ -323,11 +323,68 @@ export function isAgentReconnectAttemptStale(turn = {}, now = nowMs()) {
   return now - startedAt > timeoutMs * 2;
 }
 
-function shouldRemoveTransientAssistantTurn(turn = {}, now = nowMs()) {
+export function hasMeaningfulTransientAssistantOutput(turn = {}) {
+  if (!isAssistantTurn(turn)) return false;
+  if (String(turn.finalContent || "").trim().length > 0) return true;
+  if (Array.isArray(turn.outputs) && turn.outputs.length > 0) return true;
+
+  const timeline = Array.isArray(turn.timeline) ? turn.timeline : [];
+  if (
+    timeline.some((event) => {
+      const type = normalizeTimelineType(event?.type);
+      if (type === "markdown_delta") {
+        return String(event?.content || event?.text || "").trim().length > 0;
+      }
+      if (type !== "tool_result") return false;
+      return (
+        String(
+          event?.summary ||
+            event?.content ||
+            event?.outputPreview ||
+            event?.result ||
+            ""
+        ).trim().length > 0
+      );
+    })
+  ) {
+    return true;
+  }
+
+  const interruptedContext = turn.interruptedContext || {};
+  if (String(interruptedContext.partialAnswer || "").trim().length > 0) {
+    return true;
+  }
+  if (
+    Array.isArray(interruptedContext.toolEvents) &&
+    interruptedContext.toolEvents.some(
+      (event) =>
+        event?.type === "tool_result" &&
+        String(event?.content || "").trim().length > 0
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+function shouldRemoveTransientAssistantTurn(
+  turn = {},
+  now = nowMs(),
+  options = {}
+) {
   if (!isAssistantTurn(turn) || turn.chatId) return false;
-  if (turn.reconnectState === "offer") return false;
-  if (turn.status === TURN_STATUSES.failed) return true;
+  const hasMeaningfulOutput = hasMeaningfulTransientAssistantOutput(turn);
+  if (turn.status === TURN_STATUSES.failed) return !hasMeaningfulOutput;
+  if (turn.reconnectState === "failed") return !hasMeaningfulOutput;
+  if (
+    turn.status === TURN_STATUSES.interrupted ||
+    turn.reconnectState === "offer"
+  ) {
+    return !hasMeaningfulOutput;
+  }
   if (turn.status !== TURN_STATUSES.running) return false;
+  if (options.removeRunning === false) return false;
 
   if (turn.reconnectState === "retrying") {
     if (!turn.websocketUUID) return true;
@@ -341,15 +398,23 @@ export function cleanupTransientDraftItems(items = [], options = {}) {
   const now = options.now || nowMs();
   const normalized = normalizeTurnItems(items);
   const removedTurnIds = new Set();
+  const removedTurns = [];
 
   for (const item of normalized) {
-    if (shouldRemoveTransientAssistantTurn(item, now)) {
+    if (shouldRemoveTransientAssistantTurn(item, now, options)) {
       removedTurnIds.add(item.turnId);
+      removedTurns.push({
+        turnId: item.turnId,
+        status: item.status || null,
+        reconnectState: item.reconnectState || null,
+        hasChatId: Boolean(item.chatId),
+        hasMeaningfulOutput: hasMeaningfulTransientAssistantOutput(item),
+      });
     }
   }
 
   if (removedTurnIds.size === 0) {
-    return { items: normalized, removedTurnIds: [] };
+    return { items: normalized, removedTurnIds: [], removedTurns: [] };
   }
 
   return {
@@ -360,6 +425,7 @@ export function cleanupTransientDraftItems(items = [], options = {}) {
       return true;
     }),
     removedTurnIds: Array.from(removedTurnIds),
+    removedTurns,
   };
 }
 
@@ -443,7 +509,11 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
       isAssistantTurn(item) &&
       ((serverAssistant.chatId && item.chatId === serverAssistant.chatId) ||
         (!item.chatId &&
-          [TURN_STATUSES.failed, TURN_STATUSES.running].includes(item.status) &&
+          [
+            TURN_STATUSES.failed,
+            TURN_STATUSES.interrupted,
+            TURN_STATUSES.running,
+          ].includes(item.status) &&
           userFingerprint(
             localItems.find((candidate) => candidate.id === item.userMessageId)
           ) === userFingerprint(serverUser)))

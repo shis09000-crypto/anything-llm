@@ -5,6 +5,7 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
+const { canAccessAdmin } = require("../utils/authz/accountRoles");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   cryptoCenterSnapshot,
@@ -77,7 +78,7 @@ async function isCryptoSocketAuthorized(request) {
   if (!valid?.id) return false;
 
   const user = await User.get({ id: valid.id });
-  return user?.role === ROLES.admin && !user?.suspended;
+  return canAccessAdmin(user) && !user?.suspended;
 }
 
 function cryptoCenterEndpoints(app) {

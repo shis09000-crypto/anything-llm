@@ -72,7 +72,7 @@ function workspaceParsedFilesEndpoints(app) {
     [
       validatedRequest,
       // Embed is still an admin/manager only feature
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async function (request, response) {

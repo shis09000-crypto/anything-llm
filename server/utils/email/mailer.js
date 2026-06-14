@@ -59,6 +59,13 @@ const verificationLocaleCopy = {
       expiry: "验证码 10 分钟内有效，请勿转发给他人。",
       caution: "如果这不是你本人操作，请忽略本邮件，并尽快检查账号安全。",
     },
+    register: {
+      purpose: "注册账号",
+      subject: "Athena 注册验证码",
+      bodyLabel: "你的 Athena 注册验证码是：",
+      expiry: "验证码 10 分钟内有效，请勿转发给他人。",
+      caution: "如果这不是你本人操作，请忽略本邮件。",
+    },
   },
   en: {
     bindEmail: {
@@ -77,6 +84,13 @@ const verificationLocaleCopy = {
       caution:
         "If this wasn't you, please ignore this email and check account security right away.",
     },
+    register: {
+      purpose: "account registration",
+      subject: "Athena Registration Verification Code",
+      bodyLabel: "Your Athena registration verification code is:",
+      expiry: "This code is valid for 10 minutes. Do not forward it to anyone.",
+      caution: "If this wasn't you, please ignore this email.",
+    },
   },
 };
 
@@ -84,9 +98,9 @@ function getVerificationCopy({ purpose, language = "en" }) {
   const locale = normalizeLanguage(language);
   const copyBundle =
     verificationLocaleCopy[locale] || verificationLocaleCopy.en;
-  return purpose === "password_reset"
-    ? copyBundle.passwordReset
-    : copyBundle.bindEmail;
+  if (purpose === "password_reset") return copyBundle.passwordReset;
+  if (purpose === "register") return copyBundle.register;
+  return copyBundle.bindEmail;
 }
 
 async function sendMail({ to, subject, text, html }) {

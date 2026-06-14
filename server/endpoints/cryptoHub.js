@@ -24,7 +24,7 @@ function isCryptoCenterDevAuthBypassEnabled(request) {
 }
 
 function cryptoHubAccessMiddleware() {
-  const roleCheck = flexUserRoleValid([ROLES.admin, ROLES.manager]);
+  const roleCheck = flexUserRoleValid([ROLES.admin]);
   return [
     async (request, response, next) => {
       if (isCryptoCenterDevAuthBypassEnabled(request)) {

@@ -18,13 +18,13 @@ import DnDFileUploaderWrapper, {
   PASTE_ATTACHMENT_EVENT,
 } from "@/components/WorkspaceChat/ChatContainer/DnDWrapper";
 import { useTranslation } from "react-i18next";
+import AppButton from "@/components/lib/AppButton";
 import { PENDING_HOME_MESSAGE } from "@/utils/constants";
 import Workspace from "@/models/workspace";
 import paths from "@/utils/paths";
 import showToast from "@/utils/toast";
 import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
-import useUser from "@/hooks/useUser";
 import WorkspaceModelPicker from "@/components/WorkspaceChat/ChatContainer/WorkspaceModelPicker";
 import { ChatTooltips } from "@/components/WorkspaceChat/ChatContainer/ChatTooltips";
 import {
@@ -92,7 +92,6 @@ async function createDefaultWorkspace(workspaceName = "My Workspace") {
 export default function Home() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { user } = useUser();
   const [workspace, setWorkspace] = useState(null);
   const [threadSlug, setThreadSlug] = useState(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
@@ -217,7 +216,7 @@ export default function Home() {
     );
   }
 
-  if (!workspace && user?.role === "default") {
+  if (!workspace) {
     return <NoWorkspacesAssigned />;
   }
 
@@ -445,15 +444,38 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
 
 function NoWorkspacesAssigned() {
   const { t } = useTranslation();
+  const [creating, setCreating] = useState(false);
+  const navigate = useNavigate();
+
+  async function createFirstWorkspace() {
+    if (creating) return;
+    setCreating(true);
+    const workspace = await createDefaultWorkspace(
+      t("new-workspace.placeholder")
+    );
+    setCreating(false);
+    if (workspace) navigate(defaultWorkspacePath(workspace.slug));
+  }
+
   return (
     <div
       style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
       className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
     >
       <div className="flex flex-col h-full w-full items-center justify-center">
-        <p className="text-white/60 text-sm text-center whitespace-pre-line">
-          {t("home.notAssigned")}
-        </p>
+        <div className="flex max-w-sm flex-col items-center gap-4 px-6 text-center">
+          <p className="text-white/80 light:text-slate-700 text-sm">
+            你还没有工作区。创建一个工作区后，就可以开始添加知识、创建线程并进行对话。
+          </p>
+          <AppButton
+            type="button"
+            size="md"
+            loading={creating}
+            onClick={createFirstWorkspace}
+          >
+            {t("new-workspace.title")}
+          </AppButton>
+        </div>
       </div>
     </div>
   );

@@ -2,7 +2,6 @@ import { CircleNotch } from "@phosphor-icons/react";
 import ModalWrapper from "@/components/ModalWrapper";
 import pluralize from "pluralize";
 import { numberWithCommas } from "@/utils/numbers";
-import useUser from "@/hooks/useUser";
 import { Link } from "react-router-dom";
 import Paths from "@/utils/paths";
 import Workspace from "@/models/workspace";
@@ -18,8 +17,7 @@ export default function FileUploadWarningModal({
   isEmbedding = false,
   embedProgress = 0,
 }) {
-  const { user } = useUser();
-  const canEmbed = !user || user.role !== "default";
+  const canEmbed = true;
   if (!show) return null;
 
   if (isEmbedding) {

@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 
 const SUMMARY_FORMAT = "thread-compact-markdown-v1";
+const CAPSULE_FORMAT = "conversation-state-capsule-json-v1";
 let tableReady = false;
 
 function nullableScope(value) {
@@ -71,6 +72,7 @@ function normalizeRow(row = null) {
     api_session_id: row.api_session_id || null,
     summary: row.summary,
     summary_format: row.summary_format || SUMMARY_FORMAT,
+    capsule_json: row.capsule_json || null,
     covered_chat_ids: row.covered_chat_ids || "[]",
     covered_from_chat_id:
       row.covered_from_chat_id === null
@@ -99,6 +101,7 @@ async function ensureTable() {
       "api_session_id" TEXT,
       "summary" TEXT NOT NULL,
       "summary_format" TEXT NOT NULL DEFAULT '${SUMMARY_FORMAT}',
+      "capsule_json" TEXT,
       "covered_chat_ids" TEXT NOT NULL DEFAULT '[]',
       "covered_from_chat_id" INTEGER,
       "covered_to_chat_id" INTEGER,
@@ -120,6 +123,12 @@ async function ensureTable() {
       ADD COLUMN "metadata_json" TEXT NOT NULL DEFAULT '{}'
     `);
   }
+  if (!columns.some((column) => column.name === "capsule_json")) {
+    await prisma.$executeRawUnsafe(`
+      ALTER TABLE "workspace_chat_compactions"
+      ADD COLUMN "capsule_json" TEXT
+    `);
+  }
   await prisma.$executeRawUnsafe(`
     CREATE INDEX IF NOT EXISTS "workspace_chat_compactions_scope_created_idx"
     ON "workspace_chat_compactions"("workspace_id", "user_id", "thread_id", "api_session_id", "created_at")
@@ -133,6 +142,7 @@ async function ensureTable() {
 
 const WorkspaceChatCompaction = {
   SUMMARY_FORMAT,
+  CAPSULE_FORMAT,
   ensureTable,
   normalizeScope,
   scopeWhere,
@@ -159,16 +169,17 @@ const WorkspaceChatCompaction = {
     await prisma.$executeRawUnsafe(
       `INSERT INTO "workspace_chat_compactions" (
         "workspace_id", "user_id", "thread_id", "api_session_id",
-        "summary", "summary_format", "covered_chat_ids",
+        "summary", "summary_format", "capsule_json", "covered_chat_ids",
         "covered_from_chat_id", "covered_to_chat_id", "covered_message_count",
         "token_before", "token_after", "metadata_json", "reason", "created_at", "updated_at"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       scope.workspace_id,
       scope.user_id,
       scope.thread_id,
       scope.api_session_id,
       String(data.summary || ""),
       data.summary_format || SUMMARY_FORMAT,
+      data.capsule_json ? String(data.capsule_json) : null,
       data.covered_chat_ids || "[]",
       data.covered_from_chat_id ?? null,
       data.covered_to_chat_id ?? null,

@@ -30,6 +30,7 @@ const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
+const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const fs = require("fs");
 const path = require("path");
@@ -52,6 +53,12 @@ const {
   ROLES,
   isMultiUserSetup,
 } = require("../utils/middleware/multiUserProtected");
+const {
+  canAccessAdmin,
+  LOGIN_DISABLED_ERROR,
+  LOGIN_GENERIC_ERROR,
+  ROLES: ACCOUNT_ROLES,
+} = require("../utils/authz/accountRoles");
 const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
@@ -68,9 +75,17 @@ const {
   resetPassword,
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
+const { EmailVerificationCode } = require("../models/emailVerification");
+const {
+  isConfigured: emailSmtpConfigured,
+  maskedEmail,
+  sendVerificationCode,
+} = require("../utils/email/mailer");
 const { SlashCommandPresets } = require("../models/slashCommandsPresets");
 const { EncryptionManager } = require("../utils/EncryptionManager");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
+const { AccountDeletionService } = require("../utils/accountDeletion");
+const { issueReauthToken } = require("../utils/authz/reauthTokens");
 const {
   chatHistoryViewable,
 } = require("../utils/middleware/chatHistoryViewable");
@@ -125,11 +140,560 @@ function requestLanguage(request = {}) {
   return primary.split("-")[0] || "en";
 }
 
+const REGISTER_PURPOSE = "register";
+const REGISTER_GENERIC_ERROR = "无法完成注册，请检查信息后重试。";
+const REGISTER_EMAIL_EXISTS_ERROR = "该邮箱已注册，请直接登录或找回密码。";
+const REGISTER_CODE_SENT = "验证码已发送，请检查邮箱。";
+const REGISTER_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
+const REGISTER_IP_HOURLY_LIMIT = Number(
+  process.env.PUBLIC_REGISTRATION_IP_HOURLY_LIMIT || 20
+);
+const REGISTER_EMAIL_HOURLY_LIMIT = Number(
+  process.env.PUBLIC_REGISTRATION_EMAIL_HOURLY_LIMIT || 5
+);
+const REGISTER_USERNAME_HOURLY_LIMIT = Number(
+  process.env.PUBLIC_REGISTRATION_USERNAME_HOURLY_LIMIT || 10
+);
+const registerRateBuckets = new Map();
+
+function normalizeEmail(email = "") {
+  return String(email || "")
+    .trim()
+    .toLowerCase();
+}
+
+function validEmail(email = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email));
+}
+
+function sixDigitCode() {
+  const crypto = require("crypto");
+  return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function rateLimited(bucketKey, limit) {
+  const now = Date.now();
+  const bucket = registerRateBuckets.get(bucketKey);
+  if (!bucket || bucket.resetAt <= now) {
+    registerRateBuckets.set(bucketKey, {
+      count: 1,
+      resetAt: now + REGISTER_RATE_LIMIT_WINDOW_MS,
+    });
+    return false;
+  }
+
+  if (bucket.count >= limit) return true;
+  bucket.count += 1;
+  return false;
+}
+
+function registerRateLimited({ ip = "", email = "", username = "" }) {
+  const safeIp = String(ip || "unknown").slice(0, 128);
+  if (rateLimited(`register:ip:${safeIp}`, REGISTER_IP_HOURLY_LIMIT))
+    return true;
+  if (
+    email &&
+    rateLimited(
+      `register:email:${normalizeEmail(email)}`,
+      REGISTER_EMAIL_HOURLY_LIMIT
+    )
+  )
+    return true;
+  if (
+    username &&
+    rateLimited(
+      `register:username:${String(username).trim().toLowerCase()}`,
+      REGISTER_USERNAME_HOURLY_LIMIT
+    )
+  )
+    return true;
+  return false;
+}
+
+function codeIsSixDigits(code = "") {
+  return /^\d{6}$/.test(String(code || ""));
+}
+
+function genericRegisterFailure(response) {
+  return response.status(400).json({
+    success: false,
+    error: REGISTER_GENERIC_ERROR,
+  });
+}
+
+function registrationEmailExists(response) {
+  return response.status(409).json({
+    success: false,
+    error: REGISTER_EMAIL_EXISTS_ERROR,
+  });
+}
+
+async function publicRegistrationAvailable(response) {
+  if (!(await SystemSettings.allowPublicRegistration())) {
+    response.status(403).json({
+      success: false,
+      error: "公开注册未开放。",
+    });
+    return false;
+  }
+
+  if (simpleSSOLoginDisabled()) {
+    response.status(403).json({
+      success: false,
+      error: "账号密码注册已被管理员关闭。",
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function usernameBaseFromEmail(email = "") {
+  const localPart = String(email || "")
+    .split("@")[0]
+    .trim()
+    .toLowerCase();
+  const sanitized = localPart
+    .replace(/[^a-z0-9_-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .slice(0, 24);
+
+  if (sanitized.length >= 3) return sanitized;
+  return `user-${v4().replace(/-/g, "").slice(0, 8)}`;
+}
+
+async function uniqueUsernameFromEmail(email = "") {
+  const base = usernameBaseFromEmail(email);
+  let candidate = base.slice(0, 32);
+  let suffix = 0;
+
+  while (await AuthIdentity.identityExists({ username: candidate })) {
+    suffix += 1;
+    const tail = `-${suffix}`;
+    candidate = `${base.slice(0, Math.max(3, 32 - tail.length))}${tail}`;
+    if (suffix > 999) {
+      candidate = `user-${v4().replace(/-/g, "").slice(0, 12)}`;
+    }
+  }
+
+  return candidate;
+}
+
 function systemEndpoints(app) {
   if (!app) return;
 
   app.get("/ping", (_, response) => {
     response.status(200).json({ online: true });
+  });
+
+  app.get("/auth/registration/config", async (_, response) => {
+    try {
+      response.status(200).json({
+        success: true,
+        allowPublicRegistration: await SystemSettings.allowPublicRegistration(),
+      });
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({
+        success: false,
+        allowPublicRegistration: false,
+      });
+    }
+  });
+
+  app.post("/auth/register/check-email", async (request, response) => {
+    try {
+      if (!(await publicRegistrationAvailable(response))) return;
+
+      const { email } = reqBody(request);
+      const normalizedEmail = normalizeEmail(email);
+
+      if (
+        registerRateLimited({
+          ip: request.ip,
+          email: normalizedEmail,
+        })
+      ) {
+        await EventLogs.logEvent("invite_abuse_blocked", {
+          flow: "public_register_check_email",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      if (!validEmail(normalizedEmail)) {
+        response.status(400).json({
+          success: false,
+          error: "请输入有效邮箱地址。",
+        });
+        return;
+      }
+
+      const existing = await AuthIdentity.identityExists({
+        email: normalizedEmail,
+      });
+      if (existing) return registrationEmailExists(response);
+
+      response.status(200).json({
+        success: true,
+        email: normalizedEmail,
+      });
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+    }
+  });
+
+  app.post("/auth/register/request-code", async (request, response) => {
+    try {
+      if (!(await publicRegistrationAvailable(response))) return;
+
+      const { email } = reqBody(request);
+      const normalizedEmail = normalizeEmail(email);
+      const generic = {
+        success: true,
+        message: REGISTER_CODE_SENT,
+        resendCooldownSeconds: Math.ceil(
+          EmailVerificationCode.resendCooldownMs / 1000
+        ),
+      };
+
+      if (
+        registerRateLimited({
+          ip: request.ip,
+          email: normalizedEmail,
+        })
+      ) {
+        await EventLogs.logEvent("invite_abuse_blocked", {
+          flow: "public_register_code",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        response.status(429).json({
+          success: false,
+          error: "验证码请求过于频繁，请稍后再试。",
+        });
+        return;
+      }
+
+      if (!validEmail(normalizedEmail)) {
+        response.status(400).json({
+          success: false,
+          error: "请输入有效邮箱地址。",
+        });
+        return;
+      }
+
+      const existing = await AuthIdentity.identityExists({
+        email: normalizedEmail,
+      });
+      if (existing) return registrationEmailExists(response);
+
+      if (!emailSmtpConfigured()) {
+        response.status(503).json({
+          success: false,
+          error: "邮件服务未配置，请联系管理员。",
+        });
+        return;
+      }
+
+      const latest = await EmailVerificationCode.latest({
+        userId: null,
+        email: normalizedEmail,
+        purpose: REGISTER_PURPOSE,
+      });
+      if (
+        latest &&
+        !latest.consumedAt &&
+        Date.now() - new Date(latest.createdAt).getTime() <
+          EmailVerificationCode.resendCooldownMs
+      ) {
+        response.status(200).json(generic);
+        return;
+      }
+
+      const code = sixDigitCode();
+      await EmailVerificationCode.expireOpenCodes({
+        userId: null,
+        email: normalizedEmail,
+        purpose: REGISTER_PURPOSE,
+      });
+      const { verification, error } = await EmailVerificationCode.create({
+        userId: null,
+        email: normalizedEmail,
+        purpose: REGISTER_PURPOSE,
+        code,
+        requestIp: request.ip || "Unknown IP",
+      });
+      if (error) {
+        response.status(500).json({
+          success: false,
+          error: "无法创建验证码，请稍后重试。",
+        });
+        return;
+      }
+
+      try {
+        await sendVerificationCode({
+          to: normalizedEmail,
+          code,
+          purpose: REGISTER_PURPOSE,
+          language: requestLanguage(request),
+        });
+      } catch (error) {
+        await EmailVerificationCode.consume(verification.id);
+        console.error("FAILED TO SEND REGISTRATION CODE.", error.message);
+        response.status(500).json({
+          success: false,
+          error: "验证码邮件发送失败，请稍后重试或联系管理员。",
+        });
+        return;
+      }
+
+      response.status(200).json(generic);
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+    }
+  });
+
+  app.post("/auth/register/verify-code", async (request, response) => {
+    try {
+      if (!(await publicRegistrationAvailable(response))) return;
+
+      const { email, code } = reqBody(request);
+      const normalizedEmail = normalizeEmail(email);
+
+      if (
+        registerRateLimited({
+          ip: request.ip,
+          email: normalizedEmail,
+        })
+      ) {
+        await EventLogs.logEvent("invite_abuse_blocked", {
+          flow: "public_register_verify_code",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      if (!validEmail(normalizedEmail) || !codeIsSixDigits(code)) {
+        return genericRegisterFailure(response);
+      }
+
+      const existing = await AuthIdentity.identityExists({
+        email: normalizedEmail,
+      });
+      if (existing) return registrationEmailExists(response);
+
+      const verification = await EmailVerificationCode.latest({
+        userId: null,
+        email: normalizedEmail,
+        purpose: REGISTER_PURPOSE,
+      });
+
+      if (
+        !verification ||
+        verification.consumedAt ||
+        verification.expiresAt < new Date() ||
+        verification.attempts >= EmailVerificationCode.maxAttempts
+      ) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "invalid_code_state",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const bcrypt = require("bcryptjs");
+      if (!bcrypt.compareSync(String(code), verification.code_hash)) {
+        await EmailVerificationCode.incrementAttempts(verification.id);
+        await EventLogs.logEvent("register_failed", {
+          reason: "code_mismatch",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      response.status(200).json({
+        success: true,
+        email: normalizedEmail,
+      });
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+    }
+  });
+
+  app.post("/auth/register", async (request, response) => {
+    try {
+      if (!(await publicRegistrationAvailable(response))) return;
+
+      const { email, code, username, password, confirmPassword } =
+        reqBody(request);
+      const normalizedEmail = normalizeEmail(email);
+      const normalizedUsername = String(username || "").trim();
+
+      if (
+        registerRateLimited({
+          ip: request.ip,
+          email: normalizedEmail,
+          username: normalizedUsername,
+        })
+      ) {
+        await EventLogs.logEvent("invite_abuse_blocked", {
+          flow: "public_register_finish",
+          email: maskedEmail(normalizedEmail),
+          username: normalizedUsername || null,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      if (
+        !validEmail(normalizedEmail) ||
+        !codeIsSixDigits(code) ||
+        String(password || "") !== String(confirmPassword || "")
+      ) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "invalid_input",
+          email: maskedEmail(normalizedEmail),
+          username: normalizedUsername || null,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const existingEmail = await AuthIdentity.identityExists({
+        email: normalizedEmail,
+      });
+      if (existingEmail) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "duplicate_identity",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return registrationEmailExists(response);
+      }
+
+      const verification = await EmailVerificationCode.latest({
+        userId: null,
+        email: normalizedEmail,
+        purpose: REGISTER_PURPOSE,
+      });
+      if (
+        !verification ||
+        verification.consumedAt ||
+        verification.expiresAt < new Date() ||
+        verification.attempts >= EmailVerificationCode.maxAttempts
+      ) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "invalid_code_state",
+          email: maskedEmail(normalizedEmail),
+          username: normalizedUsername || null,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const bcrypt = require("bcryptjs");
+      if (!bcrypt.compareSync(String(code), verification.code_hash)) {
+        await EmailVerificationCode.incrementAttempts(verification.id);
+        await EventLogs.logEvent("register_failed", {
+          reason: "code_mismatch",
+          email: maskedEmail(normalizedEmail),
+          username: normalizedUsername || null,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const consumed = await EmailVerificationCode.consume(verification.id);
+      if (!consumed) return genericRegisterFailure(response);
+
+      const accountName =
+        normalizedUsername || (await uniqueUsernameFromEmail(normalizedEmail));
+      try {
+        User.validations.username(accountName);
+      } catch {
+        await EventLogs.logEvent("register_failed", {
+          reason: "invalid_username",
+          email: maskedEmail(normalizedEmail),
+          username: accountName || null,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const existingUsername = await AuthIdentity.identityExists({
+        username: accountName,
+      });
+      if (existingUsername) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "duplicate_username",
+          email: maskedEmail(normalizedEmail),
+          username: accountName,
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
+
+      const { user, error } = await User.create({
+        username: accountName,
+        password,
+        role: ACCOUNT_ROLES.user,
+        originEnv: "production",
+        allowedEnvs: ["production"],
+        email: normalizedEmail,
+        emailVerifiedAt: new Date(),
+      });
+      if (!user) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "create_failed",
+          email: maskedEmail(normalizedEmail),
+          username: normalizedUsername || null,
+          ip: request.ip || "Unknown IP",
+          result: error || null,
+        });
+        return genericRegisterFailure(response);
+      }
+
+      await EventLogs.logEvent(
+        "user_registered",
+        {
+          method: "public_register",
+          username: user.username,
+          email: maskedEmail(normalizedEmail),
+          role: ACCOUNT_ROLES.user,
+          ip: request.ip || "Unknown IP",
+        },
+        user.id
+      );
+
+      const recoveryCodes = await generateRecoveryCodes(user.id);
+      const authUser = user.authUserId
+        ? await AuthIdentity.findById(user.authUserId)
+        : null;
+      const sessionToken = await AuthIdentity.canLoginInCurrentEnvAsync(authUser)
+        ? issueUserSessionToken(user)
+        : null;
+      response.status(200).json({
+        success: true,
+        valid: Boolean(sessionToken),
+        user,
+        token: sessionToken,
+        message: sessionToken ? null : LOGIN_GENERIC_ERROR,
+        recoveryCodes,
+      });
+    } catch (e) {
+      console.error(e.message, e);
+      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+    }
   });
 
   app.get("/system/environment", async (_, response) => {
@@ -161,7 +725,7 @@ function systemEndpoints(app) {
           user,
         });
         const canModifyGlobal =
-          !multiUserMode(response) || user?.role === ROLES.admin;
+          !multiUserMode(response) || canAccessAdmin(user);
         const auditLogs = canModifyGlobal
           ? await EventLogs.where(
               { event: { startsWith: "file_access_" } },
@@ -422,58 +986,87 @@ function systemEndpoints(app) {
 
         const { identifier, username, password } = reqBody(request);
         const loginIdentifier = String(identifier || username || "").trim();
-        const existingUser = await findUserByLoginIdentifier(loginIdentifier);
+        const authUser = await AuthIdentity.findByLoginIdentifier(loginIdentifier);
 
-        if (!existingUser) {
+        if (!authUser) {
           await EventLogs.logEvent(
             "failed_login_invalid_username",
             {
               ip: request.ip || "Unknown IP",
               username: loginIdentifier || "Unknown user",
             },
-            existingUser?.id
+            null
           );
           response.status(200).json({
             user: null,
             valid: false,
             token: null,
-            message: "[001] Invalid login credentials.",
+            message: LOGIN_GENERIC_ERROR,
           });
           return;
         }
 
-        if (!bcrypt.compareSync(String(password), existingUser.password)) {
+        if (!bcrypt.compareSync(String(password), authUser.password)) {
           await EventLogs.logEvent(
             "failed_login_invalid_password",
             {
               ip: request.ip || "Unknown IP",
               username: loginIdentifier || "Unknown user",
             },
-            existingUser?.id
+            null
           );
           response.status(200).json({
             user: null,
             valid: false,
             token: null,
-            message: "[001] Invalid login credentials.",
+            message: LOGIN_GENERIC_ERROR,
           });
           return;
         }
 
-        if (existingUser.suspended) {
+        if (authUser.suspended || authUser.status === "disabled") {
           await EventLogs.logEvent(
             "failed_login_account_suspended",
             {
               ip: request.ip || "Unknown IP",
               username: loginIdentifier || "Unknown user",
             },
-            existingUser?.id
+            null
           );
           response.status(200).json({
             user: null,
             valid: false,
             token: null,
-            message: "[004] Account suspended by admin.",
+            message: LOGIN_DISABLED_ERROR,
+          });
+          return;
+        }
+
+        if (!(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
+          await EventLogs.logEvent(
+            "failed_login_invalid_environment",
+            {
+              ip: request.ip || "Unknown IP",
+              username: loginIdentifier || "Unknown user",
+            },
+            null
+          );
+          response.status(200).json({
+            user: null,
+            valid: false,
+            token: null,
+            message: LOGIN_GENERIC_ERROR,
+          });
+          return;
+        }
+
+        const existingUser = await AuthIdentity.ensureShadowUser(authUser);
+        if (!existingUser) {
+          response.status(200).json({
+            user: null,
+            valid: false,
+            token: null,
+            message: LOGIN_GENERIC_ERROR,
           });
           return;
         }
@@ -699,7 +1292,7 @@ function systemEndpoints(app) {
 
   app.get(
     "/system/system-vectors",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const query = queryParams(request);
@@ -717,7 +1310,7 @@ function systemEndpoints(app) {
 
   app.delete(
     "/system/remove-document",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { name } = reqBody(request);
@@ -732,7 +1325,7 @@ function systemEndpoints(app) {
 
   app.delete(
     "/system/remove-documents",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { names } = reqBody(request);
@@ -747,7 +1340,7 @@ function systemEndpoints(app) {
 
   app.delete(
     "/system/remove-folder",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { name } = reqBody(request);
@@ -762,7 +1355,7 @@ function systemEndpoints(app) {
 
   app.get(
     "/system/local-files",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (_, response) => {
       try {
         const localFiles = await viewLocalFiles();
@@ -1033,7 +1626,7 @@ function systemEndpoints(app) {
         const { user, error } = await User.create({
           username,
           password,
-          role: ROLES.admin,
+          role: ACCOUNT_ROLES.owner,
         });
 
         if (error || !user) {
@@ -1352,7 +1945,7 @@ function systemEndpoints(app) {
     "/system/upload-logo",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.admin]),
       handleAssetUpload,
     ],
     async (request, response) => {
@@ -1401,7 +1994,7 @@ function systemEndpoints(app) {
 
   app.get(
     "/system/remove-logo",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (_request, response) => {
       try {
         const currentLogoFilename = await SystemSettings.currentLogoFilename();
@@ -1599,7 +2192,7 @@ function systemEndpoints(app) {
     [
       chatHistoryViewable,
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.admin]),
     ],
     async (request, response) => {
       try {
@@ -1623,7 +2216,7 @@ function systemEndpoints(app) {
 
   app.delete(
     "/system/workspace-chats/:id",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { id } = request.params;
@@ -1643,7 +2236,7 @@ function systemEndpoints(app) {
     [
       chatHistoryViewable,
       validatedRequest,
-      flexUserRoleValid([ROLES.manager, ROLES.admin]),
+      flexUserRoleValid([ROLES.admin]),
     ],
     async (request, response) => {
       try {
@@ -1724,6 +2317,83 @@ function systemEndpoints(app) {
       response
         .status(500)
         .json({ success: false, error: e.message || "Internal server error" });
+    }
+  });
+
+  app.get(
+    "/system/user/delete-preview",
+    [validatedRequest],
+    async (_request, response) => {
+      try {
+        const sessionUser = await userFromSession(_request, response);
+        const preview = await AccountDeletionService.preview({
+          actor: sessionUser,
+          target: sessionUser,
+          mode: "self",
+        });
+        response.status(200).json({ success: true, preview });
+      } catch (error) {
+        response.status(400).json({
+          success: false,
+          error: error.message || "无法生成删除预览。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/delete/reauth/password",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const user = await User._get({ id: sessionUser.id });
+        const { currentPassword } = reqBody(request) || {};
+        const bcrypt = require("bcryptjs");
+        if (
+          !user ||
+          !bcrypt.compareSync(String(currentPassword || ""), user.password)
+        ) {
+          response.status(401).json({
+            success: false,
+            error: "当前密码不正确。",
+          });
+          return;
+        }
+        response.status(200).json({
+          success: true,
+          reauthToken: issueReauthToken(
+            user.id,
+            "password",
+            "account_delete"
+          ),
+        });
+      } catch (error) {
+        response.status(500).json({
+          success: false,
+          error: error.message || "无法验证当前密码。",
+        });
+      }
+    }
+  );
+
+  app.delete("/system/user", [validatedRequest], async (request, response) => {
+    try {
+      const sessionUser = await userFromSession(request, response);
+      const { confirm, reauthToken } = reqBody(request) || {};
+      const result = await AccountDeletionService.execute({
+        actor: sessionUser,
+        target: sessionUser,
+        confirm: Boolean(confirm),
+        reauthToken,
+        mode: "self",
+      });
+      response.status(result.success ? 200 : 400).json(result);
+    } catch (error) {
+      response.status(500).json({
+        success: false,
+        error: error.message || "删除账户失败。",
+      });
     }
   });
 

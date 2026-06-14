@@ -46,6 +46,7 @@ import {
   shouldPreserveParkedChatAnchor,
   shouldRestoreExplicitPrepend,
   shouldSkipChatRestoreForLayoutTransition,
+  tailCleanupFollowDecision,
   tailHydrationFollowDecision,
 } from "@/utils/chat/chatScrollPosition";
 import {
@@ -102,6 +103,7 @@ export default forwardRef(function (
     bottomInset = null,
     sendScrollRequest = 0,
     tailHydrationSignal = null,
+    tailCleanupSignal = null,
     layoutTransitionSignal = null,
     chatScrollMemory = null,
   },
@@ -117,6 +119,7 @@ export default forwardRef(function (
   const prependRestoreRequestRef = useRef(null);
   const parkedAnchorRef = useRef(null);
   const lastTailHydrationKeyRef = useRef(null);
+  const lastTailCleanupKeyRef = useRef(null);
   const lastScrollMemoryRestoreKeyRef = useRef(null);
   const lastScrollMemoryHeartbeatRef = useRef({ signature: null });
   const scrollRestoreSessionRef = useRef({
@@ -1538,6 +1541,87 @@ export default forwardRef(function (
     tailHydrationSignal?.chatId,
     tailHydrationSignal?.seq,
     tailHydrationSignal?.turnId,
+  ]);
+
+  useLayoutEffect(() => {
+    const tailCleanupKey =
+      chatKey && tailCleanupSignal?.seq
+        ? [
+            chatKey,
+            tailCleanupSignal.seq,
+            (tailCleanupSignal.turnIds || []).join(","),
+            tailCleanupSignal.reason || "",
+          ].join(":")
+        : null;
+    if (!tailCleanupKey || lastTailCleanupKeyRef.current === tailCleanupKey) {
+      return;
+    }
+    lastTailCleanupKeyRef.current = tailCleanupKey;
+
+    const element = chatHistoryRef.current;
+    if (!element) return;
+
+    const removedItemIds = new Set(tailCleanupSignal.removedItemIds || []);
+    if (
+      parkedAnchorRef.current?.itemId &&
+      removedItemIds.has(parkedAnchorRef.current.itemId)
+    ) {
+      parkedAnchorRef.current = null;
+    }
+    if (
+      scrollRestoreSessionRef.current.anchor?.itemId &&
+      removedItemIds.has(scrollRestoreSessionRef.current.anchor.itemId)
+    ) {
+      clearScrollRestoreSession();
+    }
+
+    const savedPosition = normalizeChatScrollPosition(
+      scrollPositionsRef.current[chatKey]
+    );
+    const currentIsAtBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 2;
+    const sendFollowActive = sendFollowRef.current.active;
+    const decision = tailCleanupFollowDecision({
+      signalChanged: true,
+      isAtBottom: currentIsAtBottom || sendFollowActive,
+      shouldFollowOutput: shouldFollowOutputRef.current || sendFollowActive,
+      hasParkedAnchor: sendFollowActive ? false : !!parkedAnchorRef.current,
+      hasSavedPosition: sendFollowActive ? false : !!savedPosition,
+      hasRecentUserIntent: hasRecentChatUserScrollIntent(
+        userScrollIntentRef.current
+      ),
+      isLoadingOlderHistory,
+      hasPrependRestoreRequest: !!prependRestoreRequestRef.current,
+    });
+
+    debugChatTurn("ChatHistory:tailCleanup", {
+      chatKey,
+      removedTurnIds: tailCleanupSignal.turnIds || [],
+      reason: tailCleanupSignal.reason || null,
+      allowedToFollowBottom: decision.shouldFollowBottom,
+      blockedByUserIntent: decision.blockedByUserIntent,
+      blockedByOlderHistory: decision.blockedByOlderHistory,
+      sendFollowActive,
+    });
+
+    if (!decision.shouldFollowBottom) return;
+
+    shouldFollowOutputRef.current = true;
+    parkedAnchorRef.current = null;
+    clearSavedChatScrollPosition(scrollPositionsRef.current, chatKey);
+    setIsUserScrolling(false);
+    setIsAtBottom(true);
+    scheduleStickToBottom("tail-cleanup", {
+      resetSavedPosition: true,
+      persist: true,
+    });
+    return undefined;
+  }, [
+    chatKey,
+    clearScrollRestoreSession,
+    isLoadingOlderHistory,
+    scheduleStickToBottom,
+    tailCleanupSignal,
   ]);
 
   const requestOlderHistoryLoad = useMemo(

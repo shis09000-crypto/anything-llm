@@ -9,10 +9,12 @@ import WorkspaceRow from "./WorkspaceRow";
 import NewWorkspaceModal from "./NewWorkspaceModal";
 import { useModal } from "@/hooks/useModal";
 import ModalWrapper from "@/components/ModalWrapper";
-import CTAButton from "@/components/lib/CTAButton";
+import AppButton from "@/components/lib/AppButton";
+import { useTranslation } from "react-i18next";
 
 export default function AdminWorkspaces() {
   const { isOpen, openModal, closeModal } = useModal();
+  const { t } = useTranslation();
 
   return (
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
@@ -25,21 +27,22 @@ export default function AdminWorkspaces() {
           <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
             <div className="items-center flex gap-x-4">
               <p className="text-lg leading-6 font-bold text-theme-text-primary">
-                Instance Workspaces
+                {t("admin.workspaces.title")}
               </p>
             </div>
             <p className="text-xs leading-[18px] font-base text-theme-text-secondary">
-              These are all the workspaces that exist on this instance. Removing
-              a workspace will delete all of its associated chats and settings.
+              {t("admin.workspaces.description")}
             </p>
           </div>
           <div className="w-full justify-end flex">
-            <CTAButton
+            <AppButton
+              variant="primary"
+              leftIcon={<BookOpen className="h-4 w-4" weight="bold" />}
               onClick={openModal}
               className="mt-3 mr-0 mb-4 md:-mb-14 z-10"
             >
-              <BookOpen className="h-4 w-4" weight="bold" /> New Workspace
-            </CTAButton>
+              {t("admin.workspaces.create")}
+            </AppButton>
           </div>
           <div className="overflow-x-auto">
             <WorkspacesContainer />
@@ -57,6 +60,7 @@ function WorkspacesContainer() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
+  const { t } = useTranslation();
 
   useEffect(() => {
     async function fetchData() {
@@ -88,16 +92,16 @@ function WorkspacesContainer() {
       <thead className="text-theme-text-secondary text-xs leading-[18px] font-bold uppercase border-white/10 border-b">
         <tr>
           <th scope="col" className="px-6 py-3 rounded-tl-lg">
-            Name
+            {t("admin.workspaces.table.name")}
           </th>
           <th scope="col" className="px-6 py-3">
-            Link
+            {t("admin.workspaces.table.link")}
           </th>
           <th scope="col" className="px-6 py-3">
-            Users
+            {t("admin.workspaces.table.users")}
           </th>
           <th scope="col" className="px-6 py-3">
-            Created On
+            {t("admin.workspaces.table.createdOn")}
           </th>
           <th scope="col" className="px-6 py-3 rounded-tr-lg">
             {" "}

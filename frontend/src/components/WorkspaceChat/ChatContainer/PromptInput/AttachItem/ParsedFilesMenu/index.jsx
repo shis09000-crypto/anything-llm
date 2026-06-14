@@ -5,7 +5,6 @@ import { nFormatter } from "@/utils/numbers";
 import showToast from "@/utils/toast";
 import pluralize from "pluralize";
 import { PARSED_FILE_ATTACHMENT_REMOVED_EVENT } from "../../../DnDWrapper";
-import useUser from "@/hooks/useUser";
 
 export default function ParsedFilesMenu({
   onEmbeddingChange,
@@ -19,8 +18,7 @@ export default function ParsedFilesMenu({
   workspaceSlug,
   threadSlug = null,
 }) {
-  const { user } = useUser();
-  const canEmbed = !user || user.role !== "default";
+  const canEmbed = true;
   const initialContextWindowLimitExceeded =
     contextWindow &&
     currentTokens >= contextWindow * Workspace.maxContextWindowLimit;

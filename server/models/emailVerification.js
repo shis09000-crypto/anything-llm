@@ -1,11 +1,21 @@
 const bcrypt = require("bcryptjs");
-const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
+
+function prismaErrorLabel(error) {
+  return error?.code || error?.name || "UnknownPrismaError";
+}
 
 const EmailVerificationCode = {
   tablename: "email_verification_codes",
   maxAttempts: 5,
   codeExpiryMs: 600_000,
   resendCooldownMs: 60_000,
+
+  userIdWhere: function (userId) {
+    return userId === null || userId === undefined
+      ? { user_id: null }
+      : { user_id: Number(userId) };
+  },
 
   calcExpiry: function () {
     return new Date(Date.now() + this.codeExpiryMs);
@@ -14,9 +24,10 @@ const EmailVerificationCode = {
   create: async function ({ userId, email, purpose, code, requestIp }) {
     try {
       const codeHash = bcrypt.hashSync(String(code), 10);
-      const verification = await prisma.email_verification_codes.create({
+      const verification = await authPrisma.email_verification_codes.create({
         data: {
-          user_id: Number(userId),
+          user_id:
+            userId === null || userId === undefined ? null : Number(userId),
           email,
           purpose,
           code_hash: codeHash,
@@ -26,30 +37,36 @@ const EmailVerificationCode = {
       });
       return { verification, error: null };
     } catch (error) {
-      console.error("FAILED TO CREATE EMAIL VERIFICATION CODE.", error.message);
+      console.error(
+        "FAILED TO CREATE EMAIL VERIFICATION CODE.",
+        prismaErrorLabel(error)
+      );
       return { verification: null, error: error.message };
     }
   },
 
   latest: async function ({ userId, email = null, purpose }) {
     try {
-      return await prisma.email_verification_codes.findFirst({
+      return await authPrisma.email_verification_codes.findFirst({
         where: {
-          user_id: Number(userId),
+          ...this.userIdWhere(userId),
           purpose,
           ...(email ? { email } : {}),
         },
         orderBy: { createdAt: "desc" },
       });
     } catch (error) {
-      console.error("FAILED TO FIND EMAIL VERIFICATION CODE.", error.message);
+      console.error(
+        "FAILED TO FIND EMAIL VERIFICATION CODE.",
+        prismaErrorLabel(error)
+      );
       return null;
     }
   },
 
   latestPendingForUser: async function ({ userId, purpose }) {
     try {
-      return await prisma.email_verification_codes.findFirst({
+      return await authPrisma.email_verification_codes.findFirst({
         where: {
           user_id: Number(userId),
           purpose,
@@ -61,7 +78,7 @@ const EmailVerificationCode = {
     } catch (error) {
       console.error(
         "FAILED TO FIND PENDING EMAIL VERIFICATION.",
-        error.message
+        prismaErrorLabel(error)
       );
       return null;
     }
@@ -69,7 +86,7 @@ const EmailVerificationCode = {
 
   incrementAttempts: async function (id) {
     try {
-      await prisma.email_verification_codes.update({
+      await authPrisma.email_verification_codes.update({
         where: { id: Number(id) },
         data: { attempts: { increment: 1 } },
       });
@@ -77,7 +94,7 @@ const EmailVerificationCode = {
     } catch (error) {
       console.error(
         "FAILED TO INCREMENT EMAIL VERIFICATION ATTEMPTS.",
-        error.message
+        prismaErrorLabel(error)
       );
       return false;
     }
@@ -85,7 +102,7 @@ const EmailVerificationCode = {
 
   consume: async function (id) {
     try {
-      const result = await prisma.email_verification_codes.updateMany({
+      const result = await authPrisma.email_verification_codes.updateMany({
         where: {
           id: Number(id),
           consumedAt: null,
@@ -97,18 +114,19 @@ const EmailVerificationCode = {
     } catch (error) {
       console.error(
         "FAILED TO CONSUME EMAIL VERIFICATION CODE.",
-        error.message
+        prismaErrorLabel(error)
       );
       return false;
     }
   },
 
-  expireOpenCodes: async function ({ userId, purpose }) {
+  expireOpenCodes: async function ({ userId, purpose, email = null }) {
     try {
-      await prisma.email_verification_codes.updateMany({
+      await authPrisma.email_verification_codes.updateMany({
         where: {
-          user_id: Number(userId),
+          ...this.userIdWhere(userId),
           purpose,
+          ...(email ? { email } : {}),
           consumedAt: null,
         },
         data: { consumedAt: new Date() },
@@ -117,7 +135,7 @@ const EmailVerificationCode = {
     } catch (error) {
       console.error(
         "FAILED TO EXPIRE EMAIL VERIFICATION CODES.",
-        error.message
+        prismaErrorLabel(error)
       );
       return false;
     }

@@ -6,6 +6,10 @@ const { Workspace } = require("../../../models/workspace");
 const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { WorkspaceUser } = require("../../../models/workspaceUsers");
 const { canModifyAdmin } = require("../../../utils/helpers/admin");
+const {
+  ROLES,
+  normalizeRole,
+} = require("../../../utils/authz/accountRoles");
 const { multiUserMode, reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 
@@ -361,7 +365,12 @@ function apiAdminEndpoints(app) {
       }
 
       const body = reqBody(request);
+      const role = normalizeRole(body?.role);
       const { invite, error } = await Invite.create({
+        role: [ROLES.user, ROLES.developer, ROLES.admin].includes(role)
+          ? role
+          : ROLES.user,
+        expiresInHours: body?.expiresInHours || 24,
         workspaceIds: body?.workspaceIds ?? [],
       });
       response.status(200).json({ invite, error });

@@ -10,6 +10,7 @@ import "react-loading-skeleton/dist/skeleton.css";
 import paths from "@/utils/paths";
 import useUser from "@/hooks/useUser";
 import { Link } from "react-router-dom";
+import { canSeeAdmin } from "@/utils/authz";
 
 export default function WorkspaceAgentConfiguration({ workspace }) {
   const { user } = useUser();
@@ -86,7 +87,7 @@ export default function WorkspaceAgentConfiguration({ workspace }) {
           workspace={workspace}
           setHasChanges={setHasChanges}
         />
-        {(!user || user?.role === "admin") && (
+        {(!user || canSeeAdmin(user)) && (
           <>
             {!hasChanges && (
               <div className="flex flex-col gap-y-4">

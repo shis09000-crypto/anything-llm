@@ -154,7 +154,7 @@ function browserExtensionEndpoints(app) {
   // Internal endpoints for managing API keys
   app.get(
     "/browser-extension/api-keys",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -174,7 +174,7 @@ function browserExtensionEndpoints(app) {
 
   app.post(
     "/browser-extension/api-keys/new",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -194,7 +194,7 @@ function browserExtensionEndpoints(app) {
 
   app.delete(
     "/browser-extension/api-keys/:id",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { id } = request.params;

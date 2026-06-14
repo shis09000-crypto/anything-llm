@@ -121,6 +121,9 @@ const TRANSLATIONS = {
     "vector-database": "Vector Database",
     embeds: "Chat Embed",
     security: "Security",
+    "button-lab": "Button Lab",
+    "crypto-component-experiment": "Crypto Component Experiment",
+    "crypto-center": "Crypto Center",
     "event-logs": "Event Logs",
     "scheduled-jobs": "Scheduled Jobs",
     privacy: "Privacy & Data",
@@ -2378,6 +2381,203 @@ const readable = true;
           description:
             "You need to authenticate with the Athena Community Hub before publishing items.",
           button: "Connect to Community Hub",
+        },
+      },
+    },
+  },
+  admin: {
+    common: {
+      genericError: "Error: {{error}}",
+      close: "Close",
+    },
+    users: {
+      title: "Users",
+      description:
+        "These are all the accounts which have an account on this instance. Removing an account will instantly remove their access to this instance.",
+      add: "Add user",
+      table: {
+        username: "Username",
+        role: "Role",
+        dateAdded: "Date Added",
+      },
+      roles: {
+        default: "Default",
+        manager: "Manager",
+        admin: "Administrator",
+      },
+      permissions: {
+        title: "Permissions",
+        default: [
+          "Can only send chats with workspaces they are added to by admin or managers.",
+          "Cannot modify any settings at all.",
+        ],
+        manager: [
+          "Can view, create, and delete any workspaces and modify workspace-specific settings.",
+          "Can create, update and invite new users to the instance.",
+          "Cannot modify LLM, vectorDB, embedding, or other connections.",
+        ],
+        admin: [
+          "Highest user level privilege.",
+          "Can see and do everything across the system.",
+        ],
+      },
+      messageLimit: {
+        label: "Limit messages per day",
+        description:
+          "Restrict this user to a number of successful queries or chats within a 24 hour window.",
+        inputLabel: "Message limit per day",
+      },
+      actions: {
+        add: "Add user",
+        cancel: "Cancel",
+        update: "Update user",
+        edit: "Edit",
+        unsuspend: "Unsuspend",
+        suspend: "Suspend",
+        delete: "Delete",
+      },
+      modal: {
+        addTitle: "Add user to instance",
+        editTitle: "Edit {{username}}",
+        usernameLabel: "Username",
+        usernamePlaceholder: "User's username",
+        passwordLabel: "Password",
+        passwordPlaceholder: "User's initial password",
+        passwordHint: "Password must be at least 8 characters long",
+        passwordNewLabel: "New Password",
+        passwordNewPlaceholder: "{{username}}'s new password",
+        bioLabel: "Bio",
+        bioPlaceholder: "User's bio",
+        roleLabel: "Role",
+        noteAfterCreate:
+          "After creating a user they will need to login with their initial login to get access.",
+      },
+      confirm: {
+        suspend: {
+          title: "Suspend user?",
+          description:
+            "{{username}} will be logged out and unable to login until admin restores access.",
+          confirm: "Suspend",
+        },
+        unsuspend: {
+          title: "Restore user?",
+          description:
+            "{{username}} will be able to login again to this instance.",
+          confirm: "Restore",
+        },
+        delete: {
+          title: "Delete user?",
+          description:
+            "{{username}} will be logged out and lose access to this Athena instance. This action cannot be undone.",
+          confirm: "Delete",
+        },
+      },
+      toast: {
+        suspended: "User has been suspended.",
+        unsuspended: "User is no longer suspended.",
+        deleted: "User deleted from system.",
+      },
+    },
+    workspaces: {
+      title: "Instance Workspaces",
+      description:
+        "These are all the workspaces that exist on this instance. Removing a workspace will delete all of its associated chats and settings.",
+      create: "New Workspace",
+      table: {
+        name: "Name",
+        link: "Link",
+        users: "Users",
+        createdOn: "Created On",
+      },
+      modal: {
+        createTitle: "Create new workspace",
+        create: "Create workspace",
+        namePlaceholder: "My workspace",
+        noteAfterCreate:
+          "After creating this workspace only admins will be able to see it. You can add users after it has been created.",
+      },
+      actions: {
+        cancel: "Cancel",
+      },
+      confirm: {
+        delete: {
+          title: "Delete workspace?",
+          description:
+            "{{workspaceName}} can no longer be used in this Athena instance. This action cannot be undone.",
+          confirm: "Delete",
+        },
+      },
+    },
+    invites: {
+      title: "Invitations",
+      description:
+        "Create invitation links for people in your organization to accept and sign up with. Invitations can only be used by a single user.",
+      create: "Create Invite Link",
+      publicRegistration: {
+        title: "Allow public registration",
+        description:
+          "When enabled, the login page will show create account and public registration only creates regular users.",
+        enabled: "Enabled",
+        disabled: "Disabled",
+        enableAction: "Enable",
+        disableAction: "Disable",
+      },
+      table: {
+        status: "Status",
+        role: "Role",
+        acceptedBy: "Accepted By",
+        createdBy: "Created By",
+        expires: "Expires",
+        created: "Created",
+      },
+      noInvitations: "No invitations found",
+      toasts: {
+        updateError: "Failed to update public registration setting.",
+        updateEnabled: "Public registration enabled.",
+        updateDisabled: "Public registration disabled.",
+      },
+      modal: {
+        title: "Create new invite",
+        roleLabel: "Invitation role",
+        copyToast: "Invite link copied to clipboard",
+        note: "After creation, the full invitation link can only be copied once and the token will no longer be shown in the list.",
+        expiresLabel: "Expires in",
+        role: {
+          default: "Regular User",
+          manager: "Manager Assistant",
+          admin: "Admin",
+        },
+        expires: {
+          24: "24 hours",
+          72: "3 days",
+          168: "7 days",
+        },
+        autoAssignTitle: "Auto-add invitee to workspaces",
+        autoAssignDescription:
+          "You can optionally automatically assign the user to the workspaces below by selecting them. By default, the user will not have any workspaces visible.",
+        cancel: "Cancel",
+        create: "Create Invite",
+        createError: "Failed to create invite. Please try again.",
+        close: "Close",
+      },
+      status: {
+        pending: "Pending",
+        accepted: "Accepted",
+        claimed: "Claimed",
+        revoked: "Revoked",
+      },
+      role: {
+        default: "Regular User",
+        manager: "Manager Assistant",
+        admin: "Admin",
+      },
+      deletedUser: "Deleted user",
+      confirm: {
+        disable: {
+          title: "Disable invitation?",
+          description:
+            "This invitation will no longer be usable and cannot be reverted.",
+          confirm: "Disable",
         },
       },
     },

@@ -54,7 +54,7 @@ function documentEndpoints(app) {
 
   app.patch(
     "/document/index-status",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const {
@@ -84,7 +84,7 @@ function documentEndpoints(app) {
 
   app.post(
     "/document/create-folder",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { name } = reqBody(request);
@@ -114,7 +114,7 @@ function documentEndpoints(app) {
 
   app.post(
     "/document/move-files",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { files } = reqBody(request);

@@ -63,7 +63,7 @@ function knowledgeGraphEndpoints(app) {
     "/workspace/:slug/knowledge/profile",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {
@@ -264,7 +264,7 @@ function knowledgeGraphEndpoints(app) {
 
   app.post(
     "/workspace/:slug/knowledge/repair",
-    [validatedRequest, flexUserRoleValid([ROLES.admin]), validWorkspaceSlug],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -286,7 +286,7 @@ function knowledgeGraphEndpoints(app) {
 
   app.post(
     "/workspace/:slug/knowledge/repair/quarantine/:issueId/release",
-    [validatedRequest, flexUserRoleValid([ROLES.admin]), validWorkspaceSlug],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

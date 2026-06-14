@@ -4,16 +4,21 @@ import paths from "@/utils/paths";
 import { LinkSimple, Trash } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { useTranslation } from "react-i18next";
+import AppButton from "@/components/lib/AppButton";
 
 export default function WorkspaceRow({ workspace, users: _users }) {
   const rowRef = useRef(null);
+  const { t } = useTranslation();
   const handleDelete = async () => {
     if (
       !(await showAppConfirm({
         tone: "danger",
-        title: "删除工作区？",
-        description: `${workspace.name} 将无法在此 Athena 实例中继续使用。此操作无法撤销。`,
-        confirmText: "删除",
+        title: t("admin.workspaces.confirm.delete.title"),
+        description: t("admin.workspaces.confirm.delete.description", {
+          workspaceName: workspace.name,
+        }),
+        confirmText: t("admin.workspaces.confirm.delete.confirm"),
       }))
     )
       return false;
@@ -42,20 +47,22 @@ export default function WorkspaceRow({ workspace, users: _users }) {
         </td>
         <td className="px-6">
           <Link
-            to={paths.workspace.settings.members(workspace.slug)}
+            to={paths.workspace.settings.generalAppearance(workspace.slug)}
             className="text-white flex items-center underline"
           >
             {workspace.userIds?.length}
           </Link>
         </td>
         <td className="px-6">{workspace.createdAt}</td>
-        <td className="px-6 flex items-center gap-x-6 h-full mt-1">
-          <button
+        <td className="px-6 flex items-center gap-x-2 h-full mt-1">
+          <AppButton
+            variant="secondary"
+            size="sm"
             onClick={handleDelete}
-            className="text-xs font-medium text-white/80 light:text-black/80 hover:light:text-red-500 hover:text-red-300 rounded-lg px-2 py-1 hover:bg-white hover:light:bg-red-50 hover:bg-opacity-10"
-          >
-            <Trash className="h-5 w-5" />
-          </button>
+            iconOnly
+            leftIcon={<Trash className="h-5 w-5" />}
+            aria-label={t("admin.workspaces.confirm.delete.confirm")}
+          />
         </td>
       </tr>
     </>

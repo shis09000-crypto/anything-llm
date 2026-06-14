@@ -2,10 +2,80 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE_FILE="$ROOT_DIR/.anythingllm-runtime/status.env"
-DEFAULT_SERVER_PORT=3001
-DEFAULT_COLLECTOR_PORT=8888
-DEFAULT_FRONTEND_PORT=3000
+RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
+LEGACY_STATE_FILE="$RUNTIME_DIR/status.env"
+TARGET_ENV="all"
+
+usage() {
+  cat <<EOF
+Usage: bash ./status [--env development|production|all]
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --env)
+      TARGET_ENV="${2:-}"
+      shift
+      ;;
+    --env=*)
+      TARGET_ENV="${1#--env=}"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+case "$TARGET_ENV" in
+  development|production|all) ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac
+
+state_file_for_env() {
+  printf '%s/status-%s.env' "$RUNTIME_DIR" "$1"
+}
+
+default_server_port() {
+  case "$1" in
+    development) printf '3002' ;;
+    production) printf '3001' ;;
+  esac
+}
+
+default_collector_port() {
+  case "$1" in
+    development) printf '8889' ;;
+    production) printf '8888' ;;
+  esac
+}
+
+default_frontend_port() {
+  case "$1" in
+    development) printf '3000' ;;
+    production) printf '' ;;
+  esac
+}
+
+state_file_app_env() {
+  local state_file="$1"
+  local raw
+  raw="$(sed -n 's/^APP_ENV=//p' "$state_file" 2>/dev/null | tail -1 || true)"
+  raw="${raw#\'}"
+  raw="${raw%\'}"
+  raw="${raw#\"}"
+  raw="${raw%\"}"
+  printf '%s' "$raw"
+}
 
 pid_status() {
   local pid="${1:-}"
@@ -46,34 +116,175 @@ process_status() {
   printf 'stopped'
 }
 
-if [[ -f "$STATE_FILE" ]]; then
-  set +e
-  # shellcheck disable=SC1090
-  source "$STATE_FILE" >/dev/null 2>&1
-  SOURCE_STATUS=$?
-  set -e
-else
-  SOURCE_STATUS=2
-  APP_ENV="${APP_ENV:-unknown}"
-  SERVER_PORT="${SERVER_PORT:-$DEFAULT_SERVER_PORT}"
-  COLLECTOR_PORT="${COLLECTOR_PORT:-$DEFAULT_COLLECTOR_PORT}"
-  FRONTEND_PORT="${FRONTEND_PORT:-$DEFAULT_FRONTEND_PORT}"
-fi
+format_uptime() {
+  local seconds="${1:-0}"
+  local days
+  local hours
+  local minutes
 
-cat <<EOF
-AnythingLLM status
-environment: ${APP_ENV:-unknown}
+  if [[ -z "$seconds" ]] || ! [[ "$seconds" =~ ^[0-9]+$ ]]; then
+    printf '-'
+    return
+  fi
+
+  days=$((seconds / 86400))
+  hours=$(((seconds % 86400) / 3600))
+  minutes=$(((seconds % 3600) / 60))
+
+  if (( days > 0 )); then
+    printf '%dd%02dh' "$days" "$hours"
+  elif (( hours > 0 )); then
+    printf '%dh%02dm' "$hours" "$minutes"
+  else
+    printf '%dm' "$minutes"
+  fi
+}
+
+component_display_status() {
+  local explicit_status="${1:-}"
+  local pid="${2:-}"
+  local port="${3:-}"
+
+  if [[ -n "$explicit_status" ]]; then
+    if [[ "$explicit_status" == "running" ]] && [[ "$(process_status "$pid" "$port")" != "running" ]]; then
+      printf '%s' "$(process_status "$pid" "$port")"
+      return
+    fi
+    printf '%s' "$explicit_status"
+    return
+  fi
+
+  printf '%s' "$(process_status "$pid" "$port")"
+}
+
+print_component_row() {
+  local name="$1"
+  local pid="$2"
+  local explicit_status="$3"
+  local port="$4"
+  local uptime="$5"
+  local restarts="$6"
+  local crash_loop="$7"
+  local reason="$8"
+  local status
+
+  status="$(component_display_status "$explicit_status" "$pid" "$port")"
+  printf '%-10s %-18s %-15s %-7s %-14s %-8s %-8s %-10s %s\n' \
+    "$name" \
+    "${pid:--}" \
+    "$status" \
+    "${port:--}" \
+    "$(listen_pids "$port")" \
+    "$(format_uptime "$uptime")" \
+    "${restarts:-0}" \
+    "${crash_loop:-false}" \
+    "${reason:--}"
+}
+
+load_state_for_env() {
+  local env_name="$1"
+  local env_state_file
+  env_state_file="$(state_file_for_env "$env_name")"
+
+  APP_ENV="$env_name"
+  SERVER_PORT="$(default_server_port "$env_name")"
+  COLLECTOR_PORT="$(default_collector_port "$env_name")"
+  FRONTEND_PORT="$(default_frontend_port "$env_name")"
+  SERVER_PID=""
+  COLLECTOR_PID=""
+  FRONTEND_PID=""
+  SERVER_LOG=""
+  COLLECTOR_LOG=""
+  FRONTEND_LOG=""
+  APP_URL=""
+  STARTED_AT=""
+  SUPERVISOR_PID=""
+  SUPERVISOR_LOG=""
+  SUPERVISOR_STARTED_AT=""
+  SUPERVISOR_UPTIME_SECONDS=""
+  LAST_CHECK_AT=""
+  SERVER_STATUS=""
+  SERVER_UPTIME_SECONDS=""
+  SERVER_RESTART_COUNT=""
+  SERVER_CRASH_LOOP=""
+  SERVER_LAST_RESTART_REASON=""
+  COLLECTOR_STATUS=""
+  COLLECTOR_UPTIME_SECONDS=""
+  COLLECTOR_RESTART_COUNT=""
+  COLLECTOR_CRASH_LOOP=""
+  COLLECTOR_LAST_RESTART_REASON=""
+  FRONTEND_STATUS=""
+  FRONTEND_UPTIME_SECONDS=""
+  FRONTEND_RESTART_COUNT=""
+  FRONTEND_CRASH_LOOP=""
+  FRONTEND_LAST_RESTART_REASON=""
+  SOURCE_STATUS=2
+  LOADED_STATE_FILE="$env_state_file"
+
+  if [[ -f "$env_state_file" ]]; then
+    set +e
+    # shellcheck disable=SC1090
+    source "$env_state_file" >/dev/null 2>&1
+    SOURCE_STATUS=$?
+    set -e
+    LOADED_STATE_FILE="$env_state_file"
+    return
+  fi
+
+  if [[ -f "$LEGACY_STATE_FILE" ]] &&
+    [[ "$(state_file_app_env "$LEGACY_STATE_FILE")" == "$env_name" ]]; then
+    set +e
+    # shellcheck disable=SC1090
+    source "$LEGACY_STATE_FILE" >/dev/null 2>&1
+    SOURCE_STATUS=$?
+    set -e
+    LOADED_STATE_FILE="$LEGACY_STATE_FILE"
+    return
+  fi
+}
+
+print_env_status() {
+  local env_name="$1"
+  load_state_for_env "$env_name"
+
+  if [[ -z "${APP_URL:-}" ]]; then
+    if [[ "$env_name" == "development" ]]; then
+      APP_URL="http://localhost:${FRONTEND_PORT}"
+    else
+      APP_URL="http://localhost:${SERVER_PORT}"
+    fi
+  fi
+
+  cat <<EOF
+AnythingLLM status [$env_name]
+environment: ${APP_ENV:-$env_name}
 started_at:   ${STARTED_AT:-unknown}
 access_url:   ${APP_URL:-unknown}
-state_file:   $([[ "$SOURCE_STATUS" == "0" ]] && printf 'ok' || ([[ "$SOURCE_STATUS" == "2" ]] && printf 'missing' || printf 'partially readable'))
+state_file:   $([[ "$SOURCE_STATUS" == "0" ]] && printf 'ok (%s)' "$LOADED_STATE_FILE" || ([[ "$SOURCE_STATUS" == "2" ]] && printf 'missing (%s)' "$LOADED_STATE_FILE" || printf 'partially readable (%s)' "$LOADED_STATE_FILE"))
 
-process       pid                 status          port      listen_pids
-server        ${SERVER_PID:--}    $(process_status "${SERVER_PID:-}" "${SERVER_PORT:-}")    ${SERVER_PORT:--}    $(listen_pids "${SERVER_PORT:-}")
-collector     ${COLLECTOR_PID:--}    $(process_status "${COLLECTOR_PID:-}" "${COLLECTOR_PORT:-}")    ${COLLECTOR_PORT:--}    $(listen_pids "${COLLECTOR_PORT:-}")
-frontend      ${FRONTEND_PID:--}    $(process_status "${FRONTEND_PID:-}" "${FRONTEND_PORT:-}")    ${FRONTEND_PORT:--}    $(listen_pids "${FRONTEND_PORT:-}")
+supervisor
+pid:        ${SUPERVISOR_PID:--}
+status:     $(pid_status "${SUPERVISOR_PID:-}")
+uptime:     $(format_uptime "${SUPERVISOR_UPTIME_SECONDS:-}")
+last_check: ${LAST_CHECK_AT:-unknown}
+
+process    pid                status          port    listen_pids    uptime   restarts crashLoop  lastRestartReason
+$(print_component_row server "${SERVER_PID:-}" "${SERVER_STATUS:-}" "${SERVER_PORT:-}" "${SERVER_UPTIME_SECONDS:-}" "${SERVER_RESTART_COUNT:-}" "${SERVER_CRASH_LOOP:-}" "${SERVER_LAST_RESTART_REASON:-}")
+$(print_component_row collector "${COLLECTOR_PID:-}" "${COLLECTOR_STATUS:-}" "${COLLECTOR_PORT:-}" "${COLLECTOR_UPTIME_SECONDS:-}" "${COLLECTOR_RESTART_COUNT:-}" "${COLLECTOR_CRASH_LOOP:-}" "${COLLECTOR_LAST_RESTART_REASON:-}")
+$(if [[ "$env_name" == "development" ]]; then print_component_row frontend "${FRONTEND_PID:-}" "${FRONTEND_STATUS:-}" "${FRONTEND_PORT:-}" "${FRONTEND_UPTIME_SECONDS:-}" "${FRONTEND_RESTART_COUNT:-}" "${FRONTEND_CRASH_LOOP:-}" "${FRONTEND_LAST_RESTART_REASON:-}"; fi)
 
 logs
+supervisor: ${SUPERVISOR_LOG:-}
 server:    ${SERVER_LOG:-}
 collector: ${COLLECTOR_LOG:-}
 frontend:  ${FRONTEND_LOG:-}
 EOF
+}
+
+if [[ "$TARGET_ENV" == "all" ]]; then
+  print_env_status development
+  printf '\n'
+  print_env_status production
+else
+  print_env_status "$TARGET_ENV"
+fi

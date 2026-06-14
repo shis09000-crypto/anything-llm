@@ -10,7 +10,7 @@ const {
   cacheStableHistoryStrategyFor,
 } = require("./index");
 const {
-  injectCompactionIntoSystemPrompt,
+  contextTextsWithCompaction,
   maybeAutoCompact,
   recentChatHistoryWithCompaction,
 } = require("./threadCompaction");
@@ -33,12 +33,18 @@ const {
   shouldUseVisionTool,
 } = require("../vision/viewTool");
 
-function promptCacheDiagnosticsFor(llm, messages = [], historyWindow = null) {
+function promptCacheDiagnosticsFor(
+  llm,
+  messages = [],
+  historyWindow = null,
+  compaction = null
+) {
   if (!llm?.cacheStableHistory) return {};
   if (typeof llm.promptCacheDiagnostics !== "function") return {};
   return {
     promptCacheDiagnostics: llm.promptCacheDiagnostics(messages, {
       historyWindow,
+      compaction,
     }),
   };
 }
@@ -485,9 +491,9 @@ async function chatSync({
 
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
+      systemPrompt,
       userPrompt: message,
-      contextTexts,
+      contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
     },
@@ -496,7 +502,8 @@ async function chatSync({
   const promptCacheDiagnostics = promptCacheDiagnosticsFor(
     LLMConnector,
     messages,
-    historyWindow
+    historyWindow,
+    compaction
   );
 
   // Send the text completion.
@@ -969,9 +976,9 @@ async function streamChat({
 
   const messages = await LLMConnector.compressMessages(
     {
-      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
+      systemPrompt,
       userPrompt: message,
-      contextTexts,
+      contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
     },
@@ -980,7 +987,8 @@ async function streamChat({
   const promptCacheDiagnostics = promptCacheDiagnosticsFor(
     LLMConnector,
     messages,
-    historyWindow
+    historyWindow,
+    compaction
   );
 
   // If streaming is not explicitly enabled for connector

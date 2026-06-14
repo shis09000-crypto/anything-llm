@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
-STATE_FILE="$RUNTIME_DIR/status.env"
+STATE_FILE="$RUNTIME_DIR/status-production.env"
 SERVER_PORT="${SERVER_PORT:-3001}"
 COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
 APP_URL="http://localhost:${SERVER_PORT}"
@@ -366,25 +366,96 @@ open_or_refresh_frontend() {
   open "$url" >/dev/null 2>&1 || log "warning: failed to open browser for $url"
 }
 
-log "stopping existing AnythingLLM processes..."
-SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" bash "$ROOT_DIR/stop-all" --quiet || true
-
-build_frontend_if_needed
-prepare_storage_dirs
-ensure_env_database
-
+SUPERVISOR_LOCK_DIR="$RUNTIME_DIR/supervisor-production.lock"
+SUPERVISOR_LOG="$LOG_DIR/production-supervisor.log"
 SERVER_LOG="$LOG_DIR/production-server.log"
 COLLECTOR_LOG="$LOG_DIR/production-collector.log"
-: >"$SERVER_LOG"
-: >"$COLLECTOR_LOG"
 
-SERVER_PID="$(start_process server "$ROOT_DIR/server" "$SERVER_LOG" yarn start)"
-COLLECTOR_PID="$(start_process collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" yarn start)"
+supervisor_pid_from_lock() {
+  cat "$SUPERVISOR_LOCK_DIR/pid" 2>/dev/null || true
+}
 
-write_state
+supervisor_alive() {
+  local pid
+  pid="$(supervisor_pid_from_lock)"
+  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
+
+cleanup_stale_supervisor_lock() {
+  if [[ -d "$SUPERVISOR_LOCK_DIR" ]] && ! supervisor_alive; then
+    log "removing stale supervisor lock: $SUPERVISOR_LOCK_DIR"
+    rm -rf "$SUPERVISOR_LOCK_DIR"
+  fi
+}
+
+launch_supervisor() {
+  log "starting production supervisor..."
+  : >"$SUPERVISOR_LOG"
+  nohup env \
+    APP_ENV=production \
+    SERVER_PORT="$SERVER_PORT" \
+    COLLECTOR_PORT="$COLLECTOR_PORT" \
+    STORAGE_DIR="$STORAGE_BASE" \
+    bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env production \
+    >/dev/null 2>&1 &
+  SUPERVISOR_PID="$!"
+  sleep 0.75
+  if ! kill -0 "$SUPERVISOR_PID" >/dev/null 2>&1; then
+    log "error: production supervisor exited during startup. Last log lines:"
+    tail -n 80 "$SUPERVISOR_LOG" >&2 2>/dev/null || true
+    exit 1
+  fi
+}
+
+wait_for_supervisor_state() {
+  local attempts=20
+  local count=0
+  while (( count < attempts )); do
+    if [[ -f "$STATE_FILE" ]] && grep -q '^SUPERVISOR_PID=' "$STATE_FILE"; then
+      return 0
+    fi
+    sleep 0.25
+    count=$((count + 1))
+  done
+  log "warning: supervisor state file was not written within 5s"
+  return 1
+}
+
+warn_degraded_components() {
+  local component
+  local label
+  local status
+  local reason
+
+  [[ -f "$STATE_FILE" ]] || return 0
+  for component in SERVER COLLECTOR; do
+    label="$(printf '%s' "$component" | tr '[:upper:]' '[:lower:]')"
+    status="$(sed -n "s/^${component}_STATUS=//p" "$STATE_FILE" | tail -1 | tr -d "'\"")"
+    reason="$(sed -n "s/^${component}_LAST_RESTART_REASON=//p" "$STATE_FILE" | tail -1 | sed 's/\\ / /g' | tr -d "'\"")"
+    if [[ "$status" == "degraded" ]]; then
+      log "warning: $label is degraded: ${reason:-unknown}"
+    fi
+  done
+}
+
+cleanup_stale_supervisor_lock
+if supervisor_alive; then
+  SUPERVISOR_PID="$(supervisor_pid_from_lock)"
+  log "reusing existing production supervisor pid=$SUPERVISOR_PID"
+else
+  log "stopping existing production AnythingLLM processes..."
+  SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" bash "$ROOT_DIR/stop-all" --env production --quiet || true
+  build_frontend_if_needed
+  prepare_storage_dirs
+  ensure_env_database
+  launch_supervisor
+fi
+
+wait_for_supervisor_state || true
 
 wait_for_port server "$SERVER_PORT" 90 || true
 wait_for_port collector "$COLLECTOR_PORT" 60 || true
+warn_degraded_components
 
 open_or_refresh_frontend "production" "$APP_URL"
 
@@ -396,10 +467,11 @@ URL:     $APP_URL
 Bundle:  $(sed -n 's/^commit=//p' "$BUILD_STAMP_FILE" 2>/dev/null | head -1 || printf 'unknown')
 
 Logs:
+supervisor: $SUPERVISOR_LOG
 server:    $SERVER_LOG
 collector: $COLLECTOR_LOG
 
 Useful commands:
 bash ./status
-bash ./stop-all
+bash ./stop-all --env production
 EOF

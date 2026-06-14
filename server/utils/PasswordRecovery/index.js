@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { v4, validate } = require("uuid");
 const { User } = require("../../models/user");
+const { AuthIdentity } = require("../../models/authIdentity");
 const { EventLogs } = require("../../models/eventLogs");
 const {
   RecoveryCode,
@@ -165,10 +166,11 @@ async function sendAndStoreVerification({
   ip,
   language = "",
 }) {
+  const authUserId = await authUserIdForUser(user);
   const code = sixDigitCode();
-  await EmailVerificationCode.expireOpenCodes({ userId: user.id, purpose });
+  await EmailVerificationCode.expireOpenCodes({ userId: authUserId, purpose });
   const { verification, error } = await EmailVerificationCode.create({
-    userId: user.id,
+    userId: authUserId,
     email,
     purpose,
     code,
@@ -205,11 +207,12 @@ async function sendAndStoreVerification({
 }
 
 async function verifyEmailCode({ user, email, purpose, code, ip }) {
+  const authUserId = await authUserIdForUser(user);
   if (!codeIsSixDigits(code))
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.invalidFormat };
 
   const verification = await EmailVerificationCode.latest({
-    userId: user.id,
+    userId: authUserId,
     email,
     purpose,
   });
@@ -243,13 +246,16 @@ async function verifyEmailCode({ user, email, purpose, code, ip }) {
 }
 
 async function generateRecoveryCodes(userId) {
+  const user = await User._get({ id: Number(userId) });
+  const authUserId = await authUserIdForUser(user);
+  if (!authUserId) throw new Error("Failed to resolve auth user.");
   const newRecoveryCodes = [];
   const plainTextCodes = [];
   for (let i = 0; i < 4; i++) {
     const code = v4();
     const hashedCode = bcrypt.hashSync(code, 10);
     newRecoveryCodes.push({
-      user_id: userId,
+      user_id: authUserId,
       code_hash: hashedCode,
     });
     plainTextCodes.push(code);
@@ -267,12 +273,14 @@ async function generateRecoveryCodes(userId) {
 }
 
 async function recoverAccount(username = "", recoveryCodes = []) {
-  const user = await User.get({ username: String(username) });
-  if (!user) return { success: false, error: "Invalid recovery codes." };
+  const identity = await resolveAuthAndShadowByUsername(String(username));
+  if (!identity || !identity.canLogin)
+    return { success: false, error: "Invalid recovery codes." };
+  const recoveryUserId = identity.authUserId;
 
   // If hashes do not exist for a user
   // because this is a user who has not logged out and back in since upgrade.
-  const allUserHashes = await RecoveryCode.hashesForUser(user.id);
+  const allUserHashes = await RecoveryCode.hashesForUser(recoveryUserId);
   if (allUserHashes.length < 4)
     return { success: false, error: "Invalid recovery codes." };
 
@@ -294,7 +302,7 @@ async function recoverAccount(username = "", recoveryCodes = []) {
   if (!validCodes) return { success: false, error: "Invalid recovery codes." };
 
   const { passwordResetToken, error } = await PasswordResetToken.create(
-    user.id
+    recoveryUserId
   );
   if (!!error) return { success: false, error };
   return { success: true, resetToken: passwordResetToken.token };
@@ -305,7 +313,7 @@ async function emailStatus(userId = null) {
   if (!user) return { success: false, error: "User not found." };
 
   const pending = await EmailVerificationCode.latestPendingForUser({
-    userId: user.id,
+    userId: await authUserIdForUser(user),
     purpose: EMAIL_PURPOSES.bindEmail,
   });
   return {
@@ -336,14 +344,15 @@ async function requestAuthenticatedEmailVerification({
   if (!emailSmtpConfigured())
     return { success: false, error: "email_smtp_not_configured" };
 
-  const existing = await User._get({ email: normalizedEmail });
-  if (existing && existing.id !== user.id)
+  const authUserId = await authUserIdForUser(user);
+  const existing = await safeFindAuthIdentity(normalizedEmail);
+  if (existing && existing.id !== authUserId)
     return { success: false, error: "Email is already bound to another user." };
-  if (existing?.id === user.id && existing.email_verified_at)
+  if (existing && existing.id === authUserId && existing.email_verified_at)
     return { success: false, error: "Email is already verified." };
 
   const latest = await EmailVerificationCode.latest({
-    userId: user.id,
+    userId: authUserId,
     email: normalizedEmail,
     purpose: EMAIL_PURPOSES.bindEmail,
   });
@@ -387,8 +396,9 @@ async function confirmAuthenticatedEmailVerification({
   if (!validEmail(normalizedEmail))
     return { success: false, error: "Invalid email address." };
 
-  const existing = await User._get({ email: normalizedEmail });
-  if (existing && existing.id !== user.id)
+  const authUserId = await authUserIdForUser(user);
+  const existing = await safeFindAuthIdentity(normalizedEmail);
+  if (existing && existing.id !== authUserId)
     return { success: false, error: "Email is already bound to another user." };
 
   const verified = await verifyEmailCode({
@@ -454,18 +464,19 @@ async function requestEmailPasswordReset({
     return generic;
   if (!validEmail(normalizedEmail) || !normalizedUsername) return generic;
 
-  const user = await User._get({ username: normalizedUsername });
+  const identity = await resolveAuthAndShadowByUsername(normalizedUsername);
   if (
-    !user ||
-    user.suspended ||
-    user.email !== normalizedEmail ||
-    !user.email_verified_at ||
+    !identity ||
+    !identity.canLogin ||
+    identity.user.email !== normalizedEmail ||
+    !identity.user.email_verified_at ||
     !emailSmtpConfigured()
   )
     return generic;
+  const user = identity.user;
 
   const latest = await EmailVerificationCode.latest({
-    userId: user.id,
+    userId: identity.authUserId,
     email: normalizedEmail,
     purpose: EMAIL_PURPOSES.passwordReset,
   });
@@ -495,14 +506,15 @@ async function confirmEmailPasswordReset({
 }) {
   const normalizedUsername = String(username || "").trim();
   const normalizedEmail = normalizeEmail(email);
-  const user = await User._get({ username: normalizedUsername });
+  const identity = await resolveAuthAndShadowByUsername(normalizedUsername);
   if (
-    !user ||
-    user.suspended ||
-    user.email !== normalizedEmail ||
-    !user.email_verified_at
+    !identity ||
+    !identity.canLogin ||
+    identity.user.email !== normalizedEmail ||
+    !identity.user.email_verified_at
   )
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.mismatch };
+  const user = identity.user;
 
   const verified = await verifyEmailCode({
     user,
@@ -514,7 +526,7 @@ async function confirmEmailPasswordReset({
   if (!verified.success) return verified;
 
   const { passwordResetToken, error } = await PasswordResetToken.create(
-    user.id
+    identity.authUserId
   );
   if (error) return { success: false, error };
   return { success: true, resetToken: passwordResetToken.token };
@@ -534,36 +546,90 @@ async function resetPassword(token, _newPassword = "", confirmPassword = "") {
   }
 
   // JOI password rules will be enforced inside .update.
-  const { error } = await User.update(resetToken.user_id, {
+  const authUser = await AuthIdentity.findById(resetToken.user_id);
+  if (!authUser || !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
+    return { success: false, message: "Invalid reset token" };
+  }
+  const user = await AuthIdentity.ensureShadowUser(authUser);
+  if (!user) return { success: false, message: "Invalid reset token" };
+
+  const { error } = await User.update(user.id, {
     password: newPassword,
   });
 
   // seen_recovery_codes is not publicly writable
   // so we have to do direct update here
-  await User._update(resetToken.user_id, {
+  await User._update(user.id, {
     seen_recovery_codes: false,
   });
 
   if (error) return { success: false, message: error };
   await PasswordResetToken.deleteMany({ user_id: resetToken.user_id });
   await RecoveryCode.deleteMany({ user_id: resetToken.user_id });
-  const user = await User._get({ id: resetToken.user_id });
+  const updatedUser = await User._get({ id: user.id });
   await EventLogs.logEvent(
     "password_reset_succeeded",
     {
-      username: user?.username || null,
-      email: maskedEmail(user?.email || ""),
+      username: updatedUser?.username || null,
+      email: maskedEmail(updatedUser?.email || ""),
     },
-    resetToken.user_id
+    user.id
   );
   await sendSecurityNotice(
-    user,
+    updatedUser,
     "Athena 安全通知：密码已重置",
     "你的 Athena 账号密码刚刚被重置。如果这不是你本人操作，请立即联系管理员。"
   );
 
   // New codes are provided on first new login.
   return { success: true, message: "Password reset successful" };
+}
+
+async function authUserIdForUser(user = null) {
+  if (!user) return null;
+  if (user.authUserId) return Number(user.authUserId);
+  const shadow = user.id ? await User._get({ id: Number(user.id) }) : null;
+  if (shadow?.authUserId) return Number(shadow.authUserId);
+  const authUser = await safeBootstrapAuthUserFromShadow(shadow || user);
+  return authUser?.id || (user.id ? Number(user.id) : null);
+}
+
+async function resolveAuthAndShadowByUsername(username = "") {
+  const authUser = await safeFindAuthIdentity(username);
+  if (authUser) {
+    const user = await AuthIdentity.ensureShadowUser(authUser);
+    return {
+      authUser,
+      user,
+      authUserId: authUser.id,
+      canLogin: await AuthIdentity.canLoginInCurrentEnvAsync(authUser),
+    };
+  }
+
+  const user = await User._get({ username });
+  if (!user) return null;
+  return {
+    authUser: null,
+    user,
+    authUserId: await authUserIdForUser(user),
+    canLogin: !user.suspended,
+  };
+}
+
+async function safeFindAuthIdentity(identifier = "") {
+  try {
+    return await AuthIdentity.findByLoginIdentifier(identifier);
+  } catch (error) {
+    return null;
+  }
+}
+
+async function safeBootstrapAuthUserFromShadow(user = null) {
+  try {
+    return await AuthIdentity.bootstrapAuthUserFromShadow(user);
+  } catch (error) {
+    return null;
+  }
 }
 
 module.exports = {

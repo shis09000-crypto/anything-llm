@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const { ApiKey } = require("../models/apiKeys");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const { Document } = require("../models/documents");
@@ -5,18 +6,40 @@ const { EventLogs } = require("../models/eventLogs");
 const { Invite } = require("../models/invite");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
+const { AuthIdentity } = require("../models/authIdentity");
 const { DocumentVectors } = require("../models/vectors");
 const { Workspace } = require("../models/workspace");
 const { WorkspaceChats } = require("../models/workspaceChats");
+const prisma = require("../utils/prisma");
 const {
   getVectorDbClass,
   getEmbeddingEngineSelection,
 } = require("../utils/helpers");
 const {
+  forceSecondaryOwnerOnPromotion,
   validRoleSelection,
   canModifyAdmin,
   validCanModify,
 } = require("../utils/helpers/admin");
+const authPrisma = require("../utils/authPrisma");
+const {
+  ROLES: ACCOUNT_ROLES,
+  OWNER_TYPES,
+  assertOwnerCap,
+  assertOwnerHierarchyMutationAllowed,
+  assertOwnerWillRemain,
+  assertOwnerWillRemainAfterMutation,
+  assertBanAllowed,
+  assertUnbanAllowed,
+  canCreateRole,
+  normalizeRole,
+  deriveRoleDefaults,
+} = require("../utils/authz/accountRoles");
+const { AccountDeletionService } = require("../utils/accountDeletion");
+const {
+  validateReauthToken,
+  consumeReauthToken,
+} = require("../utils/authz/reauthTokens");
 const { reqBody, userFromSession, safeJsonParse } = require("../utils/http");
 const {
   strictMultiUserRoleValid,
@@ -34,7 +57,7 @@ function adminEndpoints(app) {
 
   app.get(
     "/admin/users",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (_request, response) => {
       try {
         const users = await User.where();
@@ -48,11 +71,18 @@ function adminEndpoints(app) {
 
   app.post(
     "/admin/users/new",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const currUser = await userFromSession(request, response);
         const newUserParams = reqBody(request);
+        if (normalizeRole(newUserParams.role) === ACCOUNT_ROLES.owner) {
+          response.status(200).json({
+            user: null,
+            error: "Owner can only be granted from user edit.",
+          });
+          return;
+        }
         const roleValidation = validRoleSelection(currUser, newUserParams);
 
         if (!roleValidation.valid) {
@@ -84,7 +114,7 @@ function adminEndpoints(app) {
 
   app.post(
     "/admin/user/:id",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const currUser = await userFromSession(request, response);
@@ -98,7 +128,9 @@ function adminEndpoints(app) {
           return;
         }
 
-        const roleValidation = validRoleSelection(currUser, updates);
+        const roleValidation = validRoleSelection(currUser, updates, {
+          allowOwner: true,
+        });
         if (!roleValidation.valid) {
           response
             .status(200)
@@ -106,7 +138,25 @@ function adminEndpoints(app) {
           return;
         }
 
-        const validAdminRoleModification = await canModifyAdmin(user, updates);
+        forceSecondaryOwnerOnPromotion(user, updates);
+        if (
+          Object.prototype.hasOwnProperty.call(updates, "role") &&
+          normalizeRole(updates.role) !== ACCOUNT_ROLES.owner
+        ) {
+          updates.ownerType = null;
+        } else if (
+          normalizeRole(updates.role) === ACCOUNT_ROLES.owner &&
+          normalizeRole(user?.role) !== ACCOUNT_ROLES.owner &&
+          !updates.ownerType
+        ) {
+          updates.ownerType = OWNER_TYPES.secondary;
+        }
+
+        const validAdminRoleModification = await canModifyAdmin(
+          user,
+          updates,
+          currUser
+        );
         if (!validAdminRoleModification.valid) {
           response
             .status(200)
@@ -123,42 +173,198 @@ function adminEndpoints(app) {
     }
   );
 
+  const deleteAdminUser = async (request, response) => {
+    try {
+      const currUser = await userFromSession(request, response);
+      const { id } = request.params;
+      const user = await User._get({ id: Number(id) });
+      const { confirm, reauthToken } = reqBody(request) || {};
+
+      if (!user) {
+        response.status(404).json({ success: false, error: "User not found" });
+        return;
+      }
+
+      const reauth = validateReauthToken(reauthToken, currUser.id);
+      if (!reauth) {
+        response.status(401).json({
+          success: false,
+          error: "请先完成安全验证。",
+        });
+        return;
+      }
+
+      const result = await AccountDeletionService.execute({
+        actor: currUser,
+        target: user,
+        confirm: Boolean(confirm),
+        reauthToken,
+        mode: "owner_delete",
+      });
+      if (result.success) consumeReauthToken(reauthToken);
+      response.status(result.success ? 200 : 400).json(result);
+    } catch (e) {
+      console.error(e);
+      response
+        .status(500)
+        .json({ success: false, error: e.message || "Failed to delete user" });
+    }
+  };
+
   app.delete(
     "/admin/user/:id",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
+    deleteAdminUser
+  );
+
+  app.delete(
+    "/admin/users/:id",
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
+    deleteAdminUser
+  );
+
+  app.get(
+    "/admin/users/:id/delete-preview",
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const currUser = await userFromSession(request, response);
-        const { id } = request.params;
-        const user = await User.get({ id: Number(id) });
-
-        const canModify = validCanModify(currUser, user);
-        if (!canModify.valid) {
-          response.status(200).json({ success: false, error: canModify.error });
+        const user = await User._get({ id: Number(request.params.id) });
+        if (!user) {
+          response.status(404).json({ success: false, error: "User not found" });
           return;
         }
+        const preview = await AccountDeletionService.preview({
+          actor: currUser,
+          target: user,
+          mode: "owner_delete",
+        });
+        response.status(200).json({ success: true, preview });
+      } catch (error) {
+        response.status(400).json({
+          success: false,
+          error: error.message || "无法生成删除预览。",
+        });
+      }
+    }
+  );
 
-        await BrowserExtensionApiKey.deleteAllForUser(Number(id));
-        await User.delete({ id: Number(id) });
+  app.post(
+    "/admin/users/:id/ban",
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
+    async (request, response) => {
+      try {
+        const actor = await userFromSession(request, response);
+        const target = await User._get({ id: Number(request.params.id) });
+        if (!target?.authUserId) {
+          response.status(404).json({ success: false, error: "User not found" });
+          return;
+        }
+        const actorAuth = await AuthIdentity.findById(actor.authUserId);
+        const targetAuth = await AuthIdentity.findById(target.authUserId);
+        assertBanAllowed(actorAuth, targetAuth);
+        await assertOwnerWillRemainAfterMutation({
+          authPrisma,
+          targetAuthUserId: targetAuth.id,
+          env: process.env.APP_ENV || "development",
+          nextStatus: "disabled",
+          nextSuspended: 1,
+          nextAllowedEnvs: [],
+        });
+
+        const disabled = { status: "disabled", allowedEnvs: "[]", suspended: 1 };
+        await authPrisma.users.update({
+          where: { id: targetAuth.id },
+          data: disabled,
+        });
+        await prisma.users.update({
+          where: { id: target.id },
+          data: disabled,
+        });
         await EventLogs.logEvent(
-          "user_deleted",
+          "account_banned",
           {
-            userName: user.username,
-            deletedBy: currUser.username,
+            authUserIdHash: hashId(targetAuth.id),
+            actorRole: actorAuth?.role,
+            reason: safeAuditText(reqBody(request)?.reason),
           },
-          currUser.id
+          actor.id
         );
         response.status(200).json({ success: true, error: null });
-      } catch (e) {
-        console.error(e);
-        response.sendStatus(500).end();
+      } catch (error) {
+        response.status(400).json({
+          success: false,
+          error: error.message || "封禁账号失败。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/admin/users/:id/unban",
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
+    async (request, response) => {
+      try {
+        const actor = await userFromSession(request, response);
+        const target = await User._get({ id: Number(request.params.id) });
+        if (!target?.authUserId) {
+          response.status(404).json({ success: false, error: "User not found" });
+          return;
+        }
+        const body = reqBody(request) || {};
+        const restoreRole = normalizeRole(body.restoreRole || target.role);
+        const restoreAllowedEnvs = body.restoreAllowedEnvs || undefined;
+        const actorAuth = await AuthIdentity.findById(actor.authUserId);
+        const targetAuth = await AuthIdentity.findById(target.authUserId);
+        assertUnbanAllowed(actorAuth, targetAuth, { restoreRole });
+        const roleDefaults = deriveRoleDefaults({
+          role: restoreRole,
+          status: "active",
+          allowedEnvs: restoreAllowedEnvs,
+          ownerType: targetAuth.ownerType,
+          username: targetAuth.username,
+          email: targetAuth.email,
+        });
+        await assertOwnerWillRemainAfterMutation({
+          authPrisma,
+          targetAuthUserId: targetAuth.id,
+          env: process.env.APP_ENV || "development",
+          nextRole: roleDefaults.role,
+          nextStatus: roleDefaults.status,
+          nextAllowedEnvs: roleDefaults.allowedEnvs,
+          nextSuspended: roleDefaults.suspended,
+        });
+
+        await authPrisma.users.update({
+          where: { id: targetAuth.id },
+          data: roleDefaults,
+        });
+        await prisma.users.update({
+          where: { id: target.id },
+          data: roleDefaults,
+        });
+        await EventLogs.logEvent(
+          "account_unbanned",
+          {
+            authUserIdHash: hashId(targetAuth.id),
+            actorRole: actorAuth?.role,
+            restoreRole: roleDefaults.role,
+          },
+          actor.id
+        );
+        response.status(200).json({ success: true, error: null });
+      } catch (error) {
+        response.status(400).json({
+          success: false,
+          error: error.message || "解除封禁失败。",
+        });
       }
     }
   );
 
   app.get(
     "/admin/invites",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (_request, response) => {
       try {
         const invites = await Invite.whereWithUsers();
@@ -174,23 +380,45 @@ function adminEndpoints(app) {
     "/admin/invite/new",
     [
       validatedRequest,
-      strictMultiUserRoleValid([ROLES.admin, ROLES.manager]),
+      strictMultiUserRoleValid([ROLES.admin]),
       simpleSSOLoginDisabledMiddleware,
     ],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
         const body = reqBody(request);
+        const role = normalizeRole(body?.role || ACCOUNT_ROLES.user);
+        if (role === ACCOUNT_ROLES.owner) {
+          response.status(200).json({
+            invite: null,
+            error:
+              "Owner invites are disabled. Promote an existing account from user edit.",
+          });
+          return;
+        }
+        if (!canCreateRole(user, role)) {
+          response.status(200).json({
+            invite: null,
+            error: "Invalid role selection for user.",
+          });
+          return;
+        }
         const { invite, error } = await Invite.create({
           createdByUserId: user.id,
+          role,
+          expiresInHours: body?.expiresInHours || 24,
           workspaceIds: body?.workspaceIds || [],
         });
 
         await EventLogs.logEvent(
-          "invite_created",
+          role === ACCOUNT_ROLES.user
+            ? "invite_created"
+            : "admin_invite_created",
           {
-            inviteCode: invite.code,
+            inviteId: invite?.id || null,
+            role,
             createdBy: response.locals?.user?.username,
+            expiresAt: invite?.expiresAt || null,
           },
           response.locals?.user?.id
         );
@@ -204,14 +432,20 @@ function adminEndpoints(app) {
 
   app.delete(
     "/admin/invite/:id",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { id } = request.params;
-        const { success, error } = await Invite.deactivate(id);
+        const { success, error, invite } = await Invite.deactivate(id);
         await EventLogs.logEvent(
-          "invite_deleted",
-          { deletedBy: response.locals?.user?.username },
+          normalizeRole(invite?.role) === ACCOUNT_ROLES.user
+            ? "invite_deleted"
+            : "admin_invite_revoked",
+          {
+            inviteId: Number(id),
+            role: invite?.role || null,
+            deletedBy: response.locals?.user?.username,
+          },
           response.locals?.user?.id
         );
         response.status(200).json({ success, error });
@@ -224,7 +458,7 @@ function adminEndpoints(app) {
 
   app.get(
     "/admin/workspaces",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (_request, response) => {
       try {
         const workspaces = await Workspace.whereWithUsers();
@@ -238,7 +472,7 @@ function adminEndpoints(app) {
 
   app.get(
     "/admin/workspaces/:workspaceId/users",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { workspaceId } = request.params;
@@ -253,7 +487,7 @@ function adminEndpoints(app) {
 
   app.post(
     "/admin/workspaces/new",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
@@ -272,7 +506,7 @@ function adminEndpoints(app) {
 
   app.post(
     "/admin/workspaces/:workspaceId/update-users",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { workspaceId } = request.params;
@@ -291,7 +525,7 @@ function adminEndpoints(app) {
 
   app.delete(
     "/admin/workspaces/:id",
-    [validatedRequest, strictMultiUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { id } = request.params;
@@ -323,10 +557,9 @@ function adminEndpoints(app) {
   // System preferences but only by array of labels
   app.get(
     "/admin/system-preferences-for",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
-        const user = await userFromSession(request, response);
         const requestedSettings = {};
         const labels = request.query.labels?.split(",") || [];
         const needEmbedder = [
@@ -342,27 +575,9 @@ function adminEndpoints(app) {
           "meta_page_favicon",
         ];
 
-        // Managers can only read a limited set of settings.
-        // These match the ManagerRoute pages in the frontend.
-        const managerAllowedFields = [
-          "custom_app_name",
-          "footer_data",
-          "support_email",
-          "meta_page_title",
-          "meta_page_favicon",
-          "button_lab_app_icon_params",
-        ];
-
         for (const label of labels) {
           // Skip any settings that are not explicitly defined as public
           if (!SystemSettings.publicFields.includes(label)) continue;
-
-          // Managers can only read manager-allowed fields
-          if (
-            user?.role === ROLES.manager &&
-            !managerAllowedFields.includes(label)
-          )
-            continue;
 
           // Only get the embedder if the setting actually needs it
           let embedder = needEmbedder.includes(label)
@@ -444,6 +659,11 @@ function adminEndpoints(app) {
             case "button_lab_app_icon_params":
               requestedSettings[label] = setting?.value || null;
               break;
+            case "allow_public_registration":
+              requestedSettings[label] = String(
+                await SystemSettings.allowPublicRegistration()
+              );
+              break;
             default:
               break;
           }
@@ -459,32 +679,10 @@ function adminEndpoints(app) {
 
   app.post(
     "/admin/system-preferences",
-    [validatedRequest, flexUserRoleValid([ROLES.admin, ROLES.manager])],
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
-        const user = await userFromSession(request, response);
         let updates = reqBody(request);
-
-        // Managers can only update a limited set of settings.
-        // These match the ManagerRoute pages in the frontend.
-        // Admin users can update all supportedFields without restriction.
-        if (user?.role === ROLES.manager) {
-          const managerAllowedFields = [
-            "custom_app_name",
-            "footer_data",
-            "support_email",
-            "meta_page_title",
-            "meta_page_favicon",
-            "button_lab_app_icon_params",
-          ];
-          const filteredUpdates = {};
-          for (const key of Object.keys(updates)) {
-            if (managerAllowedFields.includes(key)) {
-              filteredUpdates[key] = updates[key];
-            }
-          }
-          updates = filteredUpdates;
-        }
 
         const result = await SystemSettings.updateSettings(updates);
         const fileAccessKeys = [
@@ -501,7 +699,7 @@ function adminEndpoints(app) {
               ),
               mode: updates.file_access_default_mode || null,
             },
-            user?.id
+            response.locals?.user?.id
           );
         }
         response.status(200).json(result);
@@ -577,6 +775,15 @@ function adminEndpoints(app) {
       }
     }
   );
+}
+
+function hashId(value) {
+  if (!value) return null;
+  return crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+}
+
+function safeAuditText(value = "") {
+  return String(value || "").replace(/[<>]/g, "").slice(0, 160);
 }
 
 module.exports = { adminEndpoints };

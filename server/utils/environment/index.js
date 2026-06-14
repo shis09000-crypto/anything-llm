@@ -70,6 +70,21 @@ function databasePath() {
   return storagePath("anythingllm.db");
 }
 
+function authDatabasePath() {
+  if (process.env.AUTH_DATABASE_URL) return null;
+  return path.join(storageBaseDir(), "shared", "auth.db");
+}
+
+function authDatabaseUrl() {
+  if (process.env.AUTH_DATABASE_URL) return process.env.AUTH_DATABASE_URL;
+  const dbPath = authDatabasePath();
+  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const url = new URL(`file:${dbPath}`);
+  url.searchParams.set("connection_limit", "1");
+  url.searchParams.set("pool_timeout", "10");
+  return url.toString();
+}
+
 function vectorNamespacePrefix() {
   return `${appEnvironment()}__`;
 }
@@ -130,6 +145,10 @@ function diagnosticSummary() {
     nodeEnv: process.env.NODE_ENV || null,
     storageRoot: storageRoot(),
     database: { path: databasePath() },
+    authDatabase: {
+      path: authDatabasePath(),
+      urlConfigured: Boolean(process.env.AUTH_DATABASE_URL),
+    },
     vectorStore: vectorStoreSummary(),
     documents: { path: paths.documents },
     readerDocuments: { path: paths.readerDocuments },
@@ -155,6 +174,8 @@ function diagnosticSummary() {
 module.exports = {
   appEnvironment,
   applyEnvironmentStorage,
+  authDatabasePath,
+  authDatabaseUrl,
   databasePath,
   diagnosticSummary,
   ensureStoragePath,

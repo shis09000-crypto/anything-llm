@@ -93,6 +93,12 @@ export async function removeLocalZkDevice(deviceId) {
   window.localStorage.setItem(ZK_LOGIN_DEVICE_INDEX, JSON.stringify(index));
 }
 
+export async function clearLocalZkDevices() {
+  const db = await openDb();
+  await storeRequest(db, DEVICE_STORE, "readwrite", (store) => store.clear());
+  window.localStorage.removeItem(ZK_LOGIN_DEVICE_INDEX);
+}
+
 export function localDeviceIndex() {
   return safeJsonParse(window.localStorage.getItem(ZK_LOGIN_DEVICE_INDEX), []);
 }

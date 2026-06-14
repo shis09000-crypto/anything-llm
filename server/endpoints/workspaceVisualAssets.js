@@ -75,7 +75,7 @@ function workspaceVisualAssetEndpoints(app) {
     "/workspace/:slug/visual-assets/upload",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
       handleImageUpload,
     ],
@@ -156,7 +156,7 @@ function workspaceVisualAssetEndpoints(app) {
     "/workspace/:slug/visual-assets/:id",
     [
       validatedRequest,
-      flexUserRoleValid([ROLES.admin, ROLES.manager]),
+      flexUserRoleValid([ROLES.all]),
       validWorkspaceSlug,
     ],
     async (request, response) => {

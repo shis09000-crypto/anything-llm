@@ -1,4 +1,3 @@
-import useUser from "@/hooks/useUser";
 import paths from "@/utils/paths";
 import { ArrowUUpLeft, Wrench } from "@phosphor-icons/react";
 import { Link } from "react-router-dom";
@@ -8,9 +7,6 @@ import { useTranslation } from "react-i18next";
 export default function SettingsButton() {
   const { t } = useTranslation();
   const isInSettings = !!useMatch("/settings/*");
-  const { user } = useUser();
-
-  if (user && user?.role === "default") return null;
 
   if (isInSettings)
     return (

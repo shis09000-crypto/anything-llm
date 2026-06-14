@@ -13,6 +13,7 @@ import {
 import Workspace from "@/models/workspace";
 import System from "@/models/system";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
+import { canSeeAdmin } from "@/utils/authz";
 
 function fetchModelName(slug, setModelName) {
   if (!slug) return;
@@ -75,7 +76,7 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
   }, []);
 
   // This feature is disabled for multi-user instances where the user is not an admin
-  if (!!user && user.role !== "admin") return null;
+  if (!!user && !canSeeAdmin(user)) return null;
   if (!slug || isMobile) return null;
 
   return (

@@ -1,6 +1,18 @@
 const { Prisma } = require("@prisma/client");
 const prisma = require("../utils/prisma");
 const { EventLogs } = require("./eventLogs");
+const { AuthIdentity } = require("./authIdentity");
+const { appEnvironment } = require("../utils/environment");
+const {
+  ROLES,
+  assertValidRole,
+  capabilitiesFor,
+  deriveRoleDefaults,
+  normalizeAllowedEnvs,
+  normalizeOwnerType,
+  normalizeRole,
+  normalizeStatus,
+} = require("../utils/authz/accountRoles");
 
 /**
  * @typedef {Object} User
@@ -14,7 +26,7 @@ const { EventLogs } = require("./eventLogs");
  */
 
 const User = {
-  usernameRegex: new RegExp(/^[a-z][a-z0-9._@-]*$/),
+  usernameRegex: new RegExp(/^[A-Za-z0-9_-]+$/),
   writable: [
     // Used for generic updates so we can validate keys in request body
     "username",
@@ -22,42 +34,60 @@ const User = {
     "password",
     "pfpFilename",
     "role",
+    "status",
+    "allowedEnvs",
+    "ownerType",
     "suspended",
     "dailyMessageLimit",
     "bio",
+    "email",
+    "email_verified_at",
+    "phone",
+    "phone_verified_at",
   ],
   validations: {
     /**
-     * Unix-style username regex:
-     * - Must start with a lowercase letter
-     * - Can contain lowercase letters, digits, underscores, hyphens, @ signs, and periods
-     * - 2-32 characters long
+     * Account name used for login:
+     * - Letters, digits, underscores, and hyphens only
+     * - 3-32 characters long
      */
     username: (newValue = "") => {
       try {
-        const username = String(newValue);
+        const username = String(newValue || "").trim();
         if (username.length > 32)
           throw new Error("Username cannot be longer than 32 characters");
-        if (username.length < 2)
-          throw new Error("Username must be at least 2 characters");
+        if (username.length < 3)
+          throw new Error("Username must be at least 3 characters");
         if (!User.usernameRegex.test(username))
           throw new Error(
-            "Username must start with a lowercase letter and only contain lowercase letters, numbers, underscores, hyphens, and periods"
+            "Username can only contain letters, numbers, underscores, and hyphens"
           );
         return username;
       } catch (e) {
         throw new Error(e.message);
       }
     },
-    role: (role = "default") => {
-      const VALID_ROLES = ["default", "admin", "manager"];
-      if (!VALID_ROLES.includes(role)) {
-        throw new Error(
-          `Invalid role. Allowed roles are: ${VALID_ROLES.join(", ")}`
-        );
+    role: (role = ROLES.user) => {
+      const raw = String(role || ROLES.user)
+        .trim()
+        .toLowerCase();
+      if (
+        !["default", "manager"].includes(raw) &&
+        !["disabled", "user", "developer", "admin", "owner"].includes(raw)
+      ) {
+        assertValidRole(raw);
       }
-      return String(role);
+      const normalized = normalizeRole(raw);
+      assertValidRole(normalized);
+      return normalized;
     },
+    status: (status = "active") => {
+      return normalizeStatus(status);
+    },
+    allowedEnvs: (allowedEnvs = null, role = ROLES.user) => {
+      return JSON.stringify(normalizeAllowedEnvs(allowedEnvs, role));
+    },
+    ownerType: (ownerType = null) => normalizeOwnerType(ownerType),
     dailyMessageLimit: (dailyMessageLimit = null) => {
       if (dailyMessageLimit === null) return null;
       const limit = Number(dailyMessageLimit);
@@ -101,7 +131,14 @@ const User = {
       web_push_subscription_config: _web_push_subscription_config,
       ...rest
     } = user;
-    return { ...rest };
+    return {
+      ...rest,
+      role: normalizeRole(rest.role),
+      status: normalizeStatus(rest.status, rest.role, rest.suspended),
+      allowedEnvs: normalizeAllowedEnvs(rest.allowedEnvs, rest.role),
+      ownerType: normalizeOwnerType(rest.ownerType, rest.role, rest),
+      capabilities: capabilitiesFor(rest),
+    };
   },
   _identifyErrorAndFormatMessage: function (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError) {
@@ -117,9 +154,17 @@ const User = {
   create: async function ({
     username,
     password,
-    role = "default",
+    role = ROLES.user,
+    status = null,
+    allowedEnvs = null,
     dailyMessageLimit = null,
     bio = "",
+    email = null,
+    emailVerifiedAt = null,
+    phone = null,
+    phoneVerifiedAt = null,
+    originEnv = appEnvironment(),
+    ownerType = null,
   }) {
     const passwordCheck = this.checkPasswordComplexity(password);
     if (!passwordCheck.checkedOK) {
@@ -132,15 +177,57 @@ const User = {
 
       const bcrypt = require("bcryptjs");
       const hashedPassword = bcrypt.hashSync(password, 10);
+      const displayName = this.validations.displayName(username);
+      const normalizedEmail = email ? AuthIdentity.normalizeEmail(email) : null;
+      const normalizedPhone = phone ? AuthIdentity.normalizePhone(phone) : null;
+      const roleDefaults = deriveRoleDefaults({
+        role,
+        status,
+        allowedEnvs,
+        originEnv,
+        ownerType,
+        username: validatedUsername,
+        email: normalizedEmail,
+      });
+      const validatedRole = this.validations.role(roleDefaults.role);
+      const validatedBio = this.validations.bio(bio);
+      const validatedDailyMessageLimit =
+        this.validations.dailyMessageLimit(dailyMessageLimit);
+      const authUser = await AuthIdentity.createAuthUser({
+        username: validatedUsername,
+        displayName,
+        passwordHash: hashedPassword,
+        role: validatedRole,
+        status: roleDefaults.status,
+        allowedEnvs: roleDefaults.allowedEnvs,
+        ownerType: roleDefaults.ownerType,
+        bio: validatedBio,
+        email: normalizedEmail,
+        emailVerifiedAt,
+        phone: normalizedPhone,
+        phoneVerifiedAt,
+        dailyMessageLimit: validatedDailyMessageLimit,
+        originEnv: roleDefaults.originEnv,
+      });
+
       const user = await prisma.users.create({
         data: {
+          authUserId: authUser.id,
+          originEnv: AuthIdentity.normalizeOriginEnv(roleDefaults.originEnv),
           username: validatedUsername,
-          displayName: this.validations.displayName(username),
+          displayName,
           password: hashedPassword,
-          role: this.validations.role(role),
-          bio: this.validations.bio(bio),
-          dailyMessageLimit:
-            this.validations.dailyMessageLimit(dailyMessageLimit),
+          role: validatedRole,
+          status: roleDefaults.status,
+          allowedEnvs: roleDefaults.allowedEnvs,
+          ownerType: roleDefaults.ownerType,
+          suspended: roleDefaults.suspended,
+          bio: validatedBio,
+          ...(normalizedEmail ? { email: normalizedEmail } : {}),
+          ...(emailVerifiedAt ? { email_verified_at: emailVerifiedAt } : {}),
+          ...(normalizedPhone ? { phone: normalizedPhone } : {}),
+          ...(phoneVerifiedAt ? { phone_verified_at: phoneVerifiedAt } : {}),
+          dailyMessageLimit: validatedDailyMessageLimit,
         },
       });
       return { user: this.filterFields(user), error: null };
@@ -198,6 +285,31 @@ const User = {
       if (Object.keys(updates).length === 0)
         return { success: false, error: "No valid updates applied." };
 
+      if (
+        Object.prototype.hasOwnProperty.call(updates, "role") ||
+        Object.prototype.hasOwnProperty.call(updates, "status") ||
+        Object.prototype.hasOwnProperty.call(updates, "allowedEnvs") ||
+        Object.prototype.hasOwnProperty.call(updates, "ownerType") ||
+        Object.prototype.hasOwnProperty.call(updates, "suspended")
+      ) {
+        const roleDefaults = deriveRoleDefaults({
+          role: updates.role ?? currentUser.role,
+          status: updates.status ?? currentUser.status,
+          originEnv: updates.originEnv ?? currentUser.originEnv,
+          allowedEnvs: updates.allowedEnvs ?? currentUser.allowedEnvs,
+          suspended: updates.suspended ?? currentUser.suspended,
+          ownerType: updates.ownerType ?? currentUser.ownerType,
+          username: updates.username ?? currentUser.username,
+          email: updates.email ?? currentUser.email,
+        });
+        updates.role = roleDefaults.role;
+        updates.status = roleDefaults.status;
+        updates.allowedEnvs = roleDefaults.allowedEnvs;
+        updates.ownerType = roleDefaults.ownerType;
+        updates.suspended = roleDefaults.suspended;
+        updates.originEnv = roleDefaults.originEnv;
+      }
+
       // Handle password specific updates
       if (updates.hasOwnProperty("password")) {
         const passwordCheck = this.checkPasswordComplexity(updates.password);
@@ -212,6 +324,8 @@ const User = {
         where: { id: parseInt(userId) },
         data: updates,
       });
+      if (user.authUserId)
+        await AuthIdentity.updateAuthUser(user.authUserId, updates);
 
       await EventLogs.logEvent(
         "user_updated",
@@ -247,6 +361,8 @@ const User = {
         where: { id },
         data,
       });
+      if (user.authUserId)
+        await AuthIdentity.updateAuthUser(user.authUserId, data);
       return { user, message: null };
     } catch (error) {
       console.error(error.message);
@@ -372,8 +488,11 @@ const User = {
    * @returns {Promise<boolean>} True if the user can send a chat, false otherwise.
    */
   canSendChat: async function (user) {
-    const { ROLES } = require("../utils/middleware/multiUserProtected");
-    if (!user || user.dailyMessageLimit === null || user.role === ROLES.admin)
+    if (
+      !user ||
+      user.dailyMessageLimit === null ||
+      [ROLES.admin, ROLES.owner].includes(normalizeRole(user.role))
+    )
       return true;
 
     const { WorkspaceChats } = require("./workspaceChats");

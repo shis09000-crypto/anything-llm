@@ -30,8 +30,11 @@ jest.mock("../../../utils/helpers/chat/LLMPerformanceMonitor", () => ({
 
 const {
   DeepSeekLLM,
+  deepSeekCacheDiagnosis,
   deepSeekPromptFingerprint,
   deepSeekPromptShape,
+  deepSeekPromptCacheDiagnostics,
+  withDeepSeekCacheDiagnosis,
 } = require("../../../utils/AiProviders/deepseek");
 
 describe("DeepSeekLLM", () => {
@@ -282,5 +285,168 @@ describe("DeepSeekLLM", () => {
         prompt_cache_hit_rate: 0.8,
       })
     );
+  });
+
+  it("diagnoses stable high-hit cache requests without leaking content", () => {
+    const previousMetrics = {
+      model: "deepseek-v4-pro",
+      prompt_cache_hit_tokens: 90,
+      prompt_cache_miss_tokens: 10,
+      prompt_cache_hit_rate: 0.9,
+      promptCacheDiagnostics: deepSeekPromptCacheDiagnostics({
+        provider: "DeepSeekLLM",
+        model: "deepseek-v4-pro",
+        providerPath: "workspace-chat",
+        messages: [
+          { role: "system", content: "secret stable system" },
+          { role: "user", content: "secret current one" },
+        ],
+      }),
+    };
+    const metrics = {
+      model: "deepseek-v4-pro",
+      prompt_cache_hit_tokens: 95,
+      prompt_cache_miss_tokens: 5,
+      prompt_cache_hit_rate: 0.95,
+      promptCacheDiagnostics: deepSeekPromptCacheDiagnostics({
+        provider: "DeepSeekLLM",
+        model: "deepseek-v4-pro",
+        providerPath: "workspace-chat",
+        messages: [
+          { role: "system", content: "secret stable system" },
+          { role: "user", content: "secret current two" },
+        ],
+      }),
+    };
+
+    const result = withDeepSeekCacheDiagnosis(metrics, previousMetrics);
+
+    expect(result.cacheDiagnosis).toEqual(
+      expect.objectContaining({
+        reason: "stable_or_high_hit",
+        stablePrefixChanged: false,
+        toolShapeChanged: false,
+        historyWindowBoundaryChanged: false,
+        compactionChanged: false,
+      })
+    );
+    expect(JSON.stringify(result)).not.toContain("secret stable system");
+    expect(JSON.stringify(result)).not.toContain("secret current");
+  });
+
+  it("diagnoses low-hit history window boundary changes", () => {
+    const previousMetrics = {
+      prompt_cache_hit_tokens: 90,
+      prompt_cache_miss_tokens: 10,
+      prompt_cache_hit_rate: 0.9,
+      promptCacheDiagnostics: {
+        stablePrefixFingerprint: "same",
+        toolShapeFingerprint: "tools",
+        historyWindow: {
+          strategy: "cache-stable-blocks",
+          offset: 80,
+          windowStartOrdinal: 81,
+          windowEndOrdinal: 120,
+          currentBlockIndex: 5,
+        },
+      },
+    };
+    const metrics = {
+      prompt_cache_hit_tokens: 1,
+      prompt_cache_miss_tokens: 99,
+      prompt_cache_hit_rate: 0.01,
+      promptCacheDiagnostics: {
+        stablePrefixFingerprint: "changed-by-window",
+        toolShapeFingerprint: "tools",
+        historyWindow: {
+          strategy: "cache-stable-blocks",
+          offset: 100,
+          windowStartOrdinal: 101,
+          windowEndOrdinal: 121,
+          currentBlockIndex: 6,
+        },
+      },
+    };
+
+    expect(deepSeekCacheDiagnosis({ metrics, previousMetrics })).toEqual(
+      expect.objectContaining({
+        reason: "history_window_boundary_changed",
+        stablePrefixChanged: true,
+        historyWindowBoundaryChanged: true,
+      })
+    );
+  });
+
+  it("diagnoses low-hit tool shape and compaction changes", () => {
+    const basePrevious = {
+      prompt_cache_hit_tokens: 90,
+      prompt_cache_miss_tokens: 10,
+      prompt_cache_hit_rate: 0.9,
+      promptCacheDiagnostics: {
+        stablePrefixFingerprint: "same",
+        toolShapeFingerprint: "tools-a",
+        compactionFingerprint: "compaction-a",
+      },
+    };
+
+    expect(
+      deepSeekCacheDiagnosis({
+        previousMetrics: basePrevious,
+        metrics: {
+          prompt_cache_hit_tokens: 1,
+          prompt_cache_miss_tokens: 99,
+          prompt_cache_hit_rate: 0.01,
+          promptCacheDiagnostics: {
+            stablePrefixFingerprint: "same",
+            toolShapeFingerprint: "tools-b",
+            compactionFingerprint: "compaction-a",
+          },
+        },
+      })
+    ).toEqual(
+      expect.objectContaining({
+        reason: "tool_shape_changed",
+        toolShapeChanged: true,
+      })
+    );
+
+    expect(
+      deepSeekCacheDiagnosis({
+        previousMetrics: basePrevious,
+        metrics: {
+          prompt_cache_hit_tokens: 1,
+          prompt_cache_miss_tokens: 99,
+          prompt_cache_hit_rate: 0.01,
+          promptCacheDiagnostics: {
+            stablePrefixFingerprint: "same",
+            toolShapeFingerprint: "tools-a",
+            compactionFingerprint: "compaction-b",
+          },
+        },
+      })
+    ).toEqual(
+      expect.objectContaining({
+        reason: "compaction_changed",
+        compactionChanged: true,
+      })
+    );
+  });
+
+  it("marks missing cache usage without inventing zero values", () => {
+    const metrics = {
+      promptCacheDiagnostics: {
+        stablePrefixFingerprint: "same",
+      },
+    };
+
+    expect(deepSeekCacheDiagnosis({ metrics })).toEqual(
+      expect.objectContaining({
+        reason: "cache_usage_missing",
+        cacheUsageMissing: true,
+        hitRate: null,
+      })
+    );
+    expect(metrics).not.toHaveProperty("prompt_cache_hit_tokens");
+    expect(metrics).not.toHaveProperty("prompt_cache_miss_tokens");
   });
 });

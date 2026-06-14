@@ -4,9 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
-STATE_FILE="$RUNTIME_DIR/status.env"
-SERVER_PORT="${SERVER_PORT:-3001}"
-COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
+STATE_FILE="$RUNTIME_DIR/status-development.env"
+SERVER_PORT="${SERVER_PORT:-3002}"
+COLLECTOR_PORT="${COLLECTOR_PORT:-8889}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
 API_URL="http://localhost:${SERVER_PORT}/api"
@@ -430,40 +430,93 @@ open_or_refresh_frontend() {
   open "$url" >/dev/null 2>&1 || log "warning: failed to open browser for $url"
 }
 
-log "stopping existing AnythingLLM processes..."
-SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --quiet || true
-prepare_storage_dirs
-ensure_env_database
-
+SUPERVISOR_LOCK_DIR="$RUNTIME_DIR/supervisor-development.lock"
+SUPERVISOR_LOG="$LOG_DIR/development-supervisor.log"
 SERVER_LOG="$LOG_DIR/development-server.log"
 COLLECTOR_LOG="$LOG_DIR/development-collector.log"
 FRONTEND_LOG="$LOG_DIR/development-frontend.log"
-: >"$SERVER_LOG"
-: >"$COLLECTOR_LOG"
-: >"$FRONTEND_LOG"
 
-start_process SERVER_PID server "$ROOT_DIR/server" "$SERVER_LOG" \
-  node --trace-warnings index.js
-start_process COLLECTOR_PID collector "$ROOT_DIR/collector" "$COLLECTOR_LOG" \
-  ./node_modules/.bin/cross-env NODE_ENV=development \
-  ./node_modules/.bin/nodemon \
-    --ignore hotdir \
-    --ignore storage \
-    --no-stdin \
-    --trace-warnings index.js
-start_process FRONTEND_PID frontend "$ROOT_DIR/frontend" "$FRONTEND_LOG" \
-  ./node_modules/.bin/cross-env NODE_ENV=development \
-  ./node_modules/.bin/vite \
-    --debug \
-    --host 0.0.0.0 \
-    --port "$FRONTEND_PORT" \
-    --strictPort
+supervisor_pid_from_lock() {
+  cat "$SUPERVISOR_LOCK_DIR/pid" 2>/dev/null || true
+}
 
-ensure_process_alive server "$SERVER_PID" "$SERVER_LOG"
-ensure_process_alive collector "$COLLECTOR_PID" "$COLLECTOR_LOG"
-ensure_process_alive frontend "$FRONTEND_PID" "$FRONTEND_LOG"
+supervisor_alive() {
+  local pid
+  pid="$(supervisor_pid_from_lock)"
+  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
+}
 
-write_state
+cleanup_stale_supervisor_lock() {
+  if [[ -d "$SUPERVISOR_LOCK_DIR" ]] && ! supervisor_alive; then
+    log "removing stale supervisor lock: $SUPERVISOR_LOCK_DIR"
+    rm -rf "$SUPERVISOR_LOCK_DIR"
+  fi
+}
+
+launch_supervisor() {
+  log "starting development supervisor..."
+  : >"$SUPERVISOR_LOG"
+  nohup env \
+    APP_ENV=development \
+    SERVER_PORT="$SERVER_PORT" \
+    COLLECTOR_PORT="$COLLECTOR_PORT" \
+    FRONTEND_PORT="$FRONTEND_PORT" \
+    STORAGE_DIR="$STORAGE_BASE" \
+    bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
+    >/dev/null 2>&1 &
+  SUPERVISOR_PID="$!"
+  sleep 0.75
+  if ! kill -0 "$SUPERVISOR_PID" >/dev/null 2>&1; then
+    log "error: development supervisor exited during startup. Last log lines:"
+    tail -n 80 "$SUPERVISOR_LOG" >&2 2>/dev/null || true
+    exit 1
+  fi
+}
+
+wait_for_supervisor_state() {
+  local attempts=20
+  local count=0
+  while (( count < attempts )); do
+    if [[ -f "$STATE_FILE" ]] && grep -q '^SUPERVISOR_PID=' "$STATE_FILE"; then
+      return 0
+    fi
+    sleep 0.25
+    count=$((count + 1))
+  done
+  log "warning: supervisor state file was not written within 5s"
+  return 1
+}
+
+warn_degraded_components() {
+  local component
+  local label
+  local status
+  local reason
+
+  [[ -f "$STATE_FILE" ]] || return 0
+  for component in SERVER COLLECTOR FRONTEND; do
+    label="$(printf '%s' "$component" | tr '[:upper:]' '[:lower:]')"
+    status="$(sed -n "s/^${component}_STATUS=//p" "$STATE_FILE" | tail -1 | tr -d "'\"")"
+    reason="$(sed -n "s/^${component}_LAST_RESTART_REASON=//p" "$STATE_FILE" | tail -1 | sed 's/\\ / /g' | tr -d "'\"")"
+    if [[ "$status" == "degraded" ]]; then
+      log "warning: $label is degraded: ${reason:-unknown}"
+    fi
+  done
+}
+
+cleanup_stale_supervisor_lock
+if supervisor_alive; then
+  SUPERVISOR_PID="$(supervisor_pid_from_lock)"
+  log "reusing existing development supervisor pid=$SUPERVISOR_PID"
+else
+  log "stopping existing development AnythingLLM processes..."
+  SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --env development --quiet || true
+  prepare_storage_dirs
+  ensure_env_database
+  launch_supervisor
+fi
+
+wait_for_supervisor_state || true
 
 wait_for_port server "$SERVER_PORT" 90 || true
 wait_for_port collector "$COLLECTOR_PORT" 60 || true
@@ -471,6 +524,7 @@ wait_for_port frontend "$FRONTEND_PORT" 90 || true
 assert_single_listener server "$SERVER_PORT" || true
 assert_single_listener collector "$COLLECTOR_PORT" || true
 assert_single_listener frontend "$FRONTEND_PORT" || true
+warn_degraded_components
 
 open_or_refresh_frontend "development" "$FRONTEND_URL"
 
@@ -482,11 +536,12 @@ URL:     $FRONTEND_URL
 API:     $API_URL
 
 Logs:
+supervisor: $SUPERVISOR_LOG
 server:    $SERVER_LOG
 collector: $COLLECTOR_LOG
 frontend:  $FRONTEND_LOG
 
 Useful commands:
 bash ./status
-bash ./stop-all
+bash ./stop-all --env development
 EOF

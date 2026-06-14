@@ -11,7 +11,7 @@ const DEFAULT_KEEP_RECENT_MESSAGES = 10;
 const DEFAULT_TRIGGER_RATIO = 0.65;
 const DEFAULT_MAX_SUMMARY_TOKENS = 2500;
 const DEFAULT_COMPACTION_CONTEXT_WINDOW_TOKENS = 400_000;
-const DEFAULT_MANUAL_TARGET_RATIO = 0.15;
+const DEFAULT_MANUAL_TARGET_RATIO = 0.2;
 const DEFAULT_AUTO_TARGET_RATIO = 0.2;
 const DEFAULT_TARGET_ABSOLUTE_TOKENS = 150_000;
 const DEFAULT_TARGET_MIN_SUMMARY_TOKENS = 12_000;
@@ -21,6 +21,8 @@ const MANUAL_COMPACT_RATIO = 0.8;
 const AUTO_COOLDOWN_MS = 5 * 60 * 1000;
 const TARGET_RATIO_MIN = 0.1;
 const TARGET_RATIO_MAX = 0.2;
+const CONVERSATION_CAPSULE_TAG = "athena_conversation_capsule";
+const DEFAULT_TEMPORARY_CONTEXT_TTL = 3;
 const inFlightCompactions = new Set();
 const recentAutoCompactions = new Map();
 const recentTargetFailures = new Map();
@@ -176,31 +178,170 @@ function scopeKey(scope = {}) {
   ].join(":");
 }
 
-function compactMemoryBlock(summary = "") {
-  summary = normalizeCompactionSummary(summary);
-  if (!summary) return "";
-  return `Thread Memory Summary:
-[BEGIN COMPACTED THREAD MEMORY]
-${summary}
-[END COMPACTED THREAD MEMORY]`;
+function stripProviderReasoning(input = "") {
+  return String(input || "")
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
+    .trim();
 }
 
-function agentCompactMemoryBlock(summary = "") {
+function legacySummaryContextBlock(summary = "") {
   summary = normalizeCompactionSummary(summary);
   if (!summary) return "";
-  return `<compacted_thread_memory>
+  return `<athena_legacy_thread_memory_summary>
 ${summary}
-</compacted_thread_memory>`;
+</athena_legacy_thread_memory_summary>`;
 }
 
-function injectCompactionIntoSystemPrompt(
-  systemPrompt = "",
-  compaction = null
+function blankConversationCapsule() {
+  return {
+    topic: "",
+    currentGoal: "",
+    confirmedFacts: [],
+    confirmedDecisions: [],
+    openQuestions: [],
+    temporaryContext: [],
+    recentDirection: "",
+    architectureDecisions: [],
+    generatedAt: "",
+    coveredToChatId: "",
+  };
+}
+
+function extractJsonObject(input = "") {
+  const stripped = stripProviderReasoning(input)
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  try {
+    return JSON.parse(stripped);
+  } catch {}
+
+  const first = stripped.indexOf("{");
+  const last = stripped.lastIndexOf("}");
+  if (first >= 0 && last > first) {
+    try {
+      return JSON.parse(stripped.slice(first, last + 1));
+    } catch {}
+  }
+  return null;
+}
+
+function cleanText(value = "", maxLength = 2_000) {
+  if (value === undefined || value === null) return "";
+  return String(value).replace(/\s+/g, " ").trim().slice(0, maxLength);
+}
+
+function cleanStringArray(value = [], { maxItems = 30, maxLength = 1_000 } = {}) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set();
+  const output = [];
+  for (const item of value) {
+    const text = cleanText(item, maxLength);
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    output.push(text);
+    if (output.length >= maxItems) break;
+  }
+  return output;
+}
+
+function normalizeTemporaryContext(value = []) {
+  if (!Array.isArray(value)) return [];
+  const output = [];
+  const seen = new Set();
+  for (const item of value) {
+    const text = cleanText(
+      typeof item === "string" ? item : item?.text,
+      1_000
+    );
+    if (!text || seen.has(text)) continue;
+    const ttl = Math.floor(
+      Number(item?.expiresAfterCompactions ?? DEFAULT_TEMPORARY_CONTEXT_TTL)
+    );
+    if (!Number.isFinite(ttl) || ttl <= 0) continue;
+    seen.add(text);
+    output.push({
+      text,
+      expiresAfterCompactions: Math.min(ttl, DEFAULT_TEMPORARY_CONTEXT_TTL),
+    });
+    if (output.length >= 12) break;
+  }
+  return output;
+}
+
+function parseConversationCapsule(input = null, fallback = null) {
+  if (!input) return fallback;
+  if (typeof input === "object") return input;
+  return extractJsonObject(input) || fallback;
+}
+
+function normalizeConversationCapsule(
+  input = {},
+  { generatedAt = null, coveredToChatId = null } = {}
 ) {
-  if (!compaction?.summary) return systemPrompt;
-  return `${systemPrompt}
+  const source = parseConversationCapsule(input, {}) || {};
+  const normalized = blankConversationCapsule();
+  normalized.topic = cleanText(source.topic, 300);
+  normalized.currentGoal = cleanText(source.currentGoal, 600);
+  normalized.confirmedFacts = cleanStringArray(source.confirmedFacts);
+  normalized.confirmedDecisions = cleanStringArray(source.confirmedDecisions);
+  normalized.openQuestions = cleanStringArray(source.openQuestions);
+  normalized.temporaryContext = normalizeTemporaryContext(
+    source.temporaryContext
+  );
+  normalized.recentDirection = cleanText(source.recentDirection, 600);
+  normalized.architectureDecisions = cleanStringArray(
+    source.architectureDecisions,
+    { maxItems: 40, maxLength: 1_000 }
+  );
+  normalized.generatedAt = cleanText(
+    generatedAt ?? source.generatedAt ?? new Date().toISOString(),
+    80
+  );
+  normalized.coveredToChatId = cleanText(
+    coveredToChatId ?? source.coveredToChatId,
+    80
+  );
+  return normalized;
+}
 
-${compactMemoryBlock(compaction.summary)}`;
+function decrementTemporaryContextTtl(capsule = null) {
+  const normalized = normalizeConversationCapsule(capsule);
+  return {
+    ...normalized,
+    temporaryContext: normalized.temporaryContext
+      .map((item) => ({
+        ...item,
+        expiresAfterCompactions: Number(item.expiresAfterCompactions || 0) - 1,
+      }))
+      .filter((item) => item.expiresAfterCompactions > 0),
+  };
+}
+
+function capsuleJson(capsule = {}) {
+  return JSON.stringify(normalizeConversationCapsule(capsule), null, 2);
+}
+
+function conversationCapsuleBlock(capsule = null) {
+  const parsed = parseConversationCapsule(capsule, null);
+  if (!parsed) return "";
+  return `<${CONVERSATION_CAPSULE_TAG}>
+${capsuleJson(parsed)}
+</${CONVERSATION_CAPSULE_TAG}>`;
+}
+
+function compactionContextBlock(compaction = null) {
+  if (!compaction) return "";
+  const capsule = parseConversationCapsule(compaction.capsule_json, null);
+  if (capsule) return conversationCapsuleBlock(capsule);
+  return legacySummaryContextBlock(compaction.summary || "");
+}
+
+function contextTextsWithCompaction(contextTexts = [], compaction = null) {
+  const block = compactionContextBlock(compaction);
+  if (!block) return contextTexts || [];
+  return [block, ...(contextTexts || [])];
 }
 
 function estimateHistoryTokens(llm, chats = []) {
@@ -308,10 +449,7 @@ function resolveTargetBudgets({
 
 function normalizeCompactionSummary(summary = "") {
   if (!summary) return "";
-  let normalized = String(summary)
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
-    .trim();
+  let normalized = stripProviderReasoning(summary);
 
   const headingIndex = normalized.indexOf("# Thread Compact Summary");
   if (headingIndex >= 0) normalized = normalized.slice(headingIndex).trim();
@@ -470,9 +608,9 @@ function targetCompactionPlan({ llm, rawHistory = [], budgets = {} } = {}) {
   };
 }
 
-function compactionInputTokens(llm, previousSummary = "", chats = []) {
+function compactionInputTokens(llm, previousState = "", chats = []) {
   return (
-    estimateStringTokens(llm, normalizeCompactionSummary(previousSummary)) +
+    estimateStringTokens(llm, String(previousState || "")) +
     estimateStringTokens(
       llm,
       chats.map(formatChatForSummary).join("\n\n---\n\n")
@@ -483,6 +621,7 @@ function compactionInputTokens(llm, previousSummary = "", chats = []) {
 function chunkChatsForCompaction({
   llm,
   previousSummary = "",
+  previousState = "",
   chats = [],
   compactionInputLimit,
 } = {}) {
@@ -492,7 +631,7 @@ function chunkChatsForCompaction({
   let chunk = [];
   let chunkTokens = estimateStringTokens(
     llm,
-    normalizeCompactionSummary(previousSummary)
+    previousState || normalizeCompactionSummary(previousSummary)
   );
 
   for (const chat of chats) {
@@ -512,13 +651,14 @@ function chunkChatsForCompaction({
 function truncateChatsForCompaction({
   llm,
   previousSummary = "",
+  previousState = "",
   chats = [],
   compactionInputLimit,
 } = {}) {
   const retained = [];
   let tokens = estimateStringTokens(
     llm,
-    normalizeCompactionSummary(previousSummary)
+    previousState || normalizeCompactionSummary(previousSummary)
   );
   for (const chat of chats) {
     const chatTokens = estimateStringTokens(llm, formatChatForSummary(chat));
@@ -536,6 +676,7 @@ function compactionMetadata(compaction = null) {
   return {
     id: compaction.id,
     summary_format: compaction.summary_format,
+    hasCapsule: Boolean(parseConversationCapsule(compaction.capsule_json, null)),
     covered_from_chat_id: compaction.covered_from_chat_id,
     covered_to_chat_id: compaction.covered_to_chat_id,
     covered_message_count: compaction.covered_message_count,
@@ -561,94 +702,166 @@ Assistant:
 ${responseText}`;
 }
 
-function buildSummaryPrompt({
+function buildCapsulePrompt({
+  previousCapsule = null,
   previousSummary = null,
   chats = [],
   compactInstructions = "",
   summaryTokenBudget = null,
+  coveredToChatId = null,
 } = {}) {
-  const prior = normalizeCompactionSummary(previousSummary);
-  return `Create a compact thread handoff summary for this AnythingLLM thread.
+  const priorCapsule = previousCapsule
+    ? capsuleJson(previousCapsule)
+    : "未知";
+  const legacyPrior = normalizeCompactionSummary(previousSummary);
+  return `Create a Conversation State Capsule for this Athena thread.
 
 Rules:
-- Output Markdown only.
-- Do not include casual commentary.
-- Do not invent facts the user did not state.
-- If a required detail is uncertain, write "未知".
-- Preserve concrete file paths, function names, table names, config names, route names, user constraints, and technical boundaries.
+- Output strict JSON only. No Markdown, commentary, code fences, reasoning, or hidden-thinking text.
+- The JSON must match exactly these keys: topic, currentGoal, confirmedFacts, confirmedDecisions, openQuestions, temporaryContext, recentDirection, architectureDecisions, generatedAt, coveredToChatId.
+- Compress conversation state, not knowledge content. Do not summarize all chat content.
+- Do not invent facts. If a detail is uncertain or only inferred by the assistant, omit it.
+- Only store facts and decisions confirmed by the user, codebase, tool output, or accepted prior capsule.
+- Preserve concrete file paths, function names, table names, config names, route names, user constraints, and technical boundaries only when they are confirmed and important to the current state.
 - This is deterministic thread state, not RAG memory and not a citation source.
-- Do not store ephemeral RAG context, citations, pinned docs, parsed files, graph context, attachments, or tool output transcripts unless a durable conclusion from them is necessary for the task state.
+- Do not store rejected plans, failed attempts, wrong conclusions, temporary guesses, verbose explanations, ephemeral RAG context, citations, pinned docs, parsed files, graph context, attachments, or tool output transcripts unless a durable conclusion from them is necessary for the task state.
 - Treat persistent context such as system prompt, workspace prompt, and project rules as re-injected context. Do not copy them into the compact state unless the user explicitly made them part of the task.
-- Never include reasoning, chain-of-thought, <think> tags, or analysis prose outside the required Markdown.
-- Start the response exactly with "# Thread Compact Summary".
-${summaryTokenBudget ? `- Keep the summary within about ${summaryTokenBudget} tokens while preserving handoff quality.` : ""}
+- Analyze every number mentioned in the conversation. Preserve exact numbers only when they are confirmed and important to the current goal, such as ports, versions, IDs, TTLs, token budgets, ratios, dates, limits, config values, database field values, thresholds, and user-stated numeric requirements.
+- Do not preserve temporary error counts, transient test numbers, estimates, or numbers that belong only to rejected approaches.
+- If a number is a user requirement, system boundary, architecture constraint, or accepted decision, place it in confirmedFacts, confirmedDecisions, or architectureDecisions.
+- temporaryContext items must be objects with text and expiresAfterCompactions. Use expiresAfterCompactions: 3 for new temporary state unless the user specified another confirmed TTL.
+- generatedAt must be an ISO timestamp. coveredToChatId must be "${coveredToChatId ?? ""}".
+${summaryTokenBudget ? `- Keep the capsule within about ${summaryTokenBudget} tokens while preserving state quality.` : ""}
 ${compactInstructions ? `- Additional compaction instructions: ${compactInstructions}` : ""}
 
-Required format:
-# Thread Compact Summary
-## 当前任务目标
-## 最近用户意图
-## 用户强约束
-## 已完成内容
-## 当前架构判断
-## 关键文件/函数/路由/数据表
-## 技术决策
-## 已排除方案
-## 未完成事项
-## 下一步建议
-## 风险与注意事项
-## 不可丢失事实
+Required JSON shape:
+{
+  "topic": "",
+  "currentGoal": "",
+  "confirmedFacts": [],
+  "confirmedDecisions": [],
+  "openQuestions": [],
+  "temporaryContext": [
+    { "text": "", "expiresAfterCompactions": 3 }
+  ],
+  "recentDirection": "",
+  "architectureDecisions": [],
+  "generatedAt": "",
+  "coveredToChatId": ""
+}
 
-Previous compact summary, if any:
-${prior || "未知"}
+Previous Conversation State Capsule, if any:
+${priorCapsule}
 
-Raw chat history to fold into the summary:
+Legacy Thread Memory Summary fallback, if any:
+${legacyPrior || "未知"}
+
+Raw chat history to fold into the capsule:
 ${chats.map(formatChatForSummary).join("\n\n---\n\n")}`;
 }
 
-function buildTightenPrompt({ summary = "", maxSummaryTokens }) {
-  return `Tighten this compact thread state without losing important handoff information.
+function buildTightenCapsulePrompt({ capsule = null, maxSummaryTokens }) {
+  return `Tighten this Conversation State Capsule without losing confirmed state or precise important numbers.
 
 Rules:
-- Output Markdown only.
-- Start exactly with "# Thread Compact Summary".
-- Preserve concrete paths, function names, API routes, database tables, fields, config names, user constraints, completed work, unfinished work, and risks.
+- Output strict JSON only.
+- Preserve confirmed facts, confirmed decisions, open questions, architecture decisions, current goal, recent direction, and precise important numbers.
+- Drop verbosity, duplicate items, stale temporary context, and non-essential detail.
 - Do not invent facts.
 - Keep it within about ${maxSummaryTokens} tokens.
 
-Current compact state:
-${normalizeCompactionSummary(summary) || "未知"}`;
+Current capsule:
+${capsuleJson(capsule || blankConversationCapsule())}`;
 }
 
-function clippedSummary(llm, summary = "", maxSummaryTokens = 2500) {
-  if (!summary) return summary;
+function capsuleToMarkdownSummary(capsule = null) {
+  const normalized = normalizeConversationCapsule(capsule);
+  const lines = [
+    "# Conversation State Capsule",
+    "## 当前讨论主题",
+    normalized.topic || "未知",
+    "## 当前目标",
+    normalized.currentGoal || "未知",
+    "## 已确认事实",
+    ...(normalized.confirmedFacts.length
+      ? normalized.confirmedFacts.map((item) => `- ${item}`)
+      : ["- 未知"]),
+    "## 已确认决策",
+    ...(normalized.confirmedDecisions.length
+      ? normalized.confirmedDecisions.map((item) => `- ${item}`)
+      : ["- 未知"]),
+    "## 未解决问题",
+    ...(normalized.openQuestions.length
+      ? normalized.openQuestions.map((item) => `- ${item}`)
+      : ["- 未知"]),
+    "## 临时上下文",
+    ...(normalized.temporaryContext.length
+      ? normalized.temporaryContext.map(
+          (item) =>
+            `- ${item.text} (expiresAfterCompactions=${item.expiresAfterCompactions})`
+        )
+      : ["- 无"]),
+    "## 最近方向",
+    normalized.recentDirection || "未知",
+    "## 架构级决策",
+    ...(normalized.architectureDecisions.length
+      ? normalized.architectureDecisions.map((item) => `- ${item}`)
+      : ["- 未知"]),
+  ];
+  return lines.join("\n");
+}
+
+function trimCapsuleToTokenBudget(llm, capsule = null, maxSummaryTokens = 2500) {
+  const normalized = normalizeConversationCapsule(capsule);
   const tokenManager = new TokenManager(llm?.model);
-  if (tokenManager.countFromString(summary) <= maxSummaryTokens) return summary;
-  const tokens = tokenManager
-    .tokensFromString(summary)
-    .slice(0, maxSummaryTokens);
-  return `${tokenManager.bytesFromTokens(tokens)}\n\n[summary truncated to configured token budget]`;
+  const withinBudget = (candidate) =>
+    tokenManager.countFromString(capsuleJson(candidate)) <= maxSummaryTokens;
+  if (withinBudget(normalized)) return normalized;
+
+  const trimmed = { ...normalized };
+  for (const field of [
+    "temporaryContext",
+    "openQuestions",
+    "confirmedFacts",
+    "confirmedDecisions",
+    "architectureDecisions",
+  ]) {
+    while (Array.isArray(trimmed[field]) && trimmed[field].length > 0) {
+      trimmed[field] = trimmed[field].slice(0, -1);
+      if (withinBudget(trimmed)) return normalizeConversationCapsule(trimmed);
+    }
+  }
+  return normalizeConversationCapsule({
+    ...trimmed,
+    topic: trimmed.topic,
+    currentGoal: trimmed.currentGoal,
+    recentDirection: trimmed.recentDirection,
+  });
 }
 
-async function generateSummary({
+async function generateCapsule({
   workspace,
   user = null,
+  previousCapsule = null,
   previousSummary,
   chats,
   llm = null,
   maxSummaryTokens = null,
   compactInstructions = "",
+  coveredToChatId = null,
 }) {
-  const summaryLLM = llm || resolveCompactionLLM(workspace).llm;
+  const capsuleLLM = llm || resolveCompactionLLM(workspace).llm;
   const systemPrompt =
-    "You produce concise, structured handoff summaries for long-running chat threads. Return only the requested Markdown summary, with no reasoning or hidden-thinking text.";
-  const userPrompt = buildSummaryPrompt({
+    "You produce deterministic Conversation State Capsule JSON for long-running Athena chat threads. Return strict JSON only, with no reasoning or hidden-thinking text.";
+  const userPrompt = buildCapsulePrompt({
+    previousCapsule,
     previousSummary,
     chats,
     compactInstructions,
     summaryTokenBudget: maxSummaryTokens,
+    coveredToChatId,
   });
-  const messages = await summaryLLM.compressMessages(
+  const messages = await capsuleLLM.compressMessages(
     {
       systemPrompt,
       userPrompt,
@@ -658,27 +871,34 @@ async function generateSummary({
     },
     []
   );
-  const result = await summaryLLM.getChatCompletion(messages, {
+  const result = await capsuleLLM.getChatCompletion(messages, {
     temperature: 0,
     user,
   });
+  const parsed = parseConversationCapsule(result?.textResponse || "", null);
+  if (!parsed) throw new Error("invalid_conversation_capsule_json");
+  const normalized = normalizeConversationCapsule(parsed, {
+    generatedAt: new Date().toISOString(),
+    coveredToChatId,
+  });
+  const capsule = maxSummaryTokens
+    ? trimCapsuleToTokenBudget(capsuleLLM, normalized, maxSummaryTokens)
+    : normalized;
   return {
-    llm: summaryLLM,
-    summary: clippedSummary(
-      summaryLLM,
-      normalizeCompactionSummary(result?.textResponse || ""),
-      maxSummaryTokens || getConfig().maxSummaryTokens
-    ),
+    llm: capsuleLLM,
+    capsule,
+    capsuleJson: capsuleJson(capsule),
+    summary: capsuleToMarkdownSummary(capsule),
   };
 }
 
-async function tightenSummary({ llm, user = null, summary, maxSummaryTokens }) {
+async function tightenCapsule({ llm, user = null, capsule, maxSummaryTokens }) {
   const systemPrompt =
-    "You tighten compact thread state summaries. Return only Markdown, no hidden thinking.";
+    "You tighten Conversation State Capsule JSON. Return strict JSON only, no hidden thinking.";
   const messages = await llm.compressMessages(
     {
       systemPrompt,
-      userPrompt: buildTightenPrompt({ summary, maxSummaryTokens }),
+      userPrompt: buildTightenCapsulePrompt({ capsule, maxSummaryTokens }),
       contextTexts: [],
       chatHistory: [],
       attachments: [],
@@ -689,11 +909,9 @@ async function tightenSummary({ llm, user = null, summary, maxSummaryTokens }) {
     temperature: 0,
     user,
   });
-  return clippedSummary(
-    llm,
-    normalizeCompactionSummary(result?.textResponse || ""),
-    maxSummaryTokens
-  );
+  const parsed = parseConversationCapsule(result?.textResponse || "", null);
+  if (!parsed) return trimCapsuleToTokenBudget(llm, capsule, maxSummaryTokens);
+  return trimCapsuleToTokenBudget(llm, parsed, maxSummaryTokens);
 }
 
 async function compactThread({
@@ -774,7 +992,19 @@ async function compactThread({
 
     let rollingCompactionUsed = false;
     let cannotReachTargetReason = targetPlan.cannotReachTargetReason;
-    let previousSummary = normalizeCompactionSummary(latest?.summary || null);
+    let previousCapsule = parseConversationCapsule(
+      latest?.capsule_json,
+      null
+    );
+    if (previousCapsule) previousCapsule = decrementTemporaryContextTtl(previousCapsule);
+    let previousSummary = previousCapsule
+      ? ""
+      : normalizeCompactionSummary(latest?.summary || null);
+    let priorState = previousCapsule
+      ? capsuleJson(previousCapsule)
+      : previousSummary;
+    let capsule = null;
+    let capsuleJsonString = "";
     let summary = "";
     const maxSummaryTokens = isTargetMode
       ? budgets.estimatedSummaryBudget
@@ -782,7 +1012,7 @@ async function compactThread({
 
     const inputTokens = compactionInputTokens(
       compactionLLM,
-      previousSummary,
+      priorState,
       compactable
     );
     if (isTargetMode && inputTokens > budgets.compactionInputLimit) {
@@ -790,23 +1020,30 @@ async function compactThread({
         const chunks = chunkChatsForCompaction({
           llm: compactionLLM,
           previousSummary,
+          previousState: priorState,
           chats: compactable,
           compactionInputLimit: budgets.compactionInputLimit,
         });
         rollingCompactionUsed = chunks.length > 1;
         for (const chunk of chunks) {
-          const generated = await generateSummary({
+          const generated = await generateCapsule({
             workspace,
             user,
             llm: compactionLLM,
+            previousCapsule,
             previousSummary,
             chats: chunk,
             maxSummaryTokens,
             compactInstructions,
+            coveredToChatId: chunk.at(-1)?.id || null,
           });
-          previousSummary = generated.summary;
+          previousCapsule = generated.capsule;
+          previousSummary = "";
+          priorState = generated.capsuleJson;
         }
-        summary = previousSummary;
+        capsule = previousCapsule;
+        capsuleJsonString = priorState;
+        summary = capsuleToMarkdownSummary(capsule);
       } catch (error) {
         console.warn(
           "[ThreadCompaction] rolling compaction failed; truncating input",
@@ -816,39 +1053,51 @@ async function compactThread({
         const truncated = truncateChatsForCompaction({
           llm: compactionLLM,
           previousSummary,
+          previousState: priorState,
           chats: compactable,
           compactionInputLimit: budgets.compactionInputLimit,
         });
         compactable = truncated;
-        const generated = await generateSummary({
+        const generated = await generateCapsule({
           workspace,
           user,
           llm: compactionLLM,
+          previousCapsule,
           previousSummary,
           chats: truncated,
           maxSummaryTokens,
           compactInstructions,
+          coveredToChatId: truncated.at(-1)?.id || null,
         });
+        capsule = generated.capsule;
+        capsuleJsonString = generated.capsuleJson;
         summary = generated.summary;
       }
     } else {
-      const generated = await generateSummary({
+      const generated = await generateCapsule({
         workspace,
         user,
         llm: compactionLLM,
+        previousCapsule,
         previousSummary,
         chats: compactable,
         maxSummaryTokens,
         compactInstructions,
+        coveredToChatId: compactable.at(-1)?.id || null,
       });
+      capsule = generated.capsule;
+      capsuleJsonString = generated.capsuleJson;
       summary = generated.summary;
     }
-    if (!summary) throw new Error("empty_compaction_summary");
+    if (!capsuleJsonString) throw new Error("empty_conversation_capsule");
 
-    let tokenAfter = estimateStringTokens(compactionLLM, summary);
-    let summaryInjectionTokens = estimateStringTokens(chatLLM, summary);
+    let tokenAfter = estimateStringTokens(compactionLLM, capsuleJsonString);
+    let capsuleInjectionTokens = estimateStringTokens(
+      chatLLM,
+      conversationCapsuleBlock(capsule)
+    );
     let usedTokensAfterCompact =
-      summaryInjectionTokens + targetPlan.retainedTokens;
+      capsuleInjectionTokens + targetPlan.retainedTokens;
     let targetReached =
       !isTargetMode || usedTokensAfterCompact <= budgets.targetTokens;
 
@@ -858,19 +1107,24 @@ async function compactThread({
       budgets.estimatedSummaryBudget <= budgets.targetTokens &&
       tokenAfter > config.targetMinSummaryTokens
     ) {
-      summary = await tightenSummary({
+      capsule = await tightenCapsule({
         llm: compactionLLM,
         user,
-        summary,
+        capsule,
         maxSummaryTokens: Math.max(
           config.targetMinSummaryTokens,
           Math.min(tokenAfter - 1, budgets.estimatedSummaryBudget)
         ),
       });
-      tokenAfter = estimateStringTokens(compactionLLM, summary);
-      summaryInjectionTokens = estimateStringTokens(chatLLM, summary);
+      capsuleJsonString = capsuleJson(capsule);
+      summary = capsuleToMarkdownSummary(capsule);
+      tokenAfter = estimateStringTokens(compactionLLM, capsuleJsonString);
+      capsuleInjectionTokens = estimateStringTokens(
+        chatLLM,
+        conversationCapsuleBlock(capsule)
+      );
       usedTokensAfterCompact =
-        summaryInjectionTokens + targetPlan.retainedTokens;
+        capsuleInjectionTokens + targetPlan.retainedTokens;
       targetReached = usedTokensAfterCompact <= budgets.targetTokens;
     }
 
@@ -913,6 +1167,8 @@ async function compactThread({
     const compaction = await WorkspaceChatCompaction.create({
       ...scope,
       summary,
+      summary_format: WorkspaceChatCompaction.CAPSULE_FORMAT,
+      capsule_json: capsuleJsonString,
       covered_chat_ids: JSON.stringify(compactable.map((chat) => chat.id)),
       covered_from_chat_id:
         latest?.covered_from_chat_id || compactable[0]?.id || null,
@@ -994,8 +1250,8 @@ async function getThreadCompactionStatus({
     budgets,
   });
 
-  const summaryTokens = latest?.summary
-    ? estimateStringTokens(chatLLM, normalizeCompactionSummary(latest.summary))
+  const summaryTokens = latest
+    ? estimateStringTokens(chatLLM, compactionContextBlock(latest))
     : 0;
   const recentHistoryTokens = estimateHistoryTokens(chatLLM, rawHistory);
   const usedTokens = summaryTokens + recentHistoryTokens;
@@ -1068,9 +1324,9 @@ function estimatePromptTokens({
 } = {}) {
   try {
     const messages = llm.constructPrompt({
-      systemPrompt: injectCompactionIntoSystemPrompt(systemPrompt, compaction),
+      systemPrompt,
       userPrompt,
-      contextTexts,
+      contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments,
     });
@@ -1201,20 +1457,24 @@ async function agentThreadMemory({
   const compaction = await latestCompaction(
     buildCompactionScope({ workspace, user, thread, apiSessionId })
   );
-  return agentCompactMemoryBlock(compaction?.summary || "");
+  return compactionContextBlock(compaction);
 }
 
 module.exports = {
-  agentCompactMemoryBlock,
   agentThreadMemory,
   buildCompactionScope,
-  compactMemoryBlock,
+  capsuleJson,
+  compactionContextBlock,
   compactThread,
+  contextTextsWithCompaction,
+  conversationCapsuleBlock,
+  decrementTemporaryContextTtl,
   getConfig,
   getThreadCompactionStatus,
-  injectCompactionIntoSystemPrompt,
   maybeAutoCompact,
   normalizeCompactionSummary,
+  normalizeConversationCapsule,
+  parseConversationCapsule,
   recentChatHistoryWithCompaction,
   resolveTargetBudgets,
   targetCompactionPlan,

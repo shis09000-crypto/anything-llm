@@ -33,9 +33,9 @@ const isJestRuntime = Boolean(process.env.JEST_WORKER_ID);
 
 if (process.env.NODE_ENV !== "test" && !isJestRuntime) {
   (async () => {
-    await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL");
-    await prisma.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
-    await prisma.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+    await prisma.$queryRaw`PRAGMA journal_mode = WAL`;
+    await prisma.$queryRaw`PRAGMA synchronous = NORMAL`;
+    await prisma.$queryRaw`PRAGMA busy_timeout = 5000`;
   })().catch((error) =>
     console.warn("[Prisma] Failed to apply SQLite pragmas:", error.message)
   );

@@ -4,14 +4,21 @@ import Admin from "@/models/admin";
 import { MessageLimitInput, RoleHintDisplay } from "../..";
 import { AUTH_USER } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
+import AppButton from "@/components/lib/AppButton";
 import {
   USERNAME_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
   USERNAME_PATTERN,
 } from "@/utils/username";
+import {
+  ACCOUNT_ROLES,
+  canPromoteOwner,
+  isPrimaryOwner,
+  normalizeRole,
+} from "@/utils/authz";
 
 export default function EditUserModal({ currentUser, user, closeModal }) {
-  const [role, setRole] = useState(user.role);
+  const [role, setRole] = useState(normalizeRole(user.role));
   const [error, setError] = useState(null);
   const [messageLimit, setMessageLimit] = useState({
     enabled: user.dailyMessageLimit !== null,
@@ -55,16 +62,19 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
         <div className="relative p-6 border-b rounded-t border-theme-modal-border">
           <div className="w-full flex gap-x-2 items-center">
             <h3 className="text-xl font-semibold text-white overflow-hidden overflow-ellipsis whitespace-nowrap">
-              Edit {user.username}
+              {t("admin.users.modal.editTitle", { username: user.username })}
             </h3>
           </div>
-          <button
+          <AppButton
             onClick={closeModal}
             type="button"
+            variant="secondary"
+            size="sm"
+            iconOnly
+            aria-label={t("admin.common.close")}
             className="absolute top-4 right-4 motion-hover bg-transparent rounded-lg text-sm p-1 inline-flex items-center hover:bg-theme-modal-border hover:border-theme-modal-border hover:border-opacity-50 border-transparent border"
-          >
-            <X size={24} weight="bold" className="text-white" />
-          </button>
+            leftIcon={<X size={24} weight="bold" className="text-white" />}
+          />
         </div>
         <div className="p-6">
           <form onSubmit={handleUpdate}>
@@ -74,13 +84,13 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
                   htmlFor="username"
                   className="block mb-2 text-sm font-medium text-white"
                 >
-                  Username
+                  {t("admin.users.modal.usernameLabel")}
                 </label>
                 <input
                   name="username"
                   type="text"
                   className="border-none bg-theme-settings-input-bg w-full text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
-                  placeholder="User's username"
+                  placeholder={t("admin.users.modal.usernamePlaceholder")}
                   defaultValue={user.username}
                   minLength={USERNAME_MIN_LENGTH}
                   maxLength={USERNAME_MAX_LENGTH}
@@ -97,18 +107,20 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
                   htmlFor="password"
                   className="block mb-2 text-sm font-medium text-white"
                 >
-                  New Password
+                  {t("admin.users.modal.passwordNewLabel")}
                 </label>
                 <input
                   name="password"
                   type="text"
                   className="border-none bg-theme-settings-input-bg w-full text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
-                  placeholder={`${user.username}'s new password`}
+                  placeholder={t("admin.users.modal.passwordNewPlaceholder", {
+                    username: user.username,
+                  })}
                   autoComplete="off"
                   minLength={8}
                 />
                 <p className="mt-2 text-xs text-white/60">
-                  Password must be at least 8 characters long
+                  {t("admin.users.modal.passwordHint")}
                 </p>
               </div>
               <div>
@@ -116,12 +128,12 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
                   htmlFor="bio"
                   className="block mb-2 text-sm font-medium text-white"
                 >
-                  Bio
+                  {t("admin.users.modal.bioLabel")}
                 </label>
                 <textarea
                   name="bio"
                   className="border-none bg-theme-settings-input-bg w-full text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
-                  placeholder="User's bio"
+                  placeholder={t("admin.users.modal.bioPlaceholder")}
                   defaultValue={user.bio}
                   autoComplete="off"
                   rows={3}
@@ -132,19 +144,34 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
                   htmlFor="role"
                   className="block mb-2 text-sm font-medium text-white"
                 >
-                  Role
+                  {t("admin.users.modal.roleLabel")}
                 </label>
                 <select
                   name="role"
                   required={true}
-                  defaultValue={user.role}
+                  defaultValue={normalizeRole(user.role)}
                   onChange={(e) => setRole(e.target.value)}
                   className="border-none bg-theme-settings-input-bg w-full text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
                 >
-                  <option value="default">Default</option>
-                  <option value="manager">Manager</option>
-                  {currentUser?.role === "admin" && (
-                    <option value="admin">Administrator</option>
+                  <option value={ACCOUNT_ROLES.user}>
+                    {t("admin.users.roles.user", {
+                      defaultValue: t("admin.users.roles.default"),
+                    })}
+                  </option>
+                  <option value={ACCOUNT_ROLES.developer}>
+                    {t("admin.users.roles.developer", {
+                      defaultValue: "Developer",
+                    })}
+                  </option>
+                  <option value={ACCOUNT_ROLES.admin}>
+                    {t("admin.users.roles.admin")}
+                  </option>
+                  {canPromoteOwner(currentUser) && !isPrimaryOwner(user) && (
+                    <option value={ACCOUNT_ROLES.owner}>
+                      {t("admin.users.roles.owner", {
+                        defaultValue: "Owner",
+                      })}
+                    </option>
                   )}
                 </select>
                 <RoleHintDisplay role={role} />
@@ -155,22 +182,28 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
                 limit={messageLimit.limit}
                 updateState={setMessageLimit}
               />
-              {error && <p className="text-red-400 text-sm">Error: {error}</p>}
+              {error && (
+                <p className="text-red-400 text-sm">
+                  {t("admin.common.genericError", { error })}
+                </p>
+              )}
             </div>
             <div className="flex justify-between items-center mt-6 pt-6 border-t border-theme-modal-border">
-              <button
-                onClick={closeModal}
+              <AppButton
                 type="button"
-                className="motion-hover text-white hover:bg-zinc-700 px-4 py-2 rounded-lg text-sm"
+                variant="secondary"
+                onClick={closeModal}
+                className="motion-hover"
               >
-                Cancel
-              </button>
-              <button
+                {t("admin.users.actions.cancel")}
+              </AppButton>
+              <AppButton
                 type="submit"
-                className="motion-hover bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm"
+                variant="primary"
+                className="motion-hover"
               >
-                Update user
-              </button>
+                {t("admin.users.actions.update")}
+              </AppButton>
             </div>
           </form>
         </div>

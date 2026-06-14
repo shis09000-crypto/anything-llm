@@ -4,6 +4,7 @@ const { EncryptionManager } = require("../EncryptionManager");
 const { decodeJWT } = require("../http");
 const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
 const { jwtIdleState } = require("../sessionIdle");
+const { AuthIdentity } = require("../../models/authIdentity");
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {
@@ -104,22 +105,33 @@ async function validateMultiUserRequest(request, response, next) {
     return;
   }
 
-  const user = await User.get({ id: valid.id });
-  if (!user) {
+  const shadow = await User._get({ id: valid.id });
+  if (!shadow) {
     response.status(401).json({
       error: "Invalid auth for user.",
     });
     return;
   }
 
-  if (user.suspended) {
+  let authUser = valid.authUserId
+    ? await AuthIdentity.findById(valid.authUserId)
+    : null;
+  if (!authUser && shadow.authUserId) {
+    authUser = await AuthIdentity.findById(shadow.authUserId);
+  }
+  if (!authUser) {
+    authUser = await AuthIdentity.bootstrapAuthUserFromShadow(shadow);
+  }
+
+  if (!authUser || !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
     response.status(401).json({
-      error: "User is suspended from system",
+      error: "Invalid auth for user.",
     });
     return;
   }
 
-  response.locals.user = user;
+  const syncedUser = await AuthIdentity.ensureShadowUser(authUser);
+  response.locals.user = User.filterFields(syncedUser);
   next();
 }
 

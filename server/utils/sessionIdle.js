@@ -1,4 +1,5 @@
 const { makeJWT, decodeJWT } = require("./http");
+const { normalizeAllowedEnvs, normalizeRole } = require("./authz/accountRoles");
 
 const IDLE_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const USER_ACTION_REFRESH_THROTTLE_MS = 60 * 1000;
@@ -24,7 +25,11 @@ function issueUserSessionToken(user, lastUserActionAt = Date.now()) {
   return makeJWT(
     {
       id: user.id,
+      userId: user.id,
+      authUserId: user.authUserId || null,
       username: user.username,
+      role: normalizeRole(user.role),
+      allowedEnvs: normalizeAllowedEnvs(user.allowedEnvs, user.role),
       lastUserActionAt: Number(lastUserActionAt),
     },
     process.env.JWT_EXPIRY

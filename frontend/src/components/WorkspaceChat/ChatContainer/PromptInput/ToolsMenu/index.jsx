@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import useUser from "@/hooks/useUser";
 import AgentSkillsTab from "./Tabs/AgentSkills";
 import SlashCommandsTab from "./Tabs/SlashCommands";
+import { canSeeAdmin } from "@/utils/authz";
 
 export const TOOLS_MENU_KEYBOARD_EVENT = "tools-menu-keyboard";
 function getTabs(t, user) {
@@ -23,7 +24,7 @@ function getTabs(t, user) {
 
   // Only show agent skills tab for admins or when multiuser mode is off
   const canSeeAgentSkills =
-    !user?.hasOwnProperty("role") || user.role === "admin";
+    !user?.hasOwnProperty("role") || canSeeAdmin(user);
   if (canSeeAgentSkills) {
     tabs.push({
       key: "agent-skills",

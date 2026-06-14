@@ -5,10 +5,11 @@ const {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } = require("@simplewebauthn/server");
-const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
 const { EventLogs } = require("../models/eventLogs");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
+const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const { issueUserSessionToken } = require("../utils/sessionIdle");
@@ -52,17 +53,18 @@ function authPasskeyEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const { origin, rpID } = passkeyRpConfig(request);
         assertSecurePasskeyOrigin(origin);
-        const existingCredentials = await prisma.passkeyCredential.findMany({
-          where: { userId: user.id },
+        const existingCredentials = await authPrisma.passkeyCredential.findMany({
+          where: { userId: authUserId },
           select: { credentialId: true, transports: true },
         });
         const options = await generateRegistrationOptions({
           rpName: RP_NAME,
           rpID,
           userName: user.username || user.email || `user-${user.id}`,
-          userID: userIdBytes(user.id),
+          userID: userIdBytes(authUserId),
           attestationType: "none",
           excludeCredentials: existingCredentials.map((credential) => ({
             id: credential.credentialId,
@@ -78,7 +80,7 @@ function authPasskeyEndpoints(app) {
         await rememberChallenge({
           challenge: normalizeBase64Url(options.challenge),
           type: "register",
-          userId: user.id,
+          userId: authUserId,
           request,
         });
 
@@ -104,6 +106,7 @@ function authPasskeyEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const body = reqBody(request);
         const attestationResponse = body?.response;
         const challenge = normalizeBase64Url(
@@ -117,7 +120,7 @@ function authPasskeyEndpoints(app) {
         challengeRecord = await consumeChallenge({
           challenge,
           type: "register",
-          userId: user.id,
+          userId: authUserId,
         });
         if (!challengeRecord) {
           return response.status(400).json({
@@ -164,9 +167,9 @@ function authPasskeyEndpoints(app) {
           platformName,
           providerName: provider.providerName,
         });
-        const passkey = await prisma.passkeyCredential.create({
+        const passkey = await authPrisma.passkeyCredential.create({
           data: {
-            userId: user.id,
+            userId: authUserId,
             credentialId,
             publicKey: bytesToBase64Url(credential.publicKey),
             counter: Number(credential.counter || 0),
@@ -294,11 +297,16 @@ function authPasskeyEndpoints(app) {
         });
       }
 
-      const passkey = await prisma.passkeyCredential.findUnique({
+      const passkey = await authPrisma.passkeyCredential.findUnique({
         where: { credentialId },
         include: { user: true },
       });
-      if (!passkey || !passkey.user || passkey.user.suspended) {
+      if (
+        !passkey ||
+        !passkey.user ||
+        passkey.user.suspended ||
+        !(await AuthIdentity.canLoginInCurrentEnvAsync(passkey.user))
+      ) {
         await recordPasskeyLoginFailure(request, {
           reason: "unknown_or_suspended_credential",
           credentialId,
@@ -359,7 +367,7 @@ function authPasskeyEndpoints(app) {
       }
 
       clearVerifyFailures(ip);
-      await prisma.passkeyCredential.update({
+      await authPrisma.passkeyCredential.update({
         where: { id: passkey.id },
         data: {
           counter: Number(
@@ -369,6 +377,17 @@ function authPasskeyEndpoints(app) {
         },
       });
 
+      const localUser = await AuthIdentity.ensureShadowUser(passkey.user);
+      if (!localUser) {
+        markVerifyFailure(ip);
+        return response.status(200).json({
+          valid: false,
+          user: null,
+          token: null,
+          message: "Could not verify passkey.",
+        });
+      }
+
       await EventLogs.logEvent(
         "passkey_login_succeeded",
         safeAuditMetadata(request, {
@@ -377,13 +396,13 @@ function authPasskeyEndpoints(app) {
           deviceName: passkey.deviceName,
           deviceType: passkey.deviceType,
         }),
-        passkey.userId
+        localUser.id
       );
 
-      const sessionToken = issueUserSessionToken(passkey.user);
+      const sessionToken = issueUserSessionToken(localUser);
       return response.status(200).json({
         valid: true,
-        user: User.filterFields(passkey.user),
+        user: User.filterFields(localUser),
         token: sessionToken,
         message: null,
       });
@@ -410,8 +429,9 @@ function authPasskeyEndpoints(app) {
       }
 
       const user = response.locals.user;
-      const passkeys = await prisma.passkeyCredential.findMany({
-        where: { userId: user.id },
+      const authUserId = await currentAuthUserId(user);
+      const passkeys = await authPrisma.passkeyCredential.findMany({
+        where: { userId: authUserId },
         orderBy: { createdAt: "desc" },
       });
       const risk = await loginMethodRisk(user, null);
@@ -439,9 +459,10 @@ function authPasskeyEndpoints(app) {
         }
 
         const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
         const body = reqBody(request) || {};
-        const passkey = await prisma.passkeyCredential.findFirst({
-          where: { id: Number(request.params.id), userId: user.id },
+        const passkey = await authPrisma.passkeyCredential.findFirst({
+          where: { id: Number(request.params.id), userId: authUserId },
         });
         if (!passkey) {
           return response.status(404).json({
@@ -459,7 +480,7 @@ function authPasskeyEndpoints(app) {
           });
         }
 
-        await prisma.passkeyCredential.delete({ where: { id: passkey.id } });
+        await authPrisma.passkeyCredential.delete({ where: { id: passkey.id } });
         await EventLogs.logEvent(
           "passkey_deleted",
           safeAuditMetadata(request, {
@@ -485,7 +506,7 @@ function authPasskeyEndpoints(app) {
 
 async function rememberChallenge({ challenge, type, userId, request }) {
   await cleanupExpiredChallenges();
-  return prisma.passkeyChallenge.create({
+  return authPrisma.passkeyChallenge.create({
     data: {
       challenge,
       type,
@@ -499,7 +520,7 @@ async function rememberChallenge({ challenge, type, userId, request }) {
 
 async function consumeChallenge({ challenge, type, userId = undefined }) {
   if (!challenge) return null;
-  const record = await prisma.passkeyChallenge.findFirst({
+  const record = await authPrisma.passkeyChallenge.findFirst({
     where: {
       challenge,
       type,
@@ -508,7 +529,7 @@ async function consumeChallenge({ challenge, type, userId = undefined }) {
     },
   });
   if (!record) return null;
-  await prisma.passkeyChallenge.delete({ where: { id: record.id } });
+  await authPrisma.passkeyChallenge.delete({ where: { id: record.id } });
   return record;
 }
 
@@ -547,7 +568,7 @@ function requestIp(request) {
 }
 
 async function cleanupExpiredChallenges() {
-  await prisma.passkeyChallenge.deleteMany({
+  await authPrisma.passkeyChallenge.deleteMany({
     where: { expiresAt: { lte: new Date() } },
   });
 }
@@ -599,15 +620,25 @@ function clearVerifyFailures(ip) {
   verifyFailuresByIp.delete(ip);
 }
 
+async function currentAuthUserId(user = null) {
+  if (!user?.id) return null;
+  if (user.authUserId) return user.authUserId;
+  const shadow = await User._get({ id: user.id });
+  if (shadow?.authUserId) return shadow.authUserId;
+  const authUser = await AuthIdentity.bootstrapAuthUserFromShadow(shadow);
+  return authUser?.id || null;
+}
+
 async function loginMethodRisk(user, deletingPasskeyId) {
-  const remainingPasskeys = await prisma.passkeyCredential.count({
+  const authUserId = await currentAuthUserId(user);
+  const remainingPasskeys = await authPrisma.passkeyCredential.count({
     where: {
-      userId: user.id,
+      userId: authUserId,
       ...(deletingPasskeyId ? { id: { not: deletingPasskeyId } } : {}),
     },
   });
-  const recoveryCodes = await prisma.recovery_codes.count({
-    where: { user_id: user.id },
+  const recoveryCodes = await authPrisma.recovery_codes.count({
+    where: { user_id: authUserId },
   });
   const methods = {
     password: Boolean(user.password),

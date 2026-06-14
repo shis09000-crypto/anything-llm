@@ -1,5 +1,100 @@
 const prisma = require("../utils/prisma");
 const { safeJSONStringify } = require("../utils/helpers/chat/responses");
+const {
+  hasDeepSeekCacheDiagnostics,
+  withDeepSeekCacheDiagnosis,
+} = require("../utils/AiProviders/deepseek/promptCache");
+
+function safeParseResponse(response = null) {
+  if (!response) return {};
+  if (typeof response === "object") return response;
+  try {
+    return JSON.parse(response);
+  } catch {
+    return {};
+  }
+}
+
+function deepSeekMetricsFromChat(chat = null) {
+  const metrics = safeParseResponse(chat?.response)?.metrics || null;
+  return hasDeepSeekCacheDiagnostics(metrics) ? metrics : null;
+}
+
+function comparableDeepSeekMetrics(current = {}, previous = {}) {
+  const currentDiagnostics = current?.promptCacheDiagnostics || {};
+  const previousDiagnostics = previous?.promptCacheDiagnostics || {};
+  if (
+    currentDiagnostics.providerPath &&
+    previousDiagnostics.providerPath &&
+    currentDiagnostics.providerPath !== previousDiagnostics.providerPath
+  )
+    return false;
+  if (current.model && previous.model && current.model !== previous.model)
+    return false;
+  return true;
+}
+
+async function previousDeepSeekMetricsForSave({
+  workspaceId,
+  threadId = null,
+  apiSessionId = null,
+  excludeChatId = null,
+  currentMetrics = {},
+} = {}) {
+  if (!workspaceId || !hasDeepSeekCacheDiagnostics(currentMetrics)) return null;
+
+  const previousChats = await prisma.workspace_chats.findMany({
+    where: {
+      workspaceId,
+      thread_id: threadId || null,
+      api_session_id: apiSessionId || null,
+      ...(excludeChatId ? { id: { not: Number(excludeChatId) } } : {}),
+    },
+    orderBy: { id: "desc" },
+    take: 25,
+  });
+
+  for (const chat of previousChats) {
+    const metrics = deepSeekMetricsFromChat(chat);
+    if (metrics && comparableDeepSeekMetrics(currentMetrics, metrics))
+      return metrics;
+  }
+  return null;
+}
+
+async function responseWithDeepSeekCacheDiagnosis({
+  workspaceId,
+  threadId = null,
+  apiSessionId = null,
+  excludeChatId = null,
+  response = {},
+} = {}) {
+  const metrics = response?.metrics || null;
+  if (!hasDeepSeekCacheDiagnostics(metrics)) return response;
+
+  try {
+    const previousMetrics = await previousDeepSeekMetricsForSave({
+      workspaceId,
+      threadId,
+      apiSessionId,
+      excludeChatId,
+      currentMetrics: metrics,
+    });
+    return {
+      ...(response || {}),
+      metrics: withDeepSeekCacheDiagnosis(metrics, previousMetrics),
+    };
+  } catch (error) {
+    console.warn("[DeepSeekCacheDiagnosis] failed to attach diagnosis", {
+      message: error.message,
+      workspaceId,
+      threadId,
+      apiSessionId,
+      excludeChatId,
+    });
+    return response;
+  }
+}
 
 const WorkspaceChats = {
   new: async function ({
@@ -12,6 +107,12 @@ const WorkspaceChats = {
     apiSessionId = null,
   }) {
     try {
+      response = await responseWithDeepSeekCacheDiagnosis({
+        workspaceId,
+        threadId,
+        apiSessionId,
+        response,
+      });
       const chat = await prisma.workspace_chats.create({
         data: {
           workspaceId,
@@ -342,6 +443,13 @@ const WorkspaceChats = {
     }
   ) {
     try {
+      data.response = await responseWithDeepSeekCacheDiagnosis({
+        workspaceId: data.workspaceId,
+        threadId: data.threadId,
+        apiSessionId: data.apiSessionId,
+        excludeChatId: chatId,
+        response: data.response,
+      });
       const payload = {
         workspaceId: data.workspaceId,
         response: safeJSONStringify(data.response),

@@ -35,6 +35,7 @@ jest.mock("../../../models/workspaceChats", () => ({
 jest.mock("../../../models/workspaceChatCompaction", () => ({
   WorkspaceChatCompaction: {
     SUMMARY_FORMAT: "thread-compact-markdown-v1",
+    CAPSULE_FORMAT: "conversation-state-capsule-json-v1",
     normalizeScope: mockNormalizeScope,
     latest: mockLatest,
     where: mockCompactionWhere,
@@ -52,6 +53,23 @@ const chat = (id, prompt = `prompt ${id}`, text = `answer ${id}`) => ({
   response: JSON.stringify({ text, sources: [] }),
   include: true,
 });
+
+const capsule = (overrides = {}) =>
+  JSON.stringify({
+    topic: "账号权限体系",
+    currentGoal: "设计账号删除与封禁架构",
+    confirmedFacts: ["系统采用 Shared Auth DB", "TTL 为 3 次压缩"],
+    confirmedDecisions: ["公开注册只能创建 user"],
+    openQuestions: ["ZK Login 最终落地方案"],
+    temporaryContext: [
+      { text: "当前测试失败", expiresAfterCompactions: 3 },
+    ],
+    recentDirection: "最近在讨论 Thread Compaction 的状态胶囊重构",
+    architectureDecisions: ["Owner Hierarchy", "DeepSeek v4 flash"],
+    generatedAt: "2026-06-14T00:00:00.000Z",
+    coveredToChatId: "2",
+    ...overrides,
+  });
 
 describe("Thread compaction memory", () => {
   const workspace = {
@@ -100,7 +118,7 @@ describe("Thread compaction memory", () => {
         { role: "user", content: userPrompt },
       ]),
       getChatCompletion: jest.fn(async () => ({
-        textResponse: "# Thread Compact Summary\n## 当前任务\n保留上下文",
+        textResponse: capsule(),
         metrics: {},
       })),
     });
@@ -230,15 +248,16 @@ describe("Thread compaction memory", () => {
     expect(result.compaction).toBeUndefined();
   });
 
-  it("injects only compact summary and chats after covered_to_chat_id", async () => {
+  it("injects compact capsule as context and chats after covered_to_chat_id", async () => {
     mockLatest.mockResolvedValue({
       id: 88,
       summary: "summary",
+      capsule_json: capsule({ coveredToChatId: "2" }),
       covered_to_chat_id: 2,
     });
     mockCompactionWhere.mockResolvedValue([chat(3)]);
     const {
-      injectCompactionIntoSystemPrompt,
+      contextTextsWithCompaction,
       recentChatHistoryWithCompaction,
     } = require("../../../utils/chats/threadCompaction");
 
@@ -248,7 +267,8 @@ describe("Thread compaction memory", () => {
       thread,
       messageLimit: 5,
     });
-    const system = injectCompactionIntoSystemPrompt("base", result.compaction);
+    const system = "base";
+    const contextTexts = contextTextsWithCompaction([], result.compaction);
 
     expect(mockCompactionWhere).toHaveBeenCalledWith(
       expect.objectContaining({ workspace_id: 1, user_id: 7, thread_id: 9 }),
@@ -259,8 +279,9 @@ describe("Thread compaction memory", () => {
       "prompt 3",
       "answer 3",
     ]);
-    expect(system).toContain("[BEGIN COMPACTED THREAD MEMORY]");
-    expect(system).toContain("summary");
+    expect(system).toBe("base");
+    expect(contextTexts[0]).toContain("<athena_conversation_capsule>");
+    expect(contextTexts[0]).toContain("账号权限体系");
   });
 
   it("applies cache-stable blocks only after covered_to_chat_id", async () => {
@@ -308,9 +329,9 @@ describe("Thread compaction memory", () => {
     expect(result.historyWindow.windowStartOrdinal).toBe(21);
   });
 
-  it("strips provider thinking text before storing or injecting summaries", async () => {
+  it("strips provider thinking text before storing or injecting legacy summaries", async () => {
     const {
-      injectCompactionIntoSystemPrompt,
+      compactionContextBlock,
       normalizeCompactionSummary,
     } = require("../../../utils/chats/threadCompaction");
     const noisy =
@@ -318,14 +339,71 @@ describe("Thread compaction memory", () => {
       "# Thread Compact Summary\n## 当前任务\n干净摘要";
 
     const normalized = normalizeCompactionSummary(noisy);
-    const system = injectCompactionIntoSystemPrompt("base", {
+    const context = compactionContextBlock({
       summary: noisy,
     });
 
     expect(normalized).toBe("# Thread Compact Summary\n## 当前任务\n干净摘要");
-    expect(system).toContain("# Thread Compact Summary");
-    expect(system).not.toContain("<think>");
-    expect(system).not.toContain("model reasoning");
+    expect(context).toContain("# Thread Compact Summary");
+    expect(context).not.toContain("<think>");
+    expect(context).not.toContain("model reasoning");
+  });
+
+  it("prefers capsule_json over legacy summary in context", async () => {
+    const {
+      compactionContextBlock,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const context = compactionContextBlock({
+      summary: "# Thread Compact Summary\nlegacy should not win",
+      capsule_json: capsule({
+        topic: "Conversation State Capsule",
+        confirmedFacts: ["端口 3001 已确认"],
+      }),
+    });
+
+    expect(context).toContain("<athena_conversation_capsule>");
+    expect(context).toContain("端口 3001 已确认");
+    expect(context).not.toContain("legacy should not win");
+  });
+
+  it("decrements temporary context TTL and expires stale items", async () => {
+    const {
+      decrementTemporaryContextTtl,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const next = decrementTemporaryContextTtl({
+      temporaryContext: [
+        { text: "保留一次", expiresAfterCompactions: 2 },
+        { text: "本次过期", expiresAfterCompactions: 1 },
+      ],
+    });
+
+    expect(next.temporaryContext).toEqual([
+      { text: "保留一次", expiresAfterCompactions: 1 },
+    ]);
+  });
+
+  it("normalizes precise confirmed numbers into capsule fields", async () => {
+    const {
+      normalizeConversationCapsule,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const normalized = normalizeConversationCapsule({
+      topic: "Thread Compaction",
+      confirmedFacts: [
+        "DeepSeek v4 flash 用于真实环境测试",
+        "THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS=400000",
+      ],
+      confirmedDecisions: ["temporaryContext 默认 TTL 为 3 次压缩"],
+      architectureDecisions: ["capsule_json 优先级高于 summary"],
+    });
+
+    expect(normalized.confirmedFacts.join("\n")).toContain("400000");
+    expect(normalized.confirmedDecisions.join("\n")).toContain("3");
+    expect(normalized.architectureDecisions.join("\n")).toContain(
+      "capsule_json"
+    );
   });
 
   it("does not auto compact when auto is disabled", async () => {
@@ -488,12 +566,16 @@ describe("Thread compaction memory", () => {
       convertToPromptHistory(rows.slice(0, 2))
     );
     const expectedAfter = new TokenManager("gpt-4o").countFromString(
-      created.summary
+      created.capsule_json
     );
 
     expect(result.success).toBe(true);
     expect(created.covered_chat_ids).toBe("[1,2]");
     expect(created.covered_to_chat_id).toBe(2);
+    expect(created.summary_format).toBe("conversation-state-capsule-json-v1");
+    expect(JSON.parse(created.capsule_json).confirmedFacts).toEqual(
+      expect.arrayContaining(["系统采用 Shared Auth DB", "TTL 为 3 次压缩"])
+    );
     expect(created.token_before).toBe(expectedBefore);
     expect(created.token_after).toBe(expectedAfter);
   });
@@ -506,9 +588,14 @@ describe("Thread compaction memory", () => {
         chat(index + 13, "retained", "retained answer")
       ),
     ];
-    mockLatest.mockResolvedValue({
+    const latestCompaction = {
       id: 88,
       summary: "# Thread Compact Summary\n## 当前任务\n状态摘要",
+      capsule_json: capsule({
+        topic: "账号权限体系",
+        currentGoal: "状态摘要",
+        coveredToChatId: "10",
+      }),
       summary_format: "thread-compact-markdown-v1",
       covered_from_chat_id: 1,
       covered_to_chat_id: 10,
@@ -517,9 +604,11 @@ describe("Thread compaction memory", () => {
       token_after: 20,
       created_at: "2026-05-28 00:00:00",
       updated_at: "2026-05-28 00:00:00",
-    });
+    };
+    mockLatest.mockResolvedValue(latestCompaction);
     mockCompactionWhere.mockResolvedValue(rows);
     const {
+      compactionContextBlock,
       getThreadCompactionStatus,
     } = require("../../../utils/chats/threadCompaction");
     const { TokenManager } = require("../../../utils/helpers/tiktoken");
@@ -534,7 +623,7 @@ describe("Thread compaction memory", () => {
     });
     const tokenManager = new TokenManager("gpt-4o");
     const expectedSummary = tokenManager.countFromString(
-      "# Thread Compact Summary\n## 当前任务\n状态摘要"
+      compactionContextBlock(latestCompaction)
     );
     const expectedHistory = tokenManager.statsFrom(
       convertToPromptHistory(rows)
@@ -549,8 +638,8 @@ describe("Thread compaction memory", () => {
     expect(status.usedTokens).toBe(expectedSummary + expectedHistory);
     expect(status.limitTokens).toBe(400_000);
     expect(status.compactableMessageCount).toBe(2);
-    expect(status.targetRatio).toBe(0.15);
-    expect(status.targetTokens).toBe(60_000);
+    expect(status.targetRatio).toBe(0.2);
+    expect(status.targetTokens).toBe(80_000);
     expect(status.chatInjectionLimit).toBe(400_000);
     expect(status.latestCompaction.summary).toBeUndefined();
     expect(status.excludes).toEqual(
@@ -626,7 +715,8 @@ describe("Thread compaction memory", () => {
 
     expect(flashBudgets.targetBase).toBe("compaction_window");
     expect(flashBudgets.chatInjectionLimit).toBe(400_000);
-    expect(flashBudgets.targetTokens).toBe(60_000);
+    expect(flashBudgets.targetRatio).toBe(0.2);
+    expect(flashBudgets.targetTokens).toBe(80_000);
     expect(proBudgets.targetBase).toBe("compaction_window");
     expect(proBudgets.chatInjectionLimit).toBe(flashBudgets.chatInjectionLimit);
     expect(proBudgets.targetTokens).toBe(flashBudgets.targetTokens);
@@ -652,7 +742,43 @@ describe("Thread compaction memory", () => {
 
     expect(budgets.targetBase).toBe("compaction_window");
     expect(budgets.chatInjectionLimit).toBe(400_000);
+    expect(budgets.targetRatio).toBe(0.2);
+    expect(budgets.targetTokens).toBe(80_000);
+  });
+
+  it("keeps explicit 0.15 target ratio available for more aggressive manual compaction", async () => {
+    const {
+      resolveTargetBudgets,
+    } = require("../../../utils/chats/threadCompaction");
+    const llm = mockGetLLMProvider();
+
+    const budgets = resolveTargetBudgets({
+      workspace,
+      chatLLM: llm,
+      compactionLLM: llm,
+      targetRatio: 0.15,
+      mode: "manual",
+    });
+
+    expect(budgets.targetRatio).toBe(0.15);
     expect(budgets.targetTokens).toBe(60_000);
+  });
+
+  it("keeps auto target ratio at 0.2 by default", async () => {
+    const {
+      resolveTargetBudgets,
+    } = require("../../../utils/chats/threadCompaction");
+    const llm = mockGetLLMProvider();
+
+    const budgets = resolveTargetBudgets({
+      workspace,
+      chatLLM: llm,
+      compactionLLM: llm,
+      mode: "auto",
+    });
+
+    expect(budgets.targetRatio).toBe(0.2);
+    expect(budgets.targetTokens).toBe(80_000);
   });
 
   it("target mode can compact history even when keep-10 would retain it", async () => {
@@ -735,7 +861,7 @@ describe("Thread compaction memory", () => {
       provider,
       handlerProps: {
         compactedThreadMemory:
-          "<compacted_thread_memory>\nsummary\n</compacted_thread_memory>",
+          "<athena_conversation_capsule>\n{}\n</athena_conversation_capsule>",
         log: jest.fn(),
       },
     });
@@ -750,7 +876,7 @@ describe("Thread compaction memory", () => {
     expect(messages[0]).toEqual(
       expect.objectContaining({
         role: "system",
-        content: expect.stringContaining("<compacted_thread_memory>"),
+        content: expect.stringContaining("<athena_conversation_capsule>"),
       })
     );
     expect(functions.map((fn) => fn.name)).toEqual(["demo-tool"]);

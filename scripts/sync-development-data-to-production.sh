@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
 DEV_STORAGE="$STORAGE_BASE/development"
 PROD_STORAGE="$STORAGE_BASE/production"
+SHARED_STORAGE="$STORAGE_BASE/shared"
 BACKUP_ROOT="${BACKUP_ROOT:-$ROOT_DIR/anythingllm-data-sync-backups}"
 TIMESTAMP="$(date '+%Y%m%d-%H%M%S')"
 BACKUP_DIR="$BACKUP_ROOT/$TIMESTAMP"
@@ -64,7 +65,7 @@ port_pids() {
 }
 
 require_stopped() {
-  local ports=(3000 3001 8888)
+  local ports=(3000 3001 3002 8888 8889)
   local port
   local pids
 
@@ -110,6 +111,11 @@ backup_existing_data() {
 
   log "backing up development storage"
   rsync -a "$DEV_STORAGE/" "$BACKUP_DIR/development/"
+
+  if [[ -d "$SHARED_STORAGE" ]]; then
+    log "backing up shared auth storage"
+    rsync -a "$SHARED_STORAGE/" "$BACKUP_DIR/shared/"
+  fi
 
   if [[ -d "$ROOT_DIR/server/public" ]]; then
     log "backing up server/public"

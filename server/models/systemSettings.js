@@ -96,6 +96,7 @@ const SystemSettings = {
     "meta_page_title",
     "meta_page_favicon",
     "button_lab_app_icon_params",
+    "allow_public_registration",
   ],
   supportedFields: [
     "logo_filename",
@@ -122,6 +123,7 @@ const SystemSettings = {
     "file_access_open_blacklist",
     "custom_app_name",
     "button_lab_app_icon_params",
+    "allow_public_registration",
     "default_system_prompt",
 
     // Meta page customization
@@ -135,6 +137,9 @@ const SystemSettings = {
     "hub_api_key",
   ],
   validations: {
+    allow_public_registration: (update) => {
+      return String(update) === "true" ? "true" : "false";
+    },
     footer_data: (updates) => {
       try {
         const array = JSON.parse(updates)
@@ -718,6 +723,19 @@ const SystemSettings = {
   isMultiUserMode: async function () {
     try {
       const setting = await this.get({ label: "multi_user_mode" });
+      return setting?.value === "true";
+    } catch (error) {
+      console.error(error.message);
+      return false;
+    }
+  },
+
+  allowPublicRegistration: async function () {
+    if (process.env.ALLOW_PUBLIC_REGISTRATION === "true") return true;
+    if (process.env.ALLOW_PUBLIC_REGISTRATION === "false") return false;
+
+    try {
+      const setting = await this.get({ label: "allow_public_registration" });
       return setting?.value === "true";
     } catch (error) {
       console.error(error.message);

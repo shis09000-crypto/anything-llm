@@ -226,3 +226,7 @@ export function tailHydrationFollowDecision({
     blockedByOlderHistory: false,
   };
 }
+
+export function tailCleanupFollowDecision(options = {}) {
+  return tailHydrationFollowDecision(options);
+}

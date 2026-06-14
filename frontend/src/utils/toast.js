@@ -28,10 +28,36 @@ function resolveDismissOnClick(opts = {}) {
 }
 
 function resolveToastContent(message, opts = {}) {
+  const type = normalizeType(opts.type);
+  const normalizedMessage = normalizeToastMessage(message, type);
   return {
-    title: opts.title ?? message,
+    title: opts.title ?? normalizedMessage,
     description: opts.description,
   };
+}
+
+function normalizeToastMessage(message, type = "info") {
+  const fallbackByType = {
+    success: "操作成功。",
+    info: "已更新。",
+    warning: "请检查后重试。",
+    error: "操作失败，请稍后重试。",
+  };
+  const text =
+    typeof message === "string" ? message.trim() : String(message || "").trim();
+  if (!text) return fallbackByType[type] || fallbackByType.info;
+
+  if (
+    /failed to fetch/i.test(text) ||
+    /networkerror/i.test(text) ||
+    /load failed/i.test(text)
+  ) {
+    return "无法连接服务，请确认后端已启动后重试。";
+  }
+
+  if (/not found/i.test(text))
+    return "服务接口不存在，请刷新或重启后端后重试。";
+  return text;
 }
 
 export function subscribeToToasts(listener) {
@@ -56,16 +82,17 @@ export function clearToasts() {
 const showToast = (message, type = "default", opts = {}) => {
   if (opts?.clear === true) clearToasts();
 
+  const normalizedType = normalizeType(type);
   const id = opts.toastId || `app-toast-${nextToastId++}`;
   const nextToast = {
     id,
-    type: normalizeType(type),
+    type: normalizedType,
     duration: resolveDuration(opts),
     dismissOnClick: resolveDismissOnClick(opts),
     pauseOnHover: opts.pauseOnHover !== false,
     closable: opts.closable ?? opts.closeButton !== false,
     className: opts.className || "",
-    ...resolveToastContent(message, opts),
+    ...resolveToastContent(message, { ...opts, type: normalizedType }),
   };
 
   const existingIndex = toasts.findIndex((toast) => toast.id === id);

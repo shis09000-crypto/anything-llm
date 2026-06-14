@@ -13,6 +13,10 @@ const mockLogEvent = jest.fn();
 const mockSendVerificationCode = jest.fn();
 const mockSendSecurityNotification = jest.fn();
 const mockSmtpConfigured = jest.fn();
+const mockAuthFindByLoginIdentifier = jest.fn();
+const mockAuthEnsureShadowUser = jest.fn();
+const mockAuthCanLoginInCurrentEnv = jest.fn();
+const mockAuthBootstrapFromShadow = jest.fn();
 
 jest.mock("../../models/user", () => ({
   User: {
@@ -44,6 +48,15 @@ jest.mock("../../models/emailVerification", () => ({
     incrementAttempts: mockIncrementAttempts,
     expireOpenCodes: mockExpireOpenCodes,
     create: mockCreateCode,
+  },
+}));
+
+jest.mock("../../models/authIdentity", () => ({
+  AuthIdentity: {
+    findByLoginIdentifier: mockAuthFindByLoginIdentifier,
+    ensureShadowUser: mockAuthEnsureShadowUser,
+    canLoginInCurrentEnv: mockAuthCanLoginInCurrentEnv,
+    bootstrapAuthUserFromShadow: mockAuthBootstrapFromShadow,
   },
 }));
 
@@ -91,6 +104,10 @@ describe("email password recovery", () => {
       passwordResetToken: { token: "reset-token" },
       error: null,
     });
+    mockAuthFindByLoginIdentifier.mockResolvedValue(null);
+    mockAuthEnsureShadowUser.mockImplementation(async (authUser) => authUser);
+    mockAuthCanLoginInCurrentEnv.mockReturnValue(true);
+    mockAuthBootstrapFromShadow.mockResolvedValue(null);
   });
 
   test("binding email no longer requires current password", async () => {
