@@ -19,7 +19,14 @@ import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
 
-export default function LoginSecurityCard({ user, emailVerified }) {
+export default function LoginSecurityCard({
+  user,
+  emailVerified,
+  authCapability,
+  passkeys = [],
+  passkeysLoading = false,
+  refreshPasskeys,
+}) {
   const { pfp } = usePfp();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
@@ -39,7 +46,10 @@ export default function LoginSecurityCard({ user, emailVerified }) {
   const [trustedDevicePassword, setTrustedDevicePassword] = useState("");
   const [trustedDeviceSaving, setTrustedDeviceSaving] = useState(false);
   const [passkeyReauthLoading, setPasskeyReauthLoading] = useState(false);
-  const passkeyReauthAvailable = AccountSettingsApi.passkeysSupported();
+  const passkeyCapabilityAvailable =
+    authCapability?.showPasskey ?? AccountSettingsApi.passkeysSupported();
+  const hasPasskeys = passkeys.length > 0;
+  const passkeyReauthAvailable = passkeyCapabilityAvailable && hasPasskeys;
 
   useEffect(() => {
     refreshTrustedDevices();
@@ -93,6 +103,20 @@ export default function LoginSecurityCard({ user, emailVerified }) {
   }
 
   async function enableTrustedDeviceWithPasskey() {
+    if (!passkeyCapabilityAvailable) {
+      showToast("当前浏览器不支持通行密钥验证。", "info");
+      return;
+    }
+
+    const latestPasskeys = await refreshPasskeys?.();
+    const passkeyCount = Array.isArray(latestPasskeys)
+      ? latestPasskeys.length
+      : passkeys.length;
+    if (passkeyCount === 0) {
+      showToast("请先添加通行密钥后再使用此验证方式。", "info");
+      return;
+    }
+
     setPasskeyReauthLoading(true);
     const reauth = await AccountSettingsApi.reauthZkWithPasskey().catch(
       (error) => {
@@ -310,18 +334,27 @@ export default function LoginSecurityCard({ user, emailVerified }) {
                   验证并启用
                 </AppButton>
               </div>
-              {passkeyReauthAvailable && (
+              {passkeyCapabilityAvailable && (
                 <div className="mt-3">
                   <AppButton
                     type="button"
                     size="sm"
                     variant="secondary"
                     leftIcon={<Fingerprint className="h-4 w-4" />}
-                    disabled={passkeyReauthLoading || trustedDeviceSaving}
+                    disabled={
+                      passkeysLoading ||
+                      passkeyReauthLoading ||
+                      trustedDeviceSaving ||
+                      !passkeyReauthAvailable
+                    }
                     loading={passkeyReauthLoading}
                     onClick={enableTrustedDeviceWithPasskey}
                   >
-                    使用通行密钥验证
+                    {passkeysLoading
+                      ? "正在读取通行密钥"
+                      : passkeyReauthAvailable
+                        ? "使用通行密钥验证"
+                        : "请先添加通行密钥"}
                   </AppButton>
                 </div>
               )}

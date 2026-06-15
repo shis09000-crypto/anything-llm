@@ -51,6 +51,8 @@ const MAX_DRAFT_STORAGE_CHARS = 450_000;
 const MAX_FINAL_CONTENT_STORAGE_CHARS = 5_000;
 const MAX_TIMELINE_EVENT_CHARS = 500;
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
+const MAX_CLARIFYING_QUESTIONS = 3;
+const MAX_CLARIFYING_CHOICE_OPTIONS = 3;
 const MAX_STORED_TIMELINE_EVENTS = 20;
 const MAX_STORED_SOURCE_COUNT = 8;
 const MAX_SOURCE_FIELD_CHARS = 300;
@@ -77,6 +79,24 @@ function agentReconnectKey(chatKey, turnId) {
   return `${chatKey}:${turnId}`;
 }
 
+function compactClarifyingQuestions(questions = []) {
+  if (!Array.isArray(questions)) return [];
+  return questions.slice(0, MAX_CLARIFYING_QUESTIONS).map((question) => {
+    const compacted = { ...question };
+    if (compacted.kind === "choice") {
+      compacted.options = Array.isArray(question.options)
+        ? question.options.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      compacted.optionDescriptions = Array.isArray(question.optionDescriptions)
+        ? question.optionDescriptions.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      compacted.multiSelect = false;
+      compacted.allowOther = true;
+    }
+    return compacted;
+  });
+}
+
 function isMeaningfulAgentEvent(event = {}) {
   if (!event) return false;
   if (
@@ -95,6 +115,8 @@ function isMeaningfulAgentEvent(event = {}) {
     "tool_result",
     "approval_request",
     "approval_result",
+    "clarification_request",
+    "clarification_result",
   ].includes(event.event?.type);
 }
 
@@ -139,6 +161,7 @@ function createDraft({ workspaceSlug, threadSlug = null, items = [] }) {
     items: normalizeTurnItems(items),
     activeTurnId: null,
     pendingApproval: null,
+    pendingClarification: null,
     activeToolCall: null,
     isStreaming: false,
     isAgentRunning: false,
@@ -179,6 +202,9 @@ function draftFromStorageValue(value) {
     items,
     activeTurnId: keepActiveRuntime ? activeTurnId : null,
     pendingApproval: keepActiveRuntime ? value.pendingApproval || null : null,
+    pendingClarification: keepActiveRuntime
+      ? value.pendingClarification || null
+      : null,
     activeToolCall: keepActiveRuntime ? value.activeToolCall || null : null,
     isStreaming:
       keepActiveRuntime && activeTurn?.reconnectState !== "retrying"
@@ -373,6 +399,27 @@ function sanitizeTimelineEventForStorage(event = {}) {
     };
   }
 
+  if (event.type === "clarification_request") {
+    return {
+      ...base,
+      requestId: event.requestId,
+      questions: compactClarifyingQuestions(event.questions),
+      allowSkip: event.allowSkip,
+      timeoutMs: event.timeoutMs,
+      requestedAt: event.requestedAt,
+    };
+  }
+
+  if (event.type === "clarification_result") {
+    return {
+      ...base,
+      requestId: event.requestId,
+      skipped: event.skipped,
+      timedOut: event.timedOut,
+      reason: event.reason,
+    };
+  }
+
   return base;
 }
 
@@ -450,6 +497,9 @@ function serializeDraftForStorage(draft, { minimal = false } = {}) {
     pendingApproval: minimal
       ? null
       : sanitizeTimelineEventForStorage(draft.pendingApproval),
+    pendingClarification: minimal
+      ? null
+      : sanitizeTimelineEventForStorage(draft.pendingClarification),
     activeToolCall: minimal
       ? null
       : sanitizeTimelineEventForStorage(draft.activeToolCall),
@@ -502,6 +552,7 @@ function hasUnfinishedDraft(draft = {}) {
     draft.isStreaming ||
     draft.isAgentRunning ||
     draft.pendingApproval ||
+    draft.pendingClarification ||
     draft.activeToolCall ||
     draft.items?.some(
       (item) => isAssistantTurn(item) && item.status === TURN_STATUSES.running
@@ -520,6 +571,7 @@ function clearSettledRuntimeState(draft = {}) {
     draft.isStreaming ||
     draft.isAgentRunning ||
     draft.pendingApproval ||
+    draft.pendingClarification ||
     draft.activeToolCall
   );
 
@@ -543,6 +595,7 @@ function clearSettledRuntimeState(draft = {}) {
     items,
     activeTurnId: null,
     pendingApproval: null,
+    pendingClarification: null,
     activeToolCall: null,
     isStreaming: false,
     isAgentRunning: false,
@@ -589,6 +642,7 @@ function compactInactiveDraft(draft = {}) {
       .slice(-MAX_COMPACT_INACTIVE_ITEMS)
       .map(compactInactiveItem),
     pendingApproval: null,
+    pendingClarification: null,
     activeToolCall: null,
     isStreaming: false,
     isAgentRunning: false,
@@ -841,6 +895,7 @@ function cleanupTransientDraftState(
     items,
     activeTurnId: activeRemoved ? null : draft.activeTurnId,
     pendingApproval: activeRemoved ? null : draft.pendingApproval,
+    pendingClarification: activeRemoved ? null : draft.pendingClarification,
     activeToolCall: activeRemoved ? null : draft.activeToolCall,
     isStreaming: activeRemoved ? false : draft.isStreaming,
     isAgentRunning: activeRemoved ? false : draft.isAgentRunning,
@@ -944,6 +999,7 @@ function turnRuntimeSnapshot(draft = {}, turnId = null) {
     isAgentRunning: !!draft?.isAgentRunning,
     activeToolCall: draft?.activeToolCall?.id || null,
     pendingApproval: draft?.pendingApproval?.requestId || null,
+    pendingClarification: draft?.pendingClarification?.requestId || null,
     status: turn?.status || null,
     finalContentLength: turn?.finalContent?.length || 0,
     timelineEventCount: turn?.timeline?.length || 0,
@@ -959,6 +1015,7 @@ export function ChatThreadDraftProvider({ children }) {
   const runningStateRef = useRef(runningState);
   const websocketRefs = useRef({});
   const approvalTimeoutRefs = useRef({});
+  const clarificationTimeoutRefs = useRef({});
   const stoppedThreadRefs = useRef({});
   const erroredThreadRefs = useRef({});
   const agentReconnectRefs = useRef({});
@@ -1219,6 +1276,7 @@ export function ChatThreadDraftProvider({ children }) {
             activeTurnId:
               draft.activeTurnId === turnId ? null : draft.activeTurnId,
             pendingApproval: null,
+            pendingClarification: null,
             activeToolCall: null,
             isStreaming: false,
             isAgentRunning: false,
@@ -1332,6 +1390,7 @@ export function ChatThreadDraftProvider({ children }) {
               ? null
               : current.activeTurnId,
           pendingApproval: null,
+          pendingClarification: null,
           activeToolCall: null,
           isStreaming: false,
           isAgentRunning: false,
@@ -1497,6 +1556,10 @@ export function ChatThreadDraftProvider({ children }) {
         if (event.type === "tool_result") next.activeToolCall = null;
         if (event.type === "approval_request") next.pendingApproval = event;
         if (event.type === "approval_result") next.pendingApproval = null;
+        if (event.type === "clarification_request")
+          next.pendingClarification = event;
+        if (event.type === "clarification_result")
+          next.pendingClarification = null;
         debugRuntime("appendTimelineEvent:after", {
           chatKey,
           turnId,
@@ -1560,6 +1623,7 @@ export function ChatThreadDraftProvider({ children }) {
           activeTurnId:
             current.activeTurnId === turnId ? null : current.activeTurnId,
           pendingApproval: null,
+          pendingClarification: null,
           activeToolCall: null,
           isStreaming: false,
           isAgentRunning: false,
@@ -1963,6 +2027,47 @@ export function ChatThreadDraftProvider({ children }) {
     });
   }, [drafts, scheduleApprovalTimeout]);
 
+  const scheduleClarificationTimeout = useCallback(
+    (chatKey, turnId, clarification) => {
+      if (!clarification?.requestId || !clarification.timeoutMs) return;
+      const timeoutKey = `${chatKey}:${turnId}:${clarification.requestId}`;
+      clearTimeout(clarificationTimeoutRefs.current[timeoutKey]);
+      const elapsed =
+        Date.now() -
+        (clarification.requestedAt || clarification.createdAt || Date.now());
+      const remaining = Math.max(0, clarification.timeoutMs - elapsed);
+      clarificationTimeoutRefs.current[timeoutKey] = setTimeout(() => {
+        const draft = draftsRef.current[chatKey];
+        if (
+          draft?.pendingClarification?.requestId !== clarification.requestId ||
+          draft?.activeTurnId !== turnId
+        ) {
+          return;
+        }
+        appendTimelineEvent(chatKey, turnId, {
+          type: "clarification_result",
+          requestId: clarification.requestId,
+          skipped: false,
+          timedOut: true,
+          reason: "timeout",
+        });
+      }, remaining);
+    },
+    [appendTimelineEvent]
+  );
+
+  useEffect(() => {
+    Object.entries(drafts).forEach(([chatKey, draft]) => {
+      if (draft.pendingClarification && draft.activeTurnId) {
+        scheduleClarificationTimeout(
+          chatKey,
+          draft.activeTurnId,
+          draft.pendingClarification
+        );
+      }
+    });
+  }, [drafts, scheduleClarificationTimeout]);
+
   const respondToApproval = useCallback(
     async (chatKey, requestId, approved) => {
       const draft = draftsRef.current[chatKey];
@@ -1984,6 +2089,37 @@ export function ChatThreadDraftProvider({ children }) {
             type: "toolApprovalResponse",
             requestId,
             approved: !!approved,
+          })
+        );
+      }
+    },
+    [appendTimelineEvent]
+  );
+
+  const respondToClarification = useCallback(
+    async (chatKey, requestId, payload = {}) => {
+      const draft = draftsRef.current[chatKey];
+      const clarification = draft?.pendingClarification;
+      const turnId = draft?.activeTurnId;
+      if (!clarification || clarification.requestId !== requestId || !turnId)
+        return;
+
+      appendTimelineEvent(chatKey, turnId, {
+        type: "clarification_result",
+        requestId,
+        skipped: !!payload.skipped,
+        timedOut: !!payload.timedOut,
+      });
+
+      if (payload.timedOut) return;
+      const socket = websocketRefs.current[chatKey];
+      if (socket?.readyState === WebSocket.OPEN) {
+        socket.send(
+          JSON.stringify({
+            type: "clarificationResponse",
+            requestId,
+            skipped: !!payload.skipped,
+            answers: Array.isArray(payload.answers) ? payload.answers : [],
           })
         );
       }
@@ -2220,6 +2356,7 @@ export function ChatThreadDraftProvider({ children }) {
             activeTurnId:
               current.activeTurnId === turnId ? null : current.activeTurnId,
             pendingApproval: null,
+            pendingClarification: null,
             activeToolCall: null,
             isStreaming: false,
             isAgentRunning: false,
@@ -2362,6 +2499,9 @@ export function ChatThreadDraftProvider({ children }) {
           if (timelineEvent.type === "approval_request") {
             scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
           }
+          if (timelineEvent.type === "clarification_request") {
+            scheduleClarificationTimeout(chatKey, turnId, timelineEvent);
+          }
         }
         if (applied?.type === "assistant_final" && applied.chatId) {
           socket.lastFinalChatId = applied.chatId;
@@ -2438,6 +2578,7 @@ export function ChatThreadDraftProvider({ children }) {
       markThreadCompleted,
       markThreadRunning,
       scheduleApprovalTimeout,
+      scheduleClarificationTimeout,
       updateAgentReconnectTurn,
       updateDraft,
     ]
@@ -2530,6 +2671,7 @@ export function ChatThreadDraftProvider({ children }) {
         items: [...(draft.items || []), ...turnItems],
         activeTurnId: turnId,
         pendingApproval: null,
+        pendingClarification: null,
         activeToolCall: null,
         isStreaming: !sendToExistingAgent,
         isAgentRunning: !!sendToExistingAgent,
@@ -2665,6 +2807,7 @@ export function ChatThreadDraftProvider({ children }) {
         items: [...(draft.items || []), ...turnItems],
         activeTurnId: turnId,
         pendingApproval: null,
+        pendingClarification: null,
         activeToolCall: null,
         isStreaming: true,
         isAgentRunning: false,
@@ -2766,6 +2909,9 @@ export function ChatThreadDraftProvider({ children }) {
     return () => {
       Object.values(websocketRefs.current).forEach((socket) => socket?.close());
       Object.values(approvalTimeoutRefs.current).forEach((timeout) =>
+        clearTimeout(timeout)
+      );
+      Object.values(clarificationTimeoutRefs.current).forEach((timeout) =>
         clearTimeout(timeout)
       );
       Object.values(agentReconnectRefs.current).forEach((session) => {
@@ -2927,6 +3073,7 @@ export function ChatThreadDraftProvider({ children }) {
       startLocalTurn,
       continueInterruptedAgentTurn,
       respondToApproval,
+      respondToClarification,
       stopStream,
       hasWorkspaceActivity,
       hasThreadActivity,
@@ -2961,6 +3108,7 @@ export function ChatThreadDraftProvider({ children }) {
       hasWorkspaceActivity,
       mergeServerHistory,
       respondToApproval,
+      respondToClarification,
       startStream,
       startLocalTurn,
       stopStream,

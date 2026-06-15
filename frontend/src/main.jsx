@@ -318,10 +318,10 @@ const router = createBrowserRouter([
       {
         path: "/settings/default-system-prompt",
         lazy: async () => {
-          const { default: DefaultSystemPrompt } = await import(
-            "@/pages/Admin/DefaultSystemPrompt"
+          const { default: AdminLegacyRedirect } = await import(
+            "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
           );
-          return { element: <AdminRoute Component={DefaultSystemPrompt} /> };
+          return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
         },
       },
       {
@@ -376,35 +376,37 @@ const router = createBrowserRouter([
       {
         path: "/settings/workspace-chats",
         lazy: async () => {
-          const { default: GeneralChats } = await import(
-            "@/pages/GeneralSettings/Chats"
+          const { default: AdminLegacyRedirect } = await import(
+            "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
           );
-          return { element: <AdminRoute Component={GeneralChats} /> };
+          return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
         },
       },
       {
         path: "/settings/invites",
         lazy: async () => {
-          const { default: AdminInvites } = await import(
-            "@/pages/Admin/Invitations"
+          const { default: AdminLegacyRedirect } = await import(
+            "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
           );
-          return { element: <AdminRoute Component={AdminInvites} /> };
+          return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
         },
       },
       {
         path: "/settings/users",
         lazy: async () => {
-          const { default: AdminUsers } = await import("@/pages/Admin/Users");
-          return { element: <AdminRoute Component={AdminUsers} /> };
+          const { default: AdminLegacyRedirect } = await import(
+            "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
+          );
+          return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
         },
       },
       {
         path: "/settings/workspaces",
         lazy: async () => {
-          const { default: AdminWorkspaces } = await import(
-            "@/pages/Admin/Workspaces"
+          const { default: AdminLegacyRedirect } = await import(
+            "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
           );
-          return { element: <AdminRoute Component={AdminWorkspaces} /> };
+          return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
         },
       },
       // Onboarding Flow

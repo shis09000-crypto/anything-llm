@@ -313,8 +313,17 @@ function canBanAccount(actor = {}, target = {}) {
 }
 
 function canUnbanAccount(actor = {}, target = {}, options = {}) {
-  const restoreRole = normalizeRole(options.restoreRole || target?.role);
+  const legacyRestoreRole =
+    normalizeRole(target?.role) === ROLES.disabled && !target?.previousRole
+      ? ROLES.user
+      : target?.role;
+  const restoreRole = normalizeRole(
+    options.restoreRole || target?.previousRole || legacyRestoreRole
+  );
   const actorRole = authUserRole(actor || {});
+  const banActorRole = target?.banActorRole
+    ? normalizeRole(target.banActorRole)
+    : null;
   const targetWasOwner =
     normalizeRole(target?.role) === ROLES.owner ||
     normalizeRole(target?.previousRole) === ROLES.owner ||
@@ -323,12 +332,22 @@ function canUnbanAccount(actor = {}, target = {}, options = {}) {
   if (restoreRole === ROLES.owner) {
     return (
       isPrimaryOwner(actor) &&
-      normalizeRole(target?.role) === ROLES.owner &&
-      normalizeOwnerType(target?.ownerType, ROLES.owner, target) ===
-        OWNER_TYPES.secondary
+      targetWasOwner &&
+      normalizeOwnerType(
+        target?.previousOwnerType || target?.ownerType,
+        ROLES.owner,
+        target
+      ) === OWNER_TYPES.secondary
     );
   }
   if (targetWasOwner) return isPrimaryOwner(actor);
+
+  if (banActorRole === ROLES.owner) {
+    return (
+      actorRole === ROLES.owner &&
+      [ROLES.user, ROLES.developer, ROLES.admin].includes(restoreRole)
+    );
+  }
 
   if (actorRole === ROLES.admin)
     return [ROLES.user, ROLES.developer].includes(restoreRole);
@@ -583,6 +602,14 @@ function assertOwnerHierarchyMutationAllowed({
 
   if (nextRole === ROLES.owner && targetRole !== ROLES.owner && !actorPrimary) {
     throw new Error("Only the primary owner can promote an account to owner.");
+  }
+
+  if (
+    nextRole === ROLES.owner &&
+    targetRole !== ROLES.owner &&
+    targetRole !== ROLES.admin
+  ) {
+    throw new Error("Only admin accounts can be promoted to secondary owner.");
   }
 
   if (

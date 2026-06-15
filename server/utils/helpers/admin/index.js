@@ -30,7 +30,9 @@ function validRoleSelection(
 // Check to make sure with this update that includes a role change to an existing admin to a non-admin
 // that we still have at least one admin left or else they will lock themselves out.
 async function canModifyAdmin(userToModify, updates, currentUser = {}) {
-  const currentRole = normalizeRole(userToModify?.role);
+  const currentRole = normalizeRole(
+    userToModify?.previousRole || userToModify?.role
+  );
   const nextRole = updates.hasOwnProperty("role")
     ? normalizeRole(updates.role)
     : currentRole;
@@ -72,7 +74,9 @@ async function canModifyAdmin(userToModify, updates, currentUser = {}) {
 
 function validCanModify(currentUser, existingUser) {
   const actorRole = normalizeRole(currentUser?.role);
-  const targetRole = normalizeRole(existingUser?.role);
+  const targetRole = normalizeRole(
+    existingUser?.previousRole || existingUser?.role
+  );
   if (actorRole === ROLES.owner) {
     if (targetRole === ROLES.owner && !isPrimaryOwner(currentUser))
       return {

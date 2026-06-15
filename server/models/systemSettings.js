@@ -125,6 +125,8 @@ const SystemSettings = {
     "button_lab_app_icon_params",
     "allow_public_registration",
     "default_system_prompt",
+    "agent_clarifying_questions_enabled",
+    "agent_clarifying_questions_max_per_turn",
 
     // Meta page customization
     "meta_page_title",
@@ -139,6 +141,14 @@ const SystemSettings = {
   validations: {
     allow_public_registration: (update) => {
       return String(update) === "true" ? "true" : "false";
+    },
+    agent_clarifying_questions_enabled: (update) => {
+      return String(update) === "true" ? "true" : "false";
+    },
+    agent_clarifying_questions_max_per_turn: (update) => {
+      const value = Number(update);
+      if (!Number.isFinite(value)) return 3;
+      return Math.max(1, Math.min(3, Math.floor(value)));
     },
     footer_data: (updates) => {
       try {
@@ -617,6 +627,17 @@ const SystemSettings = {
       AgentSkillMaxToolCalls: AIbitat.defaultMaxToolCalls(),
       AgentSkillRerankerEnabled: ToolReranker.isEnabled(),
       AgentSkillRerankerTopN: ToolReranker.getTopN(),
+      AgentClarifyingQuestionsEnabled:
+        (await this.getValueOrFallback(
+          { label: "agent_clarifying_questions_enabled" },
+          "false"
+        )) === "true",
+      AgentClarifyingQuestionsMaxPerTurn: Number(
+        await this.getValueOrFallback(
+          { label: "agent_clarifying_questions_max_per_turn" },
+          "3"
+        )
+      ),
     };
   },
 

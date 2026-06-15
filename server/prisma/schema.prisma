@@ -265,6 +265,13 @@ model users {
   allowedEnvs                  String                        @default("[]")
   ownerType                    String?
   suspended                    Int                           @default(0)
+  previousRole                 String?
+  previousAllowedEnvs          String?
+  previousOwnerType            String?
+  banActorRole                 String?
+  banActorOwnerType            String?
+  banActorAuthUserId           Int?
+  bannedAt                     DateTime?
   seen_recovery_codes          Boolean?                      @default(false)
   email                        String?                       @unique
   email_verified_at            DateTime?

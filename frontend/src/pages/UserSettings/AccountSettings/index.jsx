@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, EnvelopeSimple } from "@phosphor-icons/react";
 import useUser from "@/hooks/useUser";
 import { userFromStorage } from "@/utils/request";
@@ -19,7 +19,11 @@ import LoginSecurityCard from "./LoginSecurityCard";
 import PasskeysCard from "./PasskeysCard";
 import SessionsDevicesCard from "./SessionsDevicesCard";
 import DataPrivacyCard from "./DataPrivacyCard";
+import AdminPanel from "./AdminPanel";
 import AccountSettingRow from "./AccountSettingRow";
+import AccountSettingsApi from "./accountSettingsApi";
+import { detectAuthCapability } from "@/utils/authCapability";
+import { canSeeAdmin } from "@/utils/authz";
 import "./styles.css";
 
 export default function AccountSettings() {
@@ -27,6 +31,12 @@ export default function AccountSettings() {
   const [localUser, setLocalUser] = useState(
     () => contextUser || userFromStorage()
   );
+  const [authCapability, setAuthCapability] = useState(() =>
+    detectAuthCapability()
+  );
+  const [passkeys, setPasskeys] = useState([]);
+  const [passkeysLoading, setPasskeysLoading] = useState(false);
+  const passkeysRef = useRef([]);
   const user = useMemo(
     () =>
       localUser || {
@@ -37,6 +47,46 @@ export default function AccountSettings() {
       },
     [localUser]
   );
+
+  const refreshPasskeys = useCallback(async () => {
+    const capability = detectAuthCapability();
+    setAuthCapability(capability);
+    if (!capability.showPasskey) {
+      passkeysRef.current = [];
+      setPasskeys([]);
+      return [];
+    }
+
+    setPasskeysLoading(true);
+    const result = await AccountSettingsApi.fetchPasskeys();
+    setPasskeysLoading(false);
+
+    if (result?.success) {
+      const nextPasskeys = result.passkeys || [];
+      passkeysRef.current = nextPasskeys;
+      setPasskeys(nextPasskeys);
+      return nextPasskeys;
+    }
+
+    return passkeysRef.current;
+  }, []);
+
+  useEffect(() => {
+    refreshPasskeys();
+  }, [refreshPasskeys]);
+
+  useEffect(() => {
+    function refreshWhenVisible() {
+      if (document.visibilityState === "visible") refreshPasskeys();
+    }
+
+    window.addEventListener("focus", refreshPasskeys);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.removeEventListener("focus", refreshPasskeys);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refreshPasskeys]);
 
   function signOut() {
     window.localStorage.removeItem(AUTH_USER);
@@ -56,7 +106,11 @@ export default function AccountSettings() {
   return (
     <div className="account-settings-page">
       <div className="account-settings-shell">
-        <AccountSidebar onReturnHome={returnHome} onSignOut={signOut} />
+        <AccountSidebar
+          user={user}
+          onReturnHome={returnHome}
+          onSignOut={signOut}
+        />
         <main className="account-settings-main">
           <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-5">
             <header className="flex flex-col gap-2 px-1 pt-1">
@@ -72,8 +126,17 @@ export default function AccountSettings() {
             <LoginSecurityCard
               user={user}
               emailVerified={Boolean(user?.email && user?.email_verified_at)}
+              authCapability={authCapability}
+              passkeys={passkeys}
+              passkeysLoading={passkeysLoading}
+              refreshPasskeys={refreshPasskeys}
             />
-            <PasskeysCard />
+            <PasskeysCard
+              authCapability={authCapability}
+              passkeys={passkeys}
+              passkeysLoading={passkeysLoading}
+              refreshPasskeys={refreshPasskeys}
+            />
             <SessionsDevicesCard />
             <section id="notifications" className="account-card">
               <div className="mb-2 px-1 pb-3">
@@ -108,6 +171,7 @@ export default function AccountSettings() {
               </div>
             </section>
             <DataPrivacyCard />
+            {canSeeAdmin(user) && <AdminPanel currentUser={user} />}
           </div>
         </main>
       </div>

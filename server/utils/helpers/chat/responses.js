@@ -1,6 +1,9 @@
 const { v4: uuidv4 } = require("uuid");
 const moment = require("moment");
 
+const MAX_CLARIFYING_QUESTIONS_PER_TURN = 3;
+const MAX_CLARIFYING_QUESTION_CHARS = 150;
+
 function clientAbortedHandler(resolve, fullText) {
   console.log(
     "\x1b[43m\x1b[34m[STREAM ABORTED]\x1b[0m Client requested to abort stream. Exiting LLM stream handler early."
@@ -167,11 +170,60 @@ function convertToChatHistory(history = [], options = {}) {
         ...(!isLight && data?.agentEvents?.length > 0
           ? { agentEvents: data.agentEvents }
           : {}),
+        ...(!isLight && data?.clarifyingQuestions?.length > 0
+          ? { clarifyingQuestions: data.clarifyingQuestions }
+          : {}),
       },
     ]);
   }
 
   return formattedHistory.flat();
+}
+
+function truncateUnicode(value = "", maxChars = MAX_CLARIFYING_QUESTION_CHARS) {
+  const chars = Array.from(String(value || "").trim());
+  if (chars.length <= maxChars) return chars.join("");
+  return chars.slice(0, maxChars).join("");
+}
+
+function formatClarifyingAnswer(answer = {}) {
+  if (answer.skipped) return "[user skipped]";
+  if (Array.isArray(answer.answer)) return answer.answer.join(", ");
+  if (
+    answer.answer === null ||
+    answer.answer === undefined ||
+    answer.answer === ""
+  )
+    return "[no answer]";
+  return String(answer.answer);
+}
+
+/**
+ * Render a saved survey as a compact Q/A transcript for LLM history.
+ */
+function formatClarifyingSurveyForPrompt(survey) {
+  const questions = Array.isArray(survey?.questions)
+    ? survey.questions.slice(0, MAX_CLARIFYING_QUESTIONS_PER_TURN)
+    : [];
+  const result = survey?.result || {};
+  if (!questions.length) return "";
+
+  let body;
+  if (result.timedOut) {
+    body = "[no response within the time limit]";
+  } else if (result.skipped) {
+    body = "[user let the agent decide]";
+  } else {
+    const answers = Array.isArray(result.answers) ? result.answers : [];
+    body = questions
+      .map((q, i) => {
+        const question = truncateUnicode(q.question);
+        const answer = answers[i] || { skipped: true };
+        return `Q: ${question}\nA: ${formatClarifyingAnswer(answer)}`;
+      })
+      .join("\n");
+  }
+  return `Clarification answers:\n<clarification_answers>\n${body}\n</clarification_answers>`;
 }
 
 /**
@@ -199,6 +251,16 @@ function convertToPromptHistory(history = []) {
       continue;
     }
 
+    let assistantContent = stripReasoningBlocks(data.text);
+    if (data?.clarifyingQuestions?.length > 0) {
+      const surveyBlocks = data.clarifyingQuestions
+        .map(formatClarifyingSurveyForPrompt)
+        .filter(Boolean)
+        .join("\n\n");
+      if (surveyBlocks)
+        assistantContent = `${assistantContent}\n\n${surveyBlocks}`;
+    }
+
     formattedHistory.push([
       {
         role: "user",
@@ -210,7 +272,7 @@ function convertToPromptHistory(history = []) {
       },
       {
         role: "assistant",
-        content: stripReasoningBlocks(data.text),
+        content: assistantContent,
       },
     ]);
   }

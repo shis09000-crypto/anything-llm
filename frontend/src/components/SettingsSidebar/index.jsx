@@ -6,7 +6,6 @@ import {
   List,
   Flask,
   Gear,
-  UserCircleGear,
   PencilSimpleLine,
   Nut,
   Toolbox,
@@ -230,8 +229,6 @@ function SupportEmail() {
 }
 
 const SidebarOptions = ({ user = null, t }) => {
-  const isAdmin = canSeeAdmin(user);
-
   return (
     <CanViewChatHistoryProvider>
       {({ viewable: canViewChatHistory }) => (
@@ -298,42 +295,6 @@ const SidebarOptions = ({ user = null, t }) => {
               {
                 btnText: t("settings.transcription"),
                 href: paths.settings.transcriptionPreference(),
-                flex: true,
-                roles: ["admin"],
-              },
-            ]}
-          />
-          <Option
-            btnText={t("settings.admin")}
-            icon={<UserCircleGear className="h-5 w-5 flex-shrink-0" />}
-            user={user}
-            hidden={!isAdmin}
-            childOptions={[
-              {
-                btnText: t("settings.users"),
-                href: paths.settings.users(),
-                roles: ["admin"],
-              },
-              {
-                btnText: t("settings.workspaces"),
-                href: paths.settings.workspaces(),
-                roles: ["admin"],
-              },
-              {
-                hidden: !canViewChatHistory,
-                btnText: t("settings.workspace-chats"),
-                href: paths.settings.chats(),
-                flex: true,
-                roles: ["admin"],
-              },
-              {
-                btnText: t("settings.invites"),
-                href: paths.settings.invites(),
-                roles: ["admin"],
-              },
-              {
-                btnText: t("settings.default-system-prompt"),
-                href: paths.settings.defaultSystemPrompt(),
                 flex: true,
                 roles: ["admin"],
               },

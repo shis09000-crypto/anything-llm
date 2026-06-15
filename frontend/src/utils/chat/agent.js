@@ -12,6 +12,9 @@ export const AGENT_SESSION_START = "agentSessionStart";
 export const AGENT_SESSION_END = "agentSessionEnd";
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
 const MAX_TIMELINE_EVENT_CHARS = 500;
+const MAX_CLARIFYING_QUESTIONS = 3;
+const MAX_CLARIFYING_QUESTION_CHARS = 150;
+const MAX_CLARIFYING_CHOICE_OPTIONS = 3;
 
 export function websocketURI() {
   const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -38,6 +41,33 @@ function dispatchThreadRename(content = {}) {
 function truncateText(value = "", maxChars = MAX_TIMELINE_EVENT_CHARS) {
   const text = String(value || "");
   return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+}
+
+function truncateUnicode(value = "", maxChars = MAX_CLARIFYING_QUESTION_CHARS) {
+  const chars = Array.from(String(value || ""));
+  if (chars.length <= maxChars) return chars.join("");
+  return chars.slice(0, maxChars).join("");
+}
+
+function compactClarifyingQuestions(questions = []) {
+  if (!Array.isArray(questions)) return [];
+  return questions.slice(0, MAX_CLARIFYING_QUESTIONS).map((question) => {
+    const compacted = {
+      ...question,
+      question: truncateUnicode(question?.question || ""),
+    };
+    if (compacted.kind === "choice") {
+      compacted.options = Array.isArray(question.options)
+        ? question.options.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      compacted.optionDescriptions = Array.isArray(question.optionDescriptions)
+        ? question.optionDescriptions.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      compacted.multiSelect = false;
+      compacted.allowOther = true;
+    }
+    return compacted;
+  });
 }
 
 function compactApprovalPayload(payload = {}) {
@@ -321,6 +351,29 @@ export default function handleSocketResponse(_socket, event) {
         timeoutMs: data.timeoutMs,
         requestedAt: Date.now(),
         content: `Approval requested for ${data.skillName}`,
+      },
+    };
+    debugChatTurn("normalize:event", {
+      ...rawEventSummary(data, "WebSocket"),
+      ...normalizedEventSummary(normalized, "WebSocket"),
+    });
+    return normalized;
+  }
+
+  if (data.type === "clarificationRequest") {
+    if (!data.requestId || !Array.isArray(data.questions)) return null;
+    normalized = {
+      type: "timeline_event",
+      seq: data.seq,
+      event: {
+        type: "clarification_request",
+        seq: data.seq,
+        requestId: data.requestId,
+        questions: compactClarifyingQuestions(data.questions),
+        allowSkip: data.allowSkip !== false,
+        timeoutMs: data.timeoutMs,
+        requestedAt: Date.now(),
+        content: "Clarification requested",
       },
     };
     debugChatTurn("normalize:event", {

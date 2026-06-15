@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { chatQueryRefusalResponse } from "@/utils/chat";
 import HistoricalOutputs from "./HistoricalOutputs";
+import HistoricalClarifyingQuestions from "./HistoricalClarifyingQuestions";
 import { openImageLightbox } from "@/components/ImageLightbox";
 import ReaderTextSourceCards, {
   readerSourcesForTurn,
@@ -52,6 +53,7 @@ const HistoricalMessage = ({
   forkThread,
   metrics = {},
   outputs = [],
+  clarifyingQuestions = [],
   hydrationStatus = null,
   readOnly = false,
   onContentLayoutChange = null,
@@ -213,6 +215,7 @@ const HistoricalMessage = ({
               </div>
             )}
             <HistoricalOutputs outputs={outputs} workspace={workspace} />
+            <HistoricalClarifyingQuestions surveys={clarifyingQuestions} />
           </div>
         )}
         {!readOnly && (
@@ -259,6 +262,8 @@ export default memo(
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
       JSON.stringify(prevProps.readerTextSources) ===
         JSON.stringify(nextProps.readerTextSources) &&
+      JSON.stringify(prevProps.clarifyingQuestions) ===
+        JSON.stringify(nextProps.clarifyingQuestions) &&
       prevProps.hydrationStatus === nextProps.hydrationStatus &&
       prevProps.readOnly === nextProps.readOnly
     );

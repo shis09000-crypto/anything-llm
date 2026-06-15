@@ -113,6 +113,20 @@ describe("account role and environment policy", () => {
         updates: { role: "owner" },
       })
     ).toThrow(/primary owner/i);
+    expect(() =>
+      assertOwnerHierarchyMutationAllowed({
+        actor: primary,
+        target: { role: "user" },
+        updates: { role: "owner", ownerType: "secondary" },
+      })
+    ).toThrow(/Only admin accounts/);
+    expect(() =>
+      assertOwnerHierarchyMutationAllowed({
+        actor: primary,
+        target: { role: "admin" },
+        updates: { role: "owner", ownerType: "secondary" },
+      })
+    ).not.toThrow();
   });
 
   it("prevents the last active owner from disappearing", async () => {
@@ -212,6 +226,37 @@ describe("account role and environment policy", () => {
     };
     const admin = { id: 4, role: "admin" };
     const disabledUser = { id: 5, role: "user", status: "disabled" };
+    const legacyDisabledUser = {
+      id: 6,
+      role: "disabled",
+      status: "disabled",
+      suspended: 1,
+    };
+    const ownerBannedUser = {
+      id: 7,
+      role: "disabled",
+      previousRole: "user",
+      status: "disabled",
+      suspended: 1,
+      banActorRole: "owner",
+    };
+    const adminBannedUser = {
+      id: 8,
+      role: "disabled",
+      previousRole: "user",
+      status: "disabled",
+      suspended: 1,
+      banActorRole: "admin",
+    };
+    const ownerBannedSecondaryOwner = {
+      id: 9,
+      role: "disabled",
+      previousRole: "owner",
+      previousOwnerType: "secondary",
+      status: "disabled",
+      suspended: 1,
+      banActorRole: "owner",
+    };
 
     expect(
       canUnbanAccount(primaryOwner, secondaryOwner, { restoreRole: "owner" })
@@ -228,6 +273,16 @@ describe("account role and environment policy", () => {
     expect(canUnbanAccount(admin, disabledUser, { restoreRole: "admin" })).toBe(
       false
     );
+    expect(canUnbanAccount(admin, legacyDisabledUser)).toBe(true);
+    expect(canUnbanAccount(admin, adminBannedUser)).toBe(true);
+    expect(canUnbanAccount(admin, ownerBannedUser)).toBe(false);
+    expect(canUnbanAccount(primaryOwner, ownerBannedUser)).toBe(true);
+    expect(canUnbanAccount(nonPrimaryOwner, ownerBannedUser)).toBe(true);
+    expect(canUnbanAccount(admin, ownerBannedSecondaryOwner)).toBe(false);
+    expect(canUnbanAccount(nonPrimaryOwner, ownerBannedSecondaryOwner)).toBe(
+      false
+    );
+    expect(canUnbanAccount(primaryOwner, ownerBannedSecondaryOwner)).toBe(true);
   });
 
   it("prevents deleting or disabling the last active owner in an environment", async () => {

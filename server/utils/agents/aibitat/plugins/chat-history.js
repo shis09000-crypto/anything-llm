@@ -145,6 +145,8 @@ const chatHistory = {
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
+        const clarifyingQuestions =
+          aibitat._pendingClarifyingQuestionSurveys ?? [];
         const agentEvents = (aibitat._agentEvents ?? []).map(
           sanitizeAgentEvent
         );
@@ -159,6 +161,7 @@ const chatHistory = {
             metrics,
             ...(imageAnalysis ? { imageAnalysis } : {}),
             ...(outputs.length > 0 ? { outputs } : {}),
+            ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
             ...(agentEvents.length > 0 ? { agentEvents } : {}),
           },
           user: { id: invocation?.user_id || null },
@@ -188,6 +191,8 @@ const chatHistory = {
         const metrics = aibitat.provider?.getUsage?.() ?? {};
         const citations = aibitat._pendingCitations ?? [];
         const outputs = aibitat._pendingOutputs ?? [];
+        const clarifyingQuestions =
+          aibitat._pendingClarifyingQuestionSurveys ?? [];
         const agentEvents = (aibitat._agentEvents ?? []).map(
           sanitizeAgentEvent
         );
@@ -207,6 +212,7 @@ const chatHistory = {
             metrics,
             ...(imageAnalysis ? { imageAnalysis } : {}),
             ...(outputs.length > 0 ? { outputs } : {}),
+            ...(clarifyingQuestions.length > 0 ? { clarifyingQuestions } : {}),
             ...(agentEvents.length > 0 ? { agentEvents } : {}),
           },
           user: { id: invocation?.user_id || null },
@@ -251,6 +257,7 @@ const chatHistory = {
         aibitat.clearCitations?.();
         aibitat._pendingOutputs = [];
         aibitat._agentEvents = [];
+        aibitat.clearClarifyingQuestionSurveys?.();
         aibitat.clearTrackedChatId();
       },
     };

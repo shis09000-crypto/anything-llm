@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   AppleLogo,
   Fingerprint,
@@ -11,31 +11,18 @@ import AppButton from "@/components/lib/AppButton";
 import showToast from "@/utils/toast";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
-import {
-  detectAuthCapability,
-  passkeyCapabilityDescription,
-} from "@/utils/authCapability";
+import { passkeyCapabilityDescription } from "@/utils/authCapability";
 
-export default function PasskeysCard() {
-  const [passkeys, setPasskeys] = useState([]);
-  const [authCapability, setAuthCapability] = useState(() =>
-    detectAuthCapability()
-  );
+export default function PasskeysCard({
+  authCapability,
+  passkeys = [],
+  passkeysLoading = false,
+  refreshPasskeys,
+}) {
   const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    const capability = detectAuthCapability();
-    setAuthCapability(capability);
-    if (capability.showPasskey) refreshPasskeys();
-  }, []);
-
-  async function refreshPasskeys() {
-    const result = await AccountSettingsApi.fetchPasskeys();
-    if (result.success) setPasskeys(result.passkeys);
-  }
-
   async function addPasskey() {
-    if (!authCapability.showPasskey) {
+    if (!authCapability?.showPasskey) {
       showToast("当前浏览器不支持通行密钥。", "info");
       return;
     }
@@ -56,7 +43,7 @@ export default function PasskeysCard() {
       showToast(result.error || "添加通行密钥失败。", "error");
       return;
     }
-    await refreshPasskeys();
+    await refreshPasskeys?.();
     showToast("通行密钥已添加。", "success");
   }
 
@@ -92,11 +79,11 @@ export default function PasskeysCard() {
       showToast(result?.error || "删除通行密钥失败。", "error");
       return;
     }
-    setPasskeys((current) => current.filter((item) => item.id !== passkey.id));
+    await refreshPasskeys?.();
     showToast("通行密钥已删除。", "success");
   }
 
-  if (!authCapability.showPasskey) {
+  if (!authCapability?.showPasskey) {
     return (
       <section id="passkeys" className="account-card">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -136,14 +123,21 @@ export default function PasskeysCard() {
           size="md"
           variant="primary"
           onClick={addPasskey}
-          disabled={loading}
+          disabled={loading || passkeysLoading}
           leftIcon={<Plus className="h-4 w-4" />}
         >
           {loading ? "正在添加" : "添加通行密钥"}
         </AppButton>
       </div>
       <div className="mt-2 divide-y divide-slate-100">
-        {passkeys.length === 0 ? (
+        {passkeysLoading ? (
+          <div className="flex items-center gap-3 px-1 py-6 text-sm text-slate-500">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600">
+              <Fingerprint className="h-5 w-5" />
+            </div>
+            <span>正在读取通行密钥</span>
+          </div>
+        ) : passkeys.length === 0 ? (
           <div className="flex items-center gap-3 px-1 py-6 text-sm text-slate-500">
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-slate-200 bg-slate-50 text-slate-600">
               <Fingerprint className="h-5 w-5" />

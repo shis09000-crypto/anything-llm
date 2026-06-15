@@ -31,6 +31,7 @@ const {
   assertOwnerWillRemainAfterMutation,
   assertBanAllowed,
   assertUnbanAllowed,
+  authUserRole,
   canCreateRole,
   normalizeRole,
   deriveRoleDefaults,
@@ -51,6 +52,50 @@ const ImportedPlugin = require("../utils/agents/imported");
 const {
   simpleSSOLoginDisabledMiddleware,
 } = require("../utils/middleware/simpleSSOEnabled");
+
+function banContextFor({ actorAuth, targetAuth }) {
+  const now = new Date();
+  return {
+    role: ACCOUNT_ROLES.disabled,
+    status: "disabled",
+    allowedEnvs: "[]",
+    ownerType: null,
+    suspended: 1,
+    previousRole: normalizeRole(targetAuth.role),
+    previousAllowedEnvs: targetAuth.allowedEnvs,
+    previousOwnerType: targetAuth.ownerType,
+    banActorRole: normalizeRole(actorAuth.role),
+    banActorOwnerType: actorAuth.ownerType,
+    banActorAuthUserId: actorAuth.id,
+    bannedAt: now,
+  };
+}
+
+function restoreContextFor(targetAuth, body = {}) {
+  const legacyDisabled =
+    authUserRole(targetAuth) === ACCOUNT_ROLES.disabled &&
+    !targetAuth.previousRole;
+  return {
+    role: normalizeRole(
+      targetAuth.previousRole ||
+        (legacyDisabled ? ACCOUNT_ROLES.user : body.restoreRole)
+    ),
+    allowedEnvs: targetAuth.previousAllowedEnvs || body.restoreAllowedEnvs,
+    ownerType: targetAuth.previousOwnerType || targetAuth.ownerType,
+  };
+}
+
+function clearBanContext() {
+  return {
+    previousRole: null,
+    previousAllowedEnvs: null,
+    previousOwnerType: null,
+    banActorRole: null,
+    banActorOwnerType: null,
+    banActorAuthUserId: null,
+    bannedAt: null,
+  };
+}
 
 function adminEndpoints(app) {
   if (!app) return;
@@ -272,7 +317,7 @@ function adminEndpoints(app) {
           nextAllowedEnvs: [],
         });
 
-        const disabled = { status: "disabled", allowedEnvs: "[]", suspended: 1 };
+        const disabled = banContextFor({ actorAuth, targetAuth });
         await authPrisma.users.update({
           where: { id: targetAuth.id },
           data: disabled,
@@ -312,19 +357,21 @@ function adminEndpoints(app) {
           return;
         }
         const body = reqBody(request) || {};
-        const restoreRole = normalizeRole(body.restoreRole || target.role);
-        const restoreAllowedEnvs = body.restoreAllowedEnvs || undefined;
         const actorAuth = await AuthIdentity.findById(actor.authUserId);
         const targetAuth = await AuthIdentity.findById(target.authUserId);
+        const restore = restoreContextFor(targetAuth, body);
+        const restoreRole = restore.role;
+        const restoreAllowedEnvs = restore.allowedEnvs || undefined;
         assertUnbanAllowed(actorAuth, targetAuth, { restoreRole });
         const roleDefaults = deriveRoleDefaults({
           role: restoreRole,
           status: "active",
           allowedEnvs: restoreAllowedEnvs,
-          ownerType: targetAuth.ownerType,
+          ownerType: restore.ownerType,
           username: targetAuth.username,
           email: targetAuth.email,
         });
+        const restored = { ...roleDefaults, ...clearBanContext() };
         await assertOwnerWillRemainAfterMutation({
           authPrisma,
           targetAuthUserId: targetAuth.id,
@@ -337,11 +384,11 @@ function adminEndpoints(app) {
 
         await authPrisma.users.update({
           where: { id: targetAuth.id },
-          data: roleDefaults,
+          data: restored,
         });
         await prisma.users.update({
           where: { id: target.id },
-          data: roleDefaults,
+          data: restored,
         });
         await EventLogs.logEvent(
           "account_unbanned",

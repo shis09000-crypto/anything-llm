@@ -7,6 +7,9 @@ const { storageRoot: environmentStorageRoot } = require("../environment");
 const MAX_MODEL_TOOL_RESULT_CHARS = 12_000;
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
 const MAX_AGENT_EVENT_CHARS = 500;
+const MAX_CLARIFYING_QUESTIONS = 3;
+const MAX_CLARIFYING_QUESTION_CHARS = 150;
+const MAX_CLARIFYING_CHOICE_OPTIONS = 3;
 const TOOL_RUN_RETENTION_DAYS = 7;
 const TOOL_RUN_MAX_COUNT = 1_000;
 const TOOL_RUN_MAX_BYTES = 1024 * 1024 * 1024;
@@ -48,6 +51,33 @@ function truncate(value = "", maxChars = MAX_TOOL_OUTPUT_PREVIEW_CHARS) {
   const text = value === undefined || value === null ? "" : String(value);
   if (text.length <= maxChars) return { text, truncated: false };
   return { text: text.slice(0, maxChars), truncated: true };
+}
+
+function truncateUnicode(value = "", maxChars = MAX_CLARIFYING_QUESTION_CHARS) {
+  const chars = Array.from(String(value || ""));
+  if (chars.length <= maxChars) return chars.join("");
+  return chars.slice(0, maxChars).join("");
+}
+
+function sanitizeClarifyingQuestions(questions = []) {
+  if (!Array.isArray(questions)) return [];
+  return questions.slice(0, MAX_CLARIFYING_QUESTIONS).map((question) => {
+    const sanitized = {
+      ...question,
+      question: truncateUnicode(question?.question || ""),
+    };
+    if (sanitized.kind === "choice") {
+      sanitized.options = Array.isArray(question.options)
+        ? question.options.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      sanitized.optionDescriptions = Array.isArray(question.optionDescriptions)
+        ? question.optionDescriptions.slice(0, MAX_CLARIFYING_CHOICE_OPTIONS)
+        : [];
+      sanitized.multiSelect = false;
+      sanitized.allowOther = true;
+    }
+    return sanitized;
+  });
 }
 
 function resultSize(value) {
@@ -260,6 +290,10 @@ function sanitizeAgentEvent(event = {}) {
     query: event.query,
     returnedCount: event.returnedCount,
     truncatedCount: event.truncatedCount,
+    allowSkip: event.allowSkip,
+    timeoutMs: event.timeoutMs,
+    requestedAt: event.requestedAt,
+    skipped: event.skipped,
   };
 
   const content = truncate(
@@ -270,6 +304,9 @@ function sanitizeAgentEvent(event = {}) {
 
   if (event.payload && event.type === "approval_request") {
     sanitized.payload = sanitizePayload(event.payload);
+  }
+  if (event.questions && event.type === "clarification_request") {
+    sanitized.questions = sanitizeClarifyingQuestions(event.questions);
   }
 
   return Object.fromEntries(

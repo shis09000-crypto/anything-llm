@@ -81,7 +81,10 @@ const AccountSettingsApi = {
       .catch((error) => ({
         success: false,
         passkeys: [],
-        error: error.message,
+        error:
+          error?.message === "Failed to fetch"
+            ? "无法读取通行密钥。"
+            : error?.message || "无法读取通行密钥。",
       }));
   },
   addPasskey: async () => {

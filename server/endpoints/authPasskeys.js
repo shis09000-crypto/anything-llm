@@ -444,7 +444,7 @@ function authPasskeyEndpoints(app) {
       console.error("[Passkey list failed]", error.message);
       return response.status(500).json({
         success: false,
-        error: "Could not load passkeys.",
+        error: "无法读取通行密钥。",
       });
     }
   });

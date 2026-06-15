@@ -15,6 +15,7 @@ const { reqBody } = require("../utils/http");
 const { issueUserSessionToken } = require("../utils/sessionIdle");
 const { readSecret, saveSecret } = require("../utils/security");
 const {
+  DEFAULT_REAUTH_TTL_MS,
   issueReauthToken,
   validateReauthToken,
   consumeReauthToken,
@@ -705,7 +706,7 @@ async function rememberPasskeyChallenge({ challenge, userId, request }) {
       userId,
       requestIp: requestIp(request),
       userAgent: request.get("user-agent") || null,
-      expiresAt: new Date(Date.now() + REAUTH_TTL_MS),
+      expiresAt: new Date(Date.now() + DEFAULT_REAUTH_TTL_MS),
     },
   });
 }

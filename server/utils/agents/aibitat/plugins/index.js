@@ -15,6 +15,7 @@ const { googleCalendarAgent } = require("./google-calendar/index.js");
 const { shellAgent } = require("./shell/index.js");
 const { documentIndexStatusTool } = require("./document-index-status-tool.js");
 const { workspaceSupplementTool } = require("./workspace-supplement-tool.js");
+const { requestUserInput } = require("./request-user-input.js");
 
 module.exports = {
   webScraping,
@@ -34,6 +35,7 @@ module.exports = {
   shellAgent,
   documentIndexStatusTool,
   workspaceSupplementTool,
+  requestUserInput,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -53,4 +55,5 @@ module.exports = {
   [shellAgent.name]: shellAgent,
   [documentIndexStatusTool.name]: documentIndexStatusTool,
   [workspaceSupplementTool.name]: workspaceSupplementTool,
+  [requestUserInput.name]: requestUserInput,
 };

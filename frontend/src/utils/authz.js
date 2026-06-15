@@ -83,6 +83,71 @@ export function canPromoteOwner(user) {
   return isPrimaryOwner(user);
 }
 
+export function nextAccountPromotion(actor = {}, target = {}) {
+  if (!isPrimaryOwner(actor)) return null;
+  if (!target || Number(target?.suspended) === 1) return null;
+  if (Number(actor?.id) === Number(target?.id)) return null;
+  if (isPrimaryOwner(target) || isSecondaryOwner(target)) return null;
+
+  const targetRole = normalizeRole(target?.role);
+  if (targetRole === ACCOUNT_ROLES.user) {
+    return {
+      role: ACCOUNT_ROLES.admin,
+      ownerType: null,
+      label: "提为管理员",
+      confirmTitle: "提权为管理员？",
+      confirmDescription: `${target.username || "该账号"} 将获得管理员权限。`,
+      successMessage: "已提权为管理员。",
+    };
+  }
+  if (targetRole === ACCOUNT_ROLES.admin) {
+    return {
+      role: ACCOUNT_ROLES.owner,
+      ownerType: OWNER_TYPES.secondary,
+      label: "提为次 Owner",
+      confirmTitle: "提权为次 Owner？",
+      confirmDescription: `${target.username || "该账号"} 将获得次 Owner 权限。`,
+      successMessage: "已提权为次 Owner。",
+    };
+  }
+  return null;
+}
+
+export function restoreRoleForUser(user = {}) {
+  if (user?.previousRole) return normalizeRole(user.previousRole);
+  return normalizeRole(user?.role) === ACCOUNT_ROLES.disabled
+    ? ACCOUNT_ROLES.user
+    : normalizeRole(user?.role);
+}
+
+export function banActorRole(user = {}) {
+  return user?.banActorRole ? normalizeRole(user.banActorRole) : null;
+}
+
+export function canRestoreBannedUser(actor = {}, target = {}) {
+  if (Number(target?.suspended) !== 1) return false;
+  const actorRole = normalizeRole(actor?.role);
+  const restoreRole = restoreRoleForUser(target);
+  const bannedBy = banActorRole(target);
+  const targetWasOwner =
+    restoreRole === ACCOUNT_ROLES.owner ||
+    normalizeRole(target?.previousRole) === ACCOUNT_ROLES.owner ||
+    normalizeRole(target?.role) === ACCOUNT_ROLES.owner;
+
+  if (targetWasOwner) return isPrimaryOwner(actor);
+  if (bannedBy === ACCOUNT_ROLES.owner)
+    return actorRole === ACCOUNT_ROLES.owner;
+  if (actorRole === ACCOUNT_ROLES.admin)
+    return [ACCOUNT_ROLES.user, ACCOUNT_ROLES.developer].includes(restoreRole);
+  if (actorRole === ACCOUNT_ROLES.owner)
+    return [
+      ACCOUNT_ROLES.user,
+      ACCOUNT_ROLES.developer,
+      ACCOUNT_ROLES.admin,
+    ].includes(restoreRole);
+  return false;
+}
+
 export function roleLabel(role) {
   switch (normalizeRole(role)) {
     case ACCOUNT_ROLES.disabled:

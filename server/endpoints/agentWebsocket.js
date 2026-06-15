@@ -63,6 +63,7 @@ class ResumableAgentSocket {
     this.__clientStopped = false;
     this.handleFeedback = null;
     this.handleToolApproval = null;
+    this.handleClarificationResponse = null;
   }
 
   attach(socket) {
@@ -123,6 +124,8 @@ class ResumableAgentSocket {
 function relayToSocket(message) {
   if (this.handleFeedback) return this?.handleFeedback?.(message);
   if (this.handleToolApproval) return this?.handleToolApproval?.(message);
+  if (this.handleClarificationResponse)
+    return this?.handleClarificationResponse?.(message);
   this.checkBailCommand(message);
 }
 

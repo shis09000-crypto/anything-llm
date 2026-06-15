@@ -23,6 +23,8 @@ const TIMELINE_TYPES = new Set([
   "tool_result",
   "approval_request",
   "approval_result",
+  "clarification_request",
+  "clarification_result",
   "markdown_delta",
   "error",
 ]);
@@ -125,6 +127,14 @@ export function timelineEventStableId(event = {}) {
   }
   if (type === "approval_result") {
     return event.requestId ? `approval-result:${event.requestId}` : event.id;
+  }
+  if (type === "clarification_request") {
+    return event.requestId ? `clarification:${event.requestId}` : event.id;
+  }
+  if (type === "clarification_result") {
+    return event.requestId
+      ? `clarification-result:${event.requestId}`
+      : event.id;
   }
   if (type === "tool_call") {
     const id = event.toolCallId || event.uuid || event.id;
@@ -335,6 +345,7 @@ export function hasMeaningfulTransientAssistantOutput(turn = {}) {
       if (type === "markdown_delta") {
         return String(event?.content || event?.text || "").trim().length > 0;
       }
+      if (type === "clarification_request") return true;
       if (type !== "tool_result") return false;
       return (
         String(
@@ -490,6 +501,7 @@ function serverGroupToItems(group, chatKey = null) {
     timeline,
     feedbackScore: assistant.feedbackScore,
     outputs: assistant.outputs || [],
+    clarifyingQuestions: assistant.clarifyingQuestions || [],
     responseType: assistant.type,
     hydrationStatus:
       group.user?.hydrationStatus || assistant.hydrationStatus || null,
@@ -548,6 +560,10 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     metrics: serverAssistant.metrics || localAssistant.metrics,
     feedbackScore: serverAssistant.feedbackScore,
     outputs: serverAssistant.outputs || localAssistant.outputs || [],
+    clarifyingQuestions:
+      serverAssistant.clarifyingQuestions ||
+      localAssistant.clarifyingQuestions ||
+      [],
     responseType: serverAssistant.responseType || localAssistant.responseType,
     hydrationStatus: serverAssistant.hydrationStatus || null,
     status: TURN_STATUSES.completed,

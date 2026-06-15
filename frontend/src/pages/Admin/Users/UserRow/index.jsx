@@ -2,23 +2,22 @@ import { useRef, useState } from "react";
 import { titleCase } from "text-case";
 import Admin from "@/models/admin";
 import System from "@/models/system";
-import EditUserModal from "./EditUserModal";
 import showToast from "@/utils/toast";
-import { useModal } from "@/hooks/useModal";
-import ModalWrapper from "@/components/ModalWrapper";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import AppButton from "@/components/lib/AppButton";
 import { useTranslation } from "react-i18next";
 import {
   ACCOUNT_ROLES,
   accountRoleLabel,
+  banActorRole,
+  canRestoreBannedUser,
   isPrimaryOwner,
   normalizeRole,
 } from "@/utils/authz";
 
 function canModifyUser(actor, target) {
   const actorRole = normalizeRole(actor?.role);
-  const targetRole = normalizeRole(target?.role);
+  const targetRole = normalizeRole(target?.previousRole || target?.role);
   if (isPrimaryOwner(target)) return false;
   if (isPrimaryOwner(actor)) return true;
   if (actorRole === ACCOUNT_ROLES.owner && targetRole !== ACCOUNT_ROLES.owner)
@@ -33,7 +32,7 @@ export default function UserRow({ currUser, user }) {
   const { t } = useTranslation();
   const canModify = canModifyUser(currUser, user);
   const [suspended, setSuspended] = useState(user.suspended === 1);
-  const { isOpen, openModal, closeModal } = useModal();
+  const canRestore = canRestoreBannedUser(currUser, user);
   const handleSuspend = async () => {
     const confirm = suspended
       ? {
@@ -54,7 +53,7 @@ export default function UserRow({ currUser, user }) {
     if (!(await showAppConfirm(confirm))) return false;
 
     const { success, error } = suspended
-      ? await Admin.unbanUser(user.id, { restoreRole: user.role })
+      ? await Admin.unbanUser(user.id)
       : await Admin.banUser(user.id, "admin_action");
     if (!success) showToast(error, "error", { clear: true });
     if (success) {
@@ -132,64 +131,59 @@ export default function UserRow({ currUser, user }) {
   };
 
   return (
-    <>
-      <tr
-        ref={rowRef}
-        className="bg-transparent text-white text-opacity-80 text-xs font-medium border-b border-white/10 h-10"
-      >
-        <th scope="row" className="px-6 whitespace-nowrap">
-          {user.username}
-        </th>
-        <td className="px-6">
-          {normalizeRole(user.role) === ACCOUNT_ROLES.owner
+    <tr
+      ref={rowRef}
+      className="bg-transparent text-white text-opacity-80 text-xs font-medium border-b border-white/10 h-10"
+    >
+      <th scope="row" className="px-6 whitespace-nowrap">
+        {user.username}
+      </th>
+      <td className="px-6">
+        {suspended
+          ? banActorRole(user) === ACCOUNT_ROLES.owner
+            ? "已禁用（Owner）"
+            : t("admin.users.roles.disabled", { defaultValue: "已禁用" })
+          : normalizeRole(user.role) === ACCOUNT_ROLES.owner
             ? accountRoleLabel(user)
             : t(`admin.users.roles.${normalizeRole(user.role)}`, {
                 defaultValue: titleCase(normalizeRole(user.role)),
               })}
-        </td>
-        <td className="px-6">{user.createdAt}</td>
-        <td className="px-6 flex items-center gap-x-2 h-full mt-2">
-          {canModify && (
+      </td>
+      <td className="px-6">{user.createdAt}</td>
+      <td className="px-6 flex items-center gap-x-2 h-full mt-2">
+        {currUser?.id !== user.id && canModify && !suspended && (
+          <>
             <AppButton
               size="sm"
               variant="secondary"
-              onClick={openModal}
+              onClick={handleSuspend}
               className="motion-hover"
             >
-              {t("admin.users.actions.edit")}
+              {suspended
+                ? t("admin.users.actions.unsuspend")
+                : t("admin.users.actions.suspend")}
             </AppButton>
-          )}
-          {currUser?.id !== user.id && canModify && (
-            <>
-              <AppButton
-                size="sm"
-                variant="secondary"
-                onClick={handleSuspend}
-                className="motion-hover"
-              >
-                {suspended
-                  ? t("admin.users.actions.unsuspend")
-                  : t("admin.users.actions.suspend")}
-              </AppButton>
-              <AppButton
-                size="sm"
-                variant="secondary"
-                onClick={handleDelete}
-                className="motion-hover"
-              >
-                {t("admin.users.actions.delete")}
-              </AppButton>
-            </>
-          )}
-        </td>
-      </tr>
-      <ModalWrapper isOpen={isOpen}>
-        <EditUserModal
-          currentUser={currUser}
-          user={user}
-          closeModal={closeModal}
-        />
-      </ModalWrapper>
-    </>
+            <AppButton
+              size="sm"
+              variant="secondary"
+              onClick={handleDelete}
+              className="motion-hover"
+            >
+              {t("admin.users.actions.delete")}
+            </AppButton>
+          </>
+        )}
+        {currUser?.id !== user.id && suspended && canRestore && (
+          <AppButton
+            size="sm"
+            variant="secondary"
+            onClick={handleSuspend}
+            className="motion-hover"
+          >
+            {t("admin.users.actions.unsuspend")}
+          </AppButton>
+        )}
+      </td>
+    </tr>
   );
 }

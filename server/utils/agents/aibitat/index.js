@@ -11,6 +11,7 @@ const {
 } = require("../toolResultStore.js");
 
 const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 30 * 1_000;
+const REQUEST_USER_INPUT_TOOL_NAME = "request-user-input";
 
 function agentToolExecutionTimeoutMs() {
   const envTimeout = parseInt(process.env.AGENT_TOOL_TIMEOUT_MS, 10);
@@ -65,6 +66,21 @@ class AIbitat {
    * @type {Array<{name: string, mime: string, contentString: string}>}
    */
   _toolAttachments = [];
+
+  /**
+   * Buffer for clarifying-question surveys completed during tool execution.
+   * The chat-history plugin drains this buffer into workspace_chats.response.
+   * @type {Array<{questions: Array<Object>, result: Object}>}
+   */
+  _pendingClarifyingQuestionSurveys = [];
+
+  /**
+   * Transient prompt-tail blocks for the current provider continuation.
+   * These are appended after tool results so clarification answers sit at
+   * the end of the dynamic prompt instead of changing stable prompt prefixes.
+   * @type {string[]}
+   */
+  _pendingClarifyingQuestionPromptTails = [];
 
   /**
    * Get the default maximum number of tools an agent can chain for a single response.
@@ -209,6 +225,45 @@ class AIbitat {
   addToolAttachment(attachment) {
     if (!attachment || !attachment.contentString) return;
     this._toolAttachments.push(attachment);
+  }
+
+  /**
+   * Add a completed clarifying-question survey to the pending persistence buffer.
+   * @param {{questions: Array<Object>, result: Object}} survey - The survey to add
+   */
+  addClarifyingQuestionSurvey(survey) {
+    if (!survey || typeof survey !== "object") return;
+    this._pendingClarifyingQuestionSurveys.push(survey);
+  }
+
+  /**
+   * Add a dynamic prompt-tail block for the current continuation.
+   * @param {string} block
+   */
+  addClarifyingQuestionPromptTail(block = "") {
+    if (!block || typeof block !== "string") return;
+    this._pendingClarifyingQuestionPromptTails.push(block);
+  }
+
+  /**
+   * Collect and clear pending clarification prompt-tail blocks.
+   * @returns {string}
+   */
+  collectClarifyingQuestionPromptTail() {
+    if (this._pendingClarifyingQuestionPromptTails.length === 0) return "";
+    const block = this._pendingClarifyingQuestionPromptTails
+      .filter(Boolean)
+      .join("\n\n");
+    this._pendingClarifyingQuestionPromptTails = [];
+    return block;
+  }
+
+  /**
+   * Clear all pending clarifying-question surveys.
+   */
+  clearClarifyingQuestionSurveys() {
+    this._pendingClarifyingQuestionSurveys = [];
+    this._pendingClarifyingQuestionPromptTails = [];
   }
 
   /**
@@ -1081,6 +1136,17 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         });
       }
 
+      if (name === REQUEST_USER_INPUT_TOOL_NAME) {
+        const clarificationPromptTail =
+          this.collectClarifyingQuestionPromptTail();
+        if (clarificationPromptTail) {
+          newMessages.push({
+            role: "user",
+            content: `Clarification answers:\n${clarificationPromptTail}`,
+          });
+        }
+      }
+
       return await this.handleAsyncExecution(
         provider,
         newMessages,
@@ -1237,6 +1303,17 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
           content: "[Attached image(s) from tool result]",
           attachments: toolAttachments,
         });
+      }
+
+      if (name === REQUEST_USER_INPUT_TOOL_NAME) {
+        const clarificationPromptTail =
+          this.collectClarifyingQuestionPromptTail();
+        if (clarificationPromptTail) {
+          newMessages.push({
+            role: "user",
+            content: `Clarification answers:\n${clarificationPromptTail}`,
+          });
+        }
       }
 
       return await this.handleExecution(

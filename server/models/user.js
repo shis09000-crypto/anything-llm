@@ -38,6 +38,13 @@ const User = {
     "allowedEnvs",
     "ownerType",
     "suspended",
+    "previousRole",
+    "previousAllowedEnvs",
+    "previousOwnerType",
+    "banActorRole",
+    "banActorOwnerType",
+    "banActorAuthUserId",
+    "bannedAt",
     "dailyMessageLimit",
     "bio",
     "email",
@@ -120,7 +127,12 @@ const User = {
         return Number(Boolean(value));
       case "dailyMessageLimit":
         return value === null ? null : Number(value);
+      case "banActorAuthUserId":
+        return value === null ? null : Number(value);
+      case "bannedAt":
+        return value === null ? null : new Date(value);
       default:
+        if (value === null || value === undefined) return null;
         return String(value);
     }
   },

@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
   Bell,
+  BookOpen,
+  ChatsCircle,
   DeviceMobile,
   EnvelopeSimple,
   Fingerprint,
@@ -8,9 +10,12 @@ import {
   MagnifyingGlass,
   ShieldCheck,
   SignOut,
+  TextT,
   UserCircle,
+  UserCircleGear,
 } from "@phosphor-icons/react";
 import AppButton from "@/components/lib/AppButton";
+import { canSeeAdmin } from "@/utils/authz";
 
 const navItems = [
   { href: "#profile", label: "个人信息", icon: UserCircle },
@@ -22,7 +27,31 @@ const navItems = [
   { href: "#privacy", label: "数据与隐私", icon: ShieldCheck },
 ];
 
-export default function AccountSidebar({ onReturnHome, onSignOut }) {
+const adminNavItems = [
+  { href: "#admin", label: "概览", icon: UserCircleGear },
+  { href: "#admin-users", label: "用户", icon: UserCircle },
+  { href: "#admin-workspaces", label: "工作区", icon: BookOpen },
+  { href: "#admin-chats", label: "对话历史记录", icon: ChatsCircle },
+  { href: "#admin-invites", label: "邀请", icon: EnvelopeSimple },
+  { href: "#admin-default-prompt", label: "默认系统提示词", icon: TextT },
+];
+
+function NavLink({ href, label, icon: Icon }) {
+  return (
+    <a
+      key={href}
+      href={href}
+      className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 hover:shadow-sm"
+    >
+      <Icon className="h-5 w-5" />
+      <span>{label}</span>
+    </a>
+  );
+}
+
+export default function AccountSidebar({ user, onReturnHome, onSignOut }) {
+  const showAdmin = canSeeAdmin(user);
+
   return (
     <aside className="flex h-full w-full flex-col border-r border-slate-200 bg-[#f5f5f7] px-4 py-5 md:w-[282px]">
       <div>
@@ -49,17 +78,22 @@ export default function AccountSidebar({ onReturnHome, onSignOut }) {
           />
         </div>
       </div>
-      <nav className="mt-5 flex flex-1 flex-col gap-1">
+      <nav className="mt-5 flex flex-1 flex-col gap-1 overflow-y-auto pb-2">
         {navItems.map(({ href, label, icon: Icon }) => (
-          <a
-            key={href}
-            href={href}
-            className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 hover:shadow-sm"
-          >
-            <Icon className="h-5 w-5" />
-            <span>{label}</span>
-          </a>
+          <NavLink key={href} href={href} label={label} icon={Icon} />
         ))}
+        {showAdmin && (
+          <div className="mt-4 border-t border-slate-200 pt-4">
+            <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+              管理员
+            </p>
+            <div className="flex flex-col gap-1">
+              {adminNavItems.map(({ href, label, icon: Icon }) => (
+                <NavLink key={href} href={href} label={label} icon={Icon} />
+              ))}
+            </div>
+          </div>
+        )}
       </nav>
       <button
         type="button"

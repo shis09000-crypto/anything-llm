@@ -6,6 +6,7 @@ import Toggle from "@/components/lib/Toggle";
 import System from "@/models/system";
 import debounce from "lodash.debounce";
 import { useTranslation } from "react-i18next";
+import AgentClarifyingQuestions from "./AgentClarifyingQuestions";
 
 export default function AgentSkillSettings() {
   const { isOpen, openModal, closeModal } = useModal();
@@ -47,6 +48,8 @@ function AgentSkillSettingsModal({ isOpen, closeModal }) {
             <MaxToolCallStack />
             <div className="border-b border-white/10 h-[1px] w-full" />
             <AgentSkillReranker />
+            <div className="border-b border-white/10 h-[1px] w-full" />
+            <AgentClarifyingQuestions />
           </div>
         </div>
       </div>

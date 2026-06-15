@@ -1,5 +1,6 @@
 import { Warning } from "@phosphor-icons/react";
 import ToolApprovalRequest from "../ToolApprovalRequest";
+import ClarifyingQuestionCard from "../ClarifyingQuestion";
 
 export default function ToolEvent({
   event,
@@ -7,6 +8,7 @@ export default function ToolEvent({
   approvalState = null,
   chatKey,
   onToolApprovalResponse,
+  onClarificationResponse,
 }) {
   if (event.type === "approval_request") {
     return (
@@ -38,6 +40,20 @@ export default function ToolEvent({
   }
 
   if (event.type === "approval_result") return null;
+  if (event.type === "clarification_request") {
+    return (
+      <ClarifyingQuestionCard
+        requestId={event.requestId}
+        questions={event.questions || []}
+        allowSkip={event.allowSkip !== false}
+        timeoutMs={event.timeoutMs}
+        onRespond={(_, payload) =>
+          onClarificationResponse?.(chatKey, event.requestId, payload)
+        }
+      />
+    );
+  }
+  if (event.type === "clarification_result") return null;
   if (event.type === "error") return <ErrorEvent event={event} />;
   return null;
 }

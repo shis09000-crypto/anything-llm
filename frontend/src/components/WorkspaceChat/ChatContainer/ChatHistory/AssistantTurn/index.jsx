@@ -4,6 +4,7 @@ import Citations from "../Citation";
 import Actions from "../HistoricalMessage/Actions";
 import TTSMessage from "../HistoricalMessage/Actions/TTSButton";
 import HistoricalOutputs from "../HistoricalMessage/HistoricalOutputs";
+import HistoricalClarifyingQuestions from "../HistoricalMessage/HistoricalClarifyingQuestions";
 import {
   EditMessageForm,
   useEditMessage,
@@ -35,7 +36,8 @@ function AssistantTurn({
   onContentLayoutChange = null,
 }) {
   const { t } = useTranslation();
-  const { continueInterruptedAgentTurn } = useChatThreadDrafts();
+  const { continueInterruptedAgentTurn, respondToClarification } =
+    useChatThreadDrafts();
   const { isEditing } = useEditMessage({
     chatId: turn.chatId,
     role: "assistant",
@@ -78,7 +80,26 @@ function AssistantTurn({
       ),
     [turn.timeline]
   );
+  const clarificationResults = useMemo(
+    () =>
+      new Map(
+        (turn.timeline || [])
+          .filter((event) => event.type === "clarification_result")
+          .map((event) => [event.requestId, event])
+      ),
+    [turn.timeline]
+  );
   const isRunning = turn.status === "running";
+  const clarificationEvents = useMemo(
+    () =>
+      (turn.timeline || []).filter(
+        (event) =>
+          event.type === "clarification_request" &&
+          isRunning &&
+          !clarificationResults.has(event.requestId)
+      ),
+    [clarificationResults, isRunning, turn.timeline]
+  );
   const isFailed = turn.status === "failed";
   const isReconnectOffer = turn.reconnectState === "offer";
   const isRefusalMessage =
@@ -97,10 +118,12 @@ function AssistantTurn({
       thoughtCount: thoughtEvents.length,
       toolEventCount: normalToolEvents.length,
       approvalEventCount: approvalEvents.length,
+      clarificationEventCount: clarificationEvents.length,
     });
   }, [
     approvalEvents.length,
     chatKey,
+    clarificationEvents.length,
     isRunning,
     normalToolEvents.length,
     thoughtEvents.length,
@@ -139,6 +162,14 @@ function AssistantTurn({
             approvalState={approvalState}
             chatKey={chatKey}
             onToolApprovalResponse={onToolApprovalResponse}
+          />
+        ))}
+        {clarificationEvents.map((event) => (
+          <ToolEvent
+            key={event.id}
+            event={event}
+            chatKey={chatKey}
+            onClarificationResponse={respondToClarification}
           />
         ))}
         {errorEvents.map((event) => (
@@ -190,6 +221,9 @@ function AssistantTurn({
               workspace={workspace}
               chatKey={chatKey}
               turnId={turn.turnId}
+            />
+            <HistoricalClarifyingQuestions
+              surveys={turn.clarifyingQuestions || []}
             />
           </div>
         )}

@@ -11,6 +11,7 @@ const {
 } = require("../../toolResultStore.js");
 const SOCKET_TIMEOUT_MS = 300 * 1_000; // 5 mins
 const TOOL_APPROVAL_TIMEOUT_MS = 120 * 1_000; // 2 mins for tool approval
+const CLARIFICATION_DEFAULT_TIMEOUT_MS = 120 * 1_000; // 2 mins for clarifying questions
 const SHELL_AGENT_NAME = "shell-agent";
 const WORKSPACE_AGENT_NAME = "@agent";
 
@@ -24,6 +25,7 @@ const WORKSPACE_AGENT_NAME = "@agent";
 //   awaitResponse?: any
 //   handleFeedback?: (message: string) => void;
 //   handleToolApproval?: (message: string) => void;
+//   handleClarificationResponse?: (message: string) => void;
 // }
 
 const WEBSOCKET_BAIL_COMMANDS = [
@@ -426,6 +428,121 @@ const websocket = {
                   "Tool approval request timed out. User did not respond in time.",
               });
             }, TOOL_APPROVAL_TIMEOUT_MS);
+          });
+        };
+
+        /**
+         * Ask the user one or more clarifying questions in a single card and
+         * wait for their answers. The request-user-input tool applies the
+         * per-turn and per-question limits before this method is called.
+         *
+         * @param {Object} options
+         * @param {Array<Object>} options.questions
+         * @param {boolean} [options.allowSkip=true]
+         * @param {number} [options.timeoutMs]
+         * @returns {Promise<{ skipped: boolean, timedOut: boolean, answers: Array<{skipped: boolean, answer: any}> }>}
+         */
+        aibitat.requestUserClarification = async function ({
+          questions = [],
+          allowSkip = true,
+          timeoutMs = CLARIFICATION_DEFAULT_TIMEOUT_MS,
+        }) {
+          const requestId = uuidv4();
+          return new Promise((resolve) => {
+            let timeoutId = null;
+
+            socket.handleClarificationResponse = (message) => {
+              try {
+                const data = safeJsonParse(message, {});
+                if (
+                  data?.type !== "clarificationResponse" ||
+                  data?.requestId !== requestId
+                )
+                  return;
+
+                delete socket.handleClarificationResponse;
+                clearTimeout(timeoutId);
+
+                if (data.skipped) {
+                  const skippedResult = {
+                    skipped: true,
+                    timedOut: false,
+                    answers: questions.map(() => ({
+                      skipped: true,
+                      answer: null,
+                    })),
+                  };
+                  recordAgentEvent(aibitat, {
+                    type: "clarification_result",
+                    requestId,
+                    skipped: true,
+                    timedOut: false,
+                  });
+                  return resolve(skippedResult);
+                }
+
+                const answers = Array.isArray(data.answers) ? data.answers : [];
+                const normalized = questions.map((_, i) => {
+                  const answer = answers[i] || {};
+                  return {
+                    skipped: !!answer.skipped,
+                    answer: answer.answer ?? null,
+                  };
+                });
+                recordAgentEvent(aibitat, {
+                  type: "clarification_result",
+                  requestId,
+                  skipped: false,
+                  timedOut: false,
+                });
+                return resolve({
+                  skipped: false,
+                  timedOut: false,
+                  answers: normalized,
+                });
+              } catch (e) {
+                console.error("Error handling clarification response:", e);
+              }
+            };
+
+            recordAgentEvent(aibitat, {
+              type: "clarification_request",
+              requestId,
+              questions,
+              allowSkip,
+              timeoutMs,
+              requestedAt: Date.now(),
+            });
+            socket.send(
+              JSON.stringify({
+                type: "clarificationRequest",
+                requestId,
+                questions,
+                allowSkip,
+                timeoutMs,
+              })
+            );
+
+            timeoutId = setTimeout(() => {
+              delete socket.handleClarificationResponse;
+              recordAgentEvent(aibitat, {
+                type: "clarification_result",
+                requestId,
+                skipped: false,
+                timedOut: true,
+                reason: "timeout",
+              });
+              console.log(
+                chalk.yellow(
+                  `Clarification request timed out after ${timeoutMs}ms`
+                )
+              );
+              resolve({
+                skipped: false,
+                timedOut: true,
+                answers: questions.map(() => ({ skipped: true, answer: null })),
+              });
+            }, timeoutMs);
           });
         };
 
