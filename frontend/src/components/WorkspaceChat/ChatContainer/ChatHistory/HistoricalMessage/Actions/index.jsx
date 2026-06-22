@@ -17,6 +17,7 @@ const Actions = ({
   message,
   feedbackScore,
   chatId,
+  publicChatId = null,
   slug,
   isLastMessage,
   regenerateMessage,
@@ -28,10 +29,11 @@ const Actions = ({
 }) => {
   const { t } = useTranslation();
   const [selectedFeedback, setSelectedFeedback] = useState(feedbackScore);
+  const actionChatId = publicChatId || chatId;
   const handleFeedback = async (newFeedback) => {
     const updatedFeedback =
       selectedFeedback === newFeedback ? null : newFeedback;
-    await Workspace.updateChatFeedback(chatId, slug, updatedFeedback);
+    await Workspace.updateChatFeedback(actionChatId, slug, updatedFeedback);
     setSelectedFeedback(updatedFeedback);
   };
 
@@ -56,6 +58,7 @@ const Actions = ({
               regenerateMessage={regenerateMessage}
               slug={slug}
               chatId={chatId}
+              publicChatId={publicChatId}
             />
           )}
           {chatId && role !== "user" && !isEditing && (
@@ -76,6 +79,7 @@ const Actions = ({
           )}
           <ActionMenu
             chatId={chatId}
+            publicChatId={publicChatId}
             forkThread={forkThread}
             isEditing={isEditing}
             role={role}
@@ -166,13 +170,13 @@ function CopyMessage({ message }) {
   );
 }
 
-function RegenerateMessage({ regenerateMessage, chatId }) {
+function RegenerateMessage({ regenerateMessage, chatId, publicChatId = null }) {
   const { t } = useTranslation();
   if (!chatId) return null;
   return (
     <div className="mt-3 relative">
       <button
-        onClick={() => regenerateMessage(chatId)}
+        onClick={() => regenerateMessage(chatId, publicChatId)}
         data-tooltip-id="regenerate-assistant-text"
         data-tooltip-content={t("chat_window.regenerate_response")}
         className="border-none text-zinc-300 light:text-slate-500"

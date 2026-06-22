@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback as rawOrFallback } from "@/lib/communication/apiError";
 
 const MCPServers = {
   /**
@@ -7,15 +7,14 @@ const MCPServers = {
    * @returns {Promise<{success: boolean, error: string | null, servers: Array<{name: string, running: boolean, tools: Array<{name: string, description: string, inputSchema: Object}>, error: string | null, process: {pid: number, cmd: string} | null}>}>}
    */
   forceReload: async () => {
-    return await fetch(`${API_BASE}/mcp-servers/force-reload`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/mcp-servers/force-reload")
+      .then(({ data }) => data)
       .catch((e) => ({
-        servers: [],
-        success: false,
-        error: e.message,
+        ...rawOrFallback(e, {
+          servers: [],
+          success: false,
+          error: e.message,
+        }),
       }));
   },
 
@@ -24,15 +23,14 @@ const MCPServers = {
    * @returns {Promise<{success: boolean, error: string | null, servers: Array<{name: string, running: boolean, tools: Array<{name: string, description: string, inputSchema: Object}>, error: string | null, process: {pid: number, cmd: string} | null}>}>}
    */
   listServers: async () => {
-    return await fetch(`${API_BASE}/mcp-servers/list`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/mcp-servers/list")
+      .then(({ data }) => data)
       .catch((e) => ({
-        success: false,
-        error: e.message,
-        servers: [],
+        ...rawOrFallback(e, {
+          success: false,
+          error: e.message,
+          servers: [],
+        }),
       }));
   },
 
@@ -42,15 +40,13 @@ const MCPServers = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   toggleServer: async (name) => {
-    return await fetch(`${API_BASE}/mcp-servers/toggle`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.json())
+    return await postJson("/mcp-servers/toggle", { name })
+      .then(({ data }) => data)
       .catch((e) => ({
-        success: false,
-        error: e.message,
+        ...rawOrFallback(e, {
+          success: false,
+          error: e.message,
+        }),
       }));
   },
 
@@ -60,15 +56,13 @@ const MCPServers = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   deleteServer: async (name) => {
-    return await fetch(`${API_BASE}/mcp-servers/delete`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.json())
+    return await postJson("/mcp-servers/delete", { name })
+      .then(({ data }) => data)
       .catch((e) => ({
-        success: false,
-        error: e.message,
+        ...rawOrFallback(e, {
+          success: false,
+          error: e.message,
+        }),
       }));
   },
 
@@ -80,16 +74,18 @@ const MCPServers = {
    * @returns {Promise<{success: boolean, error: string | null, suppressedTools: string[]}>}
    */
   toggleTool: async (serverName, toolName, enabled) => {
-    return await fetch(`${API_BASE}/mcp-servers/toggle-tool`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ serverName, toolName, enabled }),
+    return await postJson("/mcp-servers/toggle-tool", {
+      serverName,
+      toolName,
+      enabled,
     })
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => ({
-        success: false,
-        error: e.message,
-        suppressedTools: [],
+        ...rawOrFallback(e, {
+          success: false,
+          error: e.message,
+          suppressedTools: [],
+        }),
       }));
   },
 };

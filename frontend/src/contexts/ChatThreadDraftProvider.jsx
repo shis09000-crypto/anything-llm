@@ -9,13 +9,17 @@ import {
   useSyncExternalStore,
 } from "react";
 import Workspace from "@/models/workspace";
-import handleChat, { ABORT_STREAM_EVENT } from "@/utils/chat";
-import handleSocketResponse, {
-  AGENT_SESSION_END,
-  AGENT_SESSION_START,
-  setAgentSessionActive,
-  websocketURI,
-} from "@/utils/chat/agent";
+import { ABORT_STREAM_EVENT } from "@/utils/chat";
+import {
+  buildChatStreamBody,
+  streamWorkspaceChat,
+  streamWorkspaceThreadChat,
+} from "@/lib/communication/chatStreamClient";
+import { respondToChatToolApproval } from "@/lib/communication/chatControlClient";
+import {
+  AgentSessionState,
+  createAgentWebSocketSession,
+} from "@/lib/communication/agentWebSocketClient";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { emitAssistantMessageCompleteEvent } from "@/components/contexts/TTSProvider";
 import { safeJsonParse } from "@/utils/request";
@@ -61,8 +65,9 @@ const MAX_COMPACT_INACTIVE_ITEMS = 40;
 const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
 const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const MAX_AGENT_RECONNECT_ATTEMPTS = 5;
-const AGENT_RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 12_000];
 const DEFAULT_AGENT_SILENCE_TIMEOUT_MS = 90_000;
+const RUNNING_DRAFT_STORAGE_GRACE_MS = 10 * 60 * 1000;
+const LATEST_HISTORY_REFRESH_LIMIT = 30;
 const AGENT_RECONNECT_TURN_FIELDS = [
   "websocketUUID",
   "agentProvider",
@@ -95,37 +100,6 @@ function compactClarifyingQuestions(questions = []) {
     }
     return compacted;
   });
-}
-
-function isMeaningfulAgentEvent(event = {}) {
-  if (!event) return false;
-  if (
-    [
-      "assistant_delta",
-      "assistant_final",
-      "assistant_patch",
-      "assistant_error",
-    ].includes(event.type)
-  )
-    return true;
-  if (event.type !== "timeline_event") return false;
-  return [
-    "thought",
-    "tool_call",
-    "tool_result",
-    "approval_request",
-    "approval_result",
-    "clarification_request",
-    "clarification_result",
-  ].includes(event.event?.type);
-}
-
-function reconnectBackoff(attempt = 1) {
-  const index = Math.max(
-    0,
-    Math.min(attempt - 1, AGENT_RECONNECT_BACKOFF_MS.length - 1)
-  );
-  return AGENT_RECONNECT_BACKOFF_MS[index] + Math.floor(Math.random() * 250);
 }
 
 export function getChatThreadKey(workspaceSlug, threadSlug = null) {
@@ -181,6 +155,7 @@ function draftFromStorageValue(value) {
   );
   const { items, removedTurnIds } = cleanupTransientDraftItems(storedItems, {
     now,
+    runningMaxAgeMs: RUNNING_DRAFT_STORAGE_GRACE_MS,
   });
   const removedTurnIdSet = new Set(removedTurnIds);
   const storedTail = storedItems[storedItems.length - 1] || null;
@@ -432,6 +407,7 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       role: item.role,
       content: truncateText(item.content || "", 2_000),
       chatId: item.chatId,
+      publicChatId: item.publicChatId || null,
       createdAt: item.createdAt,
       attachments: [],
     };
@@ -456,6 +432,7 @@ function serializeItemForStorage(item = {}, { minimal = false } = {}) {
       userMessageId: item.userMessageId,
       status: item.status,
       chatId: item.chatId,
+      publicChatId: item.publicChatId || null,
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
       error: truncateText(item.error || ""),
@@ -535,7 +512,15 @@ export function draftHistoryIntegrity(draft = {}) {
 
 export function draftNeedsServerHistoryRefresh(draft = {}) {
   if (!draft) return false;
-  return draftHistoryIntegrity(draft).blankServerBackedUserItemCount > 0;
+  return (
+    draftHistoryIntegrity(draft).blankServerBackedUserItemCount > 0 ||
+    (draft.items || []).some(
+      (item) =>
+        isAssistantTurn(item) &&
+        item.status === TURN_STATUSES.completed &&
+        !item.chatId
+    )
+  );
 }
 
 function isStorageQuotaError(error) {
@@ -956,6 +941,7 @@ function completeTurnPatch(turn, patch = {}) {
   return {
     ...patch,
     chatId: patch.chatId || turn.chatId || null,
+    publicChatId: patch.publicChatId || turn.publicChatId || null,
     finalContent: nextFinalContent,
     sources: patch.sources || turn.sources || [],
     metrics: patch.metrics || turn.metrics || {},
@@ -1013,12 +999,11 @@ export function ChatThreadDraftProvider({ children }) {
   );
   const draftsRef = useRef(drafts);
   const runningStateRef = useRef(runningState);
-  const websocketRefs = useRef({});
+  const agentSessionRefs = useRef({});
   const approvalTimeoutRefs = useRef({});
   const clarificationTimeoutRefs = useRef({});
   const stoppedThreadRefs = useRef({});
   const erroredThreadRefs = useRef({});
-  const agentReconnectRefs = useRef({});
   const resumedAgentTurnRefs = useRef(new Set());
   const confirmPersistedRef = useRef(null);
   const settledTurnRefs = useRef({});
@@ -1492,6 +1477,7 @@ export function ChatThreadDraftProvider({ children }) {
         sources: [],
         metrics: null,
         chatId: null,
+        publicChatId: null,
         frame: null,
       };
       pending.content += event.content || "";
@@ -1499,6 +1485,7 @@ export function ChatThreadDraftProvider({ children }) {
         event.sources?.length > 0 ? event.sources : pending.sources;
       pending.metrics = event.metrics || pending.metrics;
       pending.chatId = event.chatId || pending.chatId;
+      pending.publicChatId = event.publicChatId || pending.publicChatId;
 
       if (!pending.frame) {
         pending.frame = requestAnimationFrame(() => {
@@ -1518,6 +1505,7 @@ export function ChatThreadDraftProvider({ children }) {
                     : turn.sources || [],
                 metrics: nextPending.metrics || turn.metrics || {},
                 chatId: nextPending.chatId || turn.chatId,
+                publicChatId: nextPending.publicChatId || turn.publicChatId,
                 status: TURN_STATUSES.running,
               }),
               isStreaming: true,
@@ -1579,12 +1567,14 @@ export function ChatThreadDraftProvider({ children }) {
       const turn = findAssistantTurn(draft?.items || [], turnId);
       if (!turn) return;
       let completedChatId = patch.chatId || null;
+      let completedPublicChatId = patch.publicChatId || null;
       settledTurnRefs.current[turnRefKey(chatKey, turnId)] =
         TURN_STATUSES.completed;
       debugChatTurn("assistant_final:before", {
         chatKey,
         turnId,
         eventChatId: patch.chatId || null,
+        eventPublicChatId: patch.publicChatId || null,
         ...turnRuntimeSnapshot(draft, turnId),
       });
       updateDraft(chatKey, (current) => {
@@ -1609,9 +1599,12 @@ export function ChatThreadDraftProvider({ children }) {
                     : patch.sources,
                 metrics: pendingDelta.metrics || patch.metrics,
                 chatId: pendingDelta.chatId || patch.chatId,
+                publicChatId: pendingDelta.publicChatId || patch.publicChatId,
               }
             : patch;
         completedChatId = finalPatch.chatId || completedChatId;
+        completedPublicChatId =
+          finalPatch.publicChatId || completedPublicChatId;
         const nextItems = updateAssistantTurnInItems(
           current.items,
           turnId,
@@ -1650,6 +1643,12 @@ export function ChatThreadDraftProvider({ children }) {
           })
         );
       }
+      debugChatTurn("assistant_final:public_id", {
+        chatKey,
+        turnId,
+        chatId: completedChatId || null,
+        publicChatId: completedPublicChatId || null,
+      });
       if (completedChatId) emitAssistantMessageCompleteEvent(completedChatId);
     },
     [debugRuntime, markThreadCompleted, updateDraft]
@@ -1669,6 +1668,99 @@ export function ChatThreadDraftProvider({ children }) {
     [debugRuntime, markThreadFailed]
   );
 
+  const mergeLatestPersistedHistory = useCallback(
+    async ({
+      chatKey,
+      turnId = null,
+      workspaceSlug,
+      threadSlug = null,
+      reason = "latest-history-refresh",
+      limit = LATEST_HISTORY_REFRESH_LIMIT,
+    } = {}) => {
+      if (!chatKey || !workspaceSlug) return false;
+      debugRuntime("mergeLatestPersistedHistory:before", {
+        chatKey,
+        turnId,
+        workspaceSlug,
+        threadSlug,
+        reason,
+        limit,
+      });
+
+      try {
+        const result = threadSlug
+          ? await Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, {
+              limit,
+              detail: "full",
+              priorityWindow: limit,
+            })
+          : await Workspace.chatHistoryPage(workspaceSlug, {
+              limit,
+              detail: "full",
+              priorityWindow: limit,
+            });
+        const history = Array.isArray(result?.history) ? result.history : [];
+        if (history.length === 0) {
+          debugRuntime("mergeLatestPersistedHistory:empty", {
+            chatKey,
+            turnId,
+            reason,
+          });
+          return false;
+        }
+
+        updateDraft(
+          chatKey,
+          (current) => {
+            const items = mergeServerHistoryIntoTurnItems(
+              history,
+              current.items,
+              { chatKey }
+            );
+            const patchedTurn = turnId
+              ? findAssistantTurn(items, turnId)
+              : null;
+            const next = {
+              ...current,
+              items,
+              persistError: null,
+              tailHydration: {
+                seq: Number(current.tailHydration?.seq || 0) + 1,
+                chatId: patchedTurn?.chatId || null,
+                publicChatId: patchedTurn?.publicChatId || null,
+                turnId,
+                reason,
+                updatedAt: Date.now(),
+              },
+            };
+            debugRuntime("mergeLatestPersistedHistory:after", {
+              chatKey,
+              turnId,
+              reason,
+              historyLength: history.length,
+              patchedChatId: patchedTurn?.chatId || null,
+              patchedPublicChatId: patchedTurn?.publicChatId || null,
+              beforeItemCount: current.items?.length || 0,
+              afterItemCount: items.length,
+            });
+            return next;
+          },
+          { cleanupReason: reason }
+        );
+        return true;
+      } catch (error) {
+        debugRuntime("mergeLatestPersistedHistory:error", {
+          chatKey,
+          turnId,
+          reason,
+          error: error.message,
+        });
+        return false;
+      }
+    },
+    [debugRuntime, updateDraft]
+  );
+
   const applyTurnEvent = useCallback(
     (chatKey, turnId, event) => {
       if (!event || !turnId) return;
@@ -1677,6 +1769,8 @@ export function ChatThreadDraftProvider({ children }) {
         turnId,
         eventType: event.type,
         eventChatId: event.chatId || event.patch?.chatId || null,
+        eventPublicChatId:
+          event.publicChatId || event.patch?.publicChatId || null,
         eventContentLength:
           event.content?.length || event.event?.content?.length || 0,
       });
@@ -1757,14 +1851,22 @@ export function ChatThreadDraftProvider({ children }) {
           const turn = canApplyTurnEvent(draft, turnId);
           if (!turn) return draft;
           const patch = event.patch || {};
+          const hasPatchSources =
+            Array.isArray(patch.sources) && patch.sources.length > 0;
+          const hasPatchMetrics =
+            patch.metrics &&
+            typeof patch.metrics === "object" &&
+            Object.keys(patch.metrics).length > 0;
           return {
             ...draft,
             items: updateAssistantTurnInItems(draft.items, turnId, {
               ...patch,
               sources: event.appendSources
                 ? [...(turn.sources || []), ...(patch.sources || [])]
-                : patch.sources || turn.sources || [],
-              metrics: patch.metrics || turn.metrics || {},
+                : hasPatchSources
+                  ? patch.sources
+                  : turn.sources || [],
+              metrics: hasPatchMetrics ? patch.metrics : turn.metrics || {},
             }),
           };
         });
@@ -1796,11 +1898,13 @@ export function ChatThreadDraftProvider({ children }) {
           chatKey,
           turnId,
           eventChatId: event.chatId || null,
+          eventPublicChatId: event.publicChatId || null,
           eventContentLength: event.content?.length || 0,
           ...turnRuntimeSnapshot(draft, turnId),
         });
         const completionPatch = {
           chatId: event.chatId || turn?.chatId,
+          publicChatId: event.publicChatId || turn?.publicChatId,
           sources:
             event.sources?.length > 0 ? event.sources : turn?.sources || [],
           metrics: event.metrics || turn?.metrics || {},
@@ -1961,6 +2065,14 @@ export function ChatThreadDraftProvider({ children }) {
           chatId,
           attempt,
         });
+        const recovered = await mergeLatestPersistedHistory({
+          chatKey,
+          turnId,
+          workspaceSlug: draft.workspaceSlug,
+          threadSlug: draft.threadSlug,
+          reason: "confirmPersisted-missing",
+        });
+        if (recovered) return;
         updateDraft(chatKey, (current) => ({
           ...current,
           persistError:
@@ -1974,13 +2086,21 @@ export function ChatThreadDraftProvider({ children }) {
           attempt,
           error: error.message,
         });
+        const recovered = await mergeLatestPersistedHistory({
+          chatKey,
+          turnId,
+          workspaceSlug: draft.workspaceSlug,
+          threadSlug: draft.threadSlug,
+          reason: "confirmPersisted-error",
+        });
+        if (recovered) return;
         updateDraft(chatKey, (current) => ({
           ...current,
           persistError: error.message,
         }));
       }
     },
-    [debugRuntime, updateDraft]
+    [debugRuntime, mergeLatestPersistedHistory, updateDraft]
   );
 
   useEffect(() => {
@@ -2082,15 +2202,28 @@ export function ChatThreadDraftProvider({ children }) {
         approved: !!approved,
       });
 
-      const socket = websocketRefs.current[chatKey];
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({
-            type: "toolApprovalResponse",
-            requestId,
-            approved: !!approved,
-          })
-        );
+      const agentSession = agentSessionRefs.current[chatKey];
+      const sendResult = agentSession?.respondToApproval?.(
+        requestId,
+        !!approved
+      );
+      if (sendResult?.ok) {
+        return;
+      }
+
+      const result = await respondToChatToolApproval({
+        workspaceSlug: draft.workspaceSlug,
+        requestId,
+        approved: !!approved,
+      });
+      if (!result?.success) {
+        appendTimelineEvent(chatKey, turnId, {
+          type: "tool_result",
+          uuid: `approval-response:${requestId}`,
+          toolName: approval.skillName,
+          result: { success: false, error: result?.error || "not_found" },
+          content: "工具确认响应失败，请重试。",
+        });
       }
     },
     [appendTimelineEvent]
@@ -2112,30 +2245,13 @@ export function ChatThreadDraftProvider({ children }) {
       });
 
       if (payload.timedOut) return;
-      const socket = websocketRefs.current[chatKey];
-      if (socket?.readyState === WebSocket.OPEN) {
-        socket.send(
-          JSON.stringify({
-            type: "clarificationResponse",
-            requestId,
-            skipped: !!payload.skipped,
-            answers: Array.isArray(payload.answers) ? payload.answers : [],
-          })
-        );
-      }
+      agentSessionRefs.current[chatKey]?.respondToClarification?.(
+        requestId,
+        payload
+      );
     },
     [appendTimelineEvent]
   );
-
-  const clearAgentReconnectTimers = useCallback((chatKey, turnId) => {
-    const key = agentReconnectKey(chatKey, turnId);
-    const session = agentReconnectRefs.current[key];
-    if (!session) return;
-    if (session.silenceTimer) clearTimeout(session.silenceTimer);
-    if (session.reconnectTimer) clearTimeout(session.reconnectTimer);
-    session.silenceTimer = null;
-    session.reconnectTimer = null;
-  }, []);
 
   const updateAgentReconnectTurn = useCallback(
     (chatKey, turnId, patch = {}) => {
@@ -2156,431 +2272,298 @@ export function ChatThreadDraftProvider({ children }) {
     [updateDraft]
   );
 
-  const getOrCreateAgentReconnectSession = useCallback(
-    (chatKey, turnId, websocketUUID, options = {}) => {
-      const key = agentReconnectKey(chatKey, turnId);
-      const existing = agentReconnectRefs.current[key] || {};
-      const session = {
-        chatKey,
-        turnId,
-        websocketUUID,
-        retryCount: existing.retryCount || 0,
-        lastEventSeq: existing.lastEventSeq || 0,
-        lastMeaningfulOutputAt: existing.lastMeaningfulOutputAt || Date.now(),
+  const reconnectStateFromAgentState = useCallback((stateSnapshot = {}) => {
+    const retryCount = Number(stateSnapshot.retryCount || 0);
+    if (stateSnapshot.state === AgentSessionState.FAILED) return "failed";
+    if (stateSnapshot.state === AgentSessionState.RECONNECTING)
+      return "retrying";
+    if (stateSnapshot.state === AgentSessionState.CONNECTING && retryCount > 0)
+      return "retrying";
+    if (
+      [
+        AgentSessionState.FINALIZED,
+        AgentSessionState.CLOSED,
+        AgentSessionState.STOPPING,
+      ].includes(stateSnapshot.state)
+    ) {
+      return null;
+    }
+    return "idle";
+  }, []);
+
+  const agentTurnPatchFromState = useCallback(
+    (stateSnapshot = {}, extra = {}) => {
+      const reconnectState = reconnectStateFromAgentState(stateSnapshot);
+      return {
+        ...(reconnectState ? { reconnectState } : {}),
+        retryCount: stateSnapshot.retryCount || 0,
+        websocketUUID: stateSnapshot.websocketUUID || null,
+        agentProvider: stateSnapshot.agentProvider || null,
+        agentModel: stateSnapshot.agentModel || null,
+        agentModelTier: stateSnapshot.agentModelTier || null,
         silenceTimeoutMs:
-          options.silenceTimeoutMs ||
-          existing.silenceTimeoutMs ||
-          DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
-        agentProvider: options.agentProvider || existing.agentProvider || null,
-        agentModel: options.agentModel || existing.agentModel || null,
-        agentModelTier:
-          options.agentModelTier || existing.agentModelTier || null,
+          stateSnapshot.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
         reconnectAttemptStartedAt:
-          options.reconnectAttemptStartedAt ??
-          existing.reconnectAttemptStartedAt ??
-          null,
-        reconnectDueAt:
-          options.reconnectDueAt ?? existing.reconnectDueAt ?? null,
-        originalPrompt: options.prompt || existing.originalPrompt || "",
-        displayPrompt:
-          options.displayPrompt ||
-          existing.displayPrompt ||
-          options.prompt ||
-          "",
-        attachments: options.attachments || existing.attachments || [],
-        fileAccessMode:
-          options.fileAccessMode ?? existing.fileAccessMode ?? null,
-        nodeContext: options.nodeContext ?? existing.nodeContext ?? null,
-        threadSlug: options.threadSlug ?? existing.threadSlug ?? null,
-        workspaceSlug: options.workspaceSlug ?? existing.workspaceSlug ?? null,
-        silenceTimer: existing.silenceTimer || null,
-        reconnectTimer: existing.reconnectTimer || null,
+          stateSnapshot.reconnectAttemptStartedAt || null,
+        reconnectDueAt: stateSnapshot.reconnectDueAt || null,
+        lastEventSeq: stateSnapshot.lastEventSeq || 0,
+        ...extra,
       };
-      agentReconnectRefs.current[key] = session;
-      return session;
+    },
+    [reconnectStateFromAgentState]
+  );
+
+  const buildInterruptedAgentContext = useCallback(
+    (chatKey, turnId, reason, stateSnapshot = {}) => {
+      const draft = draftsRef.current[chatKey];
+      const turn = findAssistantTurn(draft?.items || [], turnId);
+      const userMessage = draft?.items?.find(
+        (item) => item.id === turn?.userMessageId
+      );
+      const toolEvents = (turn?.timeline || [])
+        .filter((event) => ["tool_call", "tool_result"].includes(event.type))
+        .slice(-12)
+        .map((event) => ({
+          type: event.type,
+          toolName: event.toolName,
+          content: truncateText(
+            event.summary || event.content || event.outputPreview || "",
+            MAX_TOOL_OUTPUT_PREVIEW_CHARS
+          ),
+          runId: event.runId,
+        }));
+
+      return {
+        reason,
+        originalPrompt:
+          stateSnapshot.originalPrompt || userMessage?.content || "",
+        displayPrompt:
+          stateSnapshot.displayPrompt || userMessage?.content || "",
+        partialAnswer: turn?.finalContent || "",
+        toolEvents,
+        attachments: stateSnapshot.attachments || [],
+        fileAccessMode: stateSnapshot.fileAccessMode || null,
+        nodeContext: stateSnapshot.nodeContext || null,
+        lastEventSeq: stateSnapshot.lastEventSeq || 0,
+        retryCount: stateSnapshot.retryCount || 0,
+        websocketUUID: stateSnapshot.websocketUUID || null,
+      };
     },
     []
   );
 
-  const releaseAgentSocket = useCallback(
-    (chatKey, turnId, socket, reason = "assistant_final") => {
-      if (!socket || socket.releasedAfterFinal) return;
-      socket.releasedAfterFinal = true;
-      if (websocketRefs.current[chatKey] === socket) {
-        delete websocketRefs.current[chatKey];
-      }
-      clearAgentReconnectTimers(chatKey, turnId);
-      delete agentReconnectRefs.current[agentReconnectKey(chatKey, turnId)];
-      setAgentSessionActive(false);
-      window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-      debugRuntime("websocket:released", {
+  const offerAgentReconnect = useCallback(
+    (chatKey, turnId, reason, interruptedContext, stateSnapshot = {}) => {
+      updateDraft(
+        chatKey,
+        (current) => ({
+          ...current,
+          items: updateAssistantTurnInItems(current.items, turnId, {
+            status: TURN_STATUSES.interrupted,
+            reconnectState: "offer",
+            ...agentTurnPatchFromState(stateSnapshot, {
+              interruptedContext,
+              reconnectAttemptStartedAt: null,
+              reconnectDueAt: null,
+            }),
+            error: null,
+            updatedAt: Date.now(),
+          }),
+          activeTurnId:
+            current.activeTurnId === turnId ? null : current.activeTurnId,
+          pendingApproval: null,
+          pendingClarification: null,
+          activeToolCall: null,
+          isStreaming: false,
+          isAgentRunning: false,
+          persistError: null,
+        }),
+        { cleanupReason: "offerReconnect" }
+      );
+      clearThreadRunning(chatKey, turnId);
+      debugRuntime("websocket:reconnect-offer", {
         chatKey,
         turnId,
         reason,
-        readyState: socket.readyState,
+        retryCount: stateSnapshot.retryCount || 0,
+        lastEventSeq: stateSnapshot.lastEventSeq || 0,
       });
     },
-    [clearAgentReconnectTimers, debugRuntime]
+    [agentTurnPatchFromState, clearThreadRunning, debugRuntime, updateDraft]
+  );
+
+  const handleAgentSessionState = useCallback(
+    (chatKey, turnId, stateSnapshot = {}) => {
+      const terminal = [
+        AgentSessionState.FINALIZED,
+        AgentSessionState.CLOSED,
+        AgentSessionState.FAILED,
+        AgentSessionState.STOPPING,
+      ].includes(stateSnapshot.state);
+
+      updateDraft(chatKey, (draft) => ({
+        ...draft,
+        activeTurnId: terminal
+          ? draft.activeTurnId === turnId
+            ? null
+            : draft.activeTurnId
+          : turnId,
+        isAgentRunning: !terminal,
+        isStreaming: false,
+        persistError: null,
+      }));
+
+      updateAgentReconnectTurn(
+        chatKey,
+        turnId,
+        agentTurnPatchFromState(stateSnapshot)
+      );
+      debugChatTurn("websocket:state", {
+        chatKey,
+        turnId,
+        state: stateSnapshot.state,
+        previousState: stateSnapshot.previousState,
+        reason: stateSnapshot.reason,
+        retryCount: stateSnapshot.retryCount || 0,
+        lastEventSeq: stateSnapshot.lastEventSeq || 0,
+      });
+    },
+    [agentTurnPatchFromState, updateAgentReconnectTurn, updateDraft]
+  );
+
+  const handleAgentSessionEvent = useCallback(
+    (chatKey, turnId, event) => {
+      debugChatTurn("websocket:event", {
+        chatKey,
+        turnId,
+        eventType: event?.type || null,
+        protocolType: event?.protocolEvent?.type || null,
+      });
+      const applied = applyTurnEvent(chatKey, turnId, event);
+      if (applied?.type === "timeline_event") {
+        const timelineEvent = normalizeTimelineEvent(applied.event || {});
+        if (timelineEvent.type === "approval_request") {
+          scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
+        }
+        if (timelineEvent.type === "clarification_request") {
+          scheduleClarificationTimeout(chatKey, turnId, timelineEvent);
+        }
+      }
+      return applied;
+    },
+    [applyTurnEvent, scheduleApprovalTimeout, scheduleClarificationTimeout]
   );
 
   const openAgentSocket = useCallback(
     (chatKey, turnId, websocketUUID, options = {}) => {
-      if (!websocketUUID) return;
-      if (websocketRefs.current[chatKey] && !options.forceReconnect) return;
-      const session = getOrCreateAgentReconnectSession(
+      if (!websocketUUID) return null;
+      const existingSession = agentSessionRefs.current[chatKey];
+      if (existingSession && !options.forceReconnect) return existingSession;
+
+      existingSession?.close?.("superseded");
+      const controller = createAgentWebSocketSession({
+        websocketUUID,
         chatKey,
         turnId,
-        websocketUUID,
-        options
-      );
-      const query = new URLSearchParams();
-      if (session.lastEventSeq > 0 || session.retryCount > 0) {
-        query.set("resume", "1");
-        query.set("lastEventSeq", String(session.lastEventSeq || 0));
-      }
-      const socket = new WebSocket(
-        `${websocketURI()}/api/agent-invocation/${websocketUUID}${
-          query.toString() ? `?${query.toString()}` : ""
-        }`
-      );
-      socket.supportsAgentStreaming = false;
-      websocketRefs.current[chatKey] = socket;
-
-      setAgentSessionActive(true);
-      window.dispatchEvent(new CustomEvent(AGENT_SESSION_START));
-      updateDraft(chatKey, (draft) => ({
-        ...draft,
-        activeTurnId: turnId,
-        isAgentRunning: true,
-        isStreaming: false,
-        persistError: null,
-      }));
-      updateAgentReconnectTurn(chatKey, turnId, {
-        reconnectState: session.retryCount > 0 ? "retrying" : "idle",
-        retryCount: session.retryCount,
-        websocketUUID,
-        agentProvider: session.agentProvider,
-        agentModel: session.agentModel,
-        agentModelTier: session.agentModelTier,
-        silenceTimeoutMs: session.silenceTimeoutMs,
-        reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
-        reconnectDueAt: session.reconnectDueAt,
-        lastEventSeq: session.lastEventSeq,
-      });
-      markThreadRunning(chatKey, turnId);
-
-      Workspace.agentInvocationState(websocketUUID).then((result) => {
-        const state = result?.state || {};
-        const timeoutMs = Number(result?.state?.silenceTimeoutMs);
-        session.agentProvider = state.provider || session.agentProvider || null;
-        session.agentModel = state.model || session.agentModel || null;
-        session.agentModelTier =
-          state.modelTier || session.agentModelTier || null;
-        if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
-          session.silenceTimeoutMs = timeoutMs;
-        }
-        if (
-          session.agentProvider ||
-          session.agentModel ||
-          session.agentModelTier ||
-          (Number.isFinite(timeoutMs) && timeoutMs > 0)
-        ) {
-          updateAgentReconnectTurn(chatKey, turnId, {
-            reconnectState: session.retryCount > 0 ? "retrying" : "idle",
-            retryCount: session.retryCount,
-            websocketUUID,
-            agentProvider: session.agentProvider,
-            agentModel: session.agentModel,
-            agentModelTier: session.agentModelTier,
-            silenceTimeoutMs: session.silenceTimeoutMs,
-            reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
-            reconnectDueAt: session.reconnectDueAt,
-            lastEventSeq: session.lastEventSeq,
-          });
-        }
-      });
-
-      const offerReconnect = (reason) => {
-        clearAgentReconnectTimers(chatKey, turnId);
-        const draft = draftsRef.current[chatKey];
-        const turn = findAssistantTurn(draft?.items || [], turnId);
-        const userMessage = draft?.items?.find(
-          (item) => item.id === turn?.userMessageId
-        );
-        const toolEvents = (turn?.timeline || [])
-          .filter((event) => ["tool_call", "tool_result"].includes(event.type))
-          .slice(-12)
-          .map((event) => ({
-            type: event.type,
-            toolName: event.toolName,
-            content: truncateText(
-              event.summary || event.content || event.outputPreview || "",
-              MAX_TOOL_OUTPUT_PREVIEW_CHARS
-            ),
-            runId: event.runId,
-          }));
-        const interruptedContext = {
-          reason,
-          originalPrompt: session.originalPrompt || userMessage?.content || "",
-          displayPrompt: session.displayPrompt || userMessage?.content || "",
-          partialAnswer: turn?.finalContent || "",
-          toolEvents,
-          attachments: session.attachments || [],
-          fileAccessMode: session.fileAccessMode || null,
-          nodeContext: session.nodeContext || null,
-          lastEventSeq: session.lastEventSeq || 0,
-          retryCount: session.retryCount,
-          websocketUUID,
-        };
-        updateDraft(
-          chatKey,
-          (current) => ({
-            ...current,
-            items: updateAssistantTurnInItems(current.items, turnId, {
-              status: TURN_STATUSES.interrupted,
-              reconnectState: "offer",
-              retryCount: session.retryCount,
-              maxRetries: MAX_AGENT_RECONNECT_ATTEMPTS,
-              websocketUUID,
-              agentProvider: session.agentProvider,
-              agentModel: session.agentModel,
-              agentModelTier: session.agentModelTier,
-              silenceTimeoutMs: session.silenceTimeoutMs,
-              reconnectAttemptStartedAt: null,
-              reconnectDueAt: null,
-              lastEventSeq: session.lastEventSeq || 0,
-              interruptedContext,
-              error: null,
-              updatedAt: Date.now(),
-            }),
-            activeTurnId:
-              current.activeTurnId === turnId ? null : current.activeTurnId,
-            pendingApproval: null,
-            pendingClarification: null,
-            activeToolCall: null,
-            isStreaming: false,
-            isAgentRunning: false,
-            persistError: null,
-          }),
-          { cleanupReason: "offerReconnect" }
-        );
-        clearThreadRunning(chatKey, turnId);
-        setAgentSessionActive(false);
-        window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-      };
-
-      const scheduleReconnect = (reason) => {
-        if (socket.sawFinalMessage || socket.lastFinalChatId) return false;
-        if (stoppedThreadRefs.current[chatKey]) return false;
-        if (session.retryCount >= MAX_AGENT_RECONNECT_ATTEMPTS) {
-          offerReconnect(reason);
-          return true;
-        }
-
-        session.retryCount += 1;
-        const delay = reconnectBackoff(session.retryCount);
-        const reconnectAttemptStartedAt = Date.now();
-        session.reconnectAttemptStartedAt = reconnectAttemptStartedAt;
-        session.reconnectDueAt = reconnectAttemptStartedAt + delay;
-        updateAgentReconnectTurn(chatKey, turnId, {
-          reconnectState: "retrying",
-          retryCount: session.retryCount,
-          websocketUUID,
-          agentProvider: session.agentProvider,
-          agentModel: session.agentModel,
-          agentModelTier: session.agentModelTier,
-          silenceTimeoutMs: session.silenceTimeoutMs,
-          reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
-          reconnectDueAt: session.reconnectDueAt,
-          lastEventSeq: session.lastEventSeq || 0,
-        });
-        appendTimelineEvent(chatKey, turnId, {
-          type: "thought",
-          content: `Agent connection interrupted. Reconnecting ${session.retryCount}/${MAX_AGENT_RECONNECT_ATTEMPTS}...`,
-        });
-        clearTimeout(session.reconnectTimer);
-        session.reconnectTimer = setTimeout(() => {
-          openAgentSocket(chatKey, turnId, websocketUUID, {
-            ...options,
-            forceReconnect: true,
-          });
-        }, delay);
-        return true;
-      };
-
-      const scheduleSilenceTimer = () => {
-        clearTimeout(session.silenceTimer);
-        session.silenceTimer = setTimeout(() => {
-          socket.silenceTimedOut = true;
-          debugChatTurn("websocket:silence-timeout", {
+        initialLastEventSeq:
+          options.lastEventSeq || options.initialLastEventSeq || 0,
+        initialRetryCount: options.retryCount || 0,
+        workspaceSlug: options.workspaceSlug,
+        threadSlug: options.threadSlug,
+        prompt: options.prompt,
+        displayPrompt: options.displayPrompt,
+        attachments: options.attachments || [],
+        fileAccessMode: options.fileAccessMode,
+        nodeContext: options.nodeContext,
+        agentProvider: options.agentProvider,
+        agentModel: options.agentModel,
+        agentModelTier: options.agentModelTier,
+        silenceTimeoutMs:
+          options.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
+        reconnectAttemptStartedAt: options.reconnectAttemptStartedAt || null,
+        reconnectDueAt: options.reconnectDueAt || null,
+        getInterruptedContext: (reason, stateSnapshot) =>
+          buildInterruptedAgentContext(chatKey, turnId, reason, stateSnapshot),
+        onState: (stateSnapshot) =>
+          handleAgentSessionState(chatKey, turnId, stateSnapshot),
+        onReconnectOffer: (reason, interruptedContext, stateSnapshot) =>
+          offerAgentReconnect(
             chatKey,
             turnId,
-            timeoutMs: session.silenceTimeoutMs,
-            lastEventSeq: session.lastEventSeq || 0,
+            reason,
+            interruptedContext,
+            stateSnapshot
+          ),
+        onEvent: (event) => handleAgentSessionEvent(chatKey, turnId, event),
+        onProtocolEvent: (protocolEvent) => {
+          debugChatTurn("websocket:protocol", {
+            chatKey,
+            turnId,
+            protocolType: protocolEvent?.type || null,
+            rawType: protocolEvent?.rawType || null,
+            seq: protocolEvent?.seq || null,
           });
-          if (websocketRefs.current[chatKey] === socket) socket.close();
-        }, session.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS);
-      };
-      scheduleSilenceTimer();
-
-      socket.addEventListener("open", () => {
-        session.reconnectAttemptStartedAt = null;
-        session.reconnectDueAt = null;
-        updateAgentReconnectTurn(chatKey, turnId, {
-          reconnectState: session.retryCount > 0 ? "retrying" : "idle",
-          retryCount: session.retryCount,
-          websocketUUID,
-          agentProvider: session.agentProvider,
-          agentModel: session.agentModel,
-          agentModelTier: session.agentModelTier,
-          silenceTimeoutMs: session.silenceTimeoutMs,
-          reconnectAttemptStartedAt: null,
-          reconnectDueAt: null,
-          lastEventSeq: session.lastEventSeq,
-        });
-      });
-
-      socket.addEventListener("message", (event) => {
-        const normalizedEvent = handleSocketResponse(socket, event);
-        if (
-          ["agent_replay_start", "agent_replay_end"].includes(
-            normalizedEvent?.type
-          )
-        ) {
-          return;
-        }
-        if (
-          normalizedEvent?.seq &&
-          normalizedEvent.seq <= (session.lastEventSeq || 0)
-        ) {
-          return;
-        }
-        if (normalizedEvent?.seq) {
-          session.lastEventSeq = normalizedEvent.seq;
-          updateAgentReconnectTurn(chatKey, turnId, {
-            reconnectState: session.retryCount > 0 ? "retrying" : "idle",
-            retryCount: session.retryCount,
-            websocketUUID,
-            agentProvider: session.agentProvider,
-            agentModel: session.agentModel,
-            agentModelTier: session.agentModelTier,
-            silenceTimeoutMs: session.silenceTimeoutMs,
-            reconnectAttemptStartedAt: session.reconnectAttemptStartedAt,
-            reconnectDueAt: session.reconnectDueAt,
-            lastEventSeq: session.lastEventSeq,
-          });
-        }
-        if (isMeaningfulAgentEvent(normalizedEvent)) {
-          session.lastMeaningfulOutputAt = Date.now();
-          session.reconnectAttemptStartedAt = null;
-          session.reconnectDueAt = null;
-          updateAgentReconnectTurn(chatKey, turnId, {
-            reconnectState: session.retryCount > 0 ? "retrying" : "idle",
-            retryCount: session.retryCount,
-            websocketUUID,
-            agentProvider: session.agentProvider,
-            agentModel: session.agentModel,
-            agentModelTier: session.agentModelTier,
-            silenceTimeoutMs: session.silenceTimeoutMs,
-            reconnectAttemptStartedAt: null,
-            reconnectDueAt: null,
-            lastEventSeq: session.lastEventSeq,
-          });
-          scheduleSilenceTimer();
-        }
-        debugChatTurn("websocket:event", {
-          chatKey,
-          turnId,
-          eventType: normalizedEvent?.type || null,
-        });
-        const applied = applyTurnEvent(chatKey, turnId, normalizedEvent);
-        if (applied?.type === "timeline_event") {
-          const timelineEvent = normalizeTimelineEvent(applied.event || {});
-          if (timelineEvent.type === "approval_request") {
-            scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
-          }
-          if (timelineEvent.type === "clarification_request") {
-            scheduleClarificationTimeout(chatKey, turnId, timelineEvent);
-          }
-        }
-        if (applied?.type === "assistant_final" && applied.chatId) {
-          socket.lastFinalChatId = applied.chatId;
-        }
-        if (applied?.type === "assistant_final") {
-          socket.sawFinalMessage = true;
-          releaseAgentSocket(chatKey, turnId, socket, "assistant_final");
-          setTimeout(() => {
-            if (socket.readyState === WebSocket.OPEN) socket.close();
-          }, 250);
-        }
-        if (applied?.type === "assistant_error") {
-          erroredThreadRefs.current[chatKey] = true;
-          socket.close();
-        }
-      });
-
-      socket.addEventListener("close", () => {
-        if (session.silenceTimer) clearTimeout(session.silenceTimer);
-        session.silenceTimer = null;
-        if (websocketRefs.current[chatKey] === socket) {
-          delete websocketRefs.current[chatKey];
-        }
-        if (!socket.releasedAfterFinal) {
-          setAgentSessionActive(false);
-          window.dispatchEvent(new CustomEvent(AGENT_SESSION_END));
-        }
-        debugChatTurn("websocket:close", {
-          chatKey,
-          turnId,
-          sawFinalMessage: !!socket.sawFinalMessage,
-          lastFinalChatId: socket.lastFinalChatId || null,
-          stopped: !!stoppedThreadRefs.current[chatKey],
-          errored: !!erroredThreadRefs.current[chatKey],
-          ...turnRuntimeSnapshot(draftsRef.current[chatKey], turnId),
-        });
-        if (stoppedThreadRefs.current[chatKey]) {
-          clearThreadRunning(chatKey, turnId);
-        } else if (erroredThreadRefs.current[chatKey]) {
-          scheduleReconnect("Agent websocket connection failed.");
-        } else if (socket.sawFinalMessage || socket.lastFinalChatId) {
+        },
+        onFinal: (chatId) => {
           markThreadCompleted(chatKey, turnId);
-        } else {
-          scheduleReconnect(
-            socket.silenceTimedOut
-              ? "Agent response timed out because no output was received."
-              : "Agent websocket closed before a final response."
-          );
-        }
-        stoppedThreadRefs.current[chatKey] = false;
-        erroredThreadRefs.current[chatKey] = false;
-        if (socket.sawFinalMessage || socket.lastFinalChatId) {
-          setTimeout(
-            () =>
-              confirmPersisted(chatKey, turnId, socket.lastFinalChatId || null),
-            500
-          );
-        }
+          setTimeout(() => {
+            if (chatId) confirmPersisted(chatKey, turnId, chatId);
+            const parsedChatKey = parseChatKey(chatKey);
+            mergeLatestPersistedHistory({
+              chatKey,
+              turnId,
+              workspaceSlug:
+                options.workspaceSlug || parsedChatKey.workspaceSlug,
+              threadSlug: options.threadSlug ?? parsedChatKey.threadSlug,
+              reason: chatId
+                ? "agent-final-refresh"
+                : "agent-final-missing-chat-id",
+            });
+          }, 500);
+        },
+        onError: (error, stateSnapshot) => {
+          debugRuntime("websocket:error", {
+            chatKey,
+            turnId,
+            error: error?.message || String(error || "unknown"),
+            state: stateSnapshot?.state || null,
+          });
+        },
+        onClose: (stateSnapshot) => {
+          debugChatTurn("websocket:close", {
+            chatKey,
+            turnId,
+            state: stateSnapshot?.state || null,
+            reason: stateSnapshot?.reason || null,
+            stopped: !!stoppedThreadRefs.current[chatKey],
+            ...turnRuntimeSnapshot(draftsRef.current[chatKey], turnId),
+          });
+          if (agentSessionRefs.current[chatKey] === controller) {
+            delete agentSessionRefs.current[chatKey];
+          }
+          if (stoppedThreadRefs.current[chatKey]) {
+            clearThreadRunning(chatKey, turnId);
+          }
+          stoppedThreadRefs.current[chatKey] = false;
+          erroredThreadRefs.current[chatKey] = false;
+        },
       });
 
-      socket.addEventListener("error", () => {
-        erroredThreadRefs.current[chatKey] = true;
-        if (websocketRefs.current[chatKey] === socket) socket.close();
-      });
+      agentSessionRefs.current[chatKey] = controller;
+      markThreadRunning(chatKey, turnId);
+      return controller;
     },
     [
-      applyTurnEvent,
-      appendTimelineEvent,
+      buildInterruptedAgentContext,
       clearThreadRunning,
-      clearAgentReconnectTimers,
       confirmPersisted,
-      getOrCreateAgentReconnectSession,
-      releaseAgentSocket,
+      debugRuntime,
+      handleAgentSessionEvent,
+      handleAgentSessionState,
       markThreadCompleted,
       markThreadRunning,
-      scheduleApprovalTimeout,
-      scheduleClarificationTimeout,
-      updateAgentReconnectTurn,
-      updateDraft,
+      mergeLatestPersistedHistory,
+      offerAgentReconnect,
     ]
   );
 
@@ -2597,7 +2580,7 @@ export function ChatThreadDraftProvider({ children }) {
 
       const resumeKey = agentReconnectKey(chatKey, turn.turnId);
       if (resumedAgentTurnRefs.current.has(resumeKey)) return;
-      if (websocketRefs.current[chatKey]) return;
+      if (agentSessionRefs.current[chatKey]) return;
 
       const userMessage = draft.items?.find(
         (item) => item.id === turn.userMessageId
@@ -2617,6 +2600,8 @@ export function ChatThreadDraftProvider({ children }) {
           turn.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
         reconnectAttemptStartedAt: turn.reconnectAttemptStartedAt || null,
         reconnectDueAt: turn.reconnectDueAt || null,
+        lastEventSeq: turn.lastEventSeq || 0,
+        retryCount: turn.retryCount || 0,
       });
     });
   }, [openAgentSocket]);
@@ -2649,7 +2634,7 @@ export function ChatThreadDraftProvider({ children }) {
         fileAccessMode,
         historyLength: history.length,
       });
-      const socket = websocketRefs.current[chatKey];
+      const agentSession = agentSessionRefs.current[chatKey];
       const preparedAttachments = attachments || parseAttachments();
       const { turnId, items: turnItems } = createTurn({
         prompt: displayPrompt || prompt,
@@ -2689,20 +2674,30 @@ export function ChatThreadDraftProvider({ children }) {
         })
       );
 
-      if (sendToExistingAgent && socket?.readyState === WebSocket.OPEN) {
+      if (sendToExistingAgent && agentSession?.isOpen?.()) {
         debugRuntime("startStream:sendToExistingAgent", {
           chatKey,
           turnId,
         });
-        socket.send(
-          JSON.stringify({
-            type: "awaitingFeedback",
-            feedback: prompt,
-            attachments: preparedAttachments,
-            fileAccess: { mode: fileAccessMode },
-            nodeContext,
-          })
-        );
+        const sendResult = agentSession.sendFeedback({
+          feedback: prompt,
+          attachments: preparedAttachments,
+          fileAccessMode,
+          nodeContext,
+        });
+        if (!sendResult?.ok) {
+          debugRuntime("startStream:sendToExistingAgentFailed", {
+            chatKey,
+            turnId,
+            reason: sendResult?.reason || "unknown",
+          });
+          applyTurnEvent(chatKey, turnId, {
+            type: "assistant_error",
+            content: "Agent session is no longer accepting input.",
+            error: "Agent session is no longer accepting input.",
+          });
+          return;
+        }
         appendTimelineEvent(chatKey, turnId, {
           type: "thought",
           content: "Sent follow-up input to the active agent session.",
@@ -2712,20 +2707,37 @@ export function ChatThreadDraftProvider({ children }) {
 
       try {
         let completedChatId = null;
-        await Workspace.multiplexStream({
+        const streamChat = threadSlug
+          ? streamWorkspaceThreadChat
+          : streamWorkspaceChat;
+        await streamChat({
           workspaceSlug,
           threadSlug,
-          prompt,
-          chatHandler: (chatResult) => {
-            const event = handleChat(chatResult);
+          body: buildChatStreamBody({
+            message: prompt,
+            attachments: preparedAttachments,
+            fileAccessMode,
+            nodeContext,
+          }),
+          onEvent: (event, protocolEvent, rawEvent) => {
             debugChatTurn("sse:event", {
               chatKey,
               turnId,
-              rawType: chatResult?.type || null,
+              rawType: protocolEvent?.rawType || rawEvent?.type || null,
+              protocolType: protocolEvent?.type || null,
               eventType: event?.type || null,
-              close: !!chatResult?.close,
+              close: !!rawEvent?.close,
             });
             const applied = applyTurnEvent(chatKey, turnId, event);
+            if (applied?.type === "timeline_event") {
+              const timelineEvent = normalizeTimelineEvent(applied.event || {});
+              if (timelineEvent.type === "approval_request") {
+                scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
+              }
+              if (timelineEvent.type === "clarification_request") {
+                scheduleClarificationTimeout(chatKey, turnId, timelineEvent);
+              }
+            }
             if (applied?.type === "agent_socket_start") {
               openAgentSocket(chatKey, turnId, applied.websocketUUID, {
                 workspaceSlug,
@@ -2741,14 +2753,21 @@ export function ChatThreadDraftProvider({ children }) {
               completedChatId = applied.chatId || completedChatId;
             }
           },
-          attachments: preparedAttachments,
-          fileAccessMode,
-          nodeContext,
         });
-        setTimeout(
-          () => confirmPersisted(chatKey, turnId, completedChatId),
-          500
-        );
+        setTimeout(() => {
+          if (completedChatId) {
+            confirmPersisted(chatKey, turnId, completedChatId);
+          }
+          mergeLatestPersistedHistory({
+            chatKey,
+            turnId,
+            workspaceSlug,
+            threadSlug,
+            reason: completedChatId
+              ? "stream-complete-refresh"
+              : "stream-missing-chat-id",
+          });
+        }, 500);
         if (threadSlug) {
           [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
             setTimeout(() => {
@@ -2785,7 +2804,10 @@ export function ChatThreadDraftProvider({ children }) {
       debugRuntime,
       ensureDraft,
       markThreadRunning,
+      mergeLatestPersistedHistory,
       openAgentSocket,
+      scheduleApprovalTimeout,
+      scheduleClarificationTimeout,
       updateDraft,
     ]
   );
@@ -2883,17 +2905,14 @@ export function ChatThreadDraftProvider({ children }) {
         const turnId = draft?.activeTurnId;
         if (!turnId) return;
         stoppedThreadRefs.current[key] = true;
-        const socket = websocketRefs.current[key];
-        if (socket?.readyState === WebSocket.OPEN) {
-          socket.send(
-            JSON.stringify({ type: "awaitingFeedback", feedback: "/exit" })
-          );
+        const agentSession = agentSessionRefs.current[key];
+        const stopResult = agentSession?.stop?.("user_stop");
+        if (!stopResult?.ok) {
+          applyTurnEvent(key, turnId, {
+            type: "stop_generation",
+            content: "Generation stopped by user.",
+          });
         }
-        socket?.close();
-        applyTurnEvent(key, turnId, {
-          type: "stop_generation",
-          content: "Generation stopped by user.",
-        });
       });
     },
     [applyTurnEvent]
@@ -2907,17 +2926,15 @@ export function ChatThreadDraftProvider({ children }) {
 
   useEffect(() => {
     return () => {
-      Object.values(websocketRefs.current).forEach((socket) => socket?.close());
+      Object.values(agentSessionRefs.current).forEach((session) =>
+        session?.close?.("provider_unmount")
+      );
       Object.values(approvalTimeoutRefs.current).forEach((timeout) =>
         clearTimeout(timeout)
       );
       Object.values(clarificationTimeoutRefs.current).forEach((timeout) =>
         clearTimeout(timeout)
       );
-      Object.values(agentReconnectRefs.current).forEach((session) => {
-        if (session?.silenceTimer) clearTimeout(session.silenceTimer);
-        if (session?.reconnectTimer) clearTimeout(session.reconnectTimer);
-      });
     };
   }, []);
 
@@ -3133,6 +3150,12 @@ export function useChatThreadDrafts() {
       "useChatThreadDrafts must be used within ChatThreadDraftProvider"
     );
   return context;
+}
+
+export function ChatThreadDraftProviderBoundary({ children }) {
+  const context = useContext(ChatThreadDraftContext);
+  if (context) return children;
+  return <ChatThreadDraftProvider>{children}</ChatThreadDraftProvider>;
 }
 
 export function useChatDraft(workspaceSlug, threadSlug = null) {

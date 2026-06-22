@@ -1,14 +1,36 @@
-export const CHAT_SCROLL_BOTTOM_TOLERANCE_PX = 2;
+export const CHAT_SCROLL_BOTTOM_TOLERANCE_PX = 80;
+export const CHAT_SCROLL_PINNED_BOTTOM_PX = 2;
 export const CHAT_SCROLL_HISTORY_LOAD_TOP_PX = 240;
 export const CHAT_SCROLL_PROGRAMMATIC_SUPPRESS_MS = 240;
 export const CHAT_SCROLL_SMOOTH_SUPPRESS_MS = 900;
 export const CHAT_SCROLL_USER_INTENT_WINDOW_MS = 1200;
 
+export function chatScrollBottomGap({
+  scrollTop = 0,
+  scrollHeight = 0,
+  clientHeight = 0,
+} = {}) {
+  return Number(scrollHeight) - Number(scrollTop) - Number(clientHeight);
+}
+
 export function isChatScrollAtBottom(
   { scrollTop = 0, scrollHeight = 0, clientHeight = 0 } = {},
   tolerancePx = CHAT_SCROLL_BOTTOM_TOLERANCE_PX
 ) {
-  return scrollHeight - scrollTop - clientHeight < tolerancePx;
+  return (
+    chatScrollBottomGap({ scrollTop, scrollHeight, clientHeight }) <=
+    tolerancePx
+  );
+}
+
+export function isChatScrollPinnedToBottom(
+  { scrollTop = 0, scrollHeight = 0, clientHeight = 0 } = {},
+  tolerancePx = CHAT_SCROLL_PINNED_BOTTOM_PX
+) {
+  return isChatScrollAtBottom(
+    { scrollTop, scrollHeight, clientHeight },
+    tolerancePx
+  );
 }
 
 export function markProgrammaticChatScroll(
@@ -47,7 +69,7 @@ export function hasRecentChatUserScrollIntent(
 }
 
 export function isExplicitChatScrollNavigationIntent(source = null) {
-  return ["wheel", "touch", "keyboard", "shortcut-top"].includes(
+  return ["wheel", "touch", "keyboard", "pointer", "shortcut-top"].includes(
     String(source || "")
   );
 }
@@ -80,22 +102,27 @@ export function getChatScrollIntent({
   userIntentState = null,
   now = Date.now(),
 } = {}) {
-  const isBottom = isChatScrollAtBottom({
+  const bottomGap = chatScrollBottomGap({
     scrollTop,
     scrollHeight,
     clientHeight,
   });
+  const isNearBottom = bottomGap <= CHAT_SCROLL_BOTTOM_TOLERANCE_PX;
+  const isPinnedToBottom = bottomGap <= CHAT_SCROLL_PINNED_BOTTOM_PX;
   const isProgrammatic = isProgrammaticChatScroll(programmaticState, now);
   const hasUserIntent = hasRecentChatUserScrollIntent(userIntentState, now);
   const canSavePosition = Boolean(chatKey && hasUserIntent && !isProgrammatic);
 
   return {
-    isBottom,
+    bottomGap,
+    isBottom: isPinnedToBottom,
+    isNearBottom,
+    isPinnedToBottom,
     isProgrammatic,
     hasUserIntent,
     canSavePosition,
-    shouldLeaveFollowOutput: canSavePosition && !isBottom,
-    shouldEnterFollowOutput: canSavePosition && isBottom,
+    shouldLeaveFollowOutput: canSavePosition && !isPinnedToBottom,
+    shouldEnterFollowOutput: canSavePosition && isPinnedToBottom,
     canLoadOlderHistory: shouldLoadOlderChatHistory({
       scrollTop,
       hasMoreHistory,

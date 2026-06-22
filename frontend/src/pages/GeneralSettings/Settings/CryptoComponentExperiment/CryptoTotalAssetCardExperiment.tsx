@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import CryptoTotalAssetCard from "./CryptoTotalAssetCard";
 import type {
@@ -114,6 +113,13 @@ type GateEquityHistory = {
   };
   equityBreakdown: GateEquityBreakdown | null;
   points: CryptoTrendPoint[];
+};
+
+type GateEquityHistoryResponse = {
+  success?: boolean;
+  error?: string;
+  safeErrorMessage?: string;
+  history?: GateEquityHistory;
 };
 
 function finiteNumber(value: number | undefined, fallback: number) {
@@ -283,10 +289,7 @@ export default function CryptoTotalAssetCardExperiment() {
 
     async function startGateStream() {
       try {
-        await fetch(`${API_BASE}/crypto-hub/init`, {
-          method: "POST",
-          headers: baseHeaders(),
-        });
+        await cryptoHubFetch("/init", { method: "POST" });
       } catch {
         // The cached history request below owns the user-facing degraded state.
       }
@@ -327,13 +330,15 @@ export default function CryptoTotalAssetCardExperiment() {
         if (loadedFullHistory && lastPointTs) {
           query.set("sinceTs", String(lastPointTs));
         }
-        const response = await fetch(
-          `${API_BASE}/crypto-hub/equity-history?${query.toString()}`,
-          { headers: baseHeaders() }
+        const payload = await cryptoHubFetch<GateEquityHistoryResponse>(
+          `/equity-history?${query.toString()}`
         );
-        const payload = await response.json();
-        if (!response.ok || !payload?.success || !payload?.history) {
-          throw new Error(payload?.error || "Gate 今日历史数据读取失败");
+        if (!payload?.success || !payload?.history) {
+          throw new Error(
+            payload?.safeErrorMessage ||
+              payload?.error ||
+              "Gate 今日历史数据读取失败"
+          );
         }
         if (cancelled) return;
         setGateHistory((current) => {

@@ -6,7 +6,11 @@ import {
   DELETE_EVENT,
 } from "@/components/WorkspaceChat/ChatContainer/ChatHistory/MessageActionsContext";
 
-export function useWatchDeleteMessage({ chatId = null, role = "user" }) {
+export function useWatchDeleteMessage({
+  chatId = null,
+  publicChatId = null,
+  role = "user",
+}) {
   const context = useMessageActionsContext();
   const [completeDelete, setCompleteDelete] = useState(false);
   const deleteCalled = useRef(false);
@@ -16,7 +20,7 @@ export function useWatchDeleteMessage({ chatId = null, role = "user" }) {
     if (isDeleted && !deleteCalled.current) {
       deleteCalled.current = true;
       if (role === "assistant") {
-        Workspace.deleteChat(chatId);
+        Workspace.deleteChat(publicChatId || chatId);
       }
     }
   }, [isDeleted, chatId, role]);

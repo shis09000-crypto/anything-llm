@@ -22,10 +22,13 @@ import {
   isOverviewThread,
   sortThreadsForDisplay,
 } from "@/utils/workspaceThreads";
+import {
+  COLLAPSED_THREAD_LIMIT,
+  visibleThreadRows,
+} from "@/utils/workspaceThreadRows";
 import { Draggable, Droppable } from "react-beautiful-dnd";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
-const COLLAPSED_THREAD_LIMIT = 5;
 
 export default function ThreadContainer({
   workspace,
@@ -289,23 +292,16 @@ export default function ThreadContainer({
     workspace.slug,
     hasThreadActivity
   );
-  const overviewThreadRows = sortedThreadRows.filter(({ thread }) =>
-    isOverviewThread(thread)
-  );
   const chatThreadRows = sortedThreadRows.filter(
     ({ thread }) => !isOverviewThread(thread)
   );
   const canToggleThreadList = chatThreadRows.length > COLLAPSED_THREAD_LIMIT;
-  const hiddenThreadCount = Math.max(
-    chatThreadRows.length - COLLAPSED_THREAD_LIMIT,
-    0
-  );
-  const threadRows = showAllThreads
-    ? sortedThreadRows
-    : [
-        ...overviewThreadRows,
-        ...chatThreadRows.slice(0, COLLAPSED_THREAD_LIMIT),
-      ];
+  const { threadRows, hiddenThreadCount } = visibleThreadRows({
+    sortedThreadRows,
+    activeThreadSlug: threadSlug,
+    expanded: showAllThreads,
+    collapsedLimit: COLLAPSED_THREAD_LIMIT,
+  });
   const activeThreadIdx = (() => {
     const idx = threadRows.findIndex((row) => row.thread?.slug === threadSlug);
     if (idx >= 0) return idx;

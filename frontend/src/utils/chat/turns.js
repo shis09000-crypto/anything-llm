@@ -59,6 +59,7 @@ export function createTurn({
   readerTextSources = [],
   chatKey = null,
   chatId = null,
+  publicChatId = null,
   turnId = createTurnId(),
   createdAt = nowMs(),
 } = {}) {
@@ -73,6 +74,7 @@ export function createTurn({
     attachments,
     readerTextSources: normalizedReaderTextSources,
     chatId,
+    publicChatId,
     createdAt,
   };
   const assistantTurn = {
@@ -86,6 +88,7 @@ export function createTurn({
     sources: [],
     metrics: {},
     chatId,
+    publicChatId,
     chatKey,
     error: null,
     createdAt: createdAt + 1,
@@ -225,6 +228,7 @@ export function normalizeTurnItem(item = {}) {
       readerTextSources: dedupeReaderTextSources(item.readerTextSources),
       createdAt,
       hydrationStatus: item.hydrationStatus || null,
+      publicChatId: item.publicChatId || null,
     };
   }
 
@@ -247,6 +251,7 @@ export function normalizeTurnItem(item = {}) {
       updatedAt: item.updatedAt || createdAt,
       timeline,
       hydrationStatus: item.hydrationStatus || null,
+      publicChatId: item.publicChatId || null,
     };
   }
 
@@ -396,10 +401,17 @@ function shouldRemoveTransientAssistantTurn(
   }
   if (turn.status !== TURN_STATUSES.running) return false;
   if (options.removeRunning === false) return false;
+  if (hasMeaningfulOutput) return false;
 
   if (turn.reconnectState === "retrying") {
     if (!turn.websocketUUID) return true;
     return isAgentReconnectAttemptStale(turn, now);
+  }
+
+  if (Number.isFinite(Number(options.runningMaxAgeMs))) {
+    const timestamp = Number(turn.updatedAt || turn.createdAt || 0);
+    const ageMs = timestamp > 0 ? now - timestamp : Infinity;
+    return ageMs > Number(options.runningMaxAgeMs);
   }
 
   return true;
@@ -448,11 +460,17 @@ function groupedServerHistory(history = []) {
     const chatId = message.chatId;
     if (!chatId) continue;
     if (!byChatId.has(chatId)) {
-      byChatId.set(chatId, { chatId, user: null, assistant: null });
+      byChatId.set(chatId, {
+        chatId,
+        publicChatId: message.publicChatId || null,
+        user: null,
+        assistant: null,
+      });
       groups.push(byChatId.get(chatId));
     }
 
     const group = byChatId.get(chatId);
+    group.publicChatId = group.publicChatId || message.publicChatId || null;
     if (message.role === "user" && !group.user) group.user = message;
     if (message.role === "assistant") group.assistant = message;
   }
@@ -475,6 +493,7 @@ function serverGroupToItems(group, chatKey = null) {
     chatId: group.chatId,
     createdAt,
     hydrationStatus: group.user?.hydrationStatus || null,
+    publicChatId: group.publicChatId,
   };
 
   const assistant = group.assistant || {};
@@ -494,6 +513,7 @@ function serverGroupToItems(group, chatKey = null) {
     sources: assistant.sources || [],
     metrics: assistant.metrics || {},
     chatId: group.chatId,
+    publicChatId: group.publicChatId,
     chatKey,
     error: assistant.error || null,
     createdAt: createdAt + 1,
@@ -515,21 +535,58 @@ function userFingerprint(item = {}) {
   return `${String(item.content || "").trim()}:${stableJson(item.attachments || [])}`;
 }
 
+function localTurnTimeDistance(
+  localItems = [],
+  assistant = {},
+  serverUser = {}
+) {
+  const localUser = localItems.find(
+    (candidate) => candidate.id === assistant.userMessageId
+  );
+  const localTime = Number(localUser?.createdAt || assistant.createdAt || 0);
+  const serverTime = Number(serverUser?.createdAt || 0);
+  if (!localTime || !serverTime) return Number.MAX_SAFE_INTEGER;
+  return Math.abs(localTime - serverTime);
+}
+
 function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
-  const localAssistantIdx = localItems.findIndex(
+  let localAssistantIdx = localItems.findIndex(
     (item) =>
       isAssistantTurn(item) &&
-      ((serverAssistant.chatId && item.chatId === serverAssistant.chatId) ||
-        (!item.chatId &&
-          [
+      serverAssistant.chatId &&
+      item.chatId === serverAssistant.chatId
+  );
+
+  if (localAssistantIdx === -1) {
+    const candidates = localItems
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        if (!isAssistantTurn(item) || item.chatId) return false;
+        if (
+          ![
+            TURN_STATUSES.completed,
             TURN_STATUSES.failed,
             TURN_STATUSES.interrupted,
             TURN_STATUSES.running,
-          ].includes(item.status) &&
-          userFingerprint(
-            localItems.find((candidate) => candidate.id === item.userMessageId)
-          ) === userFingerprint(serverUser)))
-  );
+          ].includes(item.status)
+        ) {
+          return false;
+        }
+        const localUser = localItems.find(
+          (candidate) => candidate.id === item.userMessageId
+        );
+        return userFingerprint(localUser) === userFingerprint(serverUser);
+      })
+      .sort((a, b) => {
+        const distance =
+          localTurnTimeDistance(localItems, a.item, serverUser) -
+          localTurnTimeDistance(localItems, b.item, serverUser);
+        if (distance !== 0) return distance;
+        return Number(a.item.createdAt || 0) - Number(b.item.createdAt || 0);
+      });
+
+    localAssistantIdx = candidates[0]?.index ?? -1;
+  }
 
   if (localAssistantIdx === -1) return null;
 
@@ -543,6 +600,8 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     nextItems[localUserIdx] = {
       ...nextItems[localUserIdx],
       chatId: nextItems[localUserIdx].chatId || serverUser.chatId,
+      publicChatId:
+        nextItems[localUserIdx].publicChatId || serverUser.publicChatId || null,
       content: nextItems[localUserIdx].content || serverUser.content,
       attachments:
         nextItems[localUserIdx].attachments?.length > 0
@@ -555,6 +614,8 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
   nextItems[localAssistantIdx] = {
     ...localAssistant,
     chatId: serverAssistant.chatId || localAssistant.chatId,
+    publicChatId:
+      serverAssistant.publicChatId || localAssistant.publicChatId || null,
     finalContent: serverAssistant.finalContent || localAssistant.finalContent,
     sources: serverAssistant.sources || localAssistant.sources,
     metrics: serverAssistant.metrics || localAssistant.metrics,

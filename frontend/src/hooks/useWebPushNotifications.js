@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
-
-const PUSH_PUBKEY_URL = `${API_BASE}/web-push/pubkey`;
-const PUSH_USER_SUBSCRIBE_URL = `${API_BASE}/web-push/subscribe`;
+import {
+  fetchWebPushPublicKey,
+  subscribeWebPush,
+} from "@/lib/communication/webPushClient";
 
 // If you update the service worker, increment this version or else
 // the service worker will not be updated with new changes -
@@ -44,8 +43,8 @@ export async function subscribeToPushNotifications(askToEnable = true) {
       }
     }
 
-    const publicKey = await fetch(PUSH_PUBKEY_URL, { headers: baseHeaders() })
-      .then((res) => res.json())
+    const publicKey = await fetchWebPushPublicKey()
+      .then(({ data }) => data)
       .then(({ publicKey }) => {
         if (!publicKey) throw new Error("No public key found or generated");
         return publicKey;
@@ -109,11 +108,7 @@ export async function subscribeToPushNotifications(askToEnable = true) {
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
     });
-    await fetch(PUSH_USER_SUBSCRIBE_URL, {
-      method: "POST",
-      body: JSON.stringify(subscription),
-      headers: baseHeaders(),
-    });
+    await subscribeWebPush(subscription);
   } catch (error) {
     log("Error subscribing to push notifications", error);
   }

@@ -97,6 +97,7 @@ const TRANSLATIONS = {
     llm: "LLM",
     transcription: "文字起こし",
     embedder: "埋め込みエンジン",
+    "search-model": "検索モデル",
     vision: "視覚モデル",
     "text-splitting": "テキスト分割とチャンク化",
     "voice-speech": "音声とスピーチ",
@@ -726,6 +727,11 @@ const readable = true;
         description:
           "エージェントがウェブサイトを訪問し、内容を取得できるようにします。",
       },
+      surveys: {
+        title: "Agent Surveys / 確認質問",
+        description:
+          "エージェントが処理を続ける前に最大3件の確認質問を行い、推奨選択肢と自由入力欄を提示できるようにします。",
+      },
       generate: {
         title: "チャートの生成",
         description:
@@ -1244,6 +1250,34 @@ const readable = true;
       },
     },
   },
+  search_model: {
+    title: "検索モデル設定",
+    description:
+      "検索関連の推論と結果処理に使用するホスト型モデルを設定します。この設定は現在のWeb検索エンジンを変更しません。",
+    provider: "検索モデルプロバイダー",
+    providerHint:
+      "ホスト型の検索モデルはデフォルトでは無効です。DashScope APIキーを用意した場合のみ阿里百錬を選択してください。",
+    providers: {
+      none: {
+        name: "なし",
+        description:
+          "ホスト型の検索モデルを使用しません。検索モデルの呼び出しは未設定のままになります。",
+      },
+      alibaba: {
+        name: "阿里百錬 DashScope",
+        description:
+          "OpenAI-compatible API 経由で Alibaba Cloud DashScope の Qwen モデルを使用します。",
+      },
+    },
+    model: "検索モデル",
+    noneHelp:
+      "ホスト型の検索モデルは呼び出されません。この設定はWeb検索エンジンプロバイダーとは独立しています。",
+    help: "阿里百錬の検索モデルは DashScope OpenAI-compatible エンドポイントを使用します。DashScope APIキー、Base URL、モデル名を入力してください。",
+    save: "変更を保存",
+    saving: "保存中...",
+    saved: "検索モデル設定を保存しました。",
+    saveError: "検索モデル設定の保存に失敗しました: {{error}}",
+  },
   vision: {
     title: "視覚モデルの設定",
     description:
@@ -1286,7 +1320,7 @@ const readable = true;
     applying: "適用中...",
     imported_status: "環境変数からインポートしました",
     success_toast:
-      "DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR + Ali 視覚モデル設定を適用しました",
+      "DeepSeek V4 Pro + Ali text-embedding-v4 + Ali 検索モデル + Ali OCR + Ali 視覚モデル設定を適用しました",
   },
   transcription: {
     title: "文字起こしモデルの設定",

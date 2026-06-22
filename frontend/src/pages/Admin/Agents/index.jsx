@@ -42,6 +42,20 @@ const IGNORE_CHANGE_SETTINGS = [
   "agentSkillMaxToolCalls",
 ];
 
+function isSearchModelConfigured(settings = {}) {
+  return (
+    settings?.SearchModelProvider === "alibaba" &&
+    settings?.SearchModelApiKey === true &&
+    Boolean(settings?.SearchModelBaseUrl) &&
+    Boolean(settings?.SearchModelPref)
+  );
+}
+
+function effectiveAgentSkills(agentSkills = [], settings = {}) {
+  if (isSearchModelConfigured(settings)) return agentSkills;
+  return agentSkills.filter((skill) => skill !== "web-browsing");
+}
+
 export default function AdminAgents() {
   const { t } = useTranslation();
   const formEl = useRef(null);
@@ -69,6 +83,7 @@ export default function AdminAgents() {
     useState(false);
 
   const defaultSkills = getDefaultSkills(t);
+  const enabledAgentSkills = effectiveAgentSkills(agentSkills, settings);
   const allConfigurableSkills = getConfigurableSkills(t, {
     fileSystemAgentAvailable,
     createFilesAgentAvailable,
@@ -391,7 +406,7 @@ export default function AdminAgents() {
               skills={configurableSkills}
               selectedSkill={selectedSkill}
               handleClick={handleDefaultSkillClick}
-              activeSkills={agentSkills}
+              activeSkills={enabledAgentSkills}
             />
 
             <div className="text-theme-text-primary flex items-center gap-x-2 mt-6">
@@ -513,7 +528,7 @@ export default function AdminAgents() {
                                 skill={configurableSkills[selectedSkill]?.skill}
                                 settings={settings}
                                 toggleSkill={toggleAgentSkill}
-                                enabled={agentSkills.includes(
+                                enabled={enabledAgentSkills.includes(
                                   configurableSkills[selectedSkill]?.skill
                                 )}
                                 setHasChanges={setHasChanges}
@@ -615,7 +630,7 @@ export default function AdminAgents() {
                 skills={configurableSkills}
                 selectedSkill={selectedSkill}
                 handleClick={handleSkillClick}
-                activeSkills={agentSkills}
+                activeSkills={enabledAgentSkills}
               />
 
               <div className="text-theme-text-primary flex items-center gap-x-2 mt-6">
@@ -735,7 +750,7 @@ export default function AdminAgents() {
                         skill={configurableSkills[selectedSkill]?.skill}
                         settings={settings}
                         toggleSkill={toggleAgentSkill}
-                        enabled={agentSkills.includes(
+                        enabled={enabledAgentSkills.includes(
                           configurableSkills[selectedSkill]?.skill
                         )}
                         setHasChanges={setHasChanges}

@@ -9,6 +9,15 @@ const {
   storeToolRun,
   prepareToolResultForModel,
 } = require("../toolResultStore.js");
+const {
+  appendCurrentDateTimeToLastUserMessage,
+} = require("../../chats/currentDateTimeContext.js");
+const {
+  appendUserPersonalizationToSystemPrompt,
+} = require("../../chats/personalizationContext.js");
+const {
+  appendUserLongTermMemoryToSystemPrompt,
+} = require("../../chats/longTermMemoryContext.js");
 
 const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 30 * 1_000;
 const REQUEST_USER_INPUT_TOOL_NAME = "request-user-input";
@@ -48,6 +57,7 @@ class AIbitat {
   maxRounds;
   _chats;
   _trackedChatId = null;
+  _trackedPublicChatId = null;
   agents = new Map();
   channels = new Map();
   functions = new Map();
@@ -147,9 +157,10 @@ class AIbitat {
    * Register a new chat ID for tracking for a given conversation exchange
    * @param {number} chatId - The ID of the chat to register.
    */
-  registerChatId(chatId = null) {
+  registerChatId(chatId = null, publicChatId = null) {
     if (!chatId) return;
     this._trackedChatId = Number(chatId);
+    this._trackedPublicChatId = publicChatId || this._trackedPublicChatId;
   }
 
   /**
@@ -160,11 +171,16 @@ class AIbitat {
     return this._trackedChatId ?? null;
   }
 
+  get trackedPublicChatId() {
+    return this._trackedPublicChatId ?? null;
+  }
+
   /**
    * Clear the tracked chat ID for a given conversation exchange
    */
   clearTrackedChatId() {
     this._trackedChatId = null;
+    this._trackedPublicChatId = null;
   }
 
   /**
@@ -178,6 +194,7 @@ class AIbitat {
       type: "chatId",
       uuid,
       chatId: this.trackedChatId,
+      publicChatId: this.trackedPublicChatId,
     });
   }
 
@@ -854,11 +871,25 @@ ${this.getHistory({ to: route.to })
       }
     }
 
+    const promptUser = { id: this.handlerProps?.invocation?.user_id };
+    let agentSystemPrompt = await appendUserPersonalizationToSystemPrompt(
+      fromConfig.role,
+      promptUser
+    );
+    agentSystemPrompt = await appendUserLongTermMemoryToSystemPrompt(
+      agentSystemPrompt,
+      promptUser
+    );
+    agentSystemPrompt = [
+      agentSystemPrompt,
+      this.handlerProps?.compactedThreadMemory,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
     const messages = [
       {
-        content: [fromConfig.role, this.handlerProps?.compactedThreadMemory]
-          .filter(Boolean)
-          .join("\n\n"),
+        content: agentSystemPrompt,
         role: "system",
       },
       ...chatHistory,
@@ -1022,7 +1053,11 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
 
     /** @type {{ functionCall: { name: string, arguments: string }, textResponse: string }} */
     const completionStream = await this.#safeProviderCall(() =>
-      provider.stream(messages, functions, eventHandler)
+      provider.stream(
+        appendCurrentDateTimeToLastUserMessage(messages),
+        functions,
+        eventHandler
+      )
     );
 
     if (completionStream.functionCall) {
@@ -1203,7 +1238,10 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
 
     // get the chat completion
     const completion = await this.#safeProviderCall(() =>
-      provider.complete(messages, functions)
+      provider.complete(
+        appendCurrentDateTimeToLastUserMessage(messages),
+        functions
+      )
     );
 
     if (completion.functionCall) {

@@ -6,7 +6,6 @@ import Toggle from "@/components/lib/Toggle";
 import System from "@/models/system";
 import debounce from "lodash.debounce";
 import { useTranslation } from "react-i18next";
-import AgentClarifyingQuestions from "./AgentClarifyingQuestions";
 
 export default function AgentSkillSettings() {
   const { isOpen, openModal, closeModal } = useModal();
@@ -48,8 +47,6 @@ function AgentSkillSettingsModal({ isOpen, closeModal }) {
             <MaxToolCallStack />
             <div className="border-b border-white/10 h-[1px] w-full" />
             <AgentSkillReranker />
-            <div className="border-b border-white/10 h-[1px] w-full" />
-            <AgentClarifyingQuestions />
           </div>
         </div>
       </div>
@@ -59,7 +56,8 @@ function AgentSkillSettingsModal({ isOpen, closeModal }) {
 
 function MaxToolCallStack() {
   const { t } = useTranslation();
-  const [maxCallStack, setMaxCallStack] = useState(10);
+  const [maxCallStackInput, setMaxCallStackInput] = useState("10");
+  const [lastValidMaxCallStack, setLastValidMaxCallStack] = useState(10);
   const [loading, setLoading] = useState(true);
 
   const debouncedUpdateMaxCallStack = useMemo(
@@ -75,7 +73,13 @@ function MaxToolCallStack() {
   useEffect(() => {
     System.keys()
       .then((res) => {
-        setMaxCallStack(parseInt(res.AgentSkillMaxToolCalls));
+        const initialValue = parseInt(res.AgentSkillMaxToolCalls);
+        const safeValue =
+          Number.isInteger(initialValue) && initialValue > 0
+            ? initialValue
+            : 10;
+        setMaxCallStackInput(String(safeValue));
+        setLastValidMaxCallStack(safeValue);
       })
       .finally(() => {
         setLoading(false);
@@ -98,15 +102,30 @@ function MaxToolCallStack() {
           </p>
         </div>
         <input
-          type="number"
+          type="text"
           name="agentSkillMaxToolCalls"
-          min={1}
-          value={maxCallStack}
+          inputMode="numeric"
+          pattern="[0-9]*"
+          value={maxCallStackInput}
           disabled={loading}
           onChange={(e) => {
-            if (e.target.value < 1) return;
-            debouncedUpdateMaxCallStack(e.target.value);
-            setMaxCallStack(parseInt(e.target.value));
+            const nextValue = e.target.value;
+            if (nextValue === "") {
+              setMaxCallStackInput("");
+              return;
+            }
+
+            if (!/^\d+$/.test(nextValue)) return;
+            const parsedValue = parseInt(nextValue);
+            if (parsedValue < 1) return;
+
+            setMaxCallStackInput(nextValue);
+            setLastValidMaxCallStack(parsedValue);
+            debouncedUpdateMaxCallStack(parsedValue);
+          }}
+          onBlur={() => {
+            if (maxCallStackInput !== "") return;
+            setMaxCallStackInput(String(lastValidMaxCallStack));
           }}
           onWheel={(e) => e.target.blur()}
           className="border border-white/10 bg-theme-settings-input-bg text-white placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-[80px] p-2.5 text-center"

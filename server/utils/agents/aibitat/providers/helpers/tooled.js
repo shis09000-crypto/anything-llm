@@ -260,8 +260,9 @@ function formatMessagesForTools(messages, options = {}) {
  * @param {Array} messages - Raw aibitat message history
  * @param {Array} functions - Aibitat function definitions
  * @param {function|null} eventHandler - Stream event handler
- * @param {{injectReasoningContent?: boolean, provider?: object}} options - Provider-specific options
+ * @param {{injectReasoningContent?: boolean, provider?: object, requestOptions?: object}} options - Provider-specific options
  *   - provider: If passed, automatically handles usage tracking via provider.resetUsage()/recordUsage()
+ *   - requestOptions: Provider request options merged into the chat completion request.
  * @returns {Promise<{textResponse: string, functionCall: object|null, uuid: string, usage: object|null}>}
  */
 async function tooledStream(
@@ -272,7 +273,7 @@ async function tooledStream(
   eventHandler = null,
   options = {}
 ) {
-  const { provider, ...formatOptions } = options;
+  const { provider, requestOptions = {}, ...formatOptions } = options;
 
   // Auto-reset usage if provider is passed
   if (provider?.resetUsage) {
@@ -290,6 +291,7 @@ async function tooledStream(
     stream: true,
     stream_options: { include_usage: true },
     messages: formattedMessages,
+    ...requestOptions,
     ...(tools.length > 0 ? { tools } : {}),
   });
 
@@ -394,8 +396,9 @@ async function tooledStream(
  * @param {Array} messages - Raw aibitat message history
  * @param {Array} functions - Aibitat function definitions
  * @param {function} getCostFn - Provider's getCost function
- * @param {{injectReasoningContent?: boolean, provider?: object}} options - Provider-specific options
+ * @param {{injectReasoningContent?: boolean, provider?: object, requestOptions?: object}} options - Provider-specific options
  *   - provider: If passed, automatically handles usage tracking via provider.resetUsage()/recordUsage()
+ *   - requestOptions: Provider request options merged into the chat completion request.
  * @returns {Promise<{textResponse: string|null, functionCall: object|null, cost: number, usage: object|null}>}
  */
 async function tooledComplete(
@@ -406,7 +409,7 @@ async function tooledComplete(
   getCostFn = () => 0,
   options = {}
 ) {
-  const { provider, ...formatOptions } = options;
+  const { provider, requestOptions = {}, ...formatOptions } = options;
 
   // Auto-reset usage if provider is passed
   if (provider?.resetUsage) {
@@ -422,6 +425,7 @@ async function tooledComplete(
     model,
     stream: false,
     messages: formattedMessages,
+    ...requestOptions,
     ...(tools.length > 0 ? { tools } : {}),
   });
 

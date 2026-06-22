@@ -11,6 +11,9 @@ const {
   cryptoCenterSnapshot,
   cryptoCenterDelta,
 } = require("../utils/cryptoCenter/mockSnapshot");
+const {
+  ensureSecureWebSocketRequest,
+} = require("../utils/security/transportSecurity");
 
 const CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY =
   "anythingllm_crypto_trading_pair_detail_config_v1";
@@ -410,6 +413,8 @@ function cryptoCenterEndpoints(app) {
   if (typeof app.ws !== "function") return;
 
   app.ws("/crypto-center/stream", async (socket, request) => {
+    if (!ensureSecureWebSocketRequest(request, socket)) return;
+
     let interval = null;
     try {
       const authorized = await isCryptoSocketAuthorized(request);

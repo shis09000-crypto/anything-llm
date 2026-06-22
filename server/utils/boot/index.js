@@ -50,6 +50,19 @@ function bootSSL(app, port = 3001) {
     require("@mintplex-labs/express-ws").default(app, server);
     return { app, server };
   } catch (e) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        `\x1b[31m[SSL BOOT FAILED]\x1b[0m ${e.message} - refusing to fall back to HTTP in production.`,
+        {
+          ENABLE_HTTPS: process.env.ENABLE_HTTPS,
+          HTTPS_KEY_PATH: process.env.HTTPS_KEY_PATH,
+          HTTPS_CERT_PATH: process.env.HTTPS_CERT_PATH,
+          stacktrace: e.stack,
+        }
+      );
+      throw e;
+    }
+
     console.error(
       `\x1b[31m[SSL BOOT FAILED]\x1b[0m ${e.message} - falling back to HTTP boot.`,
       {

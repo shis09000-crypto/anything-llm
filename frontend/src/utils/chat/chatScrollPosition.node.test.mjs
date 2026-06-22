@@ -1,9 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  cancelChatRestoreRun,
   chatBottomScrollBehavior,
   chatScrollPositionHasAnchor,
   createChatScrollPositionSnapshot,
+  isChatRestoreRunCurrent,
   savedChatScrollTopFallback,
   shouldBlockChatScrollPersistenceForLayoutTransition,
   shouldBypassAutoScrollSuppressForSendFollow,
@@ -11,6 +13,7 @@ import {
   shouldPreserveParkedChatAnchor,
   shouldRestoreExplicitPrepend,
   shouldSkipChatRestoreForLayoutTransition,
+  startChatRestoreRun,
   tailCleanupFollowDecision,
   tailHydrationFollowDecision,
 } from "./chatScrollPosition.js";
@@ -317,4 +320,18 @@ test("tail cleanup respects a user parked history anchor", () => {
       blockedByOlderHistory: false,
     }
   );
+});
+
+test("chat restore run generation invalidates stale settle callbacks", () => {
+  const state = { active: false, generation: 0 };
+
+  const firstRun = startChatRestoreRun(state);
+  assert.equal(isChatRestoreRunCurrent(state, firstRun), true);
+
+  cancelChatRestoreRun(state);
+  assert.equal(isChatRestoreRunCurrent(state, firstRun), false);
+
+  const secondRun = startChatRestoreRun(state);
+  assert.equal(isChatRestoreRunCurrent(state, secondRun), true);
+  assert.equal(isChatRestoreRunCurrent(state, firstRun), false);
 });

@@ -17,6 +17,41 @@ const {
   withDeepSeekCacheDiagnosis,
 } = require("./promptCache");
 
+const DEFAULT_DEEPSEEK_MAX_TOKENS = 65_536;
+const DEFAULT_DEEPSEEK_REASONING_EFFORT = "high";
+
+function toValidDeepSeekMaxTokens(value = null) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0)
+    return DEFAULT_DEEPSEEK_MAX_TOKENS;
+  return Math.floor(parsed);
+}
+
+function deepSeekCompletionOptions({
+  temperature = 0.7,
+  responseFormat = null,
+  tools = null,
+  toolChoice = null,
+  thinking = "disabled",
+  reasoningEffort = DEFAULT_DEEPSEEK_REASONING_EFFORT,
+  maxTokens = process.env.DEEPSEEK_MAX_TOKENS,
+} = {}) {
+  const thinkingType = thinking === "enabled" ? "enabled" : "disabled";
+  return {
+    max_tokens: toValidDeepSeekMaxTokens(maxTokens),
+    ...(thinkingType === "enabled" ? {} : { temperature }),
+    extra_body: {
+      thinking: { type: thinkingType },
+      ...(thinkingType === "enabled" && reasoningEffort
+        ? { reasoning_effort: reasoningEffort }
+        : {}),
+    },
+    ...(Array.isArray(tools) && tools.length ? { tools } : {}),
+    ...(toolChoice ? { tool_choice: toolChoice } : {}),
+    ...(responseFormat ? { response_format: responseFormat } : {}),
+  };
+}
+
 class DeepSeekLLM {
   constructor(embedder = null, modelPreference = null) {
     if (!process.env.DEEPSEEK_API_KEY)
@@ -117,24 +152,19 @@ class DeepSeekLLM {
     });
   }
 
-  /**
-   * Parses and prepends reasoning from the response and returns the full text response.
-   * @param {Object} response
-   * @returns {string}
-   */
   #parseReasoningFromResponse({ message }) {
-    let textResponse = message?.content;
-    if (
-      !!message?.reasoning_content &&
-      message.reasoning_content.trim().length > 0
-    )
-      textResponse = `<think>${message.reasoning_content}</think>${textResponse}`;
-    return textResponse;
+    return message?.content || "";
   }
 
   async getChatCompletion(
     messages = null,
-    { temperature = 0.7, responseFormat = null } = {}
+    {
+      temperature = 0.7,
+      responseFormat = null,
+      thinking = "disabled",
+      reasoningEffort = DEFAULT_DEEPSEEK_REASONING_EFFORT,
+      maxTokens = null,
+    } = {}
   ) {
     if (!(await this.isValidChatCompletionModel(this.model)))
       throw new Error(
@@ -146,8 +176,13 @@ class DeepSeekLLM {
         .create({
           model: this.model,
           messages,
-          temperature,
-          ...(responseFormat ? { response_format: responseFormat } : {}),
+          ...deepSeekCompletionOptions({
+            temperature,
+            responseFormat,
+            thinking,
+            reasoningEffort,
+            maxTokens,
+          }),
         })
         .catch((e) => {
           throw new Error(e.message);
@@ -184,7 +219,15 @@ class DeepSeekLLM {
 
   async streamGetChatCompletion(
     messages = null,
-    { temperature = 0.7, responseFormat = null } = {}
+    {
+      temperature = 0.7,
+      responseFormat = null,
+      tools = null,
+      toolChoice = null,
+      thinking = "disabled",
+      reasoningEffort = DEFAULT_DEEPSEEK_REASONING_EFFORT,
+      maxTokens = null,
+    } = {}
   ) {
     if (!(await this.isValidChatCompletionModel(this.model)))
       throw new Error(
@@ -196,11 +239,18 @@ class DeepSeekLLM {
         model: this.model,
         stream: true,
         messages,
-        temperature,
         stream_options: {
           include_usage: true,
         },
-        ...(responseFormat ? { response_format: responseFormat } : {}),
+        ...deepSeekCompletionOptions({
+          temperature,
+          responseFormat,
+          tools,
+          toolChoice,
+          thinking,
+          reasoningEffort,
+          maxTokens,
+        }),
       }),
       messages,
       runPromptTokenCalculation: false,
@@ -212,8 +262,9 @@ class DeepSeekLLM {
   }
 
   // TODO: This is a copy of the generic handleStream function in responses.js
-  // to specifically handle the DeepSeek reasoning model `reasoning_content` field.
-  // When or if ever possible, we should refactor this to be in the generic function.
+  // with DeepSeek-specific usage metrics and tool-call aggregation.
+  // Reasoning chunks are intentionally ignored so chain-of-thought is not
+  // streamed to clients or saved into chat history.
   handleStream(response, stream, responseProps) {
     const { uuid = uuidv4(), sources = [] } = responseProps;
     let hasUsageMetrics = false;
@@ -223,7 +274,7 @@ class DeepSeekLLM {
 
     return new Promise(async (resolve) => {
       let fullText = "";
-      let reasoningText = "";
+      const pendingToolCalls = new Map();
 
       // Establish listener to early-abort a streaming response
       // in case things go sideways or the user does not like the response.
@@ -239,7 +290,7 @@ class DeepSeekLLM {
         for await (const chunk of stream) {
           const message = chunk?.choices?.[0];
           const token = message?.delta?.content;
-          const reasoningToken = message?.delta?.reasoning_content;
+          const toolCalls = message?.delta?.tool_calls || [];
 
           if (
             chunk.hasOwnProperty("usage") && // exists
@@ -257,47 +308,27 @@ class DeepSeekLLM {
             }
           }
 
-          // Reasoning models will always return the reasoning text before the token text.
-          if (reasoningToken) {
-            // If the reasoning text is empty (''), we need to initialize it
-            // and send the first chunk of reasoning text.
-            if (reasoningText.length === 0) {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: `<think>${reasoningToken}`,
-                close: false,
-                error: false,
-              });
-              reasoningText += `<think>${reasoningToken}`;
-              continue;
-            } else {
-              writeResponseChunk(response, {
-                uuid,
-                sources: [],
-                type: "textResponseChunk",
-                textResponse: reasoningToken,
-                close: false,
-                error: false,
-              });
-              reasoningText += reasoningToken;
-            }
-          }
+          if (Array.isArray(toolCalls) && toolCalls.length > 0) {
+            for (const toolCall of toolCalls) {
+              const index = Number(toolCall.index || 0);
+              const current = pendingToolCalls.get(index) || {
+                id: toolCall.id || null,
+                type: toolCall.type || "function",
+                function: {
+                  name: "",
+                  arguments: "",
+                },
+              };
 
-          // If the reasoning text is not empty, but the reasoning token is empty
-          // and the token text is not empty we need to close the reasoning text and begin sending the token text.
-          if (!!reasoningText && !reasoningToken && token) {
-            writeResponseChunk(response, {
-              uuid,
-              sources: [],
-              type: "textResponseChunk",
-              textResponse: `</think>`,
-              close: false,
-              error: false,
-            });
-            fullText += `${reasoningText}</think>`;
-            reasoningText = "";
+              if (toolCall.id) current.id = toolCall.id;
+              if (toolCall.type) current.type = toolCall.type;
+              if (toolCall.function?.name)
+                current.function.name += toolCall.function.name;
+              if (toolCall.function?.arguments)
+                current.function.arguments += toolCall.function.arguments;
+
+              pendingToolCalls.set(index, current);
+            }
           }
 
           if (token) {
@@ -325,17 +356,23 @@ class DeepSeekLLM {
           }
         }
 
-        writeResponseChunk(response, {
-          uuid,
-          sources,
-          type: "textResponseChunk",
-          textResponse: "",
-          close: true,
-          error: false,
-        });
+        if (pendingToolCalls.size > 0) {
+          stream.toolCalls = Array.from(pendingToolCalls.entries())
+            .sort(([left], [right]) => left - right)
+            .map(([, call]) => call);
+        } else {
+          writeResponseChunk(response, {
+            uuid,
+            sources,
+            type: "textResponseChunk",
+            textResponse: "",
+            close: true,
+            error: false,
+          });
+        }
         response.removeListener("close", handleAbort);
         stream?.endMeasurement(usage);
-        resolve(fullText);
+        resolve(pendingToolCalls.size > 0 ? "" : fullText);
       } catch (e) {
         console.log(`\x1b[43m\x1b[34m[STREAMING ERROR]\x1b[0m ${e.message}`);
         writeResponseChunk(response, {

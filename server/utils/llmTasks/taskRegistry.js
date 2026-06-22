@@ -34,7 +34,6 @@ const TASK_REGISTRY = {
     tier: "rough",
     legacyProviderEnv: "THREAD_COMPACTION_PROVIDER",
     legacyModelEnv: "THREAD_COMPACTION_MODEL",
-    fallbackToWorkspace: true,
   },
   workspace_overview_narrative: {
     dynamic: "workspace_chat_or_system",

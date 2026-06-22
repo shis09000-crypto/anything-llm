@@ -1,5 +1,5 @@
-import { API_BASE, AUTH_TOKEN, LAST_USER_ACTION_AT } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { recordUserAction } from "@/lib/communication/systemRuntimeClient";
+import { AUTH_TOKEN, LAST_USER_ACTION_AT } from "@/utils/constants";
 
 export const USER_ACTION_REASONS = Object.freeze({
   messageSubmit: "message_submit",
@@ -42,16 +42,8 @@ export async function recordServerUserAction(reason) {
   }
   lastServerRefreshAt = now;
 
-  return fetch(`${API_BASE}/system/user-action`, {
-    method: "POST",
-    headers: {
-      ...baseHeaders(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ reason }),
-  })
-    .then((res) => res.json())
-    .then((result) => {
+  return recordUserAction(reason)
+    .then(({ data: result }) => {
       if (result?.token) window.localStorage.setItem(AUTH_TOKEN, result.token);
       if (result?.lastUserActionAt) {
         window.localStorage.setItem(

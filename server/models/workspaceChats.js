@@ -4,6 +4,7 @@ const {
   hasDeepSeekCacheDiagnostics,
   withDeepSeekCacheDiagnosis,
 } = require("../utils/AiProviders/deepseek/promptCache");
+const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
 
 function safeParseResponse(response = null) {
   if (!response) return {};
@@ -115,6 +116,7 @@ const WorkspaceChats = {
       });
       const chat = await prisma.workspace_chats.create({
         data: {
+          public_id: newPublicChatId(),
           workspaceId,
           prompt,
           response: safeJSONStringify(response),
@@ -420,7 +422,10 @@ const WorkspaceChats = {
       const createdChats = [];
       for (const chatData of chatsData) {
         const chat = await prisma.workspace_chats.create({
-          data: chatData,
+          data: {
+            ...chatData,
+            public_id: chatData.public_id || newPublicChatId(),
+          },
         });
         createdChats.push(chat);
       }
@@ -468,7 +473,11 @@ const WorkspaceChats = {
         update: { ...payload, lastUpdatedAt: new Date() },
 
         // On creates, we need to set the prompt or else record will fail.
-        create: { ...payload, prompt: data.prompt },
+        create: {
+          ...payload,
+          prompt: data.prompt,
+          public_id: data.public_id || newPublicChatId(),
+        },
       });
       return { chat, message: null };
     } catch (error) {

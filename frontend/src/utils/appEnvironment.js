@@ -1,4 +1,4 @@
-import { API_BASE } from "@/utils/constants";
+import { fetchSystemEnvironment } from "@/lib/communication/systemRuntimeClient";
 
 export const DEFAULT_APP_ENV = "production";
 export const APP_ENVIRONMENT_CHANGE_EVENT = "anythingllm-app-env-change";
@@ -122,12 +122,7 @@ export function scopedStorageKeyPrefix() {
 
 export async function loadAppEnvironment() {
   try {
-    const response = await fetch(`${API_BASE}/system/environment`, {
-      method: "GET",
-      cache: "no-cache",
-    });
-    if (!response.ok) throw new Error("Unable to load app environment.");
-    const payload = await response.json();
+    const { data: payload } = await fetchSystemEnvironment();
     return setAppEnvironment(payload?.environment?.appEnv, {
       environment: payload?.environment || null,
     });

@@ -1,40 +1,35 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback } from "@/lib/communication/apiError";
 
 const BrowserExtensionApiKey = {
   getAll: async () => {
-    return await fetch(`${API_BASE}/browser-extension/api-keys`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/browser-extension/api-keys")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message, apiKeys: [] };
+        return apiErrorFallback(e, {
+          success: false,
+          error: e.message,
+          apiKeys: [],
+        });
       });
   },
 
   generateKey: async () => {
-    return await fetch(`${API_BASE}/browser-extension/api-keys/new`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await postJson("/browser-extension/api-keys/new")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
   revoke: async (id) => {
-    return await fetch(`${API_BASE}/browser-extension/api-keys/${id}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await deleteJson(`/browser-extension/api-keys/${id}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 };

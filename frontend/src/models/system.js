@@ -1,4 +1,21 @@
-import { API_BASE, AUTH_TIMESTAMP, fullApiUrl } from "@/utils/constants";
+import { AUTH_TIMESTAMP, fullApiUrl } from "@/utils/constants";
+import {
+  deleteJson,
+  getJson,
+  patchJson,
+  postJson,
+} from "@/lib/communication/apiClient";
+import {
+  apiErrorFallback as rawOrFallback,
+  apiErrorMessage as responseError,
+  apiErrorRaw as rawBody,
+} from "@/lib/communication/apiError";
+import {
+  BLOB_KINDS,
+  requestBlob,
+  requestText,
+} from "@/lib/communication/blobClient";
+import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 import { baseHeaders, safeJsonParse } from "@/utils/request";
 import DataConnector from "./dataConnector";
 import LiveDocumentSync from "./experimental/liveSync";
@@ -7,7 +24,14 @@ import SystemPromptVariable from "./systemPromptVariable";
 
 function localizedApiError(error, fallback = "请求失败，请稍后重试。") {
   const message =
-    typeof error === "string" ? error : String(error?.message || "").trim();
+    typeof error === "string"
+      ? error
+      : String(
+          rawBody(error)?.error ||
+            rawBody(error)?.message ||
+            error?.message ||
+            ""
+        ).trim();
   if (!message) return fallback;
   if (
     /failed to fetch/i.test(message) ||
@@ -30,22 +54,15 @@ const System = {
     deploymentVersion: "anythingllm_deployment_version",
   },
   ping: async function () {
-    return await fetch(`${API_BASE}/ping`)
-      .then((res) => res.json())
-      .then((res) => res?.online || false)
+    return await getJson("/ping")
+      .then(({ data }) => data?.online || false)
       .catch(() => false);
   },
   totalIndexes: async function (slug = null) {
     const url = new URL(`${fullApiUrl()}/system/system-vectors`);
     if (!!slug) url.searchParams.append("slug", encodeURIComponent(slug));
-    return await fetch(url.toString(), {
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not find indexes.");
-        return res.json();
-      })
-      .then((res) => res.vectorCount)
+    return await getJson(url.toString())
+      .then(({ data }) => data.vectorCount)
       .catch(() => 0);
   },
 
@@ -54,12 +71,8 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isOnboardingComplete: async function () {
-    return await fetch(`${API_BASE}/onboarding`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not find onboarding information.");
-        return res.json();
-      })
-      .then((res) => res.onboardingComplete)
+    return await getJson("/onboarding")
+      .then(({ data }) => data.onboardingComplete)
       .catch(() => false);
   },
   /**
@@ -67,31 +80,18 @@ const System = {
    * @returns {Promise<boolean>}
    */
   markOnboardingComplete: async function () {
-    return await fetch(`${API_BASE}/onboarding`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    return await postJson("/onboarding")
+      .then(() => true)
       .catch(() => false);
   },
   keys: async function () {
-    return await fetch(`${API_BASE}/setup-complete`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not find setup information.");
-        return res.json();
-      })
-      .then((res) => res.results)
+    return await getJson("/setup-complete")
+      .then(({ data }) => data.results)
       .catch(() => null);
   },
   localFiles: async function () {
-    return await fetch(`${API_BASE}/system/local-files`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not find setup information.");
-        return res.json();
-      })
-      .then((res) => res.localFiles)
+    return await getJson("/system/local-files")
+      .then(({ data }) => data.localFiles)
       .catch(() => null);
   },
   needsAuthCheck: function () {
@@ -102,99 +102,75 @@ const System = {
   },
 
   checkAuth: async function (currentToken = null) {
-    const valid = await fetch(`${API_BASE}/system/check-token`, {
+    const valid = await getJson("/system/check-token", {
       headers: baseHeaders(currentToken),
     })
-      .then((res) => res.ok)
+      .then(() => true)
       .catch(() => false);
 
     window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
     return valid;
   },
   requestToken: async function (body) {
-    return await fetch(`${API_BASE}/request-token`, {
-      method: "POST",
-      body: JSON.stringify({ ...body }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not validate login.");
-        return res.json();
-      })
-      .then((res) => res)
+    return await postJson("/request-token", { ...body })
+      .then(({ data }) => data)
       .catch((e) => {
-        return { valid: false, message: e.message };
+        return {
+          valid: false,
+          message: responseError(e, "Could not validate login."),
+        };
       });
   },
   registrationConfig: async function () {
-    return await fetch(`${API_BASE}/auth/registration/config`)
-      .then((res) => res.json())
+    return await getJson("/auth/registration/config")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { success: false, allowPublicRegistration: false };
       });
   },
   requestRegistrationCode: async function ({ email }) {
-    return await fetch(`${API_BASE}/auth/register/request-code`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ email }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) return { success: false, error: data.error };
-        return data;
-      })
+    return await postJson("/auth/register/request-code", { email })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: localizedApiError(e) };
+        return rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e),
+        });
       });
   },
   checkRegistrationEmail: async function ({ email }) {
-    return await fetch(`${API_BASE}/auth/register/check-email`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ email }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) return { success: false, error: data.error };
-        return data;
-      })
+    return await postJson("/auth/register/check-email", { email })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: localizedApiError(e) };
+        return rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e),
+        });
       });
   },
   verifyRegistrationCode: async function ({ email, code }) {
-    return await fetch(`${API_BASE}/auth/register/verify-code`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ email, code }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) return { success: false, error: data.error };
-        return data;
-      })
+    return await postJson("/auth/register/verify-code", { email, code })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: localizedApiError(e) };
+        return rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e),
+        });
       });
   },
   registerAccount: async function (data) {
-    return await fetch(`${API_BASE}/auth/register`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) return { success: false, error: data.error };
-        return data;
-      })
+    return await postJson("/auth/register", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: localizedApiError(e) };
+        return rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e),
+        });
       });
   },
   /**
@@ -202,272 +178,196 @@ const System = {
    * @returns {Promise<{success: boolean, user: Object | null, message: string | null}>}
    */
   refreshUser: () => {
-    return fetch(`${API_BASE}/system/refresh-user`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not refresh user.");
-        return res.json();
-      })
+    return getJson("/system/refresh-user")
+      .then(({ data }) => data)
       .catch((e) => {
-        return { success: false, user: null, message: e.message };
+        return {
+          success: false,
+          user: null,
+          message: responseError(e, "Could not refresh user."),
+        };
       });
   },
   recoverAccount: async function (username, recoveryCodes) {
-    return await fetch(`${API_BASE}/system/recover-account`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ username, recoveryCodes }),
+    return await postJson("/system/recover-account", {
+      username,
+      recoveryCodes,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.message || "Error recovering account.");
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return {
+          success: false,
+          error: responseError(e, "Error recovering account."),
+        };
       });
   },
   requestEmailPasswordReset: async function (username, email) {
-    return await fetch(`${API_BASE}/system/recover-account/email/request`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ username, email }),
+    return await postJson("/system/recover-account/email/request", {
+      username,
+      email,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.message || "Error requesting reset code.",
-            errorCode: data.errorCode,
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        const raw = rawBody(e);
+        return {
+          success: false,
+          error:
+            raw?.message || responseError(e, "Error requesting reset code."),
+          errorCode: raw?.errorCode,
+        };
       });
   },
   confirmEmailPasswordReset: async function (username, email, code) {
-    return await fetch(`${API_BASE}/system/recover-account/email/confirm`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ username, email, code }),
+    return await postJson("/system/recover-account/email/confirm", {
+      username,
+      email,
+      code,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "Error confirming reset code.",
-            errorCode: data.errorCode,
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        const raw = rawBody(e);
+        return {
+          success: false,
+          error: raw?.error || responseError(e, "Error confirming reset code."),
+          errorCode: raw?.errorCode,
+        };
       });
   },
   resetPassword: async function (token, newPassword, confirmPassword) {
-    return await fetch(`${API_BASE}/system/reset-password`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ token, newPassword, confirmPassword }),
+    return await postJson("/system/reset-password", {
+      token,
+      newPassword,
+      confirmPassword,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.message || "Error resetting password.");
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return {
+          success: false,
+          error: responseError(e, "Error resetting password."),
+        };
       });
   },
   emailVerificationStatus: async function () {
-    return await fetch(`${API_BASE}/system/user/email-verification`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/system/user/email-verification")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   requestEmailVerification: async function ({ email }) {
-    return await fetch(`${API_BASE}/system/user/email-verification/request`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ email }),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "Error sending code.",
-            errorCode: data.errorCode,
-          };
-        }
-        return data;
-      })
+    return await postJson("/system/user/email-verification/request", { email })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        const raw = rawBody(e);
+        return {
+          success: false,
+          error: raw?.error || responseError(e, "Error sending code."),
+          errorCode: raw?.errorCode,
+        };
       });
   },
   confirmEmailVerification: async function ({ email, code }) {
-    return await fetch(`${API_BASE}/system/user/email-verification/confirm`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ email, code }),
+    return await postJson("/system/user/email-verification/confirm", {
+      email,
+      code,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "Error verifying code.",
-            errorCode: data.errorCode,
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        const raw = rawBody(e);
+        return {
+          success: false,
+          error: raw?.error || responseError(e, "Error verifying code."),
+          errorCode: raw?.errorCode,
+        };
       });
   },
 
   checkDocumentProcessorOnline: async () => {
-    return await fetch(`${API_BASE}/system/document-processing-status`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    return await getJson("/system/document-processing-status")
+      .then(() => true)
       .catch(() => false);
   },
   acceptedDocumentTypes: async () => {
-    return await fetch(`${API_BASE}/system/accepted-document-types`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.types)
+    return await getJson("/system/accepted-document-types")
+      .then(({ data }) => data?.types)
       .catch(() => null);
   },
   updateSystem: async (data) => {
-    return await fetch(`${API_BASE}/system/update-env`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/update-env", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { newValues: null, error: e.message };
+        return rawOrFallback(e, { newValues: null, error: e.message });
       });
   },
   applyProviderPreset: async (code) => {
-    return await fetch(`${API_BASE}/system/provider-preset/apply`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ code }),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/provider-preset/apply", { code })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   updateSystemPassword: async (data) => {
-    return await fetch(`${API_BASE}/system/update-password`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/update-password", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   setupMultiUser: async (data) => {
-    return await fetch(`${API_BASE}/system/enable-multi-user`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/enable-multi-user", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   isMultiUserMode: async () => {
-    return await fetch(`${API_BASE}/system/multi-user-mode`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.multiUserMode)
+    return await getJson("/system/multi-user-mode")
+      .then(({ data }) => data?.multiUserMode)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   deleteDocument: async (name) => {
-    return await fetch(`${API_BASE}/system/remove-document`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.ok)
+    return await deleteJson("/system/remove-document", { body: { name } })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   deleteDocuments: async (names = []) => {
-    return await fetch(`${API_BASE}/system/remove-documents`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-      body: JSON.stringify({ names }),
-    })
-      .then((res) => res.ok)
+    return await deleteJson("/system/remove-documents", { body: { names } })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   deleteFolder: async (name) => {
-    return await fetch(`${API_BASE}/system/remove-folder`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.ok)
+    return await deleteJson("/system/remove-folder", { body: { name } })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   uploadPfp: async function (formData) {
-    return await fetch(`${API_BASE}/system/upload-pfp`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
+    return await uploadFormData("/system/upload-pfp", formData, {
+      uploadKind: UPLOAD_KINDS.avatar,
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Error uploading pfp.");
+      .then(() => {
         return { success: true, error: null };
       })
       .catch((e) => {
@@ -476,13 +376,10 @@ const System = {
       });
   },
   uploadLogo: async function (formData) {
-    return await fetch(`${API_BASE}/system/upload-logo`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
+    return await uploadFormData("/system/upload-logo", formData, {
+      uploadKind: UPLOAD_KINDS.logo,
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Error uploading logo.");
+      .then(() => {
         return { success: true, error: null };
       })
       .catch((e) => {
@@ -499,15 +396,10 @@ const System = {
     if (!!data && Date.now() - lastFetched < 3_600_000)
       return { footerData: data, error: null };
 
-    const { footerData, error } = await fetch(
-      `${API_BASE}/system/footer-data`,
-      {
-        method: "GET",
-        cache: "no-cache",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
+    const { footerData, error } = await getJson("/system/footer-data", {
+      cache: "no-cache",
+    })
+      .then(({ data }) => data)
       .catch((e) => {
         console.log(e);
         return { footerData: [], error: e.message };
@@ -531,15 +423,10 @@ const System = {
     if (!!email && Date.now() - lastFetched < 3_600_000)
       return { email: email, error: null };
 
-    const { supportEmail, error } = await fetch(
-      `${API_BASE}/system/support-email`,
-      {
-        method: "GET",
-        cache: "no-cache",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
+    const { supportEmail, error } = await getJson("/system/support-email", {
+      cache: "no-cache",
+    })
+      .then(({ data }) => data)
       .catch((e) => {
         console.log(e);
         return { email: "", error: e.message };
@@ -562,15 +449,10 @@ const System = {
     if (!!appName && Date.now() - lastFetched < 3_600_000)
       return { appName: appName, error: null };
 
-    const { customAppName, error } = await fetch(
-      `${API_BASE}/system/custom-app-name`,
-      {
-        method: "GET",
-        cache: "no-cache",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
+    const { customAppName, error } = await getJson("/system/custom-app-name", {
+      cache: "no-cache",
+    })
+      .then(({ data }) => data)
       .catch((e) => {
         console.log(e);
         return { customAppName: "", error: e.message };
@@ -592,14 +474,10 @@ const System = {
    * @returns {Promise<{defaultSystemPrompt: string, saneDefaultSystemPrompt: string}>}
    */
   fetchDefaultSystemPrompt: async function () {
-    return await fetch(`${API_BASE}/system/default-system-prompt`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => ({
-        defaultSystemPrompt: res.defaultSystemPrompt,
-        saneDefaultSystemPrompt: res.saneDefaultSystemPrompt,
+    return await getJson("/system/default-system-prompt")
+      .then(({ data }) => ({
+        defaultSystemPrompt: data.defaultSystemPrompt,
+        saneDefaultSystemPrompt: data.saneDefaultSystemPrompt,
       }))
       .catch((e) => {
         console.error(e);
@@ -611,12 +489,10 @@ const System = {
     syncExistingWorkspaces = null
   ) {
     try {
-      const res = await fetch(`${API_BASE}/system/default-system-prompt`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ defaultSystemPrompt, syncExistingWorkspaces }),
+      const { data } = await postJson("/system/default-system-prompt", {
+        defaultSystemPrompt,
+        syncExistingWorkspaces,
       });
-      const data = await res.json();
       return data;
     } catch (e) {
       console.error(e);
@@ -630,14 +506,15 @@ const System = {
       localStorage.getItem("theme") || "default"
     );
 
-    return await fetch(url, {
-      method: "GET",
+    return await requestBlob(url.toString(), {
       cache: "no-cache",
+      includeBaseHeaders: false,
+      blobKind: BLOB_KINDS.logo,
     })
-      .then(async (res) => {
-        if (res.ok && res.status !== 204) {
-          const isCustomLogo = res.headers.get("X-Is-Custom-Logo") === "true";
-          const blob = await res.blob();
+      .then(({ response, blob }) => {
+        if (response.status !== 204 && blob) {
+          const isCustomLogo =
+            response.headers.get("X-Is-Custom-Logo") === "true";
           const logoURL = URL.createObjectURL(blob);
           return { isCustomLogo, logoURL };
         }
@@ -649,28 +526,21 @@ const System = {
       });
   },
   fetchPfp: async function (id) {
-    return await fetch(`${API_BASE}/system/pfp/${id}`, {
-      method: "GET",
+    return await requestBlob(`/system/pfp/${id}`, {
       cache: "no-cache",
-      headers: baseHeaders(),
+      blobKind: BLOB_KINDS.avatar,
     })
-      .then((res) => {
-        if (res.ok && res.status !== 204) return res.blob();
-        throw new Error("Failed to fetch pfp.");
-      })
-      .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+      .then(({ response, blob }) =>
+        response.status !== 204 && blob ? URL.createObjectURL(blob) : null
+      )
       .catch(() => {
         return null;
       });
   },
   removePfp: async function () {
-    return await fetch(`${API_BASE}/system/remove-pfp`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (res.ok) return { success: true, error: null };
-        throw new Error("Failed to remove pfp.");
+    return await deleteJson("/system/remove-pfp")
+      .then(() => {
+        return { success: true, error: null };
       })
       .catch((e) => {
         console.log(e);
@@ -679,72 +549,46 @@ const System = {
   },
 
   isDefaultLogo: async function () {
-    return await fetch(`${API_BASE}/system/is-default-logo`, {
-      method: "GET",
-      cache: "no-cache",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to get is default logo!");
-        return res.json();
-      })
-      .then((res) => res?.isDefaultLogo)
+    return await getJson("/system/is-default-logo", { cache: "no-cache" })
+      .then(({ data }) => data?.isDefaultLogo)
       .catch((e) => {
         console.log(e);
         return null;
       });
   },
   removeCustomLogo: async function () {
-    return await fetch(`${API_BASE}/system/remove-logo`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (res.ok) return { success: true, error: null };
-        throw new Error("Error removing logo!");
-      })
+    return await getJson("/system/remove-logo")
+      .then(() => ({ success: true, error: null }))
       .catch((e) => {
         console.log(e);
         return { success: false, error: e.message };
       });
   },
   getApiKeys: async function () {
-    return fetch(`${API_BASE}/system/api-keys`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(res.statusText || "Error fetching api key.");
-        }
-        return res.json();
-      })
+    return getJson("/system/api-keys")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { apiKey: null, error: e.message };
+        return {
+          apiKey: null,
+          error: responseError(e, "Error fetching api key."),
+        };
       });
   },
   generateApiKey: async function (data = {}) {
-    return fetch(`${API_BASE}/system/generate-api-key`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(res.statusText || "Error generating api key.");
-        }
-        return res.json();
-      })
+    return postJson("/system/generate-api-key", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { apiKey: null, error: e.message };
+        return {
+          apiKey: null,
+          error: responseError(e, "Error generating api key."),
+        };
       });
   },
   deleteApiKey: async function (apiKeyId = "") {
-    return fetch(`${API_BASE}/system/api-key/${apiKeyId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    return deleteJson(`/system/api-key/${apiKeyId}`)
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
@@ -756,216 +600,187 @@ const System = {
     basePath = null,
     timeout = null
   ) {
-    const controller = new AbortController();
-    if (!!timeout) {
-      setTimeout(() => {
-        controller.abort("Request timed out.");
-      }, timeout);
-    }
-
-    return fetch(`${API_BASE}/system/custom-models`, {
-      method: "POST",
-      headers: baseHeaders(),
-      signal: controller.signal,
-      body: JSON.stringify({
+    return postJson(
+      "/system/custom-models",
+      {
         provider,
         apiKey,
         basePath,
-      }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(res.statusText || "Error finding custom models.");
-        }
-        return res.json();
-      })
+      },
+      { timeoutMs: timeout || undefined }
+    )
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { models: [], error: e.message };
+        return {
+          models: [],
+          error: responseError(e, "Error finding custom models."),
+        };
       });
   },
-  chats: async (offset = 0) => {
-    return await fetch(`${API_BASE}/system/workspace-chats`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ offset }),
-    })
-      .then((res) => res.json())
+  chats: async (offset = 0, limit = 20) => {
+    return await postJson("/system/workspace-chats", { offset, limit })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return [];
       });
   },
   eventLogs: async (offset = 0) => {
-    return await fetch(`${API_BASE}/system/event-logs`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ offset }),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/event-logs", { offset })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return [];
       });
   },
   clearEventLogs: async () => {
-    return await fetch(`${API_BASE}/system/event-logs`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await deleteJson("/system/event-logs")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   embeddingBatchJobs: async (limit = 50) => {
-    return await fetch(`${API_BASE}/system/embedding-batch-jobs`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ limit }),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/embedding-batch-jobs", { limit })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { jobs: [] };
       });
   },
   retryEmbeddingBatchJob: async (jobId) => {
-    return await fetch(
-      `${API_BASE}/system/embedding-batch-jobs/${jobId}/retry`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
+    return await postJson(`/system/embedding-batch-jobs/${jobId}/retry`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   deleteChat: async (chatId) => {
-    return await fetch(`${API_BASE}/system/workspace-chats/${chatId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await deleteJson(`/system/workspace-chats/${chatId}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   exportChats: async (type = "csv", chatType = "workspace") => {
     const url = new URL(`${fullApiUrl()}/system/export-chats`);
     url.searchParams.append("type", encodeURIComponent(type));
     url.searchParams.append("chatType", encodeURIComponent(chatType));
-    return await fetch(url, {
-      method: "GET",
-      headers: baseHeaders(),
+    return await requestText(url.toString(), {
+      blobKind: BLOB_KINDS.exportText,
     })
-      .then((res) => {
-        if (res.ok) return res.text();
-        throw new Error(res.statusText);
-      })
+      .then(({ text }) => text)
       .catch((e) => {
         console.error(e);
         return null;
       });
   },
   updateUser: async (data) => {
-    return await fetch(`${API_BASE}/system/user`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/system/user", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
-  accountDeletePreview: async () => {
-    return await fetch(`${API_BASE}/system/user/delete-preview`, {
-      method: "GET",
-      headers: baseHeaders(),
+  memoryOverview: async () => {
+    return await getJson("/system/user/memory/overview")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  memoryBlocks: async () => {
+    return await getJson("/system/user/memory/blocks")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  memoryArchives: async () => {
+    return await getJson("/system/user/memory/archives")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  sensitiveMemories: async () => {
+    return await getJson("/system/user/memory/sensitive")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  createMemoryCandidate: async (data) => {
+    return await postJson("/system/user/memory/candidates", data)
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  rebuildMemoryProfile: async () => {
+    return await postJson("/system/user/memory/rebuild")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  updateMemory: async ({ id, ...data }) => {
+    return await patchJson(`/system/user/memory/${id}`, data)
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  deleteMemory: async ({ id }) => {
+    return await deleteJson(`/system/user/memory/${id}`)
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  sensitiveMemoryPasskeyReauthOptions: async () => {
+    return await postJson("/system/user/memory/reauth/passkey/options")
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  sensitiveMemoryPasskeyReauthVerify: async ({ response }) => {
+    return await postJson("/system/user/memory/reauth/passkey/verify", {
+      response,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "无法生成删除预览。",
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  revealSensitiveMemory: async ({ id, currentPassword, reauthToken }) => {
+    return await postJson(`/system/user/memory/${id}/reveal`, {
+      currentPassword,
+      reauthToken,
+    })
+      .then(({ data }) => data)
+      .catch((e) => ({ success: false, error: localizedApiError(e) }));
+  },
+  accountDeletePreview: async () => {
+    return await getJson("/system/user/delete-preview")
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: localizedApiError(e, "无法生成删除预览。"),
+        error: rawBody(e)?.error || localizedApiError(e, "无法生成删除预览。"),
       }));
   },
   reauthAccountDeleteWithPassword: async ({ currentPassword }) => {
-    return await fetch(`${API_BASE}/system/user/delete/reauth/password`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ currentPassword }),
+    return await postJson("/system/user/delete/reauth/password", {
+      currentPassword,
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "安全验证失败。",
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: localizedApiError(e, "安全验证失败。"),
+        error: rawBody(e)?.error || localizedApiError(e, "安全验证失败。"),
       }));
   },
   deleteAccount: async ({ confirm, reauthToken }) => {
-    return await fetch(`${API_BASE}/system/user`, {
-      method: "DELETE",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ confirm, reauthToken }),
+    return await deleteJson("/system/user", {
+      body: { confirm, reauthToken },
     })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) {
-          return {
-            success: false,
-            error: data.error || "删除账户失败。",
-            deletionJobId: data.deletionJobId,
-          };
-        }
-        return data;
-      })
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: localizedApiError(e, "删除账户失败。"),
+        error: rawBody(e)?.error || localizedApiError(e, "删除账户失败。"),
+        deletionJobId: rawBody(e)?.deletionJobId,
       }));
   },
   dataConnectors: DataConnector,
 
   getSlashCommandPresets: async function () {
-    return await fetch(`${API_BASE}/system/slash-command-presets`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not fetch slash command presets.");
-        return res.json();
-      })
-      .then((res) => res.presets)
+    return await getJson("/system/slash-command-presets")
+      .then(({ data }) => data.presets)
       .catch((e) => {
         console.error(e);
         return [];
@@ -973,56 +788,35 @@ const System = {
   },
 
   createSlashCommandPreset: async function (presetData) {
-    return await fetch(`${API_BASE}/system/slash-command-presets`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(presetData),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(
-            data.message || "Error creating slash command preset."
-          );
-        return data;
-      })
-      .then((res) => ({ preset: res.preset, error: null }))
+    return await postJson("/system/slash-command-presets", presetData)
+      .then(({ data }) => ({ preset: data.preset, error: null }))
       .catch((e) => {
         console.error(e);
-        return { preset: null, error: e.message };
+        return {
+          preset: null,
+          error: responseError(e, "Error creating slash command preset."),
+        };
       });
   },
 
   updateSlashCommandPreset: async function (presetId, presetData) {
-    return await fetch(`${API_BASE}/system/slash-command-presets/${presetId}`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(presetData),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok)
-          throw new Error(
-            data.message || "Could not update slash command preset."
-          );
-        return data;
-      })
-      .then((res) => ({ preset: res.preset, error: null }))
+    return await postJson(
+      `/system/slash-command-presets/${presetId}`,
+      presetData
+    )
+      .then(({ data }) => ({ preset: data.preset, error: null }))
       .catch((e) => {
         console.error(e);
-        return { preset: null, error: e.message };
+        return {
+          preset: null,
+          error: responseError(e, "Could not update slash command preset."),
+        };
       });
   },
 
   deleteSlashCommandPreset: async function (presetId) {
-    return await fetch(`${API_BASE}/system/slash-command-presets/${presetId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not delete slash command preset.");
-        return true;
-      })
+    return await deleteJson(`/system/slash-command-presets/${presetId}`)
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
@@ -1065,20 +859,20 @@ const System = {
    * @returns {Promise<{valid: boolean, user: import("@prisma/client").users | null, token: string | null, message: string | null}>}
    */
   simpleSSOLogin: async function (publicToken) {
-    return fetch(`${API_BASE}/request-token/sso/simple?token=${publicToken}`, {
-      method: "GET",
+    return getJson(`/request-token/sso/simple?token=${publicToken}`, {
+      includeBaseHeaders: false,
     })
-      .then(async (res) => {
-        if (!res.ok) {
-          const text = await res.text();
-          if (!text.startsWith("{")) throw new Error(text);
-          return JSON.parse(text);
-        }
-        return await res.json();
-      })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { valid: false, user: null, token: null, message: e.message };
+        const raw = rawBody(e);
+        if (typeof raw?.valid === "boolean") return raw;
+        return {
+          valid: false,
+          user: null,
+          token: null,
+          message: raw?.message || raw?.error || e.message,
+        };
       });
   },
 
@@ -1093,15 +887,8 @@ const System = {
       : { version: null, lastFetched: 0 };
 
     if (!!version && Date.now() - lastFetched < 3_600_000) return version;
-    const newVersion = await fetch(`${API_BASE}/utils/metrics`, {
-      method: "GET",
-      cache: "no-cache",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not fetch app version.");
-        return res.json();
-      })
-      .then((res) => res?.appVersion)
+    const newVersion = await getJson("/utils/metrics", { cache: "no-cache" })
+      .then(({ data }) => data?.appVersion)
       .catch(() => null);
 
     if (!newVersion) return null;
@@ -1119,15 +906,14 @@ const System = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   validateSQLConnection: async function (engine, connectionString) {
-    return fetch(`${API_BASE}/system/validate-sql-connection`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ engine, connectionString }),
+    return postJson("/system/validate-sql-connection", {
+      engine,
+      connectionString,
     })
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
         console.error("Failed to validate SQL connection:", e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -1137,12 +923,8 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isFileSystemAgentAvailable: async function () {
-    return fetch(`${API_BASE}/agent-skills/filesystem-agent/is-available`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.available ?? false)
+    return getJson("/agent-skills/filesystem-agent/is-available")
+      .then(({ data }) => data?.available ?? false)
       .catch(() => false);
   },
 
@@ -1152,12 +934,8 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isCreateFilesAgentAvailable: async function () {
-    return fetch(`${API_BASE}/agent-skills/create-files-agent/is-available`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.available ?? false)
+    return getJson("/agent-skills/create-files-agent/is-available")
+      .then(({ data }) => data?.available ?? false)
       .catch(() => false);
   },
 

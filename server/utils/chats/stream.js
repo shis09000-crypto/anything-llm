@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
+const { UserMemory } = require("../../models/userMemory");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { grepAgents } = require("./agents");
@@ -24,6 +25,24 @@ const {
   prepareImageAnalysisContext,
   shouldUseVisionTool,
 } = require("../vision/viewTool");
+const { appendCurrentDateTimeToPrompt } = require("./currentDateTimeContext");
+const {
+  appendUserPersonalizationToSystemPrompt,
+} = require("./personalizationContext");
+const {
+  appendUserLongTermMemoryToSystemPromptWithState,
+} = require("./longTermMemoryContext");
+const {
+  SAVE_MEMORY_TOOL_NAME,
+  SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION,
+  approvalPayloadForMemory,
+  executeSaveMemoryTool,
+  normalizeSaveMemoryArgs,
+  saveMemoryToolCallFrom,
+  saveMemoryToolsForMessage,
+  toolCallEventFrom,
+} = require("./saveMemoryTool");
+const { requestChatToolApproval } = require("./toolApproval");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -65,6 +84,72 @@ function withPromptCacheDiagnostics(metrics = {}, diagnostics = {}) {
     ...(metrics || {}),
     ...diagnostics,
   };
+}
+
+function shouldExposeSaveMemoryTool({ llm = null, message = "", user = null }) {
+  if (!user?.id) return false;
+  if (llm?.className !== "DeepSeekLLM") return false;
+  return saveMemoryToolsForMessage(message).length > 0;
+}
+
+async function handleSaveMemoryToolCall({
+  response,
+  uuid,
+  user,
+  userMessage,
+  toolCall,
+}) {
+  const args = normalizeSaveMemoryArgs(toolCall?.function?.arguments || {});
+  const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(user);
+  writeResponseChunk(response, toolCallEventFrom(toolCall, args));
+  const approval = await requestChatToolApproval({
+    response,
+    userId: user?.id,
+    skillName: SAVE_MEMORY_TOOL_NAME,
+    payload: approvalPayloadForMemory(args),
+    description: `保存长期记忆：${args.title}`,
+    allowAlwaysAllow: false,
+  });
+
+  writeResponseChunk(response, {
+    type: "timeline_event",
+    event: {
+      type: "approval_result",
+      requestId: approval.requestId,
+      skillName: SAVE_MEMORY_TOOL_NAME,
+      approved: Boolean(approval.approved),
+      reason: approval.reason || null,
+    },
+  });
+
+  if (!approval.approved) {
+    const textResponse = "已取消保存记忆。";
+    writeResponseChunk(response, {
+      uuid,
+      type: "toolCallResult",
+      toolName: SAVE_MEMORY_TOOL_NAME,
+      arguments: approvalPayloadForMemory(args),
+      result: { success: false, cancelled: true },
+      content: textResponse,
+    });
+    return { textResponse, memory: null };
+  }
+
+  const result = await executeSaveMemoryTool({
+    memoryOwnerId,
+    userMessage,
+    args,
+  });
+  const textResponse = `已记住：${result.title}`;
+  writeResponseChunk(response, {
+    uuid,
+    type: "toolCallResult",
+    toolName: SAVE_MEMORY_TOOL_NAME,
+    arguments: approvalPayloadForMemory(args),
+    result,
+    content: textResponse,
+  });
+  return { textResponse, memory: result };
 }
 
 async function streamChatWithWorkspace(
@@ -414,7 +499,24 @@ async function streamChatWithWorkspace(
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
-  const systemPrompt = await chatPrompt(workspace, user);
+  let systemPrompt = await appendUserPersonalizationToSystemPrompt(
+    await chatPrompt(workspace, user),
+    user
+  );
+  const longTermMemoryContext =
+    await appendUserLongTermMemoryToSystemPromptWithState(systemPrompt, user);
+  systemPrompt = longTermMemoryContext.systemPrompt;
+  const deepSeekThinkingMode = longTermMemoryContext.injected
+    ? "enabled"
+    : "disabled";
+  const exposeSaveMemoryTool = shouldExposeSaveMemoryTool({
+    llm: LLMConnector,
+    message: updatedMessage,
+    user,
+  });
+  if (exposeSaveMemoryTool) {
+    systemPrompt = `${systemPrompt}\n\n${SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION}`;
+  }
   const autoCompaction = await maybeAutoCompact({
     workspace,
     user,
@@ -449,7 +551,7 @@ async function streamChatWithWorkspace(
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: updatedMessage,
+      userPrompt: appendCurrentDateTimeToPrompt(updatedMessage),
       contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
@@ -473,6 +575,7 @@ async function streamChatWithWorkspace(
       await LLMConnector.getChatCompletion(messages, {
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
         user: user,
+        thinking: deepSeekThinkingMode,
       });
 
     completeText = textResponse;
@@ -493,6 +596,13 @@ async function streamChatWithWorkspace(
     const stream = await LLMConnector.streamGetChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       user: user,
+      thinking: deepSeekThinkingMode,
+      ...(exposeSaveMemoryTool
+        ? {
+            tools: saveMemoryToolsForMessage(updatedMessage),
+            toolChoice: "auto",
+          }
+        : {}),
     });
     completeText = await LLMConnector.handleStream(response, stream, {
       uuid,
@@ -503,6 +613,30 @@ async function streamChatWithWorkspace(
       promptCacheDiagnostics
     );
     stream.metrics = metrics;
+
+    const saveMemoryToolCall = saveMemoryToolCallFrom(stream.toolCalls);
+    if (saveMemoryToolCall) {
+      try {
+        const toolResult = await handleSaveMemoryToolCall({
+          response,
+          uuid,
+          user,
+          userMessage: updatedMessage,
+          toolCall: saveMemoryToolCall,
+        });
+        completeText = toolResult.textResponse;
+      } catch (error) {
+        completeText = `记忆保存失败：${error.message}`;
+        writeResponseChunk(response, {
+          uuid,
+          type: "toolCallResult",
+          toolName: SAVE_MEMORY_TOOL_NAME,
+          arguments: {},
+          result: { success: false, error: error.message },
+          content: completeText,
+        });
+      }
+    }
   }
 
   if (completeText?.length > 0) {
@@ -556,6 +690,7 @@ async function streamChatWithWorkspace(
       close: true,
       error: false,
       chatId: chat?.id || null,
+      publicChatId: chat?.public_id || null,
       metrics,
     });
     return;

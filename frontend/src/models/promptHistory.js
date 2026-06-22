@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback as rawOrFallback } from "@/lib/communication/apiError";
 
 /**
  * @typedef {Object} PromptHistory
@@ -19,15 +19,8 @@ const PromptHistory = {
    */
   forWorkspace: async function (workspaceId) {
     try {
-      return await fetch(
-        `${API_BASE}/workspace/${workspaceId}/prompt-history`,
-        {
-          method: "GET",
-          headers: baseHeaders(),
-        }
-      )
-        .then((res) => res.json())
-        .then((res) => res.history || [])
+      return await getJson(`/workspace/${workspaceId}/prompt-history`)
+        .then(({ data }) => data.history || [])
         .catch((error) => {
           console.error("Error fetching prompt history:", error);
           return [];
@@ -45,17 +38,11 @@ const PromptHistory = {
    */
   clearAll: async function (workspaceId) {
     try {
-      return await fetch(
-        `${API_BASE}/workspace/${workspaceId}/prompt-history`,
-        {
-          method: "DELETE",
-          headers: baseHeaders(),
-        }
-      )
-        .then((res) => res.json())
+      return await deleteJson(`/workspace/${workspaceId}/prompt-history`)
+        .then(({ data }) => data)
         .catch((error) => {
           console.error("Error clearing prompt history:", error);
-          return { success: false, error };
+          return rawOrFallback(error, { success: false, error });
         });
     } catch (error) {
       console.error("Error clearing prompt history:", error);
@@ -65,17 +52,13 @@ const PromptHistory = {
 
   delete: async function (workspaceSlug, id) {
     try {
-      return await fetch(
-        `${API_BASE}/workspace/${workspaceSlug}/prompt-history/${id}`,
-        {
-          method: "DELETE",
-          headers: baseHeaders(),
-        }
+      return await deleteJson(
+        `/workspace/${workspaceSlug}/prompt-history/${id}`
       )
-        .then((res) => res.json())
+        .then(({ data }) => data)
         .catch((error) => {
           console.error("Error deleting prompt history:", error);
-          return { success: false, error };
+          return rawOrFallback(error, { success: false, error });
         });
     } catch (error) {
       console.error("Error deleting prompt history:", error);

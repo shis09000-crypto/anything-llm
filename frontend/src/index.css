@@ -504,6 +504,253 @@
   --glass-highlight: 0.72;
 }
 
+.liquid-glass-composer-card {
+  --composer-glass-tint: rgb(15 23 42 / 0.09);
+  --composer-glass-shadow: 0 12px 24px rgb(0 0 0 / 0.19);
+  --composer-glass-focus-shadow: 0 12px 26px rgb(0 0 0 / 0.21);
+  color: var(--glass-text);
+  width: 100%;
+}
+
+.button-lab-official-glass-frame {
+  border-radius: var(--button-lab-official-radius, 10px);
+}
+
+.button-lab-official-glass {
+  border-radius: var(--button-lab-official-radius, 10px) !important;
+}
+
+.button-lab-official-glass .glass {
+  border-radius: var(--button-lab-official-radius, 10px) !important;
+  overflow: hidden !important;
+}
+
+.button-lab-official-glass .glass__warp {
+  border-radius: inherit !important;
+}
+
+.official-liquid-glass-composer-shell,
+.official-liquid-glass-composer-shell > div,
+.official-liquid-glass-composer-shell > div > div,
+.official-liquid-glass-composer {
+  width: 100%;
+}
+
+.official-liquid-glass-composer,
+.official-liquid-glass-composer .glass {
+  border-radius: var(--official-liquid-glass-composer-radius, 10px) !important;
+}
+
+.official-liquid-glass-composer .glass {
+  align-items: stretch !important;
+  display: flex !important;
+  flex-direction: column;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.official-liquid-glass-composer .glass__warp {
+  border-radius: inherit !important;
+}
+
+.official-liquid-glass-composer .glass > div:last-child {
+  width: 100%;
+}
+
+.liquid-glass-composer-card .glass {
+  align-items: stretch !important;
+  background: var(--composer-glass-tint) !important;
+  border: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  gap: 0 !important;
+  isolation: isolate;
+  padding: 0 !important;
+  width: 100%;
+  box-shadow: var(--composer-glass-shadow) !important;
+  transition: box-shadow 180ms ease, background 180ms ease;
+}
+
+.liquid-glass-composer-card .glass__warp {
+  background: transparent !important;
+  border-radius: inherit;
+  opacity: 1;
+  pointer-events: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  -webkit-backdrop-filter: blur(var(--composer-glass-backdrop-blur, 1.5px))
+    saturate(1.02) contrast(1.01) !important;
+  backdrop-filter: blur(var(--composer-glass-backdrop-blur, 1.5px))
+    saturate(1.02) contrast(1.01) !important;
+}
+
+.liquid-glass-composer-card .glass > div:last-child {
+  color: var(--glass-text) !important;
+  text-shadow: none !important;
+  width: 100%;
+}
+
+.liquid-glass-composer-content {
+  color: var(--glass-text);
+  position: relative;
+  z-index: 1;
+}
+
+.liquid-glass-composer-card:focus-within .glass {
+  box-shadow: var(--composer-glass-focus-shadow) !important;
+}
+
+[data-theme="light"] .liquid-glass-composer-card {
+  --composer-glass-tint: rgb(255 255 255 / 0.1);
+  --composer-glass-shadow: 0 12px 26px rgb(15 23 42 / 0.19);
+  --composer-glass-focus-shadow: 0 12px 28px rgb(15 23 42 / 0.21);
+}
+
+[data-theme="light"] .liquid-glass-composer-card .glass {
+  background: var(--composer-glass-tint) !important;
+  box-shadow: var(--composer-glass-shadow) !important;
+}
+
+[data-theme="light"] .liquid-glass-composer-card .glass__warp {
+  background: transparent !important;
+}
+
+[data-theme="light"] .liquid-glass-composer-card:focus-within .glass {
+  box-shadow: var(--composer-glass-focus-shadow) !important;
+}
+
+.liquid-glass-user-message-bubble,
+.button-lab-message-glass-bubble {
+  --user-message-glass-tint-light: rgb(255 255 255 / 0.2);
+  --user-message-glass-tint-dark: rgb(15 23 42 / 0.165);
+  --user-message-glass-shadow: 0 12px 26px rgb(15 23 42 / 0.17);
+  --user-message-glass-backdrop-blur: 2.2px;
+  --user-message-glass-radius: 15px;
+  --user-message-glass-text-alpha: 0.94;
+  color: rgb(248 250 252 / var(--user-message-glass-text-alpha));
+  max-width: min(720px, calc(100vw - 96px));
+  width: fit-content;
+}
+
+.liquid-glass-user-message-bubble,
+.liquid-glass-user-message-bubble .glass,
+.button-lab-message-glass-bubble,
+.button-lab-message-glass-bubble .glass {
+  border-radius: var(--user-message-glass-radius)
+    var(--user-message-glass-radius) 0 var(--user-message-glass-radius) !important;
+}
+
+.liquid-glass-user-message-bubble .glass,
+.button-lab-message-glass-bubble .glass {
+  align-items: stretch !important;
+  background: var(--user-message-glass-tint-dark) !important;
+  border: 0 !important;
+  box-shadow: var(--user-message-glass-shadow) !important;
+  display: flex !important;
+  flex-direction: column;
+  gap: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  width: 100%;
+}
+
+.liquid-glass-user-message-bubble .glass__warp,
+.button-lab-message-glass-bubble .glass__warp {
+  background: transparent !important;
+  border-radius: inherit !important;
+  opacity: 1;
+  pointer-events: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  -webkit-backdrop-filter: blur(var(--user-message-glass-backdrop-blur))
+    saturate(1.04) contrast(1.01) !important;
+  backdrop-filter: blur(var(--user-message-glass-backdrop-blur))
+    saturate(1.04) contrast(1.01) !important;
+}
+
+.liquid-glass-user-message-bubble .glass > div:last-child,
+.button-lab-message-glass-bubble .glass > div:last-child {
+  color: inherit !important;
+  text-shadow: none !important;
+  width: 100%;
+}
+
+.liquid-glass-user-message-content,
+.button-lab-message-glass-content {
+  color: inherit;
+  position: relative;
+  z-index: 1;
+}
+
+[data-theme="light"] .liquid-glass-user-message-bubble,
+[data-theme="light"] .button-lab-message-glass-bubble {
+  color: rgb(15 23 42 / var(--user-message-glass-text-alpha));
+}
+
+[data-theme="light"] .liquid-glass-user-message-bubble .glass,
+[data-theme="light"] .button-lab-message-glass-bubble .glass {
+  background: var(--user-message-glass-tint-light) !important;
+}
+
+.liquid-glass-user-message-content .text-white,
+.liquid-glass-user-message-content .light\:text-slate-900,
+.button-lab-message-glass-content .text-white,
+.button-lab-message-glass-content .light\:text-slate-900 {
+  color: inherit !important;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .liquid-glass-composer-card .glass__warp {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  .liquid-glass-user-message-bubble .glass__warp,
+  .button-lab-message-glass-bubble .glass__warp {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  .liquid-glass-composer-card .glass {
+    background: rgb(var(--glass-tint) / 0.3) !important;
+  }
+
+  .liquid-glass-user-message-bubble .glass,
+  .button-lab-message-glass-bubble .glass {
+    background: rgb(var(--glass-tint) / 0.24) !important;
+  }
+}
+
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .liquid-glass-composer-card .glass__warp {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  .liquid-glass-composer-card .glass {
+    background:
+      linear-gradient(145deg, rgb(255 255 255 / 0.12), transparent 54%),
+      rgb(var(--glass-tint) / 0.28) !important;
+  }
+
+  .liquid-glass-user-message-bubble .glass__warp,
+  .button-lab-message-glass-bubble .glass__warp {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    filter: none !important;
+  }
+
+  .liquid-glass-user-message-bubble .glass,
+  .button-lab-message-glass-bubble .glass {
+    background:
+      linear-gradient(145deg, rgb(255 255 255 / 0.16), transparent 58%),
+      rgb(var(--glass-tint) / 0.24) !important;
+  }
+}
+
 .chat-prompt-feather {
   position: relative;
   isolation: isolate;
@@ -606,6 +853,13 @@
   --prompt-feather-inner-blur: 9px;
   --prompt-feather-tint: rgb(var(--glass-tint) / 0.075);
   --prompt-feather-accent: rgb(14 165 233 / 0.04);
+}
+
+.chat-prompt-feather.liquid-glass-composer-host::before,
+.chat-prompt-feather.liquid-glass-composer-host::after {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  display: none;
 }
 
 .liquid-glass-input {

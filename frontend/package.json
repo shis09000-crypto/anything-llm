@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@cyntler/react-doc-viewer": "1.17.1",
+    "@developer-hub/liquid-glass": "^1.2.3",
     "@lobehub/icons": "^4.0.3",
     "@microsoft/fetch-event-source": "^2.0.1",
     "@mintplex-labs/piper-tts-web": "^1.0.4",

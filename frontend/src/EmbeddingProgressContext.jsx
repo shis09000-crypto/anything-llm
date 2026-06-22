@@ -6,9 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders, safeJsonParse } from "@/utils/request";
+import { streamEmbeddingProgress } from "@/lib/communication/workspaceRealtimeClient";
 import Workspace from "@/models/workspace";
 
 const EmbeddingProgressContext = createContext();
@@ -84,8 +82,8 @@ export function EmbeddingProgressProvider({ children }) {
   );
 
   const handleMessage = useCallback(
-    (slug, msg, ctrl) => {
-      const data = safeJsonParse(msg.data);
+    (slug, data, ctrl) => {
+      if (!data) return;
 
       switch (data.type) {
         case "batch_starting": {
@@ -181,14 +179,12 @@ export function EmbeddingProgressProvider({ children }) {
       const ctrl = new AbortController();
       abortControllersRef.current[slug] = ctrl;
 
-      fetchEventSource(`${API_BASE}/workspace/${slug}/embed-progress`, {
-        method: "GET",
-        headers: baseHeaders(),
+      streamEmbeddingProgress({
+        workspaceSlug: slug,
         signal: ctrl.signal,
-        openWhenHidden: true,
-        onmessage: (msg) => handleMessage(slug, msg, ctrl),
-        onclose: () => delete abortControllersRef.current[slug],
-        onerror: () => {
+        onEvent: (event) => handleMessage(slug, event, ctrl),
+        onClose: () => delete abortControllersRef.current[slug],
+        onError: () => {
           delete abortControllersRef.current[slug];
           throw new Error("SSE connection error");
         },

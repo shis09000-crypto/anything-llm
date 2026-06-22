@@ -18,6 +18,9 @@ const {
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
 const { User } = require("../models/user");
 const { getModelTag } = require("./utils");
+const {
+  respondToChatToolApproval,
+} = require("../utils/chats/toolApproval");
 
 function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
   if (!workspace?.id || !thread?.id) return () => {};
@@ -50,6 +53,26 @@ function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
 
 function chatEndpoints(app) {
   if (!app) return;
+
+  app.post(
+    "/workspace/:slug/tool-approval",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const { requestId, approved } = reqBody(request);
+        const result = respondToChatToolApproval({
+          requestId,
+          userId: user?.id,
+          approved,
+        });
+        response.status(result.success ? 200 : 404).json(result);
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({ success: false, error: e.message });
+      }
+    }
+  );
 
   app.post(
     "/workspace/:slug/stream-chat",

@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import {
+  clearCryptoConfig,
+  CRYPTO_CONFIG_KINDS,
+  loadCryptoConfig,
+  saveCryptoConfig,
+} from "@/lib/communication/crypto/cryptoConfigClient";
 import TradingPairDetailCard from "./TradingPairDetailCard";
 import { presetById, tradingPairMockPresets } from "./tradingPairMockPresets";
 import { useTradingPairDetailData } from "./useTradingPairDetailData";
@@ -34,7 +38,7 @@ const statusLabels: Record<TradingPairConnectionStatus, string> = {
 };
 
 const STORAGE_KEY = "anythingllm_crypto_trading_pair_detail_config_v1";
-const REMOTE_CONFIG_ENDPOINT = `${API_BASE}/crypto-component-experiment/config`;
+const REMOTE_CONFIG_KIND = CRYPTO_CONFIG_KINDS.tradingPairDetail;
 
 const commonVisualDefaults = {
   cardWidth: 590,
@@ -329,12 +333,8 @@ function saveConfig(config: TradingPairSavedConfig) {
 
 async function loadRemoteSavedConfig(): Promise<TradingPairSavedConfig | null> {
   try {
-    const response = await fetch(REMOTE_CONFIG_ENDPOINT, {
-      headers: baseHeaders(),
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload?.success) return null;
-    return sanitizeSavedConfig(payload.config);
+    const config = await loadCryptoConfig(REMOTE_CONFIG_KIND);
+    return sanitizeSavedConfig(config);
   } catch {
     return null;
   }
@@ -342,13 +342,7 @@ async function loadRemoteSavedConfig(): Promise<TradingPairSavedConfig | null> {
 
 async function saveRemoteConfig(config: TradingPairSavedConfig) {
   try {
-    const response = await fetch(REMOTE_CONFIG_ENDPOINT, {
-      method: "POST",
-      headers: { ...baseHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ config }),
-    });
-    const payload = await response.json();
-    return Boolean(response.ok && payload?.success);
+    return await saveCryptoConfig(REMOTE_CONFIG_KIND, config);
   } catch {
     return false;
   }
@@ -356,12 +350,7 @@ async function saveRemoteConfig(config: TradingPairSavedConfig) {
 
 async function clearRemoteSavedConfig() {
   try {
-    const response = await fetch(REMOTE_CONFIG_ENDPOINT, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    });
-    const payload = await response.json();
-    return Boolean(response.ok && payload?.success);
+    return await clearCryptoConfig(REMOTE_CONFIG_KIND);
   } catch {
     return false;
   }

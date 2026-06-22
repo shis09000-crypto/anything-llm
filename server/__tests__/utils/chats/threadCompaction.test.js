@@ -95,6 +95,8 @@ describe("Thread compaction memory", () => {
     delete process.env.THREAD_COMPACTION_TARGET_MIN_SUMMARY_TOKENS;
     delete process.env.THREAD_COMPACTION_TARGET_MAX_SUMMARY_TOKENS;
     delete process.env.THREAD_COMPACTION_TARGET_SUMMARY_BUDGET_RATIO;
+    delete process.env.LLM_TASK_ROUGH_PROVIDER;
+    delete process.env.LLM_TASK_ROUGH_MODEL;
     mockWorkspaceChatsWhere.mockResolvedValue([chat(1)]);
     mockWorkspaceChatsCount.mockResolvedValue(1);
     mockLatest.mockResolvedValue(null);
@@ -404,6 +406,245 @@ describe("Thread compaction memory", () => {
     expect(normalized.architectureDecisions.join("\n")).toContain(
       "capsule_json"
     );
+  });
+
+  it("repairs malformed capsule JSON before normalizing it", async () => {
+    const {
+      parseConversationCapsule,
+      normalizeConversationCapsule,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const parsed = parseConversationCapsule(
+      "{topic:'红色资本', currentGoal:'核对 2003 年财政部注资', confirmedFacts:['930亿元'], confirmedDecisions:[], openQuestions:[], temporaryContext:[], recentDirection:'讨论 2028 年前后压力', architectureDecisions:[], generatedAt:'2026-06-16T00:00:00.000Z', coveredToChatId:'1065',}",
+      null
+    );
+    const normalized = normalizeConversationCapsule(parsed);
+
+    expect(normalized.topic).toBe("红色资本");
+    expect(normalized.confirmedFacts).toEqual(["930亿元"]);
+    expect(normalized.recentDirection).toContain("2028");
+  });
+
+  it("retries capsule generation with a JSON repair prompt when model output is invalid", async () => {
+    const connector = {
+      model: "deepseek-v4-flash",
+      promptWindowLimit: () => 4000,
+      constructPrompt: ({
+        systemPrompt = "",
+        userPrompt = "",
+        contextTexts = [],
+        chatHistory = [],
+      }) => [
+        { role: "system", content: systemPrompt + contextTexts.join("\n") },
+        ...chatHistory,
+        { role: "user", content: userPrompt },
+      ],
+      compressMessages: jest.fn(async ({ systemPrompt, userPrompt }) => [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ]),
+      getChatCompletion: jest
+        .fn()
+        .mockResolvedValueOnce({ textResponse: "not json", metrics: {} })
+        .mockResolvedValueOnce({ textResponse: capsule(), metrics: {} }),
+    };
+    mockGetLLMProvider.mockReturnValue(connector);
+    mockCompactionWhere.mockResolvedValue([
+      chat(1, "2003 年财政部注资 930亿元", "确认"),
+      chat(2, "2028 年风险继续讨论", "确认"),
+      ...Array.from({ length: 10 }, (_, index) => chat(index + 3)),
+    ]);
+    const { compactThread } = require("../../../utils/chats/threadCompaction");
+
+    const result = await compactThread({
+      workspace,
+      user,
+      thread,
+      force: true,
+      mode: "keep_recent",
+      keepRecentMessages: 10,
+    });
+
+    expect(result.success).toBe(true);
+    expect(connector.getChatCompletion).toHaveBeenCalledTimes(2);
+    expect(connector.getChatCompletion.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ responseFormat: { type: "json_object" } })
+    );
+    expect(connector.getChatCompletion.mock.calls[1][1]).toEqual(
+      expect.objectContaining({ responseFormat: { type: "json_object" } })
+    );
+    expect(mockCreate.mock.calls[0][0].capsule_json).toContain("账号权限体系");
+  });
+
+  it("surfaces recent exact value candidates for historical data and people", async () => {
+    const {
+      extractExactValueCandidates,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const candidates = extractExactValueCandidates([
+      chat(
+        42,
+        "请保留 2003 年财政部通过汇金注资 930亿元，并注意朱镕基时期的背景和 2028 年风险。",
+        "确认：财政部、人民银行、中国银行这些机构和 930亿元 是关键数据。"
+      ),
+    ]);
+    const joined = candidates.join("\n");
+
+    expect(joined).toContain("2003");
+    expect(joined).toContain("930亿元");
+    expect(joined).toContain("财政部");
+    expect(joined).toContain("朱镕基时期");
+    expect(joined).toContain("2028");
+  });
+
+  it("prefers durable topic hints over transient cache-test prompts", async () => {
+    const {
+      extractDurableTopicHints,
+      extractExactValueCandidates,
+    } = require("../../../utils/chats/threadCompaction");
+    const rows = [
+      chat(
+        1,
+        "我们继续讨论《红色资本》中财政部、人民银行、汇金和国有银行在 2003 年注资 930亿元 的历史含义，以及朱镕基时期的改革背景。",
+        "确认这些是当前历史金融分析的关键线索。"
+      ),
+      chat(2, "第 6 轮缓存一致性测试：只回复第6轮完成", "第6轮完成"),
+    ];
+
+    const hints = extractDurableTopicHints(rows).join("\n");
+    const candidates = extractExactValueCandidates(rows).join("\n");
+
+    expect(hints).toContain("红色资本");
+    expect(hints).toContain("930亿元");
+    expect(hints).not.toContain("第6轮完成");
+    expect(candidates).toContain("2003");
+    expect(candidates).toContain("930亿元");
+  });
+
+  it("uses the rough compaction model for status even when workspace chat model is pro", async () => {
+    mockGetLLMProvider.mockImplementation(({ provider, model }) => {
+      if (model === "deepseek-v4-pro") {
+        throw new Error("pro model should not be initialized for compaction");
+      }
+      return {
+        model,
+        promptWindowLimit: () => 4000,
+        constructPrompt: ({
+          systemPrompt = "",
+          userPrompt = "",
+          contextTexts = [],
+          chatHistory = [],
+        }) => [
+          { role: "system", content: systemPrompt + contextTexts.join("\n") },
+          ...chatHistory,
+          { role: "user", content: userPrompt },
+        ],
+        compressMessages: jest.fn(),
+        getChatCompletion: jest.fn(),
+        provider,
+      };
+    });
+    mockCompactionWhere.mockResolvedValue([
+      chat(1, "2003 年财政部注资 930亿元", "确认"),
+      ...Array.from({ length: 10 }, (_, index) => chat(index + 2)),
+    ]);
+    const {
+      getThreadCompactionStatus,
+    } = require("../../../utils/chats/threadCompaction");
+
+    const status = await getThreadCompactionStatus({
+      workspace: {
+        ...workspace,
+        chatProvider: "deepseek",
+        chatModel: "deepseek-v4-pro",
+      },
+      user,
+      thread,
+    });
+
+    expect(status.compactionProvider).toBe("deepseek");
+    expect(status.compactionModel).toBe("deepseek-v4-flash");
+    expect(mockGetLLMProvider).toHaveBeenCalledWith({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+    });
+    expect(mockGetLLMProvider).not.toHaveBeenCalledWith({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+  });
+
+  it("uses the rough compaction model for manual compaction even when workspace chat model is pro", async () => {
+    process.env.THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS = "4000";
+    const completions = [];
+    mockGetLLMProvider.mockImplementation(({ provider, model }) => {
+      if (model === "deepseek-v4-pro") {
+        throw new Error("pro model should not be initialized for compaction");
+      }
+      return {
+        model,
+        promptWindowLimit: () => 4000,
+        constructPrompt: ({
+          systemPrompt = "",
+          userPrompt = "",
+          contextTexts = [],
+          chatHistory = [],
+        }) => [
+          { role: "system", content: systemPrompt + contextTexts.join("\n") },
+          ...chatHistory,
+          { role: "user", content: userPrompt },
+        ],
+        compressMessages: jest.fn(async ({ systemPrompt, userPrompt }) => {
+          completions.push(userPrompt);
+          return [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ];
+        }),
+        getChatCompletion: jest.fn(async () => ({
+          textResponse: capsule({
+            topic: "红色资本",
+            currentGoal: "核对历史数据",
+            confirmedFacts: [
+              "2003 年财政部通过汇金注资 930亿元",
+              "2028 年风险需要继续讨论",
+            ],
+          }),
+          metrics: {},
+        })),
+        provider,
+      };
+    });
+    mockCompactionWhere.mockResolvedValue([
+      chat(1, "2003 年财政部通过汇金注资 930亿元", "确认"),
+      chat(2, "朱镕基时期背景和 2028 年风险也要保留", "确认"),
+      ...Array.from({ length: 10 }, (_, index) => chat(index + 3)),
+    ]);
+    const { compactThread } = require("../../../utils/chats/threadCompaction");
+
+    const result = await compactThread({
+      workspace: {
+        ...workspace,
+        chatProvider: "deepseek",
+        chatModel: "deepseek-v4-pro",
+      },
+      user,
+      thread,
+      force: true,
+      mode: "target",
+    });
+    const created = mockCreate.mock.calls[0][0];
+
+    expect(result.success).toBe(true);
+    expect(result.provider).toBe("deepseek");
+    expect(result.model).toBe("deepseek-v4-flash");
+    expect(JSON.parse(created.metadata_json).model).toBe("deepseek-v4-flash");
+    expect(completions.join("\n")).toContain("Recent exact value candidates");
+    expect(completions.join("\n")).toContain("930亿元");
+    expect(mockGetLLMProvider).not.toHaveBeenCalledWith({
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
   });
 
   it("does not auto compact when auto is disabled", async () => {

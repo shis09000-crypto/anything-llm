@@ -6,17 +6,24 @@ const {
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const { getAuthorizedWorkspace } = require("../utils/authz/resourceAccess");
 const fs = require("fs");
 const path = require("path");
 
 function documentEndpoints(app) {
   if (!app) return;
+  function workspaceIdentifierForRequest(request) {
+    const body = reqBody(request) || {};
+    return {
+      workspaceSlug: request.query.workspaceSlug || body.workspaceSlug || null,
+      workspaceId: request.query.workspaceId || body.workspaceId || null,
+    };
+  }
+
   async function resolveWorkspaceForRequest(request, response) {
     const { Workspace } = require("../models/workspace");
-    const body = reqBody(request) || {};
-    const workspaceSlug =
-      request.query.workspaceSlug || body.workspaceSlug || null;
-    const workspaceId = request.query.workspaceId || body.workspaceId || null;
+    const { workspaceSlug, workspaceId } =
+      workspaceIdentifierForRequest(request);
     if (workspaceSlug) {
       const user = await userFromSession(request, response);
       return multiUserMode(response)
@@ -35,9 +42,32 @@ function documentEndpoints(app) {
         const {
           DocumentIndexStatus,
         } = require("../models/documentIndexStatus");
-        const workspace = await resolveWorkspaceForRequest(request, response);
+        const { workspaceSlug, workspaceId } =
+          workspaceIdentifierForRequest(request);
+        if (!workspaceSlug && !workspaceId) {
+          response.status(400).json({
+            success: false,
+            message: "workspaceSlug or workspaceId is required.",
+          });
+          return;
+        }
+
+        const workspace = await getAuthorizedWorkspace({
+          request,
+          response,
+          workspaceSlug,
+          workspaceId,
+        });
+        if (!workspace) {
+          response.status(404).json({
+            success: false,
+            message: "Workspace not found.",
+          });
+          return;
+        }
+
         const rows = await DocumentIndexStatus.where({
-          workspaceId: workspace?.id || null,
+          workspaceId: workspace.id,
           filePath: request.query.filePath || null,
           docId: request.query.docId || null,
         });

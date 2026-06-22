@@ -85,7 +85,11 @@ const { SlashCommandPresets } = require("../models/slashCommandsPresets");
 const { EncryptionManager } = require("../utils/EncryptionManager");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const { AccountDeletionService } = require("../utils/accountDeletion");
-const { issueReauthToken } = require("../utils/authz/reauthTokens");
+const {
+  issueReauthToken,
+  validateReauthToken,
+  consumeReauthToken,
+} = require("../utils/authz/reauthTokens");
 const {
   chatHistoryViewable,
 } = require("../utils/middleware/chatHistoryViewable");
@@ -103,6 +107,12 @@ const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
 const { SystemPromptVariables } = require("../models/systemPromptVariables");
 const { VALID_COMMANDS } = require("../utils/chats");
 const { AgentSkillWhitelist } = require("../models/agentSkillWhitelist");
+const {
+  UserMemory,
+  MEMORY_OWNER_REQUIRED_ERROR,
+  MEMORY_SCHEMA_INIT_ERROR,
+  isMemorySchemaMissingError,
+} = require("../models/userMemory");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
 const {
@@ -113,11 +123,35 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_SEARCH_MODEL,
+} = require("../utils/SearchModels/alibaba");
 const DEFAULT_ALIBABA_VISION_MODEL = "qwen3-vl-flash";
 const {
   diagnosticSummary,
   storagePath: environmentStoragePath,
 } = require("../utils/environment");
+
+function respondMemoryError(response, error, status = 500) {
+  if (isMemorySchemaMissingError(error)) {
+    return response.status(503).json({
+      success: false,
+      error: MEMORY_SCHEMA_INIT_ERROR,
+      code: "MEMORY_SCHEMA_NOT_READY",
+    });
+  }
+  if (error?.message === MEMORY_OWNER_REQUIRED_ERROR) {
+    return response.status(403).json({
+      success: false,
+      error: MEMORY_OWNER_REQUIRED_ERROR,
+      code: "MEMORY_OWNER_NOT_BOUND",
+    });
+  }
+  return response
+    .status(status)
+    .json({ success: false, error: error.message || "Internal server error" });
+}
 
 const PROVIDER_PRESETS = {
   SHIJIE_DEEPSEEK_ALI_V1: {
@@ -1492,6 +1526,10 @@ function systemEndpoints(app) {
             RerankApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
             RerankBaseUrl: DEFAULT_ALIBABA_RERANK_BASE_URL,
             RerankModelPref: DEFAULT_ALIBABA_RERANK_MODEL,
+            SearchModelProvider: "alibaba",
+            SearchModelApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
+            SearchModelBaseUrl: DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+            SearchModelPref: DEFAULT_ALIBABA_SEARCH_MODEL,
             ReaderOcrProvider: "alibaba",
             ReaderOcrApiKey: process.env.PRESET_DASHSCOPE_API_KEY,
             ReaderOcrBaseUrl: DEFAULT_ALIBABA_OCR_BASE_URL,
@@ -1520,6 +1558,12 @@ function systemEndpoints(app) {
             provider: preset.embedder.provider,
             base_url: preset.embedder.baseUrl,
             model: preset.embedder.model,
+            api_key_set: true,
+          },
+          search_model: {
+            provider: "alibaba",
+            base_url: DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+            model: DEFAULT_ALIBABA_SEARCH_MODEL,
             api_key_set: true,
           },
           ocr: {
@@ -2255,6 +2299,208 @@ function systemEndpoints(app) {
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.get(
+    "/system/user/memory/overview",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const overview = await UserMemory.overview(memoryOwnerId);
+        response.status(200).json({
+          success: true,
+          overview: overview
+            ? {
+                id: overview.id,
+                overview: overview.overview,
+                version: overview.version,
+                generatedAt: overview.generatedAt,
+              }
+            : null,
+        });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e);
+      }
+    }
+  );
+
+  app.get(
+    "/system/user/memory/blocks",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const blocks = await UserMemory.blocks(memoryOwnerId);
+        response.status(200).json({ success: true, blocks });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e);
+      }
+    }
+  );
+
+  app.get(
+    "/system/user/memory/archives",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const archives = await UserMemory.archives(memoryOwnerId);
+        response.status(200).json({ success: true, archives });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e);
+      }
+    }
+  );
+
+  app.get(
+    "/system/user/memory/sensitive",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memories = await UserMemory.sensitive(memoryOwnerId);
+        response.status(200).json({ success: true, memories });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e);
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/memory/candidates",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const body = reqBody(request);
+        const isSensitive = Boolean(body?.isSensitive);
+        const memory = isSensitive
+          ? await UserMemory.createSensitiveMemory(memoryOwnerId, body)
+          : await UserMemory.createCandidate(memoryOwnerId, body);
+        response.status(200).json({
+          success: true,
+          memory: {
+            id: memory.id,
+            category: memory.category,
+            title: isSensitive ? UserMemory.maskedText : memory.title,
+            detail: isSensitive ? UserMemory.maskedText : memory.detail,
+            source: memory.source,
+            confidence: memory.confidence,
+            isSensitive,
+          },
+        });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e, 400);
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/memory/rebuild",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const result = await UserMemory.rebuildUserProfile(memoryOwnerId);
+        response.status(200).json(result);
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e);
+      }
+    }
+  );
+
+  app.patch(
+    "/system/user/memory/:id",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memory = await UserMemory.updateActiveMemory(
+          memoryOwnerId,
+          request.params.id,
+          reqBody(request)
+        );
+        response.status(200).json({ success: true, memory });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e, 400);
+      }
+    }
+  );
+
+  app.delete(
+    "/system/user/memory/:id",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const result = await UserMemory.deleteActiveMemory(
+          memoryOwnerId,
+          request.params.id
+        );
+        response.status(200).json(result);
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e, 400);
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/memory/:id/reveal",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const { currentPassword, reauthToken } = reqBody(request) || {};
+        const reauth = validateReauthToken(
+          reauthToken,
+          sessionUser.id,
+          "sensitive_memory_reveal"
+        );
+
+        if (!reauth) {
+          const storedUser = await User._get({ id: Number(sessionUser.id) });
+          const bcrypt = require("bcryptjs");
+          if (
+            !storedUser?.password ||
+            !bcrypt.compareSync(String(currentPassword || ""), storedUser.password)
+          ) {
+            response.status(401).json({
+              success: false,
+              error: "当前密码不正确。",
+            });
+            return;
+          }
+        }
+
+        const memory = await UserMemory.revealSensitive(
+          memoryOwnerId,
+          request.params.id
+        );
+        if (reauth) consumeReauthToken(reauthToken);
+        response.status(200).json({ success: true, memory });
+      } catch (e) {
+        console.error(e);
+        respondMemoryError(response, e, 400);
       }
     }
   );

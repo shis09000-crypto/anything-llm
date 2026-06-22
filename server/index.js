@@ -74,7 +74,14 @@ const {
 const {
   googleAgentSkillEndpoints,
 } = require("./endpoints/utils/googleAgentSkillEndpoints");
+const {
+  communicationDebugEndpoints,
+} = require("./endpoints/communicationDebug");
 const { httpLogger } = require("./middleware/httpLogger");
+const {
+  applyTransportSecurity,
+  corsOptionsForEnvironment,
+} = require("./utils/security/transportSecurity");
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
@@ -93,7 +100,8 @@ if (
     })
   );
 }
-app.use(cors({ origin: true }));
+applyTransportSecurity(app);
+app.use(cors(corsOptionsForEnvironment()));
 app.use(bodyParser.text({ limit: FILE_LIMIT, verify: rawBodySaver }));
 app.use(bodyParser.json({ limit: FILE_LIMIT, verify: rawBodySaver }));
 app.use(
@@ -151,6 +159,7 @@ cryptoHubEndpoints(apiRouter);
 cryptoGateProbeEndpoints(apiRouter);
 outlookAgentEndpoints(apiRouter);
 googleAgentSkillEndpoints(apiRouter);
+communicationDebugEndpoints(apiRouter);
 // Externally facing embedder endpoints
 embeddedEndpoints(apiRouter);
 

@@ -1,131 +1,101 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import {
+  apiErrorFallback as rawOrFallback,
+  apiErrorMessage as responseError,
+  apiErrorRaw as rawBody,
+} from "@/lib/communication/apiError";
 
-async function responseJson(res) {
-  const text = await res.text();
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { error: text || res.statusText };
-  }
-
-  if (!res.ok) {
-    return {
-      success: false,
-      error: data?.error || data?.message || res.statusText,
-      ...data,
-    };
-  }
-  return data;
+function responseJsonError(error) {
+  const data = rawBody(error) || {};
+  return {
+    success: false,
+    error: data?.error || data?.message || error.message,
+    ...data,
+  };
 }
 
 const Admin = {
   // User Management
   users: async () => {
-    return await fetch(`${API_BASE}/admin/users`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.users || [])
+    return await getJson("/admin/users")
+      .then(({ data }) => data?.users || [])
       .catch((e) => {
         console.error(e);
         return [];
       });
   },
   newUser: async (data) => {
-    return await fetch(`${API_BASE}/admin/users/new`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/admin/users/new", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { user: null, error: e.message };
+        return rawOrFallback(e, { user: null, error: e.message });
       });
   },
   updateUser: async (userId, data) => {
-    return await fetch(`${API_BASE}/admin/user/${userId}`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson(`/admin/user/${userId}`, data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   deleteUser: async (userId) => {
     return await Admin.deleteUserWithReauth(userId, {});
   },
   userDeletePreview: async (userId) => {
-    return await fetch(`${API_BASE}/admin/users/${userId}/delete-preview`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then(responseJson)
+    return await getJson(`/admin/users/${userId}/delete-preview`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { success: false, error: e.message };
       });
   },
-  deleteUserWithReauth: async (userId, { confirm = false, reauthToken } = {}) => {
-    return await fetch(`${API_BASE}/admin/user/${userId}`, {
-      method: "DELETE",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ confirm, reauthToken }),
+  deleteUserWithReauth: async (
+    userId,
+    { confirm = false, reauthToken } = {}
+  ) => {
+    return await deleteJson(`/admin/user/${userId}`, {
+      body: { confirm, reauthToken },
     })
-      .then(responseJson)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { success: false, error: e.message };
       });
   },
   banUser: async (userId, reason = "") => {
-    return await fetch(`${API_BASE}/admin/users/${userId}/ban`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ reason }),
-    })
-      .then(responseJson)
+    return await postJson(`/admin/users/${userId}/ban`, { reason })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { success: false, error: e.message };
       });
   },
   unbanUser: async (userId, { restoreRole, restoreAllowedEnvs } = {}) => {
-    return await fetch(`${API_BASE}/admin/users/${userId}/unban`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ restoreRole, restoreAllowedEnvs }),
+    return await postJson(`/admin/users/${userId}/unban`, {
+      restoreRole,
+      restoreAllowedEnvs,
     })
-      .then(responseJson)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { success: false, error: e.message };
       });
   },
 
   // Invitations
   invites: async () => {
-    return await fetch(`${API_BASE}/admin/invites`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.invites || [])
+    return await getJson("/admin/invites")
+      .then(({ data }) => data?.invites || [])
       .catch((e) => {
         console.error(e);
         return [];
@@ -136,107 +106,78 @@ const Admin = {
     workspaceIds = null,
     expiresInHours = 24,
   }) => {
-    return await fetch(`${API_BASE}/admin/invite/new`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({
-        role,
-        workspaceIds,
-        expiresInHours,
-      }),
+    return await postJson("/admin/invite/new", {
+      role,
+      workspaceIds,
+      expiresInHours,
     })
-      .then(responseJson)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { invite: null, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { invite: null, error: e.message };
       });
   },
   systemPreferences: async (labels = []) => {
     const query = labels.length ? `?labels=${labels.join(",")}` : "";
-    return await fetch(`${API_BASE}/admin/system-preferences-for${query}`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.settings || {})
+    return await getJson(`/admin/system-preferences-for${query}`)
+      .then(({ data }) => data?.settings || {})
       .catch((e) => {
         console.error(e);
         return {};
       });
   },
   disableInvite: async (inviteId) => {
-    return await fetch(`${API_BASE}/admin/invite/${inviteId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await deleteJson(`/admin/invite/${inviteId}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
 
   // Workspaces Mgmt
   workspaces: async () => {
-    return await fetch(`${API_BASE}/admin/workspaces`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.workspaces || [])
+    return await getJson("/admin/workspaces")
+      .then(({ data }) => data?.workspaces || [])
       .catch((e) => {
         console.error(e);
         return [];
       });
   },
   workspaceUsers: async (workspaceId) => {
-    return await fetch(`${API_BASE}/admin/workspaces/${workspaceId}/users`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res?.users || [])
+    return await getJson(`/admin/workspaces/${workspaceId}/users`)
+      .then(({ data }) => data?.users || [])
       .catch((e) => {
         console.error(e);
         return [];
       });
   },
   newWorkspace: async (name) => {
-    return await fetch(`${API_BASE}/admin/workspaces/new`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.json())
+    return await postJson("/admin/workspaces/new", { name })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { workspace: null, error: e.message };
+        return rawOrFallback(e, { workspace: null, error: e.message });
       });
   },
   updateUsersInWorkspace: async (workspaceId, userIds = []) => {
-    return await fetch(
-      `${API_BASE}/admin/workspaces/${workspaceId}/update-users`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ userIds }),
-      }
-    )
-      .then((res) => res.json())
+    return await postJson(`/admin/workspaces/${workspaceId}/update-users`, {
+      userIds,
+    })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   deleteWorkspace: async (workspaceId) => {
-    return await fetch(`${API_BASE}/admin/workspaces/${workspaceId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await deleteJson(`/admin/workspaces/${workspaceId}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -247,72 +188,52 @@ const Admin = {
    * @returns {Promise<{settings: Object, error: string}>} - System preferences object
    */
   systemPreferencesByFields: async (labels = []) => {
-    return await fetch(
-      `${API_BASE}/admin/system-preferences-for?labels=${labels.join(",")}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/admin/system-preferences-for?labels=${labels.join(",")}`
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return null;
       });
   },
   updateSystemPreferences: async (updates = {}) => {
-    return await fetch(`${API_BASE}/admin/system-preferences`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(updates),
-    })
-      .then(responseJson)
+    return await postJson("/admin/system-preferences", updates)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawBody(e)
+          ? responseJsonError(e)
+          : { success: false, error: e.message };
       });
   },
 
   // API Keys
   getApiKeys: async function () {
-    return fetch(`${API_BASE}/admin/api-keys`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(res.statusText || "Error fetching api keys.");
-        }
-        return res.json();
-      })
+    return getJson("/admin/api-keys")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { apiKeys: [], error: e.message };
+        return {
+          apiKeys: [],
+          error: responseError(e, "Error fetching api keys."),
+        };
       });
   },
   generateApiKey: async function (data = {}) {
-    return fetch(`${API_BASE}/admin/generate-api-key`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(res.statusText || "Error generating api key.");
-        }
-        return res.json();
-      })
+    return postJson("/admin/generate-api-key", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { apiKey: null, error: e.message };
+        return {
+          apiKey: null,
+          error: responseError(e, "Error generating api key."),
+        };
       });
   },
   deleteApiKey: async function (apiKeyId = "") {
-    return fetch(`${API_BASE}/admin/delete-api-key/${apiKeyId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    return deleteJson(`/admin/delete-api-key/${apiKeyId}`)
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;

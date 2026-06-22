@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { saveAs } from "file-saver";
 import {
   BookOpen,
+  CaretLeft,
+  CaretRight,
   ChatsCircle,
   EnvelopeSimple,
   TextT,
@@ -27,6 +29,8 @@ import {
   nextAccountPromotion,
   normalizeRole,
 } from "@/utils/authz";
+
+const CHAT_PAGE_SIZE = 15;
 
 function canModifyUser(actor, target) {
   const actorRole = normalizeRole(actor?.role);
@@ -168,6 +172,8 @@ export default function AdminPanel({ currentUser }) {
   const [chats, setChats] = useState([]);
   const [chatOffset, setChatOffset] = useState(0);
   const [canNextChatPage, setCanNextChatPage] = useState(false);
+  const [totalChats, setTotalChats] = useState(0);
+  const [hasExactChatTotal, setHasExactChatTotal] = useState(false);
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const [defaultPrompt, setDefaultPrompt] = useState({
     value: "",
@@ -186,9 +192,19 @@ export default function AdminPanel({ currentUser }) {
   const refreshWorkspaces = async () => setWorkspaces(await Admin.workspaces());
   const refreshInvites = async () => setInvites(await Admin.invites());
   const refreshChats = async (offset = chatOffset) => {
-    const result = await System.chats(offset);
-    setChats(result?.chats || []);
+    const result = await System.chats(offset, CHAT_PAGE_SIZE);
+    const nextChats = result?.chats || [];
+    const exactTotal =
+      result?.totalChats !== undefined &&
+      Number.isFinite(Number(result.totalChats));
+    setChats(nextChats);
     setCanNextChatPage(Boolean(result?.hasPages));
+    setHasExactChatTotal(exactTotal);
+    setTotalChats(
+      exactTotal
+        ? Number(result.totalChats)
+        : offset * CHAT_PAGE_SIZE + nextChats.length
+    );
   };
   const refreshRegistrationSetting = async () => {
     const settings = await Admin.systemPreferences([
@@ -251,10 +267,9 @@ export default function AdminPanel({ currentUser }) {
     <>
       <section id="admin" className="account-card">
         <div className="mb-2 px-1 pb-3">
-          <p className="text-sm font-semibold text-slate-500">Admin</p>
-          <h2 className="mt-1 text-2xl font-semibold text-slate-950">管理员</h2>
+          <h2 className="text-lg font-semibold text-slate-950">概览</h2>
           <p className="mt-1 text-sm leading-5 text-slate-500">
-            管理当前实例的账户、工作区、邀请和默认系统提示词。
+            查看当前实例的关键账户与工作区指标。
           </p>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
@@ -298,6 +313,10 @@ export default function AdminPanel({ currentUser }) {
         chatOffset={chatOffset}
         setChatOffset={setChatOffset}
         canNextChatPage={canNextChatPage}
+        totalChats={totalChats}
+        setTotalChats={setTotalChats}
+        hasExactChatTotal={hasExactChatTotal}
+        refreshChats={refreshChats}
       />
       <AdminInvitesCard
         invites={invites}
@@ -635,7 +654,33 @@ function AdminChatsCard({
   chatOffset,
   setChatOffset,
   canNextChatPage,
+  totalChats,
+  setTotalChats,
+  hasExactChatTotal,
+  refreshChats,
 }) {
+  const [jumpPage, setJumpPage] = useState("");
+  const currentPage = chatOffset + 1;
+  const totalPages = hasExactChatTotal
+    ? Math.max(Math.ceil(totalChats / CHAT_PAGE_SIZE), chats.length ? 1 : 0)
+    : currentPage + (canNextChatPage ? 1 : 0);
+  const pageItems = hasExactChatTotal
+    ? paginationItems(currentPage, totalPages)
+    : [];
+
+  const goToPage = (page) => {
+    const nextPage = Number(page);
+    if (!Number.isInteger(nextPage) || nextPage < 1) return;
+    if (hasExactChatTotal && nextPage > totalPages) return;
+    setChatOffset(nextPage - 1);
+  };
+
+  const handleJump = (event) => {
+    event.preventDefault();
+    goToPage(Number(jumpPage));
+    setJumpPage("");
+  };
+
   const deleteChat = async (chatId) => {
     if (
       !(await showAppConfirm({
@@ -647,7 +692,13 @@ function AdminChatsCard({
     )
       return;
     await System.deleteChat(chatId);
-    setChats((prev) => prev.filter((chat) => chat.id !== chatId));
+    const nextTotalChats = Math.max(Number(totalChats || 0) - 1, 0);
+    setTotalChats(nextTotalChats);
+    if (chats.length === 1 && chatOffset > 0) {
+      setChatOffset(chatOffset - 1);
+      return;
+    }
+    await refreshChats(chatOffset);
   };
 
   const clearAllChats = async () => {
@@ -662,6 +713,8 @@ function AdminChatsCard({
       return;
     await System.deleteChat(-1);
     setChats([]);
+    setTotalChats(0);
+    setChatOffset(0);
     showToast("聊天记录已清空。", "success", { clear: true });
   };
 
@@ -752,28 +805,127 @@ function AdminChatsCard({
               </tr>
             ))}
           </AppleTable>
-          <div className="mt-4 flex items-center justify-between">
-            <AppButton
-              size="sm"
-              variant="secondary"
-              disabled={chatOffset === 0}
-              onClick={() => setChatOffset(Math.max(chatOffset - 1, 0))}
+          <div className="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <p className="text-sm font-medium text-slate-500">
+              共 {Number(totalChats || 0)} 条
+            </p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <AppButton
+                size="sm"
+                variant="secondary"
+                iconOnly
+                leftIcon={<CaretLeft className="h-4 w-4" />}
+                aria-label="上一页"
+                disabled={chatOffset === 0}
+                onClick={() => setChatOffset(Math.max(chatOffset - 1, 0))}
+              />
+
+              {hasExactChatTotal ? (
+                pageItems.map((item, index) =>
+                  item === "ellipsis" ? (
+                    <span
+                      key={`ellipsis-${index}`}
+                      className="px-1 text-sm font-semibold text-slate-400"
+                    >
+                      ...
+                    </span>
+                  ) : (
+                    <button
+                      key={item}
+                      type="button"
+                      onClick={() => goToPage(item)}
+                      className={[
+                        "h-9 min-w-[36px] rounded-full px-3 text-sm font-semibold transition",
+                        item === currentPage
+                          ? "border border-sky-200 bg-white text-sky-600 shadow-sm ring-2 ring-sky-100"
+                          : "border border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                      ].join(" ")}
+                    >
+                      {item}
+                    </button>
+                  )
+                )
+              ) : (
+                <span className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-600">
+                  {currentPage}
+                </span>
+              )}
+
+              <AppButton
+                size="sm"
+                variant="secondary"
+                iconOnly
+                leftIcon={<CaretRight className="h-4 w-4" />}
+                aria-label="下一页"
+                disabled={
+                  hasExactChatTotal ? currentPage >= totalPages : !canNextChatPage
+                }
+                onClick={() => setChatOffset(chatOffset + 1)}
+              />
+            </div>
+
+            <form
+              className="flex items-center gap-2 lg:justify-end"
+              onSubmit={handleJump}
             >
-              上一页
-            </AppButton>
-            <AppButton
-              size="sm"
-              variant="secondary"
-              disabled={!canNextChatPage}
-              onClick={() => setChatOffset(chatOffset + 1)}
-            >
-              下一页
-            </AppButton>
+              <span className="text-sm font-medium text-slate-500">跳转</span>
+              <input
+                value={jumpPage}
+                onChange={(event) => {
+                  const nextValue = event.target.value;
+                  if (/^\d*$/.test(nextValue)) setJumpPage(nextValue);
+                }}
+                inputMode="numeric"
+                pattern="[0-9]*"
+                aria-label="跳转页码"
+                className="h-9 w-16 rounded-full border border-slate-200 bg-white px-3 text-center text-sm font-semibold text-slate-700 outline-none transition placeholder:text-slate-300 focus:border-sky-400"
+                placeholder="页"
+              />
+              <AppButton
+                type="submit"
+                size="sm"
+                variant="secondary"
+                disabled={!hasExactChatTotal || !jumpPage}
+              >
+                跳转
+              </AppButton>
+            </form>
           </div>
         </>
       )}
     </AdminCard>
   );
+}
+
+function paginationItems(currentPage, totalPages) {
+  if (totalPages <= 0) return [];
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage]);
+  if (currentPage <= 4) {
+    [2, 3, 4, 5].forEach((page) => pages.add(page));
+  } else if (currentPage >= totalPages - 3) {
+    [totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1].forEach(
+      (page) => pages.add(page)
+    );
+  } else {
+    [currentPage - 1, currentPage + 1].forEach((page) => pages.add(page));
+  }
+
+  const sortedPages = Array.from(pages)
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((a, b) => a - b);
+
+  return sortedPages.reduce((items, page, index) => {
+    if (index > 0 && page - sortedPages[index - 1] > 1) {
+      items.push("ellipsis");
+    }
+    items.push(page);
+    return items;
+  }, []);
 }
 
 function AdminInvitesCard({

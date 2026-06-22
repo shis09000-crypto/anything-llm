@@ -1623,7 +1623,6 @@ function LocalFileConflictModal({ conflict, onResolve }) {
 
 export default function DocumentReaderPanel({
   percent = 50,
-  onActiveChange = null,
   onBeforeActiveChange = null,
   onReaderLayoutTransition = null,
 }) {
@@ -1670,12 +1669,8 @@ export default function DocumentReaderPanel({
   const progressTimerRef = useRef(null);
   const latestPagedProgressRef = useRef(null);
   const saveProgressSnapshotRef = useRef(null);
-  const onActiveChangeRef = useRef(onActiveChange);
 
   const active = !!currentDocument || !!drawerOpen;
-  useEffect(() => {
-    onActiveChangeRef.current = onActiveChange;
-  }, [onActiveChange]);
 
   useEffect(() => {
     debugChatTurn("DocumentReaderPanel:activeState", {
@@ -1684,12 +1679,7 @@ export default function DocumentReaderPanel({
       drawerOpen: !!drawerOpen,
       currentDocumentId: currentDocument?.readerDocumentId || null,
     });
-    onActiveChange?.(active);
-  }, [active, onActiveChange]);
-
-  useEffect(() => {
-    return () => onActiveChangeRef.current?.(false);
-  }, []);
+  }, [active, currentDocument, drawerOpen]);
 
   useEffect(() => {
     return () => window.clearTimeout(progressTimerRef.current);

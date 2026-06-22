@@ -258,7 +258,9 @@
     "deepseek-coder": 128000,
     "deepseek-r1": 65536,
     "deepseek-v3": 65536,
-    "deepseek-v3.2": 163840
+    "deepseek-v3.2": 163840,
+    "deepseek-v4-flash": 1000000,
+    "deepseek-v4-pro": 1000000
   },
   "moonshot": {
     "kimi-k2-0711-preview": 131072,

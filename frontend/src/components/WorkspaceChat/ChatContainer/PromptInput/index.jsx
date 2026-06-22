@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { GlassCard } from "@developer-hub/liquid-glass";
 import debounce from "lodash.debounce";
 import {
   ArrowUp,
@@ -26,7 +27,7 @@ import Appearance from "@/models/appearance";
 import usePromptInputStorage from "@/hooks/usePromptInputStorage";
 import ToolsMenu, { TOOLS_MENU_KEYBOARD_EVENT } from "./ToolsMenu";
 import { useSearchParams } from "react-router-dom";
-import { useIsAgentSessionActive } from "@/utils/chat/agent";
+import { useIsAgentSessionActive } from "@/lib/communication/agentWebSocketClient";
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import { nFormatter } from "@/utils/numbers";
@@ -509,7 +510,11 @@ export default function PromptInput({
         <div
           className={`flex items-center rounded-lg md:w-full ${centered ? "mb-0" : "mb-2"}`}
         >
-          <div className="chat-prompt-feather relative w-[95vw] md:w-[750px]">
+          <div
+            className={`chat-prompt-feather relative w-[95vw] md:w-[750px] ${
+              glass ? "liquid-glass-composer-host" : ""
+            }`}
+          >
             <ToolsMenu
               workspace={workspace}
               showing={showTools}
@@ -519,13 +524,7 @@ export default function PromptInput({
               centered={centered}
               highlightedIndexRef={toolsHighlightRef}
             />
-            <div
-              className={`relative z-10 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden ${
-                glass
-                  ? "liquid-glass liquid-glass-strong"
-                  : "bg-zinc-800 light:bg-white light:border light:border-slate-300"
-              }`}
-            >
+            <PromptInputGlassShell glass={glass}>
               <AttachmentManager attachments={attachments} />
               <ReaderTextSourceCards
                 sources={readerContext?.pendingReaderTextSources || []}
@@ -622,10 +621,41 @@ export default function PromptInput({
                   测试模式已开启：下一次输入将生成测试题
                 </div>
               )}
-            </div>
+            </PromptInputGlassShell>
           </div>
         </div>
       </form>
+    </div>
+  );
+}
+
+function PromptInputGlassShell({ glass, children }) {
+  if (!glass) {
+    return (
+      <div className="relative z-10 rounded-[20px] pwa:rounded-3xl flex flex-col px-5 overflow-hidden bg-zinc-800 light:bg-white light:border light:border-slate-300">
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="official-liquid-glass-composer-shell relative z-10 w-full"
+      style={{ "--official-liquid-glass-composer-radius": "10px" }}
+    >
+      <GlassCard
+        className="official-liquid-glass-composer w-full"
+        displacementScale={100}
+        blurAmount={0.01}
+        cornerRadius={10}
+        padding="0px"
+        shadowMode={false}
+        style={{ width: "100%", borderRadius: "10px" }}
+      >
+        <div className="liquid-glass-composer-content flex w-full flex-col overflow-hidden px-5">
+          {children}
+        </div>
+      </GlassCard>
     </div>
   );
 }

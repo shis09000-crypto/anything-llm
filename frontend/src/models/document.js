@@ -1,17 +1,13 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback as rawOrFallback } from "@/lib/communication/apiError";
 
 const Document = {
   createFolder: async (name) => {
-    return await fetch(`${API_BASE}/document/create-folder`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ name }),
-    })
-      .then((res) => res.json())
+    return await postJson("/document/create-folder", { name })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   moveToFolder: async (files, folderName) => {
@@ -22,15 +18,11 @@ const Document = {
       })),
     };
 
-    return await fetch(`${API_BASE}/document/move-files`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then((res) => res.json())
+    return await postJson("/document/move-files", data)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
 };

@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
-import {
-  parseCryptoHubSse,
-  cryptoHubSseData,
-} from "@/hooks/cryptoHub/useCryptoHubStream";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
+import { streamTradeRecords } from "@/lib/communication/crypto/cryptoHubStreamClient";
 import {
   mockTradeRecords,
   mockTradeRecordsSummary,
@@ -22,9 +17,6 @@ import type {
 
 export type TradeRecordsDataMode = "mock" | "gate-api";
 
-const TRADE_RECORDS_ENDPOINT = `${API_BASE}/crypto-hub/trade-records`;
-const TRADE_RECORDS_STREAM_ENDPOINT = `${TRADE_RECORDS_ENDPOINT}/stream`;
-const TRADE_RECORDS_FEE_SUMMARY_ENDPOINT = `${TRADE_RECORDS_ENDPOINT}/fee-summary`;
 const BATCH_LIMIT = 50;
 const RECONNECT_DELAY_MS = 5_000;
 
@@ -37,14 +29,6 @@ const emptySummary: TradeRecordsSummary = {
   spotNotionalUsd: "0.00",
   futuresNotionalUsd: "0.00",
 };
-
-function parseSseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
 
 function recordKey(record: TradeRecordItem) {
   return `${record.marketType}:${record.id}:${record.orderId}`;
@@ -351,16 +335,9 @@ export function useTradeRecordsData({
       if (append) setLoadingMore(true);
       else setLoading(true);
       try {
-        const response = await fetch(
-          `${TRADE_RECORDS_ENDPOINT}?${queryString({ fromSec, toSec, cursorTs })}`,
-          { headers: baseHeaders() }
+        const payload = await cryptoHubFetch<TradeRecordsResponse>(
+          `/trade-records?${queryString({ fromSec, toSec, cursorTs })}`
         );
-        const payload = (await response.json()) as TradeRecordsResponse;
-        if (!response.ok || !payload?.success) {
-          throw new Error(
-            payload?.safeErrorMessage || "Gate trade records request failed."
-          );
-        }
         applyPayload(payload, append ? "append" : "replace");
         if (!append) setHasLoadedOnce(true);
       } catch (requestError) {
@@ -390,19 +367,12 @@ export function useTradeRecordsData({
   const loadFeeSummary = useCallback(async () => {
     if (mode !== "gate-api") return;
     try {
-      const response = await fetch(
-        `${TRADE_RECORDS_FEE_SUMMARY_ENDPOINT}?${feeSummaryQueryString({
+      const payload = await cryptoHubFetch<TradeRecordsFeeSummaryResponse>(
+        `/trade-records/fee-summary?${feeSummaryQueryString({
           fromSec,
           toSec,
-        })}`,
-        { headers: baseHeaders() }
+        })}`
       );
-      const payload = (await response.json()) as TradeRecordsFeeSummaryResponse;
-      if (!response.ok || !payload?.success) {
-        throw new Error(
-          payload?.safeErrorMessage || "Gate trade records fee summary failed."
-        );
-      }
       setFeeSummary({
         totalFeeUsd: payload.totalFeeUsd,
         yearTotalFeeUsd: payload.yearTotalFeeUsd,
@@ -525,60 +495,43 @@ export function useTradeRecordsData({
 
     const controller = new AbortController();
     abortRef.current = controller;
-    fetchEventSource(
-      `${TRADE_RECORDS_STREAM_ENDPOINT}?${queryString({ fromSec, toSec })}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal: controller.signal,
-        openWhenHidden: false,
-        async onopen(response) {
-          if (response.ok) {
-            setConnectionStatus("connected");
-            setError(null);
-            clearReconnectTimer();
-            return;
-          }
-          throw new Error(
-            `Gate trade records stream failed: ${response.status}`
-          );
-        },
-        onmessage(message) {
-          const envelope = parseCryptoHubSse<TradeRecordsResponse>(
-            message.data
-          );
-          const payload =
-            envelope?.data ||
-            cryptoHubSseData<TradeRecordsResponse>(message.data) ||
-            parseSseJson<TradeRecordsResponse>(message.data);
-          if (!payload) return;
-          if (payload.success === false) {
-            setConnectionStatus("disconnected");
-            setError(
-              payload.safeErrorMessage || "Gate trade records stream failed."
-            );
-            return;
-          }
-          applyPayload(
-            payload,
-            envelope?.type === "snapshot" || message.event === "snapshot"
-              ? "replace"
-              : "prepend"
-          );
-        },
-        onerror(error) {
-          const hasCachedRecords = recordsRef.current.length > 0;
-          setConnectionStatus(hasCachedRecords ? "degraded" : "disconnected");
+    streamTradeRecords({
+      from: fromSec,
+      to: toSec,
+      limit: BATCH_LIMIT,
+      signal: controller.signal,
+      retryOnError: true,
+      onOpen() {
+        setConnectionStatus("connected");
+        setError(null);
+        clearReconnectTimer();
+      },
+      onData(payload: TradeRecordsResponse, envelope, message) {
+        if (!payload) return;
+        if (payload.success === false) {
+          setConnectionStatus("disconnected");
           setError(
-            error instanceof Error
-              ? error.message
-              : "Gate trade records stream failed."
+            payload.safeErrorMessage || "Gate trade records stream failed."
           );
-          scheduleReconnect({ append: false });
-          return RECONNECT_DELAY_MS;
-        },
-      }
-    ).catch(() => null);
+          return;
+        }
+        applyPayload(
+          payload,
+          envelope?.type === "snapshot" || message.event === "snapshot"
+            ? "replace"
+            : "prepend"
+        );
+      },
+      onError(error) {
+        const hasCachedRecords = recordsRef.current.length > 0;
+        setConnectionStatus(hasCachedRecords ? "degraded" : "disconnected");
+        setError(
+          error?.message ? error.message : "Gate trade records stream failed."
+        );
+        scheduleReconnect({ append: false });
+        return RECONNECT_DELAY_MS;
+      },
+    }).catch(() => null);
 
     return () => {
       controller.abort();

@@ -7,6 +7,7 @@
 
 const { DrupalWiki } = require("./DrupalWiki");
 const { validBaseUrl } = require("../../../utils/http");
+const { redactUrl } = require("../../security/redaction");
 
 async function loadAndStoreSpaces(
   { baseUrl = null, spaceIds = null, accessToken = null },
@@ -40,7 +41,9 @@ async function loadAndStoreSpaces(
     };
   }
 
-  console.log(`-- Working Drupal Wiki ${baseUrl} for spaceIds: ${spaceIds} --`);
+  console.log(
+    `-- Working Drupal Wiki ${redactUrl(baseUrl)} for spaceIds: ${spaceIds} --`
+  );
   const drupalWiki = new DrupalWiki({ baseUrl, accessToken });
 
   const encryptionWorker = response.locals.encryptionWorker;
@@ -78,7 +81,9 @@ async function loadAndStoreSpaces(
  * @returns
  */
 async function loadPage({ baseUrl, pageId, accessToken }) {
-  console.log(`-- Working Drupal Wiki Page ${pageId} of ${baseUrl} --`);
+  console.log(
+    `-- Working Drupal Wiki Page ${pageId} of ${redactUrl(baseUrl)} --`
+  );
   const drupalWiki = new DrupalWiki({ baseUrl, accessToken });
   try {
     const page = await drupalWiki.loadPage(pageId);
@@ -90,7 +95,9 @@ async function loadPage({ baseUrl, pageId, accessToken }) {
   } catch {
     return {
       success: false,
-      reason: `Failed (re)-fetching DrupalWiki page ${pageId} form ${baseUrl}}`,
+      reason: `Failed (re)-fetching DrupalWiki page ${pageId} from ${redactUrl(
+        baseUrl
+      )}`,
       content: null,
     };
   }

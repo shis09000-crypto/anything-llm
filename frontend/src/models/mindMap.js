@@ -1,35 +1,26 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, patchJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorMessage, apiErrorRaw } from "@/lib/communication/apiError";
+
+function responseError(error, fallback) {
+  return apiErrorRaw(error)?.reason || apiErrorMessage(error, fallback);
+}
 
 const MindMap = {
   async list(slug, threadSlug = null) {
     const params = new URLSearchParams();
     if (threadSlug) params.set("threadSlug", threadSlug);
     const query = params.toString() ? `?${params.toString()}` : "";
-    return await fetch(`${API_BASE}/workspace/${slug}/mind-maps${query}`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((data) => data.mindMaps || [])
+    return await getJson(`/workspace/${slug}/mind-maps${query}`)
+      .then(({ data }) => data.mindMaps || [])
       .catch(() => []);
   },
 
   async generate(slug, body = {}) {
-    return await fetch(`${API_BASE}/workspace/${slug}/mind-maps/generate`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "生成思维导图失败。");
-        return data;
-      })
-      .catch((error) => ({ error: error.message }));
+    return await postJson(`/workspace/${slug}/mind-maps/generate`, body)
+      .then(({ data }) => data)
+      .catch((error) => ({
+        error: responseError(error, "生成思维导图失败。"),
+      }));
   },
 
   async graph(slug, params = {}) {
@@ -38,43 +29,28 @@ const MindMap = {
       if (value === undefined || value === null || value === "") return;
       searchParams.set(key, value);
     });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/mind-maps/graph?${searchParams.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/mind-maps/graph?${searchParams.toString()}`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载知识图谱失败。");
-        return data;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data)
+      .catch((error) => ({
+        error: responseError(error, "加载知识图谱失败。"),
+      }));
   },
 
   async concepts(slug, query = "", limit = 10) {
     if (!query?.trim()) return [];
     const params = new URLSearchParams({ q: query, limit: String(limit) });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/concepts?${params.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/knowledge/concepts?${params.toString()}`
     )
-      .then((res) => res.json())
-      .then((data) => data.concepts || [])
+      .then(({ data }) => data.concepts || [])
       .catch(() => []);
   },
 
   async graphStats(slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/knowledge/stats`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((data) => data.stats || null)
+    return await getJson(`/workspace/${slug}/knowledge/stats`)
+      .then(({ data }) => data.stats || null)
       .catch(() => null);
   },
 
@@ -84,65 +60,37 @@ const MindMap = {
       if (value === undefined || value === null || value === "") return;
       searchParams.set(key, value);
     });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/path?${searchParams.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/knowledge/path?${searchParams.toString()}`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载推理路径失败。");
-        return data;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data)
+      .catch((error) => ({
+        error: responseError(error, "加载推理路径失败。"),
+      }));
   },
 
   async repairStatus(slug) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/repair-status`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
-      .then((data) => data.repair || null)
+    return await getJson(`/workspace/${slug}/knowledge/repair-status`)
+      .then(({ data }) => data.repair || null)
       .catch(() => null);
   },
 
   async repair(slug, body = {}) {
-    return await fetch(`${API_BASE}/workspace/${slug}/knowledge/repair`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "知识图谱修复失败。");
-        return data.result;
-      })
-      .catch((error) => ({ error: error.message }));
+    return await postJson(`/workspace/${slug}/knowledge/repair`, body)
+      .then(({ data }) => data.result)
+      .catch((error) => ({
+        error: responseError(error, "知识图谱修复失败。"),
+      }));
   },
 
   async releaseQuarantine(slug, issueId) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/repair/quarantine/${issueId}/release`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
+    return await postJson(
+      `/workspace/${slug}/knowledge/repair/quarantine/${issueId}/release`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "解除隔离失败。");
-        return data.issue;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data.issue)
+      .catch((error) => ({
+        error: responseError(error, "解除隔离失败。"),
+      }));
   },
 
   async nodeEvidence(slug, params = {}) {
@@ -151,19 +99,13 @@ const MindMap = {
       if (value === undefined || value === null || value === "") return;
       searchParams.set(key, value);
     });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/evidence/node?${searchParams.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/knowledge/evidence/node?${searchParams.toString()}`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载节点证据失败。");
-        return data.evidence;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data.evidence)
+      .catch((error) => ({
+        error: responseError(error, "加载节点证据失败。"),
+      }));
   },
 
   async edgeEvidence(slug, params = {}) {
@@ -172,34 +114,18 @@ const MindMap = {
       if (value === undefined || value === null || value === "") return;
       searchParams.set(key, value);
     });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/evidence/edge?${searchParams.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/knowledge/evidence/edge?${searchParams.toString()}`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载关系证据失败。");
-        return data.evidence;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data.evidence)
+      .catch((error) => ({
+        error: responseError(error, "加载关系证据失败。"),
+      }));
   },
 
   async recordEvidenceUsage(slug, body = {}) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/evidence/usage`,
-      {
-        method: "POST",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    )
-      .then((res) => (res.ok ? res.json() : null))
+    return await postJson(`/workspace/${slug}/knowledge/evidence/usage`, body)
+      .then(({ data }) => data)
       .catch(() => null);
   },
 
@@ -209,93 +135,52 @@ const MindMap = {
       if (value === undefined || value === null || value === "") return;
       searchParams.set(key, value);
     });
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/node-metrics?${searchParams.toString()}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    return await getJson(
+      `/workspace/${slug}/knowledge/node-metrics?${searchParams.toString()}`
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载重要性指标失败。");
-        return data.metrics;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data.metrics)
+      .catch((error) => ({
+        error: responseError(error, "加载重要性指标失败。"),
+      }));
   },
 
   async graphContext(slug, body = {}) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/graph-context`,
-      {
-        method: "POST",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
-    )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "加载节点上下文失败。");
-        return data.context;
-      })
-      .catch((error) => ({ error: error.message }));
+    return await postJson(`/workspace/${slug}/knowledge/graph-context`, body)
+      .then(({ data }) => data.context)
+      .catch((error) => ({
+        error: responseError(error, "加载节点上下文失败。"),
+      }));
   },
 
   async resolveNode(slug, body = {}) {
-    return await fetch(`${API_BASE}/workspace/${slug}/knowledge/resolve-node`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    })
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok && !data?.candidates)
-          throw new Error(data.error || data.reason || "解析节点身份失败。");
-        return data;
-      })
-      .catch((error) => ({ success: false, error: error.message }));
+    return await postJson(`/workspace/${slug}/knowledge/resolve-node`, body)
+      .then(({ data }) => data)
+      .catch((error) => {
+        if (error?.raw?.candidates) return error.raw;
+        return {
+          success: false,
+          error: responseError(error, "解析节点身份失败。"),
+        };
+      });
   },
 
   async recomputeNodeMetrics(slug, body = {}) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/knowledge/node-metrics/recompute`,
-      {
-        method: "POST",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      }
+    return await postJson(
+      `/workspace/${slug}/knowledge/node-metrics/recompute`,
+      body
     )
-      .then(async (res) => {
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "请求重算指标失败。");
-        return data.result;
-      })
-      .catch((error) => ({ error: error.message }));
+      .then(({ data }) => data.result)
+      .catch((error) => ({
+        error: responseError(error, "请求重算指标失败。"),
+      }));
   },
 
   async updateViewport(slug, id, viewport = null) {
     if (!id) return null;
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/mind-maps/${id}/viewport`,
-      {
-        method: "PATCH",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ viewport }),
-      }
-    )
-      .then((res) => (res.ok ? res.json() : null))
+    return await patchJson(`/workspace/${slug}/mind-maps/${id}/viewport`, {
+      viewport,
+    })
+      .then(({ data }) => data)
       .catch(() => null);
   },
 };

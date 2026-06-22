@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
-import { cryptoHubSseData } from "@/hooks/cryptoHub/useCryptoHubStream";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
+import { streamMarketCandles } from "@/lib/communication/crypto/cryptoHubStreamClient";
 import { generateMockCandles } from "./tradingPairMockCandles";
 import type {
   TradingPairCandle,
@@ -19,8 +17,6 @@ import type {
 } from "./tradingPairDetailTypes";
 
 const MAX_CACHED_CANDLES = 720;
-const CANDLES_ENDPOINT = `${API_BASE}/crypto-hub/market-candles`;
-const HUB_CANDLES_STREAM_ENDPOINT = `${API_BASE}/crypto-hub/market-candles/stream`;
 const STREAM_RENDER_THROTTLE_MS = 250;
 const STREAM_RECONNECT_MS = 1_500;
 
@@ -132,14 +128,6 @@ function connectionStatusFromStream(
   return "disconnected";
 }
 
-function parseSseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
-
 export function useTradingPairCandlestickData({
   mode,
   pair,
@@ -216,15 +204,6 @@ export function useTradingPairCandlestickData({
       streamAbortRef.current.abort();
       streamAbortRef.current = null;
     }
-  }
-
-  function streamUrl() {
-    const params = new URLSearchParams({
-      pair,
-      range,
-      market,
-    });
-    return `${HUB_CANDLES_STREAM_ENDPOINT}?${params.toString()}`;
   }
 
   function flushStreamPayload() {
@@ -314,27 +293,20 @@ export function useTradingPairCandlestickData({
     streamAbortRef.current = controller;
     streamShouldRunRef.current = true;
 
-    fetchEventSource(streamUrl(), {
-      method: "GET",
-      headers: baseHeaders(),
+    streamMarketCandles({
+      pair,
+      range,
+      market,
       signal: controller.signal,
-      openWhenHidden: false,
-      async onopen(response) {
-        if (response.ok) return;
-        throw new Error(`Gate market stream failed: ${response.status}`);
-      },
-      onmessage(message) {
-        const payload =
-          cryptoHubSseData<TradingPairCandlesStreamEvent>(message.data) ||
-          parseSseJson<TradingPairCandlesStreamEvent>(message.data);
+      onData(payload: TradingPairCandlesStreamEvent) {
         if (payload) scheduleStreamPayload(payload);
       },
-      onclose() {
+      onClose() {
         if (controller.signal.aborted) return;
         streamAbortRef.current = null;
         scheduleGateStreamReconnect();
       },
-      onerror(error) {
+      onError(error) {
         if (controller.signal.aborted) return;
         throw error;
       },
@@ -472,15 +444,9 @@ export function useTradingPairCandlestickData({
         );
       }
 
-      const response = await fetch(`${CANDLES_ENDPOINT}?${params.toString()}`, {
-        headers: baseHeaders(),
-      });
-      const payload = (await response.json()) as TradingPairCandlesResponse;
-      if (!response.ok || !payload.success) {
-        throw new Error(
-          payload.safeErrorMessage || "Gate candles request failed."
-        );
-      }
+      const payload = await cryptoHubFetch<TradingPairCandlesResponse>(
+        `/market-candles?${params.toString()}`
+      );
 
       const incoming = Array.isArray(payload.candles) ? payload.candles : [];
       setCache((current) => ({

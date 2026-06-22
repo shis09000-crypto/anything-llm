@@ -48,6 +48,7 @@ export function EditMessageAction({ chatId = null, role, isEditing }) {
 export function EditMessageForm({
   role,
   chatId,
+  publicChatId = null,
   message,
   attachments = [],
   adjustTextArea,
@@ -58,7 +59,7 @@ export function EditMessageForm({
   function handleSubmit(e) {
     e.preventDefault();
     const editedMessage = formRef.current.value;
-    saveChanges({ editedMessage, chatId, role, attachments });
+    saveChanges({ editedMessage, chatId, publicChatId, role, attachments });
     window.dispatchEvent(
       new CustomEvent(EDIT_EVENT, { detail: { chatId, role, attachments } })
     );
@@ -69,6 +70,7 @@ export function EditMessageForm({
     saveChanges({
       editedMessage,
       chatId,
+      publicChatId,
       role,
       attachments,
       saveOnly: true,

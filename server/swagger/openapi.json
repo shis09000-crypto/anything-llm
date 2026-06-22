@@ -3331,9 +3331,6 @@
           "200": {
             "description": "OK"
           },
-          "400": {
-            "description": "Bad Request"
-          },
           "403": {
             "description": "Forbidden"
           },

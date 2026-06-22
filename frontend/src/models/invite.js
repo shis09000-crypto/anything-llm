@@ -1,36 +1,29 @@
-import { API_BASE } from "@/utils/constants";
+import { getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback as rawOrFallback } from "@/lib/communication/apiError";
 
 const Invite = {
   checkInvite: async (inviteCode) => {
-    return await fetch(`${API_BASE}/invite/${inviteCode}`, {
-      method: "GET",
-    })
-      .then((res) => res.json())
+    return await getJson(`/invite/${inviteCode}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { invite: null, error: e.message };
+        return rawOrFallback(e, { invite: null, error: e.message });
       });
   },
   acceptInvite: async (inviteCode, newUserInfo = {}) => {
-    return await fetch(`${API_BASE}/invite/${inviteCode}`, {
-      method: "POST",
-      body: JSON.stringify(newUserInfo),
-    })
-      .then((res) => res.json())
+    return await postJson(`/invite/${inviteCode}`, newUserInfo)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   requestEmailCode: async (inviteCode, email) => {
-    return await fetch(`${API_BASE}/invite/${inviteCode}/email/request`, {
-      method: "POST",
-      body: JSON.stringify({ email }),
-    })
-      .then((res) => res.json())
+    return await postJson(`/invite/${inviteCode}/email/request`, { email })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
 };

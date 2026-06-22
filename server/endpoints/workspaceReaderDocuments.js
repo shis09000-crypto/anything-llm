@@ -32,6 +32,12 @@ const {
   recognizeImage,
 } = require("../utils/OcrProviders/alibaba");
 const { storagePath } = require("../utils/environment");
+const {
+  fileBackedOwnerMetadata,
+  getAuthorizedFileBackedResource,
+  requestAuthContext,
+  stripFileBackedOwnerMetadata,
+} = require("../utils/authz/resourceAccess");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -750,26 +756,75 @@ async function ensureDocxPreview({
 }
 
 function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
+  const publicMetadata = stripFileBackedOwnerMetadata(metadata);
   return {
-    ...metadata,
-    originalName: decodeMaybeMojibakeFilename(metadata.originalName),
+    ...publicMetadata,
+    originalName: decodeMaybeMojibakeFilename(publicMetadata.originalName),
     readerDocumentWorkspaceSlug: workspace?.readerStandalone
       ? null
-      : workspace?.slug || metadata.readerDocumentWorkspaceSlug || null,
+      : workspace?.slug || publicMetadata.readerDocumentWorkspaceSlug || null,
     originalUrl: `${readerApiPrefix(workspace)}/${readerDocumentId}/original`,
-    ...(metadata.previewPdfName
+    ...(publicMetadata.previewPdfName
       ? {
           previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
           previewMimeType: "application/pdf",
         }
       : {}),
-    ...(metadata.thumbnailName
+    ...(publicMetadata.thumbnailName
       ? {
           thumbnailUrl: thumbnailUrlForDocument(workspace, readerDocumentId),
           thumbnailMimeType: "image/jpeg",
         }
       : {}),
   };
+}
+
+async function readerOwnerMetadataForRequest(request, response) {
+  const auth = await requestAuthContext({ request, response });
+  return fileBackedOwnerMetadata(auth.user || null);
+}
+
+function readerDocumentNotFoundError() {
+  const error = new Error("Reader document not found.");
+  error.status = 404;
+  return error;
+}
+
+async function assertAuthorizedStandaloneReaderDocument({
+  request,
+  response,
+  readerDocumentId,
+  metadata,
+}) {
+  const access = await getAuthorizedFileBackedResource({
+    request,
+    response,
+    metadata,
+    resourceType: "standalone_reader_document",
+    resourceId: readerDocumentId,
+  });
+  if (!access) throw readerDocumentNotFoundError();
+  return access;
+}
+
+async function readAuthorizedStandaloneReaderMetadata(
+  request,
+  response,
+  documentRoot,
+  readerDocumentId,
+  endpoint
+) {
+  const metadata = readReaderJsonFile(documentRoot, "metadata.json", null, {
+    readerDocumentId,
+    endpoint,
+  });
+  await assertAuthorizedStandaloneReaderDocument({
+    request,
+    response,
+    readerDocumentId,
+    metadata,
+  });
+  return metadata;
 }
 
 async function validateLocalReaderPath(absolutePath, context = {}) {
@@ -2031,6 +2086,10 @@ function workspaceReaderDocumentsEndpoints(app) {
             documentType,
             buffer: request.file.buffer,
           });
+          const ownerMetadata = await readerOwnerMetadataForRequest(
+            request,
+            response
+          );
           const metadata = {
             schemaVersion: SCHEMA_VERSION,
             readerDocumentId,
@@ -2041,6 +2100,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             size: request.file.size,
             originalFingerprint: fingerprintForBuffer(request.file.buffer),
             createdAt: new Date().toISOString(),
+            ...ownerMetadata,
           };
 
           writeReaderJsonFile(documentRoot, "content.json", content);
@@ -2091,16 +2151,21 @@ function workspaceReaderDocumentsEndpoints(app) {
           buffer,
           stat,
         });
+        const ownerMetadata = await readerOwnerMetadataForRequest(
+          request,
+          response
+        );
+        const ownedMetadata = { ...metadata, ...ownerMetadata };
         const documentRoot = writeReaderDocumentFiles(
           workspace,
           readerDocumentId,
           content,
-          metadata
+          ownedMetadata
         );
         const finalMetadata = await finalizeReaderDocumentMetadata({
           workspace,
           readerDocumentId,
-          metadata,
+          metadata: ownedMetadata,
           originalPath: absolutePath,
           buffer,
         });
@@ -2171,10 +2236,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
+        await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
           readerDocumentId,
-          endpoint: "postprocess.enqueue",
-        });
+          "postprocess.enqueue"
+        );
         const status = enqueueReaderPostprocessJob({
           workspace,
           readerDocumentId,
@@ -2188,7 +2256,7 @@ function workspaceReaderDocumentsEndpoints(app) {
         });
       } catch (error) {
         return response
-          .status(400)
+          .status(error.status || 400)
           .json({ success: false, error: error.message });
       }
     }
@@ -2204,10 +2272,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
+        await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
           readerDocumentId,
-          endpoint: "postprocess.status",
-        });
+          "postprocess.status"
+        );
         return response
           .status(200)
           .json(readerPostprocessResponse(workspace, readerDocumentId));
@@ -2229,11 +2300,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const previousMetadata = readReaderJsonFile(
+        const previousMetadata = await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
           documentRoot,
-          "metadata.json",
-          null,
-          { readerDocumentId, endpoint: "reopen-local-path" }
+          readerDocumentId,
+          "reopen-local-path"
         );
         if (!previousMetadata.localPath) {
           const error = new Error("Reader document has no local path binding.");
@@ -2308,10 +2380,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
+        await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
           readerDocumentId,
-          endpoint: "preview",
-        });
+          "preview"
+        );
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
@@ -2342,10 +2417,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
+        await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
           readerDocumentId,
-          endpoint: "thumbnail",
-        });
+          "thumbnail"
+        );
         const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
         if (!validNonEmptyFile(thumbnailPath))
           return response.status(404).json({
@@ -2376,14 +2454,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const metadata = readReaderJsonFile(
+        const metadata = await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
           documentRoot,
-          "metadata.json",
-          null,
-          {
-            readerDocumentId,
-            endpoint: "original",
-          }
+          readerDocumentId,
+          "original"
         );
         const originalPath = metadata.localPath
           ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
@@ -2412,6 +2488,12 @@ function workspaceReaderDocumentsEndpoints(app) {
             readerDocumentId,
             endpoint: "get",
           });
+        await assertAuthorizedStandaloneReaderDocument({
+          request,
+          response,
+          readerDocumentId,
+          metadata: initialMetadata,
+        });
         let metadata = initialMetadata;
         if (metadataIsDocx(metadata)) {
           const originalPath = metadata.localPath
@@ -2461,11 +2543,18 @@ function workspaceReaderDocumentsEndpoints(app) {
           return response
             .status(404)
             .json({ success: false, error: "Reader document not found." });
+        await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
+          readerDocumentId,
+          "delete"
+        );
         fs.rmSync(documentRoot, { recursive: true, force: true });
         return response.status(200).json({ success: true });
       } catch (error) {
         return response
-          .status(400)
+          .status(error.status || 400)
           .json({ success: false, error: error.message });
       }
     }
@@ -3011,6 +3100,7 @@ module.exports = {
     extractReaderClassificationText,
     findLibreOfficeBinary,
     generateReaderDocumentThumbnail,
+    metadataWithOriginalUrl,
     readEpubPackage,
     parseClassificationJson,
     readerDocumentRoot,

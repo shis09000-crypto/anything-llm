@@ -13,7 +13,7 @@ import useSkillSections from "./useSkillSections";
 import SkillRow from "./SkillRow";
 import SkillSection from "./SkillSection";
 import { Wrench, MagnifyingGlass, CircleNotch } from "@phosphor-icons/react";
-import { useIsAgentSessionActive } from "@/utils/chat/agent";
+import { useIsAgentSessionActive } from "@/lib/communication/agentWebSocketClient";
 
 const MIN_ITEMS_TO_SHOW_SEARCH = 10;
 

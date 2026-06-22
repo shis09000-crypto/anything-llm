@@ -1,52 +1,29 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, postJson } from "@/lib/communication/apiClient";
 
 const AgentPlugins = {
   toggleFeature: async function (hubId, active = false) {
-    return await fetch(
-      `${API_BASE}/experimental/agent-plugins/${hubId}/toggle`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ active }),
-      }
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not update agent plugin status.");
-        return true;
-      })
+    return await postJson(`/experimental/agent-plugins/${hubId}/toggle`, {
+      active,
+    })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   updatePluginConfig: async function (hubId, updates = {}) {
-    return await fetch(
-      `${API_BASE}/experimental/agent-plugins/${hubId}/config`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ updates }),
-      }
-    )
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not update agent plugin config.");
-        return true;
-      })
+    return await postJson(`/experimental/agent-plugins/${hubId}/config`, {
+      updates,
+    })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   deletePlugin: async function (hubId) {
-    return await fetch(`${API_BASE}/experimental/agent-plugins/${hubId}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not delete agent plugin config.");
-        return true;
-      })
+    return await deleteJson(`/experimental/agent-plugins/${hubId}`)
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;

@@ -136,6 +136,17 @@ const router = createBrowserRouter([
         },
       },
       {
+        path: "/settings/search-model-preference",
+        lazy: async () => {
+          const { default: GeneralSearchModelPreference } = await import(
+            "@/pages/GeneralSettings/SearchModelPreference"
+          );
+          return {
+            element: <AdminRoute Component={GeneralSearchModelPreference} />,
+          };
+        },
+      },
+      {
         path: "/settings/ocr-preference",
         lazy: async () => {
           const { default: GeneralOcrPreference } = await import(

@@ -1,5 +1,8 @@
-const { SystemSettings } = require("../../../../models/systemSettings");
 const { TokenManager } = require("../../../helpers/tiktoken");
+const {
+  searchModelConfigStatus,
+  searchWithAlibabaModel,
+} = require("../../../SearchModels/alibaba");
 const tiktoken = new TokenManager();
 
 const webBrowsing = {
@@ -63,48 +66,40 @@ const webBrowsing = {
            * https://programmablesearchengine.google.com/controlpanel/create
            */
           search: async function (query) {
-            const provider =
-              (await SystemSettings.get({ label: "agent_search_provider" }))
-                ?.value ?? "unknown";
-            let engine;
-            switch (provider) {
-              case "serpapi":
-                engine = "_serpApi";
-                break;
-              case "searchapi":
-                engine = "_searchApi";
-                break;
-              case "serper-dot-dev":
-                engine = "_serperDotDev";
-                break;
-              case "bing-search":
-                engine = "_bingWebSearch";
-                break;
-              case "baidu-search":
-                engine = "_baiduSearch";
-                break;
-              case "serply-engine":
-                engine = "_serplyEngine";
-                break;
-              case "searxng-engine":
-                engine = "_searXNGEngine";
-                break;
-              case "tavily-search":
-                engine = "_tavilySearch";
-                break;
-              case "duckduckgo-engine":
-                engine = "_duckDuckGoEngine";
-                break;
-              case "exa-search":
-                engine = "_exaSearch";
-                break;
-              case "perplexity-search":
-                engine = "_perplexitySearch";
-                break;
-              default:
-                engine = "_duckDuckGoEngine";
+            const status = searchModelConfigStatus();
+            if (!status.configured) {
+              this.super.introspect(
+                `${this.caller}: Search Model is not configured, so web browsing is disabled.`
+              );
+              return `Search Model is not configured (${status.reason}). This web browsing tool is disabled until an administrator configures a Search Model.`;
             }
-            return await this[engine](query);
+
+            this.super.introspect(
+              `${this.caller}: Using Search Model to search for "${
+                query.length > 100 ? `${query.slice(0, 100)}...` : query
+              }"`
+            );
+
+            const { text, results } = await searchWithAlibabaModel({ query });
+            this.reportSearchResultsCitations(results);
+
+            const sourceList = results
+              .slice(0, 10)
+              .map(
+                (result, index) =>
+                  `${index + 1}. ${result.title} - ${result.link}${
+                    result.snippet ? `\n   ${result.snippet}` : ""
+                  }`
+              )
+              .join("\n");
+
+            return [
+              `Search Model response for "${query}":`,
+              text || "No text response was returned by the Search Model.",
+              sourceList ? `Sources:\n${sourceList}` : null,
+            ]
+              .filter(Boolean)
+              .join("\n\n");
           },
 
           /**

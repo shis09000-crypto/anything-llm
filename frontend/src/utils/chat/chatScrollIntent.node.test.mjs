@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   clearSavedChatScrollPosition,
   getChatScrollIntent,
+  isChatScrollPinnedToBottom,
   isExplicitChatScrollNavigationIntent,
   markChatUserScrollIntent,
   markProgrammaticChatScroll,
@@ -46,6 +47,55 @@ test("user scroll saves position and can leave follow output", () => {
   assert.equal(intent.hasUserIntent, true);
   assert.equal(intent.canSavePosition, true);
   assert.equal(intent.shouldLeaveFollowOutput, true);
+});
+
+test("near-bottom user scroll is not pinned to bottom", () => {
+  const userIntent = {};
+  markChatUserScrollIntent(userIntent, "wheel", 2_500);
+
+  const intent = getChatScrollIntent({
+    chatKey: "workspace:thread",
+    scrollTop: 650,
+    scrollHeight: 1_000,
+    clientHeight: 300,
+    userIntentState: userIntent,
+    now: 2_550,
+  });
+
+  assert.equal(intent.bottomGap, 50);
+  assert.equal(intent.isNearBottom, true);
+  assert.equal(intent.isPinnedToBottom, false);
+  assert.equal(intent.isBottom, false);
+  assert.equal(intent.shouldEnterFollowOutput, false);
+  assert.equal(intent.shouldLeaveFollowOutput, true);
+});
+
+test("strict bottom user scroll is pinned to bottom", () => {
+  const userIntent = {};
+  markChatUserScrollIntent(userIntent, "wheel", 2_700);
+
+  const intent = getChatScrollIntent({
+    chatKey: "workspace:thread",
+    scrollTop: 699,
+    scrollHeight: 1_000,
+    clientHeight: 300,
+    userIntentState: userIntent,
+    now: 2_750,
+  });
+
+  assert.equal(intent.bottomGap, 1);
+  assert.equal(intent.isNearBottom, true);
+  assert.equal(intent.isPinnedToBottom, true);
+  assert.equal(intent.shouldEnterFollowOutput, true);
+  assert.equal(intent.shouldLeaveFollowOutput, false);
+  assert.equal(
+    isChatScrollPinnedToBottom({
+      scrollTop: 699,
+      scrollHeight: 1_000,
+      clientHeight: 300,
+    }),
+    true
+  );
 });
 
 test("programmatic near-top scroll does not load older history", () => {
@@ -106,6 +156,6 @@ test("layout transitions are cancelled only by explicit scroll navigation", () =
   assert.equal(isExplicitChatScrollNavigationIntent("wheel"), true);
   assert.equal(isExplicitChatScrollNavigationIntent("touch"), true);
   assert.equal(isExplicitChatScrollNavigationIntent("keyboard"), true);
-  assert.equal(isExplicitChatScrollNavigationIntent("pointer"), false);
+  assert.equal(isExplicitChatScrollNavigationIntent("pointer"), true);
   assert.equal(isExplicitChatScrollNavigationIntent("click"), false);
 });

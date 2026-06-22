@@ -63,11 +63,14 @@ import {
 import {
   clearReaderCurrentDocumentClearMarker,
   clearReaderCurrentDocumentStorage,
+  isReaderCurrentDocumentFresh,
+  readReaderCurrentDocumentClearedAt,
   readReaderDrawerState,
   readReaderDrawerOpenIntent,
   setReaderDrawerSection,
   setReaderDrawerOpenIntent,
 } from "@/utils/chat/readerDrawerState";
+import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 
 const DocumentReaderContext = createContext(null);
 
@@ -108,7 +111,16 @@ export function DocumentReaderProvider({
   const storageKey = readerStorageKey(workspace?.slug, threadSlug);
   const sourcesKey = readerSourcesStorageKey(workspace?.slug, threadSlug);
   const initialDrawerState = readReaderDrawerState();
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const initialStoredDocument = readerItemWithLatestBookMemory(
+    safeJsonParse(localStorage.getItem(storageKey), null)
+  );
+  const initialHasFreshDocument = isReaderCurrentDocumentFresh(
+    initialStoredDocument,
+    readReaderCurrentDocumentClearedAt()
+  );
+  const [drawerOpen, setDrawerOpen] = useState(
+    initialHasFreshDocument || initialDrawerState.open
+  );
   const [currentDocument, setCurrentDocument] = useState(null);
   const [, setPendingSelections] = useState([]);
   const [pendingReaderTextSources, setPendingReaderTextSources] = useState([]);
@@ -132,6 +144,31 @@ export function DocumentReaderProvider({
   const lastCitedRef = useRef({ signature: "", at: 0 });
   const localFileConflictResolverRef = useRef(null);
   const pendingReaderOpenRef = useRef(null);
+  const workspaceLayout = useWorkspaceLayout();
+  const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
+
+  useEffect(() => {
+    if (currentDocument) {
+      dispatchLayoutEvent?.({
+        type: "READER_OPENED",
+        readerType: "document",
+      });
+      return;
+    }
+    if (drawerOpen) {
+      dispatchLayoutEvent?.({
+        type: "READER_OPENED",
+        readerType: initialHasFreshDocument ? "document" : "drawer",
+      });
+      return;
+    }
+    dispatchLayoutEvent?.({ type: "READER_CLOSED" });
+  }, [
+    currentDocument,
+    dispatchLayoutEvent,
+    drawerOpen,
+    initialHasFreshDocument,
+  ]);
 
   const setReaderObjectUrl = useCallback((url = null) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
@@ -979,6 +1016,7 @@ export function DocumentReaderProvider({
       if (readReaderDrawerOpenIntent()) setDrawerOpen(true);
       return;
     }
+    setDrawerOpen(true);
     if (stored.source === "local") {
       if (stored.backupReaderDocumentId) {
         showToast("本地文档不可恢复，已尝试使用服务器备份打开。", "info");

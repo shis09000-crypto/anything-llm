@@ -907,6 +907,27 @@ const KEY_MAPPING = {
     envKey: "RERANK_MODEL_PREF",
     checks: [isNotEmpty],
   },
+  SearchModelProvider: {
+    envKey: "SEARCH_MODEL_PROVIDER",
+    checks: [
+      (input) =>
+        ["none", "alibaba"].includes(input)
+          ? null
+          : "Invalid search model provider.",
+    ],
+  },
+  SearchModelApiKey: {
+    envKey: "SEARCH_MODEL_API_KEY",
+    checks: [isNotEmpty],
+  },
+  SearchModelBaseUrl: {
+    envKey: "SEARCH_MODEL_BASE_URL",
+    checks: [isNotEmpty, isValidURL],
+  },
+  SearchModelPref: {
+    envKey: "SEARCH_MODEL_PREF",
+    checks: [isNotEmpty],
+  },
   ReaderOcrProvider: {
     envKey: "READER_OCR_PROVIDER",
     checks: [
@@ -1111,6 +1132,10 @@ const PROVIDER_SETTING_KEYS = [
   "RerankApiKey",
   "RerankBaseUrl",
   "RerankModelPref",
+  "SearchModelProvider",
+  "SearchModelApiKey",
+  "SearchModelBaseUrl",
+  "SearchModelPref",
   "ReaderOcrProvider",
   "ReaderOcrApiKey",
   "ReaderOcrBaseUrl",

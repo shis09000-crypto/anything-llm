@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import { mockAssetAllocationItems } from "./assetAllocationMockData";
 import type { AssetAllocationItem } from "./assetAllocationDonutTypes";
 
-const GATE_ALLOCATION_ENDPOINT = `${API_BASE}/crypto-hub/allocation`;
 const REAL_GATE_REFRESH_MS = 60_000;
 const IMMEDIATE_RECONNECT_MS = 0;
 const MAX_RECONNECT_MS = 30_000;
@@ -67,13 +65,12 @@ export function useAssetAllocationDonutData({
 
   const loadGateAllocation = useCallback(async (signal?: AbortSignal) => {
     try {
-      const response = await fetch(GATE_ALLOCATION_ENDPOINT, {
-        headers: baseHeaders(),
-        signal,
-      });
-      const payload = (await response.json()) as GateAllocationResponse;
+      const payload = await cryptoHubFetch<GateAllocationResponse>(
+        "/allocation",
+        { signal }
+      );
       if (signal?.aborted) return false;
-      if (!response.ok || !payload?.success) {
+      if (!payload?.success) {
         throw new Error(payload?.safeErrorMessage || "真实 Gate 资产读取失败");
       }
 

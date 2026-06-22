@@ -42,9 +42,11 @@ import {
 } from "./DocumentReader/storage";
 import WorkspaceOverview from "./WorkspaceOverview";
 import {
+  draftNeedsServerHistoryRefresh,
   useChatDraft,
   useChatThreadDrafts,
 } from "@/contexts/ChatThreadDraftProvider";
+import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import {
   createTurnId,
   isAssistantTurn,
@@ -54,13 +56,13 @@ import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import showToast from "@/utils/toast";
 import useUser from "@/hooks/useUser";
-import {
-  previousSidebarState,
-  SIDEBAR_SET_STATE_EVENT,
-} from "@/components/Sidebar/SidebarToggle";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import AppIcon from "@/components/lib/AppIcon";
 import { isOverviewThread } from "@/utils/workspaceThreads";
+import {
+  clampReaderSplitPercent,
+  readReaderSplitPercent,
+} from "@/utils/layout/workspaceLayoutState";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -77,314 +79,12 @@ const SELECTION_COPY_MIN_LENGTH = 8;
 const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 104;
 const CHAT_HISTORY_INPUT_GAP = 8;
 const DUAL_THREAD_CONTENT_PADDING = "px-4 md:px-6";
-const READER_DEFAULT_SPLIT_PERCENT = 70;
-const READER_MIN_SPLIT_PERCENT = 30;
-const READER_MAX_SPLIT_PERCENT = READER_DEFAULT_SPLIT_PERCENT;
-const READER_SPLIT_PERCENT_STORAGE_KEY = "anythingllm_reader_split_percent";
 const MEMORY_COMPACTION_STATUS_REFRESH_MS = 900;
-const MEMORY_COMPACTION_TIMEOUT_MS = 60_000;
+const MEMORY_COMPACTION_TIMEOUT_MS = 5 * 60_000;
 const MEMORY_COMPACTION_SUCCESS_MS = 2_800;
 const MEMORY_COMPACTION_ERROR_MS = 4_500;
-const CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS = [
-  0, 80, 180, 360, 700, 1200, 1800, 2400,
-];
 const DUAL_THREAD_RESUME_PROMPT =
   "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
-
-function clampReaderSplitPercent(value) {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return READER_DEFAULT_SPLIT_PERCENT;
-  return Math.max(
-    READER_MIN_SPLIT_PERCENT,
-    Math.min(READER_MAX_SPLIT_PERCENT, numeric)
-  );
-}
-
-function readReaderSplitPercent() {
-  if (typeof window === "undefined") return READER_DEFAULT_SPLIT_PERCENT;
-  return clampReaderSplitPercent(
-    window.localStorage.getItem(READER_SPLIT_PERCENT_STORAGE_KEY)
-  );
-}
-
-function writeReaderSplitPercent(value) {
-  if (typeof window === "undefined") return;
-  window.localStorage.setItem(
-    READER_SPLIT_PERCENT_STORAGE_KEY,
-    String(clampReaderSplitPercent(value))
-  );
-}
-
-const CHAT_LAYOUT_DOM_ANCHOR_SELECTOR = [
-  "[data-chat-anchor-block='true']",
-  "p",
-  "li",
-  "pre",
-  "blockquote",
-  "td",
-  "th",
-  "table",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "img",
-  "video",
-  "button",
-].join(",");
-
-function clearChatLayoutDomRestoreHandles(handles) {
-  if (!handles || typeof window === "undefined") return;
-  handles.frames?.forEach((handle) => window.cancelAnimationFrame(handle));
-  handles.timeouts?.forEach((handle) => window.clearTimeout(handle));
-  handles.observer?.disconnect?.();
-  handles.frames = [];
-  handles.timeouts = [];
-  handles.observer = null;
-}
-
-function recordChatLayoutDebug(event) {
-  if (typeof window === "undefined") return;
-  try {
-    const events = Array.isArray(window.__chatLayoutDebugEvents)
-      ? window.__chatLayoutDebugEvents
-      : [];
-    events.push({ ...event, at: Date.now() });
-    window.__chatLayoutDebugEvents = events.slice(-80);
-  } catch {
-    // Debug storage must never interfere with layout preservation.
-  }
-}
-
-function chatLayoutTextFingerprint(value = "") {
-  const text = String(value || "")
-    .replace(/\s+/g, " ")
-    .trim();
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index += 1) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return text ? `${text.length}:${(hash >>> 0).toString(16)}` : null;
-}
-
-function chatLayoutCandidateBlocks(row) {
-  if (!row) return [];
-  const rawCandidates = Array.from(
-    row.querySelectorAll(CHAT_LAYOUT_DOM_ANCHOR_SELECTOR)
-  );
-  const meaningfulCandidates = rawCandidates
-    .filter((candidate) => {
-      const rect = candidate.getBoundingClientRect();
-      return rect.height > 0 && rect.width > 0;
-    })
-    .filter((candidate) => {
-      const text = candidate.textContent?.trim() || "";
-      return (
-        text.length > 0 || ["IMG", "VIDEO", "TABLE"].includes(candidate.tagName)
-      );
-    });
-  const candidates = meaningfulCandidates.filter((candidate) => {
-    if (["IMG", "VIDEO"].includes(candidate.tagName)) return true;
-    return !meaningfulCandidates.some(
-      (other) => other !== candidate && candidate.contains(other)
-    );
-  });
-  return candidates.length ? candidates : [row];
-}
-
-function chatLayoutBlockFingerprint(block) {
-  return chatLayoutTextFingerprint(
-    block?.textContent ||
-      block?.getAttribute?.("alt") ||
-      block?.getAttribute?.("aria-label") ||
-      block?.tagName ||
-      ""
-  );
-}
-
-function captureChatLayoutDomAnchor() {
-  if (typeof document === "undefined") return null;
-  const element = document.querySelector("#chat-history");
-  if (!element) return null;
-  const viewport = element.getBoundingClientRect();
-  const bottomGap =
-    element.scrollHeight - element.scrollTop - element.clientHeight;
-  if (bottomGap < 2) {
-    return {
-      isAtBottom: true,
-      scrollTop: element.scrollTop,
-      bottomGap,
-    };
-  }
-
-  const rows = Array.from(
-    element.querySelectorAll("[data-chat-message-row='true']")
-  );
-  const row = rows.find((candidate) => {
-    const rect = candidate.getBoundingClientRect();
-    return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
-  });
-  if (!row) {
-    return {
-      isAtBottom: false,
-      scrollTop: element.scrollTop,
-      bottomGap,
-    };
-  }
-
-  const rowRect = row.getBoundingClientRect();
-  const blocks = chatLayoutCandidateBlocks(row);
-  const blockIndex = blocks.findIndex((candidate) => {
-    const rect = candidate.getBoundingClientRect();
-    return rect.bottom > viewport.top + 1 && rect.top < viewport.bottom - 1;
-  });
-  const block = blockIndex >= 0 ? blocks[blockIndex] : null;
-  const blockRect = block?.getBoundingClientRect();
-  return {
-    isAtBottom: false,
-    itemId: row.dataset.itemId || null,
-    rowOffsetTop: rowRect.top - viewport.top,
-    scrollTop: element.scrollTop,
-    bottomGap,
-    innerAnchor: block
-      ? {
-          blockIndex,
-          offsetTop: blockRect.top - viewport.top,
-          textFingerprint: chatLayoutBlockFingerprint(block),
-        }
-      : null,
-  };
-}
-
-function restoreChatLayoutDomAnchor(anchor) {
-  if (typeof document === "undefined" || !anchor) return false;
-  const element = document.querySelector("#chat-history");
-  if (!element) return false;
-
-  if (anchor.isAtBottom) {
-    element.scrollTop = element.scrollHeight;
-    const bottomGap =
-      element.scrollHeight - element.scrollTop - element.clientHeight;
-    return bottomGap < 2;
-  }
-
-  const rows = Array.from(
-    element.querySelectorAll("[data-chat-message-row='true']")
-  );
-  const row = rows.find(
-    (candidate) => candidate.dataset.itemId === anchor.itemId
-  );
-  if (!row) return false;
-
-  const viewport = element.getBoundingClientRect();
-  const innerAnchor = anchor.innerAnchor;
-  if (innerAnchor) {
-    const blocks = chatLayoutCandidateBlocks(row);
-    const expectedFingerprint = innerAnchor.textFingerprint || null;
-    const fingerprintIndex = expectedFingerprint
-      ? blocks.findIndex(
-          (candidate) =>
-            chatLayoutBlockFingerprint(candidate) === expectedFingerprint
-        )
-      : -1;
-    const requestedIndex = Number(innerAnchor.blockIndex);
-    const fallbackIndex = Number.isFinite(requestedIndex)
-      ? Math.max(0, Math.min(blocks.length - 1, requestedIndex))
-      : 0;
-    const block =
-      blocks[fingerprintIndex >= 0 ? fingerprintIndex : fallbackIndex];
-    if (block) {
-      const rect = block.getBoundingClientRect();
-      const offsetTop = Number(innerAnchor.offsetTop);
-      element.scrollTop +=
-        rect.top - viewport.top - (Number.isFinite(offsetTop) ? offsetTop : 0);
-      return true;
-    }
-  }
-
-  const rowRect = row.getBoundingClientRect();
-  const rowOffsetTop = Number(anchor.rowOffsetTop);
-  element.scrollTop +=
-    rowRect.top -
-    viewport.top -
-    (Number.isFinite(rowOffsetTop) ? rowOffsetTop : 0);
-  return true;
-}
-
-function scheduleChatLayoutDomRestore({
-  signal,
-  anchorRef,
-  handlesRef,
-  chatKey,
-}) {
-  if (typeof window === "undefined" || !anchorRef?.current?.anchor) return;
-  const handles = handlesRef.current;
-  clearChatLayoutDomRestoreHandles(handles);
-  const run = (reason) => {
-    const transition = anchorRef.current;
-    if (!transition?.active || transition.seq !== signal.seq) return;
-    const restored = restoreChatLayoutDomAnchor(transition.anchor);
-    recordChatLayoutDebug({
-      label: "layoutDomRestore",
-      reason,
-      seq: signal.seq,
-      itemId: transition.anchor?.itemId || null,
-      isAtBottom: !!transition.anchor?.isAtBottom,
-      restored,
-    });
-    debugChatTurn("ChatContainer:layoutDomRestore", {
-      chatKey,
-      reason,
-      seq: signal.seq,
-      itemId: transition.anchor?.itemId || null,
-      hasInnerAnchor: !!transition.anchor?.innerAnchor,
-      restored,
-    });
-  };
-
-  const firstFrame = window.requestAnimationFrame(() => {
-    run("raf");
-    const secondFrame = window.requestAnimationFrame(() => run("raf-2"));
-    handles.frames.push(secondFrame);
-  });
-  handles.frames.push(firstFrame);
-
-  const element = document.querySelector("#chat-history");
-  if (element && typeof ResizeObserver !== "undefined") {
-    handles.observer = new ResizeObserver(() => run("resize"));
-    handles.observer.observe(element);
-  }
-
-  CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS.forEach((delayMs) => {
-    const timeout = window.setTimeout(() => {
-      run(`timeout-${delayMs}`);
-      if (delayMs === CHAT_LAYOUT_DOM_RESTORE_TIMEOUTS_MS.at(-1)) {
-        anchorRef.current = null;
-        clearChatLayoutDomRestoreHandles(handles);
-      }
-    }, delayMs);
-    handles.timeouts.push(timeout);
-  });
-}
-
-function setSidebarForMindMap(open) {
-  window.dispatchEvent(
-    new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
-      detail: { open, source: "mind-map-panel" },
-    })
-  );
-}
-
-function setSidebarForReader(open) {
-  window.dispatchEvent(
-    new CustomEvent(SIDEBAR_SET_STATE_EVENT, {
-      detail: { open, source: "document-reader" },
-    })
-  );
-}
 
 export default function ChatContainer({
   workspace,
@@ -409,6 +109,11 @@ export default function ChatContainer({
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
+  const workspaceLayout = useWorkspaceLayout();
+  const layoutState = workspaceLayout?.layoutState || {};
+  const layoutMode =
+    workspaceLayout?.layoutMode || layoutState.mode || "normal";
+  const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
   const activeThreadSlug = activeThread?.slug || null;
   const activeThreadId = activeThread?.id || null;
   const draft = useChatDraft(workspace?.slug, threadSlug);
@@ -419,20 +124,20 @@ export default function ChatContainer({
   const chatItems = draft?.items || knownItems;
   const loadingResponse = !!draft?.isStreaming;
   const latestAssistantTurn = lastAssistantTurn(chatItems);
-  const [mindMapOpen, setMindMapOpen] = useState(false);
   const [mindMapRequest, setMindMapRequest] = useState(null);
   const [quizModeActive, setQuizModeActive] = useState(false);
   const [quizIntentPrompt, setQuizIntentPrompt] = useState(null);
   const { files, parseAttachments } = useContext(DndUploaderContext);
   const { chatHistoryRef } = useChatContainerQuickScroll();
   const pendingMessageChecked = useRef(false);
-  const mindMapSidebarStateRef = useRef(null);
-  const readerSidebarStateRef = useRef(null);
   const readerLayoutRef = useRef(null);
+  const readerResizeFrameRef = useRef(null);
+  const readerResizeDraftRef = useRef(null);
   const quizIntentResolverRef = useRef(null);
   const sourcePanelRef = useRef(null);
   const selectionDebounceRef = useRef(null);
   const lastSelectionSignatureRef = useRef("");
+  const historyRepairRef = useRef({ signature: null, controller: null });
   const [dualThreadFork, setDualThreadFork] = useState({
     enabled: false,
     sourceThreadSlug: null,
@@ -455,19 +160,14 @@ export default function ChatContainer({
   );
   const [emptyThreadComposeActive, setEmptyThreadComposeActive] =
     useState(false);
-  const [readerActive, setReaderActive] = useState(false);
-  const [readerPanelPercent, setReaderPanelPercent] = useState(() =>
-    readReaderSplitPercent()
+  const readerActive =
+    layoutMode === "readerDrawer" || layoutMode === "readerDocument";
+  const mindMapOpen = layoutMode === "mindMap";
+  const readerPanelPercent = clampReaderSplitPercent(
+    layoutState.readerPercent ?? readReaderSplitPercent()
   );
-  const readerActiveRef = useRef(false);
-  const readerActiveInitializedRef = useRef(false);
+  const readerActiveRef = useRef(readerActive);
   const readerLayoutTransitionSeqRef = useRef(0);
-  const chatLayoutDomAnchorRef = useRef(null);
-  const chatLayoutDomRestoreHandlesRef = useRef({
-    frames: [],
-    timeouts: [],
-    observer: null,
-  });
   const [chatLayoutTransitionSignal, setChatLayoutTransitionSignal] =
     useState(null);
   const [memoryCompactionStatus, setMemoryCompactionStatus] = useState(null);
@@ -477,7 +177,11 @@ export default function ChatContainer({
   const memoryStatusRequestRef = useRef({ id: 0, controller: null });
   const memoryStreamRefreshTimerRef = useRef(null);
   const memoryDividerTimerRef = useRef(null);
-  const memoryCompactRef = useRef({ controller: null, timeout: null });
+  const memoryCompactRef = useRef({
+    controller: null,
+    timeout: null,
+    timedOut: false,
+  });
   const compactionUserId = user?.id ?? undefined;
   const compactionApiSessionId = undefined;
   const memoryCompactionScopeKey = useMemo(
@@ -542,20 +246,27 @@ export default function ChatContainer({
   }, []);
 
   const showMemoryCompactionDivider = useCallback(
-    (type) => {
+    (type, customText = "") => {
       const text = {
         pending: "上下文记忆正在压缩",
         success: "上下文记忆压缩完成",
         error: "上下文记忆压缩失败，请手动重试",
+        timeout: "上下文记忆压缩等待超时，请刷新状态后重试",
+        aborted: "上下文记忆压缩已取消",
       }[type];
       if (!text) return;
       clearTimeout(memoryDividerTimerRef.current);
       setMemoryCompactionDivider({
         scopeKey: memoryCompactionScopeKey,
         type,
-        text,
+        text: customText || text,
       });
-      if (type === "success" || type === "error") {
+      if (
+        type === "success" ||
+        type === "error" ||
+        type === "timeout" ||
+        type === "aborted"
+      ) {
         memoryDividerTimerRef.current = setTimeout(
           () => {
             setMemoryCompactionDivider((current) =>
@@ -627,11 +338,17 @@ export default function ChatContainer({
     showMemoryCompactionDivider("pending");
     const controller = new AbortController();
     memoryCompactRef.current.controller = controller;
+    memoryCompactRef.current.timedOut = false;
     clearTimeout(memoryCompactRef.current.timeout);
     memoryCompactRef.current.timeout = setTimeout(() => {
+      memoryCompactRef.current.timedOut = true;
       controller.abort();
       setMemoryCompactionPending(false);
-      showMemoryCompactionDivider("error");
+      showMemoryCompactionDivider(
+        "timeout",
+        "上下文记忆压缩等待超时，后端可能仍在处理，请稍后刷新状态"
+      );
+      refreshMemoryCompactionStatus({ preserveOnError: true });
     }, MEMORY_COMPACTION_TIMEOUT_MS);
 
     try {
@@ -654,12 +371,27 @@ export default function ChatContainer({
         await refreshMemoryCompactionStatus({ preserveOnError: true });
         return;
       }
-      showMemoryCompactionDivider("error");
+      showMemoryCompactionDivider(
+        "error",
+        result?.error
+          ? `上下文记忆压缩失败：${result.error}`
+          : "上下文记忆压缩失败，请手动重试"
+      );
     } catch (error) {
       clearTimeout(memoryCompactRef.current.timeout);
-      if (error?.name === "AbortError") return;
+      if (error?.name === "AbortError") {
+        if (memoryCompactRef.current.timedOut) return;
+        setMemoryCompactionPending(false);
+        showMemoryCompactionDivider("aborted");
+        return;
+      }
       setMemoryCompactionPending(false);
-      showMemoryCompactionDivider("error");
+      showMemoryCompactionDivider(
+        "error",
+        error?.message
+          ? `上下文记忆压缩失败：${error.message}`
+          : "上下文记忆压缩失败，请手动重试"
+      );
     }
   }, [
     workspace?.slug,
@@ -704,20 +436,22 @@ export default function ChatContainer({
   }, [loadingResponse, scheduleMemoryStatusRefresh]);
 
   const updatePromptBottomInset = useCallback((height) => {
-    setPromptBottomInset(
-      Math.max(
-        DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
-        Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
-      )
+    const nextInset = Math.max(
+      DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
+      Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
+    );
+    setPromptBottomInset((currentInset) =>
+      Math.abs(currentInset - nextInset) < 2 ? currentInset : nextInset
     );
   }, []);
 
   const updateBranchPromptBottomInset = useCallback((height) => {
-    setBranchPromptBottomInset(
-      Math.max(
-        DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
-        Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
-      )
+    const nextInset = Math.max(
+      DEFAULT_CHAT_HISTORY_BOTTOM_INSET,
+      Math.ceil(height) + CHAT_HISTORY_INPUT_GAP
+    );
+    setBranchPromptBottomInset((currentInset) =>
+      Math.abs(currentInset - nextInset) < 2 ? currentInset : nextInset
     );
   }, []);
 
@@ -741,37 +475,14 @@ export default function ChatContainer({
         reason,
         at: Date.now(),
       };
-      clearChatLayoutDomRestoreHandles(chatLayoutDomRestoreHandlesRef.current);
-      chatLayoutDomAnchorRef.current = {
-        active: true,
-        seq: signal.seq,
-        reason,
-        anchor: captureChatLayoutDomAnchor(),
-      };
-      recordChatLayoutDebug({
-        label: "layoutTransitionStart",
-        reason,
-        seq: signal.seq,
-        itemId: chatLayoutDomAnchorRef.current.anchor?.itemId || null,
-        isAtBottom: !!chatLayoutDomAnchorRef.current.anchor?.isAtBottom,
-        hasInnerAnchor: !!chatLayoutDomAnchorRef.current.anchor?.innerAnchor,
-      });
       chatHistoryRef.current?.beginLayoutTransition?.(signal);
       setChatLayoutTransitionSignal(signal);
-      scheduleChatLayoutDomRestore({
-        signal,
-        anchorRef: chatLayoutDomAnchorRef,
-        handlesRef: chatLayoutDomRestoreHandlesRef,
-        chatKey,
-      });
       debugChatTurn("ChatContainer:layoutTransition", {
         chatKey,
         reason,
         seq: signal.seq,
         readerActive: readerActiveRef.current,
         readerPanelPercent,
-        itemId: chatLayoutDomAnchorRef.current.anchor?.itemId || null,
-        hasInnerAnchor: !!chatLayoutDomAnchorRef.current.anchor?.innerAnchor,
       });
       return signal;
     },
@@ -787,34 +498,18 @@ export default function ChatContainer({
       if (!force && readerActiveRef.current === nextActive) return;
       beginChatLayoutTransition(reason);
       readerActiveRef.current = nextActive;
-      setReaderActive(nextActive);
+      dispatchLayoutEvent?.(
+        nextActive
+          ? { type: "READER_OPENED", readerType: "drawer" }
+          : { type: "READER_CLOSED" }
+      );
     },
-    [beginChatLayoutTransition]
-  );
-
-  const syncReaderActiveFromPanel = useCallback(
-    (nextActive, reason = nextActive ? "reader-open" : "reader-close") => {
-      if (!readerActiveInitializedRef.current) {
-        readerActiveInitializedRef.current = true;
-        readerActiveRef.current = nextActive;
-        setReaderActive(nextActive);
-        return;
-      }
-      setReaderActiveWithLayoutTransition(nextActive, reason);
-    },
-    [setReaderActiveWithLayoutTransition]
+    [beginChatLayoutTransition, dispatchLayoutEvent]
   );
 
   useEffect(() => {
     readerActiveRef.current = readerActive;
   }, [readerActive]);
-
-  useEffect(() => {
-    return () => {
-      clearChatLayoutDomRestoreHandles(chatLayoutDomRestoreHandlesRef.current);
-      chatLayoutDomAnchorRef.current = null;
-    };
-  }, []);
 
   const startReaderResize = useCallback(
     (event) => {
@@ -825,6 +520,7 @@ export default function ChatContainer({
       if (!layoutRect?.width) return;
       const startX = event.clientX;
       const startPercent = readerPanelPercent;
+      readerResizeDraftRef.current = startPercent;
 
       function onPointerMove(moveEvent) {
         const deltaPercent =
@@ -832,11 +528,27 @@ export default function ChatContainer({
         const nextPercent = clampReaderSplitPercent(
           startPercent - deltaPercent
         );
-        setReaderPanelPercent(nextPercent);
-        writeReaderSplitPercent(nextPercent);
+        readerResizeDraftRef.current = nextPercent;
+        if (readerResizeFrameRef.current) return;
+        readerResizeFrameRef.current = window.requestAnimationFrame(() => {
+          readerResizeFrameRef.current = null;
+          dispatchLayoutEvent?.({
+            type: "READER_RESIZE_DRAFT",
+            percent: readerResizeDraftRef.current,
+          });
+        });
       }
 
       function stopResize() {
+        if (readerResizeFrameRef.current) {
+          window.cancelAnimationFrame(readerResizeFrameRef.current);
+          readerResizeFrameRef.current = null;
+        }
+        dispatchLayoutEvent?.({
+          type: "READER_RESIZE_COMMIT",
+          percent: readerResizeDraftRef.current ?? startPercent,
+        });
+        readerResizeDraftRef.current = null;
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
         window.removeEventListener("pointermove", onPointerMove);
@@ -850,7 +562,7 @@ export default function ChatContainer({
       window.addEventListener("pointerup", stopResize);
       window.addEventListener("pointercancel", stopResize);
     },
-    [beginChatLayoutTransition, readerPanelPercent]
+    [beginChatLayoutTransition, dispatchLayoutEvent, readerPanelPercent]
   );
 
   function chatItemComparableText(item) {
@@ -928,9 +640,15 @@ export default function ChatContainer({
   }
 
   function openMindMap(body = {}) {
-    setMindMapOpen(true);
+    beginChatLayoutTransition("mind-map-open");
+    dispatchLayoutEvent?.({ type: "MINDMAP_OPENED" });
     setMindMapRequest({ id: Date.now(), body });
   }
+
+  const closeMindMap = useCallback(() => {
+    beginChatLayoutTransition("mind-map-close");
+    dispatchLayoutEvent?.({ type: "MINDMAP_CLOSED" });
+  }, [beginChatLayoutTransition, dispatchLayoutEvent]);
 
   const openDocumentReader = useCallback(() => {
     debugChatTurn("ChatContainer:openDocumentReader", {
@@ -1039,7 +757,7 @@ export default function ChatContainer({
       return true;
     }
     if (!latestAssistantTurn?.finalContent) {
-      setMindMapOpen(true);
+      openMindMap();
       showToast("当前还没有可用于生成思维导图的助手回复。", "info");
       return true;
     }
@@ -1151,54 +869,6 @@ export default function ChatContainer({
   }
 
   useEffect(() => {
-    if (isMobile) return;
-
-    if (mindMapOpen) {
-      if (mindMapSidebarStateRef.current === null)
-        mindMapSidebarStateRef.current = previousSidebarState();
-      setSidebarForMindMap(false);
-      return;
-    }
-
-    if (mindMapSidebarStateRef.current === null) return;
-    const shouldRestoreOpen = mindMapSidebarStateRef.current;
-    mindMapSidebarStateRef.current = null;
-    setSidebarForMindMap(shouldRestoreOpen);
-  }, [mindMapOpen]);
-
-  useEffect(() => {
-    return () => {
-      if (isMobile || mindMapSidebarStateRef.current === null) return;
-      setSidebarForMindMap(mindMapSidebarStateRef.current);
-      mindMapSidebarStateRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (isMobile) return;
-
-    if (readerActive) {
-      if (readerSidebarStateRef.current === null)
-        readerSidebarStateRef.current = previousSidebarState();
-      setSidebarForReader(false);
-      return;
-    }
-
-    if (readerSidebarStateRef.current === null) return;
-    const shouldRestoreOpen = readerSidebarStateRef.current;
-    readerSidebarStateRef.current = null;
-    setSidebarForReader(shouldRestoreOpen);
-  }, [readerActive]);
-
-  useEffect(() => {
-    return () => {
-      if (isMobile || readerSidebarStateRef.current === null) return;
-      setSidebarForReader(readerSidebarStateRef.current);
-      readerSidebarStateRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
     if (!workspace?.slug || !chatKey) return;
     mergeServerHistory({
       workspaceSlug: workspace.slug,
@@ -1206,6 +876,56 @@ export default function ChatContainer({
       history: knownHistory,
     });
   }, [workspace?.slug, threadSlug, chatKey, knownHistory, mergeServerHistory]);
+
+  useEffect(() => {
+    if (
+      !workspace?.slug ||
+      !chatKey ||
+      !draftNeedsServerHistoryRefresh(draft)
+    ) {
+      return;
+    }
+
+    const repairSignature = `${chatKey}:${(draft?.items || [])
+      .filter((item) => item.type === "assistant_turn" && !item.chatId)
+      .map((item) => `${item.turnId}:${item.status}:${item.updatedAt || 0}`)
+      .join("|")}`;
+    if (historyRepairRef.current.signature === repairSignature) return;
+
+    historyRepairRef.current.controller?.abort?.();
+    const controller = new AbortController();
+    historyRepairRef.current = { signature: repairSignature, controller };
+
+    (async () => {
+      const result = threadSlug
+        ? await Workspace.threads.chatHistoryPage(workspace.slug, threadSlug, {
+            limit: 30,
+            detail: "full",
+            priorityWindow: 30,
+            signal: controller.signal,
+          })
+        : await Workspace.chatHistoryPage(workspace.slug, {
+            limit: 30,
+            detail: "full",
+            priorityWindow: 30,
+            signal: controller.signal,
+          });
+      if (controller.signal.aborted || !result?.history?.length) return;
+      mergeServerHistory({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        history: result.history,
+      });
+    })().catch((error) => {
+      if (error?.name === "AbortError") return;
+      debugChatTurn("ChatContainer:historyRepairFailed", {
+        chatKey,
+        error: error.message,
+      });
+    });
+
+    return () => controller.abort();
+  }, [workspace?.slug, threadSlug, chatKey, draft?.items, mergeServerHistory]);
 
   useEffect(() => {
     debugChatTurn("ChatContainer:runtime", {
@@ -1256,6 +976,7 @@ export default function ChatContainer({
       sourcePanelVisible: false,
       branchPanelVisible: false,
     });
+    dispatchLayoutEvent?.({ type: "DUAL_THREAD_CLOSED" });
     setBranchHistory([]);
     setSourceHistory(null);
   }
@@ -1305,6 +1026,7 @@ export default function ChatContainer({
       sourcePanelVisible: true,
       branchPanelVisible: true,
     });
+    dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
     refreshWorkspaceThreads();
   }
 
@@ -1381,6 +1103,7 @@ export default function ChatContainer({
         sourcePanelVisible: true,
         branchPanelVisible: true,
       });
+      dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
       refreshWorkspaceThreads();
     } catch (error) {
       resetDualThreadFork();
@@ -1619,7 +1342,7 @@ export default function ChatContainer({
     resetTranscript();
   }
 
-  const regenerateAssistantMessage = (chatId) => {
+  const regenerateAssistantMessage = (chatId, publicChatId = null) => {
     const assistantIdx = chatItems.findIndex(
       (item) => item.type === "assistant_turn" && item.chatId === chatId
     );
@@ -1628,7 +1351,7 @@ export default function ChatContainer({
       (item) => item.id === assistantTurn?.userMessageId
     );
     if (!lastUserMessage?.content) return;
-    Workspace.deleteChats(workspace.slug, [chatId])
+    Workspace.deleteChats(workspace.slug, [publicChatId || chatId])
       .then(() =>
         sendCommand({
           text: lastUserMessage.content,
@@ -1823,7 +1546,7 @@ export default function ChatContainer({
               threadSlug={threadSlug}
               isOpen={mindMapOpen}
               request={mindMapRequest}
-              onClose={() => setMindMapOpen(false)}
+              onClose={closeMindMap}
               sendCommand={sendCommand}
               setMessage={(message) => setMessageEmit(message)}
               floating
@@ -1992,7 +1715,7 @@ export default function ChatContainer({
                 {!readerActive && (
                   <TopRightActionZone
                     isMindMapOpen={mindMapOpen}
-                    onMindMap={() => setMindMapOpen(true)}
+                    onMindMap={openMindMap}
                     onDocumentReader={openDocumentReader}
                     onDualThreadFork={startDualThreadFork}
                     dualThreadMode={dualThreadFork.enabled}
@@ -2063,7 +1786,6 @@ export default function ChatContainer({
               )}
               <DocumentReaderPanel
                 percent={readerPanelPercent}
-                onActiveChange={syncReaderActiveFromPanel}
                 onBeforeActiveChange={setReaderActiveWithLayoutTransition}
                 onReaderLayoutTransition={beginChatLayoutTransition}
               />
@@ -2072,7 +1794,7 @@ export default function ChatContainer({
                 threadSlug={threadSlug}
                 isOpen={mindMapOpen}
                 request={mindMapRequest}
-                onClose={() => setMindMapOpen(false)}
+                onClose={closeMindMap}
                 sendCommand={sendCommand}
                 setMessage={(message) => setMessageEmit(message)}
               />
@@ -2086,7 +1808,7 @@ export default function ChatContainer({
               {isMobile && <SidebarMobileHeader />}
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}
-                onMindMap={() => setMindMapOpen(true)}
+                onMindMap={openMindMap}
                 onDocumentReader={openDocumentReader}
                 onDualThreadFork={startDualThreadFork}
                 dualThreadMode={dualThreadFork.enabled}
@@ -2184,7 +1906,7 @@ export default function ChatContainer({
                 threadSlug={threadSlug}
                 isOpen={mindMapOpen}
                 request={mindMapRequest}
-                onClose={() => setMindMapOpen(false)}
+                onClose={closeMindMap}
                 sendCommand={sendCommand}
                 setMessage={(message) => setMessageEmit(message)}
                 floating
@@ -2222,7 +1944,7 @@ export default function ChatContainer({
             {!readerActive && (
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}
-                onMindMap={() => setMindMapOpen(true)}
+                onMindMap={openMindMap}
                 onDocumentReader={openDocumentReader}
                 onDualThreadFork={startDualThreadFork}
                 dualThreadMode={dualThreadFork.enabled}
@@ -2293,7 +2015,6 @@ export default function ChatContainer({
           )}
           <DocumentReaderPanel
             percent={readerPanelPercent}
-            onActiveChange={syncReaderActiveFromPanel}
             onBeforeActiveChange={setReaderActiveWithLayoutTransition}
             onReaderLayoutTransition={beginChatLayoutTransition}
           />
@@ -2302,7 +2023,7 @@ export default function ChatContainer({
             threadSlug={threadSlug}
             isOpen={mindMapOpen}
             request={mindMapRequest}
-            onClose={() => setMindMapOpen(false)}
+            onClose={closeMindMap}
             sendCommand={sendCommand}
             setMessage={(message) => setMessageEmit(message)}
           />

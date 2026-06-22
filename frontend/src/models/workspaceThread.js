@@ -1,8 +1,6 @@
-import { ABORT_STREAM_EVENT } from "@/utils/chat";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders, safeJsonParse } from "@/utils/request";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { v4 } from "uuid";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorMessage as failureMessage } from "@/lib/communication/apiError";
+import { streamThreadTitleEvents } from "@/lib/communication/workspaceRealtimeClient";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 
 function historyPageQuery({
@@ -21,14 +19,10 @@ function historyPageQuery({
 
 const WorkspaceThread = {
   all: async function (workspaceSlug) {
-    const { threads, defaultThreads } = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/threads`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-      }
+    const { threads, defaultThreads } = await getJson(
+      `/workspace/${workspaceSlug}/threads`
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch(() => {
         return { threads: [], defaultThreads: null };
       });
@@ -39,64 +33,32 @@ const WorkspaceThread = {
     workspaceSlug,
     { signal = null, onThreadRename = null } = {}
   ) {
-    if (!workspaceSlug) return;
-
-    await fetchEventSource(
-      `${API_BASE}/workspace/${workspaceSlug}/thread-title-events`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal,
-        openWhenHidden: true,
-        async onopen(response) {
-          if (response.ok) return;
-          throw new Error(`Title event stream failed: ${response.status}`);
-        },
-        async onmessage(msg) {
-          const event = safeJsonParse(msg.data, null);
-          if (event?.action !== "rename_thread" || !event?.thread) return;
-          onThreadRename?.(event.thread);
-        },
-        onerror(error) {
-          if (signal?.aborted) return;
-          console.warn("[ThreadTitle] event stream error", error.message);
-          return 3_000;
-        },
-      }
-    );
+    return streamThreadTitleEvents({
+      workspaceSlug,
+      signal,
+      onThreadRename,
+    });
   },
   new: async function (workspaceSlug) {
     try {
-      const response = await fetch(
-        `${API_BASE}/workspace/${workspaceSlug}/thread/new`,
-        {
-          method: "POST",
-          headers: baseHeaders(),
-        }
+      const { data: payload } = await postJson(
+        `/workspace/${workspaceSlug}/thread/new`
       );
-      const payload = await response.json().catch(() => ({}));
-      const error =
-        payload?.error ||
-        payload?.message ||
-        (!response.ok ? `Request failed with status ${response.status}` : null);
+      const error = payload?.error || payload?.message || null;
       if (error) return { thread: null, error };
       if (!payload?.thread?.slug)
         return { thread: null, error: "Invalid thread response" };
       return { thread: payload.thread, error: null };
     } catch (e) {
-      return { thread: null, error: e.message };
+      return { thread: null, error: failureMessage(e) };
     }
   },
   update: async function (workspaceSlug, threadSlug, data = {}) {
-    const { thread, message } = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/update`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: baseHeaders(),
-      }
+    const { thread, message } = await postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/update`,
+      data
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
         return { thread: null, message: e.message };
       });
@@ -105,19 +67,11 @@ const WorkspaceThread = {
   },
   move: async function (workspaceSlug, threadSlug, targetWorkspaceSlug) {
     try {
-      const response = await fetch(
-        `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/move`,
-        {
-          method: "POST",
-          headers: baseHeaders(),
-          body: JSON.stringify({ targetWorkspaceSlug }),
-        }
+      const { data: payload } = await postJson(
+        `/workspace/${workspaceSlug}/thread/${threadSlug}/move`,
+        { targetWorkspaceSlug }
       );
-      const payload = await response.json().catch(() => ({}));
-      const error =
-        payload?.error ||
-        payload?.message ||
-        (!response.ok ? `Request failed with status ${response.status}` : null);
+      const error = payload?.error || payload?.message || null;
       if (error) return { success: false, error, thread: null };
 
       threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
@@ -131,55 +85,35 @@ const WorkspaceThread = {
         error: null,
       };
     } catch (e) {
-      return { success: false, error: e.message, thread: null };
+      return { success: false, error: failureMessage(e), thread: null };
     }
   },
   delete: async function (workspaceSlug, threadSlug) {
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}`,
-      {
-        method: "DELETE",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.ok)
-      .then((ok) => {
-        if (ok) threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
-        return ok;
+    return await deleteJson(`/workspace/${workspaceSlug}/thread/${threadSlug}`)
+      .then(() => {
+        threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+        return true;
       })
       .catch(() => false);
   },
   deleteBulk: async function (workspaceSlug, threadSlugs = []) {
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread-bulk-delete`,
-      {
-        method: "DELETE",
-        body: JSON.stringify({ slugs: threadSlugs }),
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.ok)
-      .then((ok) => {
-        if (ok) {
-          threadSlugs.forEach((threadSlug) =>
-            threadHistoryCache.invalidateThread(workspaceSlug, threadSlug)
-          );
-        }
-        return ok;
+    return await deleteJson(`/workspace/${workspaceSlug}/thread-bulk-delete`, {
+      body: { slugs: threadSlugs },
+    })
+      .then(() => {
+        threadSlugs.forEach((threadSlug) =>
+          threadHistoryCache.invalidateThread(workspaceSlug, threadSlug)
+        );
+        return true;
       })
       .catch(() => false);
   },
   chatHistory: async function (workspaceSlug, threadSlug, options = {}) {
-    const history = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal: options.signal,
-      }
+    const history = await getJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/chats`,
+      { signal: options.signal }
     )
-      .then((res) => res.json())
-      .then((res) => res.history || [])
+      .then(({ data }) => data.history || [])
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return [];
@@ -188,15 +122,11 @@ const WorkspaceThread = {
   },
   chatHistoryPage: async function (workspaceSlug, threadSlug, options = {}) {
     const query = historyPageQuery(options);
-    const payload = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal: options.signal,
-      }
+    const payload = await getJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
+      { signal: options.signal }
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return { history: [], page: null };
@@ -212,24 +142,22 @@ const WorkspaceThread = {
     chatIds = [],
     options = {}
   ) {
-    if (!chatIds.length) return { history: [], hydratedChatIds: [] };
-    const payload = await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/chats/hydrate`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        signal: options.signal,
-        body: JSON.stringify({ chatIds }),
-      }
+    if (!chatIds.length)
+      return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
+    const payload = await postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/chats/hydrate`,
+      { chatIds },
+      { signal: options.signal }
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
-        return { history: [], hydratedChatIds: [] };
+        return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
       });
     return {
       history: payload.history || [],
       hydratedChatIds: payload.hydratedChatIds || [],
+      hydratedPublicChatIds: payload.hydratedPublicChatIds || [],
     };
   },
   compactionStatus: async function (
@@ -248,15 +176,11 @@ const WorkspaceThread = {
         apiSessionId === null ? "null" : String(apiSessionId)
       );
     const query = params.toString();
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/compact/status${query ? `?${query}` : ""}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal,
-      }
+    return await getJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/compact/status${query ? `?${query}` : ""}`,
+      { signal }
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return { success: false, status: null, error: error.message };
@@ -280,127 +204,29 @@ const WorkspaceThread = {
     if (apiSessionId !== undefined) body.apiSessionId = apiSessionId;
     if (mode !== undefined) body.mode = mode;
     if (targetRatio !== undefined) body.targetRatio = targetRatio;
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/compact`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify(body),
-        signal,
-      }
+    return await postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/compact`,
+      body,
+      { signal }
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return { success: false, error: error.message };
       });
-  },
-  streamChat: async function (
-    { workspaceSlug, threadSlug },
-    message,
-    handleChat,
-    attachments = [],
-    fileAccessMode = null,
-    nodeContext = null
-  ) {
-    const ctrl = new AbortController();
-
-    // Listen for the ABORT_STREAM_EVENT key to be emitted by the client
-    // to early abort the streaming response. On abort we send a special `stopGeneration`
-    // event to be handled which resets the UI for us to be able to send another message.
-    // The backend response abort handling is done in each LLM's handleStreamResponse.
-    const abortStream = () => {
-      ctrl.abort();
-      handleChat({ id: v4(), type: "stopGeneration" });
-    };
-    window.addEventListener(ABORT_STREAM_EVENT, abortStream);
-
-    try {
-      await fetchEventSource(
-        `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/stream-chat`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            message,
-            attachments,
-            fileAccess: { mode: fileAccessMode },
-            nodeContext,
-          }),
-          headers: baseHeaders(),
-          signal: ctrl.signal,
-          openWhenHidden: true,
-          async onopen(response) {
-            if (response.ok) {
-              return; // everything's good
-            } else if (
-              response.status >= 400 &&
-              response.status < 500 &&
-              response.status !== 429
-            ) {
-              handleChat({
-                id: v4(),
-                type: "abort",
-                textResponse: null,
-                sources: [],
-                close: true,
-                error: `An error occurred while streaming response. Code ${response.status}`,
-              });
-              ctrl.abort();
-              throw new Error("Invalid Status code response.");
-            } else {
-              handleChat({
-                id: v4(),
-                type: "abort",
-                textResponse: null,
-                sources: [],
-                close: true,
-                error: `An error occurred while streaming response. Unknown Error.`,
-              });
-              ctrl.abort();
-              throw new Error("Unknown error");
-            }
-          },
-          async onmessage(msg) {
-            const chatResult = safeJsonParse(msg.data, null);
-            if (chatResult) handleChat(chatResult);
-          },
-          onerror(err) {
-            handleChat({
-              id: v4(),
-              type: "abort",
-              textResponse: null,
-              sources: [],
-              close: true,
-              error: `An error occurred while streaming response. ${err.message}`,
-            });
-            ctrl.abort();
-            throw new Error();
-          },
-        }
-      );
-    } finally {
-      window.removeEventListener(ABORT_STREAM_EVENT, abortStream);
-    }
   },
   _deleteEditedChats: async function (
     workspaceSlug = "",
     threadSlug = "",
     startingId
   ) {
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/delete-edited-chats`,
-      {
-        method: "DELETE",
-        headers: baseHeaders(),
-        body: JSON.stringify({ startingId }),
-      }
+    return await deleteJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/delete-edited-chats`,
+      { body: { startingId } }
     )
-      .then((res) => {
-        if (res.ok) {
-          threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
-          return true;
-        }
-        throw new Error("Failed to delete chats.");
+      .then(() => {
+        threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+        return true;
       })
       .catch((e) => {
         console.log(e);
@@ -414,20 +240,13 @@ const WorkspaceThread = {
     newText,
     role = "assistant"
   ) {
-    return await fetch(
-      `${API_BASE}/workspace/${workspaceSlug}/thread/${threadSlug}/update-chat`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ chatId, newText, role }),
-      }
+    return await postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/update-chat`,
+      { chatId, newText, role }
     )
-      .then((res) => {
-        if (res.ok) {
-          threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
-          return true;
-        }
-        throw new Error("Failed to update chat.");
+      .then(() => {
+        threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+        return true;
       })
       .catch((e) => {
         console.log(e);

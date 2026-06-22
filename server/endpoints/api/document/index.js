@@ -17,6 +17,10 @@ const { Document } = require("../../../models/documents");
 const { Workspace } = require("../../../models/workspace");
 const { purgeFolder } = require("../../../utils/files/purgeDocument");
 const { storagePath } = require("../../../utils/environment");
+const {
+  redactSensitiveText,
+  redactUrl,
+} = require("../../../utils/security/redaction");
 const documentsPath = storagePath("documents");
 
 /**
@@ -482,14 +486,17 @@ function apiDocumentEndpoints(app) {
       }
     }
     */
+      let link = "";
       try {
         const Collector = new CollectorApi();
+        const body = reqBody(request);
         const {
-          link,
           addToWorkspaces = "",
           scraperHeaders = {},
           metadata: _metadata = {},
-        } = reqBody(request);
+        } = body || {};
+        link = body?.link || "";
+        const redactedLink = redactUrl(link);
         const metadata =
           typeof _metadata === "string"
             ? safeJsonParse(_metadata, {})
@@ -501,7 +508,8 @@ function apiDocumentEndpoints(app) {
             .status(500)
             .json({
               success: false,
-              error: `Document processing API is not online. Link ${link} will not be processed automatically.`,
+              error:
+                "Document processing API is not online. Link will not be processed automatically.",
             })
             .end();
         }
@@ -514,16 +522,22 @@ function apiDocumentEndpoints(app) {
         if (!success) {
           return response
             .status(500)
-            .json({ success: false, error: reason, documents })
+            .json({
+              success: false,
+              error: redactSensitiveText(reason || "Link upload failed.", [
+                link,
+              ]),
+              documents,
+            })
             .end();
         }
 
         Collector.log(
-          `Link ${link} uploaded processed and successfully. It is now available in documents.`
+          `Link ${redactedLink} uploaded processed and successfully. It is now available in documents.`
         );
         await Telemetry.sendTelemetry("link_uploaded");
         await EventLogs.logEvent("api_link_uploaded", {
-          link,
+          link: redactedLink,
         });
 
         if (!!addToWorkspaces)
@@ -533,7 +547,9 @@ function apiDocumentEndpoints(app) {
           );
         response.status(200).json({ success: true, error: null, documents });
       } catch (e) {
-        console.error(e.message, e);
+        console.error("API link upload failed", {
+          message: redactSensitiveText(e.message, [link]),
+        });
         response.sendStatus(500).end();
       }
     }

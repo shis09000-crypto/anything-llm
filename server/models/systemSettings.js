@@ -18,6 +18,10 @@ const {
   DEFAULT_BASE_URL: DEFAULT_ALIBABA_OCR_BASE_URL,
   DEFAULT_MODEL: DEFAULT_ALIBABA_OCR_MODEL,
 } = require("../utils/OcrProviders/alibaba");
+const {
+  DEFAULT_BASE_URL: DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+  DEFAULT_MODEL: DEFAULT_ALIBABA_SEARCH_MODEL,
+} = require("../utils/SearchModels/alibaba");
 const DEFAULT_ALIBABA_VISION_MODEL = "qwen3-vl-flash";
 const { storageRoot } = require("../utils/environment");
 const {
@@ -539,6 +543,17 @@ const SystemSettings = {
         process.env.RERANK_BASE_URL || DEFAULT_ALIBABA_RERANK_BASE_URL,
       RerankModelPref:
         process.env.RERANK_MODEL_PREF || DEFAULT_ALIBABA_RERANK_MODEL,
+
+      // --------------------------------------------------------
+      // Search Model Provider Selection Settings & Configs
+      // --------------------------------------------------------
+      SearchModelProvider: process.env.SEARCH_MODEL_PROVIDER || "none",
+      SearchModelApiKey: !!process.env.SEARCH_MODEL_API_KEY,
+      SearchModelBaseUrl:
+        process.env.SEARCH_MODEL_BASE_URL ||
+        DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+      SearchModelPref:
+        process.env.SEARCH_MODEL_PREF || DEFAULT_ALIBABA_SEARCH_MODEL,
 
       // --------------------------------------------------------
       // Reader OCR Provider Selection Settings & Configs

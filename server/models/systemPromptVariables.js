@@ -74,7 +74,7 @@ const SystemPromptVariables = {
             where: { id: Number(userId) },
             select: { bio: true },
           });
-          return user?.bio || "[User bio is empty]";
+          return normalizeUserBioForPrompt(user?.bio) || "[User bio is empty]";
         } catch (error) {
           console.error("Error fetching user bio:", error);
           return "[User bio is empty]";
@@ -357,5 +357,9 @@ const SystemPromptVariables = {
     return true;
   },
 };
+
+function normalizeUserBioForPrompt(bio = "") {
+  return String(bio || "").replace(/^你的身份:/gm, "模型的身份:");
+}
 
 module.exports = { SystemPromptVariables };

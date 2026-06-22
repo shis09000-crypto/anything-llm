@@ -15,6 +15,7 @@ import ImageLightbox from "@/components/ImageLightbox";
 import { ErrorBoundary } from "react-error-boundary";
 import ErrorBoundaryFallback from "./components/ErrorBoundaryFallback";
 import { ChatThreadDraftProvider } from "@/contexts/ChatThreadDraftProvider";
+import { WorkspaceLayoutProvider } from "@/contexts/WorkspaceLayoutProvider";
 import { MotionProvider } from "@/contexts/MotionProvider";
 import MotionRouteOutlet from "@/components/MotionRouteOutlet";
 import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
@@ -57,12 +58,14 @@ export default function App() {
                   <I18nextProvider i18n={i18n}>
                     <MotionProvider>
                       <ChatThreadDraftProvider>
-                        <DefaultDocumentTitle />
-                        <MotionRouteOutlet />
-                        <AppConfirmDialogHost />
-                        <AppToastHost />
-                        <KeyboardShortcutsHelp />
-                        <ImageLightbox />
+                        <WorkspaceLayoutProvider>
+                          <DefaultDocumentTitle />
+                          <MotionRouteOutlet />
+                          <AppConfirmDialogHost />
+                          <AppToastHost />
+                          <KeyboardShortcutsHelp />
+                          <ImageLightbox />
+                        </WorkspaceLayoutProvider>
                       </ChatThreadDraftProvider>
                     </MotionProvider>
                   </I18nextProvider>

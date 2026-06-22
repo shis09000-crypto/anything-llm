@@ -105,15 +105,24 @@ const WorkspaceParsedFiles = {
    * @param {import("@prisma/client").users | null} user - The user performing the operation.
    * @param {number} fileId - The ID of the parsed file.
    * @param {import("@prisma/client").workspaces} workspace - The workspace the file belongs to.
+   * @param {import("@prisma/client").workspace_parsed_files | null} authorizedParsedFile - A pre-authorized parsed file.
    * @returns {Promise<{ success: boolean, error: string | null, document: import("@prisma/client").workspace_documents | null }>} The result of the operation.
    */
-  moveToDocumentsAndEmbed: async function (user = null, fileId, workspace) {
+  moveToDocumentsAndEmbed: async function (
+    user = null,
+    fileId,
+    workspace,
+    authorizedParsedFile = null
+  ) {
+    let parsedFile = authorizedParsedFile;
     try {
-      const parsedFile = await this.get({
-        id: parseInt(fileId),
-        ...(user ? { userId: user.id } : {}),
-        workspaceId: workspace.id,
-      });
+      parsedFile =
+        parsedFile ||
+        (await this.get({
+          id: parseInt(fileId),
+          ...(user ? { userId: user.id } : {}),
+          workspaceId: workspace.id,
+        }));
       if (!parsedFile) throw new Error("File not found");
 
       // Get file location from metadata
@@ -157,8 +166,13 @@ const WorkspaceParsedFiles = {
       console.error("Failed to move and embed file:", error);
       return { success: false, error: error.message, document: null };
     } finally {
-      // Always delete the file after processing
-      await this.delete({ id: parseInt(fileId) });
+      if (parsedFile) {
+        await this.delete({
+          id: parsedFile.id,
+          workspaceId: workspace.id,
+          ...(user ? { userId: user.id } : {}),
+        });
+      }
     }
   },
 

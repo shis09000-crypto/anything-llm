@@ -32,13 +32,13 @@ describe("ZK login endpoint helpers", () => {
     expect(normalizeDeviceId("unsafe/device/id")).toBe(null);
   });
 
-  it("uses stable OPAQUE identifiers without exposing local secrets", () => {
+  it("uses stable OPAQUE identifiers bound to shared authUserId", () => {
     expect(opaqueIdentifiers("device_1234567890abcdef")).toEqual({
       client: "device_1234567890abcdef",
       server: "Athena",
     });
-    expect(zkUserIdentifier(7, "device_1234567890abcdef")).toBe(
-      "athena:user:7:device:device_1234567890abcdef"
+    expect(zkUserIdentifier(91, "device_1234567890abcdef")).toBe(
+      "athena:user:91:device:device_1234567890abcdef"
     );
   });
 

@@ -14,6 +14,13 @@ const {
   readAgentSessionEvents,
   recordAgentSessionEvent,
 } = require("../utils/agents/agentSessionLedger");
+const {
+  getAuthorizedAgentInvocation,
+} = require("../utils/authz/resourceAccess");
+const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const {
+  ensureSecureWebSocketRequest,
+} = require("../utils/security/transportSecurity");
 
 const activeAgentSessions = new Map();
 
@@ -132,29 +139,50 @@ function relayToSocket(message) {
 function agentWebsocket(app) {
   if (!app) return;
 
-  app.get("/agent-invocation/:uuid/state", async function (request, response) {
-    const uuid = String(request.params.uuid);
-    const invocation = await WorkspaceAgentInvocation.get({ uuid });
-    if (!invocation) {
-      return response.status(404).json({
-        success: false,
-        error: "agent_invocation_not_found",
+  app.get(
+    "/agent-invocation/:uuid/state",
+    [validatedRequest],
+    async function (request, response) {
+      const uuid = String(request.params.uuid);
+      const authorized = await getAuthorizedAgentInvocation({
+        request,
+        response,
+        uuid,
+      });
+      if (!authorized) {
+        return response.status(404).json({
+          success: false,
+          error: "agent_invocation_not_found",
+        });
+      }
+      const { invocation } = authorized;
+
+      return response.status(200).json({
+        success: true,
+        state: {
+          ...getAgentSessionState(uuid),
+          closed: !!invocation.closed,
+          retryable: !invocation.closed,
+        },
       });
     }
-
-    return response.status(200).json({
-      success: true,
-      state: {
-        ...getAgentSessionState(uuid),
-        closed: !!invocation.closed,
-        retryable: !invocation.closed,
-      },
-    });
-  });
+  );
 
   app.ws("/agent-invocation/:uuid", async function (socket, request) {
+    if (!ensureSecureWebSocketRequest(request, socket)) return;
+
     const uuid = String(request.params.uuid);
     try {
+      const authorized = await getAuthorizedAgentInvocation({
+        request,
+        uuid,
+        token: request.query?.token,
+      });
+      if (!authorized) {
+        socket.close(1008);
+        return;
+      }
+      const invocation = authorized.invocation;
       const requestedLastSeq = Number(request.query?.lastEventSeq || 0);
       const lastEventSeq = Number.isFinite(requestedLastSeq)
         ? requestedLastSeq
@@ -163,8 +191,7 @@ function agentWebsocket(app) {
       let session = activeAgentSessions.get(uuid);
 
       if (isResume && !session) {
-        const invocation = await WorkspaceAgentInvocation.get({ uuid });
-        if (!invocation || invocation.closed) {
+        if (invocation.closed) {
           socket.close();
           return;
         }

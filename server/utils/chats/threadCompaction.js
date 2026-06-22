@@ -1,11 +1,11 @@
 const {
   WorkspaceChatCompaction,
 } = require("../../models/workspaceChatCompaction");
-const { getLLMProvider } = require("../helpers");
 const { getTaskConnector, resolveTaskProviderModel } = require("../llmTasks");
 const { TokenManager } = require("../helpers/tiktoken");
 const { convertToPromptHistory } = require("../helpers/chat/responses");
 const { recentChatHistory } = require("./index");
+const { jsonrepair } = require("jsonrepair");
 
 const DEFAULT_KEEP_RECENT_MESSAGES = 10;
 const DEFAULT_TRIGGER_RATIO = 0.65;
@@ -216,12 +216,19 @@ function extractJsonObject(input = "") {
   try {
     return JSON.parse(stripped);
   } catch {}
+  try {
+    return JSON.parse(jsonrepair(stripped));
+  } catch {}
 
   const first = stripped.indexOf("{");
   const last = stripped.lastIndexOf("}");
   if (first >= 0 && last > first) {
     try {
-      return JSON.parse(stripped.slice(first, last + 1));
+      const sliced = stripped.slice(first, last + 1);
+      return JSON.parse(sliced);
+    } catch {}
+    try {
+      return JSON.parse(jsonrepair(stripped.slice(first, last + 1)));
     } catch {}
   }
   return null;
@@ -272,8 +279,11 @@ function normalizeTemporaryContext(value = []) {
 
 function parseConversationCapsule(input = null, fallback = null) {
   if (!input) return fallback;
-  if (typeof input === "object") return input;
-  return extractJsonObject(input) || fallback;
+  if (typeof input === "object" && !Array.isArray(input)) return input;
+  const parsed = extractJsonObject(input);
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+    return parsed;
+  return fallback;
 }
 
 function normalizeConversationCapsule(
@@ -369,45 +379,17 @@ function normalizedTargetRatio(value, fallback) {
 }
 
 function resolveCompactionLLM(workspace) {
-  const fallbackProvider = workspace?.chatProvider;
-  const fallbackModel = workspace?.chatModel;
-
-  try {
-    const {
-      connector: llm,
-      provider,
-      model,
-    } = getTaskConnector("thread_compaction", { workspace });
-    return {
-      llm,
-      provider,
-      model,
-      fallbackUsed: false,
-    };
-  } catch (error) {
-    console.warn(
-      "[ThreadCompaction] configured compaction provider unavailable, falling back",
-      error.message
-    );
-  }
-
-  const llm = getLLMProvider({
-    provider: fallbackProvider,
-    model: fallbackModel,
-  });
+  const {
+    connector: llm,
+    provider,
+    model,
+  } = getTaskConnector("thread_compaction", { workspace });
   return {
     llm,
-    provider: fallbackProvider || null,
-    model: llm?.model || fallbackModel || null,
-    fallbackUsed: true,
+    provider,
+    model,
+    fallbackUsed: false,
   };
-}
-
-function resolveChatLLM(workspace) {
-  return getLLMProvider({
-    provider: workspace?.chatProvider,
-    model: workspace?.chatModel,
-  });
 }
 
 function defaultTargetBase() {
@@ -702,6 +684,77 @@ Assistant:
 ${responseText}`;
 }
 
+function exactValueCandidateText(chat = {}) {
+  let responseText = "";
+  try {
+    responseText = JSON.parse(chat.response || "{}")?.text || "";
+  } catch {}
+  return cleanText(`${chat.prompt || ""}\n${responseText || ""}`, 20_000);
+}
+
+function isTransientTestText(text = "") {
+  const normalized = cleanText(text, 800);
+  if (!normalized) return false;
+  return (
+    normalized.length < 600 &&
+    /(只回复|回复\s*[“"'`]?ok|第\s*\d+\s*轮|缓存.*测试|cache.*test|一致性测试|完成即可|只需回复)/i.test(
+      normalized
+    )
+  );
+}
+
+function extractDurableTopicHints(chats = [], { limit = 12 } = {}) {
+  const hints = [];
+  const seen = new Set();
+  for (const chat of chats.slice().reverse()) {
+    const text = exactValueCandidateText(chat);
+    if (!text || isTransientTestText(text)) continue;
+    const hasSignal =
+      text.length >= 160 ||
+      /(红色资本|中国|金融|银行|财政部|人民银行|汇金|朱镕基|房地产|股市|社保|人口|债务|资本|改革开放)/.test(
+        text
+      );
+    if (!hasSignal) continue;
+    const snippet = cleanText(text.slice(0, 420), 420);
+    if (!snippet || seen.has(snippet)) continue;
+    seen.add(snippet);
+    hints.unshift(`Chat #${chat.id}: ${snippet}`);
+    if (hints.length >= limit) break;
+  }
+  return hints;
+}
+
+function extractExactValueCandidates(
+  chats = [],
+  { limit = 90, recentLimit = 30 } = {}
+) {
+  const candidates = [];
+  const seen = new Set();
+  const recentChats = chats.slice(-Math.max(1, recentLimit));
+  const scanChats = [...recentChats, ...chats];
+  const pattern =
+    /(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})|(?:[A-Z][A-Z0-9_]{2,}(?:=[A-Za-z0-9_.:/-]+)?)|(?:\d{4}(?:[-/年]\d{1,2}(?:[-/月]\d{1,2}日?)?)?)|(?:\d+(?:\.\d+)?\s*(?:万亿|亿元|亿|万美元|亿美元|人民币|美元|%|％|tokens?|token|TTL|次|轮|条|个|名|页|年|月|日|倍|MB|GB|KB|ms|s|秒|分钟|小时))|(?:财政部|人民银行|央行|国务院|证监会|银监会|建设银行|工商银行|中国银行|资产管理公司)|(?:[\u4e00-\u9fff]{2,12}(?:银行|公司|政府))|(?:[\u4e00-\u9fff]{2,4}(?:时期|时代|说|认为|提出|指出|主导))/gi;
+
+  for (const chat of scanChats) {
+    const text = exactValueCandidateText(chat);
+    if (!text) continue;
+    for (const match of text.matchAll(pattern)) {
+      const value = cleanText(match[0], 120);
+      if (!value) continue;
+      const key = `${chat.id}:${value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const start = Math.max(0, match.index - 48);
+      const end = Math.min(text.length, match.index + value.length + 48);
+      candidates.push(
+        `Chat #${chat.id}: ${cleanText(text.slice(start, end), 220)}`
+      );
+      if (candidates.length >= limit) return candidates;
+    }
+  }
+  return candidates;
+}
+
 function buildCapsulePrompt({
   previousCapsule = null,
   previousSummary = null,
@@ -714,6 +767,8 @@ function buildCapsulePrompt({
     ? capsuleJson(previousCapsule)
     : "未知";
   const legacyPrior = normalizeCompactionSummary(previousSummary);
+  const exactValueCandidates = extractExactValueCandidates(chats);
+  const durableTopicHints = extractDurableTopicHints(chats);
   return `Create a Conversation State Capsule for this Athena thread.
 
 Rules:
@@ -722,11 +777,17 @@ Rules:
 - Compress conversation state, not knowledge content. Do not summarize all chat content.
 - Do not invent facts. If a detail is uncertain or only inferred by the assistant, omit it.
 - Only store facts and decisions confirmed by the user, codebase, tool output, or accepted prior capsule.
+- This fold covers ${chats.length} raw chat records. For a substantial domain-analysis thread, do not return an ultra-short capsule. Preserve enough confirmed state for continuity: normally 8-20 concise confirmedFacts when the covered history contains that much confirmed analytical state.
+- For book/history/finance analysis threads, confirmedFacts may include compact factual anchors, user-accepted interpretations, key people, institutions, dates, amounts, and ratios. This is allowed when those anchors are needed to continue the user's reasoning.
+- If exact value candidates contain confirmed, central historical data or user-emphasized numbers, preserve the most important ones with their meaning. Do not omit all precise numbers from a long analytical thread.
+- Do not let transient test instructions become the topic, currentGoal, or recentDirection. Ignore echo tests, cache tests, numbered test rounds, "只回复/only reply" prompts, and one-off completion checks unless the whole thread is actually about testing. At most put still-relevant transient test state in temporaryContext with TTL.
+- If there is durable domain analysis plus transient tests, choose the durable domain topic/currentGoal and preserve the important confirmed analytical state.
 - Preserve concrete file paths, function names, table names, config names, route names, user constraints, and technical boundaries only when they are confirmed and important to the current state.
 - This is deterministic thread state, not RAG memory and not a citation source.
 - Do not store rejected plans, failed attempts, wrong conclusions, temporary guesses, verbose explanations, ephemeral RAG context, citations, pinned docs, parsed files, graph context, attachments, or tool output transcripts unless a durable conclusion from them is necessary for the task state.
 - Treat persistent context such as system prompt, workspace prompt, and project rules as re-injected context. Do not copy them into the compact state unless the user explicitly made them part of the task.
 - Analyze every number mentioned in the conversation. Preserve exact numbers only when they are confirmed and important to the current goal, such as ports, versions, IDs, TTLs, token budgets, ratios, dates, limits, config values, database field values, thresholds, and user-stated numeric requirements.
+- Pay special attention to exact historical data, years, money amounts, percentages, institutions, and people that the user relies on for the current analysis. Preserve the exact value and its meaning when confirmed.
 - Do not preserve temporary error counts, transient test numbers, estimates, or numbers that belong only to rejected approaches.
 - If a number is a user requirement, system boundary, architecture constraint, or accepted decision, place it in confirmedFacts, confirmedDecisions, or architectureDecisions.
 - temporaryContext items must be objects with text and expiresAfterCompactions. Use expiresAfterCompactions: 3 for new temporary state unless the user specified another confirmed TTL.
@@ -756,6 +817,12 @@ ${priorCapsule}
 Legacy Thread Memory Summary fallback, if any:
 ${legacyPrior || "未知"}
 
+Durable topic hints to prefer over transient tests:
+${durableTopicHints.length ? durableTopicHints.join("\n") : "无"}
+
+Recent exact value candidates to evaluate carefully:
+${exactValueCandidates.length ? exactValueCandidates.join("\n") : "无"}
+
 Raw chat history to fold into the capsule:
 ${chats.map(formatChatForSummary).join("\n\n---\n\n")}`;
 }
@@ -772,6 +839,64 @@ Rules:
 
 Current capsule:
 ${capsuleJson(capsule || blankConversationCapsule())}`;
+}
+
+function buildRepairCapsulePrompt({ rawOutput = "", coveredToChatId = null }) {
+  return `Repair this Conversation State Capsule output into valid strict JSON.
+
+Rules:
+- Output strict JSON only.
+- Preserve only the confirmed state already present in the raw output.
+- Do not add new facts.
+- Use exactly these keys: topic, currentGoal, confirmedFacts, confirmedDecisions, openQuestions, temporaryContext, recentDirection, architectureDecisions, generatedAt, coveredToChatId.
+- temporaryContext must be an array of objects with text and expiresAfterCompactions.
+- coveredToChatId must be "${coveredToChatId ?? ""}".
+
+Raw output:
+${String(rawOutput || "").slice(0, 120_000)}`;
+}
+
+function capsuleLooksTooSparse(capsule = null, chats = []) {
+  const normalized = normalizeConversationCapsule(capsule);
+  if (chats.length < 50) return false;
+  if (normalized.confirmedFacts.length >= 8) return false;
+  return (
+    extractDurableTopicHints(chats, { limit: 6 }).length >= 3 ||
+    extractExactValueCandidates(chats, { limit: 20 }).length >= 10
+  );
+}
+
+function buildExpandSparseCapsulePrompt({
+  capsule = null,
+  chats = [],
+  maxSummaryTokens = null,
+  coveredToChatId = null,
+}) {
+  const exactValueCandidates = extractExactValueCandidates(chats, {
+    limit: 120,
+  });
+  const durableTopicHints = extractDurableTopicHints(chats, { limit: 16 });
+  return `The current Conversation State Capsule is too sparse for this long thread. Expand it into valid strict JSON without inventing facts.
+
+Rules:
+- Output strict JSON only.
+- Keep the same schema keys.
+- Preserve the durable topic/current goal, not transient cache tests or echo tests.
+- Add concise confirmedFacts for central, confirmed analytical state from the covered history.
+- Preserve important exact dates, amounts, ratios, people, institutions, and user-accepted interpretations with their meaning.
+- Do not add rejected ideas, failed attempts, temporary guesses, or verbose explanations.
+- Aim for 8-20 confirmedFacts when supported by the evidence.
+- coveredToChatId must be "${coveredToChatId ?? ""}".
+${maxSummaryTokens ? `- Keep the capsule within about ${maxSummaryTokens} tokens.` : ""}
+
+Current sparse capsule:
+${capsuleJson(capsule || blankConversationCapsule())}
+
+Durable topic hints:
+${durableTopicHints.length ? durableTopicHints.join("\n") : "无"}
+
+Exact value candidates:
+${exactValueCandidates.length ? exactValueCandidates.join("\n") : "无"}`;
 }
 
 function capsuleToMarkdownSummary(capsule = null) {
@@ -874,8 +999,17 @@ async function generateCapsule({
   const result = await capsuleLLM.getChatCompletion(messages, {
     temperature: 0,
     user,
+    responseFormat: { type: "json_object" },
   });
-  const parsed = parseConversationCapsule(result?.textResponse || "", null);
+  let parsed = parseConversationCapsule(result?.textResponse || "", null);
+  if (!parsed) {
+    parsed = await repairCapsuleOutput({
+      llm: capsuleLLM,
+      user,
+      rawOutput: result?.textResponse || "",
+      coveredToChatId,
+    });
+  }
   if (!parsed) throw new Error("invalid_conversation_capsule_json");
   const normalized = normalizeConversationCapsule(parsed, {
     generatedAt: new Date().toISOString(),
@@ -884,12 +1018,110 @@ async function generateCapsule({
   const capsule = maxSummaryTokens
     ? trimCapsuleToTokenBudget(capsuleLLM, normalized, maxSummaryTokens)
     : normalized;
+  if (capsuleLooksTooSparse(capsule, chats)) {
+    const expanded = await expandSparseCapsule({
+      llm: capsuleLLM,
+      user,
+      capsule,
+      chats,
+      maxSummaryTokens,
+      coveredToChatId,
+    });
+    if (expanded && !capsuleLooksTooSparse(expanded, chats)) {
+      const nextCapsule = maxSummaryTokens
+        ? trimCapsuleToTokenBudget(capsuleLLM, expanded, maxSummaryTokens)
+        : normalizeConversationCapsule(expanded, {
+            generatedAt: new Date().toISOString(),
+            coveredToChatId,
+          });
+      return {
+        llm: capsuleLLM,
+        capsule: nextCapsule,
+        capsuleJson: capsuleJson(nextCapsule),
+        summary: capsuleToMarkdownSummary(nextCapsule),
+      };
+    }
+  }
   return {
     llm: capsuleLLM,
     capsule,
     capsuleJson: capsuleJson(capsule),
     summary: capsuleToMarkdownSummary(capsule),
   };
+}
+
+async function expandSparseCapsule({
+  llm,
+  user = null,
+  capsule = null,
+  chats = [],
+  maxSummaryTokens = null,
+  coveredToChatId = null,
+}) {
+  const systemPrompt =
+    "You expand sparse Conversation State Capsule JSON for long Athena threads. Return strict JSON only.";
+  const messages = await llm.compressMessages(
+    {
+      systemPrompt,
+      userPrompt: buildExpandSparseCapsulePrompt({
+        capsule,
+        chats,
+        maxSummaryTokens,
+        coveredToChatId,
+      }),
+      contextTexts: [],
+      chatHistory: [],
+      attachments: [],
+    },
+    []
+  );
+  const result = await llm.getChatCompletion(messages, {
+    temperature: 0,
+    user,
+    responseFormat: { type: "json_object" },
+  });
+  let parsed = parseConversationCapsule(result?.textResponse || "", null);
+  if (!parsed) {
+    parsed = await repairCapsuleOutput({
+      llm,
+      user,
+      rawOutput: result?.textResponse || "",
+      coveredToChatId,
+    });
+  }
+  return parsed
+    ? normalizeConversationCapsule(parsed, {
+        generatedAt: new Date().toISOString(),
+        coveredToChatId,
+      })
+    : null;
+}
+
+async function repairCapsuleOutput({
+  llm,
+  user = null,
+  rawOutput = "",
+  coveredToChatId = null,
+}) {
+  if (!rawOutput) return null;
+  const systemPrompt =
+    "You repair Conversation State Capsule JSON. Return strict JSON only.";
+  const messages = await llm.compressMessages(
+    {
+      systemPrompt,
+      userPrompt: buildRepairCapsulePrompt({ rawOutput, coveredToChatId }),
+      contextTexts: [],
+      chatHistory: [],
+      attachments: [],
+    },
+    []
+  );
+  const result = await llm.getChatCompletion(messages, {
+    temperature: 0,
+    user,
+    responseFormat: { type: "json_object" },
+  });
+  return parseConversationCapsule(result?.textResponse || "", null);
 }
 
 async function tightenCapsule({ llm, user = null, capsule, maxSummaryTokens }) {
@@ -908,8 +1140,17 @@ async function tightenCapsule({ llm, user = null, capsule, maxSummaryTokens }) {
   const result = await llm.getChatCompletion(messages, {
     temperature: 0,
     user,
+    responseFormat: { type: "json_object" },
   });
-  const parsed = parseConversationCapsule(result?.textResponse || "", null);
+  let parsed = parseConversationCapsule(result?.textResponse || "", null);
+  if (!parsed) {
+    parsed = await repairCapsuleOutput({
+      llm,
+      user,
+      rawOutput: result?.textResponse || "",
+      coveredToChatId: capsule?.coveredToChatId || null,
+    });
+  }
   if (!parsed) return trimCapsuleToTokenBudget(llm, capsule, maxSummaryTokens);
   return trimCapsuleToTokenBudget(llm, parsed, maxSummaryTokens);
 }
@@ -938,14 +1179,13 @@ async function compactThread({
 
   inFlightCompactions.add(key);
   try {
-    const chatLLM = resolveChatLLM(workspace);
     const compactionInfo = resolveCompactionLLM(workspace);
     const compactionLLM = compactionInfo.llm;
     const isTargetMode = mode === "target";
     const targetMode = reason === "auto" ? "auto" : "manual";
     const budgets = resolveTargetBudgets({
       workspace,
-      chatLLM,
+      chatLLM: compactionLLM,
       compactionLLM,
       compactionInfo,
       targetRatio,
@@ -957,7 +1197,7 @@ async function compactThread({
     );
     const targetPlan = isTargetMode
       ? targetCompactionPlan({
-          llm: chatLLM,
+          llm: compactionLLM,
           rawHistory: candidateSet.rawHistory,
           budgets,
         })
@@ -967,7 +1207,7 @@ async function compactThread({
             candidateSet.compactable.length
           ),
           retainedTokens: estimateHistoryTokens(
-            chatLLM,
+            compactionLLM,
             candidateSet.rawHistory.slice(candidateSet.compactable.length)
           ),
           targetCompactableMessageCount: candidateSet.compactable.length,
@@ -1093,7 +1333,7 @@ async function compactThread({
 
     let tokenAfter = estimateStringTokens(compactionLLM, capsuleJsonString);
     let capsuleInjectionTokens = estimateStringTokens(
-      chatLLM,
+      compactionLLM,
       conversationCapsuleBlock(capsule)
     );
     let usedTokensAfterCompact =
@@ -1120,7 +1360,7 @@ async function compactThread({
       summary = capsuleToMarkdownSummary(capsule);
       tokenAfter = estimateStringTokens(compactionLLM, capsuleJsonString);
       capsuleInjectionTokens = estimateStringTokens(
-        chatLLM,
+        compactionLLM,
         conversationCapsuleBlock(capsule)
       );
       usedTokensAfterCompact =
@@ -1224,12 +1464,11 @@ async function getThreadCompactionStatus({
 } = {}) {
   const config = getConfig();
   const scope = buildCompactionScope({ workspace, user, thread, apiSessionId });
-  const chatLLM = resolveChatLLM(workspace);
   const compactionInfo = resolveCompactionLLM(workspace);
   const compactionLLM = compactionInfo.llm;
   const budgets = resolveTargetBudgets({
     workspace,
-    chatLLM,
+    chatLLM: compactionLLM,
     compactionLLM,
     compactionInfo,
     mode: "manual",
@@ -1245,15 +1484,15 @@ async function getThreadCompactionStatus({
     config.keepRecentMessages
   );
   const targetPlan = targetCompactionPlan({
-    llm: chatLLM,
+    llm: compactionLLM,
     rawHistory,
     budgets,
   });
 
   const summaryTokens = latest
-    ? estimateStringTokens(chatLLM, compactionContextBlock(latest))
+    ? estimateStringTokens(compactionLLM, compactionContextBlock(latest))
     : 0;
-  const recentHistoryTokens = estimateHistoryTokens(chatLLM, rawHistory);
+  const recentHistoryTokens = estimateHistoryTokens(compactionLLM, rawHistory);
   const usedTokens = summaryTokens + recentHistoryTokens;
   const limitTokens = budgets.chatInjectionLimit;
   const ratio = limitTokens > 0 ? usedTokens / limitTokens : 0;
@@ -1273,6 +1512,8 @@ async function getThreadCompactionStatus({
     usedTokens,
     limitTokens,
     ratio,
+    compactionProvider: compactionInfo.provider,
+    compactionModel: compactionInfo.model,
     summaryTokens,
     recentHistoryTokens,
     compactableMessageCount: compactable.length,
@@ -1469,6 +1710,8 @@ module.exports = {
   contextTextsWithCompaction,
   conversationCapsuleBlock,
   decrementTemporaryContextTtl,
+  extractDurableTopicHints,
+  extractExactValueCandidates,
   getConfig,
   getThreadCompactionStatus,
   maybeAutoCompact,

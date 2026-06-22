@@ -32,6 +32,19 @@ const {
   prepareImageAnalysisContext,
   shouldUseVisionTool,
 } = require("../vision/viewTool");
+const { appendCurrentDateTimeToPrompt } = require("./currentDateTimeContext");
+const {
+  appendUserPersonalizationToSystemPrompt,
+} = require("./personalizationContext");
+const {
+  appendUserLongTermMemoryToSystemPromptWithState,
+} = require("./longTermMemoryContext");
+const {
+  SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION,
+  hasExplicitMemoryIntent,
+  saveMemoryToolCallFrom,
+  saveMemoryToolsForMessage,
+} = require("./saveMemoryTool");
 
 function promptCacheDiagnosticsFor(
   llm,
@@ -55,6 +68,14 @@ function withPromptCacheDiagnostics(metrics = {}, diagnostics = {}) {
     ...(metrics || {}),
     ...diagnostics,
   };
+}
+
+function shouldExposeSaveMemoryTool({ llm, message, user }) {
+  return (
+    !!user?.id &&
+    llm?.className === "DeepSeekLLM" &&
+    hasExplicitMemoryIntent(message)
+  );
 }
 /**
  * @typedef ResponseObject
@@ -280,6 +301,34 @@ async function chatSync({
     provider: workspace?.chatProvider,
     model: workspace?.chatModel,
   });
+  if (shouldExposeSaveMemoryTool({ llm: LLMConnector, message, user })) {
+    const textResponse = "保存长期记忆需要前端确认，API 请求未写入记忆。";
+    await WorkspaceChats.new({
+      workspaceId: workspace.id,
+      prompt: String(message),
+      response: {
+        text: textResponse,
+        sources: [],
+        attachments: historyAttachments,
+        type: chatMode,
+        metrics: {},
+        ...(imageAnalysisText ? { imageAnalysis: imageAnalysisText } : {}),
+      },
+      include: false,
+      apiSessionId: sessionId,
+      user,
+    });
+
+    return {
+      id: uuid,
+      type: "textResponse",
+      sources: [],
+      close: true,
+      error: null,
+      textResponse,
+      metrics: {},
+    };
+  }
   const VectorDb = getVectorDbClass();
   const messageLimit = workspace?.openAiHistory || 20;
   const historyStrategy = cacheStableHistoryStrategyFor({
@@ -460,7 +509,23 @@ async function chatSync({
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
-  const systemPrompt = await chatPrompt(workspace, user);
+  let systemPrompt = await appendUserPersonalizationToSystemPrompt(
+    await chatPrompt(workspace, user),
+    user
+  );
+  const longTermMemoryContext =
+    await appendUserLongTermMemoryToSystemPromptWithState(systemPrompt, user);
+  systemPrompt = longTermMemoryContext.systemPrompt;
+  const deepSeekThinkingMode = longTermMemoryContext.injected
+    ? "enabled"
+    : "disabled";
+  const exposeSaveMemoryTool = shouldExposeSaveMemoryTool({
+    llm: LLMConnector,
+    message,
+    user,
+  });
+  if (exposeSaveMemoryTool)
+    systemPrompt = `${systemPrompt}\n\n${SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION}`;
   const autoCompaction = await maybeAutoCompact({
     workspace,
     user,
@@ -492,7 +557,7 @@ async function chatSync({
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: message,
+      userPrompt: appendCurrentDateTimeToPrompt(message),
       contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
@@ -511,6 +576,7 @@ async function chatSync({
     await LLMConnector.getChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       user: user,
+      thinking: deepSeekThinkingMode,
     });
   const metrics = withPromptCacheDiagnostics(
     performanceMetrics,
@@ -575,6 +641,7 @@ async function chatSync({
     close: true,
     error: null,
     chatId: chat.id,
+    publicChatId: chat.public_id || null,
     textResponse,
     sources,
     metrics,
@@ -723,7 +790,7 @@ async function streamChat({
     return eventListener
       .streamAgentEvents(response, uuid)
       .then(async ({ thoughts, textResponse }) => {
-        await WorkspaceChats.new({
+        const { chat } = await WorkspaceChats.new({
           workspaceId: workspace.id,
           prompt: String(message),
           response: {
@@ -745,6 +812,8 @@ async function streamChat({
           thoughts,
           close: true,
           error: false,
+          chatId: chat?.id || null,
+          publicChatId: chat?.public_id || null,
         });
       });
   }
@@ -945,7 +1014,23 @@ async function streamChat({
 
   // Compress & Assemble message to ensure prompt passes token limit with room for response
   // and build system messages based on inputs and history.
-  const systemPrompt = await chatPrompt(workspace, user);
+  let systemPrompt = await appendUserPersonalizationToSystemPrompt(
+    await chatPrompt(workspace, user),
+    user
+  );
+  const longTermMemoryContext =
+    await appendUserLongTermMemoryToSystemPromptWithState(systemPrompt, user);
+  systemPrompt = longTermMemoryContext.systemPrompt;
+  const deepSeekThinkingMode = longTermMemoryContext.injected
+    ? "enabled"
+    : "disabled";
+  const exposeSaveMemoryTool = shouldExposeSaveMemoryTool({
+    llm: LLMConnector,
+    message,
+    user,
+  });
+  if (exposeSaveMemoryTool)
+    systemPrompt = `${systemPrompt}\n\n${SAVE_MEMORY_TOOL_SYSTEM_INSTRUCTION}`;
   const autoCompaction = await maybeAutoCompact({
     workspace,
     user,
@@ -977,7 +1062,7 @@ async function streamChat({
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt,
-      userPrompt: message,
+      userPrompt: appendCurrentDateTimeToPrompt(message),
       contextTexts: contextTextsWithCompaction(contextTexts, compaction),
       chatHistory,
       attachments: llmAttachments,
@@ -1001,6 +1086,7 @@ async function streamChat({
       await LLMConnector.getChatCompletion(messages, {
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
         user: user,
+        thinking: deepSeekThinkingMode,
       });
     completeText = textResponse;
     metrics = withPromptCacheDiagnostics(
@@ -1020,8 +1106,23 @@ async function streamChat({
     const stream = await LLMConnector.streamGetChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       user: user,
+      thinking: deepSeekThinkingMode,
+      tools: exposeSaveMemoryTool ? saveMemoryToolsForMessage(message) : [],
+      toolChoice: exposeSaveMemoryTool ? "auto" : undefined,
     });
     completeText = await LLMConnector.handleStream(response, stream, { uuid });
+    if (saveMemoryToolCallFrom(stream.toolCalls)) {
+      completeText = "保存长期记忆需要前端确认，API 请求未写入记忆。";
+      writeResponseChunk(response, {
+        uuid,
+        sources,
+        type: "textResponseChunk",
+        textResponse: completeText,
+        close: true,
+        error: false,
+        metrics: stream.metrics || {},
+      });
+    }
     metrics = withPromptCacheDiagnostics(
       stream.metrics,
       promptCacheDiagnostics
@@ -1076,6 +1177,7 @@ async function streamChat({
       close: true,
       error: false,
       chatId: chat.id,
+      publicChatId: chat.public_id || null,
       metrics,
       sources,
     });

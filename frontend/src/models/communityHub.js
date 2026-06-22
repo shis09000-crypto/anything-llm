@@ -1,5 +1,8 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, postJson } from "@/lib/communication/apiClient";
+import {
+  apiErrorFallback as rawOrFallback,
+  apiErrorMessage as responseError,
+} from "@/lib/communication/apiError";
 
 const CommunityHub = {
   /**
@@ -8,18 +11,14 @@ const CommunityHub = {
    * @returns {Promise<{error: string | null, item: object | null}>}
    */
   getItemFromImportId: async (importId) => {
-    return await fetch(`${API_BASE}/community-hub/item`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ importId }),
-    })
-      .then((res) => res.json())
+    return await postJson("/community-hub/item", { importId })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return {
+        return rawOrFallback(e, {
           error: e.message,
           item: null,
-        };
+        });
       });
   },
 
@@ -30,18 +29,14 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   applyItem: async (importId, options = {}) => {
-    return await fetch(`${API_BASE}/community-hub/apply`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ importId, options }),
-    })
-      .then((res) => res.json())
+    return await postJson("/community-hub/apply", { importId, options })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return {
+        return rawOrFallback(e, {
           success: false,
           error: e.message,
-        };
+        });
       });
   },
 
@@ -51,19 +46,11 @@ const CommunityHub = {
    * @returns {Promise<{error: string | null, item: object | null}>}
    */
   importBundleItem: async (importId) => {
-    return await fetch(`${API_BASE}/community-hub/import`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ importId }),
-    })
-      .then(async (res) => {
-        const response = await res.json();
-        if (!res.ok) throw new Error(response?.error ?? res.statusText);
-        return response;
-      })
+    return await postJson("/community-hub/import", { importId })
+      .then(({ data }) => data)
       .catch((e) => {
         return {
-          error: e.message,
+          error: responseError(e, "Failed to import bundle item"),
           item: null,
         };
       });
@@ -75,20 +62,13 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   updateSettings: async (data) => {
-    return await fetch(`${API_BASE}/community-hub/settings`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then(async (res) => {
-        const response = await res.json();
-        if (!res.ok)
-          throw new Error(response.error || "Failed to update settings");
+    return await postJson("/community-hub/settings", data)
+      .then(() => {
         return { success: true, error: null };
       })
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: responseError(e, "Failed to update settings"),
       }));
   },
 
@@ -97,19 +77,13 @@ const CommunityHub = {
    * @returns {Promise<{connectionKey: string | null, error: string | null}>}
    */
   getSettings: async () => {
-    return await fetch(`${API_BASE}/community-hub/settings`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then(async (res) => {
-        const response = await res.json();
-        if (!res.ok)
-          throw new Error(response.error || "Failed to fetch settings");
+    return await getJson("/community-hub/settings")
+      .then(({ data: response }) => {
         return { connectionKey: response.connectionKey, error: null };
       })
       .catch((e) => ({
         connectionKey: null,
-        error: e.message,
+        error: responseError(e, "Failed to fetch settings"),
       }));
   },
 
@@ -118,18 +92,15 @@ const CommunityHub = {
    * @returns {Promise<{agentSkills: {items: [], hasMore: boolean, totalCount: number}, systemPrompts: {items: [], hasMore: boolean, totalCount: number}, slashCommands: {items: [], hasMore: boolean, totalCount: number}}>}
    */
   fetchExploreItems: async () => {
-    return await fetch(`${API_BASE}/community-hub/explore`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/community-hub/explore")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return {
+        return rawOrFallback(e, {
           success: false,
           error: e.message,
           result: null,
-        };
+        });
       });
   },
 
@@ -138,19 +109,16 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null, createdByMe: object, teamItems: object[]}>}
    */
   fetchUserItems: async () => {
-    return await fetch(`${API_BASE}/community-hub/items`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/community-hub/items")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return {
+        return rawOrFallback(e, {
           success: false,
           error: e.message,
           createdByMe: {},
           teamItems: [],
-        };
+        });
       });
   },
 
@@ -165,20 +133,13 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   createSystemPrompt: async (data) => {
-    return await fetch(`${API_BASE}/community-hub/system-prompt/create`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then(async (res) => {
-        const response = await res.json();
-        if (!res.ok)
-          throw new Error(response.error || "Failed to create system prompt");
+    return await postJson("/community-hub/system-prompt/create", data)
+      .then(({ data: response }) => {
         return { success: true, error: null, itemId: response.item?.id };
       })
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: responseError(e, "Failed to create system prompt"),
       }));
   },
 
@@ -188,16 +149,15 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   createAgentFlow: async (data) => {
-    return await fetch(`${API_BASE}/community-hub/agent-flow/create`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    }).then(async (res) => {
-      const response = await res.json();
-      if (!res.ok)
-        throw new Error(response.error || "Failed to create agent flow");
-      return { success: true, error: null, itemId: response.item?.id };
-    });
+    return await postJson("/community-hub/agent-flow/create", data)
+      .then(({ data: response }) => ({
+        success: true,
+        error: null,
+        itemId: response.item?.id,
+      }))
+      .catch((e) => {
+        throw new Error(responseError(e, "Failed to create agent flow"));
+      });
   },
 
   /**
@@ -212,20 +172,13 @@ const CommunityHub = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   createSlashCommand: async (data) => {
-    return await fetch(`${API_BASE}/community-hub/slash-command/create`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(data),
-    })
-      .then(async (res) => {
-        const response = await res.json();
-        if (!res.ok)
-          throw new Error(response.error || "Failed to create slash command");
+    return await postJson("/community-hub/slash-command/create", data)
+      .then(({ data: response }) => {
         return { success: true, error: null, itemId: response.item?.id };
       })
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: responseError(e, "Failed to create slash command"),
       }));
   },
 };

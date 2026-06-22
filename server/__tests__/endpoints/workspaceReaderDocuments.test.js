@@ -34,6 +34,31 @@ function loadEndpoint(storageDir, helpersMock = null) {
       next();
     },
   }));
+  jest.doMock("../../utils/authz/resourceAccess", () => ({
+    fileBackedOwnerMetadata: (user = null) => ({
+      ownerScopeVersion: 1,
+      ownerUserId: user?.id ?? null,
+      ownerAuthUserId: user?.authUserId ?? null,
+    }),
+    getAuthorizedFileBackedResource: jest.fn(async () => ({
+      auth: { multiUser: false, authenticated: true },
+      user: null,
+    })),
+    requestAuthContext: jest.fn(async () => ({
+      multiUser: false,
+      authenticated: true,
+      user: null,
+    })),
+    stripFileBackedOwnerMetadata: (metadata = {}) => {
+      const {
+        ownerScopeVersion: _ownerScopeVersion,
+        ownerUserId: _ownerUserId,
+        ownerAuthUserId: _ownerAuthUserId,
+        ...publicMetadata
+      } = metadata || {};
+      return publicMetadata;
+    },
+  }));
   jest.doMock(
     "../../utils/helpers",
     () =>
@@ -140,11 +165,36 @@ describe("workspace reader documents", () => {
     expect(root).not.toContain(path.join("reader-documents", "workspace-a"));
   });
 
+  it("does not expose file-backed owner metadata in reader responses", () => {
+    const { metadataWithOriginalUrl, STANDALONE_READER_SCOPE } =
+      loadEndpoint(storageDir);
+    const metadata = metadataWithOriginalUrl(
+      STANDALONE_READER_SCOPE,
+      "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a",
+      {
+        originalName: "book.pdf",
+        ownerScopeVersion: 1,
+        ownerUserId: 10,
+        ownerAuthUserId: "auth-10",
+      }
+    );
+
+    expect(metadata).toMatchObject({
+      originalName: "book.pdf",
+      readerDocumentWorkspaceSlug: null,
+      originalUrl:
+        "/api/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/original",
+    });
+    expect(metadata).not.toHaveProperty("ownerScopeVersion");
+    expect(metadata).not.toHaveProperty("ownerUserId");
+    expect(metadata).not.toHaveProperty("ownerAuthUserId");
+  });
+
   it("reports reader OCR config without leaking secrets", () => {
     const { readerOcrConfigStatus } = loadEndpoint(storageDir);
     const configured = readerOcrConfigStatus({
       READER_OCR_PROVIDER: "alibaba",
-      READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+      READER_OCR_MODEL_PREF: "qwen3.5-ocr",
       READER_OCR_API_KEY: "sk-secret",
       READER_OCR_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     });
@@ -176,7 +226,7 @@ describe("workspace reader documents", () => {
     expect(
       readerOcrConfigStatus({
         READER_OCR_PROVIDER: "alibaba",
-        READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+        READER_OCR_MODEL_PREF: "qwen3.5-ocr",
         READER_OCR_BASE_URL:
           "https://dashscope.aliyuncs.com/compatible-mode/v1",
       })
@@ -190,7 +240,7 @@ describe("workspace reader documents", () => {
     expect(
       readerOcrConfigStatus({
         READER_OCR_PROVIDER: "alibaba",
-        READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+        READER_OCR_MODEL_PREF: "qwen3.5-ocr",
         READER_OCR_API_KEY: "sk-secret",
       })
     ).toMatchObject({

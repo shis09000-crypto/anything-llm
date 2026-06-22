@@ -35,12 +35,10 @@ export default function ProfileCard({ user, onUserUpdated }) {
   const [displayName, setDisplayName] = useState(
     user?.displayName || user?.username || ""
   );
-  const [bio, setBio] = useState(user?.bio || "");
 
   useEffect(() => {
     setDisplayName(user?.displayName || user?.username || "");
-    setBio(user?.bio || "");
-  }, [user?.bio, user?.displayName, user?.username]);
+  }, [user?.displayName, user?.username]);
 
   useEffect(() => {
     return () => {
@@ -117,7 +115,6 @@ export default function ProfileCard({ user, onUserUpdated }) {
     setSaving(true);
     const result = await AccountSettingsApi.updateProfile({
       displayName,
-      bio,
     });
     setSaving(false);
 
@@ -130,7 +127,6 @@ export default function ProfileCard({ user, onUserUpdated }) {
     const nextUser = {
       ...(storedUser || user),
       displayName,
-      bio,
     };
     localStorage.setItem(AUTH_USER, JSON.stringify(nextUser));
     onUserUpdated?.(nextUser);
@@ -225,14 +221,6 @@ export default function ProfileCard({ user, onUserUpdated }) {
                   {user?.username || "local-user"}
                 </span>
               </div>
-              <label className="grid gap-2 text-sm font-semibold text-slate-700">
-                Bio
-                <textarea
-                  value={bio}
-                  onChange={(event) => setBio(event.target.value)}
-                  className="min-h-[92px] rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-950 outline-none focus:border-sky-400"
-                />
-              </label>
               <div className="flex justify-end gap-2">
                 <AppButton
                   type="button"

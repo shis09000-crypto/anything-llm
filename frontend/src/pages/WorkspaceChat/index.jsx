@@ -8,6 +8,8 @@ import { isMobile } from "react-device-detect";
 import { FullScreenLoader } from "@/components/Preloader";
 import { warmWorkspaceChat } from "@/utils/chat/workspaceChatPrefetch";
 import { rememberLastVisitedWorkspace } from "@/utils/lastVisitedWorkspace";
+import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
+import { ChatThreadDraftProviderBoundary } from "@/contexts/ChatThreadDraftProvider";
 
 function workspaceSwitchFlickerDebugEnabled() {
   try {
@@ -35,15 +37,19 @@ export default function WorkspaceChat() {
   }
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-      {!isMobile && <Sidebar />}
-      <ShowWorkspaceChat />
-    </div>
+    <ChatThreadDraftProviderBoundary>
+      <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+        {!isMobile && <Sidebar />}
+        <ShowWorkspaceChat />
+      </div>
+    </ChatThreadDraftProviderBoundary>
   );
 }
 
 function ShowWorkspaceChat() {
   const { slug, threadSlug = null } = useParams();
+  const workspaceLayout = useWorkspaceLayout();
+  const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
   const [workspace, setWorkspace] = useState(null);
   // Tracks which workspace `workspace` belongs to. While a new workspace's
   // data is in flight, we keep the previous workspace's chat mounted
@@ -60,6 +66,17 @@ function ShowWorkspaceChat() {
   useEffect(() => {
     loadedSlugRef.current = loadedSlug;
   }, [loadedSlug]);
+
+  useEffect(() => {
+    dispatchLayoutEvent?.({
+      type: "WORKSPACE_CHANGED",
+      workspaceId: slug || null,
+    });
+    dispatchLayoutEvent?.({
+      type: "THREAD_CHANGED",
+      threadId: threadSlug || null,
+    });
+  }, [dispatchLayoutEvent, slug, threadSlug]);
 
   useEffect(() => {
     const seq = workspaceFetchSeqRef.current + 1;

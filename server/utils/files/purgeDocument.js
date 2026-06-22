@@ -22,6 +22,17 @@ async function purgeDocument(filename = null) {
   return;
 }
 
+async function purgeWorkspaceDocument(workspace = null, filename = null) {
+  if (!workspace || !filename || !normalizePath(filename)) return false;
+  const document = await Document.get({
+    workspaceId: workspace.id,
+    docpath: filename,
+  });
+  if (!document) return false;
+  await Document.removeDocuments(workspace, [filename]);
+  return true;
+}
+
 /**
  * Purge a folder and all its contents. This will also remove all vector-cache files and workspace document associations
  * for the documents within the folder.
@@ -87,5 +98,6 @@ async function purgeFolder(folderName = null) {
 
 module.exports = {
   purgeDocument,
+  purgeWorkspaceDocument,
   purgeFolder,
 };

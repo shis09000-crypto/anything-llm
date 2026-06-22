@@ -1,5 +1,8 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import {
+  apiErrorFallback,
+  apiErrorMessage,
+} from "@/lib/communication/apiError";
 
 const AgentFlows = {
   /**
@@ -10,22 +13,11 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flow: {name: string, config: object, uuid: string} | null}>}
    */
   saveFlow: async (name, config, uuid = null) => {
-    return await fetch(`${API_BASE}/agent-flows/save`, {
-      method: "POST",
-      headers: {
-        ...baseHeaders(),
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ name, config, uuid }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(res.error || "Failed to save flow");
-        return res;
-      })
-      .then((res) => res.json())
+    return await postJson("/agent-flows/save", { name, config, uuid })
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: apiErrorMessage(e, "Failed to save flow"),
         flow: null,
       }));
   },
@@ -35,16 +27,15 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flows: Array<{name: string, uuid: string, description: string, steps: Array}>}>}
    */
   listFlows: async () => {
-    return await fetch(`${API_BASE}/agent-flows/list`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({
-        success: false,
-        error: e.message,
-        flows: [],
-      }));
+    return await getJson("/agent-flows/list")
+      .then(({ data }) => data)
+      .catch((e) =>
+        apiErrorFallback(e, {
+          success: false,
+          error: e.message,
+          flows: [],
+        })
+      );
   },
 
   /**
@@ -53,48 +44,14 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flow: {name: string, config: object, uuid: string} | null}>}
    */
   getFlow: async (uuid) => {
-    return await fetch(`${API_BASE}/agent-flows/${uuid}`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(res.error || "Failed to get flow");
-        return res;
-      })
-      .then((res) => res.json())
+    return await getJson(`/agent-flows/${uuid}`)
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: apiErrorMessage(e, "Failed to get flow"),
         flow: null,
       }));
   },
-
-  /**
-   * Execute a specific flow
-   * @param {string} uuid - The UUID of the flow to run
-   * @param {object} variables - Optional variables to pass to the flow
-   * @returns {Promise<{success: boolean, error: string | null, results: object | null}>}
-   */
-  // runFlow: async (uuid, variables = {}) => {
-  //   return await fetch(`${API_BASE}/agent-flows/${uuid}/run`, {
-  //     method: "POST",
-  //     headers: {
-  //       ...baseHeaders(),
-  //       "Content-Type": "application/json",
-  //     },
-  //     body: JSON.stringify({ variables }),
-  //   })
-  //     .then((res) => {
-  //       if (!res.ok) throw new Error(response.error || "Failed to run flow");
-  //       return res;
-  //     })
-  //     .then((res) => res.json())
-  //     .catch((e) => ({
-  //       success: false,
-  //       error: e.message,
-  //       results: null,
-  //     }));
-  // },
 
   /**
    * Delete a specific flow
@@ -102,18 +59,11 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   deleteFlow: async (uuid) => {
-    return await fetch(`${API_BASE}/agent-flows/${uuid}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(res.error || "Failed to delete flow");
-        return res;
-      })
-      .then((res) => res.json())
+    return await deleteJson(`/agent-flows/${uuid}`)
+      .then(({ data }) => data)
       .catch((e) => ({
         success: false,
-        error: e.message,
+        error: apiErrorMessage(e, "Failed to delete flow"),
       }));
   },
 
@@ -125,23 +75,16 @@ const AgentFlows = {
    */
   toggleFlow: async (uuid, active) => {
     try {
-      const result = await fetch(`${API_BASE}/agent-flows/${uuid}/toggle`, {
-        method: "POST",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ active }),
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(res.error || "Failed to toggle flow");
-          return res;
-        })
-        .then((res) => res.json());
+      const { data: result } = await postJson(`/agent-flows/${uuid}/toggle`, {
+        active,
+      });
       return { success: true, flow: result.flow };
     } catch (error) {
       console.error("Failed to toggle flow:", error);
-      return { success: false, error: error.message };
+      return {
+        success: false,
+        error: apiErrorMessage(error, "Failed to toggle flow"),
+      };
     }
   },
 };

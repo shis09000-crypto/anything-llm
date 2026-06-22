@@ -11,6 +11,7 @@ const {
 const { tokenizeString } = require("../../tokenizer");
 const { YoutubeLoader } = require("./YoutubeLoader");
 const { validYoutubeVideoUrl } = require("../../url");
+const { redactUrl } = require("../../security/redaction");
 
 /**
  * Fetch the transcript content for a YouTube video
@@ -27,7 +28,8 @@ async function fetchVideoTranscriptContent({ url }) {
     };
   }
 
-  console.log(`-- Working YouTube ${url} --`);
+  const redactedUrl = redactUrl(url);
+  console.log(`-- Working YouTube ${redactedUrl} --`);
   const loader = YoutubeLoader.createFromUrl(url, { addVideoInfo: true });
   const { docs, error } = await loader
     .load()
@@ -100,6 +102,7 @@ async function fetchVideoTranscriptContent({ url }) {
  */
 async function loadYouTubeTranscript({ url }, options = { parseOnly: false }) {
   const transcriptResults = await fetchVideoTranscriptContent({ url });
+  const redactedUrl = redactUrl(url);
   if (!transcriptResults.success) {
     return {
       success: false,
@@ -155,12 +158,12 @@ async function loadYouTubeTranscript({ url }, options = { parseOnly: false }) {
     fs.mkdirSync(outFolderPath, { recursive: true });
   const data = {
     id: uuid,
-    url: url + ".youtube",
-    title: metadata.title || url,
+    url: redactedUrl + ".youtube",
+    title: metadata.title || redactedUrl,
     docAuthor: metadata.author,
     description: metadata.description,
-    docSource: url,
-    chunkSource: `youtube://${url}`,
+    docSource: redactedUrl,
+    chunkSource: `youtube://${redactedUrl}`,
     published: new Date().toLocaleString(),
     wordCount: content.split(" ").length,
     pageContent: content,

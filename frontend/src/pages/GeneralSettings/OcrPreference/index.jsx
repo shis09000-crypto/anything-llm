@@ -12,7 +12,7 @@ import { CaretUpDown } from "@phosphor-icons/react";
 
 const DEFAULT_ALIBABA_OCR_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const DEFAULT_ALIBABA_OCR_MODEL = "qwen-vl-ocr-latest";
+const DEFAULT_ALIBABA_OCR_MODEL = "qwen3.5-ocr";
 
 function ocrProviders(t) {
   return [
@@ -275,6 +275,7 @@ function AlibabaOcrOptions({ settings }) {
               settings?.ReaderOcrModelPref || DEFAULT_ALIBABA_OCR_MODEL
             }
           >
+            <option value="qwen3.5-ocr">qwen3.5-ocr</option>
             <option value="qwen-vl-ocr-latest">qwen-vl-ocr-latest</option>
           </select>
         </div>

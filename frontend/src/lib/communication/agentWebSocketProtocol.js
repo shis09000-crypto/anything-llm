@@ -1,42 +1,12 @@
-import { API_BASE } from "../constants";
-import { safeJsonParse } from "../request";
-import { useEffect, useState } from "react";
-import { THREAD_RENAME_EVENT } from "@/components/Sidebar/ActiveWorkspaces/ThreadContainer";
-import {
-  debugChatTurn,
-  normalizedEventSummary,
-  rawEventSummary,
-} from "@/utils/chat/debug";
+import { dispatchThreadRename } from "@/utils/chat";
+import { debugChatTurn } from "@/utils/chat/debug";
+import { safeJsonParse } from "@/utils/request";
 
-export const AGENT_SESSION_START = "agentSessionStart";
-export const AGENT_SESSION_END = "agentSessionEnd";
 const MAX_TOOL_OUTPUT_PREVIEW_CHARS = 500;
 const MAX_TIMELINE_EVENT_CHARS = 500;
 const MAX_CLARIFYING_QUESTIONS = 3;
 const MAX_CLARIFYING_QUESTION_CHARS = 150;
 const MAX_CLARIFYING_CHOICE_OPTIONS = 3;
-
-export function websocketURI() {
-  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  if (API_BASE === "/api") return `${wsProtocol}//${window.location.host}`;
-  return `${wsProtocol}//${new URL(import.meta.env.VITE_API_BASE).host}`;
-}
-
-function dispatchThreadRename(content = {}) {
-  const { slug, name, title, titleVersion, animate } = content || {};
-  if (!slug || !name) return;
-  window.dispatchEvent(
-    new CustomEvent(THREAD_RENAME_EVENT, {
-      detail: {
-        threadSlug: slug,
-        newName: name,
-        title: title || name,
-        titleVersion,
-        animate: !!animate,
-      },
-    })
-  );
-}
 
 function truncateText(value = "", maxChars = MAX_TIMELINE_EVENT_CHARS) {
   const text = String(value || "");
@@ -96,6 +66,32 @@ function compactApprovalPayload(payload = {}) {
   }, {});
 }
 
+function protocolEvent(type, raw = {}, payload = {}) {
+  return {
+    type,
+    rawType: raw?.type || null,
+    payload,
+    raw,
+    seq: raw?.seq ?? payload?.seq ?? null,
+    chatId: raw?.chatId ?? payload?.chatId ?? payload?.patch?.chatId ?? null,
+    publicChatId:
+      raw?.publicChatId ??
+      payload?.publicChatId ??
+      payload?.patch?.publicChatId ??
+      null,
+    text: raw?.content ?? payload?.content ?? payload?.text ?? null,
+    error: payload?.error ?? raw?.error ?? null,
+  };
+}
+
+function withProtocol(normalized, raw, type = normalized?.type || "unknown") {
+  if (!normalized) return null;
+  return {
+    ...normalized,
+    protocolEvent: protocolEvent(type, raw, normalized),
+  };
+}
+
 function toolResultEvent(content = {}) {
   return {
     type: "timeline_event",
@@ -143,6 +139,7 @@ function reportStreamEvent(content = {}) {
         sources: content.sources || [],
         metrics: content.metrics || {},
         chatId: content.chatId || null,
+        publicChatId: content.publicChatId || null,
         closed: true,
       };
     }
@@ -155,6 +152,7 @@ function reportStreamEvent(content = {}) {
       sources: content.sources || [],
       metrics: content.metrics || {},
       chatId: content.chatId || null,
+      publicChatId: content.publicChatId || null,
       closed: false,
     };
   }
@@ -168,6 +166,7 @@ function reportStreamEvent(content = {}) {
       sources: content.sources || [],
       metrics: content.metrics || {},
       chatId: content.chatId || null,
+      publicChatId: content.publicChatId || null,
       closed: !!content.close,
     };
   }
@@ -193,13 +192,15 @@ function reportStreamEvent(content = {}) {
 
   if (type === "chatId") {
     return {
-      type: "assistant_final",
+      type: "assistant_patch",
       seq: content.seq,
       uuid,
-      content: "",
-      chatId: content.chatId,
-      sources: content.sources || [],
-      metrics: content.metrics || {},
+      patch: {
+        chatId: content.chatId,
+        publicChatId: content.publicChatId || null,
+        sources: content.sources || [],
+        metrics: content.metrics || {},
+      },
       closed: !!content.close,
     };
   }
@@ -260,144 +261,129 @@ function reportStreamEvent(content = {}) {
   };
 }
 
-export default function handleSocketResponse(_socket, event) {
-  const data = safeJsonParse(event.data, null);
-  if (data === null) {
-    debugChatTurn("normalize:event", {
-      source: "WebSocket",
-      rawType: "unparseable",
-      normalizedType: null,
-      contentLength: typeof event.data === "string" ? event.data.length : 0,
-    });
-    return null;
-  }
+export function parseAgentWebSocketMessage(event) {
+  const data = safeJsonParse(event?.data, null);
+  if (data !== null) return data;
+  return {
+    type: "unparseable",
+    content: typeof event?.data === "string" ? event.data : "",
+  };
+}
 
+export function normalizeAgentWebSocketEvent(raw = {}) {
   let normalized = null;
 
-  if (data.type === "rename_thread") {
-    dispatchThreadRename(data.content);
-    normalized = { type: "thread_rename", content: data.content };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+  if (raw.type === "rename_thread") {
+    dispatchThreadRename(raw.content);
+    normalized = { type: "thread_rename", content: raw.content };
+    return withProtocol(normalized, raw, "thread_rename");
   }
 
-  if (!data.hasOwnProperty("type")) {
+  if (raw.type === "unparseable") {
+    return withProtocol(null, raw, "unparseable");
+  }
+
+  if (!Object.prototype.hasOwnProperty.call(raw, "type")) {
     normalized = {
       type: "assistant_final",
-      seq: data.seq,
-      content: data.content || "",
+      seq: raw.seq,
+      content: raw.content || "",
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "assistant_final");
   }
 
-  if (data.type === "chatId") {
+  if (raw.type === "chatId") {
     const content =
-      data.content && typeof data.content === "object" ? data.content : data;
+      raw.content && typeof raw.content === "object" ? raw.content : raw;
     normalized = {
-      type: "assistant_final",
-      seq: data.seq || content.seq,
+      type: "assistant_patch",
+      seq: raw.seq || content.seq,
       uuid: content.uuid,
-      content: content.content || "",
-      chatId: content.chatId,
-      sources: content.sources || [],
-      metrics: content.metrics || {},
+      patch: {
+        chatId: content.chatId,
+        publicChatId: content.publicChatId || null,
+        sources: content.sources || [],
+        metrics: content.metrics || {},
+      },
       closed: !!content.close,
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "assistant_patch");
   }
 
-  if (data.type === "statusResponse") {
+  if (raw.type === "statusResponse") {
     normalized = {
       type: "timeline_event",
-      seq: data.seq,
+      seq: raw.seq,
       event: {
         type: "thought",
-        seq: data.seq,
-        content: data.content || "",
-        animate: data.animate,
+        seq: raw.seq,
+        content: raw.content || "",
+        animate: raw.animate,
       },
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "status");
   }
 
-  if (data.type === "toolApprovalRequest") {
-    if (!data.requestId || !data.skillName) return null;
+  if (raw.type === "WAITING_ON_INPUT") {
+    normalized = {
+      type: "agent_waiting_on_input",
+      seq: raw.seq,
+      question: raw.question || "",
+    };
+    return withProtocol(normalized, raw, "waiting_on_input");
+  }
+
+  if (raw.type === "toolApprovalRequest") {
+    if (!raw.requestId || !raw.skillName) return null;
     normalized = {
       type: "timeline_event",
-      seq: data.seq,
+      seq: raw.seq,
       event: {
         type: "approval_request",
-        seq: data.seq,
-        requestId: data.requestId,
-        skillName: data.skillName,
-        payload: compactApprovalPayload(data.payload),
-        description: truncateText(data.description || ""),
-        allowAlwaysAllow: data.allowAlwaysAllow !== false,
-        timeoutMs: data.timeoutMs,
+        seq: raw.seq,
+        requestId: raw.requestId,
+        skillName: raw.skillName,
+        payload: compactApprovalPayload(raw.payload),
+        description: truncateText(raw.description || ""),
+        allowAlwaysAllow: raw.allowAlwaysAllow !== false,
+        timeoutMs: raw.timeoutMs,
         requestedAt: Date.now(),
-        content: `Approval requested for ${data.skillName}`,
+        content: `Approval requested for ${raw.skillName}`,
       },
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "approval_request");
   }
 
-  if (data.type === "clarificationRequest") {
-    if (!data.requestId || !Array.isArray(data.questions)) return null;
+  if (raw.type === "clarificationRequest") {
+    if (!raw.requestId || !Array.isArray(raw.questions)) return null;
     normalized = {
       type: "timeline_event",
-      seq: data.seq,
+      seq: raw.seq,
       event: {
         type: "clarification_request",
-        seq: data.seq,
-        requestId: data.requestId,
-        questions: compactClarifyingQuestions(data.questions),
-        allowSkip: data.allowSkip !== false,
-        timeoutMs: data.timeoutMs,
+        seq: raw.seq,
+        requestId: raw.requestId,
+        questions: compactClarifyingQuestions(raw.questions),
+        allowSkip: raw.allowSkip !== false,
+        timeoutMs: raw.timeoutMs,
         requestedAt: Date.now(),
         content: "Clarification requested",
       },
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "clarification_request");
   }
 
-  if (data.type === "wssFailure") {
+  if (raw.type === "wssFailure") {
     normalized = {
       type: "assistant_error",
-      seq: data.seq,
-      content: data.content || "Agent websocket connection failed.",
-      error: data.content || "Agent websocket connection failed.",
+      seq: raw.seq,
+      content: raw.content || "Agent websocket connection failed.",
+      error: raw.content || "Agent websocket connection failed.",
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "error");
   }
 
-  if (data.type === "fileDownloadCard") {
+  if (raw.type === "fileDownloadCard") {
     normalized = {
       type: "timeline_event",
       event: {
@@ -406,14 +392,10 @@ export default function handleSocketResponse(_socket, event) {
         summary: "File generated.",
       },
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "tool_result");
   }
 
-  if (data.type === "rechartVisualize") {
+  if (raw.type === "rechartVisualize") {
     normalized = {
       type: "timeline_event",
       event: {
@@ -422,87 +404,49 @@ export default function handleSocketResponse(_socket, event) {
         summary: "Chart generated.",
       },
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "tool_result");
   }
 
-  if (data.type === "reportStreamEvent") {
-    normalized = reportStreamEvent(data.content || {});
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+  if (raw.type === "reportStreamEvent") {
+    normalized = reportStreamEvent(raw.content || {});
+    return withProtocol(normalized, raw, normalized?.type || "report_event");
   }
 
-  if (data.type === "agentReplayStart") {
+  if (raw.type === "agentReplayStart") {
     normalized = {
       type: "agent_replay_start",
-      latestSeq: data.latestSeq || 0,
+      latestSeq: raw.latestSeq || 0,
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "agent_replay_start");
   }
 
-  if (data.type === "agentReplayEnd") {
+  if (raw.type === "agentReplayEnd") {
     normalized = {
       type: "agent_replay_end",
-      latestSeq: data.latestSeq || 0,
+      latestSeq: raw.latestSeq || 0,
     };
-    debugChatTurn("normalize:event", {
-      ...rawEventSummary(data, "WebSocket"),
-      ...normalizedEventSummary(normalized, "WebSocket"),
-    });
-    return normalized;
+    return withProtocol(normalized, raw, "agent_replay_end");
   }
 
   normalized = {
     type: "timeline_event",
-    seq: data.seq,
+    seq: raw.seq,
     event: {
       type: "thought",
-      content: truncateText(data.content || ""),
+      content: truncateText(raw.content || ""),
     },
   };
+  return withProtocol(normalized, raw, "unknown");
+}
+
+export function debugAgentProtocolEvent(raw, normalized) {
   debugChatTurn("normalize:event", {
-    ...rawEventSummary(data, "WebSocket"),
-    ...normalizedEventSummary(normalized, "WebSocket"),
+    source: "WebSocket",
+    rawType: raw?.type || null,
+    normalizedType: normalized?.type || null,
+    seq: normalized?.seq || raw?.seq || null,
+    chatId: normalized?.chatId || raw?.chatId || null,
+    publicChatId: normalized?.publicChatId || raw?.publicChatId || null,
+    contentLength: String(raw?.content || normalized?.content || "").length,
   });
-  return normalized;
-}
-
-let _agentSessionActive = false;
-export function setAgentSessionActive(value) {
-  _agentSessionActive = value;
-}
-export function getAgentSessionActive() {
-  return _agentSessionActive;
-}
-
-export function useIsAgentSessionActive() {
-  const [activeSession, setActiveSession] = useState(
-    () => !!getAgentSessionActive()
-  );
-  useEffect(() => {
-    function onStart() {
-      setActiveSession(true);
-    }
-    function onEnd() {
-      setActiveSession(false);
-    }
-    window.addEventListener(AGENT_SESSION_START, onStart);
-    window.addEventListener(AGENT_SESSION_END, onEnd);
-    return () => {
-      window.removeEventListener(AGENT_SESSION_START, onStart);
-      window.removeEventListener(AGENT_SESSION_END, onEnd);
-    };
-  }, []);
-
-  return activeSession;
 }

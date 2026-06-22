@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import {
+  CRYPTO_CONFIG_KINDS,
+  loadCryptoConfig,
+  saveCryptoConfig,
+} from "@/lib/communication/crypto/cryptoConfigClient";
 import TradeRecordsTable from "./TradeRecordsTable";
 import {
   rangeLabels,
@@ -27,13 +30,7 @@ type SavedVisualConfig = {
   visual: VisualParams;
 };
 
-type SavedVisualConfigResponse = {
-  success: boolean;
-  config?: SavedVisualConfig | null;
-  error?: string;
-};
-
-const REMOTE_CONFIG_ENDPOINT = `${API_BASE}/crypto-component-experiment/trade-records/config`;
+const REMOTE_CONFIG_KIND = CRYPTO_CONFIG_KINDS.tradeRecords;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -190,22 +187,18 @@ export default function TradeRecordsExperiment() {
 
     async function loadSavedConfig() {
       try {
-        const response = await fetch(REMOTE_CONFIG_ENDPOINT, {
-          headers: baseHeaders(),
-        });
-        const payload = (await response.json()) as SavedVisualConfigResponse;
-        if (!response.ok || !payload?.success) {
-          throw new Error(payload?.error || "读取后台参数失败");
-        }
-        if (!mounted || !isRecord(payload.config?.visual)) return;
+        const config = (await loadCryptoConfig(
+          REMOTE_CONFIG_KIND
+        )) as SavedVisualConfig | null;
+        if (!mounted || !isRecord(config?.visual)) return;
 
-        const savedVisual = sanitizeVisualConfig(payload.config.visual);
+        const savedVisual = sanitizeVisualConfig(config.visual);
         setVisual(savedVisual);
         setPageSize(savedVisual.defaultPageSize);
         setRangePreset(savedVisual.defaultRangePreset);
         setSaveStatus(
-          payload.config.savedAt
-            ? `已加载后台参数 · ${new Date(payload.config.savedAt).toLocaleString()}`
+          config.savedAt
+            ? `已加载后台参数 · ${new Date(config.savedAt).toLocaleString()}`
             : "已加载后台参数。"
         );
       } catch (error) {
@@ -243,24 +236,11 @@ export default function TradeRecordsExperiment() {
 
     try {
       const savedAt = new Date().toISOString();
-      const response = await fetch(REMOTE_CONFIG_ENDPOINT, {
-        method: "POST",
-        headers: {
-          ...baseHeaders(),
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          config: {
-            version: 1,
-            savedAt,
-            visual,
-          } satisfies SavedVisualConfig,
-        }),
-      });
-      const payload = (await response.json()) as SavedVisualConfigResponse;
-      if (!response.ok || !payload?.success) {
-        throw new Error(payload?.error || "保存后台参数失败");
-      }
+      await saveCryptoConfig(REMOTE_CONFIG_KIND, {
+        version: 1,
+        savedAt,
+        visual,
+      } satisfies SavedVisualConfig);
 
       setSaveStatus(`已保存到后台 · ${new Date(savedAt).toLocaleString()}`);
     } catch (error) {

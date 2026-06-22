@@ -13,6 +13,7 @@ const { Workspace } = require("../models/workspace");
 const { ScheduledJobRun } = require("../models/scheduledJobRun");
 const createFilesLib = require("../utils/agents/aibitat/plugins/create-files/lib");
 const { Telemetry } = require("../models/telemetry");
+const { getAuthorizedWorkspace } = require("../utils/authz/resourceAccess");
 
 /**
  * Endpoints for serving agent-generated files (PPTX, etc.) with authentication
@@ -46,6 +47,8 @@ function agentFileServerEndpoints(app) {
 
         // Find a chat or scheduled job run that references this file
         const fileSource = await findFileSource(filename, {
+          request,
+          response,
           user,
           isMultiUser: multiUserMode(response),
         });
@@ -100,13 +103,23 @@ function agentFileServerEndpoints(app) {
  * @param {{ user: object|null, isMultiUser: boolean }} ctx
  * @returns {Promise<{workspaceId: number|null, displayFilename: string}|null>}
  */
-async function findFileSource(storageFilename, { user, isMultiUser }) {
+async function findFileSource(
+  storageFilename,
+  { request, response, user, isMultiUser }
+) {
   try {
     const fromChat = await findInWorkspaceChats(storageFilename, {
       user,
       isMultiUser,
     });
-    if (fromChat) return fromChat;
+    if (fromChat) {
+      const workspace = await getAuthorizedWorkspace({
+        request,
+        response,
+        workspaceId: fromChat.workspaceId,
+      });
+      return workspace ? fromChat : null;
+    }
 
     if (isMultiUser) return null;
 
@@ -175,4 +188,11 @@ async function findInScheduledJobRuns(storageFilename) {
   return null;
 }
 
-module.exports = { agentFileServerEndpoints };
+module.exports = {
+  agentFileServerEndpoints,
+  _private: {
+    findFileSource,
+    findInScheduledJobRuns,
+    findInWorkspaceChats,
+  },
+};

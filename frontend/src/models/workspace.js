@@ -1,9 +1,20 @@
-import { API_BASE, fullApiUrl } from "@/utils/constants";
-import { baseHeaders, safeJsonParse } from "@/utils/request";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
+import { fullApiUrl } from "@/utils/constants";
+import {
+  deleteJson,
+  getJson,
+  postJson,
+  putJson,
+} from "@/lib/communication/apiClient";
+import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
+import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
+import { streamQuizSubmit } from "@/lib/communication/quizStreamClient";
+import {
+  apiErrorFallback as rawOrFallback,
+  apiErrorMessage as responseError,
+} from "@/lib/communication/apiError";
+import { safeJsonParse } from "@/utils/request";
 import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
-import { ABORT_STREAM_EVENT } from "@/utils/chat";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 
 function historyPageQuery({
@@ -26,17 +37,17 @@ const Workspace = {
   maxContextWindowLimit: 0.8,
 
   new: async function (data = {}) {
-    const { workspace, message, defaultThreads } = await fetch(
-      `${API_BASE}/workspace/new`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: baseHeaders(),
-      }
+    const { workspace, message, defaultThreads } = await postJson(
+      "/workspace/new",
+      data
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
-        return { workspace: null, message: e.message, defaultThreads: null };
+        return rawOrFallback(e, {
+          workspace: null,
+          message: e.message,
+          defaultThreads: null,
+        });
       });
 
     return {
@@ -46,17 +57,13 @@ const Workspace = {
     };
   },
   update: async function (slug, data = {}) {
-    const { workspace, message } = await fetch(
-      `${API_BASE}/workspace/${slug}/update`,
-      {
-        method: "POST",
-        body: JSON.stringify(data),
-        headers: baseHeaders(),
-      }
+    const { workspace, message } = await postJson(
+      `/workspace/${slug}/update`,
+      data
     )
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
-        return { workspace: null, message: e.message };
+        return rawOrFallback(e, { workspace: null, message: e.message });
       });
 
     return { workspace, message };
@@ -66,35 +73,29 @@ const Workspace = {
       workspace,
       message,
       batchJob = null,
-    } = await fetch(`${API_BASE}/workspace/${slug}/update-embeddings`, {
-      method: "POST",
-      body: JSON.stringify(changes), // contains 'adds' and 'removes' keys that are arrays of filepaths
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    } = await postJson(
+      `/workspace/${slug}/update-embeddings`,
+      changes // contains 'adds' and 'removes' keys that are arrays of filepaths
+    )
+      .then(({ data }) => data)
       .catch((e) => {
-        return { workspace: null, message: e.message };
+        return rawOrFallback(e, { workspace: null, message: e.message });
       });
 
     return { workspace, message, batchJob };
   },
   removeQueuedEmbedding: async function (slug, filename) {
-    return fetch(`${API_BASE}/workspace/${slug}/embed-queue`, {
-      method: "DELETE",
-      body: JSON.stringify({ filename }),
-      headers: baseHeaders(),
+    return deleteJson(`/workspace/${slug}/embed-queue`, {
+      body: { filename },
     })
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch(() => ({ success: false }));
   },
   chatHistory: async function (slug, options = {}) {
-    const history = await fetch(`${API_BASE}/workspace/${slug}/chats`, {
-      method: "GET",
-      headers: baseHeaders(),
+    const history = await getJson(`/workspace/${slug}/chats`, {
       signal: options.signal,
     })
-      .then((res) => res.json())
-      .then((res) => res.history || [])
+      .then(({ data }) => data.history || [])
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return [];
@@ -103,15 +104,10 @@ const Workspace = {
   },
   chatHistoryPage: async function (slug, options = {}) {
     const query = historyPageQuery(options);
-    const payload = await fetch(
-      `${API_BASE}/workspace/${slug}/chats?${query}`,
-      {
-        method: "GET",
-        headers: baseHeaders(),
-        signal: options.signal,
-      }
-    )
-      .then((res) => res.json())
+    const payload = await getJson(`/workspace/${slug}/chats?${query}`, {
+      signal: options.signal,
+    })
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
         return { history: [], page: null };
@@ -122,49 +118,43 @@ const Workspace = {
     };
   },
   chatHistoryHydration: async function (slug, chatIds = [], options = {}) {
-    if (!chatIds.length) return { history: [], hydratedChatIds: [] };
-    const payload = await fetch(`${API_BASE}/workspace/${slug}/chats/hydrate`, {
-      method: "POST",
-      headers: baseHeaders(),
-      signal: options.signal,
-      body: JSON.stringify({ chatIds }),
-    })
-      .then((res) => res.json())
+    if (!chatIds.length)
+      return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
+    const payload = await postJson(
+      `/workspace/${slug}/chats/hydrate`,
+      { chatIds },
+      { signal: options.signal }
+    )
+      .then(({ data }) => data)
       .catch((error) => {
         if (error?.name === "AbortError") throw error;
-        return { history: [], hydratedChatIds: [] };
+        return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
       });
     return {
       history: payload.history || [],
       hydratedChatIds: payload.hydratedChatIds || [],
+      hydratedPublicChatIds: payload.hydratedPublicChatIds || [],
     };
   },
   updateChatFeedback: async function (chatId, slug, feedback) {
-    const result = await fetch(
-      `${API_BASE}/workspace/${slug}/chat-feedback/${chatId}`,
+    const result = await postJson(
+      `/workspace/${slug}/chat-feedback/${chatId}`,
       {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ feedback }),
+        feedback,
       }
     )
-      .then((res) => res.ok)
+      .then(() => true)
       .catch(() => false);
     return result;
   },
 
   deleteChats: async function (slug = "", chatIds = []) {
-    return await fetch(`${API_BASE}/workspace/${slug}/delete-chats`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-      body: JSON.stringify({ chatIds }),
+    return await deleteJson(`/workspace/${slug}/delete-chats`, {
+      body: { chatIds },
     })
-      .then((res) => {
-        if (res.ok) {
-          threadHistoryCache.invalidateThread(slug, null);
-          return true;
-        }
-        throw new Error("Failed to delete chats.");
+      .then(() => {
+        threadHistoryCache.invalidateThread(slug, null);
+        return true;
       })
       .catch((e) => {
         console.log(e);
@@ -189,291 +179,120 @@ const Workspace = {
     if (result) threadHistoryCache.invalidateThread(slug, null);
     return result;
   },
-  multiplexStream: async function ({
-    workspaceSlug,
-    threadSlug = null,
-    prompt,
-    chatHandler,
-    attachments = [],
-    fileAccessMode = null,
-    nodeContext = null,
-  }) {
-    if (!!threadSlug)
-      return this.threads.streamChat(
-        { workspaceSlug, threadSlug },
-        prompt,
-        chatHandler,
-        attachments,
-        fileAccessMode,
-        nodeContext
-      );
-    return this.streamChat(
-      { slug: workspaceSlug },
-      prompt,
-      chatHandler,
-      attachments,
-      fileAccessMode,
-      nodeContext
-    );
-  },
-  streamChat: async function (
-    { slug },
-    message,
-    handleChat,
-    attachments = [],
-    fileAccessMode = null,
-    nodeContext = null
-  ) {
-    const ctrl = new AbortController();
-
-    // Listen for the ABORT_STREAM_EVENT key to be emitted by the client
-    // to early abort the streaming response. On abort we send a special `stopGeneration`
-    // event to be handled which resets the UI for us to be able to send another message.
-    // The backend response abort handling is done in each LLM's handleStreamResponse.
-    const abortStream = () => {
-      ctrl.abort();
-      handleChat({ id: v4(), type: "stopGeneration" });
-    };
-    window.addEventListener(ABORT_STREAM_EVENT, abortStream);
-
-    try {
-      await fetchEventSource(`${API_BASE}/workspace/${slug}/stream-chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          message,
-          attachments,
-          fileAccess: { mode: fileAccessMode },
-          nodeContext,
-        }),
-        headers: baseHeaders(),
-        signal: ctrl.signal,
-        openWhenHidden: true,
-        async onopen(response) {
-          if (response.ok) {
-            return; // everything's good
-          } else if (
-            response.status >= 400 &&
-            response.status < 500 &&
-            response.status !== 429
-          ) {
-            handleChat({
-              id: v4(),
-              type: "abort",
-              textResponse: null,
-              sources: [],
-              close: true,
-              error: `An error occurred while streaming response. Code ${response.status}`,
-            });
-            ctrl.abort();
-            throw new Error("Invalid Status code response.");
-          } else {
-            handleChat({
-              id: v4(),
-              type: "abort",
-              textResponse: null,
-              sources: [],
-              close: true,
-              error: `An error occurred while streaming response. Unknown Error.`,
-            });
-            ctrl.abort();
-            throw new Error("Unknown error");
-          }
-        },
-        async onmessage(msg) {
-          const chatResult = safeJsonParse(msg.data, null);
-          if (chatResult) handleChat(chatResult);
-        },
-        onerror(err) {
-          handleChat({
-            id: v4(),
-            type: "abort",
-            textResponse: null,
-            sources: [],
-            close: true,
-            error: `An error occurred while streaming response. ${err.message}`,
-          });
-          ctrl.abort();
-          throw new Error();
-        },
-      });
-    } finally {
-      window.removeEventListener(ABORT_STREAM_EVENT, abortStream);
-    }
-  },
-  agentInvocationState: async function (uuid) {
-    if (!uuid) return { success: false, state: null };
-    return await fetch(`${API_BASE}/agent-invocation/${uuid}/state`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((error) => ({
-        success: false,
-        state: null,
-        error: error.message,
-      }));
-  },
   all: async function () {
-    const workspaces = await fetch(`${API_BASE}/workspaces`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res.workspaces || [])
+    const workspaces = await getJson("/workspaces")
+      .then(({ data }) => data.workspaces || [])
       .catch(() => []);
 
     return workspaces;
   },
   bySlug: async function (slug = "") {
-    const workspace = await fetch(`${API_BASE}/workspace/${slug}`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((res) => res.workspace)
+    const workspace = await getJson(`/workspace/${slug}`)
+      .then(({ data }) => data.workspace)
       .catch(() => null);
     return workspace;
   },
   delete: async function (slug) {
-    const result = await fetch(`${API_BASE}/workspace/${slug}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    const result = await deleteJson(`/workspace/${slug}`)
+      .then(() => true)
       .catch(() => false);
 
     return result;
   },
   wipeVectorDb: async function (slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/reset-vector-db`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.ok)
+    return await deleteJson(`/workspace/${slug}/reset-vector-db`)
+      .then(() => true)
       .catch(() => false);
   },
   uploadFile: async function (slug, formData, folderName = "custom-documents") {
     if (folderName && !formData.has("folderName")) {
       formData.append("folderName", folderName);
     }
-    const response = await fetch(`${API_BASE}/workspace/${slug}/upload`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
-    });
+    const { response, data } = await uploadFormData(
+      `/workspace/${slug}/upload`,
+      formData,
+      {
+        uploadKind: UPLOAD_KINDS.workspaceFile,
+      }
+    );
 
-    const data = await response.json();
     return { response, data };
   },
   parseFile: async function (slug, formData) {
-    const response = await fetch(`${API_BASE}/workspace/${slug}/parse`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
-    });
+    const { response, data } = await uploadFormData(
+      `/workspace/${slug}/parse`,
+      formData,
+      {
+        uploadKind: UPLOAD_KINDS.workspaceFile,
+      }
+    );
 
-    const data = await response.json();
     return { response, data };
   },
 
   getParsedFiles: async function (slug, threadSlug = null) {
     const basePath = new URL(`${fullApiUrl()}/workspace/${slug}/parsed-files`);
     if (threadSlug) basePath.searchParams.set("threadSlug", threadSlug);
-    const response = await fetch(basePath, {
-      method: "GET",
-      headers: baseHeaders(),
-    });
-
-    const data = await response.json();
+    const { data } = await getJson(basePath.toString());
     return data;
   },
   uploadLink: async function (slug, link, folderName = "custom-documents") {
-    const response = await fetch(`${API_BASE}/workspace/${slug}/upload-link`, {
-      method: "POST",
-      body: JSON.stringify({ link, folderName }),
-      headers: baseHeaders(),
-    });
-
-    const data = await response.json();
+    const { response, data } = await postJson(
+      `/workspace/${slug}/upload-link`,
+      {
+        link,
+        folderName,
+      }
+    );
     return { response, data };
   },
 
   getSuggestedMessages: async function (slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/suggested-messages`, {
-      method: "GET",
+    return await getJson(`/workspace/${slug}/suggested-messages`, {
       cache: "no-cache",
-      headers: baseHeaders(),
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Could not fetch suggested messages.");
-        return res.json();
-      })
-      .then((res) => res.suggestedMessages)
+      .then(({ data }) => data.suggestedMessages)
       .catch((e) => {
         console.error(e);
         return null;
       });
   },
   setSuggestedMessages: async function (slug, messages) {
-    return fetch(`${API_BASE}/workspace/${slug}/suggested-messages`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ messages }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(
-            res.statusText || "Error setting suggested messages."
-          );
-        }
-        return { success: true, ...res.json() };
-      })
+    return postJson(`/workspace/${slug}/suggested-messages`, { messages })
+      .then(({ data }) => ({ success: true, ...data }))
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return {
+          success: false,
+          error: responseError(e, "Error setting suggested messages."),
+        };
       });
   },
   setPinForDocument: async function (slug, docPath, pinStatus) {
-    return fetch(`${API_BASE}/workspace/${slug}/update-pin`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ docPath, pinStatus }),
-    })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(
-            res.statusText || "Error setting pin status for document."
-          );
-        }
-        return true;
-      })
+    return postJson(`/workspace/${slug}/update-pin`, { docPath, pinStatus })
+      .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
   ttsMessage: async function (slug, chatId) {
-    return await fetch(`${API_BASE}/workspace/${slug}/tts/${chatId}`, {
-      method: "GET",
+    return await requestBlob(`/workspace/${slug}/tts/${chatId}`, {
       cache: "no-cache",
-      headers: baseHeaders(),
+      blobKind: BLOB_KINDS.ttsAudio,
     })
-      .then((res) => {
-        if (res.ok && res.status !== 204) return res.blob();
-        throw new Error("Failed to fetch TTS.");
-      })
-      .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+      .then(({ response, blob }) =>
+        response.status !== 204 && blob ? URL.createObjectURL(blob) : null
+      )
       .catch(() => {
         return null;
       });
   },
   uploadPfp: async function (formData, slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/upload-pfp`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
+    return await uploadFormData(`/workspace/${slug}/upload-pfp`, formData, {
+      uploadKind: UPLOAD_KINDS.avatar,
     })
-      .then((res) => {
-        if (!res.ok) throw new Error("Error uploading pfp.");
+      .then(() => {
         return { success: true, error: null };
       })
       .catch((e) => {
@@ -483,29 +302,22 @@ const Workspace = {
   },
 
   fetchPfp: async function (slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/pfp`, {
-      method: "GET",
+    return await requestBlob(`/workspace/${slug}/pfp`, {
       cache: "no-cache",
-      headers: baseHeaders(),
+      blobKind: BLOB_KINDS.avatar,
     })
-      .then((res) => {
-        if (res.ok && res.status !== 204) return res.blob();
-        throw new Error("Failed to fetch pfp.");
-      })
-      .then((blob) => (blob ? URL.createObjectURL(blob) : null))
+      .then(({ response, blob }) =>
+        response.status !== 204 && blob ? URL.createObjectURL(blob) : null
+      )
       .catch(() => {
         return null;
       });
   },
 
   removePfp: async function (slug) {
-    return await fetch(`${API_BASE}/workspace/${slug}/remove-pfp`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => {
-        if (res.ok) return { success: true, error: null };
-        throw new Error("Failed to remove pfp.");
+    return await deleteJson(`/workspace/${slug}/remove-pfp`)
+      .then(() => {
+        return { success: true, error: null };
       })
       .catch((e) => {
         console.log(e);
@@ -513,44 +325,33 @@ const Workspace = {
       });
   },
   _updateChat: async function (slug = "", chatId, newText, role = "assistant") {
-    return await fetch(`${API_BASE}/workspace/${slug}/update-chat`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ chatId, newText, role }),
+    return await postJson(`/workspace/${slug}/update-chat`, {
+      chatId,
+      newText,
+      role,
     })
-      .then((res) => {
-        if (res.ok) return true;
-        throw new Error("Failed to update chat.");
-      })
+      .then(() => true)
       .catch((e) => {
         console.log(e);
         return false;
       });
   },
   _deleteEditedChats: async function (slug = "", startingId) {
-    return await fetch(`${API_BASE}/workspace/${slug}/delete-edited-chats`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-      body: JSON.stringify({ startingId }),
+    return await deleteJson(`/workspace/${slug}/delete-edited-chats`, {
+      body: { startingId },
     })
-      .then((res) => {
-        if (res.ok) return true;
-        throw new Error("Failed to delete chats.");
-      })
+      .then(() => true)
       .catch((e) => {
         console.log(e);
         return false;
       });
   },
   deleteChat: async (chatId) => {
-    return await fetch(`${API_BASE}/workspace/workspace-chats/${chatId}`, {
-      method: "PUT",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await putJson(`/workspace/workspace-chats/${chatId}`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   forkThread: async function (
@@ -559,23 +360,17 @@ const Workspace = {
     chatId = null,
     options = {}
   ) {
-    return await fetch(`${API_BASE}/workspace/${slug}/thread/fork`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ threadSlug, chatId, ...options }),
+    return await postJson(`/workspace/${slug}/thread/fork`, {
+      threadSlug,
+      chatId,
+      ...options,
     })
-      .then(async (res) => {
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok)
-          throw new Error(
-            data.message || data.error || "Failed to fork thread."
-          );
-        return data;
-      })
+      .then(({ data }) => data)
       .then((data) => (options.returnFull ? data : data.newThreadSlug))
       .catch((e) => {
         console.error("Error forking thread:", e);
-        return options.returnFull ? { error: e.message } : null;
+        const error = responseError(e, "Failed to fork thread.");
+        return options.returnFull ? { error } : null;
       });
   },
   /**
@@ -585,41 +380,29 @@ const Workspace = {
    * @returns {Promise<{response: {ok: boolean}, data: {success: boolean, error: string|null, document: {id: string, location:string}|null}}>}
    */
   uploadAndEmbedFile: async function (slug, formData) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/upload-and-embed`,
+    const { response, data } = await uploadFormData(
+      `/workspace/${slug}/upload-and-embed`,
+      formData,
       {
-        method: "POST",
-        body: formData,
-        headers: baseHeaders(),
+        uploadKind: UPLOAD_KINDS.uploadAndEmbed,
       }
     );
 
-    const data = await response.json();
     return { response, data };
   },
 
   deleteParsedFiles: async function (slug, fileIds = []) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/delete-parsed-files`,
-      {
-        method: "DELETE",
-        headers: baseHeaders(),
-        body: JSON.stringify({ fileIds }),
-      }
-    );
-    return response.ok;
+    return await deleteJson(`/workspace/${slug}/delete-parsed-files`, {
+      body: { fileIds },
+    })
+      .then(() => true)
+      .catch(() => false);
   },
 
   embedParsedFile: async function (slug, fileId) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/embed-parsed-file/${fileId}`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
+    const { response, data } = await postJson(
+      `/workspace/${slug}/embed-parsed-file/${fileId}`
     );
-
-    const data = await response.json();
     return { response, data };
   },
 
@@ -630,15 +413,11 @@ const Workspace = {
    * @returns {Promise<boolean>}
    */
   deleteAndUnembedFile: async function (slug, documentLocation) {
-    const response = await fetch(
-      `${API_BASE}/workspace/${slug}/remove-and-unembed`,
-      {
-        method: "DELETE",
-        body: JSON.stringify({ documentLocation }),
-        headers: baseHeaders(),
-      }
-    );
-    return response.ok;
+    return await deleteJson(`/workspace/${slug}/remove-and-unembed`, {
+      body: { documentLocation },
+    })
+      .then(() => true)
+      .catch(() => false);
   },
 
   /**
@@ -683,12 +462,8 @@ const Workspace = {
    * @returns {Promise<{workspaces: [{slug: string, name: string}], threads: [{slug: string, name: string, workspace: {slug: string, name: string}}]}}>}
    */
   searchWorkspaceOrThread: async function (searchTerm) {
-    const response = await fetch(`${API_BASE}/workspace/search`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ searchTerm }),
-    })
-      .then((res) => res.json())
+    const response = await postJson("/workspace/search", { searchTerm })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { workspaces: [], threads: [] };
@@ -700,63 +475,48 @@ const Workspace = {
     slug,
     { message, threadSlug = null, nodeContext = null } = {}
   ) {
-    return await fetch(`${API_BASE}/workspace/${slug}/quiz/generate`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ message, threadSlug, nodeContext }),
+    return await postJson(`/workspace/${slug}/quiz/generate`, {
+      message,
+      threadSlug,
+      nodeContext,
     })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   quizStatus: async function (slug, quizId) {
-    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/status`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return await getJson(`/workspace/${slug}/quiz/${quizId}/status`)
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   submitQuiz: async function (slug, quizId, answers = {}) {
-    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/submit`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ answers }),
+    return await postJson(`/workspace/${slug}/quiz/${quizId}/submit`, {
+      answers,
     })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   submitQuizStream: async function (slug, quizId, answers = {}, handleChat) {
-    await fetchEventSource(
-      `${API_BASE}/workspace/${slug}/quiz/${quizId}/submit-stream`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ answers }),
-        openWhenHidden: true,
-        async onopen(response) {
-          if (response.ok) return;
-          throw new Error(`Quiz analysis failed with ${response.status}`);
-        },
-        async onmessage(msg) {
-          const chatResult = safeJsonParse(msg.data, null);
-          if (chatResult) handleChat?.(chatResult);
-        },
-        onerror(error) {
-          handleChat?.({
-            id: v4(),
-            type: "abort",
-            textResponse: null,
-            sources: [],
-            close: true,
-            error: error.message,
-          });
-          throw error;
-        },
-      }
-    );
+    await streamQuizSubmit({
+      workspaceSlug: slug,
+      quizId,
+      answers,
+      onEvent(event) {
+        if (event) handleChat?.(event);
+      },
+      onError(error) {
+        handleChat?.({
+          id: v4(),
+          type: "abort",
+          textResponse: null,
+          sources: [],
+          close: true,
+          error: error.message,
+        });
+      },
+    });
   },
 
   saveQuizProgress: async function (
@@ -764,62 +524,41 @@ const Workspace = {
     quizId,
     { answers = {}, currentIndex = 0 } = {}
   ) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/quiz/${quizId}/progress`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ answers, currentIndex }),
-      }
-    )
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return await postJson(`/workspace/${slug}/quiz/${quizId}/progress`, {
+      answers,
+      currentIndex,
+    })
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   abandonQuiz: async function (slug, quizId) {
-    return await fetch(`${API_BASE}/workspace/${slug}/quiz/${quizId}/abandon`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return await postJson(`/workspace/${slug}/quiz/${quizId}/abandon`)
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   saveQuizWrongQuestions: async function (slug, quizId) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/quiz/${quizId}/wrong-questions`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
-    )
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return await postJson(`/workspace/${slug}/quiz/${quizId}/wrong-questions`)
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   favoriteQuizQuestion: async function (slug, quizId, questionId) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/quiz/${quizId}/favorite-question`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ questionId }),
-      }
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/favorite-question`,
+      { questionId }
     )
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   unfavoriteQuizQuestion: async function (slug, quizId, questionId) {
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/quiz/${quizId}/favorite-question/${questionId}`,
-      {
-        method: "DELETE",
-        headers: baseHeaders(),
-      }
+    return await deleteJson(
+      `/workspace/${slug}/quiz/${quizId}/favorite-question/${questionId}`
     )
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
   /**
@@ -832,11 +571,8 @@ const Workspace = {
    */
   agentCommandAvailable: async function (slug = null) {
     if (!slug) return { showAgentCommand: true };
-    return await fetch(
-      `${API_BASE}/workspace/${slug}/is-agent-command-available`,
-      { headers: baseHeaders() }
-    )
-      .then((res) => res.json())
+    return await getJson(`/workspace/${slug}/is-agent-command-available`)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { showAgentCommand: true };

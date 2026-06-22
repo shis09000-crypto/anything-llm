@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Tooltip } from "react-tooltip";
 import { At } from "@phosphor-icons/react";
-import { useIsAgentSessionActive } from "@/utils/chat/agent";
+import { useIsAgentSessionActive } from "@/lib/communication/agentWebSocketClient";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 

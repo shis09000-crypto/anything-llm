@@ -1,15 +1,10 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, postJson } from "@/lib/communication/apiClient";
 
 const WorkspaceHealth = {
   async beacon(slug) {
     if (!slug) return { error: "missing_workspace" };
-    return await fetch(`${API_BASE}/workspace/${slug}/health/beacon`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((data) => data.beacon || null)
+    return await getJson(`/workspace/${slug}/health/beacon`)
+      .then(({ data }) => data.beacon || null)
       .catch(() => ({
         unknown: true,
         score: null,
@@ -20,12 +15,8 @@ const WorkspaceHealth = {
 
   async refresh(slug) {
     if (!slug) return { error: "missing_workspace" };
-    return await fetch(`${API_BASE}/workspace/${slug}/health/refresh`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .then((data) => data.beacon || null)
+    return await postJson(`/workspace/${slug}/health/refresh`)
+      .then(({ data }) => data.beacon || null)
       .catch(() => ({
         unknown: true,
         score: null,

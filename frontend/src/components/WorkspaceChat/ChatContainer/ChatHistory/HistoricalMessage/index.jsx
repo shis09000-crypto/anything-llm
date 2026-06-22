@@ -33,6 +33,17 @@ import ReaderTextSourceCards, {
 } from "../../DocumentReader/ReaderTextSourceCards";
 import { useDocumentReader } from "../../DocumentReader/Provider";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { GlassCard } from "@developer-hub/liquid-glass";
+
+const USER_MESSAGE_GLASS_MOUSE_OFFSET = { x: 0, y: 0 };
+const USER_MESSAGE_GLASS_STYLE = {
+  "--user-message-glass-tint-light": "rgb(255 255 255 / 0.2)",
+  "--user-message-glass-tint-dark": "rgb(15 23 42 / 0.165)",
+  "--user-message-glass-shadow": "0 12px 26px rgb(15 23 42 / 0.17)",
+  "--user-message-glass-backdrop-blur": "2.2px",
+  "--user-message-glass-radius": "15px",
+  "--user-message-glass-text-alpha": 0.94,
+};
 
 const HistoricalMessage = ({
   uuid: uuidProp,
@@ -47,6 +58,7 @@ const HistoricalMessage = ({
   error = false,
   feedbackScore = null,
   chatId = null,
+  publicChatId = null,
   isLastMessage = false,
   regenerateMessage,
   saveEditedMessage,
@@ -67,6 +79,7 @@ const HistoricalMessage = ({
   const { isEditing } = useEditMessage({ chatId, role });
   const { isDeleted, completeDelete, onEndAnimation } = useWatchDeleteMessage({
     chatId,
+    publicChatId,
     role,
   });
   const adjustTextArea = (event) => {
@@ -112,6 +125,7 @@ const HistoricalMessage = ({
           <EditMessageForm
             role={role}
             chatId={chatId}
+            publicChatId={publicChatId}
             message={message}
             attachments={attachments}
             adjustTextArea={adjustTextArea}
@@ -128,31 +142,43 @@ const HistoricalMessage = ({
         className={`${isDeleted ? "animate-remove" : ""} flex justify-end w-full group`}
       >
         <div className="py-4 px-4 flex flex-col items-end">
-          <div className="bg-zinc-800 light:bg-slate-100 rounded-[20px] rounded-br-none px-4 py-3.5 max-w-[720px] [&_p]:m-0">
-            <TruncatableContent
-              stateId={`${uuid}:truncatable`}
-              messageId={uuid}
-              onContentLayoutChange={onContentLayoutChange}
-            >
-              <ReaderTextSourceCards
-                sources={documentReaderTextSources}
-                className="mb-3 max-w-[540px]"
-                itemClassName="bg-white/95 light:bg-white"
-              />
-              <RenderChatContent
-                role={role}
-                message={message}
+          <GlassCard
+            className="liquid-glass-user-message-bubble pointer-events-auto relative z-10"
+            displacementScale={35}
+            blurAmount={0}
+            cornerRadius={15}
+            padding="0px"
+            shadowMode={false}
+            mouseOffset={USER_MESSAGE_GLASS_MOUSE_OFFSET}
+            style={USER_MESSAGE_GLASS_STYLE}
+          >
+            <div className="liquid-glass-user-message-content px-4 py-3.5 [&_p]:m-0">
+              <TruncatableContent
+                stateId={`${uuid}:truncatable`}
                 messageId={uuid}
                 onContentLayoutChange={onContentLayoutChange}
-              />
-              <ChatAttachments attachments={attachments} />
-            </TruncatableContent>
-          </div>
+              >
+                <ReaderTextSourceCards
+                  sources={documentReaderTextSources}
+                  className="mb-3 max-w-[540px]"
+                  itemClassName="bg-white/95 light:bg-white"
+                />
+                <RenderChatContent
+                  role={role}
+                  message={message}
+                  messageId={uuid}
+                  onContentLayoutChange={onContentLayoutChange}
+                />
+                <ChatAttachments attachments={attachments} />
+              </TruncatableContent>
+            </div>
+          </GlassCard>
           {!readOnly && (
             <Actions
               message={message}
               feedbackScore={feedbackScore}
               chatId={chatId}
+              publicChatId={publicChatId}
               slug={workspace?.slug}
               isLastMessage={isLastMessage}
               regenerateMessage={regenerateMessage}
@@ -178,6 +204,7 @@ const HistoricalMessage = ({
           <EditMessageForm
             role={role}
             chatId={chatId}
+            publicChatId={publicChatId}
             message={message}
             attachments={attachments}
             adjustTextArea={adjustTextArea}
@@ -223,12 +250,14 @@ const HistoricalMessage = ({
             <TTSMessage
               slug={workspace?.slug}
               chatId={chatId}
+              publicChatId={publicChatId}
               message={message}
             />
             <Actions
               message={message}
               feedbackScore={feedbackScore}
               chatId={chatId}
+              publicChatId={publicChatId}
               slug={workspace?.slug}
               isLastMessage={isLastMessage}
               regenerateMessage={regenerateMessage}
@@ -258,6 +287,7 @@ export default memo(
       prevProps.message === nextProps.message &&
       prevProps.isLastMessage === nextProps.isLastMessage &&
       prevProps.chatId === nextProps.chatId &&
+      prevProps.publicChatId === nextProps.publicChatId &&
       JSON.stringify(prevProps.metrics) === JSON.stringify(nextProps.metrics) &&
       JSON.stringify(prevProps.sources) === JSON.stringify(nextProps.sources) &&
       JSON.stringify(prevProps.readerTextSources) ===
@@ -352,14 +382,14 @@ function TruncatableContent({
               className="absolute bottom-0 left-0 right-0 h-[36px] light:hidden pointer-events-none"
               style={{
                 background:
-                  "linear-gradient(180deg, rgba(39, 39, 42, 0.00) 0%, rgba(39, 39, 42, 0.65) 50%, #27272A 100%)",
+                  "linear-gradient(180deg, rgb(15 23 42 / 0) 0%, rgb(15 23 42 / 0.36) 54%, rgb(15 23 42 / 0.58) 100%)",
               }}
             />
             <div
               className="absolute bottom-0 left-0 right-0 h-[36px] hidden light:block pointer-events-none"
               style={{
                 background:
-                  "linear-gradient(180deg, rgba(241, 245, 249, 0.00) 0%, rgba(241, 245, 249, 0.65) 50%, #F1F5F9 100%)",
+                  "linear-gradient(180deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.44) 54%, rgb(255 255 255 / 0.68) 100%)",
               }}
             />
           </>

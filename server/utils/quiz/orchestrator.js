@@ -30,6 +30,7 @@ const {
   snapshotFromQuiz,
 } = require("./snapshot");
 const { QUIZ_GENERATION_MODEL } = require("./constants");
+const { getScopedWorkspaceChat } = require("../authz/resourceAccess");
 
 const activeQuizGenerations = new Set();
 const chatWriteQueues = new Map();
@@ -42,6 +43,17 @@ const QUESTION_TYPE_PRIORITY = {
 
 function quizGenerationLog(event, details = {}) {
   console.log(`[QuizGeneration] ${event}`, details);
+}
+
+function quizScopeFromChat(chat = null) {
+  if (!chat?.id || !chat?.workspaceId) return null;
+  return {
+    chatId: chat.id,
+    workspaceId: chat.workspaceId,
+    threadId: chat.thread_id ?? null,
+    userId: chat.user_id ?? null,
+    include: chat.include ?? true,
+  };
 }
 
 function responseForQuiz(quiz, text = null) {
@@ -90,6 +102,17 @@ async function updateChatQuiz(chatId, quiz, text = null) {
   await WorkspaceChats._update(Number(chatId), {
     response: safeJSONStringify(responseForQuiz(quiz, text)),
     lastUpdatedAt: new Date(),
+  });
+}
+
+async function scopedQuizChat(scope = {}) {
+  if (!scope?.chatId || !scope?.workspaceId) return null;
+  return await getScopedWorkspaceChat({
+    chatId: scope.chatId,
+    workspaceId: scope.workspaceId,
+    threadId: scope.threadId ?? null,
+    userId: scope.userId ?? null,
+    include: scope.include ?? true,
   });
 }
 
@@ -163,9 +186,15 @@ async function quizChat({ workspace, user = null, quizId }) {
   return { chat, quiz };
 }
 
-async function markJobFailed({ chatId, type, error, concurrencySlot = null }) {
+async function markJobFailed({
+  quizScope,
+  type,
+  error,
+  concurrencySlot = null,
+}) {
+  const chatId = quizScope?.chatId;
   await withQuizWriteLock(chatId, async () => {
-    const chat = await WorkspaceChats.get({ id: Number(chatId) });
+    const chat = await scopedQuizChat(quizScope);
     const quiz = quizFromChat(chat);
     if (!quiz) return;
     if (quiz.abandoned || quiz.submitted) return;
@@ -203,13 +232,14 @@ async function markJobFailed({ chatId, type, error, concurrencySlot = null }) {
 }
 
 async function appendJobQuestions({
-  chatId,
+  quizScope,
   questions,
   type = null,
   concurrencySlot = null,
 }) {
+  const chatId = quizScope?.chatId;
   await withQuizWriteLock(chatId, async () => {
-    const chat = await WorkspaceChats.get({ id: Number(chatId) });
+    const chat = await scopedQuizChat(quizScope);
     const quiz = quizFromChat(chat);
     if (!quiz) return;
     if (quiz.abandoned || quiz.submitted) return;
@@ -306,8 +336,9 @@ function visibleAndDeferredQuestions({ quiz = {}, incoming = [] }) {
   return { visible, deferred };
 }
 
-async function runOneBackgroundJob({ chatId, job, concurrencySlot }) {
-  const latest = quizFromChat(await WorkspaceChats.get({ id: Number(chatId) }));
+async function runOneBackgroundJob({ quizScope, job, concurrencySlot }) {
+  const chatId = quizScope?.chatId;
+  const latest = quizFromChat(await scopedQuizChat(quizScope));
   if (!latest) return;
   if (latest.abandoned || latest.submitted) {
     quizGenerationLog("skipped", {
@@ -346,7 +377,7 @@ async function runOneBackgroundJob({ chatId, job, concurrencySlot }) {
       throw error;
     }
     await appendJobQuestions({
-      chatId,
+      quizScope,
       questions: result.questions || [],
       type: job.type,
       concurrencySlot,
@@ -366,11 +397,11 @@ async function runOneBackgroundJob({ chatId, job, concurrencySlot }) {
       error: error.message,
       concurrencySlot,
     });
-    await markJobFailed({ chatId, type: job.type, error, concurrencySlot });
+    await markJobFailed({ quizScope, type: job.type, error, concurrencySlot });
   }
 }
 
-async function runBackgroundJobs({ chatId, jobs = [] }) {
+async function runBackgroundJobs({ quizScope, jobs = [] }) {
   const queue = [...jobs];
   const workerCount = Math.min(
     QUIZ_BACKGROUND_GENERATION_CONCURRENCY,
@@ -381,7 +412,7 @@ async function runBackgroundJobs({ chatId, jobs = [] }) {
   async function worker(concurrencySlot) {
     while (index < queue.length) {
       const job = queue[index++];
-      await runOneBackgroundJob({ chatId, job, concurrencySlot });
+      await runOneBackgroundJob({ quizScope, job, concurrencySlot });
     }
   }
 
@@ -390,7 +421,15 @@ async function runBackgroundJobs({ chatId, jobs = [] }) {
   );
 }
 
-async function enqueueRemainingGenerationJobs({ chatId, reason = "unknown" }) {
+async function enqueueRemainingGenerationJobs({
+  chatId,
+  workspaceId,
+  threadId = null,
+  userId = null,
+  include = true,
+  reason = "unknown",
+}) {
+  const quizScope = { chatId, workspaceId, threadId, userId, include };
   const key = String(chatId);
   if (activeQuizGenerations.has(key)) {
     quizGenerationLog("skipped", {
@@ -401,8 +440,9 @@ async function enqueueRemainingGenerationJobs({ chatId, reason = "unknown" }) {
     return false;
   }
 
-  const chat = await WorkspaceChats.get({ id: Number(chatId) });
+  const chat = await scopedQuizChat(quizScope);
   const quiz = quizFromChat(chat);
+  if (!quiz) return false;
   const jobs = pendingJobsForQuiz(quiz);
   if (!jobs.length) return false;
 
@@ -414,7 +454,7 @@ async function enqueueRemainingGenerationJobs({ chatId, reason = "unknown" }) {
   });
 
   setImmediate(() =>
-    runBackgroundJobs({ chatId: key, jobs })
+    runBackgroundJobs({ quizScope: { ...quizScope, chatId: key }, jobs })
       .catch((error) =>
         console.error("[Quiz] background generation failed", error)
       )
@@ -488,6 +528,10 @@ async function generateQuiz({
 
   await enqueueRemainingGenerationJobs({
     chatId: chat.id,
+    workspaceId: chat.workspaceId,
+    threadId: chat.thread_id ?? null,
+    userId: chat.user_id ?? null,
+    include: chat.include ?? true,
     reason: "generate_quiz",
   });
 
@@ -518,6 +562,10 @@ async function quizStatus({ workspace, user = null, quizId }) {
   ) {
     await enqueueRemainingGenerationJobs({
       chatId: chat.id,
+      workspaceId: chat.workspaceId,
+      threadId: chat.thread_id ?? null,
+      userId: chat.user_id ?? null,
+      include: chat.include ?? true,
       reason: "status_recovery",
     });
   }
@@ -559,6 +607,7 @@ async function submitQuizStream({
   answers = {},
 }) {
   const { chat, quiz } = await quizChat({ workspace, user, quizId });
+  const quizScope = quizScopeFromChat(chat);
   if (quiz.abandoned) throw new Error("quiz_abandoned");
   if ((quiz.pendingTypes || []).length > 0) {
     const error = new Error("quiz_generation_still_running");
@@ -588,7 +637,7 @@ async function submitQuizStream({
     runningQuiz.questionResultsReliable = result.questionResultsReliable;
     runningQuiz.questionResultsParseError = result.questionResultsParseError;
   } catch (error) {
-    const latest = quizFromChat(await WorkspaceChats.get({ id: chat.id }));
+    const latest = quizFromChat(await scopedQuizChat(quizScope));
     if (!latest?.abandoned) {
       await updateChatQuiz(
         chat.id,
@@ -604,7 +653,7 @@ async function submitQuizStream({
     throw error;
   }
 
-  const latestChat = await WorkspaceChats.get({ id: chat.id });
+  const latestChat = await scopedQuizChat(quizScope);
   const latestQuiz = quizFromChat(latestChat);
   if (!latestQuiz || latestQuiz.abandoned) return { skipped: true };
 

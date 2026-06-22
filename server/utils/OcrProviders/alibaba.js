@@ -1,5 +1,5 @@
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
-const DEFAULT_MODEL = "qwen-vl-ocr-latest";
+const DEFAULT_MODEL = "qwen3.5-ocr";
 const ALLOWED_IMAGE_DATA_URL_PATTERN =
   /^data:image\/(png|jpe?g);base64,[A-Za-z0-9+/=]+$/i;
 

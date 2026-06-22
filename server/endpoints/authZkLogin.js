@@ -218,6 +218,162 @@ function authZkLoginEndpoints(app) {
   );
 
   app.post(
+    "/system/user/memory/reauth/passkey/options",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        if (!response.locals.multiUserMode) {
+          return response.status(404).json({ success: false });
+        }
+
+        const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
+        const passkeys = await authPrisma.passkeyCredential.findMany({
+          where: { userId: authUserId },
+          select: { credentialId: true, transports: true },
+        });
+        if (passkeys.length === 0) {
+          return response.status(404).json({
+            success: false,
+            error: "当前账号没有可用通行密钥。",
+          });
+        }
+
+        const { origin, rpID } = passkeyRpConfig(request);
+        assertSecurePasskeyOrigin(origin);
+        const options = await generateAuthenticationOptions({
+          rpID,
+          userVerification: "preferred",
+          allowCredentials: passkeys.map((passkey) => ({
+            id: passkey.credentialId,
+            transports: parseTransports(passkey.transports),
+          })),
+        });
+
+        await rememberPasskeyChallenge({
+          challenge: normalizeBase64Url(options.challenge),
+          userId: authUserId,
+          request,
+        });
+
+        return response.status(200).json({ success: true, options });
+      } catch (error) {
+        console.error(
+          "[Sensitive memory reauth passkey options failed]",
+          error.message
+        );
+        return response.status(500).json({
+          success: false,
+          error: "无法启动通行密钥验证。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/user/memory/reauth/passkey/verify",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        if (!response.locals.multiUserMode) {
+          return response.status(404).json({ success: false });
+        }
+
+        const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
+        const body = reqBody(request) || {};
+        const authResponse = body.response;
+        const credentialId = normalizeBase64Url(authResponse?.id);
+        const challenge = normalizeBase64Url(
+          authResponse?.response?.clientDataJSON
+            ? challengeFromClientData(authResponse.response.clientDataJSON)
+            : null
+        );
+        const challengeRecord = await consumePasskeyChallenge({
+          challenge,
+          userId: authUserId,
+        });
+        if (!challengeRecord) {
+          return response.status(400).json({
+            success: false,
+            error: "通行密钥验证已过期，请重试。",
+          });
+        }
+
+        const passkey = await authPrisma.passkeyCredential.findFirst({
+          where: { credentialId, userId: authUserId },
+        });
+        if (!passkey) {
+          await audit(request, "sensitive_memory_reauth_failed", {
+            userId: user.id,
+            reason: "passkey_unknown",
+            device: fingerprint(credentialId),
+          });
+          return response.status(401).json({
+            success: false,
+            error: "无法验证通行密钥。",
+          });
+        }
+
+        const { origin, rpID } = passkeyRpConfig(request);
+        assertSecurePasskeyOrigin(origin);
+        const verification = await verifyAuthenticationResponse({
+          response: authResponse,
+          expectedChallenge: challengeRecord.challenge,
+          expectedOrigin: origin,
+          expectedRPID: rpID,
+          credential: {
+            id: passkey.credentialId,
+            publicKey: base64UrlToBytes(passkey.publicKey),
+            counter: Number(passkey.counter || 0),
+            transports: parseTransports(passkey.transports),
+          },
+        });
+
+        if (!verification.verified) {
+          await audit(request, "sensitive_memory_reauth_failed", {
+            userId: user.id,
+            reason: "passkey_verify_failed",
+            device: fingerprint(credentialId),
+          });
+          return response.status(401).json({
+            success: false,
+            error: "无法验证通行密钥。",
+          });
+        }
+
+        await authPrisma.passkeyCredential.update({
+          where: { id: passkey.id },
+          data: {
+            counter: Number(
+              verification.authenticationInfo?.newCounter ?? passkey.counter
+            ),
+            lastUsedAt: new Date(),
+          },
+        });
+
+        return response.status(200).json({
+          success: true,
+          reauthToken: issueReauthToken(
+            user.id,
+            "passkey",
+            "sensitive_memory_reveal"
+          ),
+        });
+      } catch (error) {
+        console.error(
+          "[Sensitive memory reauth passkey verify failed]",
+          error.message
+        );
+        return response.status(400).json({
+          success: false,
+          error: "无法验证通行密钥。",
+        });
+      }
+    }
+  );
+
+  app.post(
     "/auth/zk-login/enroll/start",
     [validatedRequest],
     async (request, response) => {
@@ -368,24 +524,19 @@ function authZkLoginEndpoints(app) {
 
       await cleanupExpiredAttempts();
       const body = reqBody(request) || {};
-      const userId = Number(body.userId);
+      const requestedUserId = Number(body.userId);
       const deviceId = normalizeDeviceId(body.deviceId);
       const startLoginRequest = normalizeOpaqueMessage(body.startLoginRequest);
-      if (!userId || !deviceId || !startLoginRequest) {
+      if (!requestedUserId || !deviceId || !startLoginRequest) {
         return response.status(400).json({
           success: false,
           error: "快速登录请求无效。",
         });
       }
 
-      const device = await authPrisma.trustedLoginDevice.findFirst({
-        where: {
-          userId,
-          deviceId,
-          revokedAt: null,
-          opaqueRegistrationRecord: { not: null },
-        },
-        include: { user: true },
+      const device = await findTrustedLoginDeviceForLogin({
+        requestedUserId,
+        deviceId,
       });
       if (
         !device ||
@@ -864,6 +1015,41 @@ function normalizeOpaqueMessage(value) {
 
 function normalizeDeviceName(value) {
   return normalizeDisplay(value, 80) || "This Device";
+}
+
+async function findTrustedLoginDeviceForLogin({
+  requestedUserId,
+  deviceId,
+} = {}) {
+  const primary = await trustedLoginDeviceByUserId(requestedUserId, deviceId);
+  if (primary) return primary;
+
+  const shadow = await prisma.users.findUnique({
+    where: { id: requestedUserId },
+    select: { authUserId: true },
+  });
+  const authUserId = Number(shadow?.authUserId);
+  if (
+    !Number.isFinite(authUserId) ||
+    authUserId <= 0 ||
+    authUserId === requestedUserId
+  ) {
+    return null;
+  }
+
+  return trustedLoginDeviceByUserId(authUserId, deviceId);
+}
+
+function trustedLoginDeviceByUserId(userId, deviceId) {
+  return authPrisma.trustedLoginDevice.findFirst({
+    where: {
+      userId,
+      deviceId,
+      revokedAt: null,
+      opaqueRegistrationRecord: { not: null },
+    },
+    include: { user: true },
+  });
 }
 
 function normalizeDisplay(value, maxLength = 80) {

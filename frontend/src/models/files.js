@@ -1,5 +1,4 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { FILE_KINDS, downloadBlobFile } from "@/lib/communication/fileClient";
 
 const StorageFiles = {
   /**
@@ -8,14 +7,13 @@ const StorageFiles = {
    * @returns {Promise<Blob|null>}
    */
   download: async function (storageFilename) {
-    return await fetch(
-      `${API_BASE}/agent-skills/generated-files/${encodeURIComponent(storageFilename)}`,
-      { headers: baseHeaders() }
+    return await downloadBlobFile(
+      `/agent-skills/generated-files/${encodeURIComponent(storageFilename)}`,
+      {
+        blobKind: FILE_KINDS.generatedFile,
+      }
     )
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to download file");
-        return res.blob();
-      })
+      .then(({ blob }) => blob)
       .catch((e) => {
         console.error("Download failed:", e);
         return null;

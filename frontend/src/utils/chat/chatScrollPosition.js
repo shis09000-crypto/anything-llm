@@ -173,6 +173,26 @@ export function shouldBlockChatScrollPersistenceForLayoutTransition({
   return Boolean(layoutTransitionActive && !hasUserIntent);
 }
 
+export function startChatRestoreRun(state = null) {
+  if (!state) return 0;
+  state.generation = (Number(state.generation) || 0) + 1;
+  state.active = true;
+  return state.generation;
+}
+
+export function cancelChatRestoreRun(state = null) {
+  if (!state) return 0;
+  state.generation = (Number(state.generation) || 0) + 1;
+  state.active = false;
+  return state.generation;
+}
+
+export function isChatRestoreRunCurrent(state = null, generation = null) {
+  return Boolean(
+    state?.active && Number(state.generation) === Number(generation)
+  );
+}
+
 export function chatBottomScrollBehavior({
   smooth = false,
   sendFollowActive = false,

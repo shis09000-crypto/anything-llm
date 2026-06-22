@@ -16,6 +16,7 @@ import {
   FilePlus,
   Terminal,
   ListChecks,
+  ChatCircleDots,
 } from "@phosphor-icons/react";
 import RAGImage from "@/media/agents/rag-memory.png";
 import SummarizeImage from "@/media/agents/view-summarize.png";
@@ -68,6 +69,14 @@ export const getDefaultSkills = (t) => ({
     icon: Browser,
     image: ScrapeWebsitesImage,
     skill: "web-scraping",
+  },
+  "request-user-input": {
+    title: `Intelligence: ${t("agent.skill.surveys.title")}`,
+    description: t("agent.skill.surveys.description"),
+    component: DefaultSkillPanel,
+    icon: ChatCircleDots,
+    image: RAGImage,
+    skill: "request-user-input",
   },
 });
 

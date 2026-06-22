@@ -1,0 +1,322 @@
+import { API_BASE } from "@/utils/constants";
+import { baseHeaders } from "@/utils/request";
+import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
+import { assertSecureHttpUrl } from "./transportSecurity";
+
+export const BLOB_KINDS = {
+  ttsAudio: "tts_audio",
+  readerOriginal: "reader_original",
+  readerPreview: "reader_preview",
+  avatar: "avatar",
+  logo: "logo",
+  visualAsset: "visual_asset",
+  generatedFile: "generated_file",
+  exportText: "export_text",
+  modelDownloadStream: "model_download_stream",
+};
+
+function createRequestId() {
+  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+}
+
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
+
+function durationSince(startedAt) {
+  return Math.round(nowMs() - startedAt);
+}
+
+function devLog(phase, metadata = {}) {
+  if (!import.meta.env.DEV) return;
+  console.debug(`[blobClient] ${phase}`, metadata);
+}
+
+function cleanHeaders(headers = {}) {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([, value]) => value !== null && value !== undefined
+    )
+  );
+}
+
+function requestSignal({ signal, timeoutMs }) {
+  const hasTimeout = Number.isFinite(timeoutMs) && timeoutMs > 0;
+  if (!hasTimeout) {
+    return {
+      signal,
+      cleanup: () => {},
+      didTimeout: () => false,
+    };
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromExternal = () => controller.abort(signal?.reason);
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  if (signal?.aborted) {
+    abortFromExternal();
+  } else {
+    signal?.addEventListener("abort", abortFromExternal, { once: true });
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      signal?.removeEventListener("abort", abortFromExternal);
+    },
+    didTimeout: () => timedOut,
+  };
+}
+
+export function downloadUrl(pathOrUrl = "") {
+  if (!pathOrUrl) return assertSecureHttpUrl(API_BASE, { kind: "blob" });
+  if (/^(https?:|blob:|data:)/i.test(pathOrUrl)) {
+    return assertSecureHttpUrl(pathOrUrl, { kind: "blob" });
+  }
+
+  if (pathOrUrl.startsWith("/api/")) {
+    if (API_BASE.startsWith("http")) {
+      return assertSecureHttpUrl(
+        `${API_BASE.replace(/\/api\/?$/, "")}${pathOrUrl}`,
+        { kind: "blob" }
+      );
+    }
+    return assertSecureHttpUrl(pathOrUrl, { kind: "blob" });
+  }
+
+  return assertSecureHttpUrl(
+    `${API_BASE}${pathOrUrl.startsWith("/") ? pathOrUrl : `/${pathOrUrl}`}`,
+    { kind: "blob" }
+  );
+}
+
+function blobHeaders(headers = {}, { includeBaseHeaders = true } = {}) {
+  return cleanHeaders({
+    ...(includeBaseHeaders ? baseHeaders() : {}),
+    ...headers,
+  });
+}
+
+function bodyForRequest(body, rawBody = false) {
+  if (body === undefined) return undefined;
+  return rawBody ? body : JSON.stringify(body);
+}
+
+async function parseErrorBody(response) {
+  const text = await response.text().catch(() => "");
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text || response.statusText };
+  }
+}
+
+function logPayload({
+  requestId,
+  blobKind,
+  path,
+  status = 0,
+  durationMs = 0,
+  result,
+  code,
+  message,
+} = {}) {
+  return {
+    requestId,
+    blobKind,
+    path,
+    status,
+    durationMs,
+    result,
+    ...(code ? { code } : {}),
+    ...(message ? { message } : {}),
+  };
+}
+
+function blobDetails({
+  requestId,
+  blobKind,
+  path,
+  status = 0,
+  code = API_ERROR_CODES.API_ERROR,
+  message = "Blob request failed.",
+  timeoutMs = undefined,
+} = {}) {
+  return {
+    requestId,
+    blobKind,
+    path,
+    status,
+    code,
+    message,
+    ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+  };
+}
+
+async function requestBody(kind, path, options = {}, reader) {
+  const {
+    signal,
+    timeoutMs,
+    headers = {},
+    includeBaseHeaders = true,
+    blobKind = "unknown",
+    method = "GET",
+    body,
+    rawBody = false,
+    ...rest
+  } = options;
+  const normalizedMethod = method.toUpperCase();
+  const requestId = createRequestId();
+  const startedAt = nowMs();
+  const signalState = requestSignal({ signal, timeoutMs });
+
+  devLog(
+    "start",
+    logPayload({
+      requestId,
+      blobKind,
+      path,
+      result: "started",
+    })
+  );
+
+  try {
+    const response = await fetch(downloadUrl(path), {
+      method: normalizedMethod,
+      headers: blobHeaders(headers, { includeBaseHeaders }),
+      body: bodyForRequest(body, rawBody),
+      signal: signalState.signal,
+      ...rest,
+    });
+
+    if (!response.ok) {
+      const raw = await parseErrorBody(response.clone());
+      const message =
+        raw?.error ||
+        raw?.message ||
+        `${kind} request failed with status ${response.status}.`;
+      const apiError = normalizeApiError(null, response, {
+        code: API_ERROR_CODES.HTTP_OPEN_ERROR,
+        message,
+        details: blobDetails({
+          requestId,
+          blobKind,
+          path,
+          status: response.status,
+          code: API_ERROR_CODES.HTTP_OPEN_ERROR,
+          message,
+        }),
+        raw,
+      });
+      devLog(
+        "failure",
+        logPayload({
+          requestId,
+          blobKind,
+          path,
+          status: response.status,
+          durationMs: durationSince(startedAt),
+          result: "failure",
+          code: apiError.code,
+          message: apiError.message,
+        })
+      );
+      throw apiError;
+    }
+
+    const payload = await reader(response);
+    devLog(
+      "success",
+      logPayload({
+        requestId,
+        blobKind,
+        path,
+        status: response.status,
+        durationMs: durationSince(startedAt),
+        result: response.status === 204 ? "empty" : "success",
+      })
+    );
+    return { response, requestId, ...payload };
+  } catch (error) {
+    if (signalState.didTimeout()) {
+      const message = `${kind} request timed out after ${timeoutMs}ms.`;
+      const apiError = createApiError({
+        code: API_ERROR_CODES.API_TIMEOUT_ERROR,
+        status: 0,
+        message,
+        details: blobDetails({
+          requestId,
+          blobKind,
+          path,
+          status: 0,
+          code: API_ERROR_CODES.API_TIMEOUT_ERROR,
+          message,
+          timeoutMs,
+        }),
+        raw: error,
+      });
+      devLog(
+        "timeout",
+        logPayload({
+          requestId,
+          blobKind,
+          path,
+          status: 0,
+          durationMs: durationSince(startedAt),
+          result: "timeout",
+          code: apiError.code,
+          message: apiError.message,
+        })
+      );
+      throw apiError;
+    }
+    if (error?.name === "AbortError") throw error;
+    if (error?.ok === false) throw error;
+
+    const apiError = normalizeApiError(error, null, {
+      details: blobDetails({
+        requestId,
+        blobKind,
+        path,
+        status: error?.status || 0,
+        code: error?.code || API_ERROR_CODES.API_ERROR,
+        message: error?.message || `${kind} request failed.`,
+      }),
+    });
+    devLog(
+      "failure",
+      logPayload({
+        requestId,
+        blobKind,
+        path,
+        status: apiError.status,
+        durationMs: durationSince(startedAt),
+        result: "failure",
+        code: apiError.code,
+        message: apiError.message,
+      })
+    );
+    throw apiError;
+  } finally {
+    signalState.cleanup();
+  }
+}
+
+export function requestBlob(path, options = {}) {
+  return requestBody("Blob", path, options, async (response) => ({
+    blob: await response.blob(),
+  }));
+}
+
+export function requestText(path, options = {}) {
+  return requestBody("Text", path, options, async (response) => ({
+    text: await response.text(),
+  }));
+}

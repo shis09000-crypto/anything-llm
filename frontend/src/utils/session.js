@@ -1,14 +1,9 @@
-import { API_BASE } from "./constants";
-import { baseHeaders } from "./request";
+import { checkSessionToken } from "@/lib/communication/systemRuntimeClient";
 
 // Checks current localstorage and validates the session based on that.
 export default async function validateSessionTokenForUser() {
-  const isValidSession = await fetch(`${API_BASE}/system/check-token`, {
-    method: "GET",
-    cache: "default",
-    headers: baseHeaders(),
-  })
-    .then((res) => res.status === 200)
+  const isValidSession = await checkSessionToken()
+    .then(({ response }) => response.status === 200)
     .catch(() => false);
 
   return isValidSession;

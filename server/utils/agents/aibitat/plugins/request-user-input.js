@@ -132,7 +132,7 @@ const AskUser = {
             "Prompt the user for input via an interactive form. " +
             "This is the ONLY way to ask the user questions - text responses cannot receive replies. " +
             "Call this tool when you need a URL, file path, name, date, preference, or any other detail to proceed. " +
-            "Ask at most 3 questions per turn, and keep each question under 150 characters. " +
+            "Ask at most 3 questions per turn, and keep each question under 150 Unicode characters. " +
             "For choice questions, provide exactly three guessed options when possible: option 1 is your best recommendation, options 2 and 3 are backups. The user will always have a custom answer input after those options. " +
             "The user will see a form and their answers are returned to you.",
           examples: [
@@ -200,7 +200,7 @@ const AskUser = {
                       type: "string",
                       maxLength: MAX_QUESTION_CHARS,
                       description:
-                        "The question to show the user. Keep it under 150 characters.",
+                        "The question to show the user. Keep it under 150 Unicode characters.",
                     },
                     inputType: {
                       type: "string",

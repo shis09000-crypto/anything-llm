@@ -1,148 +1,96 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
+import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 
-function apiUrl(pathOrUrl) {
-  if (!pathOrUrl) return pathOrUrl;
-  if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
-  if (API_BASE.startsWith("http") && pathOrUrl.startsWith("/api/")) {
-    return `${API_BASE.replace(/\/api\/?$/, "")}${pathOrUrl}`;
-  }
-  return pathOrUrl;
-}
-
-function readerDocumentsBase(slug = null) {
-  return slug
-    ? `${API_BASE}/workspace/${slug}/reader-documents`
-    : `${API_BASE}/reader-documents`;
+function readerDocumentsPath(slug = null) {
+  return slug ? `/workspace/${slug}/reader-documents` : "/reader-documents";
 }
 
 const ReaderDocument = {
   upload: async function (slug, formData) {
-    const response = await fetch(`${readerDocumentsBase(slug)}/upload`, {
-      method: "POST",
-      body: formData,
-      headers: baseHeaders(),
-    });
-    const data = await response.json();
+    const { response, data } = await uploadFormData(
+      `${readerDocumentsPath(slug)}/upload`,
+      formData,
+      { uploadKind: UPLOAD_KINDS.readerDocument }
+    );
     return { response, data };
   },
   get: async function (slug, readerDocumentId) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/${readerDocumentId}`,
-      { method: "GET", headers: baseHeaders() }
+    const { response, data } = await getJson(
+      `${readerDocumentsPath(slug)}/${readerDocumentId}`
     );
-    const data = await response.json();
     return { response, data };
   },
   delete: async function (slug, readerDocumentId) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/${readerDocumentId}`,
-      { method: "DELETE", headers: baseHeaders() }
+    const { response, data } = await deleteJson(
+      `${readerDocumentsPath(slug)}/${readerDocumentId}`
     );
-    const data = await response.json();
     return { response, data };
   },
   originalBlob: async function (originalUrl) {
-    const response = await fetch(apiUrl(originalUrl), {
-      method: "GET",
-      headers: baseHeaders(),
+    const { response, blob } = await requestBlob(originalUrl, {
+      blobKind: BLOB_KINDS.readerOriginal,
     });
-    const blob = await response.blob();
     return { response, blob };
   },
   previewBlob: async function (previewUrl) {
-    const response = await fetch(apiUrl(previewUrl), {
-      method: "GET",
-      headers: baseHeaders(),
+    const { response, blob } = await requestBlob(previewUrl, {
+      blobKind: BLOB_KINDS.readerPreview,
     });
-    const blob = await response.blob();
     return { response, blob };
   },
   fromWorkspace: async function (slug, docPath) {
-    const apiBase = API_BASE.startsWith("http")
-      ? API_BASE
-      : `${window.location.origin}${API_BASE}`;
-    const url = new URL(
-      `${apiBase}/workspace/${slug}/reader-documents/from-workspace`
+    const params = new URLSearchParams({ docPath });
+    const { response, data } = await getJson(
+      `${readerDocumentsPath(slug)}/from-workspace?${params.toString()}`
     );
-    url.searchParams.set("docPath", docPath);
-    const response = await fetch(url, {
-      method: "GET",
-      headers: baseHeaders(),
-    });
-    const data = await response.json();
     return { response, data };
   },
   fromLocalPath: async function (slug, absolutePath) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/from-local-path`,
-      {
-        method: "POST",
-        headers: { ...baseHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ absolutePath }),
-      }
+    const { response, data } = await postJson(
+      `${readerDocumentsPath(slug)}/from-local-path`,
+      { absolutePath }
     );
-    const data = await response.json();
     return { response, data };
   },
   reopenLocalPath: async function (slug, readerDocumentId) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/${readerDocumentId}/reopen-local-path`,
-      {
-        method: "POST",
-        headers: baseHeaders(),
-      }
+    const { response, data } = await postJson(
+      `${readerDocumentsPath(slug)}/${readerDocumentId}/reopen-local-path`,
+      undefined
     );
-    const data = await response.json();
     return { response, data };
   },
   classify: async function (slug, payload = {}) {
-    const response = await fetch(`${readerDocumentsBase(slug)}/classify`, {
-      method: "POST",
-      headers: { ...baseHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
+    const { response, data } = await postJson(
+      `${readerDocumentsPath(slug)}/classify`,
+      payload
+    );
     return { response, data };
   },
   postprocess: async function (slug, readerDocumentId, payload = {}) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/${readerDocumentId}/postprocess`,
-      {
-        method: "POST",
-        headers: { ...baseHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
+    const { response, data } = await postJson(
+      `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`,
+      payload
     );
-    const data = await response.json();
     return { response, data };
   },
   postprocessStatus: async function (slug, readerDocumentId) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/${readerDocumentId}/postprocess`,
-      { method: "GET", headers: baseHeaders() }
+    const { response, data } = await getJson(
+      `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`
     );
-    const data = await response.json();
     return { response, data };
   },
   ocrConfig: async function (slug) {
-    const response = await fetch(`${readerDocumentsBase(slug)}/ocr-config`, {
-      method: "GET",
-      headers: baseHeaders(),
-    });
-    const data = await response.json();
+    const { response, data } = await getJson(
+      `${readerDocumentsPath(slug)}/ocr-config`
+    );
     return { response, data };
   },
   ocrScreenshot: async function (slug, payload = {}) {
-    const response = await fetch(
-      `${readerDocumentsBase(slug)}/ocr-screenshot`,
-      {
-        method: "POST",
-        headers: { ...baseHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
+    const { response, data } = await postJson(
+      `${readerDocumentsPath(slug)}/ocr-screenshot`,
+      payload
     );
-    const data = await response.json();
     return { response, data };
   },
 };

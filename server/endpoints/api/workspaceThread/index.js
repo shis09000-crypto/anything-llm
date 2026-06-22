@@ -16,6 +16,39 @@ const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
 const { compactThread } = require("../../../utils/chats/threadCompaction");
 
+function nullableUserId(value) {
+  if (value === null || value === undefined || value === "" || value === "null")
+    return null;
+  const id = Number(value);
+  return Number.isFinite(id) ? id : NaN;
+}
+
+function invalidCompactionTarget(response, slug, threadSlug) {
+  return response.status(404).json({
+    success: false,
+    error: `Workspace ${slug} or thread ${threadSlug} is not valid.`,
+    compactionId: null,
+    coveredMessageCount: 0,
+    tokenBefore: 0,
+    tokenAfter: 0,
+  });
+}
+
+async function compactionUserForApiThread(thread, requestedUserId = undefined) {
+  const threadUserId = nullableUserId(thread?.user_id);
+  const userId =
+    requestedUserId === undefined
+      ? threadUserId
+      : nullableUserId(requestedUserId);
+
+  if (!Number.isFinite(userId) && userId !== null) return false;
+  if (requestedUserId !== undefined && userId !== threadUserId) return false;
+  if (userId === null) return null;
+
+  const user = await User.get({ id: userId });
+  return user || false;
+}
+
 function apiWorkspaceThreadEndpoints(app) {
   if (!app) return;
 
@@ -471,14 +504,19 @@ function apiWorkspaceThreadEndpoints(app) {
     async (request, response) => {
       try {
         const { slug, threadSlug } = request.params;
+        const body = reqBody(request);
+        const hasUserId = Object.prototype.hasOwnProperty.call(
+          body || {},
+          "userId"
+        );
         const {
-          userId = null,
           apiSessionId = null,
           force = false,
           mode = "target",
           targetRatio = undefined,
           compactInstructions = "",
-        } = reqBody(request);
+        } = body || {};
+        const requestedUserId = hasUserId ? body.userId : undefined;
         const workspace = await Workspace.get({ slug });
         const thread = workspace
           ? await WorkspaceThread.get({
@@ -488,19 +526,13 @@ function apiWorkspaceThreadEndpoints(app) {
           : null;
 
         if (!workspace || !thread) {
-          response.status(400).json({
-            success: false,
-            error: `Workspace ${slug} or thread ${threadSlug} is not valid.`,
-            compactionId: null,
-            coveredMessageCount: 0,
-            tokenBefore: 0,
-            tokenAfter: 0,
-          });
-          return;
+          return invalidCompactionTarget(response, slug, threadSlug);
         }
 
-        const user =
-          userId === null ? null : await User.get({ id: Number(userId) });
+        const user = await compactionUserForApiThread(thread, requestedUserId);
+        if (user === false)
+          return invalidCompactionTarget(response, slug, threadSlug);
+
         const result = await compactThread({
           workspace,
           user,

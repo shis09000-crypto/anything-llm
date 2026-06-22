@@ -4,4 +4,7 @@ module.exports = {
   ...require("./keyManager"),
   ...require("./encryption"),
   ...require("./secretStore"),
+  ...require("./redaction"),
+  ...require("./transportSecurity"),
+  ...require("./cookies"),
 };

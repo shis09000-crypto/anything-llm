@@ -9,6 +9,7 @@ const { tokenizeString } = require("../../tokenizer");
 const path = require("path");
 const fs = require("fs");
 const RuntimeSettings = require("../../runtimeSettings");
+const { redactUrl } = require("../../security/redaction");
 
 async function discoverLinks(startUrl, maxDepth = 1, maxLinks = 20) {
   const baseUrl = new URL(startUrl);
@@ -81,7 +82,7 @@ async function getPageLinks(url, baseUrl) {
     const links = extractLinks(html, baseUrl);
     return links;
   } catch (error) {
-    console.error(`Failed to get page links from ${url}.`, error);
+    console.error(`Failed to get page links from ${redactUrl(url)}.`, error);
     return [];
   }
 }
@@ -131,7 +132,8 @@ async function bulkScrapePages(links, outFolderPath) {
 
   for (let i = 0; i < links.length; i++) {
     const link = links[i];
-    console.log(`Scraping ${i + 1}/${links.length}: ${link}`);
+    const redactedLink = redactUrl(link);
+    console.log(`Scraping ${i + 1}/${links.length}: ${redactedLink}`);
 
     try {
       const loader = new PuppeteerWebBaseLoader(link, {
@@ -151,7 +153,7 @@ async function bulkScrapePages(links, outFolderPath) {
       const content = docs[0].pageContent;
 
       if (!content.length) {
-        console.warn(`Empty content for ${link}. Skipping.`);
+        console.warn(`Empty content for ${redactedLink}. Skipping.`);
         continue;
       }
 
@@ -166,7 +168,7 @@ async function bulkScrapePages(links, outFolderPath) {
         docAuthor: "no author found",
         description: "No description found.",
         docSource: "URL link uploaded by the user.",
-        chunkSource: `link://${link}`,
+        chunkSource: `link://${redactedLink}`,
         published: new Date().toLocaleString(),
         wordCount: content.split(" ").length,
         pageContent: content,
@@ -180,9 +182,9 @@ async function bulkScrapePages(links, outFolderPath) {
       });
       scrapedData.push(data);
 
-      console.log(`Successfully scraped ${link}.`);
+      console.log(`Successfully scraped ${redactedLink}.`);
     } catch (error) {
-      console.error(`Failed to scrape ${link}.`, error);
+      console.error(`Failed to scrape ${redactedLink}.`, error);
     }
   }
 

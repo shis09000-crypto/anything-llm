@@ -113,6 +113,7 @@ const TRANSLATIONS = {
     transcription: "Transcription",
     embedder: "Embedder",
     reranker: "Rerank Model",
+    "search-model": "Search Model",
     ocr: "OCR Model",
     vision: "Vision Model",
     "text-splitting": "Text Splitter & Chunking",
@@ -784,6 +785,11 @@ const readable = true;
         description:
           "Allow the agent to visit and scrape the content of websites.",
       },
+      surveys: {
+        title: "Agent Surveys / Clarifying Questions",
+        description:
+          "Allows the agent to ask up to 3 clarifying questions before continuing, with recommended options and a custom answer field.",
+      },
       generate: {
         title: "Generate charts",
         description:
@@ -1434,6 +1440,34 @@ const readable = true;
     save: "Save changes",
     saving: "Saving...",
   },
+  search_model: {
+    title: "Search Model Preference",
+    description:
+      "Configure the hosted model reserved for search-related reasoning and result processing. This does not change the selected web search engine.",
+    provider: "Search Model Provider",
+    providerHint:
+      "No hosted search model is configured by default. Select Alibaba Cloud DashScope only after you have a DashScope API key.",
+    providers: {
+      none: {
+        name: "None",
+        description:
+          "Do not use a hosted search model. Search model calls remain unconfigured.",
+      },
+      alibaba: {
+        name: "Alibaba DashScope",
+        description:
+          "Use Alibaba Cloud DashScope Qwen models through the OpenAI-compatible API.",
+      },
+    },
+    model: "Search Model",
+    noneHelp:
+      "No hosted search model will be called. This setting is separate from the web search engine provider.",
+    help: "Alibaba DashScope search models use the OpenAI-compatible endpoint. Provide your DashScope API Key, Base URL, and model name.",
+    save: "Save changes",
+    saving: "Saving...",
+    saved: "Search model settings saved.",
+    saveError: "Failed to save search model settings: {{error}}",
+  },
   ocr: {
     title: "OCR Model Preference",
     description:
@@ -1523,7 +1557,7 @@ const readable = true;
     applying: "Applying...",
     imported_status: "Imported from environment variables",
     success_toast:
-      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 + Ali OCR + Ali vision configuration",
+      "Applied DeepSeek V4 Pro + Ali text-embedding-v4 + Ali search model + Ali OCR + Ali vision configuration",
   },
   transcription: {
     title: "Transcription Model Preference",

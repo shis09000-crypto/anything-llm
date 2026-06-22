@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, patchJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback as rawOrFallback } from "@/lib/communication/apiError";
 
 const FileAccessPolicy = {
   storageKey: "anythingllm-file-access-session-mode",
@@ -32,37 +32,32 @@ const FileAccessPolicy = {
     return Object.values(this.modes).includes(mode) ? mode : this.modes.sandbox;
   },
   getPolicy: async function (sessionMode = null) {
-    const url = new URL(
-      `${API_BASE}/system/file-access-policy`,
-      window.location.origin
-    );
-    if (sessionMode) url.searchParams.set("sessionMode", sessionMode);
-    return fetch(url, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message, policy: null }));
+    const params = new URLSearchParams();
+    if (sessionMode) params.set("sessionMode", sessionMode);
+    const query = params.toString() ? `?${params.toString()}` : "";
+    return getJson(`/system/file-access-policy${query}`)
+      .then(({ data }) => data)
+      .catch((e) =>
+        rawOrFallback(e, { success: false, error: e.message, policy: null })
+      );
   },
   updateGlobalPolicy: async function (updates = {}) {
-    return fetch(`${API_BASE}/system/file-access-policy`, {
-      method: "PATCH",
-      headers: baseHeaders(),
-      body: JSON.stringify(updates),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return patchJson("/system/file-access-policy", updates)
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
   logSessionModeChange: async function ({
     mode,
     workspaceSlug = null,
     threadSlug = null,
   }) {
-    return fetch(`${API_BASE}/system/file-access-policy/session-event`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ mode, workspaceSlug, threadSlug }),
-    }).catch(() => null);
+    return postJson("/system/file-access-policy/session-event", {
+      mode,
+      workspaceSlug,
+      threadSlug,
+    })
+      .then(({ response }) => response)
+      .catch(() => null);
   },
 };
 

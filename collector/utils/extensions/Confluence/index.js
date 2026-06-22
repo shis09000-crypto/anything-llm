@@ -5,6 +5,7 @@ const { writeToServerDocuments, sanitizeFileName } = require("../../files");
 const { storagePath } = require("../../environment");
 const { tokenizeString } = require("../../tokenizer");
 const { ConfluencePagesLoader } = require("./ConfluenceLoader");
+const { redactUrl } = require("../../security/redaction");
 
 /**
  * Load Confluence documents from a spaceID and Confluence credentials
@@ -48,7 +49,7 @@ async function loadConfluence(
 
   const normalizedBaseUrl = resolveConfluenceBaseUrl(baseUrl, cloud);
   const { hostname } = new URL(normalizedBaseUrl);
-  console.log(`-- Working Confluence ${normalizedBaseUrl} --`);
+  console.log(`-- Working Confluence ${redactUrl(normalizedBaseUrl)} --`);
   const loader = new ConfluencePagesLoader({
     baseUrl: normalizedBaseUrl,
     spaceKey,
@@ -176,7 +177,7 @@ async function fetchConfluencePage({
     };
   }
 
-  console.log(`-- Working Confluence Page ${pageUrl} --`);
+  console.log(`-- Working Confluence Page ${redactUrl(pageUrl)} --`);
   const normalizedBaseUrl = resolveConfluenceBaseUrl(baseUrl, cloud);
   const loader = new ConfluencePagesLoader({
     baseUrl: normalizedBaseUrl,

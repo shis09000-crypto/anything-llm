@@ -44,6 +44,7 @@ function AssistantTurn({
   });
   const { isDeleted, completeDelete, onEndAnimation } = useWatchDeleteMessage({
     chatId: turn.chatId,
+    publicChatId: turn.publicChatId,
     role: "assistant",
   });
   const thoughtEvents = useMemo(
@@ -179,6 +180,7 @@ function AssistantTurn({
           <EditMessageForm
             role="assistant"
             chatId={turn.chatId}
+            publicChatId={turn.publicChatId}
             message={turn.finalContent}
             adjustTextArea={adjustTextArea}
             saveChanges={saveEditedMessage}
@@ -272,12 +274,14 @@ function AssistantTurn({
             <TTSMessage
               slug={workspace?.slug}
               chatId={turn.chatId}
+              publicChatId={turn.publicChatId}
               message={turn.finalContent}
             />
             <Actions
               message={turn.finalContent}
               feedbackScore={turn.feedbackScore}
               chatId={turn.chatId}
+              publicChatId={turn.publicChatId}
               slug={workspace?.slug}
               isLastMessage={isLastMessage}
               regenerateMessage={regenerateMessage}

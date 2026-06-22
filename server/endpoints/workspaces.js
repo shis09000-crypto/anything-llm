@@ -34,9 +34,14 @@ const {
 } = require("../utils/files/pfp");
 const { getTTSProvider } = require("../utils/TextToSpeech");
 const { WorkspaceThread } = require("../models/workspaceThread");
+const {
+  chatIdentifierPayload,
+  chatIdentifiersWhere,
+  chatIdentityFromRequest,
+} = require("../utils/chats/chatIdentifiers");
 
 const truncate = require("truncate");
-const { purgeDocument } = require("../utils/files/purgeDocument");
+const { purgeWorkspaceDocument } = require("../utils/files/purgeDocument");
 const { getModelTag } = require("./utils");
 const { searchWorkspaceAndThreads } = require("../utils/helpers/search");
 const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
@@ -45,13 +50,13 @@ const {
 } = require("./workspaceReaderDocuments");
 const { safeFileMove, safeReadJsonFile } = require("../utils/safety");
 const { storagePath: environmentStoragePath } = require("../utils/environment");
+const {
+  redactSensitiveText,
+  redactUrl,
+} = require("../utils/security/redaction");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath = environmentStoragePath("documents");
-
-function normalizedChatIds(chatIds = []) {
-  return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
-}
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -480,10 +485,13 @@ function workspaceEndpoints(app) {
     "/workspace/:slug/upload-link",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
+      let link = "";
       try {
         const Collector = new CollectorApi();
-        const { link = "", folderName = DEFAULT_UPLOAD_FOLDER } =
-          reqBody(request);
+        const body = reqBody(request);
+        link = body?.link || "";
+        const { folderName = DEFAULT_UPLOAD_FOLDER } = body || {};
+        const redactedLink = redactUrl(link);
         const uploadTarget = resolveUploadTargetFolder(folderName);
         if (uploadTarget.error) {
           return response
@@ -499,7 +507,8 @@ function workspaceEndpoints(app) {
             .status(500)
             .json({
               success: false,
-              error: `Document processing API is not online. Link ${link} will not be processed automatically.`,
+              error:
+                "Document processing API is not online. Link will not be processed automatically.",
             })
             .end();
           return;
@@ -510,7 +519,13 @@ function workspaceEndpoints(app) {
         if (!success) {
           response
             .status(500)
-            .json({ success: false, error: reason, documents })
+            .json({
+              success: false,
+              error: redactSensitiveText(reason || "Link upload failed.", [
+                link,
+              ]),
+              documents,
+            })
             .end();
           return;
         }
@@ -520,19 +535,21 @@ function workspaceEndpoints(app) {
         );
 
         Collector.log(
-          `Link ${link} uploaded processed and successfully. It is now available in ${uploadTarget.folder}.`
+          `Link ${redactedLink} uploaded processed and successfully. It is now available in ${uploadTarget.folder}.`
         );
         await Telemetry.sendTelemetry("link_uploaded");
         await EventLogs.logEvent(
           "link_uploaded",
-          { link, folder: uploadTarget.folder },
+          { link: redactedLink, folder: uploadTarget.folder },
           response.locals?.user?.id
         );
         response
           .status(200)
           .json({ success: true, error: null, documents: movedDocuments });
       } catch (e) {
-        console.error(e.message, e);
+        console.error("Link upload failed", {
+          message: redactSensitiveText(e.message, [link]),
+        });
         response.sendStatus(500).end();
       }
     }
@@ -825,7 +842,7 @@ function workspaceEndpoints(app) {
     async (request, response) => {
       try {
         const { slug } = request.params;
-        const { chatIds = [] } = reqBody(request);
+        const { chatIds = [], publicChatIds = [] } = reqBody(request);
         const user = await userFromSession(request, response);
         const workspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
@@ -836,9 +853,15 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const ids = normalizedChatIds(chatIds);
-        if (ids.length === 0) {
-          response.status(200).json({ history: [], hydratedChatIds: [] });
+        const identifierWhere = chatIdentifiersWhere(
+          chatIdentifierPayload({ chatIds, publicChatIds })
+        );
+        if (!identifierWhere) {
+          response.status(200).json({
+            history: [],
+            hydratedChatIds: [],
+            hydratedPublicChatIds: [],
+          });
           return;
         }
 
@@ -848,7 +871,7 @@ function workspaceEndpoints(app) {
             thread_id: null,
             api_session_id: null,
             include: true,
-            id: { in: ids },
+            ...identifierWhere,
             ...(multiUserMode(response) ? { user_id: user.id } : {}),
           },
           null,
@@ -857,6 +880,9 @@ function workspaceEndpoints(app) {
         response.status(200).json({
           history: convertToChatHistory(history),
           hydratedChatIds: history.map((chat) => chat.id),
+          hydratedPublicChatIds: history
+            .map((chat) => chat.public_id)
+            .filter(Boolean),
         });
       } catch (e) {
         console.error(e.message, e);
@@ -870,7 +896,7 @@ function workspaceEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
-        const { chatIds = [] } = reqBody(request);
+        const { chatIds = [], publicChatIds = [] } = reqBody(request);
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
 
@@ -882,8 +908,16 @@ function workspaceEndpoints(app) {
         // This works for both workspace and threads.
         // we simplify this by just looking at workspace<>user overlap
         // since they are all on the same table.
+        const identifierWhere = chatIdentifiersWhere(
+          chatIdentifierPayload({ chatIds, publicChatIds })
+        );
+        if (!identifierWhere) {
+          response.status(200).end();
+          return;
+        }
+
         await WorkspaceChats.delete({
-          id: { in: chatIds.map((id) => Number(id)) },
+          ...identifierWhere,
           user_id: user?.id ?? null,
           workspaceId: workspace.id,
         });
@@ -925,17 +959,27 @@ function workspaceEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
-        const { chatId, newText = null, role = "assistant" } = reqBody(request);
+        const {
+          chatId,
+          publicChatId = null,
+          newText = null,
+          role = "assistant",
+        } = reqBody(request);
         if (!newText || !String(newText).trim())
           throw new Error("Cannot save empty edit");
 
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
+        const identifierWhere = chatIdentityFromRequest({
+          chatId,
+          publicChatId,
+        });
+        if (!identifierWhere) throw new Error("Invalid chat.");
         const existingChat = await WorkspaceChats.get({
           workspaceId: workspace.id,
           thread_id: null,
           user_id: user?.id,
-          id: Number(chatId),
+          ...identifierWhere,
         });
         if (!existingChat) throw new Error("Invalid chat.");
 
@@ -970,14 +1014,17 @@ function workspaceEndpoints(app) {
         const { chatId } = request.params;
         const { feedback = null } = reqBody(request);
         const user = await userFromSession(request, response);
+        const identifierWhere = chatIdentityFromRequest({ chatId });
+        if (!identifierWhere)
+          return response.status(404).json({ success: false });
         const existingChat = await WorkspaceChats.get({
-          id: Number(chatId),
+          ...identifierWhere,
           workspaceId: response.locals.workspace.id,
           user_id: user?.id,
         });
 
         if (!existingChat) return response.status(404).json({ success: false });
-        await WorkspaceChats.updateFeedbackScore(chatId, feedback);
+        await WorkspaceChats.updateFeedbackScore(existingChat.id, feedback);
         return response.status(200).json({ success: true });
       } catch (error) {
         console.error("Error updating chat feedback:", error);
@@ -1035,11 +1082,7 @@ function workspaceEndpoints(app) {
 
   app.post(
     "/workspace/:slug/update-pin",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const { docPath, pinStatus = false } = reqBody(request);
@@ -1069,8 +1112,10 @@ function workspaceEndpoints(app) {
         const workspace = response.locals.workspace;
         const user = await userFromSession(request, response);
         const cacheKey = `${workspace.slug}:${chatId}`;
+        const identifierWhere = chatIdentityFromRequest({ chatId });
+        if (!identifierWhere) return response.sendStatus(404);
         const wsChat = await WorkspaceChats.get({
-          id: Number(chatId),
+          ...identifierWhere,
           workspaceId: workspace.id,
           user_id: user?.id,
         });
@@ -1252,6 +1297,7 @@ function workspaceEndpoints(app) {
         const workspace = response.locals.workspace;
         const {
           chatId,
+          publicChatId = null,
           threadSlug,
           openMode = null,
           createdFrom = "thread_fork",
@@ -1267,21 +1313,27 @@ function workspaceEndpoints(app) {
             })
           : null;
         const threadId = sourceThread?.id ?? null;
+        const baseChatClause = {
+          workspaceId: workspace.id,
+          user_id: user?.id,
+          include: true,
+          thread_id: threadId,
+          api_session_id: null,
+        };
+        const identifierWhere = chatIdentityFromRequest({
+          chatId,
+          publicChatId,
+        });
         const forkedAtMessageId = isDualThreadFork
-          ? (
-              await WorkspaceChats.get(
-                {
-                  workspaceId: workspace.id,
-                  user_id: user?.id,
-                  include: true,
-                  thread_id: threadId,
-                  api_session_id: null,
-                },
-                null,
-                { id: "desc" }
-              )
-            )?.id
-          : Number(chatId);
+          ? (await WorkspaceChats.get(baseChatClause, null, { id: "desc" }))?.id
+          : identifierWhere
+            ? (
+                await WorkspaceChats.get({
+                  ...baseChatClause,
+                  ...identifierWhere,
+                })
+              )?.id
+            : null;
 
         if (!forkedAtMessageId)
           return response.status(400).json({
@@ -1291,11 +1343,7 @@ function workspaceEndpoints(app) {
           });
 
         const forkWhereClause = {
-          workspaceId: workspace.id,
-          user_id: user?.id,
-          include: true, // only duplicate visible chats
-          thread_id: threadId,
-          api_session_id: null, // Preserve legacy fork behavior.
+          ...baseChatClause,
           id: { lte: Number(forkedAtMessageId) },
         };
         const chatsToFork = await WorkspaceChats.where(forkWhereClause, null, {
@@ -1390,8 +1438,13 @@ function workspaceEndpoints(app) {
       try {
         const { id } = request.params;
         const user = await userFromSession(request, response);
+        const identifierWhere = chatIdentityFromRequest({ id });
+        if (!identifierWhere)
+          return response
+            .status(404)
+            .json({ success: false, error: "Chat not found." });
         const validChat = await WorkspaceChats.get({
-          id: Number(id),
+          ...identifierWhere,
           user_id: user?.id ?? null,
         });
         if (!validChat)
@@ -1525,18 +1578,18 @@ function workspaceEndpoints(app) {
     ],
     async function (request, response) {
       try {
-        const { slug = null } = request.params;
         const body = reqBody(request);
-        const user = await userFromSession(request, response);
-        const currWorkspace = multiUserMode(response)
-          ? await Workspace.getWithUser(user, { slug })
-          : await Workspace.get({ slug });
-
+        const currWorkspace = response.locals.workspace;
         if (!currWorkspace || !body.documentLocation)
           return response.sendStatus(400).end();
 
-        // Will delete the document from the entire system + wil unembed it.
-        await purgeDocument(body.documentLocation);
+        const document = await Document.get({
+          workspaceId: currWorkspace.id,
+          docpath: body.documentLocation,
+        });
+        if (!document) return response.sendStatus(404).end();
+
+        await purgeWorkspaceDocument(currWorkspace, body.documentLocation);
         response.status(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -1564,11 +1617,7 @@ function workspaceEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/prompt-history",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (_, response) => {
       try {
         response.status(200).json({
@@ -1585,11 +1634,7 @@ function workspaceEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/prompt-history/:id",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const { id } = request.params;
@@ -1631,11 +1676,7 @@ function workspaceEndpoints(app) {
   // SSE endpoint for embedding progress
   app.get(
     "/workspace/:slug/embed-progress",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -1662,11 +1703,7 @@ function workspaceEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/embed-queue",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

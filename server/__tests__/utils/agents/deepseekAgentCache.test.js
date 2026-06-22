@@ -108,6 +108,11 @@ describe("DeepSeek agent cache metrics", () => {
         model: "deepseek-v4-pro",
         stream: true,
         stream_options: { include_usage: true },
+        max_tokens: 65_536,
+        extra_body: {
+          thinking: { type: "enabled" },
+          reasoning_effort: "high",
+        },
         tools: expect.any(Array),
       })
     );
@@ -164,6 +169,17 @@ describe("DeepSeek agent cache metrics", () => {
     );
 
     expect(result.textResponse).toBe("done");
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "deepseek-v4-flash",
+        stream: false,
+        max_tokens: 65_536,
+        extra_body: {
+          thinking: { type: "enabled" },
+          reasoning_effort: "high",
+        },
+      })
+    );
     expect(provider.getUsage()).toEqual(
       expect.objectContaining({
         provider: "DeepSeekProvider",
@@ -175,6 +191,34 @@ describe("DeepSeek agent cache metrics", () => {
           providerPath: "agent",
           historyWindow: expect.objectContaining({ offset: 20 }),
         }),
+      })
+    );
+  });
+
+  it("uses 64k output and thinking for non-tooled streaming", async () => {
+    mockCreate.mockResolvedValueOnce(
+      streamWithUsage({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+      })
+    );
+    const provider = new DeepSeekProvider({ model: "deepseek-v4-pro" });
+
+    await provider.stream([
+      { role: "system", content: "system" },
+      { role: "user", content: "hello" },
+    ]);
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "deepseek-v4-pro",
+        stream: true,
+        max_tokens: 65_536,
+        extra_body: {
+          thinking: { type: "enabled" },
+          reasoning_effort: "high",
+        },
       })
     );
   });

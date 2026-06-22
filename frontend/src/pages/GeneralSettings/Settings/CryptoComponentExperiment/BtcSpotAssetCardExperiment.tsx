@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import BtcSpotAssetCard from "./BtcSpotAssetCard";
 import { btcMockCandles } from "./btcMockCandles";
@@ -151,12 +150,10 @@ export default function BtcSpotAssetCardExperiment() {
     async function loadSummary() {
       if (range !== "1d") return;
       try {
-        const response = await fetch(
-          `${API_BASE}/crypto-hub/btc-summary?range=1d`,
-          { headers: baseHeaders() }
+        const payload = await cryptoHubFetch<BtcSpotSummaryResponse>(
+          "/btc-summary?range=1d"
         );
-        const payload = (await response.json()) as BtcSpotSummaryResponse;
-        if (!response.ok || !payload?.success) {
+        if (!payload?.success) {
           throw new Error(payload?.safeErrorMessage || "BTC summary 读取失败");
         }
         if (cancelled) return;

@@ -144,6 +144,21 @@ function visibleThreadChatClause({
   };
 }
 
+function scopedThreadClause({ workspaceId, threadId, userId = null } = {}) {
+  if (!workspaceId || !threadId) return null;
+  return {
+    id: Number(threadId),
+    workspace_id: Number(workspaceId),
+    ...(userId !== null && userId !== undefined ? { user_id: userId } : {}),
+  };
+}
+
+async function getScopedThread({ workspaceId, threadId, userId = null } = {}) {
+  const clause = scopedThreadClause({ workspaceId, threadId, userId });
+  if (!clause) return null;
+  return await WorkspaceThread.get(clause);
+}
+
 function normalizeUserMessage(message = "") {
   return String(message || "")
     .trim()
@@ -335,7 +350,7 @@ async function runTitleGenerationJob({
   scope,
 }) {
   titleDebug("job:start", { workspaceId, threadId, userId, scope });
-  const thread = await WorkspaceThread.get({ id: Number(threadId) });
+  const thread = await getScopedThread({ workspaceId, threadId, userId });
   if (!thread || thread.titleSource === "manual") {
     titleDebug("job:skip", {
       workspaceId,
@@ -415,7 +430,7 @@ async function enqueueThreadTitleGeneration({
     return { queued: false, deduped: true };
   }
 
-  const thread = await WorkspaceThread.get({ id: Number(threadId) });
+  const thread = await getScopedThread({ workspaceId, threadId, userId });
   if (!thread || thread.titleSource === "manual") {
     titleDebug("enqueue:skip", {
       workspaceId,
@@ -496,7 +511,7 @@ async function maybeEnqueueTitleGenerationAfterChat({
   }
 
   try {
-    const thread = await WorkspaceThread.get({ id: Number(threadId) });
+    const thread = await getScopedThread({ workspaceId, threadId, userId });
     if (!thread || thread.titleSource === "manual") {
       titleDebug("trigger:skip", {
         workspaceId,
@@ -588,7 +603,11 @@ async function refreshRecentThreadTitles({
       if (!chat.thread_id || seenThreadIds.has(chat.thread_id)) continue;
       seenThreadIds.add(chat.thread_id);
 
-      const thread = await WorkspaceThread.get({ id: chat.thread_id });
+      const thread = await getScopedThread({
+        workspaceId: chat.workspaceId,
+        threadId: chat.thread_id,
+        userId: chat.user_id ?? null,
+      });
       if (!thread || thread.titleSource === "manual") continue;
       if (titleRefreshOnCooldown(thread)) {
         titleDebug("refresh:skip", {
@@ -637,6 +656,8 @@ module.exports = {
   _internals: {
     titleQueue,
     pendingJobKeys,
+    getScopedThread,
+    scopedThreadClause,
     userPromptsForScope,
     runTitleGenerationJob,
     generateTitle,

@@ -2,6 +2,7 @@ const bcrypt = require("bcryptjs");
 
 const mockUserGet = jest.fn();
 const mockUserUpdate = jest.fn();
+const mockRecoveryCreateMany = jest.fn();
 const mockPasswordResetCreate = jest.fn();
 const mockLatestCode = jest.fn();
 const mockLatestPending = jest.fn();
@@ -28,6 +29,7 @@ jest.mock("../../models/user", () => ({
 
 jest.mock("../../models/passwordRecovery", () => ({
   RecoveryCode: {
+    createMany: mockRecoveryCreateMany,
     deleteMany: jest.fn(),
     hashesForUser: jest.fn(),
   },
@@ -102,6 +104,10 @@ describe("email password recovery", () => {
     mockIncrementAttempts.mockResolvedValue(true);
     mockPasswordResetCreate.mockResolvedValue({
       passwordResetToken: { token: "reset-token" },
+      error: null,
+    });
+    mockRecoveryCreateMany.mockResolvedValue({
+      recoveryCodes: [],
       error: null,
     });
     mockAuthFindByLoginIdentifier.mockResolvedValue(null);
@@ -291,5 +297,27 @@ describe("email password recovery", () => {
       JSON.stringify(call)
     );
     expect(loggedPayloads.join("\n")).not.toContain("123456");
+  });
+
+  test("generated recovery codes are stored against shared authUserId", async () => {
+    mockUserGet.mockResolvedValue({ ...user, authUserId: 91 });
+    mockUserUpdate.mockResolvedValue({
+      user: { ...user, authUserId: 91, seen_recovery_codes: true },
+    });
+
+    const codes = await recovery.generateRecoveryCodes(user.id);
+
+    expect(codes).toHaveLength(4);
+    expect(mockRecoveryCreateMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          user_id: 91,
+          code_hash: expect.any(String),
+        }),
+      ])
+    );
+    expect(mockUserUpdate).toHaveBeenCalledWith(user.id, {
+      seen_recovery_codes: true,
+    });
   });
 });

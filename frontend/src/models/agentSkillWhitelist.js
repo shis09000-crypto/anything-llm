@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback } from "@/lib/communication/apiError";
 
 const AgentSkillWhitelist = {
   /**
@@ -8,13 +8,9 @@ const AgentSkillWhitelist = {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   addToWhitelist: async function (skillName) {
-    return fetch(`${API_BASE}/agent-skills/whitelist/add`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ skillName }),
-    })
-      .then((res) => res.json())
-      .catch((e) => ({ success: false, error: e.message }));
+    return postJson("/agent-skills/whitelist/add", { skillName })
+      .then(({ data }) => data)
+      .catch((e) => apiErrorFallback(e, { success: false, error: e.message }));
   },
 };
 

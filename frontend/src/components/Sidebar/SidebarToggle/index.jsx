@@ -1,9 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { SidebarSimple } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
 import { Tooltip } from "react-tooltip";
 import { useTranslation } from "react-i18next";
-export const SIDEBAR_TOGGLE_STORAGE_KEY = "anythingllm_sidebar_toggle";
+import { useLocation } from "react-router-dom";
+import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
+import {
+  LEGACY_SIDEBAR_TOGGLE_STORAGE_KEY,
+  readSidebarCollapsed,
+} from "@/utils/layout/workspaceLayoutState";
+export const SIDEBAR_TOGGLE_STORAGE_KEY = LEGACY_SIDEBAR_TOGGLE_STORAGE_KEY;
 export const SIDEBAR_TOGGLE_EVENT = "sidebar-toggle";
 export const SIDEBAR_SET_STATE_EVENT = "sidebar-set-state";
 
@@ -15,26 +21,36 @@ export const SIDEBAR_SET_STATE_EVENT = "sidebar-set-state";
  * @returns {boolean}
  */
 export function previousSidebarState() {
-  const previousState = window.localStorage.getItem(SIDEBAR_TOGGLE_STORAGE_KEY);
-  if (previousState === "closed") return false;
-  return true;
+  return !readSidebarCollapsed();
 }
 
 export function useSidebarToggle() {
-  const [showSidebar, setShowSidebar] = useState(previousSidebarState());
+  const location = useLocation();
+  const workspaceLayout = useWorkspaceLayout();
+  const layoutState = workspaceLayout?.layoutState;
+  const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
+  const showSidebar = !(workspaceLayout?.effectiveSidebarCollapsed ?? false);
   const [canToggleSidebar, setCanToggleSidebar] = useState(true);
+  const setShowSidebar = useCallback(
+    (next) => {
+      const nextOpen = typeof next === "function" ? next(showSidebar) : next;
+      dispatchLayoutEvent?.({
+        type: "SIDEBAR_TOGGLED",
+        collapsed: !nextOpen,
+        workspaceId: layoutState?.workspaceId || null,
+      });
+    },
+    [dispatchLayoutEvent, layoutState?.workspaceId, showSidebar]
+  );
 
   useEffect(() => {
-    function checkPath() {
-      const currentPath = window.location.pathname;
-      const isVisible =
-        currentPath === paths.home() ||
-        /^\/workspace\/[^\/]+$/.test(currentPath) ||
-        /^\/workspace\/[^\/]+\/t\/[^\/]+$/.test(currentPath);
-      setCanToggleSidebar(isVisible);
-    }
-    checkPath();
-  }, [window.location.pathname]);
+    const currentPath = location.pathname;
+    const isVisible =
+      currentPath === paths.home() ||
+      /^\/workspace\/[^\/]+$/.test(currentPath) ||
+      /^\/workspace\/[^\/]+\/t\/[^\/]+$/.test(currentPath);
+    setCanToggleSidebar(isVisible);
+  }, [location.pathname]);
 
   useEffect(() => {
     function toggleSidebar(e) {
@@ -45,12 +61,7 @@ export function useSidebarToggle() {
         e.key.toLowerCase() === "s"
       ) {
         setShowSidebar((prev) => {
-          const newState = !prev;
-          window.localStorage.setItem(
-            SIDEBAR_TOGGLE_STORAGE_KEY,
-            newState ? "open" : "closed"
-          );
-          return newState;
+          return !prev;
         });
       }
     }
@@ -58,7 +69,7 @@ export function useSidebarToggle() {
     return () => {
       window.removeEventListener("keydown", toggleSidebar);
     };
-  }, [canToggleSidebar]);
+  }, [canToggleSidebar, setShowSidebar]);
 
   useEffect(() => {
     function setSidebarState(e) {
@@ -72,13 +83,9 @@ export function useSidebarToggle() {
     return () => {
       window.removeEventListener(SIDEBAR_SET_STATE_EVENT, setSidebarState);
     };
-  }, [canToggleSidebar]);
+  }, [canToggleSidebar, setShowSidebar]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      SIDEBAR_TOGGLE_STORAGE_KEY,
-      showSidebar ? "open" : "closed"
-    );
     window.dispatchEvent(
       new CustomEvent(SIDEBAR_TOGGLE_EVENT, {
         detail: { open: showSidebar },

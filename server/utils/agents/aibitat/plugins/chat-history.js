@@ -62,7 +62,7 @@ const chatHistory = {
               prompt: userMessage,
               response: {},
             });
-            if (chat) aibitat.registerChatId(chat.id);
+            if (chat) aibitat.registerChatId(chat.id, chat.public_id || null);
           })().finally(() => {
             pendingTrackedChatIdPromise = null;
           });

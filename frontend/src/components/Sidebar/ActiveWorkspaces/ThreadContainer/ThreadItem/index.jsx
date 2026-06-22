@@ -84,7 +84,7 @@ export default function ThreadItem({
   const { ref } = useScrollActiveItemIntoView({
     isActive,
     behavior: "instant",
-    block: "center",
+    block: "nearest",
   });
   return (
     <div

@@ -4,6 +4,7 @@ const { processSingleFile } = require("../../processSingleFile");
 const { downloadURIToFile } = require("../../utils/downloadURIToFile");
 const { ACCEPTED_MIMES } = require("../../utils/constants");
 const { validYoutubeVideoUrl } = require("../../utils/url");
+const { redactUrl } = require("../../utils/security/redaction");
 
 /**
  * Parse a Content-Type header value and return the MIME type without charset or other parameters.
@@ -29,7 +30,10 @@ async function getContentTypeFromURL(url) {
     const abortController = new AbortController();
     const timeout = setTimeout(() => {
       abortController.abort();
-      console.error("Timeout fetching content type for URL:", url.toString());
+      console.error(
+        "Timeout fetching content type for URL:",
+        redactUrl(url.toString())
+      );
     }, 5_000);
 
     const res = await fetch(url, {

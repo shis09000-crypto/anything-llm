@@ -1,17 +1,15 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { postJson } from "@/lib/communication/apiClient";
 import showToast from "@/utils/toast";
 
 const DataConnector = {
   github: {
     branches: async ({ repo, accessToken }) => {
-      return await fetch(`${API_BASE}/ext/github/branches`, {
-        method: "POST",
-        headers: baseHeaders(),
-        cache: "force-cache",
-        body: JSON.stringify({ repo, accessToken }),
-      })
-        .then((res) => res.json())
+      return await postJson(
+        "/ext/github/branches",
+        { repo, accessToken },
+        { cache: "force-cache" }
+      )
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return res.data;
@@ -26,12 +24,13 @@ const DataConnector = {
         });
     },
     collect: async function ({ repo, accessToken, branch, ignorePaths = [] }) {
-      return await fetch(`${API_BASE}/ext/github/repo`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ repo, accessToken, branch, ignorePaths }),
+      return await postJson("/ext/github/repo", {
+        repo,
+        accessToken,
+        branch,
+        ignorePaths,
       })
-        .then((res) => res.json())
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -44,13 +43,12 @@ const DataConnector = {
   },
   gitlab: {
     branches: async ({ repo, accessToken }) => {
-      return await fetch(`${API_BASE}/ext/gitlab/branches`, {
-        method: "POST",
-        headers: baseHeaders(),
-        cache: "force-cache",
-        body: JSON.stringify({ repo, accessToken }),
-      })
-        .then((res) => res.json())
+      return await postJson(
+        "/ext/gitlab/branches",
+        { repo, accessToken },
+        { cache: "force-cache" }
+      )
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return res.data;
@@ -72,19 +70,15 @@ const DataConnector = {
       fetchIssues = false,
       fetchWikis = false,
     }) {
-      return await fetch(`${API_BASE}/ext/gitlab/repo`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({
-          repo,
-          accessToken,
-          branch,
-          ignorePaths,
-          fetchIssues,
-          fetchWikis,
-        }),
+      return await postJson("/ext/gitlab/repo", {
+        repo,
+        accessToken,
+        branch,
+        ignorePaths,
+        fetchIssues,
+        fetchWikis,
       })
-        .then((res) => res.json())
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -97,12 +91,8 @@ const DataConnector = {
   },
   youtube: {
     transcribe: async ({ url }) => {
-      return await fetch(`${API_BASE}/ext/youtube/transcript`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ url }),
-      })
-        .then((res) => res.json())
+      return await postJson("/ext/youtube/transcript", { url })
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -115,12 +105,8 @@ const DataConnector = {
   },
   websiteDepth: {
     scrape: async ({ url, depth, maxLinks }) => {
-      return await fetch(`${API_BASE}/ext/website-depth`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ url, depth, maxLinks }),
-      })
-        .then((res) => res.json())
+      return await postJson("/ext/website-depth", { url, depth, maxLinks })
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -142,20 +128,16 @@ const DataConnector = {
       personalAccessToken,
       bypassSSL,
     }) {
-      return await fetch(`${API_BASE}/ext/confluence`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({
-          baseUrl,
-          spaceKey,
-          username,
-          accessToken,
-          cloud,
-          personalAccessToken,
-          bypassSSL,
-        }),
+      return await postJson("/ext/confluence", {
+        baseUrl,
+        spaceKey,
+        username,
+        accessToken,
+        cloud,
+        personalAccessToken,
+        bypassSSL,
       })
-        .then((res) => res.json())
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -169,16 +151,12 @@ const DataConnector = {
 
   drupalwiki: {
     collect: async function ({ baseUrl, spaceIds, accessToken }) {
-      return await fetch(`${API_BASE}/ext/drupalwiki`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({
-          baseUrl,
-          spaceIds,
-          accessToken,
-        }),
+      return await postJson("/ext/drupalwiki", {
+        baseUrl,
+        spaceIds,
+        accessToken,
       })
-        .then((res) => res.json())
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -191,14 +169,8 @@ const DataConnector = {
   },
   obsidian: {
     collect: async function ({ files }) {
-      return await fetch(`${API_BASE}/ext/obsidian/vault`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({
-          files,
-        }),
-      })
-        .then((res) => res.json())
+      return await postJson("/ext/obsidian/vault", { files })
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };
@@ -212,12 +184,8 @@ const DataConnector = {
 
   paperlessNgx: {
     collect: async function ({ baseUrl, apiToken }) {
-      return await fetch(`${API_BASE}/ext/paperless-ngx`, {
-        method: "POST",
-        headers: baseHeaders(),
-        body: JSON.stringify({ baseUrl, apiToken }),
-      })
-        .then((res) => res.json())
+      return await postJson("/ext/paperless-ngx", { baseUrl, apiToken })
+        .then(({ data }) => data)
         .then((res) => {
           if (!res.success) throw new Error(res.reason);
           return { data: res.data, error: null };

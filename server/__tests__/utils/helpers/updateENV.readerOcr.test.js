@@ -39,6 +39,10 @@ describe("Reader OCR updateENV settings", () => {
         "ReaderOcrApiKey",
         "ReaderOcrBaseUrl",
         "ReaderOcrModelPref",
+        "SearchModelProvider",
+        "SearchModelApiKey",
+        "SearchModelBaseUrl",
+        "SearchModelPref",
         "VisionProvider",
         "VisionApiKey",
         "VisionBaseUrl",
@@ -51,7 +55,11 @@ describe("Reader OCR updateENV settings", () => {
       ReaderOcrProvider: "alibaba",
       ReaderOcrApiKey: "sk-reader-ocr",
       ReaderOcrBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      ReaderOcrModelPref: "qwen-vl-ocr-latest",
+      ReaderOcrModelPref: "qwen3.5-ocr",
+      SearchModelProvider: "alibaba",
+      SearchModelApiKey: "sk-search-model",
+      SearchModelBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      SearchModelPref: "qwen3.7-plus",
       VisionProvider: "alibaba",
       VisionApiKey: "sk-vision",
       VisionBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -64,7 +72,11 @@ describe("Reader OCR updateENV settings", () => {
       ReaderOcrProvider: "alibaba",
       ReaderOcrApiKey: "sk-reader-ocr",
       ReaderOcrBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      ReaderOcrModelPref: "qwen-vl-ocr-latest",
+      ReaderOcrModelPref: "qwen3.5-ocr",
+      SearchModelProvider: "alibaba",
+      SearchModelApiKey: "sk-search-model",
+      SearchModelBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      SearchModelPref: "qwen3.7-plus",
       VisionProvider: "alibaba",
       VisionApiKey: "sk-vision",
       VisionBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -73,6 +85,8 @@ describe("Reader OCR updateENV settings", () => {
     });
     expect(process.env.READER_OCR_PROVIDER).toBe("alibaba");
     expect(process.env.READER_OCR_API_KEY).toBe("sk-reader-ocr");
+    expect(process.env.SEARCH_MODEL_PROVIDER).toBe("alibaba");
+    expect(process.env.SEARCH_MODEL_API_KEY).toBe("sk-search-model");
     expect(process.env.VISION_PROVIDER).toBe("alibaba");
     expect(process.env.VISION_API_KEY).toBe("sk-vision");
     expect(process.env.VISION_TOOL_ENABLED).toBe("true");
@@ -93,7 +107,12 @@ describe("Reader OCR updateENV settings", () => {
       READER_OCR_API_KEY: "sk-reader-ocr",
       READER_OCR_BASE_URL:
         "https://dashscope.aliyuncs.com/compatible-mode/v1",
-      READER_OCR_MODEL_PREF: "qwen-vl-ocr-latest",
+      READER_OCR_MODEL_PREF: "qwen3.5-ocr",
+      SEARCH_MODEL_PROVIDER: "alibaba",
+      SEARCH_MODEL_API_KEY: "sk-search-model",
+      SEARCH_MODEL_BASE_URL:
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      SEARCH_MODEL_PREF: "qwen3.7-plus",
       VISION_PROVIDER: "alibaba",
       VISION_API_KEY: "sk-vision",
       VISION_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -102,20 +121,24 @@ describe("Reader OCR updateENV settings", () => {
     });
   });
 
-  it("ignores masked reader OCR and vision API keys and rejects invalid providers", async () => {
+  it("ignores masked reader OCR, search model, and vision API keys and rejects invalid providers", async () => {
     const { updateENV } = loadUpdateENV();
     process.env.READER_OCR_PROVIDER = "alibaba";
     process.env.READER_OCR_API_KEY = "sk-existing";
+    process.env.SEARCH_MODEL_PROVIDER = "alibaba";
+    process.env.SEARCH_MODEL_API_KEY = "sk-search-existing";
     process.env.VISION_PROVIDER = "alibaba";
     process.env.VISION_API_KEY = "sk-vision-existing";
 
     const masked = await updateENV({
       ReaderOcrApiKey: "********************",
+      SearchModelApiKey: "********************",
       VisionApiKey: "********************",
     });
     expect(masked.error).toBe(false);
     expect(masked.newValues).toEqual({});
     expect(process.env.READER_OCR_API_KEY).toBe("sk-existing");
+    expect(process.env.SEARCH_MODEL_API_KEY).toBe("sk-search-existing");
     expect(process.env.VISION_API_KEY).toBe("sk-vision-existing");
 
     const invalid = await updateENV({
@@ -123,6 +146,14 @@ describe("Reader OCR updateENV settings", () => {
     });
     expect(invalid.error).toContain("Invalid reader OCR provider.");
     expect(process.env.READER_OCR_PROVIDER).toBe("alibaba");
+
+    const invalidSearchModel = await updateENV({
+      SearchModelProvider: "dashscope",
+    });
+    expect(invalidSearchModel.error).toContain(
+      "Invalid search model provider."
+    );
+    expect(process.env.SEARCH_MODEL_PROVIDER).toBe("alibaba");
 
     const invalidVision = await updateENV({
       VisionProvider: "dashscope",

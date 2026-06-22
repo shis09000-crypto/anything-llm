@@ -129,6 +129,38 @@ describe("threadTitleGeneration", () => {
     expect(mockMarkPending).not.toHaveBeenCalled();
   });
 
+  it("scopes thread lookups by workspace and user before title work", async () => {
+    mockThreadGet.mockResolvedValue(null);
+
+    await mod.maybeEnqueueTitleGenerationAfterChat({
+      workspaceId: 1,
+      threadId: 10,
+      userId: 2,
+      include: true,
+    });
+
+    expect(mockThreadGet).toHaveBeenCalledWith({
+      id: 10,
+      workspace_id: 1,
+      user_id: 2,
+    });
+    expect(mockCount).not.toHaveBeenCalled();
+    expect(mockMarkPending).not.toHaveBeenCalled();
+  });
+
+  it("allows system refresh scope without a user id while still matching workspace", () => {
+    expect(
+      mod._internals.scopedThreadClause({
+        workspaceId: 1,
+        threadId: 10,
+        userId: null,
+      })
+    ).toEqual({
+      id: 10,
+      workspace_id: 1,
+    });
+  });
+
   it("skips title work when DB metadata columns are missing", async () => {
     mockQueryRawUnsafe.mockResolvedValue([{ name: "name" }]);
     mod._internals.resetTitleMetadataReadiness();

@@ -1,9 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { fetchEventSource } from "@microsoft/fetch-event-source";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
-import { cryptoHubSseData } from "@/hooks/cryptoHub/useCryptoHubStream";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
+import { streamOpenFuturesPositions } from "@/lib/communication/crypto/cryptoHubStreamClient";
 import type {
   OpenFuturesPositionItem,
   OpenFuturesConnectionStatus,
@@ -13,8 +11,6 @@ import type {
 
 type DataMode = "mock" | "gate-api";
 
-const OPEN_POSITIONS_ENDPOINT = `${API_BASE}/crypto-hub/open-futures-positions`;
-const OPEN_POSITIONS_STREAM_ENDPOINT = `${OPEN_POSITIONS_ENDPOINT}/stream`;
 const STREAM_RENDER_THROTTLE_MS = 500;
 const STREAM_RECONNECT_MS = 1_500;
 
@@ -25,14 +21,6 @@ const emptySummary: OpenFuturesPositionsSummary = {
   accountEquityUsd: "0.00",
   marginRatioPct: "0.00",
 };
-
-function parseSseJson<T>(value: string): T | null {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    return null;
-  }
-}
 
 function connectionStatusFromPayload(
   payload: OpenFuturesPositionsResponse
@@ -163,15 +151,9 @@ export function useOpenFuturesPositionsData({
     if (mode !== "gate-api") return null;
     setLoading(true);
     try {
-      const response = await fetch(OPEN_POSITIONS_ENDPOINT, {
-        headers: baseHeaders(),
-      });
-      const payload = (await response.json()) as OpenFuturesPositionsResponse;
-      if (!response.ok || !payload?.success) {
-        throw new Error(
-          payload?.safeErrorMessage || "Gate futures positions request failed."
-        );
-      }
+      const payload = await cryptoHubFetch<OpenFuturesPositionsResponse>(
+        "/open-futures-positions"
+      );
 
       applyPayload(payload);
       setHasLoadedOnce(true);
@@ -199,21 +181,9 @@ export function useOpenFuturesPositionsData({
     streamAbortRef.current = controller;
     shouldStreamRef.current = true;
 
-    fetchEventSource(OPEN_POSITIONS_STREAM_ENDPOINT, {
-      method: "GET",
-      headers: baseHeaders(),
+    streamOpenFuturesPositions({
       signal: controller.signal,
-      openWhenHidden: false,
-      async onopen(response) {
-        if (response.ok) return;
-        throw new Error(
-          `Gate futures positions stream failed: ${response.status}`
-        );
-      },
-      onmessage(message) {
-        const payload =
-          cryptoHubSseData<OpenFuturesPositionsResponse>(message.data) ||
-          parseSseJson<OpenFuturesPositionsResponse>(message.data);
+      onData(payload: OpenFuturesPositionsResponse) {
         if (!payload) return;
         if (payload.success === false) {
           setStatus("disconnected");
@@ -224,12 +194,12 @@ export function useOpenFuturesPositionsData({
         }
         scheduleStreamPayload(payload);
       },
-      onclose() {
+      onClose() {
         if (controller.signal.aborted) return;
         streamAbortRef.current = null;
         scheduleReconnect();
       },
-      onerror(error) {
+      onError(error) {
         if (controller.signal.aborted) return;
         throw error;
       },

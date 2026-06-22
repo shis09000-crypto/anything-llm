@@ -10,6 +10,9 @@ const {
   deepSeekPromptCacheDiagnostics,
 } = require("../../../AiProviders/deepseek/promptCache.js");
 
+const DEFAULT_DEEPSEEK_MAX_TOKENS = 65_536;
+const DEFAULT_DEEPSEEK_REASONING_EFFORT = "high";
+
 class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   model;
 
@@ -26,8 +29,8 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     this.model = model;
     this.verbose = true;
     this.maxTokens = process.env.DEEPSEEK_MAX_TOKENS
-      ? toValidNumber(process.env.DEEPSEEK_MAX_TOKENS, 1024)
-      : 1024;
+      ? toValidNumber(process.env.DEEPSEEK_MAX_TOKENS, DEFAULT_DEEPSEEK_MAX_TOKENS)
+      : DEFAULT_DEEPSEEK_MAX_TOKENS;
   }
 
   get client() {
@@ -81,7 +84,20 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   get #tooledOptions() {
     return {
       provider: this,
+      requestOptions: this.#completionOptions,
       ...(this.#isThinkingModel ? { injectReasoningContent: true } : {}),
+    };
+  }
+
+  get #completionOptions() {
+    return {
+      max_tokens: this.maxTokens,
+      extra_body: {
+        thinking: { type: "enabled" },
+        reasoning_effort:
+          process.env.DEEPSEEK_REASONING_EFFORT ||
+          DEFAULT_DEEPSEEK_REASONING_EFFORT,
+      },
     };
   }
 
@@ -134,7 +150,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
       .create({
         model: this.model,
         messages,
-        max_tokens: this.maxTokens,
+        ...this.#completionOptions,
       })
       .then((result) => {
         if (result?.usage) this.recordUsage(result.usage);
@@ -155,6 +171,7 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
       stream: true,
       stream_options: { include_usage: true },
       messages,
+      ...this.#completionOptions,
     });
     return this.#usageRecordingStream(stream);
   }

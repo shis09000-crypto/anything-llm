@@ -71,8 +71,57 @@ describe("DeepSeekLLM", () => {
       model: "deepseek-v4-flash",
       messages: [{ role: "user", content: "classify" }],
       temperature: 0.1,
+      max_tokens: 65_536,
+      extra_body: {
+        thinking: { type: "disabled" },
+      },
       response_format: { type: "json_object" },
     });
+  });
+
+  it("enables DeepSeek thinking without exposing temperature when requested", async () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    await llm.getChatCompletion([{ role: "user", content: "remembered" }], {
+      temperature: 0.2,
+      thinking: "enabled",
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith({
+      model: "deepseek-v4-flash",
+      messages: [{ role: "user", content: "remembered" }],
+      max_tokens: 65_536,
+      extra_body: {
+        thinking: { type: "enabled" },
+        reasoning_effort: "high",
+      },
+    });
+  });
+
+  it("does not prepend non-streaming reasoning_content to the saved response", async () => {
+    mockCreate.mockResolvedValueOnce({
+      choices: [
+        {
+          message: {
+            reasoning_content: "hidden chain of thought",
+            content: "final answer",
+          },
+        },
+      ],
+      usage: {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+      },
+    });
+
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    const result = await llm.getChatCompletion([
+      { role: "user", content: "hello" },
+    ]);
+
+    expect(result.textResponse).toBe("final answer");
+    expect(result.textResponse).not.toContain("hidden chain of thought");
+    expect(result.textResponse).not.toContain("<think>");
   });
 
   it("uses the official DeepSeek V4 context window", () => {
@@ -236,11 +285,67 @@ describe("DeepSeekLLM", () => {
       expect.objectContaining({
         model: "deepseek-v4-flash",
         stream: true,
+        max_tokens: 65_536,
+        extra_body: {
+          thinking: { type: "disabled" },
+        },
         stream_options: {
           include_usage: true,
         },
       })
     );
+  });
+
+  it("forwards stream tools and tool choice to DeepSeek chat completions", async () => {
+    const {
+      LLMPerformanceMonitor,
+    } = require("../../../utils/helpers/chat/LLMPerformanceMonitor");
+    LLMPerformanceMonitor.measureStream.mockResolvedValueOnce("stream");
+    const tools = [
+      {
+        type: "function",
+        function: {
+          name: "save_memory",
+          parameters: { type: "object" },
+        },
+      },
+    ];
+
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    await llm.streamGetChatCompletion([{ role: "user", content: "hello" }], {
+      tools,
+      toolChoice: "auto",
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools,
+        tool_choice: "auto",
+      })
+    );
+  });
+
+  it("forwards stream thinking options for long-term memory prompts", async () => {
+    const {
+      LLMPerformanceMonitor,
+    } = require("../../../utils/helpers/chat/LLMPerformanceMonitor");
+    LLMPerformanceMonitor.measureStream.mockResolvedValueOnce("stream");
+
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    await llm.streamGetChatCompletion([{ role: "user", content: "hello" }], {
+      thinking: "enabled",
+    });
+
+    expect(mockCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        max_tokens: 65_536,
+        extra_body: {
+          thinking: { type: "enabled" },
+          reasoning_effort: "high",
+        },
+      })
+    );
+    expect(mockCreate.mock.calls.at(-1)[0]).not.toHaveProperty("temperature");
   });
 
   it("preserves cache usage metrics from final streaming usage chunks", async () => {
@@ -285,6 +390,45 @@ describe("DeepSeekLLM", () => {
         prompt_cache_hit_rate: 0.8,
       })
     );
+  });
+
+  it("does not stream or save reasoning_content chunks", async () => {
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+    const response = {
+      write: jest.fn(),
+      on: jest.fn(),
+      removeListener: jest.fn(),
+    };
+    const stream = {
+      endMeasurement: jest.fn(),
+      async *[Symbol.asyncIterator]() {
+        yield {
+          choices: [
+            {
+              delta: { reasoning_content: "private reasoning" },
+              finish_reason: null,
+            },
+          ],
+        };
+        yield {
+          choices: [{ delta: { content: "visible" }, finish_reason: null }],
+        };
+        yield {
+          choices: [{ delta: {}, finish_reason: "stop" }],
+        };
+      },
+    };
+
+    await expect(
+      llm.handleStream(response, stream, { sources: [] })
+    ).resolves.toBe("visible");
+
+    const written = response.write.mock.calls
+      .map(([chunk]) => String(chunk))
+      .join("\n");
+    expect(written).toContain("visible");
+    expect(written).not.toContain("private reasoning");
+    expect(written).not.toContain("<think>");
   });
 
   it("diagnoses stable high-hit cache requests without leaking content", () => {

@@ -7,6 +7,9 @@ const {
   writeResponseChunk,
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
+const {
+  appendCurrentDateTimeToPrompt,
+} = require("./currentDateTimeContext");
 
 async function streamChatWithForEmbed(
   response,
@@ -156,7 +159,7 @@ async function streamChatWithForEmbed(
   const messages = await LLMConnector.compressMessages(
     {
       systemPrompt: await chatPrompt(embed.workspace, username),
-      userPrompt: message,
+      userPrompt: appendCurrentDateTimeToPrompt(message),
       contextTexts,
       chatHistory,
     },

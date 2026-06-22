@@ -13,7 +13,7 @@ export async function createLocalZkDevice({ user, deviceName, avatarUrl }) {
   const deviceSalt = randomBase64Url(24);
   const metadata = {
     deviceId,
-    userId: user?.id,
+    userId: accountAuthUserId(user) || user?.id,
     username: user?.username || "Account",
     displayName: user?.displayName || null,
     avatarUrl: avatarUrl || null,
@@ -84,6 +84,40 @@ export async function updateLocalZkDevice(deviceId, updates = {}) {
   updateDeviceIndex(next);
 }
 
+export async function syncLocalZkDevicesWithServer({
+  user,
+  devices = [],
+  avatarUrl = null,
+} = {}) {
+  const serverDevices = new Map(
+    devices
+      .filter((device) => device?.deviceId)
+      .map((device) => [device.deviceId, device])
+  );
+  if (serverDevices.size === 0) return;
+
+  const localDevices = await listLocalZkDevices();
+  await Promise.all(
+    localDevices.map((localDevice) => {
+      const serverDevice = serverDevices.get(localDevice?.deviceId);
+      if (!serverDevice) return null;
+
+      return updateLocalZkDevice(localDevice.deviceId, {
+        ...serverDevice,
+        userId:
+          serverDevice.userId ||
+          accountAuthUserId(user) ||
+          localDevice.userId,
+        username: user?.username || localDevice.username,
+        displayName: user?.displayName || localDevice.displayName || null,
+        avatarUrl: durableAvatarUrl(avatarUrl) || localDevice.avatarUrl || null,
+        createdAt: serverDevice.createdAt || localDevice.createdAt,
+        lastUsedAt: serverDevice.lastUsedAt || localDevice.lastUsedAt || null,
+      });
+    })
+  );
+}
+
 export async function removeLocalZkDevice(deviceId) {
   const db = await openDb();
   await deleteRecord(db, DEVICE_STORE, deviceId);
@@ -123,6 +157,12 @@ function updateDeviceIndex(metadata) {
 function durableAvatarUrl(value) {
   if (!value || String(value).startsWith("blob:")) return null;
   return value;
+}
+
+function accountAuthUserId(user = null) {
+  const authUserId = Number(user?.authUserId);
+  if (Number.isFinite(authUserId) && authUserId > 0) return authUserId;
+  return null;
 }
 
 async function getWrapKey(db) {

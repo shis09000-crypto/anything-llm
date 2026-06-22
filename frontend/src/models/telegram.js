@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback } from "@/lib/communication/apiError";
 
 const Telegram = {
   /**
@@ -7,13 +7,11 @@ const Telegram = {
    * @returns {Promise<{config: object|null, error: string|null}>}
    */
   getConfig: async function () {
-    return await fetch(`${API_BASE}/telegram/config`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/telegram/config")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { config: null, error: e.message };
+        return apiErrorFallback(e, { config: null, error: e.message });
       });
   },
 
@@ -24,18 +22,14 @@ const Telegram = {
    * @returns {Promise<{success: boolean, bot_username: string|null, error: string|null}>}
    */
   connect: async function (botToken, workspaceSlug) {
-    return await fetch(`${API_BASE}/telegram/connect`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({
-        bot_token: botToken,
-        default_workspace: workspaceSlug,
-      }),
+    return await postJson("/telegram/connect", {
+      bot_token: botToken,
+      default_workspace: workspaceSlug,
     })
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -44,14 +38,11 @@ const Telegram = {
    * @returns {Promise<{success: boolean, error: string|null}>}
    */
   disconnect: async function () {
-    return await fetch(`${API_BASE}/telegram/disconnect`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await postJson("/telegram/disconnect")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -60,10 +51,8 @@ const Telegram = {
    * @returns {Promise<{active: boolean, bot_username: string|null}>}
    */
   status: async function () {
-    return await fetch(`${API_BASE}/telegram/status`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/telegram/status")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { active: false, bot_username: null };
@@ -75,10 +64,8 @@ const Telegram = {
    * @returns {Promise<{users: Array}>}
    */
   getPendingUsers: async function () {
-    return await fetch(`${API_BASE}/telegram/pending-users`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/telegram/pending-users")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { users: [] };
@@ -90,10 +77,8 @@ const Telegram = {
    * @returns {Promise<{users: Array}>}
    */
   getApprovedUsers: async function () {
-    return await fetch(`${API_BASE}/telegram/approved-users`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/telegram/approved-users")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
         return { users: [] };
@@ -106,15 +91,11 @@ const Telegram = {
    * @returns {Promise<{success: boolean, error: string|null}>}
    */
   approveUser: async function (chatId) {
-    return await fetch(`${API_BASE}/telegram/approve-user`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ chatId }),
-    })
-      .then((res) => res.json())
+    return await postJson("/telegram/approve-user", { chatId })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -124,15 +105,11 @@ const Telegram = {
    * @returns {Promise<{success: boolean, error: string|null}>}
    */
   denyUser: async function (chatId) {
-    return await fetch(`${API_BASE}/telegram/deny-user`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ chatId }),
-    })
-      .then((res) => res.json())
+    return await postJson("/telegram/deny-user", { chatId })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -142,15 +119,11 @@ const Telegram = {
    * @returns {Promise<{success: boolean, error: string|null}>}
    */
   updateConfig: async function (updates) {
-    return await fetch(`${API_BASE}/telegram/update-config`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify(updates),
-    })
-      .then((res) => res.json())
+    return await postJson("/telegram/update-config", updates)
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -160,15 +133,11 @@ const Telegram = {
    * @returns {Promise<{success: boolean, error: string|null}>}
    */
   revokeUser: async function (chatId) {
-    return await fetch(`${API_BASE}/telegram/revoke-user`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ chatId }),
-    })
-      .then((res) => res.json())
+    return await postJson("/telegram/revoke-user", { chatId })
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 };

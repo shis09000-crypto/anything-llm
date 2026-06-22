@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { useCryptoHubWatchedConnection } from "@/hooks/cryptoHub/useCryptoHubWatchdog";
 import type {
   TradingPairDataMode,
   TradingPairDetailResponse,
   TradingPairMarketType,
 } from "./tradingPairDetailTypes";
-
-const DETAIL_ENDPOINT = `${API_BASE}/crypto-hub/trading-pair-detail`;
 
 export function useTradingPairDetailData({
   mode,
@@ -68,12 +65,10 @@ export function useTradingPairDetailData({
           pair,
           market: "spot",
         });
-        const apiResponse = await fetch(
-          `${DETAIL_ENDPOINT}?${params.toString()}`,
-          { headers: baseHeaders() }
+        const payload = await cryptoHubFetch<TradingPairDetailResponse>(
+          `/trading-pair-detail?${params.toString()}`
         );
-        const payload = (await apiResponse.json()) as TradingPairDetailResponse;
-        if (!apiResponse.ok || !payload?.success) {
+        if (!payload?.success) {
           throw new Error(payload?.safeErrorMessage || "交易对详情读取失败");
         }
         if (cancelled) return;

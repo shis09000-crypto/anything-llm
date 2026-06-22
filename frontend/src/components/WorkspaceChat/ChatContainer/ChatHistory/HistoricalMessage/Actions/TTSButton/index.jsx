@@ -7,9 +7,15 @@ function WrapTTS({ children }) {
   return <div className="mx-2">{children}</div>;
 }
 
-export default function TTSMessage({ slug, chatId, message }) {
+export default function TTSMessage({
+  slug,
+  chatId,
+  publicChatId = null,
+  message,
+}) {
   const { settings, provider, loading } = useTTSProvider();
   if (!chatId || loading) return null;
+  const actionChatId = publicChatId || chatId;
 
   switch (provider) {
     case "openai":
@@ -17,7 +23,7 @@ export default function TTSMessage({ slug, chatId, message }) {
     case "elevenlabs":
       return (
         <WrapTTS>
-          <AsyncTTSMessage chatId={chatId} slug={slug} />
+          <AsyncTTSMessage chatId={actionChatId} slug={slug} />
         </WrapTTS>
       );
     case "piper_local":

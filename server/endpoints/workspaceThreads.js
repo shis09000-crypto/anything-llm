@@ -32,10 +32,11 @@ const {
 const {
   subscribeToThreadTitleUpdates,
 } = require("../utils/chats/threadTitleEvents");
-
-function normalizedChatIds(chatIds = []) {
-  return [...new Set(chatIds.map((id) => Number(id)).filter((id) => id > 0))];
-}
+const {
+  chatIdentifierPayload,
+  chatIdentifiersWhere,
+  chatIdentityFromRequest,
+} = require("../utils/chats/chatIdentifiers");
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -58,10 +59,40 @@ function parseHistoryQuery(request) {
   };
 }
 
-function compactionUserFromInput(sessionUser, userId = undefined) {
-  if (userId === undefined) return sessionUser ? { id: sessionUser.id } : null;
-  if (userId === null || userId === "" || userId === "null") return null;
-  return { id: Number(userId) };
+function nullableUserId(value) {
+  if (value === null || value === "" || value === "null") return null;
+  const id = Number(value);
+  return Number.isFinite(id) ? id : NaN;
+}
+
+function compactionUserFromInput(
+  sessionUser,
+  userId = undefined,
+  { thread = null, isMultiUser = false } = {}
+) {
+  if (!isMultiUser) {
+    if (userId === undefined)
+      return { ok: true, user: sessionUser ? { id: sessionUser.id } : null };
+    const id = nullableUserId(userId);
+    return { ok: true, user: id === null ? null : { id } };
+  }
+
+  const sessionUserId = sessionUser?.id ? Number(sessionUser.id) : null;
+  const threadUserId =
+    thread?.user_id === null || thread?.user_id === undefined
+      ? null
+      : Number(thread.user_id);
+  const requestedUserId =
+    userId === undefined ? sessionUserId : nullableUserId(userId);
+  const matchesSession =
+    sessionUserId &&
+    Number.isFinite(requestedUserId) &&
+    Number(requestedUserId) === sessionUserId;
+  const matchesThread =
+    threadUserId === null || Number(threadUserId) === sessionUserId;
+
+  if (!matchesSession || !matchesThread) return { ok: false, user: null };
+  return { ok: true, user: { id: sessionUserId } };
 }
 
 function lightChatIdsForHistory(history = [], options = {}) {
@@ -358,7 +389,7 @@ function workspaceThreadEndpoints(app) {
     ],
     async (request, response) => {
       try {
-        const { chatIds = [] } = reqBody(request);
+        const { chatIds = [], publicChatIds = [] } = reqBody(request);
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
@@ -368,9 +399,15 @@ function workspaceThreadEndpoints(app) {
           return;
         }
 
-        const ids = normalizedChatIds(chatIds);
-        if (ids.length === 0) {
-          response.status(200).json({ history: [], hydratedChatIds: [] });
+        const identifierWhere = chatIdentifiersWhere(
+          chatIdentifierPayload({ chatIds, publicChatIds })
+        );
+        if (!identifierWhere) {
+          response.status(200).json({
+            history: [],
+            hydratedChatIds: [],
+            hydratedPublicChatIds: [],
+          });
           return;
         }
 
@@ -381,7 +418,7 @@ function workspaceThreadEndpoints(app) {
             thread_id: thread.id,
             api_session_id: null,
             include: true,
-            id: { in: ids },
+            ...identifierWhere,
           },
           null,
           { id: "asc" }
@@ -390,6 +427,9 @@ function workspaceThreadEndpoints(app) {
         response.status(200).json({
           history: convertToChatHistory(history),
           hydratedChatIds: history.map((chat) => chat.id),
+          hydratedPublicChatIds: history
+            .map((chat) => chat.public_id)
+            .filter(Boolean),
         });
       } catch (e) {
         console.error(e.message, e);
@@ -551,7 +591,17 @@ function workspaceThreadEndpoints(app) {
         } = reqBody(request);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
-        const user = compactionUserFromInput(sessionUser, userId);
+        const compactionUser = compactionUserFromInput(sessionUser, userId, {
+          thread,
+          isMultiUser: multiUserMode(response),
+        });
+        if (!compactionUser.ok) {
+          return response.status(404).json({
+            success: false,
+            error: "Thread compaction scope not found.",
+          });
+        }
+        const user = compactionUser.user;
 
         const result = await compactThread({
           workspace,
@@ -621,7 +671,17 @@ function workspaceThreadEndpoints(app) {
           : null;
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
-        const user = compactionUserFromInput(sessionUser, userId);
+        const compactionUser = compactionUserFromInput(sessionUser, userId, {
+          thread,
+          isMultiUser: multiUserMode(response),
+        });
+        if (!compactionUser.ok) {
+          return response.status(404).json({
+            success: false,
+            error: "Thread compaction scope not found.",
+          });
+        }
+        const user = compactionUser.user;
         const status = await getThreadCompactionStatus({
           workspace,
           user,
@@ -681,18 +741,28 @@ function workspaceThreadEndpoints(app) {
     ],
     async (request, response) => {
       try {
-        const { chatId, newText = null, role = "assistant" } = reqBody(request);
+        const {
+          chatId,
+          publicChatId = null,
+          newText = null,
+          role = "assistant",
+        } = reqBody(request);
         if (!newText || !String(newText).trim())
           throw new Error("Cannot save empty edit");
 
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
+        const identifierWhere = chatIdentityFromRequest({
+          chatId,
+          publicChatId,
+        });
+        if (!identifierWhere) throw new Error("Invalid chat.");
         const existingChat = await WorkspaceChats.get({
           workspaceId: workspace.id,
           thread_id: thread.id,
           user_id: user?.id,
-          id: Number(chatId),
+          ...identifierWhere,
         });
         if (!existingChat) throw new Error("Invalid chat.");
 

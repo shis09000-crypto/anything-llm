@@ -48,6 +48,15 @@ describe("SystemPromptVariables.expandSystemPromptVariables", () => {
     expect(variables).toBe(`Hello ${mockUser.username}`);
   });
 
+  it("should normalize user bio personalization labels for prompts", async () => {
+    prisma.users.findUnique = jest.fn().mockResolvedValue({
+      ...mockUser,
+      bio: "<personalization_profile>\n你的身份: 导师\n</personalization_profile>",
+    });
+    const variables = await SystemPromptVariables.expandSystemPromptVariables("Hello {user.bio}", mockUser.id);
+    expect(variables).toBe("Hello <personalization_profile>\n模型的身份: 导师\n</personalization_profile>");
+  });
+
   it("should work with any combination of variables", async () => {
     const variables = await SystemPromptVariables.expandSystemPromptVariables("Hello {mystaticvariable} {workspace.name} {user.name}", mockUser.id, mockWorkspace.id);
     expect(variables).toBe(`Hello ${mockSystemPromptVariables[0].value} ${mockWorkspace.name} ${mockUser.username}`);

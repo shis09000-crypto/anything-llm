@@ -1,6 +1,7 @@
 const AgentPlugins = require("./aibitat/plugins");
 const { SystemSettings } = require("../../models/systemSettings");
 const { safeJsonParse } = require("../http");
+const { isSearchModelConfigured } = require("../SearchModels/alibaba");
 const Provider = require("./aibitat/providers/ai-provider");
 const ImportedPlugin = require("./imported");
 const { AgentFlows } = require("../agentFlows");
@@ -9,10 +10,12 @@ const MCPCompatibilityLayer = require("../MCP");
 // This is a list of skills that are built-in and default enabled.
 const DEFAULT_SKILLS = [
   AgentPlugins.memory.name,
+  AgentPlugins.saveMemory.name,
   AgentPlugins.documentIndexStatusTool.name,
   AgentPlugins.documentIngestAgent.name,
   AgentPlugins.docSummarizer.name,
   AgentPlugins.webScraping.name,
+  AgentPlugins.requestUserInput.name,
 ];
 
 /**
@@ -47,6 +50,8 @@ const SKILL_FILTER_CONFIG = {
 };
 
 const SHELL_AGENT_NAME = AgentPlugins.shellAgent.name;
+const WEB_BROWSING_NAME = AgentPlugins.webBrowsing.name;
+const REQUEST_USER_INPUT_FUNCTION = `${AgentPlugins.requestUserInput.name}#request-user-input`;
 
 function uniqueFunctions(functions = []) {
   return [...new Set((functions || []).filter(Boolean))];
@@ -89,25 +94,29 @@ const WORKSPACE_AGENT = {
    * @returns {Promise<{ role: string, functions: object[] }>}
    */
   getDefinition: async (provider = null, workspace = null, user = null) => {
-    let [basePrompt, clarifyingQuestionsSkills] = await Promise.all([
+    let [basePrompt, agentFunctions] = await Promise.all([
       Provider.systemPrompt({
         provider,
         workspace,
         user,
       }),
-      clarifyingQuestionsSkillIfEnabled(),
+      agentSkillsFromSystemSettings(),
     ]);
 
-    if (clarifyingQuestionsSkills.length > 0) {
+    if (agentFunctions.includes(REQUEST_USER_INPUT_FUNCTION)) {
       basePrompt +=
-        "\n\nWhen you need information from the user (URLs, file paths, preferences, choices, etc.), you MUST use the request-user-input tool. Do not ask questions in your text response - the user cannot reply to text. Only the tool can collect user input. Ask at most 3 questions per turn and keep each question under 150 characters. For choice questions, provide three guessed options when possible: option 1 is your best recommendation, options 2 and 3 are backups. The user will always have a custom answer input after those options.";
+        "\n\nWhen you need information from the user (URLs, file paths, preferences, choices, etc.), you MUST use the request-user-input tool. Do not ask questions in your text response - the user cannot reply to text. Only the tool can collect user input. Ask at most 3 questions per turn and keep each question under 150 Unicode characters. For choice questions, provide three guessed options when possible: option 1 is your best recommendation, options 2 and 3 are backups. The user will always have a custom answer input after those options.";
+    }
+
+    if (agentFunctions.includes(AgentPlugins.saveMemory.name)) {
+      basePrompt +=
+        "\n\nWhen the user explicitly asks you to remember, permanently save, write into long-term memory, or keep something for future chats, you MUST call save_memory and wait for the user approval result. save_memory stores account-level long-term memory. Do not use rag-memory.store for account-level preferences, facts, projects, decisions, open topics, interests, or sensitive memories; rag-memory.store is only for this workspace's vector database.";
     }
 
     return {
       role: basePrompt,
       functions: [
-        ...(await agentSkillsFromSystemSettings()),
-        ...clarifyingQuestionsSkills,
+        ...agentFunctions,
         ...sortedDynamicFunctions(ImportedPlugin.activeImportedPlugins()),
         ...sortedDynamicFunctions(AgentFlows.activeFlowPlugins()),
         ...sortedDynamicFunctions(
@@ -118,23 +127,26 @@ const WORKSPACE_AGENT = {
   },
 };
 
-/**
- * Conditionally include the request-user-input sub-tools in the workspace
- * agent's function list when the admin has enabled clarifying questions.
- * @returns {Promise<string[]>}
- */
-async function clarifyingQuestionsSkillIfEnabled() {
-  const enabled =
-    (await SystemSettings.getValueOrFallback(
-      { label: "agent_clarifying_questions_enabled" },
-      "false"
-    )) === "true";
-  if (!enabled) return [];
+function pushSkillFunctions(systemFunctions = [], skillName, filterState = null) {
+  if (!AgentPlugins.hasOwnProperty(skillName)) return;
+  if (skillName === WEB_BROWSING_NAME && !isSearchModelConfigured()) return;
 
-  const parentName = AgentPlugins.requestUserInput.name;
-  const subPlugins = AgentPlugins.requestUserInput.plugin;
-  if (!Array.isArray(subPlugins)) return [];
-  return subPlugins.map((sub) => `${parentName}#${sub.name}`);
+  // This is a plugin module with many sub-children plugins who
+  // need to be named via `${parent}#${child}` naming convention.
+  if (Array.isArray(AgentPlugins[skillName].plugin)) {
+    for (const subPlugin of AgentPlugins[skillName].plugin) {
+      if (filterState) {
+        if (!filterState.available) continue;
+        if (filterState.disabledSubSkills.includes(subPlugin.name)) continue;
+      }
+
+      systemFunctions.push(`${AgentPlugins[skillName].name}#${subPlugin.name}`);
+    }
+    return;
+  }
+
+  // This is normal single-stage plugin.
+  systemFunctions.push(AgentPlugins[skillName].name);
 }
 
 /**
@@ -155,7 +167,7 @@ async function agentSkillsFromSystemSettings() {
   );
   DEFAULT_SKILLS.forEach((skill) => {
     if (!_disabledDefaultSkills.includes(skill))
-      systemFunctions.push(AgentPlugins[skill].name);
+      pushSkillFunctions(systemFunctions, skill);
   });
 
   // Load non-imported built-in skills that are configurable.
@@ -188,29 +200,9 @@ async function agentSkillsFromSystemSettings() {
 
   for (const skillName of _setting) {
     if (!AgentPlugins.hasOwnProperty(skillName)) continue;
-
-    // This is a plugin module with many sub-children plugins who
-    // need to be named via `${parent}#${child}` naming convention
-    if (Array.isArray(AgentPlugins[skillName].plugin)) {
-      for (const subPlugin of AgentPlugins[skillName].plugin) {
-        // Check if this skill has filter configuration
-        const filterState = skillFilterState[skillName];
-        if (filterState) {
-          if (!filterState.available) continue;
-          if (filterState.disabledSubSkills.includes(subPlugin.name)) continue;
-        }
-
-        systemFunctions.push(
-          `${AgentPlugins[skillName].name}#${subPlugin.name}`
-        );
-      }
-      continue;
-    }
-
-    // This is normal single-stage plugin
-    systemFunctions.push(AgentPlugins[skillName].name);
+    pushSkillFunctions(systemFunctions, skillName, skillFilterState[skillName]);
   }
-  return systemFunctions;
+  return uniqueFunctions(systemFunctions);
 }
 
 module.exports = {

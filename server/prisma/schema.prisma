@@ -310,6 +310,59 @@ model users {
   @@index([ownerType])
 }
 
+model memory_candidates {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  category    String
+  title       String
+  detail      String
+  source      String
+  confidence  String
+  fingerprint String
+  createdAt   DateTime @default(now())
+
+  @@index([userId, category])
+  @@index([fingerprint])
+}
+
+model user_memory_blocks {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  category         String
+  title            String
+  detail           String
+  source           String
+  confidence       String
+  updatedAt        DateTime @default(now())
+  isSensitive      Boolean  @default(false)
+  encryptedPayload String?
+
+  @@index([userId, category])
+  @@index([userId, isSensitive])
+}
+
+model user_memory_archives {
+  id         Int      @id @default(autoincrement())
+  userId     Int
+  category   String
+  oldValue   String
+  replacedBy Int?
+  archivedAt DateTime @default(now())
+
+  @@index([userId, category])
+  @@index([replacedBy])
+}
+
+model user_profile_overviews {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  overview    String
+  version     Int
+  generatedAt DateTime @default(now())
+
+  @@index([userId, version])
+}
+
 model AuthEnvironmentDeletion {
   id                  Int      @id @default(autoincrement())
   authUserId          Int
@@ -979,6 +1032,7 @@ model workspace_suggested_messages {
 
 model workspace_chats {
   id                  Int      @id @default(autoincrement())
+  public_id           String?  @unique
   workspaceId         Int
   prompt              String
   response            String

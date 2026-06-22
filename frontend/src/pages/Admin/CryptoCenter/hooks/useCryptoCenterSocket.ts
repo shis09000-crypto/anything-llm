@@ -1,16 +1,10 @@
 import { useEffect } from "react";
-import { API_BASE, AUTH_TOKEN, fullApiUrl } from "@/utils/constants";
-import { baseHeaders, safeJsonParse } from "@/utils/request";
+import {
+  createCryptoCenterSocket,
+  fetchCryptoCenterSnapshot,
+} from "@/lib/communication/crypto/cryptoCenterClient";
+import { safeJsonParse } from "@/utils/request";
 import type { CryptoCenterEvent, TimeRange } from "../types";
-
-function cryptoStreamUrl(range: TimeRange) {
-  const token = window.localStorage.getItem(AUTH_TOKEN);
-  const url = new URL("crypto-center/stream", `${fullApiUrl()}/`);
-  url.searchParams.set("range", range);
-  if (token) url.searchParams.set("token", token);
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  return url.toString();
-}
 
 export function useCryptoCenterSocket(
   range: TimeRange,
@@ -29,14 +23,7 @@ export function useCryptoCenterSocket(
     async function loadSnapshot() {
       onStatus("connecting");
       try {
-        const response = await fetch(
-          `${API_BASE}/crypto-center/snapshot?range=${range}`,
-          {
-            headers: baseHeaders(),
-          }
-        );
-        if (!response.ok) throw new Error("Snapshot request failed.");
-        const payload = await response.json();
+        const { data: payload } = await fetchCryptoCenterSnapshot(range);
         if (payload?.snapshot)
           onEvent({ type: "snapshot", data: payload.snapshot });
       } catch (error) {
@@ -51,7 +38,7 @@ export function useCryptoCenterSocket(
       if (cancelled) return;
       onStatus(attempts === 0 ? "connecting" : "degraded");
 
-      socket = new WebSocket(cryptoStreamUrl(range));
+      socket = createCryptoCenterSocket(range);
       socket.onopen = () => {
         attempts = 0;
         onStatus("connected");

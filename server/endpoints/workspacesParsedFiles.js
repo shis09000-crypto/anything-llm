@@ -11,6 +11,7 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { CollectorApi } = require("../utils/collectorApi");
 const { WorkspaceThread } = require("../models/workspaceThread");
 const { WorkspaceParsedFiles } = require("../models/workspaceParsedFiles");
+const { getAuthorizedParsedFile } = require("../utils/authz/resourceAccess");
 
 function workspaceParsedFilesEndpoints(app) {
   if (!app) return;
@@ -82,11 +83,20 @@ function workspaceParsedFilesEndpoints(app) {
         const workspace = response.locals.workspace;
 
         if (!fileId) return response.sendStatus(400).end();
+        const parsedFile = await getAuthorizedParsedFile({
+          request,
+          response,
+          workspace,
+          fileId,
+        });
+        if (!parsedFile) return response.sendStatus(404).end();
+
         const { success, error, document } =
           await WorkspaceParsedFiles.moveToDocumentsAndEmbed(
             user,
             fileId,
-            workspace
+            workspace,
+            parsedFile
           );
 
         if (!success) {
@@ -114,10 +124,6 @@ function workspaceParsedFilesEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         return response.sendStatus(500).end();
-      } finally {
-        // eslint-disable-next-line
-        if (!fileId) return;
-        await WorkspaceParsedFiles.delete({ id: parseInt(fileId) });
       }
     }
   );

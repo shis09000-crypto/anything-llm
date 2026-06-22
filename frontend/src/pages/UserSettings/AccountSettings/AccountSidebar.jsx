@@ -8,8 +8,10 @@ import {
   Fingerprint,
   LockKey,
   MagnifyingGlass,
+  Note,
   ShieldCheck,
   SignOut,
+  Sparkle,
   TextT,
   UserCircle,
   UserCircleGear,
@@ -19,6 +21,8 @@ import { canSeeAdmin } from "@/utils/authz";
 
 const navItems = [
   { href: "#profile", label: "个人信息", icon: UserCircle },
+  { href: "#personalization", label: "个性化设置", icon: Sparkle },
+  { href: "#memory-blocks", label: "长期记忆", icon: Note },
   { href: "#contact", label: "联系方式", icon: EnvelopeSimple },
   { href: "#security", label: "登录与安全", icon: LockKey },
   { href: "#passkeys", label: "通行密钥", icon: Fingerprint },
@@ -36,12 +40,22 @@ const adminNavItems = [
   { href: "#admin-default-prompt", label: "默认系统提示词", icon: TextT },
 ];
 
-function NavLink({ href, label, icon: Icon }) {
+function NavLink({ href, label, icon: Icon, active = false, onNavigate }) {
   return (
     <a
       key={href}
       href={href}
-      className="flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 hover:shadow-sm"
+      onClick={(event) => {
+        if (!onNavigate) return;
+        event.preventDefault();
+        onNavigate(href);
+      }}
+      className={[
+        "flex items-center gap-3 rounded-2xl px-3 py-2.5 text-sm font-medium transition hover:bg-white hover:text-slate-950 hover:shadow-sm",
+        active
+          ? "bg-white text-slate-950 shadow-sm"
+          : "text-slate-600",
+      ].join(" ")}
     >
       <Icon className="h-5 w-5" />
       <span>{label}</span>
@@ -49,11 +63,17 @@ function NavLink({ href, label, icon: Icon }) {
   );
 }
 
-export default function AccountSidebar({ user, onReturnHome, onSignOut }) {
+export default function AccountSidebar({
+  user,
+  activeHash = "#profile",
+  onNavigateHash,
+  onReturnHome,
+  onSignOut,
+}) {
   const showAdmin = canSeeAdmin(user);
 
   return (
-    <aside className="flex h-full w-full flex-col border-r border-slate-200 bg-[#f5f5f7] px-4 py-5 md:w-[282px]">
+    <aside className="account-settings-sidebar flex w-full flex-col border-r border-slate-200 bg-[#f5f5f7] px-4 py-5 md:w-[282px]">
       <div>
         <AppButton
           type="button"
@@ -80,7 +100,14 @@ export default function AccountSidebar({ user, onReturnHome, onSignOut }) {
       </div>
       <nav className="mt-5 flex flex-1 flex-col gap-1 overflow-y-auto pb-2">
         {navItems.map(({ href, label, icon: Icon }) => (
-          <NavLink key={href} href={href} label={label} icon={Icon} />
+          <NavLink
+            key={href}
+            href={href}
+            label={label}
+            icon={Icon}
+            active={activeHash === href}
+            onNavigate={onNavigateHash}
+          />
         ))}
         {showAdmin && (
           <div className="mt-4 border-t border-slate-200 pt-4">
@@ -89,7 +116,14 @@ export default function AccountSidebar({ user, onReturnHome, onSignOut }) {
             </p>
             <div className="flex flex-col gap-1">
               {adminNavItems.map(({ href, label, icon: Icon }) => (
-                <NavLink key={href} href={href} label={label} icon={Icon} />
+                <NavLink
+                  key={href}
+                  href={href}
+                  label={label}
+                  icon={Icon}
+                  active={activeHash === href}
+                  onNavigate={onNavigateHash}
+                />
               ))}
             </div>
           </div>

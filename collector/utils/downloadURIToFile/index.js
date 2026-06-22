@@ -4,6 +4,7 @@ const path = require("path");
 const { pipeline } = require("stream/promises");
 const { validURL } = require("../url");
 const { default: slugify } = require("slugify");
+const { redactUrl } = require("../security/redaction");
 
 // Add a custom slugify extension for slashing to handle URLs with paths.
 slugify.extend({ "/": "-" });
@@ -37,7 +38,7 @@ async function downloadURIToFile(url, maxTimeout = 10_000) {
       abortController.abort();
       console.error(
         `Timeout ${maxTimeout}ms reached while downloading file for URL:`,
-        url.toString()
+        redactUrl(url.toString())
       );
     }, maxTimeout);
 
@@ -79,7 +80,9 @@ async function downloadURIToFile(url, maxTimeout = 10_000) {
     console.log(`[SUCCESS]: File ${localFilePath} downloaded to hotdir.`);
     return { success: true, fileLocation: localFilePath, reason: null };
   } catch (error) {
-    console.error(`Error writing to hotdir: ${error} for URL: ${url}`);
+    console.error(
+      `Error writing to hotdir: ${error} for URL: ${redactUrl(url)}`
+    );
     return { success: false, reason: error.message, fileLocation: null };
   }
 }

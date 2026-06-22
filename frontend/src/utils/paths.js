@@ -133,6 +133,9 @@ export default {
     rerankPreference: () => {
       return "/settings/rerank-preference";
     },
+    searchModelPreference: () => {
+      return "/settings/search-model-preference";
+    },
     ocrPreference: () => {
       return "/settings/ocr-preference";
     },

@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useMemo,
+  useReducer,
   forwardRef,
   memo,
   useCallback,
@@ -26,6 +27,7 @@ import { MessageActionsProvider } from "./MessageActionsContext";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 import {
+  CHAT_SCROLL_BOTTOM_TOLERANCE_PX,
   CHAT_SCROLL_PROGRAMMATIC_SUPPRESS_MS,
   CHAT_SCROLL_SMOOTH_SUPPRESS_MS,
   clearSavedChatScrollPosition,
@@ -37,7 +39,9 @@ import {
 } from "@/utils/chat/chatScrollIntent";
 import {
   chatBottomScrollBehavior,
+  cancelChatRestoreRun,
   createChatScrollPositionSnapshot,
+  isChatRestoreRunCurrent,
   normalizeChatScrollPosition,
   savedChatScrollTopFallback,
   shouldBlockChatScrollPersistenceForLayoutTransition,
@@ -46,6 +50,7 @@ import {
   shouldPreserveParkedChatAnchor,
   shouldRestoreExplicitPrepend,
   shouldSkipChatRestoreForLayoutTransition,
+  startChatRestoreRun,
   tailCleanupFollowDecision,
   tailHydrationFollowDecision,
 } from "@/utils/chat/chatScrollPosition";
@@ -56,6 +61,10 @@ import {
   writeChatScrollBottomMemory,
   writeChatScrollMemory,
 } from "@/utils/chat/chatScrollMemory";
+import {
+  chatScrollReducer,
+  initialChatScrollState,
+} from "@/utils/chat/chatScrollCoordinator";
 
 const CHAT_LAYOUT_OVERLAP_TOLERANCE_PX = -2;
 const CHAT_LAYOUT_MIN_ROW_HEIGHT_PX = 4;
@@ -127,6 +136,12 @@ export default forwardRef(function (
     anchor: null,
     until: 0,
   });
+  const chatRestoreRunRef = useRef({ active: false, generation: 0 });
+  const chatRestoreHandlesRef = useRef({
+    frames: [],
+    timeouts: [],
+    observers: [],
+  });
   const persistScrollMemoryRef = useRef(() => null);
   const sendFollowRef = useRef({
     active: false,
@@ -160,6 +175,7 @@ export default forwardRef(function (
   const layoutCheckSettleFrameRef = useRef(null);
   const layoutRecoveryPassesRef = useRef(0);
   const itemsRef = useRef(items);
+  const previousItemsLengthRef = useRef(items.length);
   itemsRef.current = items;
   const { threadSlug = null } = useParams();
   const effectiveThreadSlug =
@@ -167,7 +183,12 @@ export default forwardRef(function (
   const navigate = useNavigate();
   const { showing, hideModal } = useManageWorkspaceModal();
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isNearBottom, setIsNearBottom] = useState(true);
   const [, setIsUserScrolling] = useState(false);
+  const [scrollCoordinatorState, dispatchScrollEvent] = useReducer(
+    chatScrollReducer,
+    initialChatScrollState
+  );
   const isStreaming = items.some(
     (item) => item.type === "assistant_turn" && item.status === "running"
   );
@@ -191,6 +212,7 @@ export default forwardRef(function (
       ? { overflowAnchor: "none" }
       : {
           paddingBottom: `${normalizedBottomInset}px`,
+          scrollPaddingBottom: `${normalizedBottomInset}px`,
           overflowAnchor: "none",
         };
   const rowVirtualizer = useVirtualizer({
@@ -209,12 +231,63 @@ export default forwardRef(function (
     return readChatScrollMemory(chatKey);
   }, [chatKey, chatScrollMemory]);
 
-  const markUserScrollIntentFor = useCallback((source = "scroll") => {
-    programmaticScrollGenerationRef.current += 1;
-    programmaticScrollRef.current.reason = null;
-    programmaticScrollRef.current.until = 0;
-    markChatUserScrollIntent(userScrollIntentRef.current, source);
+  const clearChatRestoreHandles = useCallback(() => {
+    const handles = chatRestoreHandlesRef.current;
+    handles.frames.forEach((handle) => window.cancelAnimationFrame(handle));
+    handles.timeouts.forEach((handle) => window.clearTimeout(handle));
+    handles.observers.forEach((observer) => observer.disconnect?.());
+    chatRestoreHandlesRef.current = {
+      frames: [],
+      timeouts: [],
+      observers: [],
+    };
   }, []);
+
+  const clearPendingChatRestore = useCallback(
+    (reason = "chat-restore-cancel") => {
+      const handles = chatRestoreHandlesRef.current;
+      const hadPending =
+        chatRestoreRunRef.current.active ||
+        handles.frames.length > 0 ||
+        handles.timeouts.length > 0 ||
+        handles.observers.length > 0;
+      clearChatRestoreHandles();
+      cancelChatRestoreRun(chatRestoreRunRef.current);
+      scrollRestoreSessionRef.current = {
+        active: false,
+        anchor: null,
+        until: 0,
+      };
+      suppressAutoScrollRef.current = false;
+      if (!hadPending) return;
+      recordChatScrollMemoryEvent({
+        label: "restore-cancelled",
+        chatKey,
+        reason,
+      });
+      debugChatTurn("ChatHistory:restoreCancelled", {
+        chatKey,
+        reason,
+      });
+    },
+    [chatKey, clearChatRestoreHandles]
+  );
+
+  const markUserScrollIntentFor = useCallback(
+    (source = "scroll") => {
+      clearPendingChatRestore(`user-intent:${source}`);
+      programmaticScrollGenerationRef.current += 1;
+      programmaticScrollRef.current.reason = null;
+      programmaticScrollRef.current.until = 0;
+      markChatUserScrollIntent(userScrollIntentRef.current, source);
+    },
+    [clearPendingChatRestore]
+  );
+
+  const hasRecentUserScrollControl = useCallback(
+    () => hasRecentChatUserScrollIntent(userScrollIntentRef.current),
+    []
+  );
 
   const guardProgrammaticScroll = useCallback(
     (reason, action, durationMs = CHAT_SCROLL_PROGRAMMATIC_SUPPRESS_MS) => {
@@ -353,6 +426,11 @@ export default forwardRef(function (
       };
       prependRestoreRequestRef.current = null;
       if (!isBottom) parkedAnchorRef.current = capturedAnchor;
+      dispatchScrollEvent({
+        type: "LAYOUT_WILL_CHANGE",
+        anchorMessageId: capturedAnchor?.itemId || null,
+        anchorOffset: capturedAnchor?.rowOffsetTop || 0,
+      });
 
       debugChatTurn("ChatHistory:layoutTransitionStart", {
         chatKey,
@@ -771,6 +849,7 @@ export default forwardRef(function (
 
       if (persist) persistBottomScrollMemory(reason);
       setIsAtBottom(bottomGapAfter < 2);
+      setIsNearBottom(true);
       setIsUserScrolling(false);
       lastScrollTopRef.current = element.scrollTop;
       debugChatTurn("ChatHistory:stickToBottom", {
@@ -862,6 +941,7 @@ export default forwardRef(function (
         bottomGap: Math.round(bottomGap),
       });
       setIsAtBottom(bottomGap < 2);
+      setIsNearBottom(bottomGap <= CHAT_SCROLL_BOTTOM_TOLERANCE_PX);
       setIsUserScrolling(!transition.isAtBottom);
       lastScrollTopRef.current = element.scrollTop;
       return restored;
@@ -899,6 +979,7 @@ export default forwardRef(function (
         if (stableFrames >= 2 && ageMs >= CHAT_SCROLL_LAYOUT_MIN_SETTLE_MS) {
           layoutTransitionRef.current.active = false;
           clearLayoutTransitionHandles();
+          dispatchScrollEvent({ type: "LAYOUT_DID_STABILIZE" });
           debugChatTurn("ChatHistory:layoutTransitionSkip", {
             chatKey,
             reason,
@@ -1057,6 +1138,18 @@ export default forwardRef(function (
         return false;
       }
 
+      if (hasRecentUserScrollControl()) {
+        measureVisibleVirtualRows();
+        layoutRecoveryPassesRef.current = 0;
+        debugChatTurn("ChatHistory:layoutRecoveryDeferred", {
+          chatKey,
+          reason,
+          result: "user-scroll-control",
+          status,
+        });
+        return false;
+      }
+
       layoutRecoveryPassesRef.current += 1;
       guardProgrammaticScroll(
         "layout-recovery",
@@ -1103,6 +1196,7 @@ export default forwardRef(function (
       measureVisibleVirtualRows,
       preserveParkedAnchor,
       guardProgrammaticScroll,
+      hasRecentUserScrollControl,
       rowVirtualizer,
       scheduleLayoutTransitionRestore,
       stickToBottom,
@@ -1190,6 +1284,24 @@ export default forwardRef(function (
   }, [chatKey, isStreaming, items]);
 
   useEffect(() => {
+    const previousItemsLength = previousItemsLengthRef.current;
+    const currentAnchor = parkedAnchorRef.current;
+    if (isStreaming) {
+      dispatchScrollEvent({
+        type: "ASSISTANT_MESSAGE_STREAMING",
+        anchorMessageId: currentAnchor?.itemId || null,
+        anchorOffset: currentAnchor?.rowOffsetTop || 0,
+      });
+    } else if (items.length !== previousItemsLength) {
+      dispatchScrollEvent({
+        type: "MESSAGE_APPENDED",
+        messageId: items[items.length - 1]?.id || null,
+        anchorMessageId: currentAnchor?.itemId || null,
+        anchorOffset: currentAnchor?.rowOffsetTop || 0,
+      });
+    }
+    previousItemsLengthRef.current = items.length;
+
     if (layoutTransitionRef.current.active) {
       scheduleLayoutTransitionRestore("items-follow:layout-transition");
       return;
@@ -1211,6 +1323,7 @@ export default forwardRef(function (
       preserveParkedAnchor("items");
     }
   }, [
+    isStreaming,
     items,
     preserveParkedAnchor,
     scheduleLayoutTransitionRestore,
@@ -1222,6 +1335,7 @@ export default forwardRef(function (
     if (!sendScrollRequest) return;
     if (sendFollowRef.current.request === sendScrollRequest) return;
 
+    dispatchScrollEvent({ type: "USER_SENT_MESSAGE" });
     activateSendFollow(sendScrollRequest, "send-scroll:init");
   }, [activateSendFollow, sendScrollRequest]);
 
@@ -1229,11 +1343,14 @@ export default forwardRef(function (
     const element = chatHistoryRef.current;
     if (!element || !chatKey) return;
 
+    clearChatRestoreHandles();
+    const restoreRunId = startChatRestoreRun(chatRestoreRunRef.current);
+    const restoreHandles = chatRestoreHandlesRef.current;
+    const restoreRunIsCurrent = () =>
+      isChatRestoreRunCurrent(chatRestoreRunRef.current, restoreRunId);
     suppressAutoScrollRef.current = true;
-    const frameHandles = [];
-    const timeoutHandles = [];
-    const observerHandles = [];
     const frame = window.requestAnimationFrame(() => {
+      if (!restoreRunIsCurrent()) return;
       const current = chatHistoryRef.current;
       if (!current) return;
       if (
@@ -1280,6 +1397,7 @@ export default forwardRef(function (
       ].join(":");
       if (lastScrollMemoryRestoreKeyRef.current === restoreKey) {
         suppressAutoScrollRef.current = false;
+        chatRestoreRunRef.current.active = false;
         return;
       }
       lastScrollMemoryRestoreKeyRef.current = restoreKey;
@@ -1304,13 +1422,15 @@ export default forwardRef(function (
       });
       const scheduleRestoreMemoryPersist = (reason) => {
         const persistTimeout = window.setTimeout(() => {
+          if (!restoreRunIsCurrent()) return;
           persistScrollMemoryRef.current?.(reason);
         }, 320);
-        timeoutHandles.push(persistTimeout);
+        restoreHandles.timeouts.push(persistTimeout);
       };
       const scheduleAnchorSettle = (anchor, reason) => {
         const element = chatHistoryRef.current;
         const runSettle = (suffix = "settle") => {
+          if (!restoreRunIsCurrent()) return;
           const latest = chatHistoryRef.current;
           if (!latest) return;
           guardProgrammaticScroll(
@@ -1325,8 +1445,11 @@ export default forwardRef(function (
           );
         };
         const addFrame = (callback) => {
-          const handle = window.requestAnimationFrame(callback);
-          frameHandles.push(handle);
+          const handle = window.requestAnimationFrame(() => {
+            if (!restoreRunIsCurrent()) return;
+            callback();
+          });
+          restoreHandles.frames.push(handle);
           return handle;
         };
         addFrame(() => {
@@ -1338,19 +1461,25 @@ export default forwardRef(function (
             () => runSettle(`timeout-${delayMs}`),
             delayMs
           );
-          timeoutHandles.push(settleTimeout);
+          restoreHandles.timeouts.push(settleTimeout);
         });
         if (element && typeof ResizeObserver !== "undefined") {
-          const observer = new ResizeObserver(() => runSettle("resize"));
+          const observer = new ResizeObserver(() => {
+            if (!restoreRunIsCurrent()) return;
+            runSettle("resize");
+          });
           observer.observe(element);
-          observerHandles.push(observer);
-          timeoutHandles.push(
-            window.setTimeout(() => observer.disconnect(), 2500)
+          restoreHandles.observers.push(observer);
+          restoreHandles.timeouts.push(
+            window.setTimeout(() => {
+              observer.disconnect();
+            }, 2500)
           );
         }
       };
       const scheduleBottomSettle = (reason) => {
         const runSettle = () => {
+          if (!restoreRunIsCurrent()) return;
           const latest = chatHistoryRef.current;
           if (!latest) return;
           guardProgrammaticScroll(
@@ -1363,17 +1492,19 @@ export default forwardRef(function (
           );
         };
         const frameHandle = window.requestAnimationFrame(() => {
+          if (!restoreRunIsCurrent()) return;
           const secondFrame = window.requestAnimationFrame(runSettle);
-          frameHandles.push(secondFrame);
+          restoreHandles.frames.push(secondFrame);
         });
-        frameHandles.push(frameHandle);
+        restoreHandles.frames.push(frameHandle);
         CHAT_SCROLL_RESTORE_SETTLE_DELAYS_MS.forEach((delayMs) => {
           const timeout = window.setTimeout(runSettle, delayMs);
-          timeoutHandles.push(timeout);
+          restoreHandles.timeouts.push(timeout);
         });
       };
 
       guardProgrammaticScroll("chat-restore", () => {
+        if (!restoreRunIsCurrent()) return;
         if (sendFollowActive) {
           parkedAnchorRef.current = null;
           clearScrollRestoreSession();
@@ -1425,23 +1556,29 @@ export default forwardRef(function (
       });
       const isBottom =
         current.scrollHeight - current.scrollTop - current.clientHeight < 2;
+      const isNearBottom =
+        current.scrollHeight - current.scrollTop - current.clientHeight <=
+        CHAT_SCROLL_BOTTOM_TOLERANCE_PX;
       shouldFollowOutputRef.current =
         sendFollowActive ||
         savedPosition?.isAtBottom === true ||
         (!hasSavedPosition && isBottom);
       setIsAtBottom(isBottom);
-      setIsUserScrolling(!isBottom);
+      setIsNearBottom(isNearBottom);
+      setIsUserScrolling(!isNearBottom);
       lastScrollTopRef.current = current.scrollTop;
     });
-    frameHandles.push(frame);
+    restoreHandles.frames.push(frame);
     return () => {
-      frameHandles.forEach((handle) => window.cancelAnimationFrame(handle));
-      timeoutHandles.forEach((handle) => window.clearTimeout(handle));
-      observerHandles.forEach((observer) => observer.disconnect());
+      if (!isChatRestoreRunCurrent(chatRestoreRunRef.current, restoreRunId))
+        return;
+      clearPendingChatRestore("chat-restore:effect-cleanup");
     };
   }, [
     beginScrollRestoreSession,
     chatKey,
+    clearChatRestoreHandles,
+    clearPendingChatRestore,
     clearScrollRestoreSession,
     guardProgrammaticScroll,
     items.length,
@@ -1458,6 +1595,7 @@ export default forwardRef(function (
     activateSendFollow(sendScrollRequest, "send-scroll");
     setIsUserScrolling(false);
     setIsAtBottom(true);
+    setIsNearBottom(true);
     persistBottomScrollMemory("send-scroll:start");
     scheduleStickToBottom("send-scroll", {
       resetSavedPosition: true,
@@ -1529,6 +1667,7 @@ export default forwardRef(function (
     clearSavedChatScrollPosition(scrollPositionsRef.current, chatKey);
     setIsUserScrolling(false);
     setIsAtBottom(true);
+    setIsNearBottom(true);
     scheduleStickToBottom("tail-hydration", {
       resetSavedPosition: true,
       persist: true,
@@ -1611,6 +1750,7 @@ export default forwardRef(function (
     clearSavedChatScrollPosition(scrollPositionsRef.current, chatKey);
     setIsUserScrolling(false);
     setIsAtBottom(true);
+    setIsNearBottom(true);
     scheduleStickToBottom("tail-cleanup", {
       resetSavedPosition: true,
       persist: true,
@@ -1629,7 +1769,12 @@ export default forwardRef(function (
       debounce(() => {
         if (olderLoadPendingRef.current || isLoadingOlderHistory) return;
         olderLoadPendingRef.current = true;
-        capturePrependAnchor();
+        const anchor = capturePrependAnchor();
+        dispatchScrollEvent({
+          type: "OLDER_MESSAGES_LOADING",
+          anchorMessageId: anchor?.itemId || null,
+          anchorOffset: anchor?.rowOffsetTop || 0,
+        });
         onLoadOlderHistory?.();
       }, 100),
     [capturePrependAnchor, isLoadingOlderHistory, onLoadOlderHistory]
@@ -1639,6 +1784,7 @@ export default forwardRef(function (
     if (!isLoadingOlderHistory) {
       olderLoadPendingRef.current = false;
       prependRestoreRequestRef.current = null;
+      dispatchScrollEvent({ type: "OLDER_MESSAGES_LOADED" });
     }
   }, [isLoadingOlderHistory]);
 
@@ -1674,6 +1820,29 @@ export default forwardRef(function (
         !intent.isProgrammatic &&
         scrollDelta > 8 &&
         layoutTransitionAgeMs > CHAT_SCROLL_LAYOUT_SUPPRESS_MS;
+      const hasObservedUserScrollIntent =
+        !intent.isProgrammatic &&
+        !sendFollowRef.current.active &&
+        scrollDelta > 2;
+      if (hasObservedUserScrollIntent && !intent.hasUserIntent) {
+        markChatUserScrollIntent(
+          userScrollIntentRef.current,
+          "observed-scroll"
+        );
+      }
+      if (
+        intent.hasUserIntent ||
+        hasObservedLayoutScrollNavigationIntent ||
+        hasObservedUserScrollIntent
+      ) {
+        clearPendingChatRestore(
+          `scroll:${
+            intent.hasUserIntent
+              ? userIntentSource || "user"
+              : "observed-user-scroll"
+          }`
+        );
+      }
       if (
         layoutTransitionRef.current.active &&
         !hasLayoutScrollNavigationIntent &&
@@ -1686,7 +1855,8 @@ export default forwardRef(function (
           isProgrammatic: intent.isProgrammatic,
           source: userIntentSource,
         });
-        setIsAtBottom(intent.isBottom);
+        setIsAtBottom(intent.isPinnedToBottom);
+        setIsNearBottom(intent.isNearBottom);
         lastScrollTopRef.current = scrollTop;
         return;
       }
@@ -1703,7 +1873,7 @@ export default forwardRef(function (
         reason,
         { updateParkedAnchor = true } = {}
       ) => {
-        if (intent.isBottom) {
+        if (intent.isPinnedToBottom) {
           clearSavedChatScrollPosition(scrollPositionsRef.current, chatKey);
           parkedAnchorRef.current = null;
           persistVisibleScrollMemory(`${reason}-bottom`);
@@ -1728,7 +1898,7 @@ export default forwardRef(function (
 
       if (intent.canSavePosition) {
         clearScrollRestoreSession();
-        if (!intent.isBottom) deactivateSendFollow("user-scroll");
+        if (!intent.isPinnedToBottom) deactivateSendFollow("user-scroll");
         saveVisiblePosition("user-scroll");
       } else if (
         chatKey &&
@@ -1746,12 +1916,17 @@ export default forwardRef(function (
           isProgrammatic: intent.isProgrammatic,
           source: userScrollIntentRef.current?.source || null,
           hasUserIntent: intent.hasUserIntent,
-          isBottom: intent.isBottom,
+          isBottom: intent.isPinnedToBottom,
+          isNearBottom: intent.isNearBottom,
         });
       }
 
       if (intent.shouldLeaveFollowOutput) {
         deactivateSendFollow("leave-follow-output");
+        shouldFollowOutputRef.current = false;
+      }
+      if (hasObservedUserScrollIntent && !intent.isPinnedToBottom) {
+        deactivateSendFollow("observed-scroll");
         shouldFollowOutputRef.current = false;
       }
       if (intent.shouldEnterFollowOutput) shouldFollowOutputRef.current = true;
@@ -1760,10 +1935,17 @@ export default forwardRef(function (
         scrollDelta > 10 &&
         (intent.hasUserIntent || !intent.isProgrammatic)
       ) {
-        setIsUserScrolling(!intent.isBottom);
+        setIsUserScrolling(!intent.isNearBottom);
       }
 
-      setIsAtBottom(intent.isBottom);
+      setIsAtBottom(intent.isPinnedToBottom);
+      setIsNearBottom(intent.isNearBottom);
+      dispatchScrollEvent({
+        type: "USER_SCROLLED",
+        scrollTop,
+        scrollHeight,
+        clientHeight,
+      });
       lastScrollTopRef.current = scrollTop;
 
       if (!layoutTransitionRef.current.active && intent.canLoadOlderHistory)
@@ -1771,6 +1953,7 @@ export default forwardRef(function (
     },
     [
       chatKey,
+      clearPendingChatRestore,
       clearLayoutTransitionHandles,
       clearScrollRestoreSession,
       deactivateSendFollow,
@@ -1811,55 +1994,42 @@ export default forwardRef(function (
     }
 
     previousFirstItemIdRef.current = firstId;
-    guardProgrammaticScroll(
-      "layout-input",
-      () => {
-        rowVirtualizer.measure();
-        if (layoutTransitionRef.current.active) {
-          scheduleLayoutTransitionRestore("layout-input:layout-transition");
-        } else if (
-          sendFollowRef.current.active &&
-          shouldFollowOutputRef.current
-        ) {
-          stickToBottom("layout-input:send-follow", { persist: true });
-        } else {
-          preserveParkedAnchor("layout-input");
-        }
-      },
-      CHAT_SCROLL_LAYOUT_SUPPRESS_MS
-    );
+    const handleInputLayoutChange = (reason) => {
+      rowVirtualizer.measure();
+      if (hasRecentUserScrollControl() && !sendFollowRef.current.active) {
+        debugChatTurn("ChatHistory:layoutInputMeasureOnly", {
+          chatKey,
+          reason,
+          result: "user-scroll-control",
+        });
+        return;
+      }
+      if (layoutTransitionRef.current.active) {
+        scheduleLayoutTransitionRestore(`${reason}:layout-transition`);
+      } else if (
+        sendFollowRef.current.active &&
+        shouldFollowOutputRef.current
+      ) {
+        stickToBottom(`${reason}:send-follow`, { persist: true });
+      } else {
+        preserveParkedAnchor(reason);
+      }
+    };
+
+    handleInputLayoutChange("layout-input");
     scheduleChatLayoutSelfCheck("layout-input");
     const frame = requestAnimationFrame(() => {
-      guardProgrammaticScroll(
-        "layout-input:settle",
-        () => {
-          rowVirtualizer.measure();
-          if (layoutTransitionRef.current.active) {
-            scheduleLayoutTransitionRestore(
-              "layout-input:settle:layout-transition"
-            );
-          } else if (
-            sendFollowRef.current.active &&
-            shouldFollowOutputRef.current
-          ) {
-            stickToBottom("layout-input:settle:send-follow", {
-              persist: true,
-            });
-          } else {
-            preserveParkedAnchor("layout-input:settle");
-          }
-        },
-        CHAT_SCROLL_LAYOUT_SUPPRESS_MS
-      );
+      handleInputLayoutChange("layout-input:settle");
       scheduleChatLayoutSelfCheck("layout-input:settle");
     });
     return () => cancelAnimationFrame(frame);
   }, [
+    chatKey,
     contentClassName,
     items,
     isAtBottom,
     normalizedBottomInset,
-    guardProgrammaticScroll,
+    hasRecentUserScrollControl,
     preserveParkedAnchor,
     restorePrependAnchor,
     rowVirtualizer,
@@ -1873,18 +2043,20 @@ export default forwardRef(function (
   const saveEditedMessage = async ({
     editedMessage,
     chatId,
+    publicChatId = null,
     role,
     attachments = [],
     saveOnly = false,
   }) => {
     if (!editedMessage || !chatKey) return;
+    const actionChatId = publicChatId || chatId;
 
     if (role === "user" && saveOnly) {
       updateUserItem(chatKey, chatId, { content: editedMessage });
       await Workspace.updateChat(
         workspace.slug,
         effectiveThreadSlug,
-        chatId,
+        actionChatId,
         editedMessage,
         "user"
       );
@@ -1918,17 +2090,17 @@ export default forwardRef(function (
       await Workspace.updateChat(
         workspace.slug,
         effectiveThreadSlug,
-        chatId,
+        actionChatId,
         editedMessage
       );
     }
   };
 
-  const forkThread = async (chatId) => {
+  const forkThread = async (chatId, publicChatId = null) => {
     const newThreadSlug = await Workspace.forkThread(
       workspace.slug,
       effectiveThreadSlug,
-      chatId
+      publicChatId || chatId
     );
     navigate(paths.workspace.thread(workspace.slug, newThreadSlug));
   };
@@ -2035,7 +2207,7 @@ export default forwardRef(function (
     <MessageActionsProvider>
       <ThoughtExpansionProvider chatKey={chatKey}>
         <div
-          className={`markdown text-white/80 light:text-theme-text-primary font-light ${textSizeClass} h-full md:h-[83%] pb-[100px] pt-6 md:pt-0 md:pb-20 md:mx-0 overflow-y-scroll flex flex-col items-center justify-start ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
+          className={`markdown text-white/80 light:text-theme-text-primary font-light ${textSizeClass} h-full pb-4 pt-6 md:pt-0 md:pb-4 md:mx-0 overflow-y-scroll flex flex-col items-center justify-start ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
           id="chat-history"
           ref={chatHistoryRef}
           onScroll={handleScroll}
@@ -2085,12 +2257,18 @@ export default forwardRef(function (
             />
           )}
         </div>
-        {!isAtBottom && (
+        {(!isNearBottom || scrollCoordinatorState.hasNewMessagesBelow) && (
           <div className="absolute bottom-40 right-10 z-50 cursor-pointer animate-pulse">
             <div className="flex flex-col items-center">
+              {scrollCoordinatorState.hasNewMessagesBelow && (
+                <div className="mb-2 rounded-full border border-sky-300/30 bg-sky-500/15 px-3 py-1 text-xs font-medium text-sky-100 shadow-lg backdrop-blur light:border-sky-500/30 light:bg-sky-100 light:text-sky-700">
+                  新消息
+                </div>
+              )}
               <div
                 className="p-1 rounded-full border border-white/10 bg-white/10 hover:bg-white/20 hover:text-white"
                 onClick={() => {
+                  dispatchScrollEvent({ type: "JUMP_TO_BOTTOM" });
                   shouldFollowOutputRef.current = true;
                   scrollToBottom(isStreaming ? false : true, {
                     reason: "jump-bottom-button",
@@ -2099,6 +2277,8 @@ export default forwardRef(function (
                   window.requestAnimationFrame(() => {
                     persistScrollMemoryRef.current?.("jump-bottom-button");
                   });
+                  setIsAtBottom(true);
+                  setIsNearBottom(true);
                   setIsUserScrolling(false);
                 }}
               >
@@ -2551,6 +2731,7 @@ const MessageRow = memo(
           chatKey={chatKey}
           turnId={item.turnId}
           chatId={item.chatId}
+          publicChatId={item.publicChatId}
           attachments={item.attachments}
           readerTextSources={item.readerTextSources}
           hydrationStatus={item.hydrationStatus}

@@ -31,6 +31,7 @@ export function rawEventSummary(raw = {}, source = "unknown") {
     close: raw?.close ?? content.close ?? null,
     uuid: raw?.uuid || content.uuid || null,
     chatId: raw?.chatId ?? content.chatId ?? null,
+    publicChatId: raw?.publicChatId ?? content.publicChatId ?? null,
     contentLength: contentLength(raw) || contentLength(content),
   };
 }
@@ -44,6 +45,11 @@ export function normalizedEventSummary(event = {}, source = "unknown") {
     uuid: event?.uuid || timelineEvent.uuid || null,
     chatId:
       event?.chatId ?? event?.patch?.chatId ?? timelineEvent.chatId ?? null,
+    publicChatId:
+      event?.publicChatId ??
+      event?.patch?.publicChatId ??
+      timelineEvent.publicChatId ??
+      null,
     contentLength:
       contentLength(event) ||
       contentLength(event?.patch || {}) ||

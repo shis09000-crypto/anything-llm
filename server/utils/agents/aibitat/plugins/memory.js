@@ -16,7 +16,7 @@ const memory = {
           tracker: new Deduplicator(),
           name: this.name,
           description:
-            "Search your local documents and workspace files for relevant information, or store information to long-term memory. Use search to find answers in uploaded documents, embedded files, or previously stored memories. Use store only when explicitly asked to remember or save something.",
+            "Search local documents, workspace files, or this workspace's vector memory for relevant information. The store action writes only to the current workspace vector database. Do not use store for account-level long-term memory, personal preferences, facts, projects, decisions, open topics, interests, or sensitive memories; use save_memory for those.",
           examples: [
             {
               prompt: "Check my files for information about the project",
@@ -33,10 +33,11 @@ const memory = {
               }),
             },
             {
-              prompt: "Remember that you are a robot",
+              prompt: "Store this project note in the workspace knowledge base",
               call: JSON.stringify({
                 action: "store",
-                content: "I am a robot, the user told me that i am.",
+                content:
+                  "Workspace vector note: the current project uses Athena as the knowledge operations UI.",
               }),
             },
           ],

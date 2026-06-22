@@ -10,6 +10,7 @@ const {
 const { tokenizeString } = require("../../tokenizer");
 const { validBaseUrl } = require("../../http");
 const PaperlessNgxLoader = require("./PaperlessNgxLoader");
+const { redactUrl } = require("../../security/redaction");
 
 /**
  * Load documents from a Paperless-ngx instance
@@ -34,7 +35,7 @@ async function loadPaperlessNgx({ baseUrl = null, apiToken = null }, response) {
   }
 
   const { origin, hostname } = new URL(baseUrl);
-  console.log(`-- Working Paperless-ngx ${origin} --`);
+  console.log(`-- Working Paperless-ngx ${redactUrl(origin)} --`);
   const loader = new PaperlessNgxLoader({
     baseUrl: origin,
     apiToken,
@@ -72,7 +73,9 @@ async function loadPaperlessNgx({ baseUrl = null, apiToken = null }, response) {
       url: doc.metadata.url,
       title: doc.metadata.title,
       docAuthor: doc.metadata.correspondent || "Unknown",
-      description: `A document from the Paperless-ngx instance at ${origin}`,
+      description: `A document from the Paperless-ngx instance at ${redactUrl(
+        origin
+      )}`,
       docSource: `paperless-ngx`,
       chunkSource: generateChunkSource(
         { doc, baseUrl: origin, apiToken },

@@ -21,7 +21,7 @@ import AppButton from "@/components/lib/AppButton";
 import WorkspaceOverviewModel from "@/models/workspaceOverview";
 import showToast from "@/utils/toast";
 import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 import { useTranslation } from "react-i18next";
@@ -286,13 +286,11 @@ function useOverviewImageUrl(url = null) {
     let cancelled = false;
     setState({ src: null, failed: false });
 
-    fetch(url, {
-      headers: baseHeaders(),
+    requestBlob(url, {
+      blobKind: BLOB_KINDS.visualAsset,
       signal: controller.signal,
     })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("overview_asset_fetch_failed");
-        const blob = await response.blob();
+      .then(({ blob }) => {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setState({ src: objectUrl, failed: false });

@@ -2,7 +2,13 @@ import React, { useState, useEffect, useRef } from "react";
 import { Trash, DotsThreeVertical, TreeView } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 
-function ActionMenu({ chatId, forkThread, isEditing, role }) {
+function ActionMenu({
+  chatId,
+  publicChatId = null,
+  forkThread,
+  isEditing,
+  role,
+}) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
@@ -10,7 +16,7 @@ function ActionMenu({ chatId, forkThread, isEditing, role }) {
   const toggleMenu = () => setOpen(!open);
 
   const handleFork = () => {
-    forkThread(chatId);
+    forkThread(chatId, publicChatId);
     setOpen(false);
   };
 

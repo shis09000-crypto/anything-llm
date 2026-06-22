@@ -65,7 +65,10 @@ export default function LoginSecurityCard({
 
   async function refreshTrustedDevices() {
     setTrustedDevicesLoading(true);
-    const result = await AccountSettingsApi.fetchTrustedLoginDevices();
+    const result = await AccountSettingsApi.fetchTrustedLoginDevices({
+      user,
+      avatarUrl: pfp,
+    });
     setTrustedDevicesLoading(false);
     if (result?.success) setTrustedDevices(result.devices || []);
   }
@@ -383,6 +386,7 @@ export default function LoginSecurityCard({
                     type="button"
                     size="sm"
                     variant="secondary"
+                    className="account-button-danger"
                     leftIcon={<Trash className="h-4 w-4" />}
                     onClick={() => revokeTrustedDevice(device)}
                   >

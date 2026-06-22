@@ -104,6 +104,7 @@ const TRANSLATIONS = {
     transcription: "转录模型",
     embedder: "嵌入器（Embedder）",
     reranker: "重排模型（Rerank）",
+    "search-model": "搜索模型",
     ocr: "OCR 模型",
     vision: "视觉模型",
     "text-splitting": "文本分割",
@@ -734,6 +735,11 @@ const readable = true;
         title: "抓取网站",
         description: "允许代理访问和抓取网站的内容。",
       },
+      surveys: {
+        title: "Agent Surveys / 澄清问题",
+        description:
+          "允许代理在继续执行前向用户提出最多 3 个澄清问题，并提供推荐选项与自定义输入。",
+      },
       generate: {
         title: "生成图表",
         description: "使默认代理能够从提供的数据或聊天中生成各种类型的图表。",
@@ -1347,6 +1353,32 @@ const readable = true;
     save: "保存更改",
     saving: "正在保存...",
   },
+  search_model: {
+    title: "搜索模型首选项",
+    description:
+      "配置专门用于搜索相关推理与结果处理的托管模型。这个设置不会改变当前选择的网络搜索引擎。",
+    provider: "搜索模型提供商",
+    providerHint:
+      "默认不启用托管搜索模型。只有在已准备好 DashScope API Key 后，再切换到阿里百炼。",
+    providers: {
+      none: {
+        name: "无",
+        description: "不使用托管搜索模型。搜索模型调用会保持未配置状态。",
+      },
+      alibaba: {
+        name: "阿里百炼 DashScope",
+        description: "通过 OpenAI-compatible API 使用阿里云 DashScope Qwen 模型。",
+      },
+    },
+    model: "搜索模型",
+    noneHelp:
+      "当前不会调用托管搜索模型。这个设置独立于网络搜索引擎提供商。",
+    help: "阿里百炼搜索模型使用 DashScope OpenAI-compatible 接口。请填写 DashScope API Key、Base URL 和模型名。",
+    save: "保存更改",
+    saving: "正在保存...",
+    saved: "搜索模型设置已保存。",
+    saveError: "搜索模型设置保存失败：{{error}}",
+  },
   ocr: {
     title: "OCR 模型首选项",
     description: "配置阅读器用于识别扫描版 PDF 和图片文本的 OCR 提供商和模型。",
@@ -1430,7 +1462,7 @@ const readable = true;
     applying: "正在应用...",
     imported_status: "已从环境变量导入",
     success_toast:
-      "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 + 阿里 OCR + 阿里视觉模型配置",
+      "已应用 DeepSeek V4 Pro + 阿里 text-embedding-v4 + 阿里搜索模型 + 阿里 OCR + 阿里视觉模型配置",
   },
   transcription: {
     title: "转录模型首选项",

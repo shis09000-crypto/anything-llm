@@ -7,6 +7,7 @@ import AppIcon from "@/components/lib/AppIcon";
 import AppToast, { AppToastViewport } from "@/components/lib/AppToast";
 import AppToggleButton from "@/components/lib/AppToggleButton";
 import showToast from "@/utils/toast";
+import { GlassCard } from "@developer-hub/liquid-glass";
 import { isMobile } from "react-device-detect";
 import {
   ArrowDown,
@@ -315,6 +316,64 @@ const INTERACTION_BUTTON_VARIABLES = [
   "--app-toggle-button-selected-shadow-alpha",
 ];
 
+const COMPOSER_GLASS_BACKGROUND = "/button-lab/kkaiq-com-24.jpg";
+const COMPOSER_GLASS_STATIC_MOUSE_OFFSET = { x: 0, y: 0 };
+const OFFICIAL_GLASS_DEFAULT_PARAMS = {
+  displacementScale: 100,
+  blurAmount: 0.01,
+  radius: 10,
+  shadowMode: false,
+};
+const COMPOSER_GLASS_DEFAULT_PARAMS = {
+  displacementScale: 32,
+  blurPx: 1.5,
+  darkTintAlpha: 0.09,
+  lightTintAlpha: 0.1,
+  shadowAlpha: 0.19,
+  radius: 17,
+};
+const MESSAGE_BUBBLE_GLASS_DEFAULT_PARAMS = {
+  displacementScale: 35,
+  blurPx: 2.2,
+  darkTintAlpha: 0.165,
+  lightTintAlpha: 0.2,
+  shadowAlpha: 0.17,
+  radius: 15,
+  textAlpha: 0.94,
+};
+const MESSAGE_BUBBLE_TEST_MESSAGES = [
+  {
+    id: "assistant-setup",
+    role: "assistant",
+    text: "下面是临时测试消息，用来观察用户输入气泡在不同长度、换行和滚动位置里的玻璃效果。",
+  },
+  {
+    id: "user-short",
+    role: "user",
+    text: "先看一个短气泡，右下角要保持现在消息气泡的切角。",
+  },
+  {
+    id: "assistant-between",
+    role: "assistant",
+    text: "中间穿插 assistant 文本，方便判断用户气泡是否仍然像正式会话一样靠右，并且不会抢占正文阅读节奏。",
+  },
+  {
+    id: "user-long",
+    role: "user",
+    text: "这是一条更长的用户输入信息，用来测试正式消息栏宽度、玻璃透明度、背景透出强度和文字可读性。它应该保持轻盈，但不能像普通卡片那样抢画面，也不能因为背景太复杂而让文字发虚。",
+  },
+  {
+    id: "user-multiline",
+    role: "user",
+    text: "多行输入测试：\n第一行用于观察顶部内边距。\n第二行用于观察行高和换行。\n第三行用于观察底部切角是否仍然稳定。",
+  },
+  {
+    id: "assistant-close",
+    role: "assistant",
+    text: "继续向下滚动可以看到底部调试参数。这个预览区本身会滚动，不改变正式聊天区。",
+  },
+];
+
 const LAB_TABS = [
   {
     key: "primary",
@@ -346,6 +405,11 @@ const LAB_TABS = [
     label: "交互按钮",
     subLabel: "Interaction Buttons",
   },
+  {
+    key: "composer-glass",
+    label: "输入框玻璃",
+    subLabel: "Composer Glass",
+  },
 ];
 
 export default function ButtonLab() {
@@ -355,6 +419,16 @@ export default function ButtonLab() {
   const [interactionParams, setInteractionParams] = useState(
     INTERACTION_BUTTON_DEFAULT_PARAMS
   );
+  const [composerGlassParams, setComposerGlassParams] = useState(
+    COMPOSER_GLASS_DEFAULT_PARAMS
+  );
+  const [messageBubbleGlassParams, setMessageBubbleGlassParams] = useState(
+    MESSAGE_BUBBLE_GLASS_DEFAULT_PARAMS
+  );
+  const [officialGlassParams, setOfficialGlassParams] = useState(
+    OFFICIAL_GLASS_DEFAULT_PARAMS
+  );
+  const [composerGlassMode, setComposerGlassMode] = useState("official");
   const [dropdownOpen, setDropdownOpen] = useState(true);
   const [toggleSelected, setToggleSelected] = useState(true);
   const [liveToasts, setLiveToasts] = useState(() =>
@@ -422,7 +496,7 @@ export default function ButtonLab() {
               <div
                 role="tablist"
                 aria-label="按钮实验视图切换"
-                className="grid gap-2 rounded-2xl border border-white/15 bg-white/10 p-1.5 backdrop-blur-xl light:border-slate-200 light:bg-white/70 sm:grid-cols-2 xl:grid-cols-6"
+                className="grid gap-2 rounded-2xl border border-white/15 bg-white/10 p-1.5 backdrop-blur-xl light:border-slate-200 light:bg-white/70 sm:grid-cols-2 xl:grid-cols-7"
               >
                 {LAB_TABS.map((tab) => (
                   <LabTabButton
@@ -471,6 +545,44 @@ export default function ButtonLab() {
                 }
               />
             )}
+            {activeLab === "composer-glass" && (
+              <ComposerGlassPanel
+                mode={composerGlassMode}
+                onModeChange={setComposerGlassMode}
+                officialParams={officialGlassParams}
+                composerParams={composerGlassParams}
+                messageBubbleParams={messageBubbleGlassParams}
+                onOfficialParamChange={(key, value) =>
+                  setOfficialGlassParams((current) => ({
+                    ...current,
+                    [key]: value,
+                  }))
+                }
+                onComposerParamChange={(key, value) =>
+                  setComposerGlassParams((current) => ({
+                    ...current,
+                    [key]: value,
+                  }))
+                }
+                onMessageBubbleParamChange={(key, value) =>
+                  setMessageBubbleGlassParams((current) => ({
+                    ...current,
+                    [key]: value,
+                  }))
+                }
+                onResetOfficial={() =>
+                  setOfficialGlassParams(OFFICIAL_GLASS_DEFAULT_PARAMS)
+                }
+                onResetComposer={() =>
+                  setComposerGlassParams(COMPOSER_GLASS_DEFAULT_PARAMS)
+                }
+                onResetMessageBubble={() =>
+                  setMessageBubbleGlassParams(
+                    MESSAGE_BUBBLE_GLASS_DEFAULT_PARAMS
+                  )
+                }
+              />
+            )}
 
             <section
               className={[
@@ -482,6 +594,9 @@ export default function ButtonLab() {
                 activeLab === "functional-icon" ? "icon-lab-preview" : "",
                 activeLab === "interaction-buttons"
                   ? "interaction-button-lab-preview"
+                  : "",
+                activeLab === "composer-glass"
+                  ? "composer-glass-lab-preview !border-0 !bg-transparent !p-0 !shadow-none"
                   : "",
               ]
                 .filter(Boolean)
@@ -496,7 +611,13 @@ export default function ButtonLab() {
                       : null
               }
             >
-              <div className="rounded-2xl border border-white/70 bg-white/42 p-5 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.72),0_18px_54px_rgb(37_99_235_/_0.10)] backdrop-blur-2xl">
+              <div
+                className={
+                  activeLab === "composer-glass"
+                    ? "overflow-hidden rounded-2xl"
+                    : "rounded-2xl border border-white/70 bg-white/42 p-5 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.72),0_18px_54px_rgb(37_99_235_/_0.10)] backdrop-blur-2xl"
+                }
+              >
                 {activeLab === "primary" ? (
                   <PrimaryShowcase />
                 ) : activeLab === "secondary" ? (
@@ -516,6 +637,13 @@ export default function ButtonLab() {
                     onDropdownOpenChange={setDropdownOpen}
                     toggleSelected={toggleSelected}
                     onToggleSelectedChange={setToggleSelected}
+                  />
+                ) : activeLab === "composer-glass" ? (
+                  <ComposerGlassShowcase
+                    mode={composerGlassMode}
+                    officialParams={officialGlassParams}
+                    composerParams={composerGlassParams}
+                    messageBubbleParams={messageBubbleGlassParams}
                   />
                 ) : (
                   <ToastShowcase
@@ -842,6 +970,341 @@ function InteractionButtonPanel({ params, onParamChange, onReset }) {
 
       <div className="mt-5 rounded-2xl border border-white/15 bg-slate-950/70 p-4 light:border-slate-200 light:bg-slate-950">
         <div className="text-xs font-semibold text-sky-200">当前 CSS 变量</div>
+        <div className="mt-3 grid gap-1 rounded-xl bg-black/35 p-3 text-[11px] leading-5 text-sky-50">
+          {cssPreview.map((item) => (
+            <code key={item}>{item}</code>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComposerGlassPanel({
+  mode,
+  onModeChange,
+  officialParams,
+  composerParams,
+  messageBubbleParams,
+  onOfficialParamChange,
+  onComposerParamChange,
+  onMessageBubbleParamChange,
+  onResetOfficial,
+  onResetComposer,
+  onResetMessageBubble,
+}) {
+  const modeUsesOfficialParams =
+    mode === "official" || mode === "official-input";
+  const modeUsesMessageBubbleParams = mode === "message-bubble";
+  const cssPreview = (() => {
+    if (modeUsesOfficialParams) {
+      return [
+        `GlassCard displacementScale: ${officialParams.displacementScale};`,
+        `GlassCard blurAmount: ${officialParams.blurAmount};`,
+        `GlassCard cornerRadius: ${officialParams.radius};`,
+        `GlassCard shadowMode: ${officialParams.shadowMode};`,
+        "className: no composer override;",
+      ];
+    }
+
+    if (modeUsesMessageBubbleParams) {
+      return [
+        `GlassCard displacementScale: ${messageBubbleParams.displacementScale};`,
+        "GlassCard blurAmount: 0;",
+        `--message-bubble-backdrop-blur: ${messageBubbleParams.blurPx}px;`,
+        `--message-bubble-tint(light): rgb(255 255 255 / ${messageBubbleParams.lightTintAlpha});`,
+        `--message-bubble-tint(dark): rgb(15 23 42 / ${messageBubbleParams.darkTintAlpha});`,
+        `--message-bubble-shadow alpha: ${messageBubbleParams.shadowAlpha};`,
+        `cornerRadius: ${messageBubbleParams.radius}px ${messageBubbleParams.radius}px 0 ${messageBubbleParams.radius}px;`,
+        "width rule: current user message bubble;",
+        `textAlpha: ${messageBubbleParams.textAlpha};`,
+      ];
+    }
+
+    return [
+      `GlassCard displacementScale: ${composerParams.displacementScale};`,
+      "GlassCard blurAmount: 0;",
+      `--composer-glass-backdrop-blur: ${composerParams.blurPx}px;`,
+      `--composer-glass-tint(light): rgb(255 255 255 / ${composerParams.lightTintAlpha});`,
+      `--composer-glass-tint(dark): rgb(15 23 42 / ${composerParams.darkTintAlpha});`,
+      `--composer-glass-shadow alpha: ${composerParams.shadowAlpha};`,
+      `cornerRadius: ${composerParams.radius}px;`,
+      "mouseOffset: { x: 0, y: 0 };",
+    ];
+  })();
+  const resetLabel = modeUsesOfficialParams
+    ? "重置官网参数"
+    : modeUsesMessageBubbleParams
+      ? "重置气泡参数"
+      : "重置输入框参数";
+  const resetAction = modeUsesOfficialParams
+    ? onResetOfficial
+    : modeUsesMessageBubbleParams
+      ? onResetMessageBubble
+      : onResetComposer;
+
+  return (
+    <section className="max-h-none overflow-y-visible rounded-2xl border border-white/15 bg-white/10 p-4 shadow-[0_18px_54px_rgb(0_0_0_/_0.18)] backdrop-blur-2xl light:border-white/70 light:bg-white/65 light:shadow-[0_18px_54px_rgb(15_23_42_/_0.10)] xl:max-h-[calc(100vh-180px)] xl:overflow-y-auto xl:pr-3">
+      <div className="rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+        <div className="text-sm font-semibold text-white light:text-slate-900">
+          输入框玻璃面板 / Composer Glass
+        </div>
+        <p className="mt-2 text-xs leading-5 text-white/60 light:text-slate-500">
+          输入信息气泡先在沙箱里独立调参；官网卡片和官网输入框共用官方 GlassCard
+          参数，输入框横条模式保留当前 composer 候选方案。
+        </p>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+        <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+          观察模式
+        </div>
+        <div className="grid grid-cols-1 gap-2 2xl:grid-cols-4">
+          {[
+            ["message-bubble", "输入信息气泡模式"],
+            ["official", "官网卡片模式"],
+            ["official-input", "官网输入框模式"],
+            ["composer", "输入框横条模式"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => onModeChange(value)}
+              className={[
+                "rounded-xl border px-3 py-2 text-xs font-semibold transition",
+                mode === value
+                  ? "border-sky-300 bg-sky-50 text-slate-950 shadow-[0_10px_24px_rgb(37_99_235_/_0.16)]"
+                  : "border-white/15 bg-white/5 text-white/70 hover:bg-white/10 light:border-slate-200 light:bg-white/55 light:text-slate-500",
+              ].join(" ")}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {modeUsesOfficialParams ? (
+        <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+          <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+            官网 GlassCard 参数
+          </div>
+          <div className="grid gap-3">
+            <LabRangeControl
+              label="折射强度"
+              value={officialParams.displacementScale}
+              min={0}
+              max={200}
+              step={1}
+              onChange={(value) =>
+                onOfficialParamChange("displacementScale", value)
+              }
+            />
+            <LabRangeControl
+              label="官方 blurAmount"
+              value={officialParams.blurAmount}
+              min={0}
+              max={0.08}
+              step={0.005}
+              onChange={(value) => onOfficialParamChange("blurAmount", value)}
+            />
+            <LabRangeControl
+              label="圆角"
+              value={officialParams.radius}
+              min={0}
+              max={40}
+              suffix="px"
+              onChange={(value) => onOfficialParamChange("radius", value)}
+            />
+            <button
+              type="button"
+              onClick={() =>
+                onOfficialParamChange("shadowMode", !officialParams.shadowMode)
+              }
+              className={[
+                "rounded-xl border px-3 py-2 text-left text-xs font-semibold transition",
+                officialParams.shadowMode
+                  ? "border-sky-300 bg-sky-50 text-slate-950"
+                  : "border-white/15 bg-white/5 text-white/70 hover:bg-white/10 light:border-slate-200 light:bg-white/55 light:text-slate-500",
+              ].join(" ")}
+            >
+              shadowMode: {officialParams.shadowMode ? "true" : "false"}
+            </button>
+          </div>
+        </div>
+      ) : modeUsesMessageBubbleParams ? (
+        <>
+          <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+            <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+              输入信息气泡 GlassCard 参数
+            </div>
+            <div className="grid gap-3">
+              <LabRangeControl
+                label="折射强度"
+                value={messageBubbleParams.displacementScale}
+                min={0}
+                max={48}
+                step={1}
+                onChange={(value) =>
+                  onMessageBubbleParamChange("displacementScale", value)
+                }
+              />
+              <LabRangeControl
+                label="圆角"
+                value={messageBubbleParams.radius}
+                min={12}
+                max={30}
+                suffix="px"
+                onChange={(value) =>
+                  onMessageBubbleParamChange("radius", value)
+                }
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+            <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+              输入信息气泡材质
+            </div>
+            <div className="grid gap-3">
+              <LabRangeControl
+                label="背景模糊"
+                value={messageBubbleParams.blurPx}
+                min={0}
+                max={3}
+                step={0.1}
+                suffix="px"
+                onChange={(value) =>
+                  onMessageBubbleParamChange("blurPx", value)
+                }
+              />
+              <LabRangeControl
+                label="浅色 tint"
+                value={messageBubbleParams.lightTintAlpha}
+                min={0}
+                max={0.34}
+                step={0.005}
+                onChange={(value) =>
+                  onMessageBubbleParamChange("lightTintAlpha", value)
+                }
+              />
+              <LabRangeControl
+                label="深色 tint"
+                value={messageBubbleParams.darkTintAlpha}
+                min={0}
+                max={0.24}
+                step={0.005}
+                onChange={(value) =>
+                  onMessageBubbleParamChange("darkTintAlpha", value)
+                }
+              />
+              <LabRangeControl
+                label="悬浮阴影"
+                value={messageBubbleParams.shadowAlpha}
+                min={0.02}
+                max={0.24}
+                step={0.01}
+                onChange={(value) =>
+                  onMessageBubbleParamChange("shadowAlpha", value)
+                }
+              />
+              <LabRangeControl
+                label="文本透明度"
+                value={messageBubbleParams.textAlpha}
+                min={0.68}
+                max={1}
+                step={0.01}
+                onChange={(value) =>
+                  onMessageBubbleParamChange("textAlpha", value)
+                }
+              />
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+            <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+              输入框 GlassCard 参数
+            </div>
+            <div className="grid gap-3">
+              <LabRangeControl
+                label="折射强度"
+                value={composerParams.displacementScale}
+                min={0}
+                max={40}
+                step={1}
+                onChange={(value) =>
+                  onComposerParamChange("displacementScale", value)
+                }
+              />
+              <LabRangeControl
+                label="圆角"
+                value={composerParams.radius}
+                min={12}
+                max={32}
+                suffix="px"
+                onChange={(value) => onComposerParamChange("radius", value)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-white/15 bg-white/5 p-4 light:border-slate-200 light:bg-white/60">
+            <div className="mb-3 text-xs font-semibold text-white light:text-slate-800">
+              输入框透过清晰度
+            </div>
+            <div className="grid gap-3">
+              <LabRangeControl
+                label="背景模糊"
+                value={composerParams.blurPx}
+                min={0}
+                max={3}
+                step={0.1}
+                suffix="px"
+                onChange={(value) => onComposerParamChange("blurPx", value)}
+              />
+              <LabRangeControl
+                label="浅色 tint"
+                value={composerParams.lightTintAlpha}
+                min={0}
+                max={0.18}
+                step={0.005}
+                onChange={(value) =>
+                  onComposerParamChange("lightTintAlpha", value)
+                }
+              />
+              <LabRangeControl
+                label="深色 tint"
+                value={composerParams.darkTintAlpha}
+                min={0}
+                max={0.18}
+                step={0.005}
+                onChange={(value) =>
+                  onComposerParamChange("darkTintAlpha", value)
+                }
+              />
+              <LabRangeControl
+                label="悬浮阴影"
+                value={composerParams.shadowAlpha}
+                min={0.02}
+                max={0.22}
+                step={0.01}
+                onChange={(value) =>
+                  onComposerParamChange("shadowAlpha", value)
+                }
+              />
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="mt-5">
+        <AppButton variant="secondary" fullWidth onClick={resetAction}>
+          {resetLabel}
+        </AppButton>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-white/15 bg-slate-950/70 p-4 light:border-slate-200 light:bg-slate-950">
+        <div className="text-xs font-semibold text-sky-200">当前参数</div>
         <div className="mt-3 grid gap-1 rounded-xl bg-black/35 p-3 text-[11px] leading-5 text-sky-50">
           {cssPreview.map((item) => (
             <code key={item}>{item}</code>
@@ -1879,6 +2342,244 @@ function ToastShowcase({ liveToasts, onRemoveToast, toastProps }) {
         </div>
       </ToastPreviewSection>
     </>
+  );
+}
+
+function ComposerGlassShowcase({
+  mode,
+  officialParams,
+  composerParams,
+  messageBubbleParams,
+}) {
+  const glassStyle = {
+    "--composer-glass-tint": `rgb(255 255 255 / ${composerParams.lightTintAlpha})`,
+    "--composer-glass-shadow": `0 12px 26px rgb(15 23 42 / ${composerParams.shadowAlpha})`,
+    "--composer-glass-focus-shadow": `0 12px 28px rgb(15 23 42 / ${Math.min(
+      composerParams.shadowAlpha + 0.02,
+      0.24
+    )})`,
+    "--composer-glass-backdrop-blur": `${composerParams.blurPx}px`,
+  };
+  const messageBubbleStyle = {
+    "--user-message-glass-tint-light": `rgb(255 255 255 / ${messageBubbleParams.lightTintAlpha})`,
+    "--user-message-glass-tint-dark": `rgb(15 23 42 / ${messageBubbleParams.darkTintAlpha})`,
+    "--user-message-glass-shadow": `0 12px 26px rgb(15 23 42 / ${messageBubbleParams.shadowAlpha})`,
+    "--user-message-glass-backdrop-blur": `${messageBubbleParams.blurPx}px`,
+    "--user-message-glass-radius": `${messageBubbleParams.radius}px`,
+    "--user-message-glass-text-alpha": messageBubbleParams.textAlpha,
+  };
+  const modeIsMessageBubble = mode === "message-bubble";
+  const modeIsOfficialCard = mode === "official";
+  const modeIsOfficialInput = mode === "official-input";
+
+  return (
+    <div
+      className={[
+        "relative h-[640px] overscroll-contain rounded-2xl bg-slate-950",
+        modeIsMessageBubble ? "overflow-hidden" : "overflow-y-auto",
+      ].join(" ")}
+    >
+      <div
+        className={
+          modeIsMessageBubble
+            ? "absolute inset-0"
+            : "absolute inset-x-0 top-0 h-[1180px]"
+        }
+      >
+        <img
+          src={COMPOSER_GLASS_BACKGROUND}
+          alt=""
+          aria-hidden="true"
+          className="h-full w-full object-cover object-center"
+          style={{ filter: "saturate(1.05) contrast(1.02)" }}
+        />
+      </div>
+
+      {modeIsMessageBubble ? (
+        <div className="relative z-20 h-full overflow-y-auto overscroll-contain px-5 py-7">
+          <div className="mx-auto flex min-h-[1080px] w-full max-w-[820px] flex-col gap-6">
+            <div className="self-start rounded-full border border-white/24 bg-slate-950/22 px-3 py-1.5 text-[11px] font-semibold text-white/72 shadow-[0_10px_24px_rgb(15_23_42_/_0.14)] backdrop-blur-md light:border-white/60 light:bg-white/24 light:text-slate-900/62">
+              Button Lab · 输入信息气泡模式 · scroll preview
+            </div>
+
+            {MESSAGE_BUBBLE_TEST_MESSAGES.map((message) =>
+              message.role === "user" ? (
+                <div key={message.id} className="flex justify-end">
+                  <GlassCard
+                    className="button-lab-message-glass-bubble pointer-events-auto relative z-10"
+                    displacementScale={messageBubbleParams.displacementScale}
+                    blurAmount={0}
+                    cornerRadius={messageBubbleParams.radius}
+                    padding="0px"
+                    shadowMode={false}
+                    mouseOffset={COMPOSER_GLASS_STATIC_MOUSE_OFFSET}
+                    style={messageBubbleStyle}
+                  >
+                    <div className="button-lab-message-glass-content whitespace-pre-wrap px-4 py-3.5 text-sm font-semibold leading-6">
+                      {message.text}
+                    </div>
+                  </GlassCard>
+                </div>
+              ) : (
+                <div
+                  key={message.id}
+                  className="max-w-[620px] border-b border-white/12 pb-5 text-sm font-semibold leading-7 text-white/82 drop-shadow-[0_1px_10px_rgb(15_23_42_/_0.18)] light:border-slate-950/8 light:text-slate-950/74"
+                >
+                  {message.text}
+                </div>
+              )
+            )}
+
+            <div className="mt-4 grid gap-2 rounded-2xl border border-white/16 bg-slate-950/30 p-4 text-[11px] font-semibold leading-5 text-white/68 shadow-[0_14px_34px_rgb(15_23_42_/_0.16)] backdrop-blur-xl light:border-white/70 light:bg-white/34 light:text-slate-900/62">
+              <div className="text-xs text-white/86 light:text-slate-950/78">
+                临时调试参数
+              </div>
+              <code>
+                displacementScale: {messageBubbleParams.displacementScale}
+              </code>
+              <code>blurPx: {messageBubbleParams.blurPx}</code>
+              <code>
+                tintLight / tintDark: {messageBubbleParams.lightTintAlpha} /{" "}
+                {messageBubbleParams.darkTintAlpha}
+              </code>
+              <code>shadowAlpha: {messageBubbleParams.shadowAlpha}</code>
+              <code>
+                radius: {messageBubbleParams.radius}px, width rule: current user
+                message bubble
+              </code>
+              <code>textAlpha: {messageBubbleParams.textAlpha}</code>
+            </div>
+          </div>
+        </div>
+      ) : modeIsOfficialCard ? (
+        <div className="sticky top-0 z-20 flex h-[640px] items-center justify-center p-6">
+          <div
+            className="button-lab-official-glass-frame"
+            style={{
+              "--button-lab-official-radius": `${officialParams.radius}px`,
+            }}
+          >
+            <GlassCard
+              className="button-lab-official-glass relative z-10 max-w-[360px]"
+              displacementScale={officialParams.displacementScale}
+              blurAmount={officialParams.blurAmount}
+              cornerRadius={officialParams.radius}
+              shadowMode={officialParams.shadowMode}
+              style={{ borderRadius: `${officialParams.radius}px` }}
+            >
+              <div className="w-[340px] max-w-full p-8 text-center text-slate-950">
+                <div className="mx-auto h-28 w-28 overflow-hidden rounded-full bg-white/20 shadow-[0_12px_34px_rgb(15_23_42_/_0.16)]">
+                  <img
+                    src={COMPOSER_GLASS_BACKGROUND}
+                    alt=""
+                    aria-hidden="true"
+                    className="h-full w-full object-cover object-[52%_18%]"
+                  />
+                </div>
+                <div className="mt-6 text-3xl font-extrabold tracking-tight">
+                  Default card
+                </div>
+                <p className="mt-4 text-base font-medium leading-6 text-slate-950/76">
+                  A sleek glass-style card with built-in animations. Use this as
+                  a base to compare the official liquid glass behavior.
+                </p>
+                <button
+                  type="button"
+                  className="mt-6 w-full rounded-full bg-orange-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_10px_28px_rgb(194_65_12_/_0.24)]"
+                >
+                  Get Started
+                </button>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : modeIsOfficialInput ? (
+        <div className="sticky top-0 z-20 flex h-[640px] items-end justify-center px-6 pb-7">
+          <div
+            className="button-lab-official-glass-frame w-full max-w-[560px]"
+            style={{
+              "--button-lab-official-radius": `${officialParams.radius}px`,
+            }}
+          >
+            <GlassCard
+              className="button-lab-official-glass relative z-10 w-full"
+              displacementScale={officialParams.displacementScale}
+              blurAmount={officialParams.blurAmount}
+              cornerRadius={officialParams.radius}
+              shadowMode={officialParams.shadowMode}
+              style={{ borderRadius: `${officialParams.radius}px` }}
+            >
+              <div className="flex min-h-[112px] w-full flex-col justify-between px-5 py-4 text-slate-950">
+                <div className="text-sm font-medium text-slate-950/62">
+                  发送消息
+                </div>
+                <div className="flex items-center justify-between gap-4 text-slate-950/76">
+                  <div className="flex min-w-0 items-center gap-3 text-xs font-semibold">
+                    <span className="text-xl leading-none">+</span>
+                    <span>工具</span>
+                    <span>测试</span>
+                    <span>沙盒模式</span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20 shadow-sm">
+                      <ClockCounterClockwise
+                        className="h-4 w-4"
+                        weight="bold"
+                      />
+                    </span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/18 shadow-sm">
+                      <Moon className="h-4 w-4" weight="bold" />
+                    </span>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-400/82 text-white shadow-sm">
+                      <ArrowRight className="h-4 w-4" weight="bold" />
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </GlassCard>
+          </div>
+        </div>
+      ) : (
+        <div className="sticky top-0 z-20 flex h-[640px] items-end justify-center px-5 pb-5">
+          <GlassCard
+            className="liquid-glass-composer-card pointer-events-auto relative z-10 w-full rounded-[20px]"
+            displacementScale={composerParams.displacementScale}
+            blurAmount={0}
+            cornerRadius={composerParams.radius}
+            padding="0px"
+            shadowMode={false}
+            mouseOffset={COMPOSER_GLASS_STATIC_MOUSE_OFFSET}
+            style={glassStyle}
+          >
+            <div className="liquid-glass-composer-content flex flex-col overflow-hidden px-5">
+              <div className="flex min-h-[68px] items-start pt-5 text-sm font-medium text-slate-700">
+                发送消息
+              </div>
+              <div className="flex items-center justify-between pb-3 pt-2 text-slate-700">
+                <div className="flex items-center gap-3 text-xs font-semibold">
+                  <span className="text-lg leading-none">+</span>
+                  <span>工具</span>
+                  <span>测试</span>
+                  <span>沙盒模式</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/18 shadow-sm backdrop-blur-[1px]">
+                    <ClockCounterClockwise className="h-4 w-4" weight="bold" />
+                  </span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/16 shadow-sm backdrop-blur-[1px]">
+                    <Moon className="h-4 w-4" weight="bold" />
+                  </span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-sky-400/80 text-white shadow-sm">
+                    <ArrowRight className="h-4 w-4" weight="bold" />
+                  </span>
+                </div>
+              </div>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+      <div className="h-[540px]" aria-hidden="true" />
+    </div>
   );
 }
 

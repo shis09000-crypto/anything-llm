@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback } from "@/lib/communication/apiError";
 
 /**
  * @typedef {Object} MobileConnection
@@ -16,11 +16,9 @@ const MobileConnection = {
    * @returns {Promise<{connectionUrl: string|null}>} The connection info.
    */
   getConnectionInfo: async function () {
-    return await fetch(`${API_BASE}/mobile/connect-info`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch(() => false);
+    return await getJson("/mobile/connect-info")
+      .then(({ data }) => data)
+      .catch((e) => apiErrorFallback(e, false));
   },
 
   /**
@@ -28,10 +26,8 @@ const MobileConnection = {
    * @returns {Promise<MobileDevice[]>} The devices.
    */
   getDevices: async function () {
-    return await fetch(`${API_BASE}/mobile/devices`, {
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/mobile/devices")
+      .then(({ data }) => data)
       .then((res) => res.devices || [])
       .catch(() => []);
   },
@@ -42,12 +38,9 @@ const MobileConnection = {
    * @returns {Promise<{message: string}>} The deleted device.
    */
   deleteDevice: async function (id) {
-    return await fetch(`${API_BASE}/mobile/${id}`, {
-      method: "DELETE",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch(() => false);
+    return await deleteJson(`/mobile/${id}`)
+      .then(({ data }) => data)
+      .catch((e) => apiErrorFallback(e, false));
   },
 
   /**
@@ -57,13 +50,9 @@ const MobileConnection = {
    * @returns {Promise<{updates: MobileDevice}>} The updated device.
    */
   updateDevice: async function (id, updates = {}) {
-    return await fetch(`${API_BASE}/mobile/update/${id}`, {
-      method: "POST",
-      body: JSON.stringify(updates),
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
-      .catch(() => false);
+    return await postJson(`/mobile/update/${id}`, updates)
+      .then(({ data }) => data)
+      .catch((e) => apiErrorFallback(e, false));
   },
 };
 

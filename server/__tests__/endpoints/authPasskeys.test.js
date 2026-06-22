@@ -1,4 +1,4 @@
-jest.mock("../../utils/prisma", () => ({
+jest.mock("../../utils/authPrisma", () => ({
   passkeyChallenge: {
     findFirst: jest.fn(),
     delete: jest.fn(),
@@ -18,7 +18,7 @@ jest.mock("../../utils/middleware/validatedRequest", () => ({
   validatedRequest: jest.fn((_request, _response, next) => next()),
 }));
 
-const prisma = require("../../utils/prisma");
+const authPrisma = require("../../utils/authPrisma");
 const {
   _passkeyTestUtils: {
     base64UrlToBytes,
@@ -72,20 +72,20 @@ describe("passkey security helpers", () => {
       type: "login",
       userId: null,
     };
-    prisma.passkeyChallenge.findFirst.mockResolvedValue(record);
-    prisma.passkeyChallenge.delete.mockResolvedValue(record);
+    authPrisma.passkeyChallenge.findFirst.mockResolvedValue(record);
+    authPrisma.passkeyChallenge.delete.mockResolvedValue(record);
 
     await expect(
       consumeChallenge({ challenge: "challenge", type: "login" })
     ).resolves.toEqual(record);
-    expect(prisma.passkeyChallenge.findFirst).toHaveBeenCalledWith({
+    expect(authPrisma.passkeyChallenge.findFirst).toHaveBeenCalledWith({
       where: {
         challenge: "challenge",
         type: "login",
         expiresAt: { gt: expect.any(Date) },
       },
     });
-    expect(prisma.passkeyChallenge.delete).toHaveBeenCalledWith({
+    expect(authPrisma.passkeyChallenge.delete).toHaveBeenCalledWith({
       where: { id: 42 },
     });
   });
@@ -195,12 +195,12 @@ describe("passkey security helpers", () => {
   it("matches discoverable passkey userHandle to the credential owner", () => {
     const response = {
       response: {
-        userHandle: bytesToBase64Url(Buffer.from("7")),
+        userHandle: bytesToBase64Url(Buffer.from("91")),
       },
     };
 
-    expect(userHandleMatches(response, 7)).toBe(true);
-    expect(userHandleMatches(response, 8)).toBe(false);
+    expect(userHandleMatches(response, 91)).toBe(true);
+    expect(userHandleMatches(response, 7)).toBe(false);
   });
 
   it("rate limits excessive challenge option requests by IP", () => {

@@ -1,5 +1,5 @@
-import { API_BASE } from "@/utils/constants";
-import { baseHeaders } from "@/utils/request";
+import { getJson, postJson } from "@/lib/communication/apiClient";
+import { apiErrorFallback } from "@/lib/communication/apiError";
 
 const OutlookAgent = {
   /**
@@ -17,15 +17,16 @@ const OutlookAgent = {
     clientSecret,
     authType,
   }) => {
-    return await fetch(`${API_BASE}/admin/agent-skills/outlook/auth-url`, {
-      method: "POST",
-      headers: baseHeaders(),
-      body: JSON.stringify({ clientId, tenantId, clientSecret, authType }),
+    return await postJson("/admin/agent-skills/outlook/auth-url", {
+      clientId,
+      tenantId,
+      clientSecret,
+      authType,
     })
-      .then((res) => res.json())
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -34,14 +35,11 @@ const OutlookAgent = {
    * @returns {Promise<{success: boolean, isConfigured?: boolean, hasCredentials?: boolean, isAuthenticated?: boolean, tokenExpiry?: number, config?: {clientId: string, tenantId: string, clientSecret: string}, error?: string}>}
    */
   getStatus: async () => {
-    return await fetch(`${API_BASE}/admin/agent-skills/outlook/status`, {
-      method: "GET",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await getJson("/admin/agent-skills/outlook/status")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 
@@ -50,14 +48,11 @@ const OutlookAgent = {
    * @returns {Promise<{success: boolean, error?: string}>}
    */
   revokeAccess: async () => {
-    return await fetch(`${API_BASE}/admin/agent-skills/outlook/revoke`, {
-      method: "POST",
-      headers: baseHeaders(),
-    })
-      .then((res) => res.json())
+    return await postJson("/admin/agent-skills/outlook/revoke")
+      .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
-        return { success: false, error: e.message };
+        return apiErrorFallback(e, { success: false, error: e.message });
       });
   },
 };

@@ -15,6 +15,7 @@ const {
 } = require("../../utils/extensions/YoutubeTranscript");
 const RuntimeSettings = require("../../utils/runtimeSettings");
 const { htmlToMarkdown } = require("../helpers/htmlToMarkdown");
+const { redactUrl } = require("../../utils/security/redaction");
 
 /**
  * Scrape a generic URL and return the content in the specified format
@@ -34,7 +35,8 @@ async function scrapeGenericUrl({
   saveAsDocument = true,
 }) {
   /** @type {'web' | 'file' | 'youtube'} */
-  console.log(`-- Working URL ${link} => (captureAs: ${captureAs}) --`);
+  const redactedLink = redactUrl(link);
+  console.log(`-- Working URL ${redactedLink} => (captureAs: ${captureAs}) --`);
   let { contentType, processVia } = await determineContentType(link);
   console.log(`-- URL determined to be ${contentType} (${processVia}) --`);
 
@@ -58,10 +60,10 @@ async function scrapeGenericUrl({
     headers: scraperHeaders,
   });
   if (!content || !content.length) {
-    console.error(`Resulting URL content was empty at ${link}.`);
+    console.error(`Resulting URL content was empty at ${redactedLink}.`);
     return returnResult({
       success: false,
-      reason: `No URL content found at ${link}.`,
+      reason: `No URL content found at ${redactedLink}.`,
       documents: [],
       content: null,
       saveAsDocument,
@@ -88,7 +90,7 @@ async function scrapeGenericUrl({
     docAuthor: metadata.docAuthor || "no author found",
     description: metadata.description || "No description found.",
     docSource: metadata.docSource || "URL link uploaded by the user.",
-    chunkSource: `link://${link}`,
+    chunkSource: `link://${redactedLink}`,
     published: new Date().toLocaleString(),
     wordCount: content.split(" ").length,
     pageContent: content,
@@ -99,7 +101,9 @@ async function scrapeGenericUrl({
     data,
     filename: `url-${slugify(filename)}-${data.id}`,
   });
-  console.log(`[SUCCESS]: URL ${link} converted & ready for embedding.\n`);
+  console.log(
+    `[SUCCESS]: URL ${redactedLink} converted & ready for embedding.\n`
+  );
   return { success: true, reason: null, documents: [document] };
 }
 
