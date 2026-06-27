@@ -447,11 +447,15 @@ const User = {
     }
   },
 
-  where: async function (clause = {}, limit = null) {
+  where: async function (clause = {}, limit = null, options = {}) {
     try {
       const users = await prisma.users.findMany({
         where: clause,
         ...(limit !== null ? { take: limit } : {}),
+        ...(options?.offset !== null && options?.offset !== undefined
+          ? { skip: options.offset }
+          : {}),
+        ...(options?.orderBy ? { orderBy: options.orderBy } : {}),
       });
       return users.map((usr) => this.filterFields(usr));
     } catch (error) {

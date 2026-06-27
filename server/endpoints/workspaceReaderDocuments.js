@@ -368,6 +368,13 @@ function thumbnailUrlForDocument(workspace, readerDocumentId) {
   return `${readerApiPrefix(workspace)}/${readerDocumentId}/thumbnail.jpg`;
 }
 
+function existingThumbnailUrlForDocument(workspace, readerDocumentId) {
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
+  if (!validNonEmptyFile(thumbnailPath)) return null;
+  return thumbnailUrlForDocument(workspace, readerDocumentId);
+}
+
 function metadataIsDocx(metadata = {}) {
   try {
     return (
@@ -1479,12 +1486,6 @@ async function originalPathForReaderDocument({ documentRoot, metadata }) {
   return safeResolve(documentRoot, metadata.storedName);
 }
 
-function thumbnailDataUrlFromDocumentRoot(documentRoot) {
-  const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
-  if (!validNonEmptyFile(thumbnailPath)) return null;
-  return `data:image/jpeg;base64,${fs.readFileSync(thumbnailPath).toString("base64")}`;
-}
-
 async function generateReaderDocumentThumbnail({
   workspace,
   readerDocumentId,
@@ -1513,13 +1514,13 @@ async function generateReaderDocumentThumbnail({
     ...metadata,
     thumbnailName: READER_THUMBNAIL_NAME,
     thumbnailMimeType: "image/jpeg",
-    thumbnailUrl: thumbnailUrlForDocument(workspace, readerDocumentId),
+    thumbnailUrl: existingThumbnailUrlForDocument(workspace, readerDocumentId),
     thumbnailGeneratedAt: isoNow(),
   };
   writeReaderJsonFile(documentRoot, "metadata.json", nextMetadata);
   return {
     metadata: nextMetadata,
-    thumbnailDataUrl: `data:image/jpeg;base64,${thumbnailBuffer.toString("base64")}`,
+    thumbnailUrl: nextMetadata.thumbnailUrl,
   };
 }
 
@@ -1573,8 +1574,8 @@ async function runReaderPostprocessJob({
       if (thumbnail?.metadata) metadata = thumbnail.metadata;
       updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
         postprocessTaskPatch(status, "thumbnail", {
-          status: thumbnail?.thumbnailDataUrl ? "complete" : "failed",
-          reason: thumbnail?.thumbnailDataUrl ? "" : "缩略图生成失败。",
+          status: thumbnail?.thumbnailUrl ? "complete" : "failed",
+          reason: thumbnail?.thumbnailUrl ? "" : "缩略图生成失败。",
           generatedAt: thumbnail?.metadata?.thumbnailGeneratedAt || null,
         })
       );
@@ -1725,7 +1726,7 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
     progress,
     stage: progress.stage,
     tasks: status.tasks || {},
-    thumbnailDataUrl: thumbnailDataUrlFromDocumentRoot(documentRoot),
+    thumbnailUrl: existingThumbnailUrlForDocument(workspace, readerDocumentId),
     classification,
   };
 }

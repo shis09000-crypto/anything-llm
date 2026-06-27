@@ -14,8 +14,26 @@ function responseJsonError(error) {
   };
 }
 
+function withQuery(path, params = {}) {
+  const query = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") return;
+    query.set(key, String(value));
+  });
+  const queryString = query.toString();
+  return queryString ? `${path}?${queryString}` : path;
+}
+
 const Admin = {
   // User Management
+  usersPage: async ({ limit = 50, offset = 0 } = {}) => {
+    return await getJson(withQuery("/admin/users", { limit, offset }))
+      .then(({ data }) => ({ users: data?.users || [], page: data?.page }))
+      .catch((e) => {
+        console.error(e);
+        return { users: [], page: null };
+      });
+  },
   users: async () => {
     return await getJson("/admin/users")
       .then(({ data }) => data?.users || [])
@@ -93,6 +111,14 @@ const Admin = {
   },
 
   // Invitations
+  invitesPage: async ({ limit = 50, offset = 0 } = {}) => {
+    return await getJson(withQuery("/admin/invites", { limit, offset }))
+      .then(({ data }) => ({ invites: data?.invites || [], page: data?.page }))
+      .catch((e) => {
+        console.error(e);
+        return { invites: [], page: null };
+      });
+  },
   invites: async () => {
     return await getJson("/admin/invites")
       .then(({ data }) => data?.invites || [])
@@ -138,6 +164,17 @@ const Admin = {
   },
 
   // Workspaces Mgmt
+  workspacesPage: async ({ limit = 50, offset = 0 } = {}) => {
+    return await getJson(withQuery("/admin/workspaces", { limit, offset }))
+      .then(({ data }) => ({
+        workspaces: data?.workspaces || [],
+        page: data?.page,
+      }))
+      .catch((e) => {
+        console.error(e);
+        return { workspaces: [], page: null };
+      });
+  },
   workspaces: async () => {
     return await getJson("/admin/workspaces")
       .then(({ data }) => data?.workspaces || [])

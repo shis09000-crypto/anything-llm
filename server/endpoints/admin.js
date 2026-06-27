@@ -50,6 +50,23 @@ const {
 } = require("../utils/middleware/simpleSSOEnabled");
 const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
 
+const DEFAULT_ADMIN_PAGE_LIMIT = 50;
+const MAX_ADMIN_PAGE_LIMIT = 200;
+
+function paginationFromQuery(request) {
+  const query = request.query || {};
+  const limit = Math.min(
+    Math.max(parseInt(query.limit, 10) || DEFAULT_ADMIN_PAGE_LIMIT, 1),
+    MAX_ADMIN_PAGE_LIMIT
+  );
+  const offset = Math.max(parseInt(query.offset, 10) || 0, 0);
+  const paged =
+    query.limit !== undefined ||
+    query.offset !== undefined ||
+    query.paged === "true";
+  return { limit, offset, paged };
+}
+
 function banContextFor({ actorAuth, targetAuth }) {
   const now = new Date();
   return {
@@ -114,10 +131,25 @@ function adminEndpoints(app) {
   app.get(
     "/admin/users",
     [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const users = await User.where();
-        response.status(200).json({ users });
+        const { limit, offset, paged } = paginationFromQuery(request);
+        const users = await User.where({}, paged ? limit : null, {
+          offset: paged ? offset : null,
+          orderBy: { id: "asc" },
+        });
+        const total = paged ? await User.count({}) : users.length;
+        response.status(200).json({
+          users,
+          page: paged
+            ? {
+                limit,
+                offset,
+                total,
+                hasMore: offset + users.length < total,
+              }
+            : null,
+        });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
@@ -444,10 +476,26 @@ function adminEndpoints(app) {
   app.get(
     "/admin/invites",
     [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const invites = await Invite.whereWithUsers();
-        response.status(200).json({ invites });
+        const { limit, offset, paged } = paginationFromQuery(request);
+        const invites = await Invite.whereWithUsers(
+          {},
+          paged ? limit : null,
+          paged ? offset : null
+        );
+        const total = paged ? await Invite.count({}) : invites.length;
+        response.status(200).json({
+          invites,
+          page: paged
+            ? {
+                limit,
+                offset,
+                total,
+                hasMore: offset + invites.length < total,
+              }
+            : null,
+        });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();
@@ -540,10 +588,27 @@ function adminEndpoints(app) {
   app.get(
     "/admin/workspaces",
     [validatedRequest, strictMultiUserRoleValid([ROLES.admin])],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const workspaces = await Workspace.whereWithUsers();
-        response.status(200).json({ workspaces });
+        const { limit, offset, paged } = paginationFromQuery(request);
+        const workspaces = await Workspace.whereWithUsers(
+          {},
+          paged ? limit : null,
+          { id: "asc" },
+          paged ? offset : null
+        );
+        const total = paged ? await Workspace.count({}) : workspaces.length;
+        response.status(200).json({
+          workspaces,
+          page: paged
+            ? {
+                limit,
+                offset,
+                total,
+                hasMore: offset + workspaces.length < total,
+              }
+            : null,
+        });
       } catch (e) {
         console.error(e);
         response.sendStatus(500).end();

@@ -264,7 +264,11 @@ export function DocumentReaderProvider({
       localDocumentId: doc.localDocumentId || null,
       localPath: doc.localPath || doc.metadata?.localPath || null,
       thumbnailDataUrl:
-        doc.thumbnailDataUrl || doc.metadata?.thumbnailDataUrl || null,
+        doc.thumbnailDataUrl ||
+        doc.thumbnailUrl ||
+        doc.metadata?.thumbnailUrl ||
+        doc.metadata?.thumbnailDataUrl ||
+        null,
       uploaded: !!(doc.readerDocumentId || doc.backupReaderDocumentId),
       progress: doc.progress || { label: "阅读进度", percent: 0 },
     };
@@ -368,11 +372,13 @@ export function DocumentReaderProvider({
     [currentDocument, historyItemFromDocument]
   );
 
-  const patchStoredThumbnailForItem = useCallback((item, thumbnailDataUrl) => {
-    if (!item || !thumbnailDataUrl) return;
-    setReaderBookshelf(updateReaderBookshelfItem(item, { thumbnailDataUrl }));
+  const patchStoredThumbnailForItem = useCallback((item, thumbnailSrc) => {
+    if (!item || !thumbnailSrc) return;
+    setReaderBookshelf(
+      updateReaderBookshelfItem(item, { thumbnailDataUrl: thumbnailSrc })
+    );
     const nextHistory = updateReaderHistoryItem(null, null, item, {
-      thumbnailDataUrl,
+      thumbnailDataUrl: thumbnailSrc,
     });
     setReaderHistory(nextHistory);
   }, []);
@@ -384,8 +390,9 @@ export function DocumentReaderProvider({
       let latest = readReaderBookshelf().find((book) => book.key === key);
       if (!latest) return false;
 
-      if (data.thumbnailDataUrl) {
-        patchStoredThumbnailForItem(latest, data.thumbnailDataUrl);
+      const thumbnailSrc = data.thumbnailUrl || data.thumbnailDataUrl || null;
+      if (thumbnailSrc) {
+        patchStoredThumbnailForItem(latest, thumbnailSrc);
         latest = readReaderBookshelf().find((book) => book.key === key);
         if (!latest) return false;
       }

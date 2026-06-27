@@ -203,11 +203,12 @@ const Invite = {
     }
   },
 
-  where: async function (clause = {}, limit) {
+  where: async function (clause = {}, limit, offset = null) {
     try {
       const invites = await authPrisma.invites.findMany({
         where: clause,
         take: limit || undefined,
+        ...(offset !== null ? { skip: offset } : {}),
         orderBy: { createdAt: "desc" },
       });
       return invites;
@@ -217,10 +218,10 @@ const Invite = {
     }
   },
 
-  whereWithUsers: async function (clause = {}, limit) {
+  whereWithUsers: async function (clause = {}, limit, offset = null) {
     const { User } = require("./user");
     try {
-      const invites = await this.where(clause, limit);
+      const invites = await this.where(clause, limit, offset);
       const safeInvites = [];
       for (const invite of invites) {
         const safeInvite = sanitize(invite);

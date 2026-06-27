@@ -372,11 +372,26 @@ const Workspace = {
     }
   },
 
-  where: async function (clause = {}, limit = null, orderBy = null) {
+  count: async function (clause = {}) {
+    try {
+      return await prisma.workspaces.count({ where: clause });
+    } catch (error) {
+      console.error(error.message);
+      return 0;
+    }
+  },
+
+  where: async function (
+    clause = {},
+    limit = null,
+    orderBy = null,
+    offset = null
+  ) {
     try {
       const results = await prisma.workspaces.findMany({
         where: clause,
         ...(limit !== null ? { take: limit } : {}),
+        ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
       return results;
@@ -412,9 +427,14 @@ const Workspace = {
     }
   },
 
-  whereWithUsers: async function (clause = {}, limit = null, orderBy = null) {
+  whereWithUsers: async function (
+    clause = {},
+    limit = null,
+    orderBy = null,
+    offset = null
+  ) {
     try {
-      const workspaces = await this.where(clause, limit, orderBy);
+      const workspaces = await this.where(clause, limit, orderBy, offset);
       for (const workspace of workspaces) {
         const userIds = (
           await WorkspaceUser.where({ workspace_id: Number(workspace.id) })
