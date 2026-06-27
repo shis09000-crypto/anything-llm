@@ -143,7 +143,7 @@ WORKDIR /app/frontend
 COPY ./frontend/package.json ./frontend/yarn.lock ./
 RUN yarn install --network-timeout 100000 --ignore-engines && yarn cache clean
 COPY ./frontend/ ./
-RUN yarn build
+RUN NODE_OPTIONS=--max-old-space-size=3072 yarn build
 WORKDIR /app
 
 # Install server layer
