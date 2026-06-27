@@ -37,7 +37,12 @@ export default function LLMSelectorModal({
   useEffect(() => {
     if (!slug) return;
     setLoading(true);
-    Promise.all([Workspace.bySlug(slug), System.keys()])
+    Promise.all([
+      Workspace.bySlug(slug),
+      System.settingsBootstrap({ sections: ["llm"] }).then(
+        async (response) => response?.settings || (await System.keys()) || {}
+      ),
+    ])
       .then(([workspace, systemSettings]) => {
         const savedProvider =
           workspace.chatProvider ?? systemSettings.LLMProvider;

@@ -22,14 +22,8 @@ export default function WorkspaceLLM({
   const [currentSettings, setCurrentSettings] = useState(settings);
 
   useEffect(() => {
-    async function getSettings() {
-      if (isOpen) {
-        const _settings = await System.keys();
-        setCurrentSettings(_settings ?? {});
-      }
-    }
-    getSettings();
-  }, [isOpen]);
+    if (isOpen) setCurrentSettings(settings ?? {});
+  }, [isOpen, settings]);
 
   function handleProviderSelection() {
     // Determine if provider needs additional setup because its minimum required keys are

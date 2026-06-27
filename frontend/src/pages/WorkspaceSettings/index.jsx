@@ -23,8 +23,8 @@ import WorkspaceAgentConfiguration from "./AgentConfig";
 import HealthCenter from "./HealthCenter";
 import ReadingTools from "./ReadingTools";
 import { useTranslation } from "react-i18next";
-import System from "@/models/system";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 const TABS = {
   "general-appearance": GeneralAppearance,
@@ -51,18 +51,24 @@ function ShowWorkspaceChat() {
   const { slug, tab } = useParams();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
+  const loadVectorSettings = useSettingsSection("vector");
 
   useEffect(() => {
+    const controller = new AbortController();
     async function getWorkspace() {
       if (!slug) return;
-      const _workspace = await Workspace.bySlug(slug);
+      setLoading(true);
+      const [_workspace, _settings, suggestedMessages] = await Promise.all([
+        Workspace.bySlug(slug),
+        loadVectorSettings({ priority: "P0" }),
+        Workspace.getSuggestedMessages(slug),
+      ]);
+      if (controller.signal.aborted) return;
       if (!_workspace) {
         setLoading(false);
         return;
       }
 
-      const _settings = await System.keys();
-      const suggestedMessages = await Workspace.getSuggestedMessages(slug);
       setWorkspace({
         ..._workspace,
         vectorDB: _settings?.VectorDB,
@@ -71,7 +77,8 @@ function ShowWorkspaceChat() {
       setLoading(false);
     }
     getWorkspace();
-  }, [slug, tab]);
+    return () => controller.abort();
+  }, [loadVectorSettings, slug]);
 
   if (loading) return <WorkspaceSettingsSkeleton />;
 

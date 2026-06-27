@@ -11,6 +11,7 @@ import paths from "@/utils/paths";
 import useUser from "@/hooks/useUser";
 import { Link } from "react-router-dom";
 import { canSeeAdmin } from "@/utils/authz";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 export default function WorkspaceAgentConfiguration({ workspace }) {
   const { user } = useUser();
@@ -19,15 +20,16 @@ export default function WorkspaceAgentConfiguration({ workspace }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const formEl = useRef(null);
+  const loadLlmSettings = useSettingsSection("llm");
 
   useEffect(() => {
     async function fetchSettings() {
-      const _settings = await System.keys();
+      const _settings = await loadLlmSettings({ priority: "P0" });
       setSettings(_settings ?? {});
       setLoading(false);
     }
     fetchSettings();
-  }, []);
+  }, [loadLlmSettings]);
 
   const handleUpdate = async (e) => {
     setSaving(true);

@@ -1,4 +1,3 @@
-import System from "@/models/system";
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { castToType } from "@/utils/types";
@@ -10,20 +9,22 @@ import ChatModeSelection from "./ChatModeSelection";
 import WorkspaceLLMSelection from "./WorkspaceLLMSelection";
 import ChatQueryRefusalResponse from "./ChatQueryRefusalResponse";
 import CTAButton from "@/components/lib/CTAButton";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 export default function ChatSettings({ workspace }) {
   const [settings, setSettings] = useState({});
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+  const loadLlmSettings = useSettingsSection("llm");
 
   const formEl = useRef(null);
   useEffect(() => {
     async function fetchSettings() {
-      const _settings = await System.keys();
+      const _settings = await loadLlmSettings({ priority: "P0" });
       setSettings(_settings ?? {});
     }
     fetchSettings();
-  }, []);
+  }, [loadLlmSettings]);
 
   const handleUpdate = async (e) => {
     e.preventDefault();

@@ -17,12 +17,15 @@ import { canSeeAdmin } from "@/utils/authz";
 
 function fetchModelName(slug, setModelName) {
   if (!slug) return;
-  Promise.all([Workspace.bySlug(slug), System.keys()]).then(
-    ([workspace, systemSettings]) => {
-      const model = workspace.chatModel ?? systemSettings?.LLMModel ?? "";
-      setModelName(model);
-    }
-  );
+  Promise.all([
+    Workspace.bySlug(slug),
+    System.settingsBootstrap({ sections: ["llm"] }).then(
+      async (response) => response?.settings || (await System.keys()) || {}
+    ),
+  ]).then(([workspace, systemSettings]) => {
+    const model = workspace.chatModel ?? systemSettings?.LLMModel ?? "";
+    setModelName(model);
+  });
 }
 
 export default function WorkspaceModelPicker({ workspaceSlug = null }) {
