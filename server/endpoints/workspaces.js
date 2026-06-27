@@ -72,6 +72,8 @@ function parseHistoryQuery(request) {
   const query = queryParams(request);
   const limit = Math.min(Math.max(Number(query.limit) || 20, 1), 100);
   const beforeChatId = Number(query.beforeChatId) || null;
+  const afterChatId = Number(query.afterChatId) || null;
+  const anchorChatId = Number(query.anchorChatId) || null;
   const priorityWindow = Math.min(
     Math.max(Number(query.priorityWindow) || 0, 0),
     limit
@@ -80,10 +82,14 @@ function parseHistoryQuery(request) {
     enabled:
       query.limit !== undefined ||
       query.beforeChatId !== undefined ||
+      query.afterChatId !== undefined ||
+      query.anchorChatId !== undefined ||
       query.detail !== undefined ||
       query.priorityWindow !== undefined,
     limit,
     beforeChatId,
+    afterChatId,
+    anchorChatId,
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
   };
@@ -328,6 +334,7 @@ function lightChatIdsForHistory(history = [], options = {}) {
 
 async function historyPageMeta(baseClause = {}, history = [], options = {}) {
   const oldestId = history[0]?.id || null;
+  const newestId = history[history.length - 1]?.id || null;
   const hasMore =
     !!oldestId &&
     (history.length >= options.limit
@@ -336,12 +343,115 @@ async function historyPageMeta(baseClause = {}, history = [], options = {}) {
           id: { lt: oldestId },
         })) > 0
       : false);
+  const hasNewer =
+    !!newestId &&
+    !!options.afterChatId &&
+    history.length >= options.limit &&
+    (await WorkspaceChats.count({
+      ...baseClause,
+      id: { gt: newestId },
+    })) > 0;
   return {
     limit: options.limit,
     beforeChatId: options.beforeChatId,
+    afterChatId: options.afterChatId,
+    anchorChatId: options.anchorChatId,
     nextBeforeChatId: oldestId,
+    olderBeforeChatId: oldestId,
+    nextAfterChatId: newestId,
+    newerAfterChatId: newestId,
     totalReturned: history.length,
     hasMore,
+    hasOlder: hasMore,
+    hasNewer,
+  };
+}
+
+function anchorWindowLimits(limit = 20) {
+  const remaining = Math.max(limit - 1, 0);
+  const beforeLimit = Math.floor(remaining / 2);
+  return {
+    beforeLimit,
+    afterLimit: remaining - beforeLimit,
+  };
+}
+
+async function anchoredChatHistory(baseClause = {}, options = {}) {
+  const anchorChatId = options.anchorChatId;
+  const [anchor] = await WorkspaceChats.where(
+    { ...baseClause, id: anchorChatId },
+    1,
+    { id: "asc" }
+  );
+  if (!anchor) {
+    return {
+      history: [],
+      page: {
+        limit: options.limit,
+        beforeChatId: null,
+        afterChatId: null,
+        anchorChatId,
+        anchorFound: false,
+        nextBeforeChatId: null,
+        olderBeforeChatId: null,
+        nextAfterChatId: null,
+        newerAfterChatId: null,
+        totalReturned: 0,
+        hasMore: false,
+        hasOlder: false,
+        hasNewer: false,
+      },
+    };
+  }
+
+  const { beforeLimit, afterLimit } = anchorWindowLimits(options.limit);
+  const olderDesc = beforeLimit
+    ? await WorkspaceChats.where(
+        { ...baseClause, id: { lt: anchorChatId } },
+        beforeLimit,
+        { id: "desc" }
+      )
+    : [];
+  const newerAsc = afterLimit
+    ? await WorkspaceChats.where(
+        { ...baseClause, id: { gt: anchorChatId } },
+        afterLimit,
+        { id: "asc" }
+      )
+    : [];
+  const history = [...olderDesc].reverse().concat(anchor, newerAsc);
+  const oldestId = history[0]?.id || null;
+  const newestId = history[history.length - 1]?.id || null;
+  const hasOlder =
+    !!oldestId &&
+    (await WorkspaceChats.count({
+      ...baseClause,
+      id: { lt: oldestId },
+    })) > 0;
+  const hasNewer =
+    !!newestId &&
+    (await WorkspaceChats.count({
+      ...baseClause,
+      id: { gt: newestId },
+    })) > 0;
+
+  return {
+    history,
+    page: {
+      limit: options.limit,
+      beforeChatId: null,
+      afterChatId: null,
+      anchorChatId,
+      anchorFound: true,
+      nextBeforeChatId: oldestId,
+      olderBeforeChatId: oldestId,
+      nextAfterChatId: newestId,
+      newerAfterChatId: newestId,
+      totalReturned: history.length,
+      hasMore: hasOlder,
+      hasOlder,
+      hasNewer,
+    },
   };
 }
 
@@ -350,7 +460,11 @@ async function pagedChatHistory(
   whereClause = {},
   options = {}
 ) {
-  const orderBy = options.enabled ? { id: "desc" } : { id: "asc" };
+  const orderBy = options.afterChatId
+    ? { id: "asc" }
+    : options.enabled
+      ? { id: "desc" }
+      : { id: "asc" };
   if (
     options.enabled &&
     options.detail === "light" &&
@@ -361,7 +475,9 @@ async function pagedChatHistory(
       options.limit,
       orderBy
     );
-    const orderedHistory = [...history].reverse();
+    const orderedHistory = options.afterChatId
+      ? history
+      : [...history].reverse();
     const lightChatIds = lightChatIdsForHistory(orderedHistory, options);
     const fullChatIds = orderedHistory
       .filter((chat) => !lightChatIds.has(chat.id))
@@ -383,7 +499,9 @@ async function pagedChatHistory(
     options.enabled ? options.limit : null,
     orderBy
   );
-  return options.enabled ? [...history].reverse() : history;
+  return options.enabled && !options.afterChatId
+    ? [...history].reverse()
+    : history;
 }
 
 function workspaceEndpoints(app) {
@@ -862,9 +980,18 @@ function workspaceEndpoints(app) {
           ...(historyOptions.beforeChatId
             ? { id: { lt: historyOptions.beforeChatId } }
             : {}),
+          ...(historyOptions.afterChatId
+            ? { id: { gt: historyOptions.afterChatId } }
+            : {}),
         };
+        const anchoredHistory =
+          historyOptions.enabled && historyOptions.anchorChatId
+            ? await anchoredChatHistory(baseClause, historyOptions)
+            : null;
         const orderedHistory = historyOptions.enabled
-          ? await pagedChatHistory(baseClause, whereClause, historyOptions)
+          ? anchoredHistory
+            ? anchoredHistory.history
+            : await pagedChatHistory(baseClause, whereClause, historyOptions)
           : multiUserMode(response)
             ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
             : await WorkspaceChats.forWorkspace(workspace.id);
@@ -873,7 +1000,8 @@ function workspaceEndpoints(app) {
           historyOptions
         );
         const page = historyOptions.enabled
-          ? await historyPageMeta(baseClause, orderedHistory, historyOptions)
+          ? anchoredHistory?.page ||
+            (await historyPageMeta(baseClause, orderedHistory, historyOptions))
           : null;
         response.status(200).json({
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
@@ -920,21 +1048,23 @@ function workspaceEndpoints(app) {
           ...(historyOptions.beforeChatId
             ? { id: { lt: historyOptions.beforeChatId } }
             : {}),
+          ...(historyOptions.afterChatId
+            ? { id: { gt: historyOptions.afterChatId } }
+            : {}),
         };
-        const orderedHistory = await pagedChatHistory(
-          baseClause,
-          whereClause,
-          historyOptions
-        );
+        const anchoredHistory = historyOptions.anchorChatId
+          ? await anchoredChatHistory(baseClause, historyOptions)
+          : null;
+        const orderedHistory = anchoredHistory
+          ? anchoredHistory.history
+          : await pagedChatHistory(baseClause, whereClause, historyOptions);
         const lightChatIds = lightChatIdsForHistory(
           orderedHistory,
           historyOptions
         );
-        const page = await historyPageMeta(
-          baseClause,
-          orderedHistory,
-          historyOptions
-        );
+        const page =
+          anchoredHistory?.page ||
+          (await historyPageMeta(baseClause, orderedHistory, historyOptions));
 
         response.status(200).json({
           success: true,

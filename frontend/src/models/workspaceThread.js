@@ -6,6 +6,8 @@ import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 function historyPageQuery({
   limit = 20,
   beforeChatId = null,
+  afterChatId = null,
+  anchorChatId = null,
   detail = "light",
   priorityWindow = 5,
 } = {}) {
@@ -14,6 +16,8 @@ function historyPageQuery({
   params.set("detail", detail);
   params.set("priorityWindow", String(priorityWindow));
   if (beforeChatId) params.set("beforeChatId", String(beforeChatId));
+  if (afterChatId) params.set("afterChatId", String(afterChatId));
+  if (anchorChatId) params.set("anchorChatId", String(anchorChatId));
   return params.toString();
 }
 

@@ -128,13 +128,15 @@ describe("workspace chat history ordering", () => {
   });
 
   it("returns thread history pages in ascending chatId order after descending cursor lookup", async () => {
-    const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
+    const {
+      workspaceThreadEndpoints,
+    } = require("../../endpoints/workspaceThreads");
     const routes = routesFor(workspaceThreadEndpoints);
     const route = routes["GET /workspace/:slug/thread/:threadSlug/chats"];
     mockQueryParams.mockReturnValue({
       limit: "2",
       beforeChatId: "10",
-      detail: "light",
+      detail: "full",
     });
     mockWorkspaceChatsWhere.mockResolvedValue([chat(9), chat(7)]);
 
@@ -161,17 +163,126 @@ describe("workspace chat history ordering", () => {
         ]),
       })
     );
-    const history = res.status.mock.results[0].value.json.mock.calls[0][0]
-      .history;
-    expect(history.map((message) => `${message.chatId}:${message.role}`)).toEqual(
-      ["7:user", "7:assistant", "9:user", "9:assistant"]
+    const history =
+      res.status.mock.results[0].value.json.mock.calls[0][0].history;
+    expect(
+      history.map((message) => `${message.chatId}:${message.role}`)
+    ).toEqual(["7:user", "7:assistant", "9:user", "9:assistant"]);
+  });
+
+  it("returns a thread anchor window around the requested chatId", async () => {
+    const {
+      workspaceThreadEndpoints,
+    } = require("../../endpoints/workspaceThreads");
+    const routes = routesFor(workspaceThreadEndpoints);
+    const route = routes["GET /workspace/:slug/thread/:threadSlug/chats"];
+    mockQueryParams.mockReturnValue({
+      limit: "5",
+      anchorChatId: "10",
+      detail: "full",
+    });
+    mockWorkspaceChatsWhere
+      .mockResolvedValueOnce([chat(10)])
+      .mockResolvedValueOnce([chat(9), chat(8)])
+      .mockResolvedValueOnce([chat(11), chat(12)]);
+    mockWorkspaceChatsCount.mockResolvedValueOnce(0).mockResolvedValueOnce(1);
+
+    const res = jsonResponse({
+      workspace: { id: 1, slug: "workspace" },
+      thread: { id: 4, slug: "thread" },
+    });
+    await route({ params: { slug: "workspace", threadSlug: "thread" } }, res);
+
+    expect(mockWorkspaceChatsWhere).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        workspaceId: 1,
+        thread_id: 4,
+        id: 10,
+      }),
+      1,
+      { id: "asc" }
+    );
+    expect(mockWorkspaceChatsWhere).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: { lt: 10 } }),
+      2,
+      { id: "desc" }
+    );
+    expect(mockWorkspaceChatsWhere).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ id: { gt: 10 } }),
+      2,
+      { id: "asc" }
+    );
+
+    const payload = res.status.mock.results[0].value.json.mock.calls[0][0];
+    expect(payload.page).toEqual(
+      expect.objectContaining({
+        anchorChatId: 10,
+        anchorFound: true,
+        nextBeforeChatId: 8,
+        olderBeforeChatId: 8,
+        nextAfterChatId: 12,
+        newerAfterChatId: 12,
+        hasOlder: false,
+        hasNewer: true,
+      })
+    );
+    expect(
+      payload.history.map((message) => `${message.chatId}:${message.role}`)
+    ).toEqual([
+      "8:user",
+      "8:assistant",
+      "9:user",
+      "9:assistant",
+      "10:user",
+      "10:assistant",
+      "11:user",
+      "11:assistant",
+      "12:user",
+      "12:assistant",
+    ]);
+  });
+
+  it("reports a missing thread anchor without falling back inside the endpoint", async () => {
+    const {
+      workspaceThreadEndpoints,
+    } = require("../../endpoints/workspaceThreads");
+    const routes = routesFor(workspaceThreadEndpoints);
+    const route = routes["GET /workspace/:slug/thread/:threadSlug/chats"];
+    mockQueryParams.mockReturnValue({
+      limit: "5",
+      anchorChatId: "999",
+      detail: "full",
+    });
+    mockWorkspaceChatsWhere.mockResolvedValueOnce([]);
+
+    const res = jsonResponse({
+      workspace: { id: 1, slug: "workspace" },
+      thread: { id: 4, slug: "thread" },
+    });
+    await route({ params: { slug: "workspace", threadSlug: "thread" } }, res);
+
+    const payload = res.status.mock.results[0].value.json.mock.calls[0][0];
+    expect(payload.history).toEqual([]);
+    expect(payload.page).toEqual(
+      expect.objectContaining({
+        anchorChatId: 999,
+        anchorFound: false,
+        hasOlder: false,
+        hasNewer: false,
+      })
     );
   });
 
   it("hydrates thread history with an explicit ascending id order", async () => {
-    const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
+    const {
+      workspaceThreadEndpoints,
+    } = require("../../endpoints/workspaceThreads");
     const routes = routesFor(workspaceThreadEndpoints);
-    const route = routes["POST /workspace/:slug/thread/:threadSlug/chats/hydrate"];
+    const route =
+      routes["POST /workspace/:slug/thread/:threadSlug/chats/hydrate"];
     mockWorkspaceChatsWhere.mockResolvedValue([chat(7), chat(9)]);
 
     const res = jsonResponse({
@@ -216,11 +327,11 @@ describe("workspace chat history ordering", () => {
       2,
       { id: "desc" }
     );
-    const history = res.status.mock.results[0].value.json.mock.calls[0][0]
-      .history;
-    expect(history.map((message) => `${message.chatId}:${message.role}`)).toEqual(
-      ["6:user", "6:assistant", "8:user", "8:assistant"]
-    );
+    const history =
+      res.status.mock.results[0].value.json.mock.calls[0][0].history;
+    expect(
+      history.map((message) => `${message.chatId}:${message.role}`)
+    ).toEqual(["6:user", "6:assistant", "8:user", "8:assistant"]);
   });
 
   it("uses id ordering for developer API workspace history", async () => {
