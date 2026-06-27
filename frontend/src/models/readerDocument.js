@@ -7,11 +7,11 @@ function readerDocumentsPath(slug = null) {
 }
 
 const ReaderDocument = {
-  upload: async function (slug, formData) {
+  upload: async function (slug, formData, options = {}) {
     const { response, data } = await uploadFormData(
       `${readerDocumentsPath(slug)}/upload`,
       formData,
-      { uploadKind: UPLOAD_KINDS.readerDocument }
+      { uploadKind: UPLOAD_KINDS.readerDocument, ...options }
     );
     return { response, data };
   },

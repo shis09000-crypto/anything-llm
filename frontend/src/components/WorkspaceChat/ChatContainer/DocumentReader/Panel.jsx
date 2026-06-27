@@ -11,6 +11,7 @@ import {
   FolderOpen,
   Play,
   Plus,
+  ArrowClockwise,
   Square,
   Tag,
   Trash,
@@ -55,6 +56,26 @@ function formatFileSize(size) {
   if (!bytes) return "未知大小";
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatUploadSpeed(speedBps) {
+  const speed = Number(speedBps || 0);
+  if (!speed) return "等待速度";
+  if (speed < 1024 * 1024)
+    return `${Math.max(1, Math.round(speed / 1024))} KB/s`;
+  return `${(speed / (1024 * 1024)).toFixed(1)} MB/s`;
+}
+
+function uploadStageLabel(entry = {}) {
+  const labels = {
+    preparing: "准备上传",
+    uploading: "上传中",
+    server_processing: "服务器保存中",
+    postprocessing: "生成封面/分类中",
+    complete: "可打开",
+    failed: "失败",
+  };
+  return labels[entry.stage] || labels[entry.status] || "准备上传";
 }
 
 function formatHistoryTime(value) {
@@ -758,15 +779,113 @@ function CategoryManagerModal({
   );
 }
 
+function BookshelfUploadProgressPanel({ items = [], onRetry, onRemove }) {
+  if (!items.length) return null;
+  return (
+    <div className="mt-4 rounded-2xl border border-blue-100 bg-white/80 p-3 shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <p className="m-0 text-xs font-black uppercase tracking-[0.08em] text-slate-500">
+          上传进度
+        </p>
+        <span className="text-[11px] font-bold text-slate-400">
+          {items.length} 个任务
+        </span>
+      </div>
+      <div className="flex max-h-56 flex-col gap-2 overflow-y-auto pr-1">
+        {items.map((entry) => {
+          const percent = Math.max(
+            0,
+            Math.min(100, Math.round(Number(entry.percent || 0)))
+          );
+          const processingPercent =
+            entry.postprocessPercent !== null &&
+            entry.postprocessPercent !== undefined
+              ? Math.max(0, Math.min(100, Number(entry.postprocessPercent)))
+              : null;
+          const barPercent =
+            entry.status === "postprocessing" && processingPercent !== null
+              ? processingPercent
+              : percent;
+          return (
+            <div
+              key={entry.id}
+              className="rounded-xl border border-slate-200/80 bg-slate-50/80 p-3"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="m-0 truncate text-xs font-black text-slate-800">
+                    {entry.fileName}
+                  </p>
+                  <p className="m-0 mt-1 text-[11px] font-semibold text-slate-500">
+                    {documentTypeLabel(entry.documentType)} ·{" "}
+                    {formatFileSize(entry.size)}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  {entry.status === "failed" && (
+                    <button
+                      type="button"
+                      onClick={() => onRetry?.(entry.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-blue-600 shadow-[0_8px_18px_rgba(15,23,42,0.08)]"
+                      aria-label="重试上传"
+                    >
+                      <ArrowClockwise size={14} weight="bold" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemove?.(entry.id)}
+                    className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-slate-400 shadow-[0_8px_18px_rgba(15,23,42,0.08)]"
+                    aria-label="移除上传任务"
+                  >
+                    <X size={14} weight="bold" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={[
+                    "h-full rounded-full transition-all duration-300",
+                    entry.status === "failed" ? "bg-rose-500" : "bg-blue-500",
+                  ].join(" ")}
+                  style={{ width: `${barPercent}%` }}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3 text-[11px] font-bold">
+                <span
+                  className={
+                    entry.status === "failed"
+                      ? "text-rose-500"
+                      : "text-slate-500"
+                  }
+                >
+                  {entry.error || uploadStageLabel(entry)}
+                </span>
+                <span className="shrink-0 text-slate-400">
+                  {Math.round(barPercent)}% ·{" "}
+                  {formatUploadSpeed(entry.speedBps)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function ReaderDrawer({
   workspace,
   initialSection = "history",
   onSectionChange,
   onOpenFile,
   onUploadBookshelfFiles,
+  onRetryBookshelfUpload,
+  onRemoveBookshelfUpload,
   onOpenWorkspaceDoc,
   readerHistory = [],
   readerBookshelf = [],
+  bookshelfUploadQueue = [],
   readerCategories = [],
   onOpenHistoryDocument,
   onOpenBookshelfDocument,
@@ -813,6 +932,7 @@ function ReaderDrawer({
   const selectedBookshelfSort =
     BOOKSHELF_SORT_OPTIONS.find((option) => option.value === bookshelfSortBy) ||
     BOOKSHELF_SORT_OPTIONS[0];
+  const visibleUploadQueue = bookshelfUploadQueue;
 
   useEffect(() => {
     setActiveSection(initialSection);
@@ -1343,6 +1463,13 @@ function ReaderDrawer({
                 </div>
               ))}
           </div>
+          {showingBookshelf && visibleUploadQueue.length > 0 && (
+            <BookshelfUploadProgressPanel
+              items={visibleUploadQueue}
+              onRetry={onRetryBookshelfUpload}
+              onRemove={onRemoveBookshelfUpload}
+            />
+          )}
           <div
             className={[
               "mt-6 min-h-0 flex-1 overflow-y-auto pr-1",
@@ -1652,9 +1779,12 @@ export default function DocumentReaderPanel({
     focusReaderTextSource,
     removePendingReaderTextSource,
     readerBookshelf,
+    bookshelfUploadQueue,
     openBookshelfDocument,
     addHistoryItemsToBookshelf,
     uploadFilesToBookshelf,
+    retryBookshelfUpload,
+    removeBookshelfUpload,
     deleteReaderBookshelfItems,
     readerCategories,
     createBookshelfCategory,
@@ -1925,9 +2055,12 @@ export default function DocumentReaderPanel({
             onSectionChange={setDrawerSection}
             onOpenFile={openLocalFile}
             onUploadBookshelfFiles={uploadFilesToBookshelf}
+            onRetryBookshelfUpload={retryBookshelfUpload}
+            onRemoveBookshelfUpload={removeBookshelfUpload}
             onOpenWorkspaceDoc={openWorkspaceParsedDocument}
             readerHistory={readerHistory}
             readerBookshelf={readerBookshelf}
+            bookshelfUploadQueue={bookshelfUploadQueue}
             readerCategories={readerCategories}
             onOpenHistoryDocument={openHistoryDocument}
             onOpenBookshelfDocument={openBookshelfDocument}

@@ -129,6 +129,7 @@ export function DocumentReaderProvider({
   const [readerHistory, setReaderHistory] = useState([]);
   const [readerBookshelf, setReaderBookshelf] = useState([]);
   const [readerCategories, setReaderCategories] = useState([]);
+  const [bookshelfUploadQueue, setBookshelfUploadQueue] = useState([]);
   const [drawerInitialSection, setDrawerInitialSection] = useState(
     initialDrawerState.section
   );
@@ -138,6 +139,7 @@ export function DocumentReaderProvider({
   const objectUrlRef = useRef(null);
   const readerClosingRef = useRef(false);
   const postprocessQueueRef = useRef(new Set());
+  const uploadAbortControllersRef = useRef(new Map());
   const pendingSelectionsRef = useRef([]);
   const pendingReaderTextSourcesRef = useRef([]);
   const nextCitationNoRef = useRef(1);
@@ -173,6 +175,25 @@ export function DocumentReaderProvider({
   const setReaderObjectUrl = useCallback((url = null) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = url;
+  }, []);
+
+  const patchBookshelfUpload = useCallback((id, patch = {}) => {
+    if (!id) return;
+    setBookshelfUploadQueue((queue) =>
+      queue.map((entry) =>
+        entry.id === id
+          ? { ...entry, ...patch, updatedAt: new Date().toISOString() }
+          : entry
+      )
+    );
+  }, []);
+
+  const removeBookshelfUpload = useCallback((id) => {
+    uploadAbortControllersRef.current.get(id)?.abort();
+    uploadAbortControllersRef.current.delete(id);
+    setBookshelfUploadQueue((queue) =>
+      queue.filter((entry) => entry.id !== id)
+    );
   }, []);
 
   const setDrawerOpenPersisted = useCallback((open, options = {}) => {
@@ -265,15 +286,18 @@ export function DocumentReaderProvider({
   );
 
   const bookshelfItemFromServerData = useCallback((data) => {
-    if (!data?.content || !data?.metadata) return null;
+    if (!data?.metadata) return null;
     const title = data.metadata.originalName;
+    const documentType =
+      data.content?.documentType || data.metadata.documentType;
+    if (!documentType) return null;
     return {
       source: data.metadata.source || "reader_upload",
       title,
       bookKey: normalizeBookTitle(title),
       branchId: null,
       branchLabel: null,
-      documentType: data.content.documentType,
+      documentType,
       size: data.metadata.size ?? null,
       readerDocumentId: data.metadata.readerDocumentId,
       backupReaderDocumentId: data.metadata.readerDocumentId,
@@ -404,7 +428,11 @@ export function DocumentReaderProvider({
   );
 
   const queueBookshelfPostprocess = useCallback(
-    async ({ item, tasks = ["thumbnail", "classification"] }) => {
+    async ({
+      item,
+      tasks = ["thumbnail", "classification"],
+      uploadEntryId = null,
+    }) => {
       if (!item) return;
       const readerDocumentId =
         item.readerDocumentId || item.backupReaderDocumentId || null;
@@ -414,6 +442,14 @@ export function DocumentReaderProvider({
       const key = `${readerDocumentId}:${tasks.slice().sort().join(",")}`;
       if (postprocessQueueRef.current.has(key)) return;
       postprocessQueueRef.current.add(key);
+      if (uploadEntryId) {
+        patchBookshelfUpload(uploadEntryId, {
+          status: "postprocessing",
+          stage: "postprocessing",
+          percent: 100,
+          speedBps: 0,
+        });
+      }
       try {
         const bookshelfKey = item.key || `${item.bookKey}:main`;
         const failClassification = (reason) => {
@@ -462,6 +498,15 @@ export function DocumentReaderProvider({
           const stillExists = applyPostprocessResult(current, data, {
             trackClassification: categoryTasks,
           });
+          if (uploadEntryId) {
+            const postprocessComplete = data.status === "complete";
+            patchBookshelfUpload(uploadEntryId, {
+              status: postprocessComplete ? "complete" : "postprocessing",
+              stage: postprocessComplete ? "complete" : "postprocessing",
+              postprocessPercent: data.progress?.percent ?? null,
+              error: data.progress?.error || null,
+            });
+          }
           if (!stillExists) break;
           const pendingTasks = tasks.some((task) =>
             ["queued", "processing", "extracting", "classifying"].includes(
@@ -476,6 +521,13 @@ export function DocumentReaderProvider({
         }
         if (!completed && categoryTasks)
           failClassification("后台分类等待超时。");
+        if (uploadEntryId && !completed) {
+          patchBookshelfUpload(uploadEntryId, {
+            status: "failed",
+            stage: "failed",
+            error: "后台处理等待超时。",
+          });
+        }
       } finally {
         postprocessQueueRef.current.delete(key);
       }
@@ -483,6 +535,7 @@ export function DocumentReaderProvider({
     [
       applyPostprocessResult,
       markItemCategoryPending,
+      patchBookshelfUpload,
       patchStoredCategoryForItem,
     ]
   );
@@ -624,6 +677,20 @@ export function DocumentReaderProvider({
 
   const openServerDocumentData = useCallback(
     async (data, historyItem = null) => {
+      if (!data?.content && data?.readerDocumentId) {
+        const readerDocumentWorkspaceSlug =
+          data.metadata?.readerDocumentWorkspaceSlug ||
+          historyItem?.readerDocumentWorkspaceSlug ||
+          historyItem?.workspaceSlug ||
+          null;
+        const result = await ReaderDocument.get(
+          readerDocumentWorkspaceSlug,
+          data.readerDocumentId
+        );
+        if (result?.response?.ok && result?.data?.success) {
+          return openServerDocumentData(result.data, historyItem);
+        }
+      }
       if (!data?.content || !data?.metadata) return null;
       readerClosingRef.current = false;
       const readerDocumentId = data.metadata.readerDocumentId;
@@ -1374,17 +1441,59 @@ export function DocumentReaderProvider({
   );
 
   const uploadFilesToBookshelf = useCallback(
-    async (files = []) => {
+    async (files = [], options = {}) => {
       const selectedFiles = Array.from(files || []).filter(Boolean);
       if (!selectedFiles.length) return [];
       const itemsToAdd = [];
-      const postprocessTasks = [];
-      for (const file of selectedFiles) {
+      for (const [index, file] of selectedFiles.entries()) {
+        const entryId =
+          options.retryEntryId && selectedFiles.length === 1
+            ? options.retryEntryId
+            : uuid();
+        if (!options.retryEntryId) {
+          setBookshelfUploadQueue((queue) => [
+            ...queue,
+            {
+              id: entryId,
+              file,
+              fileName: file.name,
+              size: file.size,
+              status: "queued",
+              stage: "preparing",
+              percent: 0,
+              postprocessPercent: null,
+              speedBps: 0,
+              error: null,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            },
+          ]);
+        } else {
+          patchBookshelfUpload(entryId, {
+            status: "queued",
+            stage: "preparing",
+            percent: 0,
+            postprocessPercent: null,
+            speedBps: 0,
+            error: null,
+          });
+        }
+
         const validation = validateReaderFile(file);
         if (!validation.ok) {
+          patchBookshelfUpload(entryId, {
+            status: "failed",
+            stage: "failed",
+            error: validation.error,
+          });
           showToast(`${file.name}：${validation.error}`, "error");
           continue;
         }
+        patchBookshelfUpload(entryId, {
+          documentType: validation.documentType,
+          status: "uploading",
+          stage: "uploading",
+        });
 
         const bookKey = normalizeBookTitle(file.name);
         const existingItem = readReaderBookshelf().find(
@@ -1406,21 +1515,50 @@ export function DocumentReaderProvider({
           if (!existingItem.thumbnailDataUrl) tasks.push("thumbnail");
           if (existingItem.category?.source !== "manual")
             tasks.push("classification");
-          if (tasks.length) postprocessTasks.push({ item: itemForAdd, tasks });
+          if (tasks.length)
+            void queueBookshelfPostprocess({
+              item: itemForAdd,
+              tasks,
+              uploadEntryId: entryId,
+            });
+          patchBookshelfUpload(entryId, {
+            status: tasks.length ? "postprocessing" : "complete",
+            stage: tasks.length ? "postprocessing" : "complete",
+            percent: 100,
+            speedBps: 0,
+          });
           continue;
         }
 
         const formData = new FormData();
         formData.append("file", file, file.name);
-        setDocxPreviewStatus({
-          fileName: file.name,
-          message: loadingMessageForDocumentType(validation.documentType),
-        });
+        const controller = new AbortController();
+        uploadAbortControllersRef.current.set(entryId, controller);
         try {
           const { response, data } = await ReaderDocument.upload(
             null,
-            formData
+            formData,
+            {
+              signal: controller.signal,
+              onUploadProgress: (progress) => {
+                const uploadComplete = progress.percent >= 100;
+                patchBookshelfUpload(entryId, {
+                  status: "uploading",
+                  stage: uploadComplete ? "server_processing" : "uploading",
+                  percent: progress.percent,
+                  speedBps: progress.speedBps || progress.averageSpeedBps || 0,
+                  loaded: progress.loaded,
+                  total: progress.total,
+                });
+              },
+            }
           );
+          patchBookshelfUpload(entryId, {
+            status: "server_processing",
+            stage: "server_processing",
+            percent: 100,
+            speedBps: 0,
+          });
           if (!response.ok || !data?.success)
             throw new Error(data?.error || "上传失败");
           const item = bookshelfItemFromServerData(data);
@@ -1430,16 +1568,38 @@ export function DocumentReaderProvider({
               ...pendingReaderCategory("extracting", "等待自动分类"),
             };
             itemsToAdd.push(itemForAdd);
-            postprocessTasks.push({
+            addItemsToBookshelf([itemForAdd]);
+            patchBookshelfUpload(entryId, {
+              status: "postprocessing",
+              stage: "postprocessing",
+              readerDocumentId: itemForAdd.readerDocumentId,
+              postprocess: data.postprocess || null,
+            });
+            void queueBookshelfPostprocess({
               item: itemForAdd,
               tasks: ["thumbnail", "classification"],
+              uploadEntryId: entryId,
+            });
+          } else {
+            patchBookshelfUpload(entryId, {
+              status: "failed",
+              stage: "failed",
+              error: "上传成功，但书籍元数据不可用。",
             });
           }
         } catch (error) {
+          const aborted = error?.name === "AbortError";
+          patchBookshelfUpload(entryId, {
+            status: "failed",
+            stage: "failed",
+            error: aborted ? "上传已取消。" : error.message || "上传失败",
+          });
           showToast(`${file.name}：${error.message || "上传失败"}`, "error");
         } finally {
-          setDocxPreviewStatus(null);
+          uploadAbortControllersRef.current.delete(entryId);
         }
+        if (index < selectedFiles.length - 1)
+          await new Promise((resolve) => window.setTimeout(resolve, 150));
       }
       if (!itemsToAdd.length) return [];
       const next = addItemsToBookshelf(itemsToAdd);
@@ -1451,16 +1611,25 @@ export function DocumentReaderProvider({
         )
       );
       showToast(`已加入书架 ${itemsToAdd.length} 本书`, "success");
-      postprocessTasks.forEach((task) => {
-        void queueBookshelfPostprocess(task);
-      });
       return next.filter((item) => addedKeys.has(item.key));
     },
     [
       addItemsToBookshelf,
       bookshelfItemFromServerData,
+      patchBookshelfUpload,
       queueBookshelfPostprocess,
     ]
+  );
+
+  const retryBookshelfUpload = useCallback(
+    async (entryId) => {
+      const entry = bookshelfUploadQueue.find((item) => item.id === entryId);
+      if (!entry?.file) return [];
+      return await uploadFilesToBookshelf([entry.file], {
+        retryEntryId: entryId,
+      });
+    },
+    [bookshelfUploadQueue, uploadFilesToBookshelf]
   );
 
   const uploadCurrentDocument = useCallback(async () => {
@@ -1925,12 +2094,15 @@ export function DocumentReaderProvider({
       backupCurrentDocumentProgress,
       readerHistory,
       readerBookshelf,
+      bookshelfUploadQueue,
       readerCategories,
       drawerInitialSection,
       openHistoryDocument,
       openBookshelfDocument,
       addHistoryItemsToBookshelf,
       uploadFilesToBookshelf,
+      retryBookshelfUpload,
+      removeBookshelfUpload,
       deleteReaderBookshelfItems,
       createBookshelfCategory,
       renameBookshelfCategory,
@@ -1978,9 +2150,12 @@ export function DocumentReaderProvider({
       recordCurrentProgress,
       readerHistory,
       readerBookshelf,
+      bookshelfUploadQueue,
       readerCategories,
       reclassifyBookshelfItem,
       renameBookshelfCategory,
+      retryBookshelfUpload,
+      removeBookshelfUpload,
       drawerInitialSection,
       sourcesByTurn,
       localFileConflict,

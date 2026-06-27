@@ -43,6 +43,11 @@ const { hashLogValue } = require("../utils/security/redaction");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
+
+function includeUploadContent(request) {
+  const value = request.query?.includeContent;
+  return value === "1" || value === "true";
+}
 const READER_DOCUMENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_TYPES = {
@@ -518,6 +523,13 @@ function scheduleDocxPreviewMetadataUpdate({
   fingerprint,
 }) {
   if (!metadataIsDocx(metadata)) return;
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+    postprocessTaskPatch(status, "preview", {
+      status: "processing",
+      reason: "正在生成 DOCX 预览",
+    })
+  );
   ensureDocxPreview({
     workspace,
     readerDocumentId,
@@ -526,15 +538,28 @@ function scheduleDocxPreviewMetadataUpdate({
     fingerprint,
   })
     .then((finalMetadata) => {
-      const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
       writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+      updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+        postprocessTaskPatch(status, "preview", {
+          status: finalMetadata.previewPdfUrl ? "complete" : "failed",
+          reason: finalMetadata.previewPdfUrl
+            ? ""
+            : finalMetadata.previewWarning || "DOCX 预览生成失败。",
+        })
+      );
     })
-    .catch((error) =>
+    .catch((error) => {
+      updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+        postprocessTaskPatch(status, "preview", {
+          status: "failed",
+          reason: error.message || "DOCX 预览生成失败。",
+        })
+      );
       console.warn("[ReaderDocument] DOCX preview metadata update failed", {
         readerDocumentId,
         error: error.message,
-      })
-    );
+      });
+    });
 }
 
 function writeReaderDocumentFiles(
@@ -1009,6 +1034,35 @@ function postprocessTaskPatch(status, task, patch = {}) {
         updatedAt: isoNow(),
       },
     },
+  };
+}
+
+function readerPostprocessProgress(status = {}) {
+  const tasks = Object.values(status.tasks || {});
+  if (!tasks.length) {
+    return {
+      percent: status.status === "complete" ? 100 : 0,
+      stage: status.status || "idle",
+      error: null,
+    };
+  }
+
+  const complete = tasks.filter((task) => task.status === "complete").length;
+  const failed = tasks.filter((task) => task.status === "failed").length;
+  const active = tasks.find((task) =>
+    ["queued", "processing", "extracting", "classifying"].includes(
+      task.status
+    )
+  );
+  const percent = Math.round(((complete + failed) / tasks.length) * 100);
+  const errorTask = tasks.find((task) => task.status === "failed");
+  return {
+    percent: status.status === "complete" ? 100 : Math.max(5, percent),
+    stage:
+      status.status === "complete"
+        ? "complete"
+        : active?.status || status.status || "idle",
+    error: errorTask?.reason || null,
   };
 }
 
@@ -1663,10 +1717,13 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   const status = readReaderPostprocessStatus(documentRoot, readerDocumentId);
   const classification = status.tasks?.classification?.result || null;
+  const progress = readerPostprocessProgress(status);
   return {
     success: true,
     status: status.status,
     postprocess: status,
+    progress,
+    stage: progress.stage,
     tasks: status.tasks || {},
     thumbnailDataUrl: thumbnailDataUrlFromDocumentRoot(documentRoot),
     classification,
@@ -2117,6 +2174,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             source: "reader_upload",
             originalName,
             storedName,
+            documentType,
             mimeType: mime,
             size: request.file.size,
             originalFingerprint: fingerprintForBuffer(request.file.buffer),
@@ -2140,12 +2198,16 @@ function workspaceReaderDocumentsEndpoints(app) {
             success: true,
             warning: finalMetadata.previewWarning || null,
             readerDocumentId,
-            content,
+            ...(includeUploadContent(request) ? { content } : {}),
             metadata: metadataWithOriginalUrl(
               workspace,
               readerDocumentId,
               finalMetadata
             ),
+            postprocess: readerPostprocessResponse(
+              workspace,
+              readerDocumentId
+            ).postprocess,
           });
         } catch (error) {
           return sendUploadError(response, error);
@@ -2619,6 +2681,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             source: "reader_upload",
             originalName,
             storedName,
+            documentType,
             mimeType: mime,
             size: request.file.size,
             originalFingerprint: fingerprintForBuffer(request.file.buffer),
@@ -2641,12 +2704,16 @@ function workspaceReaderDocumentsEndpoints(app) {
             success: true,
             warning: finalMetadata.previewWarning || null,
             readerDocumentId,
-            content,
+            ...(includeUploadContent(request) ? { content } : {}),
             metadata: metadataWithOriginalUrl(
               workspace,
               readerDocumentId,
               finalMetadata
             ),
+            postprocess: readerPostprocessResponse(
+              workspace,
+              readerDocumentId
+            ).postprocess,
           });
         } catch (error) {
           return sendUploadError(response, error);
