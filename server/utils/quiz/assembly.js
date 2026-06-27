@@ -29,6 +29,7 @@ function assembleQuiz({
   quizId = null,
   plan,
   evidenceChunks = [],
+  evidenceMode = "workspace",
   sourceRefs = [],
   jobs = [],
   questions = [],
@@ -58,6 +59,7 @@ function assembleQuiz({
     errors,
     sourceRefs,
     evidenceChunks,
+    evidenceMode,
     generationStatus: {
       status: nextStatus,
       jobs: jobs.map(({ evidenceChunks: _e, sourceRefs: _s, ...job }) => job),

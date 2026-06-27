@@ -12,7 +12,11 @@ const PRIORITY = {
   fill_blank: 3,
 };
 
-function allocateQuestionGeneration({ plan, evidenceChunks = [] }) {
+function allocateQuestionGeneration({
+  plan,
+  evidenceChunks = [],
+  evidenceMode = "workspace",
+}) {
   const counts = plan.questionTypeCounts || {};
   return QUIZ_TYPES.map((type) => ({
     type,
@@ -22,6 +26,7 @@ function allocateQuestionGeneration({ plan, evidenceChunks = [] }) {
     difficulty: plan.difficulty,
     topic: plan.topic,
     keywords: plan.keywords || [],
+    evidenceMode,
     evidenceChunks,
     sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
   }))

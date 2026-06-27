@@ -3873,9 +3873,7 @@ export function MobilePageExperimentContent({
             });
           } else {
             replaceAssistant({
-              text: result?.insufficientEvidence
-                ? "知识库资料不足，暂时无法生成测试题。"
-                : result?.error || "测试题生成失败。",
+              text: result?.error || "测试题生成失败。",
               outputs: [],
             });
           }

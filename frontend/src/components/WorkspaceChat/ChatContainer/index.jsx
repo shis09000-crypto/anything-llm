@@ -900,16 +900,9 @@ export default function ChatContainer({
       failAssistantTurn(
         localTurn.chatKey,
         localTurn.turnId,
-        result?.insufficientEvidence
-          ? "知识库资料不足，暂时无法生成测试题。"
-          : result?.error || "测试题生成失败。"
+        result?.error || "测试题生成失败。"
       );
-      showToast(
-        result?.insufficientEvidence
-          ? "知识库资料不足，暂时无法生成测试题。"
-          : result?.error || "测试题生成失败。",
-        "error"
-      );
+      showToast(result?.error || "测试题生成失败。", "error");
     } else {
       completeAssistantTurn(localTurn.chatKey, localTurn.turnId, {
         chatId: result.quizId,

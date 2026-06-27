@@ -292,6 +292,7 @@ function pendingJobsForQuiz(quiz = {}) {
   return allocateQuestionGeneration({
     plan: quiz.plan,
     evidenceChunks: quiz.evidenceChunks || [],
+    evidenceMode: quiz.evidenceMode || "workspace",
   }).filter((job) => {
     if (failedTypes.has(job.type)) return false;
     if (pendingTypes.size > 0 && !pendingTypes.has(job.type)) return false;
@@ -477,11 +478,12 @@ async function generateQuiz({
     userRequest: message,
     workspaceSlug: workspace.slug,
   });
-  const { evidenceChunks, sourceRefs, error } = await retrieveQuizEvidence({
-    workspace,
-    plan,
-    nodeContext,
-  });
+  const { evidenceChunks, sourceRefs, evidenceMode, error } =
+    await retrieveQuizEvidence({
+      workspace,
+      plan,
+      nodeContext,
+    });
   if (error || evidenceChunks.length === 0) {
     return {
       success: false,
@@ -491,7 +493,11 @@ async function generateQuiz({
     };
   }
 
-  const jobs = allocateQuestionGeneration({ plan, evidenceChunks });
+  const jobs = allocateQuestionGeneration({
+    plan,
+    evidenceChunks,
+    evidenceMode,
+  });
   const firstJob = jobs[0];
   if (!firstJob) throw new Error("quiz_no_generation_jobs");
 
@@ -510,6 +516,7 @@ async function generateQuiz({
     quizId: initialQuizId,
     plan,
     evidenceChunks,
+    evidenceMode,
     sourceRefs,
     jobs,
     questions: firstResult.questions,

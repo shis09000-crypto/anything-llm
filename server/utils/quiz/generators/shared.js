@@ -71,6 +71,16 @@ async function generateQuestionsForType({ job, systemPrompt, typeRules }) {
 }
 
 function generationPrompt({ job, typeRules }) {
+  const isGeneralKnowledge = job.evidenceMode === "general_knowledge";
+  const evidenceRules = isGeneralKnowledge
+    ? `- The workspace has no usable knowledge-base evidence for this request.
+- Generate questions from your general knowledge about the topic.
+- Every question must include sourceRefs exactly as ["general-knowledge"].
+- Do not claim that these questions are sourced from workspace documents.`
+    : `- Use ONLY the evidence chunks below.
+- Every question must include sourceRefs containing one or more evidence ids.
+- Do not invent facts that are not present in evidence.`;
+
   return `Generate ${job.count} ${job.type} quiz questions.
 
 Topic: ${job.topic}
@@ -78,9 +88,7 @@ Keywords: ${(job.keywords || []).join(", ")}
 Difficulty: ${job.difficulty}
 
 Rules:
-- Use ONLY the evidence chunks below.
-- Every question must include sourceRefs containing one or more evidence ids.
-- Do not invent facts that are not present in evidence.
+${evidenceRules}
 - Do not write explanations, grading notes, teaching analysis, weak points, or review advice.
 - Return JSON only.
 ${typeRules}
@@ -105,6 +113,11 @@ ${evidenceBlock(job.evidenceChunks)}`;
 
 function repairPrompt({ job, typeRules, previousJson }) {
   const evidenceIds = (job.evidenceChunks || []).map((chunk) => chunk.id);
+  const isGeneralKnowledge = job.evidenceMode === "general_knowledge";
+  const evidenceConstraint = isGeneralKnowledge
+    ? `- Every question.sourceRefs must be exactly ["general-knowledge"].`
+    : `- Every question.sourceRefs entry must be one of these exact evidence ids: ${evidenceIds.join(", ")}.
+- Do not invent facts outside the evidence.`;
   return `The previous ${job.type} quiz generation returned zero valid questions after validation.
 
 Regenerate exactly ${job.count} valid ${job.type} questions now.
@@ -112,13 +125,12 @@ Regenerate exactly ${job.count} valid ${job.type} questions now.
 Hard validation requirements:
 - Return strict JSON only.
 - Every question.type must be "${job.type}".
-- Every question.sourceRefs entry must be one of these exact evidence ids: ${evidenceIds.join(", ")}.
+${evidenceConstraint}
 - Every question must include a non-empty question, correctAnswer, and sourceRefs.
 - single_choice must have exactly 4 options and exactly 1 correct option id.
 - multiple_choice must have 4-6 options, 2-4 correct option ids, and not all options correct.
 - fill_blank must have no options and correctAnswer must be a non-empty array of acceptable answers.
 - Do not use source titles as sourceRefs. Use evidence ids only.
-- Do not invent facts outside the evidence.
 - Do not write explanations, grading notes, teaching analysis, weak points, or review advice.
 
 Original type rules:

@@ -1,3 +1,11 @@
+jest.mock("../../../utils/quiz/evidence", () => ({
+  retrieveQuizEvidence: jest.fn(),
+}));
+
+jest.mock("../../../utils/authz/resourceAccess", () => ({
+  getScopedWorkspaceChat: jest.fn(),
+}));
+
 const {
   pendingJobsForQuiz,
   visibleAndDeferredQuestions,
@@ -45,6 +53,19 @@ describe("quiz background generation recovery helpers", () => {
       "fill_blank",
     ]);
     expect(jobs[0].evidenceChunks).toEqual(evidenceChunks);
+  });
+
+  it("passes evidence mode into recovered quiz generation jobs", () => {
+    const jobs = pendingJobsForQuiz({
+      plan,
+      evidenceMode: "general_knowledge",
+      evidenceChunks,
+      pendingTypes: ["single_choice"],
+      failedTypes: [],
+      questions: [],
+    });
+
+    expect(jobs[0].evidenceMode).toBe("general_knowledge");
   });
 
   it("does not recover abandoned or submitted quizzes", () => {

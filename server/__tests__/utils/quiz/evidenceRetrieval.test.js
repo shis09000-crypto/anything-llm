@@ -133,4 +133,27 @@ describe("quiz evidence retrieval", () => {
     expect(result.error).toBeNull();
     expect(result.evidenceChunks).toHaveLength(1);
   });
+
+  it("falls back to general knowledge evidence when workspace evidence is unavailable", async () => {
+    mockHasNamespace.mockResolvedValue(false);
+    mockResolveGraphContext.mockResolvedValue({ evidenceChunks: [] });
+    const { retrieveQuizEvidence } = require("../../../utils/quiz/evidence");
+
+    const result = await retrieveQuizEvidence({
+      workspace: { id: 7, slug: "workspace-a" },
+      plan: { topic: "洛克经验主义", searchQueries: [] },
+    });
+
+    expect(mockPerformSimilaritySearch).not.toHaveBeenCalled();
+    expect(result.error).toBeNull();
+    expect(result.evidenceMode).toBe("general_knowledge");
+    expect(result.evidenceChunks).toHaveLength(1);
+    expect(result.evidenceChunks[0].id).toBe("general-knowledge");
+    expect(result.sourceRefs[0]).toEqual(
+      expect.objectContaining({
+        id: "general-knowledge",
+        sourceType: "general_knowledge",
+      })
+    );
+  });
 });

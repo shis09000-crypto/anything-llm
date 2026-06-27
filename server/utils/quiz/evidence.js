@@ -5,6 +5,44 @@ const {
 } = require("../knowledgeGraph/graphContextResolver");
 const { MAX_EVIDENCE_CHUNKS } = require("./constants");
 
+const QUIZ_EVIDENCE_MODES = {
+  workspace: "workspace",
+  generalKnowledge: "general_knowledge",
+};
+
+const GENERAL_KNOWLEDGE_EVIDENCE_ID = "general-knowledge";
+
+function generalKnowledgeEvidenceChunk(plan = {}) {
+  const topic = String(plan?.topic || "用户指定主题").trim();
+  return {
+    id: GENERAL_KNOWLEDGE_EVIDENCE_ID,
+    text: `No workspace knowledge base evidence was available. Generate quiz questions from the model's general knowledge about: ${topic}.`,
+    score: 0,
+    sourceRef: {
+      id: GENERAL_KNOWLEDGE_EVIDENCE_ID,
+      title: "模型通识",
+      docId: null,
+      docpath: null,
+      chunkIndex: null,
+      score: 0,
+      published: null,
+      sourceType: "general_knowledge",
+      nodeKey: null,
+      nodeLabel: null,
+    },
+  };
+}
+
+function generalKnowledgeEvidence(plan = {}) {
+  const evidenceChunks = [generalKnowledgeEvidenceChunk(plan)];
+  return {
+    evidenceMode: QUIZ_EVIDENCE_MODES.generalKnowledge,
+    evidenceChunks,
+    sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
+    error: null,
+  };
+}
+
 function scoreOf(source = {}) {
   const value =
     source.score ??
@@ -130,16 +168,13 @@ async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
     if (supplementSources.length > 0) {
       const evidenceChunks = normalizeEvidenceSources(supplementSources);
       return {
+        evidenceMode: QUIZ_EVIDENCE_MODES.workspace,
         evidenceChunks,
         sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
         error: null,
       };
     }
-    return {
-      evidenceChunks: [],
-      sourceRefs: [],
-      error: "workspace_has_no_vectors",
-    };
+    return generalKnowledgeEvidence(plan);
   }
 
   const sources = [...supplementSources];
@@ -159,7 +194,10 @@ async function retrieveQuizEvidence({ workspace, plan, nodeContext = null }) {
   }
 
   const evidenceChunks = normalizeEvidenceSources(sources);
+  if (evidenceChunks.length === 0) return generalKnowledgeEvidence(plan);
+
   return {
+    evidenceMode: QUIZ_EVIDENCE_MODES.workspace,
     evidenceChunks,
     sourceRefs: evidenceChunks.map((chunk) => chunk.sourceRef),
     error: null,
@@ -170,4 +208,6 @@ module.exports = {
   retrieveQuizEvidence,
   normalizeEvidenceSources,
   scoreOf,
+  QUIZ_EVIDENCE_MODES,
+  GENERAL_KNOWLEDGE_EVIDENCE_ID,
 };
