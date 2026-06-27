@@ -468,6 +468,161 @@ const SystemSettings = {
       return String(prompt.trim());
     },
   },
+  currentSettingsForSections: async function (sections = []) {
+    const normalized = sections.map((section) =>
+      String(section).trim().toLowerCase()
+    );
+    if (
+      normalized.length === 0 ||
+      normalized.includes("system") ||
+      normalized.includes("all")
+    ) {
+      return await this.currentSettings();
+    }
+
+    const settings = {};
+    const wants = (section) => normalized.includes(section);
+    const llmProvider = process.env.LLM_PROVIDER;
+    const vectorDB = process.env.VECTOR_DB;
+    const embeddingEngine = process.env.EMBEDDING_ENGINE ?? "native";
+
+    if (wants("embedding")) {
+      const { hasVectorCachedFiles } = require("../utils/files");
+      Object.assign(settings, {
+        EmbeddingEngine: embeddingEngine,
+        HasExistingEmbeddings: await this.hasEmbeddings(),
+        HasCachedEmbeddings: hasVectorCachedFiles(),
+        EmbeddingBasePath: process.env.EMBEDDING_BASE_PATH,
+        EmbeddingModelPref:
+          embeddingEngine === "native"
+            ? NativeEmbedder._getEmbeddingModel()
+            : process.env.EMBEDDING_MODEL_PREF,
+        EmbeddingOutputDimensions:
+          process.env.EMBEDDING_OUTPUT_DIMENSIONS || null,
+        EmbeddingModelMaxChunkLength:
+          process.env.EMBEDDING_MODEL_MAX_CHUNK_LENGTH,
+        DocumentEmbeddingMode: process.env.DOCUMENT_EMBEDDING_MODE || "direct",
+        EmbeddingBatchCompletionWindow:
+          process.env.EMBEDDING_BATCH_COMPLETION_WINDOW || "24h",
+        EmbeddingBatchPollIntervalSeconds:
+          process.env.EMBEDDING_BATCH_POLL_INTERVAL_SECONDS || 30,
+        EmbeddingBatchMaxItemsPerFile:
+          process.env.EMBEDDING_BATCH_MAX_ITEMS_PER_FILE || 50000,
+        EmbeddingBatchJobRetentionDays:
+          process.env.EMBEDDING_BATCH_JOB_RETENTION_DAYS || 30,
+        OllamaEmbeddingBatchSize: process.env.OLLAMA_EMBEDDING_BATCH_SIZE || 1,
+        VoyageAiApiKey: !!process.env.VOYAGEAI_API_KEY,
+        GenericOpenAiEmbeddingApiKey:
+          !!process.env.GENERIC_OPEN_AI_EMBEDDING_API_KEY,
+        GenericOpenAiEmbeddingMaxConcurrentChunks:
+          process.env.GENERIC_OPEN_AI_EMBEDDING_MAX_CONCURRENT_CHUNKS || 500,
+        GeminiEmbeddingApiKey: !!process.env.GEMINI_EMBEDDING_API_KEY,
+        OpenAiKey: !!process.env.OPEN_AI_KEY,
+        AzureOpenAiEndpoint: process.env.AZURE_OPENAI_ENDPOINT,
+        AzureOpenAiKey: !!process.env.AZURE_OPENAI_KEY,
+        AzureOpenAiEmbeddingModelPref: process.env.EMBEDDING_MODEL_PREF,
+        LocalAiApiKey: !!process.env.LOCAL_AI_API_KEY,
+        LiteLLMApiKey: !!process.env.LITE_LLM_API_KEY,
+        CohereApiKey: !!process.env.COHERE_API_KEY,
+        OpenRouterApiKey: !!process.env.OPENROUTER_API_KEY,
+        MistralApiKey: !!process.env.MISTRAL_API_KEY,
+        LemonadeLLMApiKey: !!process.env.LEMONADE_LLM_API_KEY,
+      });
+    }
+
+    if (wants("vector")) {
+      Object.assign(settings, {
+        VectorDB: vectorDB,
+        HasExistingEmbeddings: await this.hasEmbeddings(),
+        ...this.vectorDBPreferenceKeys(),
+      });
+    }
+
+    if (wants("llm")) {
+      Object.assign(settings, {
+        LLMProvider: llmProvider,
+        LLMModel: getBaseLLMProviderModel({ provider: llmProvider }) || null,
+        ...this.llmPreferenceKeys(),
+      });
+    }
+
+    if (wants("rerank")) {
+      Object.assign(settings, {
+        RerankProvider: process.env.RERANK_PROVIDER || "native",
+        RerankApiKey: !!process.env.RERANK_API_KEY,
+        RerankBaseUrl:
+          process.env.RERANK_BASE_URL || DEFAULT_ALIBABA_RERANK_BASE_URL,
+        RerankModelPref:
+          process.env.RERANK_MODEL_PREF || DEFAULT_ALIBABA_RERANK_MODEL,
+      });
+    }
+
+    if (wants("search")) {
+      Object.assign(settings, {
+        SearchModelProvider: process.env.SEARCH_MODEL_PROVIDER || "none",
+        SearchModelApiKey: !!process.env.SEARCH_MODEL_API_KEY,
+        SearchModelBaseUrl:
+          process.env.SEARCH_MODEL_BASE_URL ||
+          DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL,
+        SearchModelPref:
+          process.env.SEARCH_MODEL_PREF || DEFAULT_ALIBABA_SEARCH_MODEL,
+      });
+    }
+
+    if (wants("ocr")) {
+      Object.assign(settings, {
+        ReaderOcrProvider: process.env.READER_OCR_PROVIDER || "none",
+        ReaderOcrApiKey: !!process.env.READER_OCR_API_KEY,
+        ReaderOcrBaseUrl:
+          process.env.READER_OCR_BASE_URL || DEFAULT_ALIBABA_OCR_BASE_URL,
+        ReaderOcrModelPref:
+          process.env.READER_OCR_MODEL_PREF || DEFAULT_ALIBABA_OCR_MODEL,
+      });
+    }
+
+    if (wants("vision")) {
+      Object.assign(settings, {
+        VisionProvider: process.env.VISION_PROVIDER || "none",
+        VisionApiKey: !!process.env.VISION_API_KEY,
+        VisionBaseUrl:
+          process.env.VISION_BASE_URL || DEFAULT_ALIBABA_OCR_BASE_URL,
+        VisionModelPref:
+          process.env.VISION_MODEL_PREF || DEFAULT_ALIBABA_VISION_MODEL,
+        VisionToolEnabled: process.env.VISION_TOOL_ENABLED !== "false",
+      });
+    }
+
+    if (wants("audio")) {
+      Object.assign(settings, {
+        SpeechToTextProvider: process.env.STT_PROVIDER || "native",
+        TextToSpeechProvider: process.env.TTS_PROVIDER || "native",
+        TTSOpenAIKey: !!process.env.TTS_OPEN_AI_KEY,
+        TTSOpenAIVoiceModel: process.env.TTS_OPEN_AI_VOICE_MODEL,
+        TTSElevenLabsKey: !!process.env.TTS_ELEVEN_LABS_KEY,
+        TTSElevenLabsVoiceModel: process.env.TTS_ELEVEN_LABS_VOICE_MODEL,
+        TTSPiperTTSVoiceModel:
+          process.env.TTS_PIPER_VOICE_MODEL ?? "en_US-hfc_female-medium",
+        TTSOpenAICompatibleKey: !!process.env.TTS_OPEN_AI_COMPATIBLE_KEY,
+        TTSOpenAICompatibleModel: process.env.TTS_OPEN_AI_COMPATIBLE_MODEL,
+        TTSOpenAICompatibleVoiceModel:
+          process.env.TTS_OPEN_AI_COMPATIBLE_VOICE_MODEL,
+        TTSOpenAICompatibleEndpoint:
+          process.env.TTS_OPEN_AI_COMPATIBLE_ENDPOINT,
+      });
+    }
+
+    if (wants("transcription")) {
+      Object.assign(settings, {
+        WhisperProvider: process.env.WHISPER_PROVIDER || "local",
+        WhisperModelPref:
+          process.env.WHISPER_MODEL_PREF || "Xenova/whisper-small",
+        OpenAiKey: !!process.env.OPEN_AI_KEY,
+      });
+    }
+
+    return settings;
+  },
+
   currentSettings: async function () {
     const { hasVectorCachedFiles } = require("../utils/files");
     const {

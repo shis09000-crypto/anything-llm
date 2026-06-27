@@ -77,6 +77,112 @@ const {
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
 const { EmailVerificationCode } = require("../models/emailVerification");
+
+const SETTINGS_BOOTSTRAP_MATCHERS = {
+  llm: [
+    "llm",
+    "openai",
+    "azureopenai",
+    "anthropic",
+    "geminillm",
+    "geminisafety",
+    "lmstudio",
+    "localai",
+    "ollamallm",
+    "novitallm",
+    "togetherai",
+    "fireworksai",
+    "perplexity",
+    "openrouter",
+    "mistral",
+    "groq",
+    "huggingfacellm",
+    "koboldcpp",
+    "textgenwebui",
+    "litellm",
+    "moonshotai",
+    "genericopenai",
+    "foundry",
+    "awsbedrockllm",
+    "cohere",
+    "deepseek",
+    "apipie",
+    "xai",
+    "nvidianim",
+    "ppio",
+    "dellproaistudio",
+    "cometapi",
+    "zai",
+    "giteeai",
+    "dockermodelrunner",
+    "privatemode",
+    "sambanova",
+    "lemonade",
+  ],
+  vector: [
+    "vectordb",
+    "pinecone",
+    "chrom",
+    "weaviate",
+    "qdrant",
+    "milvus",
+    "zilliz",
+    "astradb",
+    "pgvector",
+    "hasexistingembeddings",
+  ],
+  embedding: [
+    "embedding",
+    "documentembeddingmode",
+    "hasexistingembeddings",
+    "hascachedembeddings",
+    "openai",
+    "azureopenai",
+    "geminiembedding",
+    "localai",
+    "ollamaembedding",
+    "lmstudio",
+    "cohere",
+    "voyageai",
+    "litellm",
+    "genericopenaiembedding",
+    "openrouter",
+    "mistral",
+    "lemonade",
+  ],
+  rerank: ["rerank"],
+  search: ["searchmodel"],
+  ocr: ["readerocr"],
+  vision: ["vision"],
+  audio: ["speechtotext", "texttospeech", "tts", "stt"],
+  transcription: ["whisper", "openai"],
+};
+
+function filterSettingsBySections(settings = {}, sections = []) {
+  const normalized = sections.map((section) => String(section).toLowerCase());
+  if (
+    normalized.length === 0 ||
+    normalized.includes("system") ||
+    normalized.includes("all")
+  ) {
+    return settings;
+  }
+
+  const activeMatchers = normalized.flatMap(
+    (section) => SETTINGS_BOOTSTRAP_MATCHERS[section] || []
+  );
+  const filtered = {};
+  for (const [key, value] of Object.entries(settings || {})) {
+    const lowerKey = key.toLowerCase();
+    if (
+      lowerKey === "lastupdatedat" ||
+      activeMatchers.some((matcher) => lowerKey.startsWith(matcher))
+    ) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 const {
   isConfigured: emailSmtpConfigured,
   maskedEmail,
@@ -160,6 +266,12 @@ function respondMemoryError(response, error, status = 500) {
   return response
     .status(status)
     .json({ success: false, error: error.message || "Internal server error" });
+}
+
+function boundedMemoryQueryNumber(value, fallback, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 0) return fallback;
+  return Math.min(Math.floor(numeric), max);
 }
 
 const PROVIDER_PRESETS = {
@@ -887,6 +999,37 @@ function systemEndpoints(app) {
     try {
       const results = await SystemSettings.currentSettings();
       response.status(200).json({ results });
+    } catch (e) {
+      console.error(e.message, e);
+      response.sendStatus(500).end();
+    }
+  });
+
+  app.get("/system/settings/bootstrap", [validatedRequest], async (request, response) => {
+    try {
+      const query = queryParams(request);
+      const sections = String(query.sections || "system")
+        .split(",")
+        .map((section) => section.trim())
+        .filter(Boolean);
+      const results = await SystemSettings.currentSettingsForSections(sections);
+      const settings = filterSettingsBySections(results, sections);
+      const user = await userFromSession(request, response).catch(() => null);
+      response.status(200).json({
+        success: true,
+        sections,
+        full: sections.includes("system") || sections.includes("all"),
+        settings,
+        user: user
+          ? {
+              id: user.id,
+              username: user.username,
+              role: user.role,
+              email: user.email || null,
+            }
+          : null,
+        version: results?.LastUpdatedAt || results?.lastUpdatedAt || null,
+      });
     } catch (e) {
       console.error(e.message, e);
       response.sendStatus(500).end();
@@ -2356,7 +2499,10 @@ function systemEndpoints(app) {
       try {
         const sessionUser = await userFromSession(request, response);
         const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
-        const blocks = await UserMemory.blocks(memoryOwnerId);
+        const blocks = await UserMemory.blocks(memoryOwnerId, {
+          limit: request.query.limit,
+          detail: request.query.detail,
+        });
         response.status(200).json({ success: true, blocks });
       } catch (e) {
         console.error(e);
@@ -2372,7 +2518,12 @@ function systemEndpoints(app) {
       try {
         const sessionUser = await userFromSession(request, response);
         const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
-        const archives = await UserMemory.archives(memoryOwnerId);
+        const limit = boundedMemoryQueryNumber(request.query.limit, 50, 500);
+        const offset = boundedMemoryQueryNumber(request.query.offset, 0, 50_000);
+        const archives = await UserMemory.archives(memoryOwnerId, {
+          limit,
+          offset,
+        });
         response.status(200).json({ success: true, archives });
       } catch (e) {
         console.error(e);
@@ -2388,7 +2539,13 @@ function systemEndpoints(app) {
       try {
         const sessionUser = await userFromSession(request, response);
         const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
-        const memories = await UserMemory.sensitive(memoryOwnerId);
+        const limit = boundedMemoryQueryNumber(request.query.limit, 100, 500);
+        const offset = boundedMemoryQueryNumber(request.query.offset, 0, 50_000);
+        const memories = await UserMemory.sensitive(memoryOwnerId, {
+          limit,
+          offset,
+          detail: request.query.detail,
+        });
         response.status(200).json({ success: true, memories });
       } catch (e) {
         console.error(e);

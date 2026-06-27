@@ -118,13 +118,19 @@ function sensitiveMemoryPayload(memory = {}) {
   }
 }
 
-function toMemoryItem(memory = {}, { maskSensitive = false } = {}) {
+function toMemoryItem(memory = {}, { maskSensitive = false, detail = "full" } = {}) {
   const isSensitive = Boolean(memory.isSensitive);
+  const shouldLighten = detail === "light";
   return {
     id: memory.id,
     category: memory.category,
     title: maskSensitive && isSensitive ? MASKED_MEMORY_TEXT : memory.title,
-    detail: maskSensitive && isSensitive ? MASKED_MEMORY_TEXT : memory.detail,
+    detail:
+      maskSensitive && isSensitive
+        ? MASKED_MEMORY_TEXT
+        : shouldLighten
+          ? String(memory.detail || "").slice(0, 240)
+          : memory.detail,
     source: memory.source,
     confidence: memory.confidence,
     updatedAt: memory.updatedAt,
@@ -418,26 +424,32 @@ const UserMemory = {
     return overview;
   },
 
-  blocks: async function (userId) {
+  blocks: async function (userId, { limit = 0, detail = "full" } = {}) {
+    const take = boundedLimit(limit, 0, 500);
     const memories = await prisma.user_memory_blocks.findMany({
       where: { userId: Number(userId), isSensitive: false },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      ...(take ? { take } : {}),
     });
 
     return MEMORY_CATEGORIES.map((category) => {
       const items = memories
         .filter((memory) => memory.category === category)
-        .map((memory) => toMemoryItem(memory));
+        .map((memory) => toMemoryItem(memory, { detail }));
       return categoryBlock(category, items);
     });
   },
 
-  sensitive: async function (userId) {
+  sensitive: async function (userId, { limit = 100, offset = 0, detail = "light" } = {}) {
     const memories = await prisma.user_memory_blocks.findMany({
       where: { userId: Number(userId), isSensitive: true },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+      skip: boundedOffset(offset),
+      take: boundedLimit(limit, 100, 500),
     });
-    return memories.map((memory) => toMemoryItem(memory, { maskSensitive: true }));
+    return memories.map((memory) =>
+      toMemoryItem(memory, { maskSensitive: true, detail })
+    );
   },
 
   revealSensitive: async function (userId, memoryId) {
@@ -529,14 +541,27 @@ const UserMemory = {
     });
   },
 
-  archives: async function (userId) {
+  archives: async function (userId, { limit = 50, offset = 0 } = {}) {
     return prisma.user_memory_archives.findMany({
       where: { userId: Number(userId) },
       orderBy: [{ archivedAt: "desc" }, { id: "desc" }],
-      take: 100,
+      skip: boundedOffset(offset),
+      take: boundedLimit(limit, 50, 500),
     });
   },
 };
+
+function boundedLimit(value, fallback, max) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return fallback;
+  return Math.min(Math.max(Math.floor(numeric), 1), max);
+}
+
+function boundedOffset(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return 0;
+  return Math.floor(numeric);
+}
 
 module.exports = {
   UserMemory,

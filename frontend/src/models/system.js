@@ -22,6 +22,21 @@ import LiveDocumentSync from "./experimental/liveSync";
 import AgentPlugins from "./experimental/agentPlugins";
 import SystemPromptVariable from "./systemPromptVariable";
 
+let systemKeysCache = null;
+let systemKeysCacheAt = 0;
+let systemKeysInflight = null;
+const SYSTEM_KEYS_CACHE_TTL_MS = 30_000;
+
+function withQuery(path, params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === null || value === undefined || value === "") return;
+    search.set(key, String(value));
+  });
+  const query = search.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 function localizedApiError(error, fallback = "请求失败，请稍后重试。") {
   const message =
     typeof error === "string"
@@ -85,9 +100,50 @@ const System = {
       .catch(() => false);
   },
   keys: async function () {
-    return await getJson("/setup-complete", { timeoutMs: 8_000 })
+    const now = Date.now();
+    if (systemKeysCache && now - systemKeysCacheAt < SYSTEM_KEYS_CACHE_TTL_MS) {
+      return systemKeysCache;
+    }
+    if (systemKeysInflight) return systemKeysInflight;
+    systemKeysInflight = getJson("/setup-complete", { timeoutMs: 8_000 })
       .then(({ data }) => data.results)
-      .catch(() => null);
+      .then((results) => {
+        systemKeysCache = results;
+        systemKeysCacheAt = Date.now();
+        return results;
+      })
+      .catch(() => null)
+      .finally(() => {
+        systemKeysInflight = null;
+      });
+    return await systemKeysInflight;
+  },
+  settingsBootstrap: async function ({ sections = ["system"], signal } = {}) {
+    const query = new URLSearchParams();
+    query.set("sections", sections.join(","));
+    return await getJson(`/system/settings/bootstrap?${query.toString()}`, {
+      signal,
+    })
+      .then(({ data }) => {
+        const isFullSettingsPayload =
+          data?.full === true ||
+          sections.includes("system") ||
+          sections.includes("all");
+        if (data?.settings && isFullSettingsPayload) {
+          systemKeysCache = data.settings;
+          systemKeysCacheAt = Date.now();
+        }
+        return data;
+      })
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return { success: false, settings: null, user: null };
+      });
+  },
+  clearSettingsCache: function () {
+    systemKeysCache = null;
+    systemKeysCacheAt = 0;
+    systemKeysInflight = null;
   },
   localFiles: async function () {
     return await getJson("/system/local-files")
@@ -302,7 +358,15 @@ const System = {
   },
   updateSystem: async (data) => {
     return await postJson("/system/update-env", data)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        System.clearSettingsCache();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("settings-data-invalidated", { detail: {} })
+          );
+        }
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { newValues: null, error: e.message });
@@ -310,7 +374,15 @@ const System = {
   },
   applyProviderPreset: async (code) => {
     return await postJson("/system/provider-preset/apply", { code })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        System.clearSettingsCache();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("settings-data-invalidated", { detail: {} })
+          );
+        }
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -693,18 +765,28 @@ const System = {
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
-  memoryBlocks: async () => {
-    return await getJson("/system/user/memory/blocks")
+  memoryBlocks: async ({ limit = null, detail = null } = {}) => {
+    return await getJson(
+      withQuery("/system/user/memory/blocks", { limit, detail })
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
-  memoryArchives: async () => {
-    return await getJson("/system/user/memory/archives")
+  memoryArchives: async ({ limit = null, offset = null } = {}) => {
+    return await getJson(
+      withQuery("/system/user/memory/archives", { limit, offset })
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
-  sensitiveMemories: async () => {
-    return await getJson("/system/user/memory/sensitive")
+  sensitiveMemories: async ({
+    limit = null,
+    offset = null,
+    detail = null,
+  } = {}) => {
+    return await getJson(
+      withQuery("/system/user/memory/sensitive", { limit, offset, detail })
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },

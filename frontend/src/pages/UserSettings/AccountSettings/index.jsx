@@ -23,6 +23,7 @@ import NotificationsCard from "./NotificationsCard";
 import DataPrivacyCard from "./DataPrivacyCard";
 import AdminPanel from "./AdminPanel";
 import AccountSettingsApi from "./accountSettingsApi";
+import { AccountSettingsDataProvider } from "./AccountSettingsDataProvider";
 import { detectAuthCapability } from "@/utils/authCapability";
 import { canSeeAdmin } from "@/utils/authz";
 import "./styles.css";
@@ -227,67 +228,156 @@ export default function AccountSettings() {
   }
 
   return (
-    <div className="account-settings-page">
-      <div className="account-settings-shell">
-        <AccountSidebar
-          user={user}
-          activeHash={activeHash}
-          onNavigateHash={requestScrollToHash}
-          onReturnHome={returnHome}
-          onSignOut={signOut}
-        />
-        <main ref={mainRef} className="account-settings-main">
-          <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-5">
-            <header className="flex flex-col gap-2 px-1 pt-1">
-              <p className="text-sm font-semibold text-slate-500">
-                Account Settings
-              </p>
-              <h1 className="text-4xl font-semibold tracking-normal text-slate-950">
-                {activeView === "admin" ? "管理员" : "账户设置"}
-              </h1>
-              {activeView === "admin" && (
-                <p className="max-w-2xl text-sm leading-6 text-slate-500">
-                  管理当前实例的账户、工作区、邀请和默认系统提示词。
+    <AccountSettingsDataProvider user={user}>
+      <div className="account-settings-page">
+        <div className="account-settings-shell">
+          <AccountSidebar
+            user={user}
+            activeHash={activeHash}
+            onNavigateHash={requestScrollToHash}
+            onReturnHome={returnHome}
+            onSignOut={signOut}
+          />
+          <main ref={mainRef} className="account-settings-main">
+            <div className="mx-auto flex w-full max-w-[1080px] flex-col gap-5">
+              <header className="flex flex-col gap-2 px-1 pt-1">
+                <p className="text-sm font-semibold text-slate-500">
+                  Account Settings
                 </p>
+                <h1 className="text-4xl font-semibold tracking-normal text-slate-950">
+                  {activeView === "admin" ? "管理员" : "账户设置"}
+                </h1>
+                {activeView === "admin" && (
+                  <p className="max-w-2xl text-sm leading-6 text-slate-500">
+                    管理当前实例的账户、工作区、邀请和默认系统提示词。
+                  </p>
+                )}
+              </header>
+              {activeView === "personal" ? (
+                <>
+                  <AccountSectionHeader
+                    title="个人设置"
+                    subtitle="管理你的基础资料、个性化偏好、联系方式和安全状态。"
+                  />
+                  <ProfileCard user={user} onUserUpdated={setLocalUser} />
+                  <PersonalizationCard
+                    user={user}
+                    onUserUpdated={setLocalUser}
+                  />
+                  <ProgressiveAccountSection
+                    id="memory-blocks"
+                    active={activeHash === "#memory-blocks"}
+                    mode="visible"
+                    minHeight={260}
+                  >
+                    <MemoryBlocksCard />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection id="contact" delayMs={120}>
+                    <ContactMethodsCard
+                      user={user}
+                      onUserUpdated={setLocalUser}
+                    />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection id="security" delayMs={240}>
+                    <LoginSecurityCard
+                      user={user}
+                      emailVerified={Boolean(
+                        user?.email && user?.email_verified_at
+                      )}
+                      authCapability={authCapability}
+                      passkeys={passkeys}
+                      passkeysLoading={passkeysLoading}
+                      refreshPasskeys={refreshPasskeys}
+                    />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection id="passkeys" delayMs={360}>
+                    <PasskeysCard
+                      authCapability={authCapability}
+                      passkeys={passkeys}
+                      passkeysLoading={passkeysLoading}
+                      refreshPasskeys={refreshPasskeys}
+                    />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection id="sessions" delayMs={480}>
+                    <SessionsDevicesCard />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection id="notifications" delayMs={600}>
+                    <NotificationsCard />
+                  </ProgressiveAccountSection>
+                  <ProgressiveAccountSection
+                    id="privacy"
+                    active={activeHash === "#privacy"}
+                    mode="visible"
+                    minHeight={220}
+                  >
+                    <DataPrivacyCard />
+                  </ProgressiveAccountSection>
+                </>
+              ) : (
+                <AdminPanel currentUser={user} />
               )}
-            </header>
-            {activeView === "personal" ? (
-              <>
-                <AccountSectionHeader
-                  title="个人设置"
-                  subtitle="管理你的基础资料、个性化偏好、联系方式和安全状态。"
-                />
-                <ProfileCard user={user} onUserUpdated={setLocalUser} />
-                <PersonalizationCard user={user} onUserUpdated={setLocalUser} />
-                <MemoryBlocksCard />
-                <ContactMethodsCard user={user} onUserUpdated={setLocalUser} />
-                <LoginSecurityCard
-                  user={user}
-                  emailVerified={Boolean(
-                    user?.email && user?.email_verified_at
-                  )}
-                  authCapability={authCapability}
-                  passkeys={passkeys}
-                  passkeysLoading={passkeysLoading}
-                  refreshPasskeys={refreshPasskeys}
-                />
-                <PasskeysCard
-                  authCapability={authCapability}
-                  passkeys={passkeys}
-                  passkeysLoading={passkeysLoading}
-                  refreshPasskeys={refreshPasskeys}
-                />
-                <SessionsDevicesCard />
-                <NotificationsCard />
-                <DataPrivacyCard />
-              </>
-            ) : (
-              <AdminPanel currentUser={user} />
-            )}
-          </div>
-        </main>
+            </div>
+          </main>
+        </div>
       </div>
-    </div>
+    </AccountSettingsDataProvider>
+  );
+}
+
+function ProgressiveAccountSection({
+  id,
+  children,
+  active = false,
+  delayMs = 0,
+  mode = "delay",
+  minHeight = 180,
+}) {
+  const ref = useRef(null);
+  const [shouldRender, setShouldRender] = useState(
+    active || (mode === "delay" && delayMs === 0)
+  );
+
+  useEffect(() => {
+    if (shouldRender || mode !== "delay") return;
+    const timer = window.setTimeout(() => setShouldRender(true), delayMs);
+    return () => window.clearTimeout(timer);
+  }, [delayMs, mode, shouldRender]);
+
+  useEffect(() => {
+    if (shouldRender || mode !== "visible") return;
+    if (active) {
+      setShouldRender(true);
+      return;
+    }
+    const node = ref.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setShouldRender(true);
+        observer.disconnect();
+      },
+      { rootMargin: "320px 0px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [active, mode, shouldRender]);
+
+  useEffect(() => {
+    if (active && !shouldRender) setShouldRender(true);
+  }, [active, shouldRender]);
+
+  if (shouldRender) return children;
+  return (
+    <section
+      ref={ref}
+      id={id}
+      className="account-card"
+      style={{ minHeight }}
+      aria-busy="true"
+    >
+      <div className="h-full min-h-[120px] animate-pulse rounded-2xl bg-slate-100" />
+    </section>
   );
 }
 

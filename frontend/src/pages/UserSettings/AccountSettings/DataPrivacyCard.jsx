@@ -109,7 +109,11 @@ export default function DataPrivacyCard() {
 
   async function refreshSensitiveMemories() {
     setSensitiveLoading(true);
-    const result = await AccountSettingsApi.fetchSensitiveMemories();
+    const result = await AccountSettingsApi.fetchSensitiveMemories({
+      limit: 50,
+      offset: 0,
+      detail: "light",
+    });
     setSensitiveLoading(false);
     if (!result?.success) {
       showToast(result?.error || "无法读取敏感记忆。", "error");

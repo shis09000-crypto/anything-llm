@@ -10,9 +10,11 @@ import { useTranslation } from "react-i18next";
 import AppButton from "@/components/lib/AppButton";
 import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
+import { useAccountSettingsData } from "./AccountSettingsDataProvider";
 
 export default function ContactMethodsCard({ user, onUserUpdated }) {
   const { t } = useTranslation();
+  const accountSettingsData = useAccountSettingsData();
   const [emailStatus, setEmailStatus] = useState({
     email: user?.email || "",
     verified: Boolean(user?.email && user?.email_verified_at),
@@ -30,7 +32,9 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
 
   useEffect(() => {
     let mounted = true;
-    AccountSettingsApi.emailStatus().then((result) => {
+    const loadEmailStatus =
+      accountSettingsData?.loadEmailStatus || AccountSettingsApi.emailStatus;
+    loadEmailStatus().then((result) => {
       if (!mounted || !result.success) return;
       const nextStatus = {
         email: result.email || "",
@@ -48,7 +52,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [accountSettingsData]);
 
   useEffect(() => {
     if (emailResendRemaining <= 0) return;

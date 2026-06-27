@@ -146,7 +146,7 @@ export default function MemoryBlocksCard() {
     const [overviewResult, blocksResult, archivesResult] = await Promise.all([
       AccountSettingsApi.fetchMemoryOverview(),
       AccountSettingsApi.fetchMemoryBlocks(),
-      AccountSettingsApi.fetchMemoryArchives(),
+      AccountSettingsApi.fetchMemoryArchives({ limit: 30, offset: 0 }),
     ]);
     setLoading(false);
 

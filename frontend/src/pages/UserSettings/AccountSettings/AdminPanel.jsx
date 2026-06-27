@@ -182,6 +182,8 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
   const [canNextChatPage, setCanNextChatPage] = useState(false);
   const [totalChats, setTotalChats] = useState(0);
   const [hasExactChatTotal, setHasExactChatTotal] = useState(false);
+  const [chatsLoading, setChatsLoading] = useState(false);
+  const [chatsLoaded, setChatsLoaded] = useState(false);
   const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const [defaultPrompt, setDefaultPrompt] = useState({
     value: "",
@@ -190,6 +192,7 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
     loading: true,
     saving: false,
   });
+  const [defaultPromptLoaded, setDefaultPromptLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingRegistration, setSavingRegistration] = useState(false);
   const [workspaceName, setWorkspaceName] = useState("");
@@ -200,6 +203,7 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
   const refreshWorkspaces = async () => setWorkspaces(await Admin.workspaces());
   const refreshInvites = async () => setInvites(await Admin.invites());
   const refreshChats = async (offset = chatOffset) => {
+    setChatsLoading(true);
     const result = await System.chats(offset, CHAT_PAGE_SIZE);
     const nextChats = result?.chats || [];
     const exactTotal =
@@ -213,6 +217,8 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
         ? Number(result.totalChats)
         : offset * CHAT_PAGE_SIZE + nextChats.length
     );
+    setChatsLoaded(true);
+    setChatsLoading(false);
   };
   const refreshRegistrationSetting = async () => {
     const settings = await Admin.systemPreferences([
@@ -234,6 +240,7 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
       loading: false,
       saving: false,
     });
+    setDefaultPromptLoaded(true);
   };
 
   useEffect(() => {
@@ -243,9 +250,7 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
         refreshUsers(),
         refreshWorkspaces(),
         refreshInvites(),
-        refreshChats(0),
         refreshRegistrationSetting(),
-        refreshDefaultPrompt(),
       ]);
       setLoading(false);
     }
@@ -253,6 +258,7 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
   }, []);
 
   useEffect(() => {
+    if (!chatsLoaded) return;
     refreshChats(chatOffset);
   }, [chatOffset]);
 
@@ -263,6 +269,30 @@ export default function AdminPanel({ currentUser, activeSection = null }) {
     : null;
   const shouldRenderSection = (sectionId) =>
     !normalizedActiveSection || normalizedActiveSection === sectionId;
+
+  useEffect(() => {
+    if (loading || chatsLoaded || chatsLoading) return;
+    if (normalizedActiveSection === "admin-chats") {
+      refreshChats(0);
+      return;
+    }
+    if (!normalizedActiveSection) {
+      const timer = window.setTimeout(() => refreshChats(0), 800);
+      return () => window.clearTimeout(timer);
+    }
+  }, [chatsLoaded, chatsLoading, loading, normalizedActiveSection]);
+
+  useEffect(() => {
+    if (loading || defaultPromptLoaded) return;
+    if (normalizedActiveSection === "admin-default-prompt") {
+      refreshDefaultPrompt();
+      return;
+    }
+    if (!normalizedActiveSection) {
+      const timer = window.setTimeout(() => refreshDefaultPrompt(), 1_100);
+      return () => window.clearTimeout(timer);
+    }
+  }, [defaultPromptLoaded, loading, normalizedActiveSection]);
   const pendingInvites = useMemo(
     () => invites.filter((invite) => invite.status === "pending").length,
     [invites]

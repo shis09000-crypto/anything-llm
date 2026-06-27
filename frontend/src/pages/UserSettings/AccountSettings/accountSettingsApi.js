@@ -70,9 +70,9 @@ const AccountSettingsApi = {
   updatePassword: ({ currentPassword, password }) =>
     System.updateUser({ currentPassword, password }),
   fetchMemoryOverview: () => System.memoryOverview(),
-  fetchMemoryBlocks: () => System.memoryBlocks(),
-  fetchMemoryArchives: () => System.memoryArchives(),
-  fetchSensitiveMemories: () => System.sensitiveMemories(),
+  fetchMemoryBlocks: (options = {}) => System.memoryBlocks(options),
+  fetchMemoryArchives: (options = {}) => System.memoryArchives(options),
+  fetchSensitiveMemories: (options = {}) => System.sensitiveMemories(options),
   createMemoryCandidate: (data) => System.createMemoryCandidate(data),
   rebuildMemoryProfile: () => System.rebuildMemoryProfile(),
   updateMemory: ({ id, ...data }) => System.updateMemory({ id, ...data }),

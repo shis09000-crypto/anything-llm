@@ -18,6 +18,7 @@ import showToast from "@/utils/toast";
 import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
+import { useAccountSettingsData } from "./AccountSettingsDataProvider";
 
 export default function LoginSecurityCard({
   user,
@@ -28,6 +29,7 @@ export default function LoginSecurityCard({
   refreshPasskeys,
 }) {
   const { pfp } = usePfp();
+  const accountSettingsData = useAccountSettingsData();
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -67,10 +69,12 @@ export default function LoginSecurityCard({
 
   async function refreshTrustedDevices() {
     setTrustedDevicesLoading(true);
-    const result = await AccountSettingsApi.fetchTrustedLoginDevices({
-      user,
-      avatarUrl: pfp,
-    });
+    const result = accountSettingsData?.loadTrustedDevices
+      ? await accountSettingsData.loadTrustedDevices({ user, avatarUrl: pfp })
+      : await AccountSettingsApi.fetchTrustedLoginDevices({
+          user,
+          avatarUrl: pfp,
+        });
     setTrustedDevicesLoading(false);
     if (result?.success) setTrustedDevices(result.devices || []);
   }
@@ -167,6 +171,7 @@ export default function LoginSecurityCard({
     setTrustedDevicePassword("");
     setShowTrustedDeviceSetup(false);
     showToast("已在此浏览器启用快速登录。", "success");
+    accountSettingsData?.clear?.("trustedDevices");
     await refreshTrustedDevices();
   }
 
@@ -190,6 +195,7 @@ export default function LoginSecurityCard({
     }
 
     showToast("可信设备已删除。", "success");
+    accountSettingsData?.clear?.("trustedDevices");
     await refreshTrustedDevices();
   }
 
