@@ -26,6 +26,7 @@ import {
   COLLAPSED_THREAD_LIMIT,
   visibleThreadRows,
 } from "@/utils/workspaceThreadRows";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { Draggable, Droppable } from "react-beautiful-dnd";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
@@ -59,14 +60,19 @@ export default function ThreadContainer({
     titleAnimationTimers.current.delete(threadSlug);
   }, []);
 
-  const updateThreadTitle = useCallback((threadSlug, title) => {
-    setThreads((prevThreads) =>
-      prevThreads.map((thread) => {
-        if (thread.slug !== threadSlug) return thread;
-        return { ...thread, name: title, title };
-      })
-    );
-  }, []);
+  const updateThreadTitle = useCallback(
+    (threadSlug, title) => {
+      setThreads((prevThreads) => {
+        const nextThreads = prevThreads.map((thread) => {
+          if (thread.slug !== threadSlug) return thread;
+          return { ...thread, name: title, title };
+        });
+        workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+        return nextThreads;
+      });
+    },
+    [workspace.slug]
+  );
 
   const animateThreadTitle = useCallback(
     (threadSlug, title) => {
@@ -154,7 +160,15 @@ export default function ThreadContainer({
     async function fetchThreads() {
       if (!workspace.slug) return;
       setShowAllThreads(false);
+      const cachedThreads = workspaceNavigationCache.getThreads(workspace.slug);
+      if (Array.isArray(cachedThreads)) {
+        setThreads(cachedThreads);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
       const { threads } = await Workspace.threads.all(workspace.slug);
+      workspaceNavigationCache.setThreads(workspace.slug, threads);
       setLoading(false);
       setThreads(threads);
     }
@@ -167,6 +181,7 @@ export default function ThreadContainer({
       const { threads: refreshedThreads } = await Workspace.threads.all(
         workspace.slug
       );
+      workspaceNavigationCache.setThreads(workspace.slug, refreshedThreads);
       const currentBySlug = new Map(
         threadsRef.current.map((thread) => [thread.slug, thread])
       );
@@ -249,7 +264,11 @@ export default function ThreadContainer({
     if (success) {
       slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
     }
-    setThreads((prev) => prev.filter((t) => !t.deleted));
+    setThreads((prev) => {
+      const nextThreads = prev.filter((t) => !t.deleted);
+      workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+      return nextThreads;
+    });
 
     // Only redirect if current thread is being deleted
     if (slugs.includes(threadSlug)) {
@@ -268,16 +287,24 @@ export default function ThreadContainer({
     // Show thread was deleted, but then remove from threads entirely so it will
     // not appear in bulk-selection.
     setTimeout(() => {
-      setThreads((prev) => prev.filter((t) => !t.deleted));
+      setThreads((prev) => {
+        const nextThreads = prev.filter((t) => !t.deleted);
+        workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+        return nextThreads;
+      });
     }, 500);
   }
 
   function handleThreadCreated(thread) {
     if (!thread?.slug) return;
-    setThreads((prev) => [
-      ...prev.filter((existing) => existing.slug !== thread.slug),
-      thread,
-    ]);
+    setThreads((prev) => {
+      const nextThreads = [
+        ...prev.filter((existing) => existing.slug !== thread.slug),
+        thread,
+      ];
+      workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+      return nextThreads;
+    });
   }
 
   useEffect(() => {

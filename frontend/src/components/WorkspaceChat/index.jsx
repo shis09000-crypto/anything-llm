@@ -270,18 +270,6 @@ export default function WorkspaceChat({ loading, workspace }) {
       const key = `${workspace.slug}:${threadSlug ?? "default"}`;
       const scrollMemory = readChatScrollMemory(key);
       setChatScrollMemory(scrollMemory);
-      setHistoryState({
-        page: null,
-        loadingRecent: true,
-        loadingOlder: false,
-      });
-      setLoadedIfChanged({
-        key,
-        workspace,
-        threadSlug,
-        activeThread: null,
-        history: [],
-      });
       const draft = getDraft(workspace.slug, threadSlug);
       const needsServerHistoryRefresh = draftNeedsServerHistoryRefresh(draft);
       WorkspaceChatPerfMarks.mark(`${key}:shell`);
@@ -301,6 +289,13 @@ export default function WorkspaceChat({ loading, workspace }) {
         hasDraft: !!draft,
         needsServerHistoryRefresh,
       });
+      const cachedHistory = cached?.history || [];
+      const cachedThread = cached?.thread || null;
+      setHistoryState({
+        page: cached?.page || null,
+        loadingRecent: true,
+        loadingOlder: false,
+      });
       if (draft) {
         if (needsServerHistoryRefresh) {
           debugChatTurn("WorkspaceChat:needsServerHistoryRefresh", {
@@ -314,11 +309,10 @@ export default function WorkspaceChat({ loading, workspace }) {
           key,
           workspace,
           threadSlug,
-          activeThread: null,
-          history: cached?.history || [],
+          activeThread: cachedThread,
+          history: cachedHistory,
         });
       } else if (cached) {
-        const cachedHistory = cached.history || [];
         setLoaded((prev) => {
           const canTrustEmptyCache =
             prev?.key === key || cachedHistory.length > 0;
@@ -327,9 +321,17 @@ export default function WorkspaceChat({ loading, workspace }) {
             key,
             workspace,
             threadSlug,
-            activeThread: null,
+            activeThread: cachedThread,
             history: cachedHistory,
           };
+        });
+      } else {
+        setLoadedIfChanged({
+          key,
+          workspace,
+          threadSlug,
+          activeThread: null,
+          history: [],
         });
       }
       if (cached?.page)
@@ -429,7 +431,7 @@ export default function WorkspaceChat({ loading, workspace }) {
           kind: "page",
           cursor: "latest",
         },
-        { history: chatHistory, page: currentPage }
+        { history: chatHistory, page: currentPage, thread: activeThread }
       );
       WorkspaceChatPerfMarks.measure(
         "last 5 readable",

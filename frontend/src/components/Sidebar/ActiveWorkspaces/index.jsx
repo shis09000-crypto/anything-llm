@@ -27,6 +27,7 @@ import {
   rememberLastVisitedWorkspace,
 } from "@/utils/lastVisitedWorkspace";
 import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 
 const WORKSPACE_DND_TYPE = "WORKSPACE";
 const THREAD_DND_TYPE = "THREAD";
@@ -73,7 +74,13 @@ export default function ActiveWorkspaces() {
   const isHomePage = !!useMatch("/");
 
   const refreshWorkspaces = useCallback(async () => {
+    const cached = workspaceNavigationCache.getWorkspaces();
+    if (cached?.length) {
+      setLoading(false);
+      setWorkspaces(Workspace.orderWorkspaces(cached));
+    }
     const workspaces = await Workspace.all();
+    workspaceNavigationCache.setWorkspaces(workspaces);
     setLoading(false);
     setWorkspaces(Workspace.orderWorkspaces(workspaces));
   }, []);
@@ -87,13 +94,17 @@ export default function ActiveWorkspaces() {
             (existingWorkspace) => existingWorkspace.id === workspace.id
           );
           if (workspaceExists) {
-            return prevWorkspaces.map((existingWorkspace) =>
+            const nextWorkspaces = prevWorkspaces.map((existingWorkspace) =>
               existingWorkspace.id === workspace.id
                 ? { ...existingWorkspace, ...workspace }
                 : existingWorkspace
             );
+            workspaceNavigationCache.setWorkspaces(nextWorkspaces);
+            return nextWorkspaces;
           }
-          return [...prevWorkspaces, workspace];
+          const nextWorkspaces = [...prevWorkspaces, workspace];
+          workspaceNavigationCache.setWorkspaces(nextWorkspaces);
+          return nextWorkspaces;
         });
       }
       refreshWorkspaces();
@@ -132,6 +143,7 @@ export default function ActiveWorkspaces() {
     const [removed] = reorderedWorkspaces.splice(startIndex, 1);
     reorderedWorkspaces.splice(endIndex, 0, removed);
     setWorkspaces(reorderedWorkspaces);
+    workspaceNavigationCache.setWorkspaces(reorderedWorkspaces);
     const success = Workspace.storeWorkspaceOrder(
       reorderedWorkspaces.map((w) => w.id)
     );
