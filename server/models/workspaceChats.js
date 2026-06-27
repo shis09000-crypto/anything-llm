@@ -338,6 +338,37 @@ const WorkspaceChats = {
     }
   },
 
+  whereMetadata: async function (
+    clause = {},
+    limit = null,
+    orderBy = null,
+    offset = null
+  ) {
+    try {
+      const chats = await prisma.workspace_chats.findMany({
+        where: clause,
+        select: {
+          id: true,
+          public_id: true,
+          workspaceId: true,
+          user_id: true,
+          thread_id: true,
+          api_session_id: true,
+          include: true,
+          createdAt: true,
+          feedbackScore: true,
+        },
+        ...(limit !== null ? { take: limit } : {}),
+        ...(offset !== null ? { skip: offset } : {}),
+        ...(orderBy !== null ? { orderBy } : {}),
+      });
+      return chats;
+    } catch (error) {
+      console.error(error.message);
+      return [];
+    }
+  },
+
   count: async function (clause = {}) {
     try {
       const count = await prisma.workspace_chats.count({

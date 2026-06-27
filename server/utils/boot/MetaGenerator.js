@@ -4,6 +4,9 @@
  * @property {{string:string}|null} props - the inner key/values of a meta tag
  * @property {string|null} content - Text content to be injected between tags. If null self-closing.
  */
+const fs = require("fs");
+const path = require("path");
+const cheerio = require("cheerio");
 
 /**
  * This class serves the default index.html page that is not present when built in production.
@@ -39,6 +42,10 @@ class MetaGenerator {
       },
     ],
   };
+
+  #defaultFrontendEntryTags = `
+            <script type="module" crossorigin src="/index.js"></script>
+            <link rel="stylesheet" href="/index.css">`;
 
   constructor() {
     if (MetaGenerator._instance) return MetaGenerator._instance;
@@ -197,6 +204,23 @@ class MetaGenerator {
     }
   }
 
+  #frontendEntryTags() {
+    try {
+      const indexPath = path.resolve(__dirname, "../../public/_index.html");
+      const $ = cheerio.load(fs.readFileSync(indexPath, "utf8"));
+      const tags = [];
+
+      $(
+        "link[rel='modulepreload'][href], script[src], link[rel='stylesheet'][href]"
+      ).each((_, element) => tags.push($.html(element)));
+
+      return tags.length ? tags.join("\n") : this.#defaultFrontendEntryTags;
+    } catch (error) {
+      this.#log(`failed to read frontend entry tags: ${error.message}`);
+      return this.#defaultFrontendEntryTags;
+    }
+  }
+
   async #fetchConfg() {
     this.#log(`fetching custom meta tag settings...`);
     const { SystemSettings } = require("../../models/systemSettings");
@@ -311,8 +335,7 @@ class MetaGenerator {
             <meta charset="UTF-8" />
             <meta name="viewport" content="width=device-width, initial-scale=1.0" />
             ${this.#assembleMeta()}
-            <script type="module" crossorigin src="/index.js"></script>
-            <link rel="stylesheet" href="/index.css">
+            ${this.#frontendEntryTags()}
           </head>
           <body>
             <div id="root" class="h-screen"></div>

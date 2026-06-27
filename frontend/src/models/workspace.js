@@ -123,6 +123,24 @@ const Workspace = {
       page: payload.page || null,
     };
   },
+  chatBootstrap: async function (slug, options = {}) {
+    const query = historyPageQuery(options);
+    const payload = await getJson(`/workspace/${slug}/bootstrap?${query}`, {
+      signal: options.signal,
+    })
+      .then(({ data }) => data)
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return null;
+      });
+    if (!payload?.success) return this.chatHistoryPage(slug, options);
+    return {
+      workspace: payload.workspace || null,
+      thread: payload.thread || null,
+      history: payload.history || [],
+      page: payload.page || null,
+    };
+  },
   chatHistoryHydration: async function (slug, chatIds = [], options = {}) {
     if (!chatIds.length)
       return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };

@@ -37,7 +37,9 @@ import {
 } from "@/utils/workspaceThreads";
 
 const FIRST_PAGE_LIMIT = 20;
-const PRIORITY_FULL_WINDOW = 5;
+const PRIORITY_FULL_WINDOW = 0;
+const BACKGROUND_HYDRATE_BATCH_SIZE = 1;
+const BACKGROUND_HYDRATE_DELAY_MS = 8_000;
 
 function threadSwitchFlickerDebugEnabled() {
   try {
@@ -106,6 +108,8 @@ function lightChatIdsFromHistory(history = []) {
 function historyClient(threadSlug = null) {
   return threadSlug
     ? {
+        bootstrap: (workspaceSlug, options) =>
+          Workspace.threads.chatBootstrap(workspaceSlug, threadSlug, options),
         page: (workspaceSlug, options) =>
           Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, options),
         hydrate: (workspaceSlug, chatIds, options) =>
@@ -117,6 +121,8 @@ function historyClient(threadSlug = null) {
           ),
       }
     : {
+        bootstrap: (workspaceSlug, options) =>
+          Workspace.chatBootstrap(workspaceSlug, options),
         page: (workspaceSlug, options) =>
           Workspace.chatHistoryPage(workspaceSlug, options),
         hydrate: (workspaceSlug, chatIds, options) =>
@@ -137,9 +143,9 @@ export default function WorkspaceChat({ loading, workspace }) {
     getThreadActivity,
     clearThreadActivity,
   } = useChatThreadDrafts();
-  // Stores { key, workspace, history } currently rendered. Lags the props so
-  // the previous chat stays mounted until the next one's history is ready,
-  // avoiding a skeleton/loader flash on workspace/thread switches.
+  // Stores { key, workspace, history } currently rendered. On route changes we
+  // switch this shell immediately so the user sees the target thread loading
+  // instead of the previous thread while network work is still in flight.
   const [loaded, setLoaded] = useState(null);
   const restoredChatKeysRef = useRef(new Set());
   const historyAbortRef = useRef(null);
@@ -225,50 +231,27 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       }
 
-      const { threads } = await Workspace.threads.all(workspace.slug);
-      const activeThread =
-        threads.find((thread) => thread.slug === threadSlug) || null;
-      if (!threadSlug || !activeThread) {
+      const redirectToDefaultThread = async (reason) => {
+        const { threads } = await Workspace.threads.all(workspace.slug);
+        if (historySeqRef.current !== seq) return false;
         debugChatTurn("WorkspaceChat:routeFallback", {
           workspaceSlug: workspace.slug,
           requestedThreadSlug: threadSlug,
           availableThreadCount: threads.length,
           hasUserSelectedState: !!location.state?.userSelectedThread,
-          reason: "invalid-or-missing-thread",
+          reason,
         });
         navigate(defaultWorkspacePath(workspace.slug, threads), {
           replace: true,
         });
         return false;
-      }
-
-      const key = `${workspace.slug}:${threadSlug ?? "default"}`;
-      const scrollMemory = readChatScrollMemory(key);
-      setChatScrollMemory(scrollMemory);
-      if (isOverviewThread(activeThread)) {
-        setHistoryState({
-          page: null,
-          loadingRecent: false,
-          loadingOlder: false,
-        });
-        setLoadedIfChanged({
-          key,
-          workspace,
-          threadSlug,
-          activeThread,
-          history: [],
-        });
-        setChatScrollMemory(null);
-        return false;
-      }
+      };
 
       const runningThread = getRunningThread(workspace.slug);
       if (
         !location.state?.userSelectedThread &&
-        runningThread &&
         !threadSlug &&
-        runningThread.threadSlug &&
-        (runningThread.threadSlug || null) !== (threadSlug || null)
+        runningThread?.threadSlug
       ) {
         debugChatTurn("WorkspaceChat:routeFallback", {
           workspaceSlug: workspace.slug,
@@ -282,6 +265,23 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       }
 
+      if (!threadSlug) return redirectToDefaultThread("missing-thread");
+
+      const key = `${workspace.slug}:${threadSlug ?? "default"}`;
+      const scrollMemory = readChatScrollMemory(key);
+      setChatScrollMemory(scrollMemory);
+      setHistoryState({
+        page: null,
+        loadingRecent: true,
+        loadingOlder: false,
+      });
+      setLoadedIfChanged({
+        key,
+        workspace,
+        threadSlug,
+        activeThread: null,
+        history: [],
+      });
       const draft = getDraft(workspace.slug, threadSlug);
       const needsServerHistoryRefresh = draftNeedsServerHistoryRefresh(draft);
       WorkspaceChatPerfMarks.mark(`${key}:shell`);
@@ -314,31 +314,26 @@ export default function WorkspaceChat({ loading, workspace }) {
           key,
           workspace,
           threadSlug,
-          activeThread,
+          activeThread: null,
           history: cached?.history || [],
         });
       } else if (cached) {
         const cachedHistory = cached.history || [];
         setLoaded((prev) => {
           const canTrustEmptyCache =
-            !threadSlug || prev?.key === key || cachedHistory.length > 0;
+            prev?.key === key || cachedHistory.length > 0;
           if (!canTrustEmptyCache) return prev?.history?.length ? prev : null;
           return {
             key,
             workspace,
             threadSlug,
-            activeThread,
+            activeThread: null,
             history: cachedHistory,
           };
         });
-      } else {
-        setLoaded((prev) => (prev?.history?.length ? prev : null));
       }
-      setHistoryState({
-        page: cached?.page || null,
-        loadingRecent: true,
-        loadingOlder: false,
-      });
+      if (cached?.page)
+        setHistoryState((prev) => ({ ...prev, page: cached.page }));
       WorkspaceChatPerfMarks.measure(
         "thread shell",
         `${key}:shell`,
@@ -349,7 +344,7 @@ export default function WorkspaceChat({ loading, workspace }) {
       const firstPageStartedAt = performance.now();
       const payload = await requestPriorityQueue.schedule(
         () =>
-          client.page(workspace.slug, {
+          client.bootstrap(workspace.slug, {
             limit: FIRST_PAGE_LIMIT,
             detail: "light",
             priorityWindow: PRIORITY_FULL_WINDOW,
@@ -372,90 +367,26 @@ export default function WorkspaceChat({ loading, workspace }) {
         });
         return;
       }
+      const activeThread = payload.thread || null;
+      if (!activeThread) return redirectToDefaultThread("invalid-thread");
+      if (isOverviewThread(activeThread)) {
+        setHistoryState({
+          page: null,
+          loadingRecent: false,
+          loadingOlder: false,
+        });
+        setLoadedIfChanged({
+          key,
+          workspace,
+          threadSlug,
+          activeThread,
+          history: [],
+        });
+        setChatScrollMemory(null);
+        return false;
+      }
       let chatHistory = payload.history || [];
       let currentPage = payload.page || null;
-      let memoryPrefetchAttempt = 0;
-      while (
-        shouldFetchOlderForChatScrollMemory({
-          memory: scrollMemory,
-          history: chatHistory,
-          page: currentPage,
-          attempt: memoryPrefetchAttempt,
-        })
-      ) {
-        const beforeChatId =
-          currentPage?.nextBeforeChatId ||
-          chatHistory.find((message) => message.chatId)?.chatId;
-        if (!beforeChatId) break;
-        memoryPrefetchAttempt += 1;
-        const olderPayload = await requestPriorityQueue.schedule(
-          () =>
-            client.page(workspace.slug, {
-              limit: FIRST_PAGE_LIMIT,
-              beforeChatId,
-              detail: "light",
-              priorityWindow: 0,
-              signal: historyAbortRef.current.signal,
-            }),
-          {
-            priority: "P1",
-            label: "workspacechat:scroll-memory-prefetch",
-            signal: historyAbortRef.current.signal,
-            dedupeKey: `history:scroll-memory:${key}:${beforeChatId}`,
-          }
-        );
-        if (!olderPayload?.history?.length || historySeqRef.current !== seq) {
-          break;
-        }
-        chatHistory = mergeHistoryMessages(
-          chatHistory,
-          olderPayload.history,
-          "prepend",
-          {
-            key,
-            mode: "scroll-memory-prefetch",
-          }
-        );
-        currentPage = olderPayload.page || currentPage;
-      }
-      if (
-        scrollMemory?.chatId &&
-        historyContainsChatId(chatHistory, scrollMemory.chatId)
-      ) {
-        const memoryHydration = await requestPriorityQueue.schedule(
-          () =>
-            client.hydrate(workspace.slug, [scrollMemory.chatId], {
-              signal: hydrationAbortRef.current.signal,
-            }),
-          {
-            priority: "P0",
-            label: "workspacechat:scroll-memory-hydrate",
-            signal: hydrationAbortRef.current.signal,
-            dedupeKey: `history:scroll-memory-hydrate:${key}:${scrollMemory.chatId}`,
-          }
-        );
-        if (memoryHydration?.history?.length && historySeqRef.current === seq) {
-          chatHistory = mergeHistoryMessages(
-            chatHistory,
-            memoryHydration.history,
-            "append",
-            {
-              key,
-              mode: "scroll-memory-hydrate",
-            }
-          );
-          threadHistoryCache.set(
-            {
-              workspaceSlug: workspace.slug,
-              threadSlug,
-              kind: "hydrate",
-              cursor: String(scrollMemory.chatId),
-            },
-            memoryHydration,
-            { indexed: true }
-          );
-        }
-      }
       debugThreadSwitchFlicker("WorkspaceChat:firstPageLoaded", {
         key,
         workspaceSlug: workspace.slug,
@@ -464,7 +395,7 @@ export default function WorkspaceChat({ loading, workspace }) {
         historyLength: chatHistory.length,
         lightChatIds: currentPage?.lightChatIds?.length || 0,
         scrollMemoryChatId: scrollMemory?.chatId || null,
-        scrollMemoryPrefetchAttempt: memoryPrefetchAttempt,
+        scrollMemoryPrefetchAttempt: 0,
       });
       const latestDraft = getDraft(workspace.slug, threadSlug);
       const latestDraftNeedsRefresh =
@@ -506,10 +437,173 @@ export default function WorkspaceChat({ loading, workspace }) {
         "lastFiveReadableMs"
       );
 
-      const lightChatIds = lightChatIdsFromHistory(chatHistory);
+      if (
+        scrollMemory?.chatId &&
+        !historyContainsChatId(chatHistory, scrollMemory.chatId) &&
+        currentPage?.hasMore
+      ) {
+        requestPriorityQueue.schedule(
+          async () => {
+            let memoryPrefetchAttempt = 0;
+            let memoryPage = currentPage;
+            let memoryHistory = chatHistory;
+            while (
+              shouldFetchOlderForChatScrollMemory({
+                memory: scrollMemory,
+                history: memoryHistory,
+                page: memoryPage,
+                attempt: memoryPrefetchAttempt,
+              })
+            ) {
+              const beforeChatId =
+                memoryPage?.nextBeforeChatId ||
+                memoryHistory.find((message) => message.chatId)?.chatId;
+              if (!beforeChatId) break;
+              memoryPrefetchAttempt += 1;
+              const olderPayload = await client.page(workspace.slug, {
+                limit: FIRST_PAGE_LIMIT,
+                beforeChatId,
+                detail: "light",
+                priorityWindow: 0,
+                signal: historyAbortRef.current.signal,
+              });
+              if (
+                !olderPayload?.history?.length ||
+                historySeqRef.current !== seq
+              ) {
+                break;
+              }
+              memoryHistory = mergeHistoryMessages(
+                memoryHistory,
+                olderPayload.history,
+                "prepend",
+                {
+                  key,
+                  mode: "scroll-memory-prefetch",
+                }
+              );
+              memoryPage = olderPayload.page || memoryPage;
+              await mergeAndRenderHistory({
+                key,
+                workspace,
+                threadSlug,
+                activeThread,
+                history: olderPayload.history,
+                page: olderPayload.page || memoryPage,
+                mode: "prepend",
+              });
+            }
+            if (
+              scrollMemory?.chatId &&
+              historyContainsChatId(memoryHistory, scrollMemory.chatId)
+            ) {
+              const memoryHydration = await client.hydrate(
+                workspace.slug,
+                [scrollMemory.chatId],
+                { signal: hydrationAbortRef.current.signal }
+              );
+              if (
+                memoryHydration?.history?.length &&
+                historySeqRef.current === seq
+              ) {
+                await mergeAndRenderHistory({
+                  key,
+                  workspace,
+                  threadSlug,
+                  activeThread,
+                  history: memoryHydration.history,
+                  mode: "append",
+                });
+                threadHistoryCache.set(
+                  {
+                    workspaceSlug: workspace.slug,
+                    threadSlug,
+                    kind: "hydrate",
+                    cursor: String(scrollMemory.chatId),
+                  },
+                  memoryHydration,
+                  { indexed: true }
+                );
+              }
+            }
+            debugThreadSwitchFlicker("WorkspaceChat:scrollMemoryBackfill", {
+              key,
+              workspaceSlug: workspace.slug,
+              threadSlug,
+              scrollMemoryChatId: scrollMemory.chatId,
+              attempts: memoryPrefetchAttempt,
+            });
+          },
+          {
+            priority: "P3",
+            label: "workspacechat:scroll-memory-backfill",
+            signal: historyAbortRef.current.signal,
+            dedupeKey: `history:scroll-memory-backfill:${key}:${scrollMemory.chatId}`,
+          }
+        );
+      } else if (
+        scrollMemory?.chatId &&
+        historyContainsChatId(chatHistory, scrollMemory.chatId)
+      ) {
+        requestPriorityQueue.schedule(
+          async () => {
+            await new Promise((resolve) =>
+              setTimeout(resolve, BACKGROUND_HYDRATE_DELAY_MS)
+            );
+            if (hydrationAbortRef.current.signal.aborted) return null;
+            const memoryHydration = await client.hydrate(
+              workspace.slug,
+              [scrollMemory.chatId],
+              { signal: hydrationAbortRef.current.signal }
+            );
+            if (
+              memoryHydration?.history?.length &&
+              historySeqRef.current === seq
+            ) {
+              await mergeAndRenderHistory({
+                key,
+                workspace,
+                threadSlug,
+                activeThread,
+                history: memoryHydration.history,
+                mode: "append",
+              });
+              threadHistoryCache.set(
+                {
+                  workspaceSlug: workspace.slug,
+                  threadSlug,
+                  kind: "hydrate",
+                  cursor: String(scrollMemory.chatId),
+                },
+                memoryHydration,
+                { indexed: true }
+              );
+            }
+          },
+          {
+            priority: "P4",
+            label: "workspacechat:scroll-memory-hydrate",
+            signal: hydrationAbortRef.current.signal,
+            dedupeKey: `history:scroll-memory-hydrate:${key}:${scrollMemory.chatId}`,
+          }
+        );
+      }
+
+      const lightChatIds = lightChatIdsFromHistory(chatHistory)
+        .filter((chatId) => chatId !== scrollMemory?.chatId)
+        .slice(-BACKGROUND_HYDRATE_BATCH_SIZE);
       if (lightChatIds.length > 0) {
         requestPriorityQueue.schedule(
           async () => {
+            await new Promise((resolve) =>
+              setTimeout(
+                resolve,
+                scrollMemory?.chatId
+                  ? BACKGROUND_HYDRATE_DELAY_MS * 2
+                  : BACKGROUND_HYDRATE_DELAY_MS
+              )
+            );
+            if (hydrationAbortRef.current.signal.aborted) return null;
             const hydration = await client.hydrate(
               workspace.slug,
               lightChatIds,
@@ -541,8 +635,8 @@ export default function WorkspaceChat({ loading, workspace }) {
             return hydration;
           },
           {
-            priority: "P2",
-            label: "workspacechat:hydrate-visible",
+            priority: "P4",
+            label: "workspacechat:hydrate-background-batch",
             signal: hydrationAbortRef.current.signal,
             dedupeKey: `history:hydrate:${key}:${lightChatIds.join(",")}`,
           }
@@ -684,6 +778,13 @@ export default function WorkspaceChat({ loading, workspace }) {
         <LoadingChat />
       </>
     );
+  }
+  if (
+    loaded?.activeThread === null &&
+    historyState.loadingRecent &&
+    loaded.history.length === 0
+  ) {
+    return <LoadingChat />;
   }
 
   setEventDelegatorForCodeSnippets();

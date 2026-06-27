@@ -136,6 +136,26 @@ const WorkspaceThread = {
       page: payload.page || null,
     };
   },
+  chatBootstrap: async function (workspaceSlug, threadSlug, options = {}) {
+    const query = historyPageQuery(options);
+    const payload = await getJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/bootstrap?${query}`,
+      { signal: options.signal }
+    )
+      .then(({ data }) => data)
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return null;
+      });
+    if (!payload?.success)
+      return this.chatHistoryPage(workspaceSlug, threadSlug, options);
+    return {
+      workspace: payload.workspace || null,
+      thread: payload.thread || null,
+      history: payload.history || [],
+      page: payload.page || null,
+    };
+  },
   chatHistoryHydration: async function (
     workspaceSlug,
     threadSlug,

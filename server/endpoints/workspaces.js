@@ -345,6 +345,47 @@ async function historyPageMeta(baseClause = {}, history = [], options = {}) {
   };
 }
 
+async function pagedChatHistory(
+  baseClause = {},
+  whereClause = {},
+  options = {}
+) {
+  const orderBy = options.enabled ? { id: "desc" } : { id: "asc" };
+  if (
+    options.enabled &&
+    options.detail === "light" &&
+    options.priorityWindow < options.limit
+  ) {
+    const history = await WorkspaceChats.whereMetadata(
+      whereClause,
+      options.limit,
+      orderBy
+    );
+    const orderedHistory = [...history].reverse();
+    const lightChatIds = lightChatIdsForHistory(orderedHistory, options);
+    const fullChatIds = orderedHistory
+      .filter((chat) => !lightChatIds.has(chat.id))
+      .map((chat) => chat.id);
+
+    const fullHistory = fullChatIds.length
+      ? await WorkspaceChats.where(
+          { ...baseClause, id: { in: fullChatIds } },
+          null,
+          { id: "asc" }
+        )
+      : [];
+    const fullHistoryById = new Map(fullHistory.map((chat) => [chat.id, chat]));
+    return orderedHistory.map((chat) => fullHistoryById.get(chat.id) || chat);
+  }
+
+  const history = await WorkspaceChats.where(
+    whereClause,
+    options.enabled ? options.limit : null,
+    orderBy
+  );
+  return options.enabled ? [...history].reverse() : history;
+}
+
 function workspaceEndpoints(app) {
   if (!app) return;
   const responseCache = new Map();
@@ -822,16 +863,11 @@ function workspaceEndpoints(app) {
             ? { id: { lt: historyOptions.beforeChatId } }
             : {}),
         };
-        const history = historyOptions.enabled
-          ? await WorkspaceChats.where(whereClause, historyOptions.limit, {
-              id: "desc",
-            })
+        const orderedHistory = historyOptions.enabled
+          ? await pagedChatHistory(baseClause, whereClause, historyOptions)
           : multiUserMode(response)
             ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
             : await WorkspaceChats.forWorkspace(workspace.id);
-        const orderedHistory = historyOptions.enabled
-          ? [...history].reverse()
-          : history;
         const lightChatIds = lightChatIdsForHistory(
           orderedHistory,
           historyOptions
@@ -844,6 +880,72 @@ function workspaceEndpoints(app) {
           ...(page
             ? { page: { ...page, lightChatIds: [...lightChatIds] } }
             : {}),
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/bootstrap",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    async (request, response) => {
+      try {
+        const { slug } = request.params;
+        const user = await userFromSession(request, response);
+        const workspace = multiUserMode(response)
+          ? await Workspace.getWithUser(user, { slug })
+          : await Workspace.get({ slug });
+
+        if (!workspace) {
+          response.sendStatus(400).end();
+          return;
+        }
+
+        const historyOptions = {
+          ...parseHistoryQuery(request),
+          enabled: true,
+        };
+        const baseClause = {
+          workspaceId: workspace.id,
+          thread_id: null,
+          api_session_id: null,
+          include: true,
+          ...(multiUserMode(response) ? { user_id: user.id } : {}),
+        };
+        const whereClause = {
+          ...baseClause,
+          ...(historyOptions.beforeChatId
+            ? { id: { lt: historyOptions.beforeChatId } }
+            : {}),
+        };
+        const orderedHistory = await pagedChatHistory(
+          baseClause,
+          whereClause,
+          historyOptions
+        );
+        const lightChatIds = lightChatIdsForHistory(
+          orderedHistory,
+          historyOptions
+        );
+        const page = await historyPageMeta(
+          baseClause,
+          orderedHistory,
+          historyOptions
+        );
+
+        response.status(200).json({
+          success: true,
+          workspace: {
+            id: workspace.id,
+            name: workspace.name,
+            slug: workspace.slug,
+          },
+          thread: null,
+          history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          page: { ...page, lightChatIds: [...lightChatIds] },
         });
       } catch (e) {
         console.error(e.message, e);

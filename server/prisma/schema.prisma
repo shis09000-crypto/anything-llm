@@ -1106,6 +1106,9 @@ model workspace_chats {
   lastUpdatedAt       DateTime @default(now())
   feedbackScore       Boolean?
   users               users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([workspaceId, user_id, thread_id, api_session_id, include, id], map: "workspace_chats_thread_history_idx")
+  @@index([workspaceId, user_id, api_session_id, include, thread_id, createdAt, id], map: "workspace_chats_thread_activity_idx")
 }
 
 model workspace_chat_compactions {

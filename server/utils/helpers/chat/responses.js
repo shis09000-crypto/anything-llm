@@ -3,6 +3,13 @@ const moment = require("moment");
 
 const MAX_CLARIFYING_QUESTIONS_PER_TURN = 3;
 const MAX_CLARIFYING_QUESTION_CHARS = 150;
+const MAX_LIGHT_HISTORY_PROMPT_CHARS = 2_000;
+
+function lightHistoryText(value = "") {
+  if (typeof value !== "string") return "";
+  if (value.length <= MAX_LIGHT_HISTORY_PROMPT_CHARS) return value;
+  return `${value.slice(0, MAX_LIGHT_HISTORY_PROMPT_CHARS)}...`;
+}
 
 function clientAbortedHandler(resolve, fullText) {
   console.log(
@@ -135,12 +142,12 @@ function convertToChatHistory(history = [], options = {}) {
       id,
       public_id = null,
     } = record;
-    const data = JSON.parse(response);
     const isLight = lightChatIds.has(id);
+    const data = isLight ? { text: "" } : JSON.parse(response);
 
     // In the event that a bad response was stored - we should skip its entire record
     // because it was likely an error and cannot be used in chats and will fail to render on UI.
-    if (typeof prompt !== "string") {
+    if (!isLight && typeof prompt !== "string") {
       console.log(
         `[convertToChatHistory] ChatHistory #${record.id} prompt property is not a string - skipping record.`
       );
@@ -155,7 +162,7 @@ function convertToChatHistory(history = [], options = {}) {
     formattedHistory.push([
       {
         role: "user",
-        content: prompt,
+        content: isLight ? lightHistoryText(prompt) : prompt,
         sentAt: moment(createdAt).unix(),
         attachments: isLight ? [] : data?.attachments ?? [],
         chatId: id,

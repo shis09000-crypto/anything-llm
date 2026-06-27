@@ -3,6 +3,7 @@ const PRIORITY_ORDER = {
   P1: 1,
   P2: 2,
   P3: 3,
+  P4: 4,
 };
 
 class RequestPriorityQueue {
@@ -75,7 +76,8 @@ class RequestPriorityQueue {
     this.clear(
       (entry) =>
         entry.signal?.aborted ||
-        (entry.priority === "P3" && now - entry.createdAt > this.staleMs)
+        (["P3", "P4"].includes(entry.priority) &&
+          now - entry.createdAt > this.staleMs)
     );
   }
 

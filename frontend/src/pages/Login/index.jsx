@@ -68,6 +68,7 @@ function MobileLoginRoute({ user, onAuthenticated }) {
   const [quickLoginDevice, setQuickLoginDevice] = useState(null);
   const [quickLoginLoading, setQuickLoginLoading] = useState(true);
   const [quickLoginLoadError, setQuickLoginLoadError] = useState(null);
+  const [allowPublicRegistration, setAllowPublicRegistration] = useState(false);
   const loginAccountHint = useMemo(
     () => buildMobileLoginAccountHint(quickLoginDevice, user),
     [quickLoginDevice, user]
@@ -95,6 +96,9 @@ function MobileLoginRoute({ user, onAuthenticated }) {
     }
 
     loadPreferredDevice();
+    System.registrationConfig().then((config) => {
+      setAllowPublicRegistration(Boolean(config?.allowPublicRegistration));
+    });
     return () => {
       cancelled = true;
     };
@@ -175,6 +179,10 @@ function MobileLoginRoute({ user, onAuthenticated }) {
         onQuickLogin={handleQuickLogin}
         onPasswordLogin={handlePasswordLogin}
         onPasskeyLogin={handlePasskeyLogin}
+        allowPublicRegistration={allowPublicRegistration}
+        onRegistrationSuccess={(result) =>
+          completeLogin(result, "注册成功，但自动登录失败，请手动登录。")
+        }
       />
       {quickLoginLoadError && !quickLoginDevice ? (
         <div className="pointer-events-none absolute inset-x-6 bottom-6 text-center text-xs font-semibold text-slate-400">

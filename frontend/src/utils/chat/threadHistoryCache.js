@@ -34,6 +34,35 @@ function estimateSize(value) {
   }
 }
 
+function sanitizeForCache(value) {
+  const seen = new WeakSet();
+  return JSON.parse(
+    JSON.stringify(value, (key, nestedValue) => {
+      if (
+        key === "contentString" ||
+        key === "previewUrl" ||
+        key === "compressedImages" ||
+        key === "rawToolPayload" ||
+        key === "rawPayload"
+      ) {
+        return undefined;
+      }
+      if (
+        typeof nestedValue === "string" &&
+        nestedValue.length > 8192 &&
+        /^data:/i.test(nestedValue)
+      ) {
+        return undefined;
+      }
+      if (nestedValue && typeof nestedValue === "object") {
+        if (seen.has(nestedValue)) return undefined;
+        seen.add(nestedValue);
+      }
+      return nestedValue;
+    })
+  );
+}
+
 function isExpired(entry) {
   return !entry || Date.now() - entry.updatedAt > THREAD_HISTORY_CACHE_TTL_MS;
 }
@@ -210,12 +239,13 @@ export const threadHistoryCache = {
   },
   async set(options, payload, { indexed = false } = {}) {
     const key = cacheKey(options);
+    const cachedPayload = sanitizeForCache(payload);
     const entry = {
       key,
-      payload,
+      payload: cachedPayload,
       updatedAt: Date.now(),
       cacheVersion: THREAD_HISTORY_CACHE_VERSION,
-      size: estimateSize(payload),
+      size: estimateSize(cachedPayload),
     };
     memoryCache.set(key, entry);
     pruneMemoryCache();

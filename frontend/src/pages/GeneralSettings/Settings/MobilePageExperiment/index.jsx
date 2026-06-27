@@ -37,6 +37,7 @@ import DataPrivacyCard from "@/pages/UserSettings/AccountSettings/DataPrivacyCar
 import PersonalizationCard from "@/pages/UserSettings/AccountSettings/PersonalizationCard";
 import AdminPanel from "@/pages/UserSettings/AccountSettings/AdminPanel";
 import AccountSettingsApi from "@/pages/UserSettings/AccountSettings/accountSettingsApi";
+import { AccountSettingsDataProvider } from "@/pages/UserSettings/AccountSettings/AccountSettingsDataProvider";
 import {
   ChatThreadDraftProviderBoundary,
   useChatDraft,
@@ -132,6 +133,8 @@ import { useNavigate } from "react-router-dom";
 const DEVICE_WIDTH = 430;
 const DEVICE_HEIGHT = 932;
 const USER_MESSAGE_COLLAPSE_LENGTH = 120;
+const MOBILE_HISTORY_BOOTSTRAP_LIMIT = 20;
+const MOBILE_HISTORY_PRIORITY_WINDOW = 0;
 const MOBILE_FILE_ACCESS_MODES = [
   FileAccessPolicy.modes.sandbox,
   FileAccessPolicy.modes.authorized,
@@ -1532,6 +1535,7 @@ export function MobilePageExperimentContent({
   );
   const [input, setInput] = useState("");
   const [loadingData, setLoadingData] = useState(true);
+  const [loadingThreadHistory, setLoadingThreadHistory] = useState(false);
   const [dataError, setDataError] = useState(null);
   const [streaming, setStreaming] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1842,7 +1846,7 @@ export function MobilePageExperimentContent({
 
   const composerDisabledReason = activeThreadIsOverview
     ? "overview"
-    : loadingData
+    : loadingData || loadingThreadHistory
       ? "loading"
       : streaming || mobileRuntimeBusy
         ? "streaming"
@@ -1860,17 +1864,19 @@ export function MobilePageExperimentContent({
     )
       return null;
 
+    const historyOptions = {
+      limit: options.limit || MOBILE_HISTORY_BOOTSTRAP_LIMIT,
+      detail: options.detail || "light",
+      priorityWindow: options.priorityWindow ?? MOBILE_HISTORY_PRIORITY_WINDOW,
+      signal,
+    };
     const { history } = thread.threadSlug
-      ? await Workspace.threads.chatHistoryPage(
+      ? await Workspace.threads.chatBootstrap(
           thread.workspaceSlug,
           thread.threadSlug,
-          { limit: 30, detail: "full", signal }
+          historyOptions
         )
-      : await Workspace.chatHistoryPage(thread.workspaceSlug, {
-          limit: 30,
-          detail: "full",
-          signal,
-        });
+      : await Workspace.chatBootstrap(thread.workspaceSlug, historyOptions);
     if (Array.isArray(history) && history.length > 0) {
       const pending = currentPendingSubmittedMessage(thread);
       chatDrafts.mergeServerHistory({
@@ -2133,27 +2139,36 @@ export function MobilePageExperimentContent({
   }
 
   async function loadThreadHistory(thread = activeThread, signal = null) {
-    const nextMessages = await fetchThreadHistoryMessages(thread, signal);
-    const appliedMessages = applyThreadHistoryMessages(thread, nextMessages, {
-      reason: "load-thread-history",
-    });
-    const pending = currentPendingSubmittedMessage(thread);
-    if (
-      pending &&
-      nextMessages &&
-      !historyIncludesSubmittedMessage(
-        nextMessages,
-        pending.text,
-        pending.submittedAt,
-        {
-          clientTurnId: pending.clientTurnId || null,
-          hasAttachments: pendingSubmittedHasAttachments(pending),
-        }
-      )
-    ) {
-      schedulePendingHistoryRefresh(thread, 900);
+    if (thread?.id && activeThreadIdRef.current === thread.id) {
+      setLoadingThreadHistory(true);
     }
-    return appliedMessages || nextMessages;
+    try {
+      const nextMessages = await fetchThreadHistoryMessages(thread, signal);
+      const appliedMessages = applyThreadHistoryMessages(thread, nextMessages, {
+        reason: "load-thread-history",
+      });
+      const pending = currentPendingSubmittedMessage(thread);
+      if (
+        pending &&
+        nextMessages &&
+        !historyIncludesSubmittedMessage(
+          nextMessages,
+          pending.text,
+          pending.submittedAt,
+          {
+            clientTurnId: pending.clientTurnId || null,
+            hasAttachments: pendingSubmittedHasAttachments(pending),
+          }
+        )
+      ) {
+        schedulePendingHistoryRefresh(thread, 900);
+      }
+      return appliedMessages || nextMessages;
+    } finally {
+      if (thread?.id && activeThreadIdRef.current === thread.id) {
+        setLoadingThreadHistory(false);
+      }
+    }
   }
 
   function schedulePendingHistoryRefresh(thread = activeThread, delay = 900) {
@@ -2913,20 +2928,63 @@ export function MobilePageExperimentContent({
 
     async function loadRealData() {
       setLoadingData(true);
+      setLoadingThreadHistory(false);
       setDataError(null);
       try {
         const workspaces = await Workspace.all();
-        const realThreads = [];
-        for (const workspace of workspaces) {
-          if (!workspace?.slug) continue;
+        const loadedWorkspaceSlugs = new Set();
+        const loadVisibleWorkspaceThreads = async (workspace) => {
+          if (!workspace?.slug) return [];
           const { threads = [] } = await Workspace.threads.all(workspace.slug);
-          for (const thread of threads) {
-            if (!thread?.slug) continue;
-            realThreads.push(threadToDrawerItem(workspace, thread));
+          loadedWorkspaceSlugs.add(workspace.slug);
+          return threads
+            .filter((thread) => thread?.slug)
+            .map((thread) => threadToDrawerItem(workspace, thread))
+            .filter(isVisibleThreadItem);
+        };
+
+        const preferredWorkspace =
+          workspaces.find(
+            (workspace) => workspace?.slug === initialWorkspaceSlug
+          ) || workspaces[0];
+        let visibleThreads = preferredWorkspace
+          ? await loadVisibleWorkspaceThreads(preferredWorkspace)
+          : [];
+
+        if (!visibleThreads.length) {
+          for (const workspace of workspaces) {
+            if (!workspace?.slug || loadedWorkspaceSlugs.has(workspace.slug))
+              continue;
+            const workspaceThreads =
+              await loadVisibleWorkspaceThreads(workspace);
+            visibleThreads = [...visibleThreads, ...workspaceThreads];
+            if (visibleThreads.length) break;
           }
         }
 
-        const visibleThreads = realThreads.filter(isVisibleThreadItem);
+        window.setTimeout(async () => {
+          for (const workspace of workspaces) {
+            if (
+              controller.signal.aborted ||
+              !workspace?.slug ||
+              loadedWorkspaceSlugs.has(workspace.slug)
+            ) {
+              continue;
+            }
+
+            const workspaceThreads =
+              await loadVisibleWorkspaceThreads(workspace);
+            if (controller.signal.aborted || !workspaceThreads.length) continue;
+            setDrawerThreads((current) => {
+              const byId = new Map(
+                current.map((thread) => [thread.id, thread])
+              );
+              for (const thread of workspaceThreads)
+                byId.set(thread.id, thread);
+              return Array.from(byId.values());
+            });
+          }
+        }, 0);
 
         if (!visibleThreads.length) {
           setDrawerThreads(productionMode ? [] : mockThreads);
@@ -2944,7 +3002,9 @@ export function MobilePageExperimentContent({
           ) || visibleThreads[0];
 
         setDrawerThreads(visibleThreads);
+        activeThreadIdRef.current = nextThread.id;
         setActiveThreadId(nextThread.id);
+        setMessages([]);
         await loadThreadHistory(nextThread, controller.signal);
         await refreshMemoryStatus(nextThread);
       } catch (error) {
@@ -3042,6 +3102,7 @@ export function MobilePageExperimentContent({
     const nextThread =
       visibleDrawerThreads.find((thread) => thread.id === threadId) ||
       activeThread;
+    activeThreadIdRef.current = nextThread.id;
     setActiveThreadId(nextThread.id);
     setQuizMode(false);
     setMenuOpen(false);
@@ -3059,7 +3120,8 @@ export function MobilePageExperimentContent({
           : paths.workspace.chat(nextThread.workspaceSlug)
       );
     }
-    setLoadingData(true);
+    setMessages([]);
+    setLoadingThreadHistory(true);
     try {
       await loadThreadHistory(nextThread);
       await refreshMemoryStatus(nextThread);
@@ -3068,7 +3130,7 @@ export function MobilePageExperimentContent({
       if (error?.name !== "AbortError")
         setDataError("当前 thread 历史加载失败。");
     } finally {
-      setLoadingData(false);
+      setLoadingThreadHistory(false);
     }
   }
 
@@ -4099,6 +4161,9 @@ export function MobilePageExperimentContent({
                   workspaceName={activeThread.workspace}
                   workspaceSlug={activeThread.workspaceSlug}
                   threadSlug={activeThread.threadSlug}
+                  loadingRecent={
+                    loadingThreadHistory && displayMessages.length === 0
+                  }
                   messagesEndRef={messagesEndRef}
                   onQuizUpdate={handleQuizMessageUpdate}
                   copiedMessageId={copiedMessageId}
@@ -4301,6 +4366,10 @@ export function MobilePageExperimentContent({
                               workspaceName={activeThread.workspace}
                               workspaceSlug={activeThread.workspaceSlug}
                               threadSlug={activeThread.threadSlug}
+                              loadingRecent={
+                                loadingThreadHistory &&
+                                displayMessages.length === 0
+                              }
                               messagesEndRef={messagesEndRef}
                               onQuizUpdate={handleQuizMessageUpdate}
                               copiedMessageId={copiedMessageId}
@@ -4569,6 +4638,8 @@ export function MobileLoginScreen({
   onQuickLogin,
   onPasswordLogin,
   onPasskeyLogin,
+  allowPublicRegistration = false,
+  onRegistrationSuccess,
 }) {
   const accountName = loginAccountHint?.accountName || mobileAccountName(user);
   const accountPfp = loginAccountHint?.avatarUrl || pfp;
@@ -4705,9 +4776,23 @@ export function MobileLoginScreen({
                 </p>
               )}
               <div
-                className="mobile-login-item mt-3 flex justify-end"
+                className="mobile-login-item mt-3 flex items-center justify-between gap-3"
                 style={{ "--mobile-login-item-delay": "185ms" }}
               >
+                {allowPublicRegistration ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setMode("register");
+                    }}
+                    className="text-xs font-bold text-sky-600 transition hover:text-sky-800"
+                  >
+                    创建账号
+                  </button>
+                ) : (
+                  <span />
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -4720,6 +4805,14 @@ export function MobileLoginScreen({
                 </button>
               </div>
             </>
+          ) : mode === "register" ? (
+            <MobileRegistrationForm
+              onBack={() => {
+                setError(null);
+                setMode("password");
+              }}
+              onSuccess={onRegistrationSuccess}
+            />
           ) : (
             <form className="mt-5 text-left" onSubmit={handlePasswordSubmit}>
               <p
@@ -4837,12 +4930,363 @@ export function MobileLoginScreen({
               >
                 使用快速登录
               </button>
+              {allowPublicRegistration ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setMode("register");
+                  }}
+                  className="mobile-login-item mx-auto mt-3 block text-xs font-bold text-sky-600 transition hover:text-sky-800"
+                  style={{ "--mobile-login-item-delay": "285ms" }}
+                >
+                  创建账号
+                </button>
+              ) : null}
             </form>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function MobileRegistrationForm({ onBack, onSuccess }) {
+  const [step, setStep] = useState("email");
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+  const [resendRemaining, setResendRemaining] = useState(0);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (resendRemaining <= 0) return;
+    const timer = setTimeout(
+      () => setResendRemaining((current) => Math.max(0, current - 1)),
+      1_000
+    );
+    return () => clearTimeout(timer);
+  }, [resendRemaining]);
+
+  const normalizedEmail = normalizeMobileRegistrationEmail(email);
+
+  async function sendRegistrationCode({ clearError = false } = {}) {
+    if (sendingCode || resendRemaining > 0 || !normalizedEmail) return false;
+    setSendingCode(true);
+    if (clearError) setError(null);
+    const result = await System.requestRegistrationCode({
+      email: normalizedEmail,
+    });
+    setSendingCode(false);
+
+    if (!result?.success) {
+      setError(result?.error || "无法发送注册验证码。");
+      return false;
+    }
+
+    setEmail(result.email || normalizedEmail);
+    setResendRemaining(Number(result.resendCooldownSeconds) || 60);
+    return true;
+  }
+
+  async function handleEmailSubmit(event) {
+    event.preventDefault();
+    if (loading) return;
+    if (!isValidMobileRegistrationEmail(normalizedEmail)) {
+      setError("请输入有效邮箱地址。");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const check = await System.checkRegistrationEmail({
+      email: normalizedEmail,
+    });
+    setLoading(false);
+
+    if (!check?.success) {
+      setError(check?.error || "该邮箱暂时无法注册。");
+      return;
+    }
+
+    setEmail(check.email || normalizedEmail);
+    setCode("");
+    setStep("code");
+    setResendRemaining(0);
+    setTimeout(() => sendRegistrationCode({ clearError: true }), 0);
+  }
+
+  async function handleCodeSubmit(event) {
+    event.preventDefault();
+    if (loading) return;
+    if (!/^\d{6}$/.test(code.trim())) {
+      setError("请输入 6 位邮箱验证码。");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const result = await System.verifyRegistrationCode({
+      email: normalizedEmail,
+      code: code.trim(),
+    });
+    setLoading(false);
+
+    if (!result?.success) {
+      setError(result?.error || "验证码不正确或已过期。");
+      return;
+    }
+
+    setEmail(result.email || normalizedEmail);
+    setStep("password");
+  }
+
+  async function handleRegisterSubmit(event) {
+    event.preventDefault();
+    if (loading) return;
+    if (password.length < 8) {
+      setError("密码至少需要 8 位。");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("两次输入的密码不一致。");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    const result = await System.registerAccount({
+      email: normalizedEmail,
+      code: code.trim(),
+      password,
+      confirmPassword,
+    });
+    setLoading(false);
+
+    if (result?.success && result?.token && result?.user) {
+      const loginResult = await onSuccess?.(result);
+      if (!loginResult || loginResult.success) return;
+      setError(loginResult.error || "注册成功，但自动登录失败，请手动登录。");
+      return;
+    }
+
+    setError(result?.error || "无法完成注册，请检查信息后重试。");
+  }
+
+  if (step === "email") {
+    return (
+      <form className="mt-5 text-left" onSubmit={handleEmailSubmit}>
+        <MobileLoginBackButton onClick={onBack} />
+        <p className="mobile-login-item text-center text-sm font-black text-slate-900">
+          创建账号
+        </p>
+        <p className="mobile-login-item mt-2 text-center text-xs font-semibold leading-5 text-slate-500">
+          公开注册开启时，可通过邮箱验证码创建普通用户账号。
+        </p>
+        <MobileLoginTextField
+          label="邮箱"
+          type="email"
+          value={email}
+          inputMode="email"
+          autoComplete="email"
+          onChange={(event) => {
+            setError(null);
+            setEmail(normalizeMobileRegistrationEmail(event.target.value));
+          }}
+          delay="145ms"
+        />
+        <MobileLoginError error={error} />
+        <div className="mobile-login-item mt-5 flex justify-center">
+          <AppButton
+            type="submit"
+            variant="primary"
+            size="md"
+            loading={loading}
+            disabled={loading || !normalizedEmail}
+            className="w-[164px]"
+          >
+            继续
+          </AppButton>
+        </div>
+      </form>
+    );
+  }
+
+  if (step === "code") {
+    return (
+      <form className="mt-5 text-left" onSubmit={handleCodeSubmit}>
+        <MobileLoginBackButton
+          onClick={() => {
+            setError(null);
+            setCode("");
+            setStep("email");
+          }}
+        />
+        <p className="mobile-login-item text-center text-sm font-black text-slate-900">
+          验证邮箱
+        </p>
+        <p className="mobile-login-item mt-2 text-center text-xs font-semibold leading-5 text-slate-500">
+          输入发送到 {normalizedEmail || "邮箱"} 的 6 位验证码。
+        </p>
+        <MobileLoginTextField
+          label="邮箱"
+          type="email"
+          value={email}
+          readOnly
+          delay="145ms"
+        />
+        <MobileLoginTextField
+          label="邮箱验证码"
+          type="text"
+          value={code}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          onChange={(event) => {
+            setError(null);
+            setCode(event.target.value.replace(/\D/g, "").slice(0, 6));
+          }}
+          delay="175ms"
+        />
+        <MobileLoginError error={error} />
+        <div className="mobile-login-item mt-5 flex justify-center">
+          <AppButton
+            type="submit"
+            variant="primary"
+            size="md"
+            loading={loading}
+            disabled={loading || sendingCode || !/^\d{6}$/.test(code)}
+            className="w-[164px]"
+          >
+            验证并继续
+          </AppButton>
+        </div>
+        <button
+          type="button"
+          disabled={sendingCode || resendRemaining > 0}
+          onClick={() => sendRegistrationCode({ clearError: true })}
+          className="mobile-login-item mx-auto mt-3 block text-xs font-bold text-slate-500 transition enabled:hover:text-slate-900 disabled:text-slate-300"
+        >
+          {resendRemaining > 0
+            ? `${resendRemaining} 秒后可重新发送`
+            : sendingCode
+              ? "正在发送..."
+              : "重新发送验证码"}
+        </button>
+      </form>
+    );
+  }
+
+  return (
+    <form className="mt-5 text-left" onSubmit={handleRegisterSubmit}>
+      <MobileLoginBackButton
+        onClick={() => {
+          setError(null);
+          setStep("code");
+        }}
+      />
+      <p className="mobile-login-item text-center text-sm font-black text-slate-900">
+        设置密码
+      </p>
+      <p className="mobile-login-item mt-2 text-center text-xs font-semibold leading-5 text-slate-500">
+        邮箱已验证，创建后会自动登录移动端。
+      </p>
+      <MobileLoginTextField
+        label="密码"
+        type="password"
+        value={password}
+        autoComplete="new-password"
+        onChange={(event) => {
+          setError(null);
+          setPassword(event.target.value);
+        }}
+        delay="145ms"
+      />
+      <MobileLoginTextField
+        label="确认密码"
+        type="password"
+        value={confirmPassword}
+        autoComplete="new-password"
+        onChange={(event) => {
+          setError(null);
+          setConfirmPassword(event.target.value);
+        }}
+        delay="175ms"
+      />
+      <MobileLoginError error={error} />
+      <div className="mobile-login-item mt-5 flex justify-center">
+        <AppButton
+          type="submit"
+          variant="primary"
+          size="md"
+          loading={loading}
+          disabled={loading || !password || !confirmPassword}
+          className="w-[164px]"
+        >
+          注册
+        </AppButton>
+      </div>
+    </form>
+  );
+}
+
+function MobileLoginTextField({
+  label,
+  value,
+  onChange,
+  delay = "150ms",
+  ...props
+}) {
+  return (
+    <label
+      className="mobile-login-item group relative mt-4 block rounded-[18px] border border-slate-200/80 bg-slate-100/75 px-4 pb-3 pt-4 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.7)] transition focus-within:border-sky-300 focus-within:bg-white/90 focus-within:ring-2 focus-within:ring-sky-400/20"
+      style={{ "--mobile-login-item-delay": delay }}
+    >
+      <span className="absolute -top-2 left-4 rounded-full bg-[#f8fbff] px-1.5 text-[11px] font-semibold leading-4 text-slate-500 transition group-focus-within:text-sky-600">
+        {label}
+      </span>
+      <input
+        {...props}
+        value={value}
+        onChange={onChange}
+        className="block h-8 w-full border-0 bg-transparent p-0 text-base font-semibold text-slate-900 outline-none placeholder:text-slate-400 disabled:text-slate-500"
+      />
+    </label>
+  );
+}
+
+function MobileLoginBackButton({ onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mobile-login-item mb-3 text-xs font-bold text-slate-500 transition hover:text-slate-900"
+    >
+      返回登录
+    </button>
+  );
+}
+
+function MobileLoginError({ error }) {
+  if (!error) return null;
+  return (
+    <p className="mobile-login-item mt-3 text-center text-xs font-semibold text-rose-500">
+      {error}
+    </p>
+  );
+}
+
+function normalizeMobileRegistrationEmail(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase();
+}
+
+function isValidMobileRegistrationEmail(value = "") {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || "").trim());
 }
 
 function ChromeLogo() {
@@ -4930,6 +5374,7 @@ function ChatPane({
   workspaceName = "",
   workspaceSlug,
   threadSlug,
+  loadingRecent = false,
   messagesEndRef,
   onQuizUpdate,
   copiedMessageId,
@@ -4972,7 +5417,10 @@ function ChatPane({
           time: "",
         }
       : null;
-  const showEmptyWelcome = !runtimeActivity && messages.length === 0;
+  const showLoadingSkeleton =
+    loadingRecent && !runtimeActivity && messages.length === 0;
+  const showEmptyWelcome =
+    !showLoadingSkeleton && !runtimeActivity && messages.length === 0;
 
   return (
     <div
@@ -4986,6 +5434,7 @@ function ChatPane({
       {showEmptyWelcome && (
         <MobileEmptyThreadWelcome workspaceName={workspaceName} />
       )}
+      {showLoadingSkeleton && <MobileThreadHistorySkeleton />}
       {messages.map((message, index) => (
         <MessageBubble
           key={message.id}
@@ -5040,6 +5489,21 @@ function ChatPane({
         />
       )}
       <div ref={messagesEndRef} />
+    </div>
+  );
+}
+
+function MobileThreadHistorySkeleton() {
+  return (
+    <div className="flex flex-col gap-5 px-1 pt-1" aria-label="加载聊天记录">
+      <div className="ml-auto h-24 w-[76%] animate-pulse rounded-[28px] bg-white/70 shadow-[0_18px_42px_rgba(148,163,184,0.16)]" />
+      <div className="flex flex-col gap-3">
+        <div className="h-4 w-24 animate-pulse rounded-full bg-slate-200/80" />
+        <div className="h-4 w-[86%] animate-pulse rounded-full bg-white/80" />
+        <div className="h-4 w-[72%] animate-pulse rounded-full bg-white/80" />
+        <div className="h-4 w-[58%] animate-pulse rounded-full bg-white/70" />
+      </div>
+      <div className="ml-auto h-20 w-[68%] animate-pulse rounded-[28px] bg-white/70 shadow-[0_18px_42px_rgba(148,163,184,0.14)]" />
     </div>
   );
 }
@@ -7961,69 +8425,79 @@ function MobileAccountSettingsDetailContent({
 }) {
   const emailVerified = Boolean(user?.email && user?.email_verified_at);
 
-  switch (detail.href) {
-    case "#personalization":
-      return <PersonalizationCard user={user} onUserUpdated={onUserUpdated} />;
-    case "#memory-blocks":
-      return <MemoryBlocksCard />;
-    case "#contact":
-      return <ContactMethodsCard user={user} onUserUpdated={onUserUpdated} />;
-    case "#security":
-      return (
-        <LoginSecurityCard
-          user={user}
-          emailVerified={emailVerified}
-          authCapability={authCapability}
-          passkeys={passkeys}
-          passkeysLoading={passkeysLoading}
-          refreshPasskeys={refreshPasskeys}
-        />
-      );
-    case "#passkeys":
-      return (
-        <PasskeysCard
-          authCapability={authCapability}
-          passkeys={passkeys}
-          passkeysLoading={passkeysLoading}
-          refreshPasskeys={refreshPasskeys}
-        />
-      );
-    case "#sessions":
-      return <SessionsDevicesCard />;
-    case "#notifications":
-      return <NotificationsCard />;
-    case "#privacy":
-      return <DataPrivacyCard />;
-    case "#admin":
-    case "#admin-users":
-    case "#admin-workspaces":
-    case "#admin-chats":
-    case "#admin-invites":
-    case "#admin-default-prompt":
-      if (!canSeeAdmin(user)) {
+  const renderDetail = () => {
+    switch (detail.href) {
+      case "#personalization":
+        return (
+          <PersonalizationCard user={user} onUserUpdated={onUserUpdated} />
+        );
+      case "#memory-blocks":
+        return <MemoryBlocksCard />;
+      case "#contact":
+        return <ContactMethodsCard user={user} onUserUpdated={onUserUpdated} />;
+      case "#security":
+        return (
+          <LoginSecurityCard
+            user={user}
+            emailVerified={emailVerified}
+            authCapability={authCapability}
+            passkeys={passkeys}
+            passkeysLoading={passkeysLoading}
+            refreshPasskeys={refreshPasskeys}
+          />
+        );
+      case "#passkeys":
+        return (
+          <PasskeysCard
+            authCapability={authCapability}
+            passkeys={passkeys}
+            passkeysLoading={passkeysLoading}
+            refreshPasskeys={refreshPasskeys}
+          />
+        );
+      case "#sessions":
+        return <SessionsDevicesCard />;
+      case "#notifications":
+        return <NotificationsCard />;
+      case "#privacy":
+        return <DataPrivacyCard />;
+      case "#admin":
+      case "#admin-users":
+      case "#admin-workspaces":
+      case "#admin-chats":
+      case "#admin-invites":
+      case "#admin-default-prompt":
+        if (!canSeeAdmin(user)) {
+          return (
+            <section className="account-card">
+              <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-medium text-slate-500">
+                当前账号没有管理员设置权限。
+              </div>
+            </section>
+          );
+        }
+        return (
+          <AdminPanel
+            currentUser={user}
+            activeSection={detail.href.replace(/^#/, "")}
+          />
+        );
+      default:
         return (
           <section className="account-card">
             <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-medium text-slate-500">
-              当前账号没有管理员设置权限。
+              暂未找到该设置项。
             </div>
           </section>
         );
-      }
-      return (
-        <AdminPanel
-          currentUser={user}
-          activeSection={detail.href.replace(/^#/, "")}
-        />
-      );
-    default:
-      return (
-        <section className="account-card">
-          <div className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm font-medium text-slate-500">
-            暂未找到该设置项。
-          </div>
-        </section>
-      );
-  }
+    }
+  };
+
+  return (
+    <AccountSettingsDataProvider user={user}>
+      {renderDetail()}
+    </AccountSettingsDataProvider>
+  );
 }
 
 function MobileAccountAvatar({ pfp, className = "h-10 w-10" }) {
