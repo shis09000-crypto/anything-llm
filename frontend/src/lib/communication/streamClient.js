@@ -2,6 +2,14 @@ import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { apiUrl, jsonHeaders } from "./apiClient";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
 import { createCommunicationRequestId } from "./clientIdentity";
+import {
+  communicationByteLength,
+  recordCommunicationEvent,
+} from "./communicationMetrics";
+
+function nowMs() {
+  return globalThis.performance?.now?.() ?? Date.now();
+}
 
 function parseSseJsonMessage(msg, { requestId, path } = {}) {
   try {
@@ -36,14 +44,29 @@ async function jsonSse({
 } = {}) {
   const normalizedMethod = method.toUpperCase();
   const requestId = createCommunicationRequestId();
+  const startedAt = nowMs();
+  const bodyString = normalizedMethod === "GET" ? "" : JSON.stringify(body);
+  let eventCount = 0;
   await fetchEventSource(apiUrl(path), {
     method: normalizedMethod,
-    body: normalizedMethod === "GET" ? undefined : JSON.stringify(body),
+    body: bodyString || undefined,
     headers: jsonHeaders(headers, { requestId }),
     signal,
     openWhenHidden,
     async onopen(response) {
       if (response.ok) {
+        recordCommunicationEvent({
+          requestId,
+          type: "sse-open",
+          method: normalizedMethod,
+          path,
+          status: response.status,
+          durationMs: Math.round(nowMs() - startedAt),
+          requestBytes: communicationByteLength(bodyString),
+          responseBytes: 0,
+          serverTiming: response.headers?.get?.("Server-Timing") || null,
+          ok: true,
+        });
         await onOpen?.(response);
         return;
       }
@@ -62,11 +85,24 @@ async function jsonSse({
       });
     },
     async onmessage(msg) {
+      eventCount += 1;
       await onRawMessage?.(msg);
       const payload = parseSseJsonMessage(msg, { requestId, path });
       await onMessage?.(payload, msg);
     },
     onclose() {
+      recordCommunicationEvent({
+        requestId,
+        type: "sse-close",
+        method: normalizedMethod,
+        path,
+        status: 200,
+        durationMs: Math.round(nowMs() - startedAt),
+        requestBytes: communicationByteLength(bodyString),
+        responseBytes: 0,
+        eventCount,
+        ok: true,
+      });
       onClose?.();
     },
     onerror(error) {
@@ -86,6 +122,19 @@ async function jsonSse({
             });
 
       const retryValue = onError?.(apiError);
+      recordCommunicationEvent({
+        requestId,
+        type: "sse-error",
+        method: normalizedMethod,
+        path,
+        status: apiError.status,
+        durationMs: Math.round(nowMs() - startedAt),
+        requestBytes: communicationByteLength(bodyString),
+        responseBytes: 0,
+        eventCount,
+        ok: false,
+        error: apiError.message,
+      });
       if (retryOnError && typeof retryValue === "number") return retryValue;
       throw apiError;
     },

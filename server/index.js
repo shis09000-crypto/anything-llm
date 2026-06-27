@@ -87,6 +87,9 @@ const {
 const {
   clientIdentityMiddleware,
 } = require("./utils/clientIdentity");
+const {
+  communicationMetricsMiddleware,
+} = require("./middleware/communicationMetrics");
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
@@ -125,6 +128,7 @@ if (!!process.env.ENABLE_HTTPS) {
 }
 
 app.use("/api", apiRouter);
+apiRouter.use(communicationMetricsMiddleware);
 systemEndpoints(apiRouter);
 clientIdentityEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);

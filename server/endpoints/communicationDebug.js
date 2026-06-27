@@ -8,6 +8,9 @@ const {
   redactLogObject,
   redactLogText,
 } = require("../utils/security/redaction");
+const {
+  communicationMetricsSnapshot,
+} = require("../middleware/communicationMetrics");
 
 const DEBUG_PREFIX = "/debug/communication";
 const upload = multer({
@@ -78,6 +81,14 @@ async function writeChunkedSse(response, chunks = [], delayMs = 0) {
 }
 
 function debugJsonEndpoints(app) {
+  app.get(`${DEBUG_PREFIX}/metrics`, guardDebug, (request, response) => {
+    const limit = intValue(request.query?.limit, 100, { min: 1, max: 500 });
+    response.status(200).json({
+      success: true,
+      events: communicationMetricsSnapshot({ limit }),
+    });
+  });
+
   app.all(`${DEBUG_PREFIX}/json`, guardDebug, async (request, response) => {
     const delayMs = intValue(request.query?.delayMs || request.body?.delayMs);
     const status = intValue(

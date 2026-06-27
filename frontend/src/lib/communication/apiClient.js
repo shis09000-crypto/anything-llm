@@ -11,6 +11,11 @@ import {
   isRecoverableSigningError,
   maybeSignedRequestHeaders,
 } from "./requestSigningClient";
+import {
+  communicationByteLength,
+  communicationResponseSize,
+  recordCommunicationEvent,
+} from "./communicationMetrics";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -166,6 +171,9 @@ export async function requestJson(path, options = {}) {
       ...rest,
     });
     const data = await parseJsonResponse(response);
+    const durationMs = durationSince(startedAt);
+    const responseBytes = communicationResponseSize(response, data);
+    const requestBytes = communicationByteLength(bodyString);
     if (!response.ok) {
       if (
         signingResult.signed &&
@@ -212,8 +220,20 @@ export async function requestJson(path, options = {}) {
         method: normalizedMethod,
         path,
         status: response.status,
-        durationMs: durationSince(startedAt),
+        durationMs,
         signed: signingResult.signed,
+      });
+      recordCommunicationEvent({
+        requestId,
+        type: "json",
+        method: normalizedMethod,
+        path,
+        status: response.status,
+        durationMs,
+        requestBytes,
+        responseBytes,
+        serverTiming: response.headers?.get?.("Server-Timing") || null,
+        ok: false,
       });
       throw apiError;
     }
@@ -223,8 +243,20 @@ export async function requestJson(path, options = {}) {
       method: normalizedMethod,
       path,
       status: response.status,
-      durationMs: durationSince(startedAt),
+      durationMs,
       signed: signingResult.signed,
+    });
+    recordCommunicationEvent({
+      requestId,
+      type: "json",
+      method: normalizedMethod,
+      path,
+      status: response.status,
+      durationMs,
+      requestBytes,
+      responseBytes,
+      serverTiming: response.headers?.get?.("Server-Timing") || null,
+      ok: true,
     });
     return { response, data, requestId };
   } catch (error) {
@@ -262,6 +294,18 @@ export async function requestJson(path, options = {}) {
       path,
       status: apiError.status,
       durationMs: durationSince(startedAt),
+    });
+    recordCommunicationEvent({
+      requestId,
+      type: "json",
+      method: normalizedMethod,
+      path,
+      status: apiError.status,
+      durationMs: durationSince(startedAt),
+      requestBytes: communicationByteLength(bodyString),
+      responseBytes: 0,
+      ok: false,
+      error: apiError.message,
     });
     throw apiError;
   } finally {
