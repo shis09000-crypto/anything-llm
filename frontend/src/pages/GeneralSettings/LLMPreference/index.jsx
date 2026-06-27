@@ -42,7 +42,6 @@ import PrivateModeLogo from "@/media/llmprovider/privatemode.png";
 import SambaNovaLogo from "@/media/llmprovider/sambanova.png";
 import LemonadeLogo from "@/media/llmprovider/lemonade.png";
 
-import PreLoader from "@/components/Preloader";
 import OpenAiOptions from "@/components/LLMSelection/OpenAiOptions";
 import GenericOpenAiOptions from "@/components/LLMSelection/GenericOpenAiOptions";
 import AzureAiOptions from "@/components/LLMSelection/AzureAiOptions";
@@ -84,6 +83,8 @@ import LLMItem from "@/components/LLMSelection/LLMItem";
 import { CaretUpDown, MagnifyingGlass, X } from "@phosphor-icons/react";
 import CTAButton from "@/components/lib/CTAButton";
 import ProviderPresetImport from "@/components/ProviderPresetImport";
+import { SettingsSectionSkeleton } from "@/pages/GeneralSettings/SettingsDataProvider";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 export const AVAILABLE_LLM_PROVIDERS = [
   {
@@ -430,6 +431,7 @@ export default function GeneralLLMPreference() {
   const [searchMenuOpen, setSearchMenuOpen] = useState(false);
   const searchInputRef = useRef(null);
   const { t } = useTranslation();
+  const loadSettingsSection = useSettingsSection("llm");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -467,12 +469,12 @@ export default function GeneralLLMPreference() {
   };
 
   const refreshSettings = useCallback(async () => {
-    const _settings = await System.keys();
+    const _settings = await loadSettingsSection();
     setSettings(_settings);
     setSelectedLLM(_settings?.LLMProvider);
     setHasChanges(false);
     setLoading(false);
-  }, []);
+  }, [loadSettingsSection]);
 
   useEffect(() => {
     refreshSettings();
@@ -507,14 +509,10 @@ export default function GeneralLLMPreference() {
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
       <Sidebar />
       {loading ? (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
-          <div className="w-full h-full flex justify-center items-center">
-            <PreLoader />
-          </div>
-        </div>
+        <SettingsSectionSkeleton
+          title={t("llm.title")}
+          description={t("llm.description")}
+        />
       ) : (
         <div
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}

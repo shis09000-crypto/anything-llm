@@ -4,13 +4,14 @@ import Sidebar from "@/components/SettingsSidebar";
 import { isMobile } from "react-device-detect";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
-import PreLoader from "@/components/Preloader";
 import CTAButton from "@/components/lib/CTAButton";
 import Toggle from "@/components/lib/Toggle";
 import GenericOpenAiLogo from "@/media/llmprovider/generic-openai.png";
 import AthenaIcon from "@/media/logo/athena-mark.svg";
 import { CaretUpDown } from "@phosphor-icons/react";
 import ProviderPresetImport from "@/components/ProviderPresetImport";
+import { SettingsSectionSkeleton } from "@/pages/GeneralSettings/SettingsDataProvider";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 const DEFAULT_ALIBABA_VISION_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -51,15 +52,16 @@ export default function GeneralVisionPreference() {
   const [providerMenuOpen, setProviderMenuOpen] = useState(false);
   const { t } = useTranslation();
   const providers = visionProviders(t);
+  const loadSettingsSection = useSettingsSection("vision");
 
   const refreshSettings = useCallback(async () => {
-    const _settings = await System.keys();
+    const _settings = await loadSettingsSection();
     setSettings(_settings);
     setSelectedProvider(_settings?.VisionProvider || "none");
     setVisionToolEnabled(_settings?.VisionToolEnabled !== false);
     setHasChanges(false);
     setLoading(false);
-  }, []);
+  }, [loadSettingsSection]);
 
   useEffect(() => {
     refreshSettings();
@@ -99,14 +101,10 @@ export default function GeneralVisionPreference() {
     <div className="flex h-screen w-screen overflow-hidden bg-theme-bg-container">
       <Sidebar />
       {loading ? (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative h-full w-full overflow-y-scroll bg-theme-bg-secondary p-4 md:my-[16px] md:ml-[2px] md:mr-[16px] md:rounded-[16px] md:p-0"
-        >
-          <div className="flex h-full w-full items-center justify-center">
-            <PreLoader />
-          </div>
-        </div>
+        <SettingsSectionSkeleton
+          title={t("vision.title")}
+          description={t("vision.description")}
+        />
       ) : (
         <div
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}

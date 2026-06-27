@@ -18,7 +18,6 @@ import MistralAiLogo from "@/media/llmprovider/mistral.jpeg";
 import OpenRouterLogo from "@/media/llmprovider/openrouter.jpeg";
 import LemonadeLogo from "@/media/llmprovider/lemonade.png";
 
-import PreLoader from "@/components/Preloader";
 import ChangeWarningModal from "@/components/ChangeWarning";
 import OpenAiOptions from "@/components/EmbeddingSelection/OpenAiOptions";
 import AzureAiOptions from "@/components/EmbeddingSelection/AzureAiOptions";
@@ -42,6 +41,8 @@ import ModalWrapper from "@/components/ModalWrapper";
 import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
 import ProviderPresetImport from "@/components/ProviderPresetImport";
+import { SettingsSectionSkeleton } from "@/pages/GeneralSettings/SettingsDataProvider";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 const EMBEDDERS = [
   {
@@ -162,6 +163,7 @@ export default function GeneralEmbeddingPreference() {
   const searchInputRef = useRef(null);
   const { isOpen, openModal, closeModal } = useModal();
   const { t } = useTranslation();
+  const loadSettingsSection = useSettingsSection("embedding");
 
   function embedderModelChanged(formEl) {
     try {
@@ -225,14 +227,14 @@ export default function GeneralEmbeddingPreference() {
   };
 
   const refreshSettings = useCallback(async () => {
-    const _settings = await System.keys();
+    const _settings = await loadSettingsSection();
     setSettings(_settings);
     setSelectedEmbedder(_settings?.EmbeddingEngine || "native");
     setHasEmbeddings(_settings?.HasExistingEmbeddings || false);
     setHasCachedEmbeddings(_settings?.HasCachedEmbeddings || false);
     setHasChanges(false);
     setLoading(false);
-  }, []);
+  }, [loadSettingsSection]);
 
   useEffect(() => {
     refreshSettings();
@@ -253,14 +255,10 @@ export default function GeneralEmbeddingPreference() {
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
       <Sidebar />
       {loading ? (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
-          <div className="w-full h-full flex justify-center items-center">
-            <PreLoader />
-          </div>
-        </div>
+        <SettingsSectionSkeleton
+          title={t("embedding.title")}
+          description={`${t("embedding.desc-start")} ${t("embedding.desc-end")}`}
+        />
       ) : (
         <div
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}

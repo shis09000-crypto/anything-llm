@@ -25,6 +25,10 @@ import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
 import { canSeeAdmin } from "@/utils/authz";
+import {
+  AI_PROVIDER_SETTING_SECTIONS,
+  useSettingsData,
+} from "@/pages/GeneralSettings/SettingsDataProvider";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -32,6 +36,7 @@ export default function SettingsSidebar() {
   const productName = t("common.productName");
   const showTextBrand = Boolean(productName);
   const { user } = useUser();
+  const { prewarmSettings } = useSettingsData();
   const sidebarRef = useRef(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showBgOverlay, setShowBgOverlay] = useState(false);
@@ -48,6 +53,10 @@ export default function SettingsSidebar() {
     }
     handleBg();
   }, [showSidebar]);
+
+  useEffect(() => {
+    prewarmSettings(AI_PROVIDER_SETTING_SECTIONS);
+  }, [prewarmSettings]);
 
   if (isMobile) {
     return (

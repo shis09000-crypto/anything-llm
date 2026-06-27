@@ -7,10 +7,11 @@ import { useModal } from "@/hooks/useModal";
 import CTAButton from "@/components/lib/CTAButton";
 import { CaretUpDown, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
-import PreLoader from "@/components/Preloader";
 import ChangeWarningModal from "@/components/ChangeWarning";
 import ModalWrapper from "@/components/ModalWrapper";
 import VectorDBItem from "@/components/VectorDBSelection/VectorDBItem";
+import { SettingsSectionSkeleton } from "@/pages/GeneralSettings/SettingsDataProvider";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 import LanceDbLogo from "@/media/vectordbs/lancedb.png";
 import ChromaLogo from "@/media/vectordbs/chroma.png";
@@ -124,6 +125,7 @@ export default function GeneralVectorDatabase() {
   const searchInputRef = useRef(null);
   const { isOpen, openModal, closeModal } = useModal();
   const { t } = useTranslation();
+  const loadSettingsSection = useSettingsSection("vector");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -172,14 +174,14 @@ export default function GeneralVectorDatabase() {
 
   useEffect(() => {
     async function fetchKeys() {
-      const _settings = await System.keys();
+      const _settings = await loadSettingsSection();
       setSettings(_settings);
       setSelectedVDB(_settings?.VectorDB || "lancedb");
       setHasEmbeddings(_settings?.HasExistingEmbeddings || false);
       setLoading(false);
     }
     fetchKeys();
-  }, []);
+  }, [loadSettingsSection]);
 
   useEffect(() => {
     const filtered = VECTOR_DBS.filter((vdb) =>
@@ -195,14 +197,10 @@ export default function GeneralVectorDatabase() {
     <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
       <Sidebar />
       {loading ? (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
-          <div className="w-full h-full flex justify-center items-center">
-            <PreLoader />
-          </div>
-        </div>
+        <SettingsSectionSkeleton
+          title={t("vector.title")}
+          description={t("vector.description")}
+        />
       ) : (
         <div
           style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}

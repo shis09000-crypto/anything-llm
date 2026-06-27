@@ -22,6 +22,8 @@ import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics
 import { AppToastHost } from "@/components/lib/AppToast";
 import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm";
 import { loadAppEnvironment } from "@/utils/appEnvironment";
+import CommunicationDebugPanel from "@/components/CommunicationDebugPanel";
+import { SettingsDataProvider } from "@/pages/GeneralSettings/SettingsDataProvider";
 
 export default function App() {
   const location = useLocation();
@@ -59,12 +61,15 @@ export default function App() {
                     <MotionProvider>
                       <ChatThreadDraftProvider>
                         <WorkspaceLayoutProvider>
-                          <DefaultDocumentTitle />
-                          <MotionRouteOutlet />
-                          <AppConfirmDialogHost />
-                          <AppToastHost />
-                          <KeyboardShortcutsHelp />
-                          <ImageLightbox />
+                          <SettingsDataProvider>
+                            <DefaultDocumentTitle />
+                            <MotionRouteOutlet />
+                            <AppConfirmDialogHost />
+                            <AppToastHost />
+                            <KeyboardShortcutsHelp />
+                            <ImageLightbox />
+                            <CommunicationDebugPanel />
+                          </SettingsDataProvider>
                         </WorkspaceLayoutProvider>
                       </ChatThreadDraftProvider>
                     </MotionProvider>
