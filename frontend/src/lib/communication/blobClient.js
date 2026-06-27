@@ -7,11 +7,16 @@ import {
   shouldAttachClientIdentityToUrl,
   withClientIdentityHeaders,
 } from "./clientIdentity";
+import {
+  communicationByteLength,
+  recordCommunicationEvent,
+} from "./communicationMetrics";
 
 export const BLOB_KINDS = {
   ttsAudio: "tts_audio",
   readerOriginal: "reader_original",
   readerPreview: "reader_preview",
+  readerThumbnail: "reader_thumbnail",
   avatar: "avatar",
   logo: "logo",
   visualAsset: "visual_asset",
@@ -177,6 +182,7 @@ async function requestBody(kind, path, options = {}, reader) {
     method = "GET",
     body,
     rawBody = false,
+    communicationScene = null,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -244,6 +250,11 @@ async function requestBody(kind, path, options = {}, reader) {
     }
 
     const payload = await reader(response);
+    const responseBytes =
+      payload?.blob?.size ||
+      communicationByteLength(payload?.text || "") ||
+      Number(response.headers?.get?.("content-length") || 0) ||
+      0;
     devLog(
       "success",
       logPayload({
@@ -255,6 +266,22 @@ async function requestBody(kind, path, options = {}, reader) {
         result: response.status === 204 ? "empty" : "success",
       })
     );
+    recordCommunicationEvent({
+      requestId,
+      type: "blob",
+      method: normalizedMethod,
+      path,
+      blobKind,
+      status: response.status,
+      durationMs: durationSince(startedAt),
+      requestBytes: communicationByteLength(
+        bodyForRequest(body, rawBody) || ""
+      ),
+      responseBytes,
+      communicationScene,
+      serverTiming: response.headers?.get?.("Server-Timing") || null,
+      ok: true,
+    });
     return { response, requestId, ...payload };
   } catch (error) {
     if (signalState.didTimeout()) {
@@ -315,6 +342,22 @@ async function requestBody(kind, path, options = {}, reader) {
         message: apiError.message,
       })
     );
+    recordCommunicationEvent({
+      requestId,
+      type: "blob",
+      method: normalizedMethod,
+      path,
+      blobKind,
+      status: apiError.status,
+      durationMs: durationSince(startedAt),
+      requestBytes: communicationByteLength(
+        bodyForRequest(body, rawBody) || ""
+      ),
+      responseBytes: 0,
+      communicationScene,
+      ok: false,
+      error: apiError.message,
+    });
     throw apiError;
   } finally {
     signalState.cleanup();

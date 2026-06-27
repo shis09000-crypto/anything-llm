@@ -75,6 +75,7 @@ const READER_POSTPROCESS_TEXT_LIMIT = 100_000;
 const READER_THUMBNAIL_WIDTH = 360;
 const READER_THUMBNAIL_HEIGHT = 520;
 const READER_THUMBNAIL_QUALITY = 88;
+const READER_PDF_THUMBNAIL_TIMEOUT_MS = 30_000;
 const READER_POSTPROCESS_QUEUE_CONCURRENCY = Math.max(
   1,
   Number(process.env.READER_POSTPROCESS_QUEUE_CONCURRENCY) || 1
@@ -935,6 +936,8 @@ function defaultReaderPostprocessStatus(readerDocumentId) {
 
 function readReaderPostprocessStatus(documentRoot, readerDocumentId) {
   const statusPath = safeResolve(documentRoot, READER_POSTPROCESS_STATUS_NAME);
+  if (!fs.existsSync(statusPath))
+    return defaultReaderPostprocessStatus(readerDocumentId);
   const result = safeReadJsonFile(
     statusPath,
     defaultReaderPostprocessStatus(readerDocumentId),
@@ -1453,6 +1456,12 @@ function findQuickLookBinary() {
     : findOnPath("qlmanage");
 }
 
+function findPdfToPpmBinary() {
+  return fileExists("/usr/bin/pdftoppm")
+    ? "/usr/bin/pdftoppm"
+    : findOnPath("pdftoppm");
+}
+
 async function quickLookThumbnailBuffer(originalPath) {
   const qlmanage = findQuickLookBinary();
   if (!qlmanage) return null;
@@ -1479,11 +1488,113 @@ async function quickLookThumbnailBuffer(originalPath) {
   }
 }
 
+async function pdfThumbnailBuffer(originalPath) {
+  const pdftoppm = findPdfToPpmBinary();
+  if (!pdftoppm || !validNonEmptyFile(originalPath)) return null;
+  const tempDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "anythingllm-reader-pdf-thumb-")
+  );
+  try {
+    const outputBase = path.join(tempDir, "page");
+    await execFileWithTimeout(
+      pdftoppm,
+      [
+        "-f",
+        "1",
+        "-l",
+        "1",
+        "-singlefile",
+        "-jpeg",
+        "-r",
+        "144",
+        originalPath,
+        outputBase,
+      ],
+      { timeout: READER_PDF_THUMBNAIL_TIMEOUT_MS }
+    );
+    const thumbnailPath = `${outputBase}.jpg`;
+    if (!validNonEmptyFile(thumbnailPath)) return null;
+    return fs.readFileSync(thumbnailPath);
+  } catch (error) {
+    console.warn("[ReaderThumbnail] PDF thumbnail conversion failed", {
+      error: error.message,
+    });
+    return null;
+  } finally {
+    cleanupTempDir(tempDir);
+  }
+}
+
+function escapeSvgText(value = "") {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function wrapThumbnailTitle(title = "", maxChars = 13, maxLines = 5) {
+  const text = String(title || "")
+    .replace(/\.(pdf|docx|xlsx|epub|md|markdown|txt)$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return ["Untitled"];
+  const chars = Array.from(text);
+  const lines = [];
+  for (let index = 0; index < chars.length && lines.length < maxLines; ) {
+    lines.push(chars.slice(index, index + maxChars).join(""));
+    index += maxChars;
+  }
+  if (chars.length > maxChars * maxLines && lines.length) {
+    lines[lines.length - 1] = `${lines[lines.length - 1].slice(0, -1)}…`;
+  }
+  return lines;
+}
+
+async function fallbackThumbnailBuffer({ content, metadata }) {
+  const type = String(content?.documentType || "DOC").toUpperCase();
+  const titleLines = wrapThumbnailTitle(metadata?.originalName || "Document");
+  const titleTspans = titleLines
+    .map(
+      (line, index) =>
+        `<tspan x="44" y="${190 + index * 34}">${escapeSvgText(line)}</tspan>`
+    )
+    .join("");
+  const svg = `
+    <svg width="${READER_THUMBNAIL_WIDTH}" height="${READER_THUMBNAIL_HEIGHT}" viewBox="0 0 ${READER_THUMBNAIL_WIDTH} ${READER_THUMBNAIL_HEIGHT}" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100%" height="100%" rx="28" fill="#f8fafc"/>
+      <rect x="24" y="24" width="${READER_THUMBNAIL_WIDTH - 48}" height="${READER_THUMBNAIL_HEIGHT - 48}" rx="22" fill="#ffffff" stroke="#dbeafe" stroke-width="2"/>
+      <rect x="44" y="54" width="104" height="42" rx="21" fill="#2563eb"/>
+      <text x="96" y="82" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="20" font-weight="700" fill="#ffffff">${escapeSvgText(type)}</text>
+      <text font-family="Arial, Helvetica, sans-serif" font-size="24" font-weight="700" fill="#0f172a">${titleTspans}</text>
+      <line x1="44" y1="${READER_THUMBNAIL_HEIGHT - 104}" x2="${READER_THUMBNAIL_WIDTH - 44}" y2="${READER_THUMBNAIL_HEIGHT - 104}" stroke="#e2e8f0" stroke-width="2"/>
+      <text x="44" y="${READER_THUMBNAIL_HEIGHT - 62}" font-family="Arial, Helvetica, sans-serif" font-size="18" fill="#64748b">Athena Reader</text>
+    </svg>
+  `;
+  return await sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+function storedOriginalPathForReaderDocument(documentRoot, metadata) {
+  if (!metadata?.storedName) return null;
+  const storedPath = safeResolve(documentRoot, metadata.storedName);
+  return validNonEmptyFile(storedPath) ? storedPath : null;
+}
+
 async function originalPathForReaderDocument({ documentRoot, metadata }) {
-  if (metadata.localPath)
-    return (await validateLocalReaderPath(metadata.localPath)).absolutePath;
-  if (!metadata.storedName) return null;
-  return safeResolve(documentRoot, metadata.storedName);
+  const storedPath = storedOriginalPathForReaderDocument(
+    documentRoot,
+    metadata
+  );
+  if (metadata.localPath) {
+    try {
+      return (await validateLocalReaderPath(metadata.localPath)).absolutePath;
+    } catch (error) {
+      if (storedPath) return storedPath;
+      throw error;
+    }
+  }
+  return storedPath;
 }
 
 async function generateReaderDocumentThumbnail({
@@ -1498,13 +1609,24 @@ async function generateReaderDocumentThumbnail({
   if (content.documentType === "epub") {
     sourceBuffer = epubCoverImageBuffer(originalPath);
   }
+  if (!sourceBuffer && content.documentType === "pdf") {
+    sourceBuffer = await pdfThumbnailBuffer(originalPath);
+  }
   if (!sourceBuffer) {
     const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
     const quickLookPath =
       content.documentType === "docx" && validNonEmptyFile(previewPath)
         ? previewPath
         : originalPath;
-    sourceBuffer = await quickLookThumbnailBuffer(quickLookPath);
+    if (content.documentType === "docx" && validNonEmptyFile(previewPath)) {
+      sourceBuffer = await pdfThumbnailBuffer(previewPath);
+    }
+    if (!sourceBuffer) {
+      sourceBuffer = await quickLookThumbnailBuffer(quickLookPath);
+    }
+  }
+  if (!sourceBuffer) {
+    sourceBuffer = await fallbackThumbnailBuffer({ content, metadata });
   }
   const thumbnailBuffer = await normalizeThumbnailBuffer(sourceBuffer);
   if (!thumbnailBuffer) return null;
@@ -2545,9 +2667,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "original"
         );
-        const originalPath = metadata.localPath
-          ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
-          : safeResolve(documentRoot, metadata.storedName);
+        const originalPath = await originalPathForReaderDocument({
+          documentRoot,
+          metadata,
+        });
         return response.sendFile(originalPath);
       } catch (error) {
         return response
@@ -2580,9 +2703,10 @@ function workspaceReaderDocumentsEndpoints(app) {
         });
         let metadata = initialMetadata;
         if (metadataIsDocx(metadata)) {
-          const originalPath = metadata.localPath
-            ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
-            : safeResolve(documentRoot, metadata.storedName);
+          const originalPath = await originalPathForReaderDocument({
+            documentRoot,
+            metadata,
+          });
           metadata = await finalizeReaderDocumentMetadata({
             workspace,
             readerDocumentId,
@@ -2624,9 +2748,7 @@ function workspaceReaderDocumentsEndpoints(app) {
         if (!isWithin(workspaceRoot, documentRoot))
           throw new Error("Invalid reader document path.");
         if (!fs.existsSync(documentRoot))
-          return response
-            .status(404)
-            .json({ success: false, error: "Reader document not found." });
+          return response.status(200).json({ success: true, missing: true });
         await readAuthorizedStandaloneReaderMetadata(
           request,
           response,
@@ -3093,9 +3215,10 @@ function workspaceReaderDocumentsEndpoints(app) {
             endpoint: "original",
           }
         );
-        const originalPath = metadata.localPath
-          ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
-          : safeResolve(documentRoot, metadata.storedName);
+        const originalPath = await originalPathForReaderDocument({
+          documentRoot,
+          metadata,
+        });
         return response.sendFile(originalPath);
       } catch (error) {
         return response
@@ -3122,9 +3245,10 @@ function workspaceReaderDocumentsEndpoints(app) {
           });
         let metadata = initialMetadata;
         if (metadataIsDocx(metadata)) {
-          const originalPath = metadata.localPath
-            ? (await validateLocalReaderPath(metadata.localPath)).absolutePath
-            : safeResolve(documentRoot, metadata.storedName);
+          const originalPath = await originalPathForReaderDocument({
+            documentRoot,
+            metadata,
+          });
           metadata = await finalizeReaderDocumentMetadata({
             workspace,
             readerDocumentId,
@@ -3166,9 +3290,7 @@ function workspaceReaderDocumentsEndpoints(app) {
         if (!isWithin(workspaceRoot, documentRoot))
           throw new Error("Invalid reader document path.");
         if (!fs.existsSync(documentRoot))
-          return response
-            .status(404)
-            .json({ success: false, error: "Reader document not found." });
+          return response.status(200).json({ success: true, missing: true });
         void recordClientTrustCheckpoint(request, {
           action: "reader_delete",
           resourceType: "reader_document",

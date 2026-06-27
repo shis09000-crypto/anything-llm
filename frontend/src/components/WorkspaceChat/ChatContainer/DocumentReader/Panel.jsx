@@ -33,6 +33,21 @@ import PdfReader from "./PdfReader";
 import EpubReader from "./EpubReader";
 
 const READER_PROGRESS_AUTO_SAVE_INTERVAL_MS = 5000;
+const READER_FILE_PICKER_TYPES = [
+  {
+    description: "Reader documents",
+    accept: {
+      "application/pdf": [".pdf"],
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        [".docx"],
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [
+        ".xlsx",
+      ],
+      "application/epub+zip": [".epub"],
+      "text/markdown": [".md", ".markdown"],
+    },
+  },
+];
 
 const HISTORY_TYPE_STYLES = {
   pdf: { label: "PDF", className: "bg-rose-500 text-white" },
@@ -1026,6 +1041,34 @@ function ReaderDrawer({
     setHighlightedBookshelfKeys(addedItems.map((item) => item.key));
   };
 
+  const openBookshelfFilePicker = async () => {
+    if (
+      typeof window === "undefined" ||
+      typeof window.showOpenFilePicker !== "function"
+    ) {
+      bookshelfFileInputRef.current?.click();
+      return;
+    }
+
+    try {
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        excludeAcceptAllOption: false,
+        types: READER_FILE_PICKER_TYPES,
+      });
+      const entries = await Promise.all(
+        handles.map(async (handle) => ({
+          file: await handle.getFile(),
+          handle,
+        }))
+      );
+      if (entries.length) await uploadBookshelfFiles(entries);
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      bookshelfFileInputRef.current?.click();
+    }
+  };
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[linear-gradient(135deg,#eef7ff_0%,#f8fbff_44%,#ffffff_100%)] px-5 pb-5 pt-8">
       <style>
@@ -1441,7 +1484,7 @@ function ReaderDrawer({
                           icon={<FileArrowUp size={14} />}
                           onClick={() => {
                             setBookshelfAddOpen(false);
-                            bookshelfFileInputRef.current?.click();
+                            void openBookshelfFilePicker();
                           }}
                         >
                           上传新书

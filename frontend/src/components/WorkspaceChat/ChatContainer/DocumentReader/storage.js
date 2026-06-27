@@ -718,6 +718,11 @@ function mergeHistoryItems(primary = {}, secondary = {}) {
     localDocumentId:
       primary.localDocumentId || secondary.localDocumentId || null,
     localPath: primary.localPath || secondary.localPath || null,
+    localSourceId: primary.localSourceId || secondary.localSourceId || null,
+    localSourceKind:
+      primary.localSourceKind || secondary.localSourceKind || null,
+    localFingerprint:
+      primary.localFingerprint || secondary.localFingerprint || null,
     thumbnailDataUrl:
       primary.thumbnailDataUrl || secondary.thumbnailDataUrl || null,
     categoryStatus:
@@ -897,6 +902,11 @@ export function upsertReaderBookshelfItems(items = []) {
           item.workspaceSlug ||
           previous?.workspaceSlug ||
           null,
+        localSourceId: item.localSourceId || previous?.localSourceId || null,
+        localSourceKind:
+          item.localSourceKind || previous?.localSourceKind || null,
+        localFingerprint:
+          item.localFingerprint || previous?.localFingerprint || null,
         thumbnailDataUrl: item.thumbnailDataUrl || previous?.thumbnailDataUrl,
         categoryStatus: item.categoryStatus || previous?.categoryStatus,
         categoryStage: item.categoryStage || previous?.categoryStage,
@@ -1300,6 +1310,9 @@ export function readerItemWithLatestBookMemory(item = null) {
       backup?.localDocumentId ||
       null,
     localPath: item.localPath || memory?.localPath || backup?.localPath || null,
+    localSourceId: item.localSourceId || backup?.localSourceId || null,
+    localSourceKind: item.localSourceKind || backup?.localSourceKind || null,
+    localFingerprint: item.localFingerprint || backup?.localFingerprint || null,
     thumbnailDataUrl:
       item.thumbnailDataUrl ||
       memory?.thumbnailDataUrl ||
@@ -1493,6 +1506,12 @@ export function upsertReaderHistory(
     localDocumentId:
       normalizedItem.localDocumentId || previous?.localDocumentId || null,
     localPath: normalizedItem.localPath || previous?.localPath || null,
+    localSourceId:
+      normalizedItem.localSourceId || previous?.localSourceId || null,
+    localSourceKind:
+      normalizedItem.localSourceKind || previous?.localSourceKind || null,
+    localFingerprint:
+      normalizedItem.localFingerprint || previous?.localFingerprint || null,
     thumbnailDataUrl:
       normalizedItem.thumbnailDataUrl || previous?.thumbnailDataUrl || null,
     categoryStatus:
@@ -1759,6 +1778,12 @@ export function compactDocumentForStorage(document) {
     branchId: document.branchId || null,
     branchLabel: document.branchLabel || null,
     localPath: document.localPath || document.metadata?.localPath || null,
+    localSourceId:
+      document.localSourceId || document.metadata?.localSourceId || null,
+    localSourceKind:
+      document.localSourceKind || document.metadata?.localSourceKind || null,
+    localFingerprint:
+      document.localFingerprint || document.metadata?.localFingerprint || null,
     thumbnailDataUrl:
       document.thumbnailDataUrl || document.metadata?.thumbnailDataUrl || null,
     restoredAt: Date.now(),
