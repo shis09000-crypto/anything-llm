@@ -15,6 +15,9 @@ const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
 const { compactThread } = require("../../../utils/chats/threadCompaction");
+const {
+  setSseTransportHeaders,
+} = require("../../../utils/security/transportSecurity");
 
 function nullableUserId(value) {
   if (value === null || value === undefined || value === "" || value === "null")
@@ -722,10 +725,9 @@ function apiWorkspaceThreadEndpoints(app) {
 
         const user = userId ? await User.get({ id: Number(userId) }) : null;
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
 
         await ApiChatHandler.streamChat({

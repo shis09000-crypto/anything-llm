@@ -29,6 +29,7 @@ const TRUSTED_DEVICE_SCHEMA_ERROR =
   "可信设备数据库未初始化，请应用迁移后重启服务。";
 
 let opaqueModule = null;
+let opaqueModuleOverride = null;
 let cachedOpaqueServerSetup = null;
 
 function authZkLoginEndpoints(app) {
@@ -557,11 +558,12 @@ function authZkLoginEndpoints(app) {
         });
       }
 
+      const authUserId = Number(device.userId);
       const opaque = await opaqueApi();
       const serverSetup = await opaqueServerSetup();
       const { serverLoginState, loginResponse } = opaque.server.startLogin({
         serverSetup,
-        userIdentifier: zkUserIdentifier(userId, deviceId),
+        userIdentifier: zkUserIdentifier(authUserId, deviceId),
         registrationRecord: device.opaqueRegistrationRecord,
         startLoginRequest,
         identifiers: opaqueIdentifiers(deviceId),
@@ -570,7 +572,7 @@ function authZkLoginEndpoints(app) {
       await authPrisma.zkLoginAttempt.create({
         data: {
           id: attemptId,
-          userId,
+          userId: authUserId,
           deviceId,
           serverLoginState,
           requestIp: requestIp(request),
@@ -802,9 +804,18 @@ function authZkLoginEndpoints(app) {
 }
 
 async function opaqueApi() {
+  if (opaqueModuleOverride) {
+    await opaqueModuleOverride.ready;
+    return opaqueModuleOverride;
+  }
   if (!opaqueModule) opaqueModule = await import("@serenity-kit/opaque");
   await opaqueModule.ready;
   return opaqueModule;
+}
+
+function setOpaqueModuleOverrideForTest(module = null) {
+  if (process.env.NODE_ENV !== "test" && !process.env.JEST_WORKER_ID) return;
+  opaqueModuleOverride = module;
 }
 
 async function opaqueServerSetup() {
@@ -1122,6 +1133,7 @@ module.exports = {
     opaqueIdentifiers,
     OPAQUE_SERVER_SETUP_SETTING,
     sanitizeTrustedDevice,
+    setOpaqueModuleOverrideForTest,
     zkUserIdentifier,
   },
 };

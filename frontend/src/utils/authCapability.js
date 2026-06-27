@@ -3,6 +3,8 @@ import { browserSupportsWebAuthn } from "@simplewebauthn/browser";
 const DEFAULT_CAPABILITY = {
   platform: "unknown",
   browser: "unknown",
+  secureContext: false,
+  passkeyHostSupported: false,
   supportsWebAuthn: false,
   showPasskey: false,
 };
@@ -15,6 +17,8 @@ export function detectAuthCapability() {
     platform: navigator.platform || "",
     maxTouchPoints: navigator.maxTouchPoints || 0,
     userAgentData: navigator.userAgentData || null,
+    secureContext: Boolean(globalThis.isSecureContext),
+    passkeyHostSupported: webAuthnHostSupported(globalThis.location?.hostname),
     supportsWebAuthn: browserSupportsWebAuthn(),
   });
 }
@@ -24,6 +28,8 @@ export function classifyAuthCapability({
   platform = "",
   maxTouchPoints = 0,
   userAgentData = null,
+  secureContext = false,
+  passkeyHostSupported = true,
   supportsWebAuthn = false,
 } = {}) {
   const ua = String(userAgent || "");
@@ -38,17 +44,30 @@ export function classifyAuthCapability({
     detectedPlatform === "apple" || browser === "safari";
   const isChromeCapability = browser === "chrome";
   const showPasskey =
-    Boolean(supportsWebAuthn) && (isAppleCapability || isChromeCapability);
+    Boolean(secureContext) &&
+    Boolean(passkeyHostSupported) &&
+    Boolean(supportsWebAuthn) &&
+    (isAppleCapability || isChromeCapability);
 
   return {
     platform: detectedPlatform,
     browser,
+    secureContext: Boolean(secureContext),
+    passkeyHostSupported: Boolean(passkeyHostSupported),
     supportsWebAuthn: Boolean(supportsWebAuthn),
     showPasskey,
   };
 }
 
 export function passkeyCapabilityDescription(capability) {
+  if (!capability?.secureContext) {
+    return "通行密钥需要 HTTPS 或 localhost。手机局域网 HTTP 地址无法使用通行密钥。";
+  }
+
+  if (capability?.passkeyHostSupported === false) {
+    return "通行密钥需要域名来源。手机请使用 .local 域名地址，不要使用局域网 IP 地址。";
+  }
+
   if (!capability?.showPasskey) {
     return "当前浏览器不支持通行密钥。";
   }
@@ -136,6 +155,15 @@ function detectBrowser({ userAgent, userAgentData }) {
   }
 
   return "unknown";
+}
+
+function webAuthnHostSupported(hostname = "") {
+  const host = String(hostname || "").toLowerCase();
+  if (!host) return false;
+  if (host === "localhost") return true;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
+  if (host.includes(":")) return false;
+  return host.includes(".");
 }
 
 const DOMESTIC_BROWSER_PATTERNS = [

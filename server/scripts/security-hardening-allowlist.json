@@ -1,0 +1,86 @@
+[
+  {
+    "type": "route",
+    "pattern": "^(POST|PUT|PATCH|DELETE) /v1/.*",
+    "reason": "Developer API routes use API keys as an independent trust root and are not browser Client Signing routes.",
+    "owner": "security"
+  },
+  {
+    "type": "route",
+    "pattern": "^POST /auth/(register|request-token|passkeys/login|zk-login/login|trusted-devices/verify).*",
+    "reason": "Unauthenticated auth bootstrap and login flows cannot require an authenticated per-client signing secret.",
+    "owner": "auth"
+  },
+  {
+    "type": "route",
+    "pattern": "^POST /invite/.*",
+    "reason": "Invite flows are public-by-code and keep their existing invite validation boundary.",
+    "owner": "auth"
+  },
+  {
+    "type": "route",
+    "pattern": "^POST /(wechat|telegram)/webhook.*",
+    "reason": "External connector webhooks use connector-specific validation rather than Athena Client Signing.",
+    "owner": "integrations"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/pages/OnboardingFlow/Steps/Survey/",
+    "reason": "External onboarding survey fallback is intentionally outside Athena backend communication.",
+    "owner": "frontend"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/components/WorkspaceChat/ChatContainer/DocumentReader/",
+    "reason": "PDF/EPUB internal resource loading is a reader asset boundary, not Athena API transport.",
+    "owner": "reader"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/utils/piperTTS/",
+    "reason": "Piper worker postMessage is a browser worker boundary, not backend transport.",
+    "owner": "frontend"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/pages/GeneralSettings/BrowserExtensionApiKey/",
+    "reason": "Browser extension bridge uses window.postMessage and its own extension trust boundary.",
+    "owner": "frontend"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/locales/",
+    "reason": "Locale verification scripts are development utilities, not runtime backend communication.",
+    "owner": "frontend"
+  },
+  {
+    "type": "sensitive_log",
+    "pattern": "^server/utils/requestSigning/index.js$",
+    "reason": "Request signing logs emit only sanitized reason codes and metadata; secrets/signatures are not logged.",
+    "owner": "security"
+  },
+  {
+    "type": "sensitive_log",
+    "pattern": "^server/endpoints/mobile/middleware/index.js$",
+    "reason": "Mobile middleware references token field names while validating mobile auth; raw values are not logged.",
+    "owner": "mobile"
+  },
+  {
+    "type": "sensitive_log",
+    "pattern": "^server/models/(passwordRecovery|temporaryAuthToken).js$",
+    "reason": "Auth-token model files contain field names and expiration logic; raw token values are not log payloads.",
+    "owner": "auth"
+  },
+  {
+    "type": "sensitive_log",
+    "pattern": "^server/endpoints/admin.js:.*api_key_(created|deleted)",
+    "reason": "API key admin EventLogs are persisted through the centralized EventLogs redaction layer.",
+    "owner": "admin"
+  },
+  {
+    "type": "sensitive_log",
+    "pattern": "^server/endpoints/system.js:.*api_key_(created|deleted)",
+    "reason": "Single-user API key EventLogs are persisted through the centralized EventLogs redaction layer.",
+    "owner": "system"
+  }
+]

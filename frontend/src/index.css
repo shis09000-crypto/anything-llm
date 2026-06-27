@@ -1,10 +1,8 @@
+@import "./styles/typography.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-* {
-  -webkit-font-smoothing: antialiased;
-}
 
 :root {
   /* Default theme */
@@ -1284,26 +1282,6 @@ onboarding flow since its background is dark and is the same fill as the inputs.
   border: 1px solid #ffffff;
 }
 
-html,
-body {
-  padding: 0;
-  margin: 0;
-  font-family:
-    "plus-jakarta-sans",
-    -apple-system,
-    BlinkMacSystemFont,
-    Segoe UI,
-    Roboto,
-    Oxygen,
-    Ubuntu,
-    Cantarell,
-    Fira Sans,
-    Droid Sans,
-    Helvetica Neue,
-    sans-serif;
-  background-color: white;
-}
-
 @media (prefers-color-scheme: dark) {
   body {
     background-color: #0e0f0f;
@@ -2496,6 +2474,83 @@ dialog::backdrop {
 .markdown strong {
   font-weight: 600;
   color: #fff;
+}
+
+@media (max-width: 768px) {
+  .chatgpt-mobile-chat {
+    line-height: 1.72;
+    letter-spacing: 0;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  .chatgpt-mobile-chat p {
+    margin: 0.55rem 0;
+    line-height: inherit;
+  }
+
+  .chatgpt-mobile-chat strong,
+  .chatgpt-mobile-chat b,
+  .chatgpt-mobile-chat .liquid-glass-user-message-content strong,
+  .chatgpt-mobile-chat .liquid-glass-user-message-content b {
+    font-weight: 900 !important;
+    -webkit-text-stroke: 0.28px currentColor;
+  }
+
+  .chatgpt-mobile-chat h1,
+  .chatgpt-mobile-chat h2,
+  .chatgpt-mobile-chat h3 {
+    padding-left: 0;
+    letter-spacing: 0;
+  }
+
+  .chatgpt-mobile-chat h1 {
+    font-size: 1.55em;
+    line-height: 1.34;
+    margin: 1.15rem 0 0.65rem;
+  }
+
+  .chatgpt-mobile-chat h2 {
+    font-size: 1.35em;
+    line-height: 1.38;
+    margin: 1rem 0 0.55rem;
+  }
+
+  .chatgpt-mobile-chat h3 {
+    font-size: 1.18em;
+    line-height: 1.45;
+    margin: 0.85rem 0 0.45rem;
+  }
+
+  .chatgpt-mobile-chat ul,
+  .chatgpt-mobile-chat ol {
+    margin: 0.6rem 0 0.6rem 1.15rem;
+    padding-left: 0.65rem;
+  }
+
+  .chatgpt-mobile-chat ul li,
+  .chatgpt-mobile-chat ol li,
+  .chatgpt-mobile-chat .markdownul li {
+    line-height: 1.68;
+    margin-left: 0;
+    padding-left: 0.25rem;
+  }
+
+  .chatgpt-mobile-chat table {
+    font-size: 0.88em;
+    line-height: 1.45;
+  }
+
+  .chatgpt-mobile-chat .liquid-glass-user-message-content {
+    line-height: 1.58;
+  }
+
+  .mobile-experiment-markdown strong,
+  .mobile-experiment-markdown b {
+    font-weight: 900 !important;
+    -webkit-text-stroke: 0.28px currentColor;
+  }
 }
 
 .file-row {

@@ -1,5 +1,6 @@
 const { EncryptionManager } = require("../EncryptionManager");
 const { Agent } = require("undici");
+const { redactLogObject, redactLogText } = require("../security/redaction");
 
 /**
  * @typedef {Object} CollectorOptions
@@ -41,15 +42,15 @@ class CollectorApi {
     if (!body) return null;
     try {
       const parsed = JSON.parse(body);
-      return (
+      const reason =
         parsed?.reason ||
         parsed?.error ||
         parsed?.msg ||
         parsed?.message ||
-        body.slice(0, 500)
-      );
+        JSON.stringify(redactLogObject(parsed)).slice(0, 500);
+      return redactLogText(reason);
     } catch {
-      return body.slice(0, 500);
+      return redactLogText(body.slice(0, 500));
     }
   }
 

@@ -4,6 +4,51 @@ import {
 } from "@/utils/constants";
 import paths from "@/utils/paths";
 import { safeJsonParse } from "@/utils/request";
+import {
+  hydrateUserStateValue,
+  pushUserStateValue,
+  USER_STATE_NAMESPACES,
+} from "@/utils/userStateSync";
+
+let hydratedRecentNavigation = false;
+
+function readRecentNavigationState() {
+  return {
+    workspace: safeJsonParse(
+      localStorage.getItem(LAST_VISITED_WORKSPACE),
+      null
+    ),
+    threadsByWorkspace: readThreadMap(),
+  };
+}
+
+function writeRecentNavigationState(value = {}) {
+  if (value.workspace) {
+    localStorage.setItem(
+      LAST_VISITED_WORKSPACE,
+      JSON.stringify(value.workspace)
+    );
+  }
+  if (value.threadsByWorkspace) writeThreadMap(value.threadsByWorkspace);
+}
+
+function syncRecentNavigation() {
+  if (hydratedRecentNavigation) return;
+  hydratedRecentNavigation = true;
+  void hydrateUserStateValue({
+    namespace: USER_STATE_NAMESPACES.recentNavigation,
+    fallback: readRecentNavigationState(),
+    apply: writeRecentNavigationState,
+  });
+}
+
+function persistRecentNavigation() {
+  pushUserStateValue(
+    USER_STATE_NAMESPACES.recentNavigation,
+    "global",
+    readRecentNavigationState()
+  );
+}
 
 function readThreadMap() {
   const value = safeJsonParse(
@@ -23,6 +68,7 @@ function writeThreadMap(threadMap = {}) {
 }
 
 export function getLastVisitedWorkspace() {
+  syncRecentNavigation();
   return safeJsonParse(localStorage.getItem(LAST_VISITED_WORKSPACE), null);
 }
 
@@ -36,9 +82,11 @@ export function rememberLastVisitedWorkspace(workspace, threadSlug = null) {
     })
   );
   setLastVisitedThread(workspace.slug, threadSlug);
+  persistRecentNavigation();
 }
 
 export function getLastVisitedThreadSlug(workspaceSlug) {
+  syncRecentNavigation();
   if (!workspaceSlug) return null;
   const threadMap = readThreadMap();
   return threadMap[workspaceSlug] ?? null;
@@ -50,6 +98,7 @@ export function setLastVisitedThread(workspaceSlug, threadSlug = null) {
     ...readThreadMap(),
     [workspaceSlug]: threadSlug || null,
   });
+  persistRecentNavigation();
 }
 
 export function clearLastVisitedThread(workspaceSlug, threadSlug = null) {
@@ -58,6 +107,7 @@ export function clearLastVisitedThread(workspaceSlug, threadSlug = null) {
   if (threadMap[workspaceSlug] !== (threadSlug || null)) return;
   delete threadMap[workspaceSlug];
   writeThreadMap(threadMap);
+  persistRecentNavigation();
 }
 
 export function pathForLastVisitedThread(workspaceSlug) {

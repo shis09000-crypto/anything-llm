@@ -43,9 +43,13 @@ export default function InviteRow({ invite }) {
         </td>
         <td className="px-6">{roleLabel}</td>
         <td className="px-6">
-          {invite.claimedBy ? invite.claimedBy?.username || deletedUserText : "--"}
+          {invite.claimedBy
+            ? invite.claimedBy?.username || deletedUserText
+            : "--"}
         </td>
-        <td className="px-6">{invite.createdBy?.username || deletedUserText}</td>
+        <td className="px-6">
+          {invite.createdBy?.username || deletedUserText}
+        </td>
         <td className="px-6">{formatDate(invite.expiresAt)}</td>
         <td className="px-6">{formatDate(invite.createdAt)}</td>
         <td className="px-6 flex items-center gap-x-6 h-full mt-1">

@@ -19,7 +19,11 @@ import {
   saveLocalZkDevice,
   syncLocalZkDevicesWithServer,
   updateLocalZkDevice,
+  zkLoginStorageSupported,
 } from "@/utils/zkLoginStorage";
+
+const ZK_UNSUPPORTED_MESSAGE =
+  "零知识快速登录需要 HTTPS 或 localhost。手机局域网 HTTP 地址无法保存可信设备。";
 
 const now = new Date();
 
@@ -218,6 +222,10 @@ const AccountSettingsApi = {
     );
   },
   enableTrustedLoginDevice: async ({ user, reauthToken, avatarUrl } = {}) => {
+    if (!zkLoginStorageSupported()) {
+      return { success: false, error: ZK_UNSUPPORTED_MESSAGE };
+    }
+
     if ((!user?.id && !user?.authUserId) || !reauthToken) {
       return { success: false, error: "请先完成安全验证。" };
     }
@@ -286,6 +294,13 @@ const AccountSettingsApi = {
     return result;
   },
   loginWithZkDevice: async (device) => {
+    if (!zkLoginStorageSupported()) {
+      return {
+        valid: false,
+        message: ZK_UNSUPPORTED_MESSAGE,
+      };
+    }
+
     const deviceSecret = await readLocalZkDeviceSecret(device?.deviceId);
     if (!device?.userId || !device?.deviceId || !deviceSecret) {
       return {

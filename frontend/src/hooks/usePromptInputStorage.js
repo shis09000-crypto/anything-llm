@@ -3,6 +3,12 @@ import { useEffect, useMemo } from "react";
 import { useParams } from "react-router-dom";
 import debounce from "lodash.debounce";
 import { safeJsonParse } from "@/utils/request";
+import {
+  clearPromptDraft,
+  hydratePromptDraft,
+  persistPromptDraft,
+  promptDraftScope,
+} from "@/utils/userStateSync";
 
 /**
  * Synchronizes prompt input value with localStorage, scoped to the current thread.
@@ -30,11 +36,17 @@ import { safeJsonParse } from "@/utils/request";
  * stale text from being restored.
  * @param {string} storageKey - thread slug or workspace slug
  */
-export function clearPromptInputDraft(storageKey) {
+export function clearPromptInputDraft(storageKey, options = {}) {
   try {
     const map = safeJsonParse(localStorage.getItem(USER_PROMPT_INPUT_MAP), {});
     map[storageKey] = "";
     localStorage.setItem(USER_PROMPT_INPUT_MAP, JSON.stringify(map));
+    clearPromptDraft(
+      promptDraftScope({
+        workspaceSlug: options.workspaceSlug || storageKey,
+        threadSlug: options.threadSlug || null,
+      })
+    );
   } catch {}
 }
 
@@ -45,6 +57,7 @@ export default function usePromptInputStorage({
 }) {
   const { threadSlug = null, slug: workspaceSlug } = useParams();
   const scopedStorageKey = storageKey || threadSlug || workspaceSlug;
+  const syncedDraftScope = promptDraftScope({ workspaceSlug, threadSlug });
   useEffect(() => {
     const serializedPromptInputMap =
       localStorage.getItem(USER_PROMPT_INPUT_MAP) || "{}";
@@ -55,7 +68,18 @@ export default function usePromptInputStorage({
     if (userPromptInputValue) {
       setPromptInput(userPromptInputValue);
     }
-  }, [scopedStorageKey, setPromptInput]);
+    void hydratePromptDraft(syncedDraftScope, userPromptInputValue || "").then(
+      (remoteValue) => {
+        if (!remoteValue || remoteValue === userPromptInputValue) return;
+        promptInputMap[scopedStorageKey] = remoteValue;
+        localStorage.setItem(
+          USER_PROMPT_INPUT_MAP,
+          JSON.stringify(promptInputMap)
+        );
+        setPromptInput(remoteValue);
+      }
+    );
+  }, [scopedStorageKey, setPromptInput, syncedDraftScope]);
 
   const debouncedWriteToStorage = useMemo(
     () =>
@@ -68,8 +92,12 @@ export default function usePromptInputStorage({
           USER_PROMPT_INPUT_MAP,
           JSON.stringify(promptInputMap)
         );
+        persistPromptDraft(syncedDraftScope, value, {
+          workspaceSlug,
+          threadSlug,
+        });
       }, 500),
-    []
+    [syncedDraftScope, threadSlug, workspaceSlug]
   );
 
   useEffect(() => {

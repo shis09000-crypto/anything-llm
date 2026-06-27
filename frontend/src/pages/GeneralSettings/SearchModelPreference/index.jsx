@@ -14,10 +14,7 @@ import ProviderPresetImport from "@/components/ProviderPresetImport";
 const DEFAULT_ALIBABA_SEARCH_MODEL_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_ALIBABA_SEARCH_MODEL = "qwen3.7-plus";
-const ALIBABA_SEARCH_MODELS = [
-  "qwen3.7-plus",
-  "qwen3.7-max-2026-06-08",
-];
+const ALIBABA_SEARCH_MODELS = ["qwen3.7-plus", "qwen3.7-max-2026-06-08"];
 
 function searchModelProviders(t) {
   return [
@@ -121,9 +118,7 @@ export default function GeneralSearchModelPreference() {
               <div className="flex w-full justify-end">
                 {hasChanges && (
                   <CTAButton className="z-10 -mb-14 mr-0 mt-3">
-                    {saving
-                      ? t("search_model.saving")
-                      : t("search_model.save")}
+                    {saving ? t("search_model.saving") : t("search_model.save")}
                   </CTAButton>
                 )}
               </div>

@@ -21,6 +21,15 @@ const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   ensureSecureWebSocketRequest,
 } = require("../utils/security/transportSecurity");
+const {
+  attachAuthenticatedClientContext,
+  recordClientTrustCheckpoint,
+} = require("../utils/clientIdentity");
+const {
+  signingErrorCode,
+  signingWarnOnly,
+  verifySignedWebSocketMessage,
+} = require("../utils/requestSigning");
 
 const activeAgentSessions = new Map();
 
@@ -71,6 +80,7 @@ class ResumableAgentSocket {
     this.handleFeedback = null;
     this.handleToolApproval = null;
     this.handleClarificationResponse = null;
+    this.activeClarificationRequest = null;
   }
 
   attach(socket) {
@@ -125,6 +135,26 @@ class ResumableAgentSocket {
     }
     this.emit("close");
   }
+
+  receiveClarificationResponse(payload = {}) {
+    if (!payload?.requestId) {
+      return { ok: false, reason: "missing_request_id" };
+    }
+    if (!this.handleClarificationResponse || !this.activeClarificationRequest) {
+      return { ok: false, reason: "clarification_not_waiting" };
+    }
+    if (this.activeClarificationRequest.requestId !== payload.requestId) {
+      return { ok: false, reason: "request_id_mismatch" };
+    }
+
+    const result = this.handleClarificationResponse(JSON.stringify(payload));
+    if (result?.ok) return result;
+    return {
+      ok: false,
+      reason: result?.reason || "clarification_not_waiting",
+      error: result?.error,
+    };
+  }
 }
 
 // Setup listener for incoming messages to relay to socket so it can be handled by agent plugin.
@@ -134,6 +164,49 @@ function relayToSocket(message) {
   if (this.handleClarificationResponse)
     return this?.handleClarificationResponse?.(message);
   this.checkBailCommand(message);
+}
+
+function agentControlAction(message) {
+  const payload =
+    message && typeof message === "object"
+      ? message
+      : safeJsonParse(message, null);
+  if (!payload?.type) return null;
+  if (payload.type === "toolApprovalResponse") return "agent_approval";
+  if (payload.type === "clarificationResponse") return "agent_clarification";
+  if (payload.type === "awaitingFeedback") {
+    return WEBSOCKET_BAIL_COMMANDS.includes(payload.feedback)
+      ? "agent_stop"
+      : "agent_feedback";
+  }
+  return null;
+}
+
+function clarificationResponsePayload(body = {}) {
+  return {
+    type: "clarificationResponse",
+    requestId: body.requestId,
+    skipped: !!body.skipped,
+    answers: Array.isArray(body.answers) ? body.answers : [],
+  };
+}
+
+function logClarificationResponse({
+  uuid,
+  payload,
+  signed = false,
+  reasonCode = null,
+  transport,
+}) {
+  if (process.env.NODE_ENV !== "development") return;
+  console.log("[agent-session] clarificationResponse received", {
+    uuid,
+    requestId: payload?.requestId || null,
+    answerCount: Array.isArray(payload?.answers) ? payload.answers.length : 0,
+    signed,
+    reasonCode,
+    transport,
+  });
 }
 
 function agentWebsocket(app) {
@@ -168,6 +241,64 @@ function agentWebsocket(app) {
     }
   );
 
+  app.post(
+    "/agent-invocation/:uuid/clarification-response",
+    [validatedRequest],
+    async function (request, response) {
+      const uuid = String(request.params.uuid);
+      const authorized = await getAuthorizedAgentInvocation({
+        request,
+        response,
+        uuid,
+      });
+      if (!authorized) {
+        return response.status(404).json({
+          success: false,
+          error: "agent_invocation_not_found",
+        });
+      }
+
+      await attachAuthenticatedClientContext({
+        request,
+        user: authorized.user,
+      });
+
+      const session = activeAgentSessions.get(uuid);
+      if (!session?.bridge) {
+        return response.status(409).json({
+          success: false,
+          error: "agent_session_not_active",
+        });
+      }
+
+      const payload = clarificationResponsePayload(request.body || {});
+      const result = session.bridge.receiveClarificationResponse(payload);
+      if (!result?.ok) {
+        return response.status(409).json({
+          success: false,
+          error: result?.reason || "clarification_not_waiting",
+        });
+      }
+
+      void recordClientTrustCheckpoint(request, {
+        action: "agent_clarification",
+        resourceType: "agent_invocation",
+        resourceId: uuid,
+        outcome: "received",
+        metadata: { transport: "http_fallback" },
+      });
+      logClarificationResponse({
+        uuid,
+        payload,
+        transport: "http_fallback",
+      });
+      return response.status(200).json({
+        success: true,
+        requestId: payload.requestId,
+      });
+    }
+  );
+
   app.ws("/agent-invocation/:uuid", async function (socket, request) {
     if (!ensureSecureWebSocketRequest(request, socket)) return;
 
@@ -182,6 +313,10 @@ function agentWebsocket(app) {
         socket.close(1008);
         return;
       }
+      await attachAuthenticatedClientContext({
+        request,
+        user: authorized.user,
+      });
       const invocation = authorized.invocation;
       const requestedLastSeq = Number(request.query?.lastEventSeq || 0);
       const lastEventSeq = Number.isFinite(requestedLastSeq)
@@ -243,7 +378,62 @@ function agentWebsocket(app) {
       const { agentHandler, bridge } = session;
       bridge.attach(socket);
 
-      socket.on("message", (message) => relayToSocket.call(bridge, message));
+      socket.on("message", async (message) => {
+        const verification = await verifySignedWebSocketMessage(
+          request,
+          message
+        );
+        const action = agentControlAction(verification.payload || message);
+        const isSignedEnvelope = !verification.unsigned;
+        if (!verification.ok && (action || isSignedEnvelope)) {
+          void recordClientTrustCheckpoint(request, {
+            action: action || "agent_signed_message",
+            resourceType: "agent_invocation",
+            resourceId: uuid,
+            outcome: signingWarnOnly() ? "warn_only" : "rejected",
+            metadata: {
+              signatureResult: "failed",
+              reasonCode: verification.reasonCode || "failed",
+            },
+          });
+          if (!signingWarnOnly()) {
+            try {
+              socket.send(
+                JSON.stringify({
+                  type: "wssFailure",
+                  content: "Signed request verification failed.",
+                  code: signingErrorCode(verification.reasonCode),
+                })
+              );
+            } catch {}
+            socket.close(1008);
+            return;
+          }
+        }
+
+        if (action) {
+          void recordClientTrustCheckpoint(request, {
+            action,
+            resourceType: "agent_invocation",
+            resourceId: uuid,
+            outcome: "received",
+          });
+          if (
+            process.env.NODE_ENV === "development" &&
+            action === "agent_clarification"
+          ) {
+            const payload = verification.payload || safeJsonParse(message, {});
+            logClarificationResponse({
+              uuid,
+              payload,
+              signed: verification.ok,
+              reasonCode: verification.reasonCode || null,
+              transport: "websocket",
+            });
+          }
+        }
+        relayToSocket.call(bridge, verification.rawMessage || message);
+      });
       socket.on("close", () => {
         bridge.detach(socket);
         if (bridge.__agentFinalClose || bridge.__clientStopped) {

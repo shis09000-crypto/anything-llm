@@ -17,6 +17,16 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
   globalThis.__blobClientTestTransportSecurity = {
     assertSecureHttpUrl: (url) => url,
   };
+  globalThis.__blobClientTestIdentity = {
+    createCommunicationRequestId: () => "req-blob-test",
+    shouldAttachClientIdentityToUrl: (url) =>
+      !String(url).startsWith("https://cdn.example.test"),
+    withClientIdentityHeaders: (headers = {}, { requestId } = {}) => ({
+      ...headers,
+      "X-Athena-Client-Id": "client-blob-test",
+      "X-Athena-Request-Id": requestId,
+    }),
+  };
 
   const transformed = source
     .replace(
@@ -34,6 +44,10 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
     .replace(
       'import { assertSecureHttpUrl } from "./transportSecurity";',
       "const { assertSecureHttpUrl } = globalThis.__blobClientTestTransportSecurity;"
+    )
+    .replace(
+      /import\s+\{\s*createCommunicationRequestId,\s*shouldAttachClientIdentityToUrl,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
+      "const { createCommunicationRequestId, shouldAttachClientIdentityToUrl, withClientIdentityHeaders } = globalThis.__blobClientTestIdentity;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__blobClientTestDev");
 
@@ -64,6 +78,11 @@ test("requestBlob returns response, blob, and requestId with readable headers", 
 
     assert.equal(receivedUrl, "/api/system/logo");
     assert.equal(receivedInit.headers.Authorization, "Bearer blob-token");
+    assert.equal(
+      receivedInit.headers["X-Athena-Client-Id"],
+      "client-blob-test"
+    );
+    assert.equal(receivedInit.headers["X-Athena-Request-Id"], result.requestId);
     assert.equal(result.response.headers.get("X-Is-Custom-Logo"), "true");
     assert.equal(result.response.headers.get("Content-Type"), "image/png");
     assert.equal(await result.blob.text(), "avatar");
@@ -133,8 +152,10 @@ test("requestBlob preserves HTTP JSON/text error body and blob context", async (
 test("requestBlob supports absolute and /api URLs without double prefix", async () => {
   const originalFetch = globalThis.fetch;
   const urls = [];
-  globalThis.fetch = async (url) => {
+  const headers = [];
+  globalThis.fetch = async (url, init) => {
     urls.push(url);
+    headers.push(init.headers);
     return new Response("ok", { status: 200 });
   };
 
@@ -152,6 +173,8 @@ test("requestBlob supports absolute and /api URLs without double prefix", async 
       "http://localhost:3002/api/workspace/demo/visual-assets/1"
     );
     assert.equal(urls[1], "https://cdn.example.test/file.png");
+    assert.equal(headers[0]["X-Athena-Client-Id"], "client-blob-test");
+    assert.equal(headers[1]["X-Athena-Client-Id"], undefined);
   } finally {
     globalThis.fetch = originalFetch;
   }

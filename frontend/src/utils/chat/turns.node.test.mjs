@@ -5,6 +5,7 @@ import {
   cleanupTransientDraftItems,
   hasMeaningfulTransientAssistantOutput,
   mergeServerHistoryIntoTurns,
+  pruneServerBackedTurnsOutsideHistory,
 } from "./turns.js";
 
 function localTurn({
@@ -118,4 +119,205 @@ test("server hydration can patch an interrupted local turn", () => {
   );
   assert.equal(merged[1].status, TURN_STATUSES.completed);
   assert.equal(merged[1].finalContent, "落库成功回答");
+});
+
+test("server hydration does not patch a repeated prompt from stale history", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.running });
+  const currentUserCreatedAt = Date.parse("2026-06-26T14:40:47.496Z");
+  items[0].createdAt = currentUserCreatedAt;
+  items[1].createdAt = currentUserCreatedAt + 1;
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 42,
+        role: "user",
+        content: "用户问题",
+        sentAt: Date.parse("2026-06-26T13:10:40.000Z") / 1000,
+      },
+      {
+        chatId: 42,
+        role: "assistant",
+        content: "上一轮回答",
+        sentAt: Date.parse("2026-06-26T13:10:40.000Z") / 1000,
+      },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const localAssistant = merged.find(
+    (item) => item.type === "assistant_turn" && item.turnId === "turn:local"
+  );
+  const staleAssistant = merged.find(
+    (item) => item.type === "assistant_turn" && item.chatId === 42
+  );
+
+  assert.equal(localAssistant.chatId || null, null);
+  assert.equal(localAssistant.status, TURN_STATUSES.running);
+  assert.equal(staleAssistant.turnId, "server:42");
+  assert.equal(staleAssistant.finalContent, "上一轮回答");
+});
+
+test("server hydration requires a server timestamp before patching by content", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.running });
+  const currentUserCreatedAt = Date.parse("2026-06-26T14:40:47.496Z");
+  items[0].createdAt = currentUserCreatedAt;
+  items[1].createdAt = currentUserCreatedAt + 1;
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 42,
+        role: "user",
+        content: "用户问题",
+      },
+      {
+        chatId: 42,
+        role: "assistant",
+        content: "没有 sentAt 的回答",
+      },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const localAssistant = merged.find(
+    (item) => item.type === "assistant_turn" && item.turnId === "turn:local"
+  );
+  const serverAssistant = merged.find(
+    (item) => item.type === "assistant_turn" && item.chatId === 42
+  );
+
+  assert.equal(localAssistant.chatId || null, null);
+  assert.equal(localAssistant.status, TURN_STATUSES.running);
+  assert.equal(serverAssistant.turnId, "server:42");
+});
+
+test("server hydration repairs a repeated prompt turn with a stale chat id", () => {
+  const { items } = localTurn({ status: TURN_STATUSES.running });
+  const currentUserCreatedAt = Date.parse("2026-06-26T14:40:47.496Z");
+  items[0].createdAt = currentUserCreatedAt;
+  items[0].chatId = 42;
+  items[1].createdAt = currentUserCreatedAt + 1;
+  items[1].chatId = 42;
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 42,
+        role: "user",
+        content: "用户问题",
+        sentAt: Date.parse("2026-06-26T13:10:40.000Z") / 1000,
+      },
+      {
+        chatId: 42,
+        role: "assistant",
+        content: "上一轮回答",
+        sentAt: Date.parse("2026-06-26T13:10:40.000Z") / 1000,
+      },
+      {
+        chatId: 43,
+        role: "user",
+        content: "用户问题",
+        sentAt: Date.parse("2026-06-26T14:40:48.000Z") / 1000,
+      },
+      {
+        chatId: 43,
+        role: "assistant",
+        content: "当前轮回答",
+        sentAt: Date.parse("2026-06-26T14:40:48.000Z") / 1000,
+      },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const localAssistant = merged.find(
+    (item) => item.type === "assistant_turn" && item.turnId === "turn:local"
+  );
+
+  assert.equal(localAssistant.chatId, 43);
+  assert.equal(localAssistant.status, TURN_STATUSES.completed);
+  assert.equal(localAssistant.finalContent, "当前轮回答");
+});
+
+test("prune removes completed server-backed turns outside a paged history window", () => {
+  const staleUser = {
+    id: "server:1886:user",
+    type: "user",
+    role: "user",
+    turnId: "server:1886",
+    chatId: 1886,
+    content: "old prompt",
+    createdAt: 1781703527000,
+  };
+  const staleAssistant = {
+    id: "server:1886:assistant",
+    type: "assistant_turn",
+    role: "assistant",
+    turnId: "server:1886",
+    userMessageId: staleUser.id,
+    chatId: 1886,
+    status: TURN_STATUSES.completed,
+    finalContent: "old answer",
+    createdAt: 1781703527001,
+  };
+  const currentUser = {
+    id: "server:2060:user",
+    type: "user",
+    role: "user",
+    turnId: "server:2060",
+    chatId: 2060,
+    content: "current prompt",
+    createdAt: 1782493045000,
+  };
+  const currentAssistant = {
+    id: "server:2060:assistant",
+    type: "assistant_turn",
+    role: "assistant",
+    turnId: "server:2060",
+    userMessageId: currentUser.id,
+    chatId: 2060,
+    status: TURN_STATUSES.completed,
+    finalContent: "current answer",
+    createdAt: 1782493045001,
+  };
+
+  const pruned = pruneServerBackedTurnsOutsideHistory(
+    [staleUser, staleAssistant, currentUser, currentAssistant],
+    [
+      { chatId: 2060, role: "user", content: "current prompt" },
+      { chatId: 2060, role: "assistant", content: "current answer" },
+    ]
+  );
+
+  assert.deepEqual(
+    pruned.map((item) => item.chatId),
+    [2060, 2060]
+  );
+});
+
+test("prune keeps unfinished and preserved turns outside the history window", () => {
+  const running = localTurn({ status: TURN_STATUSES.running });
+  running.user.chatId = 1886;
+  running.assistant.chatId = 1886;
+  const preserved = localTurn({
+    turnId: "turn:preserved",
+    status: TURN_STATUSES.completed,
+    finalContent: "kept",
+  });
+  preserved.user.chatId = 1887;
+  preserved.assistant.chatId = 1887;
+
+  const pruned = pruneServerBackedTurnsOutsideHistory(
+    [...running.items, ...preserved.items],
+    [{ chatId: 2060, role: "user", content: "current prompt" }],
+    { preserveTurnIds: ["turn:preserved"] }
+  );
+
+  assert.deepEqual(
+    pruned.map((item) => item.turnId),
+    ["turn:local", "turn:local", "turn:preserved", "turn:preserved"]
+  );
 });

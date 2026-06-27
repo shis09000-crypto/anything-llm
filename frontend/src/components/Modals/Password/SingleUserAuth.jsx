@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import System from "../../../models/system";
-import { AUTH_TOKEN } from "../../../utils/constants";
 import paths from "../../../utils/paths";
 import ModalWrapper from "@/components/ModalWrapper";
 import { useModal } from "@/hooks/useModal";
 import RecoveryCodeModal from "@/components/Modals/DisplayRecoveryCodeModal";
 import { useTranslation } from "react-i18next";
+import { setAuthToken } from "@/utils/authTokenStorage";
 
 export default function SingleUserAuth() {
   const { t } = useTranslation();
@@ -37,7 +37,7 @@ export default function SingleUserAuth() {
         setRecoveryCodes(recoveryCodes);
         openRecoveryCodeModal();
       } else {
-        window.localStorage.setItem(AUTH_TOKEN, token);
+        setAuthToken(token);
         window.location = paths.home();
       }
     } else {
@@ -53,7 +53,7 @@ export default function SingleUserAuth() {
 
   useEffect(() => {
     if (downloadComplete && token) {
-      window.localStorage.setItem(AUTH_TOKEN, token);
+      setAuthToken(token);
       window.location = paths.home();
     }
   }, [downloadComplete, token]);

@@ -57,6 +57,7 @@ FakeWebSocket.instances = [];
 
 function setupBrowserGlobals() {
   FakeWebSocket.instances = [];
+  globalThis.__agentWsSendResult = null;
   globalThis.window = new FakeWindow();
   globalThis.window.location = {
     protocol: "http:",
@@ -139,8 +140,10 @@ async function loadAgentClient() {
   await writeFile(
     path.join(tmpDir, "webSocketClient.js"),
     `export function createWebSocket({ url } = {}) { return new WebSocket(url); }
-export function safeSendJson(socket, payload) {
+export async function safeSendSignedJson(socket, payload) {
   if (!socket || socket.readyState !== WebSocket.OPEN) return { ok: false, reason: "not_open" };
+  if (typeof globalThis.__agentWsSendResult === "function") return globalThis.__agentWsSendResult(socket, payload);
+  if (globalThis.__agentWsSendResult) return globalThis.__agentWsSendResult;
   socket.send(JSON.stringify(payload));
   return { ok: true };
 }
@@ -155,6 +158,14 @@ export function safeClose(socket) { socket?.close?.(); }`,
 }`,
     "utf8"
   );
+  await writeFile(
+    path.join(tmpDir, "requestSigningClient.js"),
+    `export function clearSigningSecretCache() {}
+export function isRecoverableSigningError(code) {
+  return ["INVALID_SIGNATURE", "SIGNING_SECRET_ROTATED"].includes(code);
+}`,
+    "utf8"
+  );
 
   const clientSource = await readFile(clientUrl, "utf8");
   await writeFile(
@@ -165,8 +176,12 @@ export function safeClose(socket) { socket?.close?.(); }`,
         "const useEffect = () => {}; const useState = (value) => [typeof value === 'function' ? value() : value, () => {}];"
       )
       .replace(
-        /import\s+\{\s*API_BASE,\s*AUTH_TOKEN\s*\}\s+from\s+"@\/utils\/constants";/,
-        'const API_BASE = "/api"; const AUTH_TOKEN = "auth-token";'
+        /import\s+\{\s*API_BASE\s*\}\s+from\s+"@\/utils\/constants";/,
+        'const API_BASE = "/api";'
+      )
+      .replace(
+        'import { getAuthToken } from "@/utils/authTokenStorage";',
+        'const getAuthToken = () => "jwt-secret";'
       )
       .replace(
         /import\s+\{[\s\S]*?\}\s+from\s+"@\/utils\/codexDevAuthBypass";/,
@@ -178,6 +193,10 @@ export function safeClose(socket) { socket?.close?.(); }`,
       )
       .replaceAll('from "./webSocketClient"', 'from "./webSocketClient.js"')
       .replaceAll('from "./transportSecurity"', 'from "./transportSecurity.js"')
+      .replaceAll(
+        'from "./requestSigningClient"',
+        'from "./requestSigningClient.js"'
+      )
       .replaceAll(
         'from "./agentWebSocketProtocol"',
         'from "./agentWebSocketProtocol.js"'
@@ -210,6 +229,50 @@ function reportFinal(content, seq = 1, extra = {}) {
   };
 }
 
+test("Agent session reuse helper requires matching non-terminal invocation", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-reuse",
+    });
+
+    assert.equal(
+      mod.canReuseAgentSessionForInvocation(controller, "debug-reuse"),
+      true
+    );
+    assert.equal(
+      mod.canReuseAgentSessionForInvocation(controller, "debug-other"),
+      false
+    );
+    assert.equal(
+      mod.canReuseAgentSessionForInvocation(controller, null),
+      false
+    );
+
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(
+      mod.canReuseAgentSessionForInvocation(controller, "debug-reuse"),
+      true
+    );
+
+    socket.message(reportFinal("done", 1));
+    socket.close();
+    assert.equal(
+      mod.canReuseAgentSessionForInvocation(controller, "debug-reuse"),
+      false
+    );
+    assert.equal(
+      mod.getAgentSessionSnapshot(controller).websocketUUID,
+      "debug-reuse"
+    );
+    controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
 test("Agent session ignores duplicate final and blocks reconnect/feedback after close", async () => {
   const { mod, tmpDir } = await loadAgentClient();
   try {
@@ -239,7 +302,7 @@ test("Agent session ignores duplicate final and blocks reconnect/feedback after 
       1
     );
     assert.equal(controller.reconnect("after_final"), false);
-    assert.deepEqual(controller.sendFeedback({ feedback: "nope" }), {
+    assert.deepEqual(await controller.sendFeedback({ feedback: "nope" }), {
       ok: false,
       reason: mod.AgentSessionState.CLOSED,
     });
@@ -272,7 +335,7 @@ test("Agent stop emits one stop and suppresses close/error assistant errors", as
     const socket = FakeWebSocket.instances.at(-1);
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
-    assert.deepEqual(controller.stop("test_stop"), { ok: true });
+    assert.deepEqual(await controller.stop("test_stop"), { ok: true });
     socket.fail(new Error("late failure"));
     socket.close();
     assert.equal(
@@ -310,9 +373,11 @@ test("Agent waiting_on_input allows clarification and is not terminal", async ()
       mod.AgentSessionState.WAITING_ON_INPUT
     );
     assert.equal(
-      controller.respondToClarification("q1", {
-        answers: [{ id: "q1", answer: "yes" }],
-      }).ok,
+      (
+        await controller.respondToClarification("q1", {
+          answers: [{ id: "q1", answer: "yes" }],
+        })
+      ).ok,
       true
     );
     assert.equal(controller.getState().state, mod.AgentSessionState.OPEN);
@@ -322,6 +387,213 @@ test("Agent waiting_on_input allows clarification and is not terminal", async ()
       )
     );
     controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent clarification request enters waiting state and resumes after answer", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const events = [];
+    const states = [];
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-clarification",
+      onEvent: (event) => {
+        events.push(event);
+        return event;
+      },
+      onState: (state) => states.push(state),
+    });
+
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket.message({
+      type: "clarificationRequest",
+      requestId: "clarify-1",
+      questions: [
+        {
+          kind: "choice",
+          question: "Which option?",
+          options: ["A", "B", "C"],
+          allowOther: true,
+        },
+      ],
+      timeoutMs: 120_000,
+    });
+
+    assert.equal(
+      controller.getState().state,
+      mod.AgentSessionState.WAITING_ON_INPUT
+    );
+    assert.equal(
+      events.some((event) => event.event?.type === "clarification_request"),
+      true
+    );
+
+    const sendResult = await controller.respondToClarification("clarify-1", {
+      answers: [{ answer: "B" }],
+    });
+    assert.equal(sendResult.ok, true);
+    assert.equal(controller.getState().state, mod.AgentSessionState.OPEN);
+    assert.equal(
+      socket.sent.some((payload) =>
+        String(payload).includes('"type":"clarificationResponse"')
+      ),
+      true
+    );
+    assert(states.some((state) => state.reason === "clarification_request"));
+    controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent clarification wait pauses silence reconnect timer", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-clarification-silence",
+      silenceTimeoutMs: 20,
+    });
+
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket.message({
+      type: "clarificationRequest",
+      requestId: "clarify-silence",
+      questions: [
+        {
+          kind: "choice",
+          question: "Which option?",
+          options: ["A", "B", "C"],
+          allowOther: true,
+        },
+      ],
+      timeoutMs: 120_000,
+    });
+    socket.message({
+      type: "reportStreamEvent",
+      content: {
+        type: "statusResponse",
+        seq: 2,
+        uuid: "status-after-clarification",
+        content: "Asking the user 1 clarifying question.",
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    assert.equal(socket.readyState, FakeWebSocket.OPEN);
+    assert.equal(FakeWebSocket.instances.length, 1);
+    assert.equal(
+      controller.getState().state,
+      mod.AgentSessionState.WAITING_ON_INPUT
+    );
+    controller.close("test_cleanup");
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent clarification send failure keeps waiting state for retry", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    globalThis.__agentWsSendResult = { ok: false, reason: "send_failed" };
+    const controller = mod.createAgentWebSocketSession({
+      websocketUUID: "debug-clarification-failure",
+    });
+
+    const socket = FakeWebSocket.instances.at(-1);
+    socket.open();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    socket.message({
+      type: "clarificationRequest",
+      requestId: "clarify-fail",
+      questions: [
+        {
+          kind: "choice",
+          question: "Which option?",
+          options: ["A", "B", "C"],
+          allowOther: true,
+        },
+      ],
+      timeoutMs: 120_000,
+    });
+
+    const sendResult = await controller.respondToClarification("clarify-fail", {
+      answers: [{ answer: "B" }],
+    });
+    assert.deepEqual(sendResult, { ok: false, reason: "send_failed" });
+    assert.equal(
+      controller.getState().state,
+      mod.AgentSessionState.WAITING_ON_INPUT
+    );
+    assert.equal(socket.sent.length, 0);
+    controller.close("test_cleanup");
+  } finally {
+    globalThis.__agentWsSendResult = null;
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent clarification HTTP fallback posts answers to invocation endpoint", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    const calls = [];
+    globalThis.__agentWsRequestJson = async (...args) => {
+      calls.push(args);
+      return { data: { success: true, requestId: "clarify-http" } };
+    };
+
+    const result = await mod.respondToClarificationViaHttp(
+      "debug-http",
+      "clarify-http",
+      {
+        answers: [{ answer: "B" }],
+      }
+    );
+
+    assert.deepEqual(result, {
+      ok: true,
+      reason: null,
+      transport: "http_fallback",
+    });
+    assert.equal(
+      calls[0][0],
+      "/agent-invocation/debug-http/clarification-response"
+    );
+    assert.equal(calls[0][1].method, "POST");
+    assert.equal(calls[0][1].timeoutMs, 10_000);
+    assert.deepEqual(calls[0][1].body, {
+      requestId: "clarify-http",
+      skipped: false,
+      answers: [{ answer: "B" }],
+    });
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true });
+  }
+});
+
+test("Agent clarification HTTP fallback surfaces server reason", async () => {
+  const { mod, tmpDir } = await loadAgentClient();
+  try {
+    globalThis.__agentWsRequestJson = async () => ({
+      data: { success: false, error: "request_id_mismatch" },
+    });
+
+    const result = await mod.respondToClarificationViaHttp(
+      "debug-http",
+      "clarify-http",
+      {
+        answers: [{ answer: "B" }],
+      }
+    );
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "request_id_mismatch");
+    assert.equal(result.transport, "http_fallback");
   } finally {
     await rm(tmpDir, { recursive: true, force: true });
   }

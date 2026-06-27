@@ -6,8 +6,24 @@ const DB_VERSION = 1;
 const DEVICE_STORE = "devices";
 const KEY_STORE = "keys";
 const WRAP_KEY_ID = "device-secret-wrap-key";
+const UNSUPPORTED_ZK_MESSAGE =
+  "零知识快速登录需要 HTTPS 或 localhost。手机局域网 HTTP 地址无法保存可信设备。";
+
+export function zkLoginStorageSupported() {
+  return Boolean(
+    globalThis.isSecureContext &&
+      globalThis.indexedDB &&
+      globalThis.crypto?.subtle
+  );
+}
+
+function assertZkLoginStorageSupported() {
+  if (zkLoginStorageSupported()) return;
+  throw new Error(UNSUPPORTED_ZK_MESSAGE);
+}
 
 export async function createLocalZkDevice({ user, deviceName, avatarUrl }) {
+  assertZkLoginStorageSupported();
   const deviceId = randomBase64Url(24);
   const deviceSecret = randomBase64Url(48);
   const deviceSalt = randomBase64Url(24);
@@ -25,6 +41,7 @@ export async function createLocalZkDevice({ user, deviceName, avatarUrl }) {
 }
 
 export async function saveLocalZkDevice({ metadata, deviceSecret }) {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   const wrapKey = await getWrapKey(db);
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -43,6 +60,7 @@ export async function saveLocalZkDevice({ metadata, deviceSecret }) {
 }
 
 export async function listLocalZkDevices() {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   return getAllRecords(db, DEVICE_STORE);
 }
@@ -63,6 +81,7 @@ export async function getPreferredLocalZkDevice() {
 }
 
 export async function readLocalZkDeviceSecret(deviceId) {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   const device = await getRecord(db, DEVICE_STORE, deviceId);
   if (!device?.wrappedSecret || !device?.iv) return null;
@@ -76,6 +95,7 @@ export async function readLocalZkDeviceSecret(deviceId) {
 }
 
 export async function updateLocalZkDevice(deviceId, updates = {}) {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   const device = await getRecord(db, DEVICE_STORE, deviceId);
   if (!device) return;
@@ -105,9 +125,7 @@ export async function syncLocalZkDevicesWithServer({
       return updateLocalZkDevice(localDevice.deviceId, {
         ...serverDevice,
         userId:
-          serverDevice.userId ||
-          accountAuthUserId(user) ||
-          localDevice.userId,
+          serverDevice.userId || accountAuthUserId(user) || localDevice.userId,
         username: user?.username || localDevice.username,
         displayName: user?.displayName || localDevice.displayName || null,
         avatarUrl: durableAvatarUrl(avatarUrl) || localDevice.avatarUrl || null,
@@ -119,6 +137,7 @@ export async function syncLocalZkDevicesWithServer({
 }
 
 export async function removeLocalZkDevice(deviceId) {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   await deleteRecord(db, DEVICE_STORE, deviceId);
   const index = localDeviceIndex().filter(
@@ -128,6 +147,7 @@ export async function removeLocalZkDevice(deviceId) {
 }
 
 export async function clearLocalZkDevices() {
+  assertZkLoginStorageSupported();
   const db = await openDb();
   await storeRequest(db, DEVICE_STORE, "readwrite", (store) => store.clear());
   window.localStorage.removeItem(ZK_LOGIN_DEVICE_INDEX);
@@ -146,6 +166,7 @@ function updateDeviceIndex(metadata) {
     userId: metadata.userId,
     username: metadata.username,
     displayName: metadata.displayName || null,
+    avatarUrl: durableAvatarUrl(metadata.avatarUrl),
     hasAvatar: Boolean(durableAvatarUrl(metadata.avatarUrl)),
     deviceName: metadata.deviceName,
     createdAt: metadata.createdAt,

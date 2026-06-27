@@ -1,5 +1,6 @@
 import { apiUrl, formDataHeaders, parseJsonResponse } from "./apiClient";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
+import { createCommunicationRequestId } from "./clientIdentity";
 
 export const UPLOAD_KINDS = {
   workspaceFile: "workspace_file",
@@ -11,10 +12,6 @@ export const UPLOAD_KINDS = {
   nodeSupplement: "node_supplement",
   uploadAndEmbed: "upload_and_embed",
 };
-
-function createRequestId() {
-  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-}
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -116,7 +113,7 @@ export async function uploadFormData(path, formData, options = {}) {
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
-  const requestId = createRequestId();
+  const requestId = createCommunicationRequestId();
   const startedAt = nowMs();
   const signalState = requestSignal({ signal, timeoutMs });
 
@@ -133,7 +130,7 @@ export async function uploadFormData(path, formData, options = {}) {
   try {
     const response = await fetch(apiUrl(path), {
       method: normalizedMethod,
-      headers: formDataHeaders(headers, { includeBaseHeaders }),
+      headers: formDataHeaders(headers, { includeBaseHeaders, requestId }),
       body: formData,
       signal: signalState.signal,
       ...rest,

@@ -9,7 +9,7 @@ import {
   UserCircle,
 } from "@phosphor-icons/react";
 import System from "../../../models/system";
-import { AUTH_TOKEN, AUTH_USER } from "../../../utils/constants";
+import { AUTH_USER } from "../../../utils/constants";
 import paths from "../../../utils/paths";
 import showToast from "@/utils/toast";
 import ModalWrapper from "@/components/ModalWrapper";
@@ -24,6 +24,7 @@ import AppButton from "@/components/lib/AppButton";
 import { detectAuthCapability } from "@/utils/authCapability";
 import { getPreferredLocalZkDevice } from "@/utils/zkLoginStorage";
 import { setLoginUserActionNow } from "@/utils/userAction";
+import { setAuthToken } from "@/utils/authTokenStorage";
 
 const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
 
@@ -716,10 +717,11 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     persistRememberedAccount(loginIdentifier, rememberAccount);
 
     try {
-      const { valid, user, token, recoveryCodes, message } = await System.requestToken({
-        identifier: loginIdentifier,
-        password,
-      });
+      const { valid, user, token, recoveryCodes, message } =
+        await System.requestToken({
+          identifier: loginIdentifier,
+          password,
+        });
 
       if (valid && !!token && !!user) {
         setUser(user);
@@ -730,7 +732,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
           openRecoveryCodeModal();
         } else {
           window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-          window.localStorage.setItem(AUTH_TOKEN, token);
+          setAuthToken(token);
           setLoginUserActionNow();
           window.location = paths.home();
         }
@@ -784,7 +786,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
 
     if (result.valid && result.token && result.user) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
-      window.localStorage.setItem(AUTH_TOKEN, result.token);
+      setAuthToken(result.token);
       setLoginUserActionNow();
       window.location = paths.home();
       return;
@@ -825,7 +827,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
 
     if (result.valid && result.token && result.user) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
-      window.localStorage.setItem(AUTH_TOKEN, result.token);
+      setAuthToken(result.token);
       setLoginUserActionNow();
       window.location = paths.home();
       return;
@@ -873,7 +875,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       return;
     }
     window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-    window.localStorage.setItem(AUTH_TOKEN, token);
+    setAuthToken(token);
     setLoginUserActionNow();
     window.location = paths.home();
   };
@@ -881,7 +883,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   useEffect(() => {
     if (downloadComplete && user && token) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-      window.localStorage.setItem(AUTH_TOKEN, token);
+      setAuthToken(token);
       setLoginUserActionNow();
       window.location = paths.home();
     }
@@ -1237,8 +1239,7 @@ function AppleAuthShell({ children, loginLogo, isCustomLogo }) {
     <div
       className="fixed inset-0 flex min-h-screen flex-col overflow-y-auto overflow-x-hidden px-4 py-8 text-slate-950"
       style={{
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+        fontFamily: "var(--athena-font-sans)",
         backgroundColor: "#F5F5F7",
         backgroundImage:
           "radial-gradient(circle at 50% -8%, rgba(255,255,255,0.95) 0, rgba(255,255,255,0.62) 28%, rgba(245,245,247,0) 58%), radial-gradient(circle at 6% 12%, rgba(0,122,255,0.08) 0, rgba(0,122,255,0) 30%), radial-gradient(circle at 94% 80%, rgba(142,142,147,0.11) 0, rgba(142,142,147,0) 34%)",

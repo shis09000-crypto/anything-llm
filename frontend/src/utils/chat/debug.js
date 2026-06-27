@@ -7,6 +7,20 @@ export function chatTurnDebugEnabled() {
 }
 
 export function debugChatTurn(label, payload = {}) {
+  if (typeof window !== "undefined") {
+    try {
+      window.dispatchEvent(
+        new CustomEvent("athena:chat-turn-debug", {
+          detail: {
+            label,
+            payload,
+            at: new Date().toISOString(),
+          },
+        })
+      );
+    } catch {}
+  }
+
   if (!chatTurnDebugEnabled()) return;
   console.debug("[chat-turn-debug]", label, payload);
 }

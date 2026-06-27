@@ -179,7 +179,7 @@ export default {
       },
       fontFamily: {
         sans: [
-          "plus-jakarta-sans",
+          "var(--athena-font-sans)",
           "ui-sans-serif",
           "system-ui",
           "-apple-system",

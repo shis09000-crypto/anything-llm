@@ -57,23 +57,43 @@ These instructions are for CLI configuration and assume you are logged in to EC2
 ```
 3. Enter ':wq' to save the changes to the nginx default config
 
-## Step 7: Create simple http proxy configuration for AnythingLLM 
+## Step 7: Generate/install cert
+These instructions are for CLI configuration and assume you are logged in to EC2 instance as the ec2-user.
+1. $sudo certbot certonly --nginx -d [Insert FQDN here]
+    Example command: $sudo certbot certonly --nginx -d anythingllm.exampleorganization.org
+    This command will generate the appropriate certificate files under `/etc/letsencrypt/live/yourFQDN`.
+2. Enter the email address you would like to use for updates.
+3. Accept the terms of service.
+4. Accept or decline to receive communication from LetsEncrypt.
+
+## Step 8: Create hardened HTTPS proxy configuration for AnythingLLM
 These instructions are for CLI configuration and assume you are logged in to EC2 instance as the ec2-user.
 1. $sudo vi /etc/nginx/conf.d/anything.conf
 2. Add the following configuration ensuring that you add your FQDN:.
 
 ```
-server {
-   # Enable websocket connections for agent protocol.
-   location ~* ^/api/agent-invocation/(.*) {
-      proxy_pass http://0.0.0.0:3001;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "Upgrade";
-   }
+map $http_upgrade $connection_upgrade {
+   default upgrade;
+   '' close;
+}
 
+server {
    listen 80;
    server_name [insert FQDN here];
+   return 301 https://$host$request_uri;
+}
+
+server {
+   listen 443 ssl http2;
+   server_name [insert FQDN here];
+
+   ssl_certificate /etc/letsencrypt/live/[insert FQDN here]/fullchain.pem;
+   ssl_certificate_key /etc/letsencrypt/live/[insert FQDN here]/privkey.pem;
+   ssl_protocols TLSv1.2 TLSv1.3;
+   ssl_prefer_server_ciphers on;
+   ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+   add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+
    location / {
       # Prevent timeouts on long-running requests.
       proxy_connect_timeout       605;
@@ -83,31 +103,29 @@ server {
       keepalive_timeout           605;
 
       # Enable readable HTTP Streaming for LLM streamed responses
-      proxy_buffering off; 
+      proxy_buffering off;
       proxy_cache off;
 
       # Proxy your locally running service
-      proxy_pass  http://0.0.0.0:3001;
+      proxy_pass  http://127.0.0.1:3001;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto https;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
     }
 }
 ```
 3. Enter ':wq' to save the changes to the anything config file
+4. In the AnythingLLM server environment, set `PUBLIC_APP_URL=https://your-domain`, `ATHENA_ALLOWED_ORIGINS=https://your-domain`, `TRUST_PROXY=true`, and `FORCE_HTTPS=true`.
 
-## Step 8: Test nginx http proxy config and restart nginx service
+## Step 9: Test nginx HTTPS proxy config and restart nginx service
 These instructions are for CLI configuration and assume you are logged in to EC2 instance as the ec2-user.
 1. $sudo nginx -t
 2. $sudo systemctl restart nginx
-3. Navigate to http://FQDN in a browser and you should be proxied to the AnythingLLM web UI.
-
-## Step 9: Generate/install cert
-These instructions are for CLI configuration and assume you are logged in to EC2 instance as the ec2-user.
-1. $sudo certbot --nginx -d [Insert FQDN here] 
-    Example command: $sudo certbot --nginx -d anythingllm.exampleorganization.org
-    This command will generate the appropriate certificate files, write the files to /etc/letsencrypt/live/yourFQDN, and make updates to the nginx
-    configuration file for anythingllm located at /etc/nginx/conf.d/anything.llm
-3. Enter the email address you would like to use for updates.
-4. Accept the terms of service.
-5. Accept or decline to receive communication from LetsEncrypt.
+3. Navigate to https://FQDN in a browser and you should be proxied to the AnythingLLM web UI. http://FQDN should redirect to HTTPS.
 
 ## Step 10: Test Cert installation
 1. $sudo cat /etc/nginx/conf.d/anything.conf

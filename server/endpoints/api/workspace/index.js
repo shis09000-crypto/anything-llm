@@ -15,6 +15,9 @@ const {
 } = require("../../../utils/helpers/chat/responses");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
+const {
+  setSseTransportHeaders,
+} = require("../../../utils/security/transportSecurity");
 
 function apiWorkspaceEndpoints(app) {
   if (!app) return;
@@ -845,10 +848,9 @@ function apiWorkspaceEndpoints(app) {
           return;
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
 
         await ApiChatHandler.streamChat({

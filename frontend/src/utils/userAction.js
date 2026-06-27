@@ -1,5 +1,6 @@
 import { recordUserAction } from "@/lib/communication/systemRuntimeClient";
-import { AUTH_TOKEN, LAST_USER_ACTION_AT } from "@/utils/constants";
+import { LAST_USER_ACTION_AT } from "@/utils/constants";
+import { getAuthToken, setAuthToken } from "@/utils/authTokenStorage";
 
 export const USER_ACTION_REASONS = Object.freeze({
   messageSubmit: "message_submit",
@@ -33,7 +34,7 @@ export async function recordServerUserAction(reason) {
   recordLocalUserAction();
   if (!SERVER_REFRESH_REASONS.has(reason)) return { success: false };
 
-  const token = window.localStorage.getItem(AUTH_TOKEN);
+  const token = getAuthToken();
   if (!token) return { success: false };
 
   const now = Date.now();
@@ -44,7 +45,7 @@ export async function recordServerUserAction(reason) {
 
   return recordUserAction(reason)
     .then(({ data: result }) => {
-      if (result?.token) window.localStorage.setItem(AUTH_TOKEN, result.token);
+      if (result?.token) setAuthToken(result.token);
       if (result?.lastUserActionAt) {
         window.localStorage.setItem(
           LAST_USER_ACTION_AT,

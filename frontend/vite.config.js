@@ -1,4 +1,5 @@
 import { defineConfig } from "vite"
+import fs from "fs"
 import { fileURLToPath, URL } from "url"
 import postcss from "./postcss.config.js"
 import react from "@vitejs/plugin-react"
@@ -6,6 +7,24 @@ import dns from "dns"
 import { visualizer } from "rollup-plugin-visualizer"
 
 dns.setDefaultResultOrder("verbatim")
+
+function devHttpsOptions() {
+  if (process.env.VITE_DEV_HTTPS !== "true") return false
+
+  const keyPath = process.env.VITE_HTTPS_KEY_PATH
+  const certPath = process.env.VITE_HTTPS_CERT_PATH
+  if (!keyPath || !certPath) return false
+  if (!fs.existsSync(keyPath) || !fs.existsSync(certPath)) return false
+
+  return {
+    key: fs.readFileSync(keyPath),
+    cert: fs.readFileSync(certPath),
+  }
+}
+
+const apiProxyTarget =
+  process.env.VITE_DEV_API_PROXY_TARGET ||
+  `http://127.0.0.1:${process.env.SERVER_PORT || "3002"}`
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -20,7 +39,16 @@ export default defineConfig({
   server: {
     port: 3000,
     host: "localhost",
-    strictPort: true
+    strictPort: true,
+    https: devHttpsOptions(),
+    proxy: {
+      "/api": {
+        target: apiProxyTarget,
+        changeOrigin: false,
+        secure: false,
+        ws: true,
+      },
+    },
   },
   define: {
     "process.env": process.env

@@ -4,6 +4,7 @@ export function fetchSystemEnvironment(options = {}) {
   return getJson("/system/environment", {
     ...options,
     cache: options.cache ?? "no-cache",
+    timeoutMs: options.timeoutMs ?? 5_000,
     includeBaseHeaders: false,
   });
 }

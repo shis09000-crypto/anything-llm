@@ -17,6 +17,9 @@ const {
   submitQuiz,
   submitQuizStream,
 } = require("../utils/quiz");
+const {
+  setSseTransportHeaders,
+} = require("../utils/security/transportSecurity");
 
 function quizEndpoints(app) {
   if (!app) return;
@@ -100,10 +103,9 @@ function quizEndpoints(app) {
     "/workspace/:slug/quiz/:quizId/submit-stream",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
-      response.setHeader("Cache-Control", "no-cache");
-      response.setHeader("Content-Type", "text/event-stream");
-      response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Connection", "keep-alive");
+      setSseTransportHeaders(response, {
+        "Access-Control-Allow-Origin": "*",
+      });
       response.flushHeaders();
       try {
         const user = await userFromSession(request, response);

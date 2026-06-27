@@ -48,6 +48,8 @@ export default function LoginSecurityCard({
   const [passkeyReauthLoading, setPasskeyReauthLoading] = useState(false);
   const passkeyCapabilityAvailable =
     authCapability?.showPasskey ?? AccountSettingsApi.passkeysSupported();
+  const zkLoginAvailable =
+    authCapability?.secureContext ?? window.isSecureContext;
   const hasPasskeys = passkeys.length > 0;
   const passkeyReauthAvailable = passkeyCapabilityAvailable && hasPasskeys;
 
@@ -74,6 +76,14 @@ export default function LoginSecurityCard({
   }
 
   async function startTrustedDeviceSetup() {
+    if (!zkLoginAvailable) {
+      showToast(
+        "零知识快速登录需要 HTTPS 或 localhost。手机局域网 HTTP 地址无法保存可信设备。",
+        "info"
+      );
+      return;
+    }
+
     const confirmed = await showAppConfirm({
       tone: "warning",
       title: "是否在此设备启用快速登录？",
@@ -302,12 +312,24 @@ export default function LoginSecurityCard({
               type="button"
               size="sm"
               variant="secondary"
+              disabled={!zkLoginAvailable}
+              title={
+                zkLoginAvailable
+                  ? "在此设备启用快速登录"
+                  : "零知识快速登录需要 HTTPS 或 localhost"
+              }
               onClick={startTrustedDeviceSetup}
             >
-              启用
+              {zkLoginAvailable ? "启用" : "需要 HTTPS"}
             </AppButton>
           }
         >
+          {!zkLoginAvailable && (
+            <div className="mt-4 rounded-3xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm font-medium leading-6 text-amber-700">
+              手机网页需要通过 HTTPS 打开，才能保存零知识快速登录凭证。
+            </div>
+          )}
+
           {showTrustedDeviceSetup && (
             <form
               onSubmit={enableTrustedDeviceWithPassword}

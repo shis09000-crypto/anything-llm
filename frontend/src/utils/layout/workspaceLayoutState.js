@@ -27,6 +27,8 @@ const MODE_PRIORITY = [
   "overview",
   "normal",
 ];
+let hydratedWorkspaceLayout = false;
+const WORKSPACE_LAYOUT_NAMESPACE = "workspace.layout";
 
 export function clampReaderSplitPercent(value) {
   const numeric = Number(value);
@@ -56,6 +58,71 @@ function safeJson(value, fallback) {
   }
 }
 
+function readWorkspaceLayoutValue() {
+  const storage = safeLocalStorage();
+  return {
+    layoutIntent: readLayoutIntent(),
+    sidebarCollapsedByWorkspace: readSidebarCollapsedMap(),
+    readerSplitPercent: readReaderSplitPercent(),
+    legacySidebarState: storage?.getItem(LEGACY_SIDEBAR_TOGGLE_STORAGE_KEY),
+  };
+}
+
+function applyWorkspaceLayoutValue(value = {}) {
+  const storage = safeLocalStorage();
+  if (!storage || !value || typeof value !== "object") return;
+  if (value.layoutIntent) {
+    storage.setItem(
+      WORKSPACE_LAYOUT_INTENT_STORAGE_KEY,
+      JSON.stringify(value.layoutIntent)
+    );
+  }
+  if (value.sidebarCollapsedByWorkspace) {
+    storage.setItem(
+      SIDEBAR_COLLAPSED_BY_WORKSPACE_STORAGE_KEY,
+      JSON.stringify(value.sidebarCollapsedByWorkspace)
+    );
+  }
+  if (value.readerSplitPercent) {
+    storage.setItem(
+      READER_SPLIT_PERCENT_STORAGE_KEY,
+      String(clampReaderSplitPercent(value.readerSplitPercent))
+    );
+  }
+  if (value.legacySidebarState) {
+    storage.setItem(
+      LEGACY_SIDEBAR_TOGGLE_STORAGE_KEY,
+      value.legacySidebarState
+    );
+  }
+}
+
+function hydrateWorkspaceLayoutOnce() {
+  if (hydratedWorkspaceLayout) return;
+  hydratedWorkspaceLayout = true;
+  import("../userStateSync.js")
+    .then(({ hydrateUserStateValue }) =>
+      hydrateUserStateValue({
+        namespace: WORKSPACE_LAYOUT_NAMESPACE,
+        fallback: readWorkspaceLayoutValue(),
+        apply: applyWorkspaceLayoutValue,
+      })
+    )
+    .catch(() => {});
+}
+
+function persistWorkspaceLayout() {
+  import("../userStateSync.js")
+    .then(({ pushUserStateValue }) =>
+      pushUserStateValue(
+        WORKSPACE_LAYOUT_NAMESPACE,
+        "global",
+        readWorkspaceLayoutValue()
+      )
+    )
+    .catch(() => {});
+}
+
 function workspaceFromPath(pathname = "") {
   const match = String(pathname).match(
     /^\/workspace\/([^/]+)(?:\/t\/([^/]+))?/
@@ -81,6 +148,7 @@ function readReaderDocumentIntent(storage) {
 }
 
 export function readReaderSplitPercent() {
+  hydrateWorkspaceLayoutOnce();
   const storage = safeLocalStorage();
   if (!storage) return READER_DEFAULT_SPLIT_PERCENT;
   return clampReaderSplitPercent(
@@ -95,9 +163,11 @@ export function writeReaderSplitPercent(value) {
     READER_SPLIT_PERCENT_STORAGE_KEY,
     String(clampReaderSplitPercent(value))
   );
+  persistWorkspaceLayout();
 }
 
 export function readSidebarCollapsedMap() {
+  hydrateWorkspaceLayoutOnce();
   const storage = safeLocalStorage();
   if (!storage) return {};
   const map = safeJson(
@@ -133,9 +203,11 @@ export function writeSidebarCollapsed(workspaceId = null, collapsed = false) {
     LEGACY_SIDEBAR_TOGGLE_STORAGE_KEY,
     collapsed ? "closed" : "open"
   );
+  persistWorkspaceLayout();
 }
 
 export function readLayoutIntent() {
+  hydrateWorkspaceLayoutOnce();
   const storage = safeLocalStorage();
   if (!storage) return {};
   const intent = safeJson(
@@ -159,6 +231,7 @@ export function writeLayoutIntent(patch = {}) {
     updatedAt: Date.now(),
   };
   storage.setItem(WORKSPACE_LAYOUT_INTENT_STORAGE_KEY, JSON.stringify(next));
+  persistWorkspaceLayout();
 }
 
 export function deriveLayoutMode(state = {}) {

@@ -105,6 +105,18 @@ function AssistantTurn({
   const isReconnectOffer = turn.reconnectState === "offer";
   const isRefusalMessage =
     turn.finalContent === chatQueryRefusalResponse(workspace);
+  const turnOutputs = useMemo(
+    () => (Array.isArray(turn.outputs) ? turn.outputs : []),
+    [turn.outputs]
+  );
+  const quizOutputs = useMemo(
+    () => turnOutputs.filter((output) => output?.type === "QuizCard"),
+    [turnOutputs]
+  );
+  const nonQuizOutputs = useMemo(
+    () => turnOutputs.filter((output) => output?.type !== "QuizCard"),
+    [turnOutputs]
+  );
 
   useEffect(() => {
     debugChatTurn("AssistantTurn:renderState", {
@@ -187,6 +199,13 @@ function AssistantTurn({
           />
         ) : (
           <div className="break-words">
+            <HistoricalOutputs
+              outputs={quizOutputs}
+              workspace={workspace}
+              chatKey={chatKey}
+              turnId={turn.turnId}
+              className="flex flex-col gap-2 mb-4"
+            />
             {turn.finalContent ? (
               <MarkdownOutput
                 content={turn.finalContent}
@@ -219,7 +238,7 @@ function AssistantTurn({
               </Link>
             )}
             <HistoricalOutputs
-              outputs={turn.outputs || []}
+              outputs={nonQuizOutputs}
               workspace={workspace}
               chatKey={chatKey}
               turnId={turn.turnId}

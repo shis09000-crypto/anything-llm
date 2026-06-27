@@ -1,8 +1,45 @@
 const { WorkspaceChats } = require("../../../../models/workspaceChats");
+const { Workspace } = require("../../../../models/workspace");
+const { WorkspaceThread } = require("../../../../models/workspaceThread");
 const {
   maybeEnqueueTitleGenerationAfterChat,
 } = require("../../../chats/threadTitleGeneration");
+const {
+  publishWorkspaceSyncEvent,
+} = require("../../../chats/workspaceSyncEvents");
 const { sanitizeAgentEvent } = require("../../toolResultStore.js");
+const { promptForHistory } = require("../../../chats/displayPrompt");
+
+async function publishAgentChatFinalized(aibitat, chatId = null) {
+  const invocation = aibitat?.handlerProps?.invocation;
+  if (!invocation?.workspace_id) return;
+
+  const workspace =
+    invocation.workspace ||
+    (await Workspace.get({ id: Number(invocation.workspace_id) }).catch(
+      () => null
+    ));
+  if (!workspace?.slug) return;
+
+  const thread =
+    invocation.thread ||
+    (invocation.thread_id
+      ? await WorkspaceThread.get({ id: Number(invocation.thread_id) }).catch(
+          () => null
+        )
+      : null);
+
+  publishWorkspaceSyncEvent({
+    type: "chat_finalized",
+    workspaceId: Number(invocation.workspace_id),
+    workspaceSlug: workspace.slug,
+    userId: invocation.user_id || null,
+    threadId: invocation.thread_id || null,
+    threadSlug: thread?.slug || null,
+    chatId,
+    publicChatId: aibitat?.trackedPublicChatId || null,
+  });
+}
 
 /**
  * Plugin to save chat history to AnythingLLM DB.
@@ -59,7 +96,10 @@ const chatHistory = {
               user: { id: aibitat.handlerProps.invocation.user_id || null },
               threadId: aibitat.handlerProps.invocation.thread_id || null,
               include: false,
-              prompt: userMessage,
+              prompt: promptForHistory({
+                message: userMessage,
+                displayPrompt: aibitat.handlerProps?.displayPrompt,
+              }),
               response: {},
             });
             if (chat) aibitat.registerChatId(chat.id, chat.public_id || null);
@@ -168,6 +208,7 @@ const chatHistory = {
           threadId: invocation?.thread_id || null,
           include: true,
         });
+        await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 
         if (!aibitat._threadRenamed) {
           aibitat._threadRenamed = await this._autoRenameThread(
@@ -219,6 +260,7 @@ const chatHistory = {
           threadId: invocation?.thread_id || null,
           include: true,
         });
+        await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 
         if (!aibitat._threadRenamed) {
           aibitat._threadRenamed = await this._autoRenameThread(

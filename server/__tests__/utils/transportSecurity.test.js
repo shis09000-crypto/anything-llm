@@ -3,6 +3,9 @@ const {
   corsOptionsForEnvironment,
   ensureSecureWebSocketRequest,
   isSecureRequest,
+  setSseTransportHeaders,
+  sseTransportHeaders,
+  transportSecurityStatus,
   transportSecurityMiddleware,
 } = require("../../utils/security/transportSecurity");
 const { secureCookieOptions } = require("../../utils/security/cookies");
@@ -34,6 +37,11 @@ function responseDouble() {
       this.redirectUrl = url;
       return this;
     },
+    writeHead(code, headers) {
+      this.statusCode = code;
+      this.headers = { ...this.headers, ...headers };
+      return this;
+    },
   };
 }
 
@@ -60,11 +68,19 @@ describe("production transport security helpers", () => {
     ).toEqual({ required: true, mode: "trusted_proxy" });
   });
 
-  it("uses X-Forwarded-Proto and socket encryption to determine secure requests", () => {
+  it("only trusts X-Forwarded-Proto when TRUST_PROXY is enabled", () => {
     expect(
       isSecureRequest({
         headers: { "x-forwarded-proto": "https,http" },
       })
+    ).toBe(false);
+    expect(
+      isSecureRequest(
+        {
+          headers: { "x-forwarded-proto": "https,http" },
+        },
+        { TRUST_PROXY: "true" }
+      )
     ).toBe(true);
     expect(isSecureRequest({ socket: { encrypted: true }, headers: {} })).toBe(
       true
@@ -82,6 +98,7 @@ describe("production transport security helpers", () => {
     const middleware = transportSecurityMiddleware({
       NODE_ENV: "production",
       FORCE_HTTPS: "true",
+      TRUST_PROXY: "true",
     });
 
     middleware(
@@ -105,6 +122,7 @@ describe("production transport security helpers", () => {
       success: false,
       error: "https_required",
     });
+    expect(insecureResponse.headers["Strict-Transport-Security"]).toBeUndefined();
   });
 
   it("redirects insecure production page requests to PUBLIC_APP_URL", () => {
@@ -160,6 +178,98 @@ describe("production transport security helpers", () => {
       1008,
       "secure_transport_required"
     );
+
+    const forgedProxySocket = { close: jest.fn() };
+    expect(
+      ensureSecureWebSocketRequest(
+        {
+          headers: {
+            "x-forwarded-proto": "https",
+            origin: "https://athena.example.com",
+          },
+        },
+        forgedProxySocket,
+        { NODE_ENV: "production" }
+      )
+    ).toBe(false);
+
+    const trustedProxySocket = { close: jest.fn() };
+    expect(
+      ensureSecureWebSocketRequest(
+        {
+          headers: {
+            "x-forwarded-proto": "https",
+            origin: "https://athena.example.com",
+          },
+        },
+        trustedProxySocket,
+        { NODE_ENV: "production", TRUST_PROXY: "true" }
+      )
+    ).toBe(true);
+
+    const insecureOriginSocket = { close: jest.fn() };
+    expect(
+      ensureSecureWebSocketRequest(
+        {
+          headers: {
+            "x-forwarded-proto": "https",
+            origin: "http://athena.example.com",
+          },
+        },
+        insecureOriginSocket,
+        { NODE_ENV: "production", TRUST_PROXY: "true" }
+      )
+    ).toBe(false);
+    expect(insecureOriginSocket.close).toHaveBeenCalledWith(
+      1008,
+      "secure_transport_required"
+    );
+  });
+
+  it("centralizes SSE proxy-safe transport headers", () => {
+    expect(sseTransportHeaders()).toMatchObject({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+
+    const response = responseDouble();
+    setSseTransportHeaders(response, {
+      "Access-Control-Allow-Origin": "*",
+    });
+    expect(response.headers).toMatchObject({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+      "Access-Control-Allow-Origin": "*",
+    });
+  });
+
+  it("returns a redacted transport security status summary", () => {
+    const status = transportSecurityStatus({
+      NODE_ENV: "production",
+      TRUST_PROXY: "true",
+      FORCE_HTTPS: "true",
+      PUBLIC_APP_URL: "https://athena.example.com",
+      HTTPS_KEY_PATH: "/secret/key.pem",
+    });
+
+    expect(status).toMatchObject({
+      mode: "trusted_proxy",
+      production: true,
+      httpsRequired: true,
+      trustProxyEnabled: true,
+      forceHttps: true,
+      publicAppUrlHttps: true,
+      hstsConfigured: true,
+      tlsMinVersion: "TLSv1.2",
+      tls13Recommended: true,
+      webSocketSecureRequired: true,
+    });
+    expect(JSON.stringify(status)).not.toContain("key.pem");
+    expect(status.sseHeaders["X-Accel-Buffering"]).toBe("no");
   });
 
   it("centralizes production-safe cookie defaults", () => {
@@ -190,7 +300,7 @@ describe("SSL boot transport fallback", () => {
     jest.restoreAllMocks();
   });
 
-  it("does not fall back to HTTP when production SSL boot fails", () => {
+  function mockBootDependencies() {
     jest.doMock("../../models/telemetry", () => ({
       Telemetry: { flush: jest.fn() },
     }));
@@ -214,6 +324,56 @@ describe("SSL boot transport fallback", () => {
     }));
     jest.doMock("../../utils/openclawWeixin", () => ({
       cleanupOpenClawWeixinLoginChild: jest.fn(),
+    }));
+  }
+
+  it("passes TLS1.2+ and strong cipher options to HTTPS server", () => {
+    mockBootDependencies();
+    const server = {
+      listen: jest.fn(function () {
+        return server;
+      }),
+      on: jest.fn(function () {
+        return server;
+      }),
+    };
+    const createServer = jest.fn(() => server);
+    jest.doMock("https", () => ({ createServer }));
+    jest.doMock("fs", () => ({
+      readFileSync: jest
+        .fn()
+        .mockReturnValueOnce(Buffer.from("KEY"))
+        .mockReturnValueOnce(Buffer.from("CERT")),
+    }));
+    jest.doMock("@mintplex-labs/express-ws", () => ({
+      default: jest.fn(),
+    }));
+    jest.spyOn(console, "log").mockImplementation(() => {});
+
+    process.env.NODE_ENV = "production";
+    process.env.ENABLE_HTTPS = "true";
+    process.env.HTTPS_KEY_PATH = "/certs/key.pem";
+    process.env.HTTPS_CERT_PATH = "/certs/cert.pem";
+
+    const { bootSSL } = require("../../utils/boot");
+    bootSSL({}, 3001);
+
+    expect(createServer).toHaveBeenCalledWith(
+      expect.objectContaining({
+        minVersion: "TLSv1.2",
+        honorCipherOrder: true,
+        ciphers: expect.stringContaining("ECDHE-RSA-AES256-GCM-SHA384"),
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it("does not fall back to HTTP when production SSL boot fails", () => {
+    mockBootDependencies();
+    jest.doMock("fs", () => ({
+      readFileSync: jest.fn(() => {
+        throw new Error("missing cert");
+      }),
     }));
     jest.spyOn(console, "error").mockImplementation(() => {});
 

@@ -62,6 +62,7 @@ const {
 const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
+const { UserStatePreference } = require("../models/userStatePreference");
 const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
 const { CollectorApi } = require("../utils/collectorApi");
 const {
@@ -103,6 +104,11 @@ const {
   resolveEffectivePolicy,
   auditLog,
 } = require("../utils/fileAccessPolicy");
+const {
+  parseNamespaceFilter,
+  validateUserStateInput,
+  validateUserStateScope,
+} = require("../utils/userStatePreferencePolicy");
 const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
 const { SystemPromptVariables } = require("../models/systemPromptVariables");
 const { VALID_COMMANDS } = require("../utils/chats");
@@ -132,6 +138,9 @@ const {
   diagnosticSummary,
   storagePath: environmentStoragePath,
 } = require("../utils/environment");
+const {
+  transportSecurityStatus,
+} = require("../utils/security/transportSecurity");
 
 function respondMemoryError(response, error, status = 500) {
   if (isMemorySchemaMissingError(error)) {
@@ -320,6 +329,17 @@ function systemEndpoints(app) {
   app.get("/ping", (_, response) => {
     response.status(200).json({ online: true });
   });
+
+  app.get(
+    "/system/transport-security/status",
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
+    (_, response) => {
+      response.status(200).json({
+        success: true,
+        ...transportSecurityStatus(),
+      });
+    }
+  );
 
   app.get("/auth/registration/config", async (_, response) => {
     try {
@@ -2501,6 +2521,126 @@ function systemEndpoints(app) {
       } catch (e) {
         console.error(e);
         respondMemoryError(response, e, 400);
+      }
+    }
+  );
+
+  app.get(
+    "/system/user/state",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          response.status(401).json({ success: false, error: "unauthorized" });
+          return;
+        }
+
+        const namespaces = parseNamespaceFilter(request.query?.namespaces);
+        const states = await UserStatePreference.where({
+          userId: sessionUser.id,
+          namespaces,
+        });
+        response.status(200).json({ success: true, states });
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Failed to load user state.",
+        });
+      }
+    }
+  );
+
+  app.patch(
+    "/system/user/state",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          response.status(401).json({ success: false, error: "unauthorized" });
+          return;
+        }
+
+        const { states = [] } = reqBody(request) || {};
+        if (!Array.isArray(states)) {
+          response
+            .status(400)
+            .json({ success: false, error: "states_must_be_array" });
+          return;
+        }
+
+        const validatedStates = [];
+        for (const state of states) {
+          const result = await validateUserStateInput({
+            request,
+            response,
+            state,
+          });
+          if (!result.ok) {
+            response
+              .status(result.status || 400)
+              .json({ success: false, error: result.error });
+            return;
+          }
+          validatedStates.push(result.state);
+        }
+
+        const saved = await UserStatePreference.upsertMany({
+          userId: sessionUser.id,
+          states: validatedStates,
+        });
+        response.status(200).json({ success: true, states: saved });
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Failed to save user state.",
+        });
+      }
+    }
+  );
+
+  app.delete(
+    "/system/user/state",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const sessionUser = await userFromSession(request, response);
+        if (!sessionUser?.id) {
+          response.status(401).json({ success: false, error: "unauthorized" });
+          return;
+        }
+
+        const { namespace, scope = null } = reqBody(request) || {};
+        const result = await validateUserStateScope({
+          request,
+          response,
+          namespace,
+          scope: scope || "global",
+        });
+        if (!result.ok) {
+          response
+            .status(result.status || 400)
+            .json({ success: false, error: result.error });
+          return;
+        }
+
+        const deleted = await UserStatePreference.delete({
+          userId: sessionUser.id,
+          namespace,
+          scope,
+        });
+        response
+          .status(200)
+          .json({ success: true, deletedCount: deleted.count });
+      } catch (e) {
+        console.error(e);
+        response.status(500).json({
+          success: false,
+          error: e.message || "Failed to delete user state.",
+        });
       }
     }
   );

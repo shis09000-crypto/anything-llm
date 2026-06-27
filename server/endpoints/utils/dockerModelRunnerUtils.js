@@ -5,6 +5,9 @@ const {
 } = require("../../utils/middleware/multiUserProtected");
 const { reqBody } = require("../../utils/http");
 const { safeJsonParse, decodeHtmlEntities } = require("../../utils/http");
+const {
+  sseTransportHeaders,
+} = require("../../utils/security/transportSecurity");
 
 function dockerModelRunnerUtilsEndpoints(app) {
   if (!app) return;
@@ -25,11 +28,7 @@ function dockerModelRunnerUtilsEndpoints(app) {
           )
         );
         dmrUrl.pathname = "/models/create";
-        response.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        });
+        response.writeHead(200, sseTransportHeaders());
 
         const dmrResponse = await fetch(dmrUrl.toString(), {
           method: "POST",

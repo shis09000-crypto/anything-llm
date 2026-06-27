@@ -14,10 +14,13 @@ import OnboardingFlow from "@/pages/OnboardingFlow";
 import "@/index.css";
 import { installEnvironmentStorageScope } from "@/utils/appEnvironment";
 import { isCryptoCenterDevAuthBypassEnabled } from "@/utils/cryptoCenterDevAuthBypass";
+import { installFontPlatformScope } from "@/utils/fontPlatform";
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
+
 installEnvironmentStorageScope();
+installFontPlatformScope();
 
 const router = createBrowserRouter([
   {
@@ -309,6 +312,17 @@ const router = createBrowserRouter([
             "@/pages/GeneralSettings/Settings/ButtonLab"
           );
           return { element: <ManagerRoute Component={ButtonLab} /> };
+        },
+      },
+      {
+        path: "/settings/mobile-page-experiment",
+        lazy: async () => {
+          const { default: MobilePageExperiment } = await import(
+            "@/pages/GeneralSettings/Settings/MobilePageExperiment"
+          );
+          return {
+            element: <DeveloperRoute Component={MobilePageExperiment} />,
+          };
         },
       },
       {

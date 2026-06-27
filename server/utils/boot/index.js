@@ -11,6 +11,27 @@ const { cleanupOpenClawWeixinLoginChild } = require("../openclawWeixin");
 
 let shutdownHooksRegistered = false;
 
+// TLS 1.3 cipher suites are selected by Node/OpenSSL automatically. The
+// explicit cipher list below constrains TLS 1.2 to modern AEAD suites.
+const STRONG_TLS_12_CIPHERS = [
+  "ECDHE-ECDSA-AES256-GCM-SHA384",
+  "ECDHE-RSA-AES256-GCM-SHA384",
+  "ECDHE-ECDSA-CHACHA20-POLY1305",
+  "ECDHE-RSA-CHACHA20-POLY1305",
+  "ECDHE-ECDSA-AES128-GCM-SHA256",
+  "ECDHE-RSA-AES128-GCM-SHA256",
+].join(":");
+
+function httpsServerOptions({ key, cert }) {
+  return {
+    key,
+    cert,
+    minVersion: "TLSv1.2",
+    honorCipherOrder: true,
+    ciphers: STRONG_TLS_12_CIPHERS,
+  };
+}
+
 // Testing SSL? You can make a self signed certificate and point the ENVs to that location
 // make a directory in server called 'sslcert' - cd into it
 // - openssl genrsa -aes256 -passout pass:gsahdg -out server.pass.key 4096
@@ -30,7 +51,10 @@ function bootSSL(app, port = 3001) {
     const https = require("https");
     const privateKey = fs.readFileSync(process.env.HTTPS_KEY_PATH);
     const certificate = fs.readFileSync(process.env.HTTPS_CERT_PATH);
-    const credentials = { key: privateKey, cert: certificate };
+    const credentials = httpsServerOptions({
+      key: privateKey,
+      cert: certificate,
+    });
     const server = https.createServer(credentials, app);
 
     server
@@ -125,4 +149,5 @@ function catchSigTerms() {
 module.exports = {
   bootHTTP,
   bootSSL,
+  httpsServerOptions,
 };

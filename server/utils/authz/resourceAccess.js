@@ -28,6 +28,7 @@ function resourceIdHash(resourceId = null) {
 }
 
 function recordResourceAccessAudit({
+  request = null,
   resourceType,
   resourceId = null,
   userId = null,
@@ -35,12 +36,20 @@ function recordResourceAccessAudit({
   reason = null,
 } = {}) {
   if (process.env.ATHENA_RESOURCE_ACCESS_DEBUG !== "1") return;
+  let clientMetadata = {};
+  if (request) {
+    try {
+      const { clientAuditMetadata } = require("../clientIdentity");
+      clientMetadata = clientAuditMetadata(request);
+    } catch {}
+  }
   console.debug("[resource-access]", {
     resourceType,
     resourceIdHash: resourceIdHash(resourceId),
     userId,
     result,
     reason,
+    ...clientMetadata,
   });
 }
 
@@ -172,6 +181,7 @@ async function getAuthorizedFileBackedResource({
   }
 
   recordResourceAccessAudit({
+    request,
     resourceType,
     resourceId,
     userId: auth.user?.id || null,
@@ -199,6 +209,7 @@ async function getAuthorizedWorkspace({
   const auth = await requestAuthContext({ request, response, token });
   if (!clause) {
     recordResourceAccessAudit({
+      request,
       resourceType: "workspace",
       userId: auth.user?.id || null,
       result: "denied",
@@ -208,6 +219,7 @@ async function getAuthorizedWorkspace({
   }
   if (auth.multiUser && !auth.authenticated) {
     recordResourceAccessAudit({
+      request,
       resourceType: "workspace",
       resourceId: workspaceId || workspaceSlug,
       result: "denied",
@@ -220,6 +232,7 @@ async function getAuthorizedWorkspace({
     ? await Workspace.getWithUser(auth.user, clause)
     : await Workspace.get(clause);
   recordResourceAccessAudit({
+    request,
     resourceType: "workspace",
     resourceId: workspace?.id || workspaceId || workspaceSlug,
     userId: auth.user?.id || null,
@@ -261,6 +274,7 @@ async function getAuthorizedWorkspaceThread({
     thread = await WorkspaceThread.get(threadClause);
   }
   recordResourceAccessAudit({
+    request,
     resourceType: "thread",
     resourceId: thread?.id || threadSlug,
     userId: auth.user?.id || null,
@@ -312,6 +326,7 @@ async function getScopedWorkspaceChat({
   if (!clause) return null;
   const chat = await WorkspaceChats.get(clause);
   recordResourceAccessAudit({
+    request: null,
     resourceType: "workspace_chat",
     resourceId: chatId,
     userId,
@@ -390,6 +405,7 @@ async function getAuthorizedParsedFile({
     parsedFile = await WorkspaceParsedFiles.get(parsedFileClause);
   }
   recordResourceAccessAudit({
+    request,
     resourceType: "parsed_file",
     resourceId: fileId,
     userId: auth.user?.id || null,
@@ -409,6 +425,7 @@ async function getAuthorizedAgentInvocation({
   const invocation = await WorkspaceAgentInvocation.get({ uuid: String(uuid) });
   if (!invocation) {
     recordResourceAccessAudit({
+      request,
       resourceType: "agent_invocation",
       resourceId: uuid,
       result: "denied",
@@ -430,6 +447,7 @@ async function getAuthorizedAgentInvocation({
     (auth.user?.id && Number(invocation.user_id) === Number(auth.user.id));
   const allowed = !!workspace && ownsInvocation;
   recordResourceAccessAudit({
+    request,
     resourceType: "agent_invocation",
     resourceId: uuid,
     userId: auth.user?.id || null,

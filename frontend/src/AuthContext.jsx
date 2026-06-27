@@ -1,7 +1,6 @@
 import React, { useState, createContext, useEffect } from "react";
 import {
   AUTH_TIMESTAMP,
-  AUTH_TOKEN,
   AUTH_USER,
   LAST_USER_ACTION_AT,
   USER_PROMPT_INPUT_MAP,
@@ -15,6 +14,11 @@ import {
   isCodexDevAuthBypassEnabled,
 } from "@/utils/codexDevAuthBypass";
 import { setLoginUserActionNow } from "@/utils/userAction";
+import {
+  getAuthToken,
+  removeAuthToken,
+  setAuthToken,
+} from "@/utils/authTokenStorage";
 
 export const AuthContext = createContext(null);
 
@@ -34,7 +38,7 @@ function codexDevAuthUser() {
 
 export function AuthProvider(props) {
   const localUser = localStorage.getItem(AUTH_USER);
-  const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+  const localAuthToken = getAuthToken();
   const codexDevAuthBypass = isCodexDevAuthBypassEnabled();
   const [store, setStore] = useState({
     user: codexDevAuthBypass
@@ -60,13 +64,13 @@ export function AuthProvider(props) {
   const [actions] = useState({
     updateUser: (user, authToken = "") => {
       localStorage.setItem(AUTH_USER, JSON.stringify(user));
-      localStorage.setItem(AUTH_TOKEN, authToken);
+      setAuthToken(authToken);
       setLoginUserActionNow();
       setStore({ user, authToken });
     },
     unsetUser: () => {
       localStorage.removeItem(AUTH_USER);
-      localStorage.removeItem(AUTH_TOKEN);
+      removeAuthToken();
       localStorage.removeItem(AUTH_TIMESTAMP);
       localStorage.removeItem(LAST_USER_ACTION_AT);
       localStorage.removeItem(USER_PROMPT_INPUT_MAP);
@@ -95,7 +99,7 @@ export function AuthProvider(props) {
 
       if (!success) {
         localStorage.removeItem(AUTH_USER);
-        localStorage.removeItem(AUTH_TOKEN);
+        removeAuthToken();
         localStorage.removeItem(AUTH_TIMESTAMP);
         localStorage.removeItem(LAST_USER_ACTION_AT);
         localStorage.removeItem(USER_PROMPT_INPUT_MAP);

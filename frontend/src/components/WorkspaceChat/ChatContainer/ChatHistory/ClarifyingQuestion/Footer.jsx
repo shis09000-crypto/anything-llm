@@ -13,13 +13,14 @@ function ProgressIndicator({ answeredCount, total }) {
   );
 }
 
-function SkipButton({ isSingle, onClick }) {
+function SkipButton({ isSingle, onClick, disabled = false }) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="border-none text-white light:text-slate-900 text-sm font-medium px-3 py-2 rounded-lg hover:bg-white/5 light:hover:bg-slate-300 flex items-center gap-1"
+      className="border-none text-white light:text-slate-900 text-sm font-medium px-3 py-2 rounded-lg hover:bg-white/5 light:hover:bg-slate-300 flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
     >
       <SkipForward size={14} />
       {isSingle
@@ -29,13 +30,14 @@ function SkipButton({ isSingle, onClick }) {
   );
 }
 
-function SubmitButton({ isSingle, onClick }) {
+function SubmitButton({ isSingle, onClick, disabled = false }) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-1"
+      className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
     >
       <Check size={14} weight="bold" />
       {isSingle
@@ -45,13 +47,14 @@ function SubmitButton({ isSingle, onClick }) {
   );
 }
 
-function NextButton({ onClick }) {
+function NextButton({ onClick, disabled = false }) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onClick}
-      className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-1"
+      className="border-none transition-all duration-300 bg-white text-black hover:opacity-60 px-4 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-60 disabled:cursor-not-allowed"
     >
       {t("chat_window.agent_invocation.batch_next")}
       <ArrowRight size={14} weight="bold" />
@@ -68,6 +71,7 @@ export default function Footer({
   onSkipThis,
   onNext,
   onSubmitAll,
+  disabled = false,
 }) {
   return (
     <div className="flex items-center justify-between gap-2 mt-1">
@@ -75,11 +79,21 @@ export default function Footer({
         <ProgressIndicator answeredCount={answeredCount} total={total} />
       )}
       <div className="flex items-center gap-2 ml-auto">
-        {allowSkip && <SkipButton isSingle={isSingle} onClick={onSkipThis} />}
+        {allowSkip && (
+          <SkipButton
+            isSingle={isSingle}
+            onClick={onSkipThis}
+            disabled={disabled}
+          />
+        )}
         {isLast ? (
-          <SubmitButton isSingle={isSingle} onClick={onSubmitAll} />
+          <SubmitButton
+            isSingle={isSingle}
+            onClick={onSubmitAll}
+            disabled={disabled}
+          />
         ) : (
-          <NextButton onClick={onNext} />
+          <NextButton onClick={onNext} disabled={disabled} />
         )}
       </div>
     </div>

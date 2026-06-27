@@ -6,6 +6,9 @@ const { reqBody } = require("../../../utils/http");
 const prisma = require("../../../utils/prisma");
 const { getModelTag } = require("../../utils");
 const { MobileDevice } = require("../../../models/mobileDevice");
+const {
+  setSseTransportHeaders,
+} = require("../../../utils/security/transportSecurity");
 
 /**
  *
@@ -161,10 +164,9 @@ async function handleMobileCommand(request, response) {
         })
       : null;
 
-    response.setHeader("Cache-Control", "no-cache");
-    response.setHeader("Content-Type", "text/event-stream");
-    response.setHeader("Access-Control-Allow-Origin", "*");
-    response.setHeader("Connection", "keep-alive");
+    setSseTransportHeaders(response, {
+      "Access-Control-Allow-Origin": "*",
+    });
     response.flushHeaders();
     await ApiChatHandler.streamChat({
       response,

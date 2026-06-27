@@ -31,6 +31,14 @@ import {
 } from "@/utils/authz";
 
 const CHAT_PAGE_SIZE = 15;
+const ADMIN_PANEL_SECTION_IDS = new Set([
+  "admin",
+  "admin-users",
+  "admin-workspaces",
+  "admin-chats",
+  "admin-invites",
+  "admin-default-prompt",
+]);
 
 function canModifyUser(actor, target) {
   const actorRole = normalizeRole(actor?.role);
@@ -165,7 +173,7 @@ function AppleTable({ columns, children, minWidth = "min-w-[720px]" }) {
   );
 }
 
-export default function AdminPanel({ currentUser }) {
+export default function AdminPanel({ currentUser, activeSection = null }) {
   const [users, setUsers] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -250,6 +258,11 @@ export default function AdminPanel({ currentUser }) {
 
   const workspaceCount = workspaces.length;
   const userCount = users.length;
+  const normalizedActiveSection = ADMIN_PANEL_SECTION_IDS.has(activeSection)
+    ? activeSection
+    : null;
+  const shouldRenderSection = (sectionId) =>
+    !normalizedActiveSection || normalizedActiveSection === sectionId;
   const pendingInvites = useMemo(
     () => invites.filter((invite) => invite.status === "pending").length,
     [invites]
@@ -257,7 +270,7 @@ export default function AdminPanel({ currentUser }) {
 
   if (loading) {
     return (
-      <section id="admin" className="account-card">
+      <section id={normalizedActiveSection || "admin"} className="account-card">
         <div className="h-32 animate-pulse rounded-2xl bg-slate-100" />
       </section>
     );
@@ -265,72 +278,84 @@ export default function AdminPanel({ currentUser }) {
 
   return (
     <>
-      <section id="admin" className="account-card">
-        <div className="mb-2 px-1 pb-3">
-          <h2 className="text-lg font-semibold text-slate-950">概览</h2>
-          <p className="mt-1 text-sm leading-5 text-slate-500">
-            查看当前实例的关键账户与工作区指标。
-          </p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-400">用户</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {userCount}
+      {shouldRenderSection("admin") && (
+        <section id="admin" className="account-card">
+          <div className="mb-2 px-1 pb-3">
+            <h2 className="text-lg font-semibold text-slate-950">概览</h2>
+            <p className="mt-1 text-sm leading-5 text-slate-500">
+              查看当前实例的关键账户与工作区指标。
             </p>
           </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-400">工作区</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {workspaceCount}
-            </p>
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-semibold text-slate-400">用户</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {userCount}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-semibold text-slate-400">工作区</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {workspaceCount}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs font-semibold text-slate-400">待领取邀请</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {pendingInvites}
+              </p>
+            </div>
           </div>
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-xs font-semibold text-slate-400">待领取邀请</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {pendingInvites}
-            </p>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
-      <AdminUsersCard
-        currentUser={currentUser}
-        users={users}
-        refreshUsers={refreshUsers}
-      />
-      <AdminWorkspacesCard
-        workspaces={workspaces}
-        workspaceName={workspaceName}
-        setWorkspaceName={setWorkspaceName}
-        creatingWorkspace={creatingWorkspace}
-        setCreatingWorkspace={setCreatingWorkspace}
-        refreshWorkspaces={refreshWorkspaces}
-      />
-      <AdminChatsCard
-        chats={chats}
-        setChats={setChats}
-        chatOffset={chatOffset}
-        setChatOffset={setChatOffset}
-        canNextChatPage={canNextChatPage}
-        totalChats={totalChats}
-        setTotalChats={setTotalChats}
-        hasExactChatTotal={hasExactChatTotal}
-        refreshChats={refreshChats}
-      />
-      <AdminInvitesCard
-        invites={invites}
-        allowPublicRegistration={allowPublicRegistration}
-        savingRegistration={savingRegistration}
-        setSavingRegistration={setSavingRegistration}
-        refreshInvites={refreshInvites}
-        refreshRegistrationSetting={refreshRegistrationSetting}
-        openInviteModal={inviteModal.openModal}
-      />
-      <AdminDefaultPromptCard
-        defaultPrompt={defaultPrompt}
-        setDefaultPrompt={setDefaultPrompt}
-      />
+      {shouldRenderSection("admin-users") && (
+        <AdminUsersCard
+          currentUser={currentUser}
+          users={users}
+          refreshUsers={refreshUsers}
+        />
+      )}
+      {shouldRenderSection("admin-workspaces") && (
+        <AdminWorkspacesCard
+          workspaces={workspaces}
+          workspaceName={workspaceName}
+          setWorkspaceName={setWorkspaceName}
+          creatingWorkspace={creatingWorkspace}
+          setCreatingWorkspace={setCreatingWorkspace}
+          refreshWorkspaces={refreshWorkspaces}
+        />
+      )}
+      {shouldRenderSection("admin-chats") && (
+        <AdminChatsCard
+          chats={chats}
+          setChats={setChats}
+          chatOffset={chatOffset}
+          setChatOffset={setChatOffset}
+          canNextChatPage={canNextChatPage}
+          totalChats={totalChats}
+          setTotalChats={setTotalChats}
+          hasExactChatTotal={hasExactChatTotal}
+          refreshChats={refreshChats}
+        />
+      )}
+      {shouldRenderSection("admin-invites") && (
+        <AdminInvitesCard
+          invites={invites}
+          allowPublicRegistration={allowPublicRegistration}
+          savingRegistration={savingRegistration}
+          setSavingRegistration={setSavingRegistration}
+          refreshInvites={refreshInvites}
+          refreshRegistrationSetting={refreshRegistrationSetting}
+          openInviteModal={inviteModal.openModal}
+        />
+      )}
+      {shouldRenderSection("admin-default-prompt") && (
+        <AdminDefaultPromptCard
+          defaultPrompt={defaultPrompt}
+          setDefaultPrompt={setDefaultPrompt}
+        />
+      )}
 
       <ModalWrapper isOpen={inviteModal.isOpen}>
         <NewInviteModal
@@ -859,7 +884,9 @@ function AdminChatsCard({
                 leftIcon={<CaretRight className="h-4 w-4" />}
                 aria-label="下一页"
                 disabled={
-                  hasExactChatTotal ? currentPage >= totalPages : !canNextChatPage
+                  hasExactChatTotal
+                    ? currentPage >= totalPages
+                    : !canNextChatPage
                 }
                 onClick={() => setChatOffset(chatOffset + 1)}
               />

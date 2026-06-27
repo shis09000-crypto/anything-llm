@@ -375,6 +375,12 @@ const SidebarOptions = ({ user = null, t }) => {
                 roles: ["admin"],
               },
               {
+                btnText: t("settings.mobile-page-experiment"),
+                href: paths.settings.mobilePageExperiment(),
+                flex: true,
+                roles: ["developer", "admin"],
+              },
+              {
                 btnText: t("settings.crypto-component-experiment"),
                 href: paths.settings.cryptoComponentExperiment(),
                 flex: true,

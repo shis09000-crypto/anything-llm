@@ -39,7 +39,11 @@ class ContextWindowFinder {
       fs.mkdirSync(this.cacheLocation, { recursive: true });
 
     // If the cache is stale or not found at all, pull the model map from remote
-    if (this.isCacheStale || !fs.existsSync(this.cacheFilePath)) {
+    if (
+      process.env.NODE_ENV !== "test" &&
+      process.env.ATHENA_DISABLE_REMOTE_MODEL_MAP !== "true" &&
+      (this.isCacheStale || !fs.existsSync(this.cacheFilePath))
+    ) {
       this.#pullRemoteModelMap().catch((err) =>
         this.log("Background model map pull failed:", err)
       );

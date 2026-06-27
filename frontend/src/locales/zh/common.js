@@ -114,6 +114,7 @@ const TRANSLATIONS = {
     embeds: "嵌入式对话",
     security: "用户与安全",
     "button-lab": "按钮实验",
+    "mobile-page-experiment": "移动端页面试验区",
     "crypto-component-experiment": "加密组件实验",
     "crypto-center": "Crypto Center",
     "event-logs": "事件日志",
@@ -1367,12 +1368,12 @@ const readable = true;
       },
       alibaba: {
         name: "阿里百炼 DashScope",
-        description: "通过 OpenAI-compatible API 使用阿里云 DashScope Qwen 模型。",
+        description:
+          "通过 OpenAI-compatible API 使用阿里云 DashScope Qwen 模型。",
       },
     },
     model: "搜索模型",
-    noneHelp:
-      "当前不会调用托管搜索模型。这个设置独立于网络搜索引擎提供商。",
+    noneHelp: "当前不会调用托管搜索模型。这个设置独立于网络搜索引擎提供商。",
     help: "阿里百炼搜索模型使用 DashScope OpenAI-compatible 接口。请填写 DashScope API Key、Base URL 和模型名。",
     save: "保存更改",
     saving: "正在保存...",
@@ -1970,6 +1971,7 @@ const readable = true;
       clarifying_other_placeholder: "输入你的答案",
       clarifying_recommended: "推荐",
       clarifying_backup: "备选",
+      clarifying_send_failed: "回答发送失败，请重试。",
       batch_progress: "已回答 {{answered}} / {{total}}",
       batch_skip_this: "跳过",
       batch_submit_all: "全部提交",

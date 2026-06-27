@@ -1,18 +1,12 @@
 const { SystemSettings } = require("../../../../models/systemSettings");
 
-const VALID_INPUT_TYPES = [
-  "text",
-  "url",
-  "number",
-  "date",
-  "email",
-  "textarea",
-];
-
+const REQUEST_USER_INPUT_TOOL_NAME = "request-user-input";
 const HARD_MAX_PER_TURN = 3;
 const MAX_QUESTION_CHARS = 150;
 const MAX_CHOICE_OPTIONS = 3;
-const DEFAULT_TIMEOUT_MS = 120_000;
+const DEFAULT_TIMEOUT_MS = 180_000;
+const CHOICE_ONLY_REPAIR_MESSAGE =
+  "[request-user-input requires choice questions only. Re-call request-user-input with 1-3 questions where every question has kind='choice' and exactly three non-empty guessed options ordered by recommendation strength. Do not use kind='input'; the UI automatically adds a fourth custom answer field.]";
 
 function truncateUnicode(value = "", maxChars = MAX_QUESTION_CHARS) {
   const chars = Array.from(String(value || "").trim());
@@ -78,48 +72,53 @@ async function ensureState(aibitat) {
   return aibitat._clarifyState;
 }
 
+function choiceRepairMessage(reason = null) {
+  return reason
+    ? `${CHOICE_ONLY_REPAIR_MESSAGE} Reason: ${reason}.`
+    : CHOICE_ONLY_REPAIR_MESSAGE;
+}
+
 /**
- * Validate and normalize a single question. Drops malformed entries rather
- * than rejecting the whole call.
+ * Validate and normalize a single choice question. Invalid entries reject the
+ * whole request so the model retries instead of rendering a partial prompt.
  */
-function normalizeQuestion(raw) {
-  if (!raw || typeof raw !== "object") return null;
-  if (typeof raw.question !== "string" || !raw.question.trim()) return null;
+function normalizeChoiceQuestion(raw) {
+  if (!raw || typeof raw !== "object")
+    return { error: "question must be an object" };
+  if (typeof raw.question !== "string" || !raw.question.trim())
+    return { error: "question must be a non-empty string" };
+  if (raw.kind !== "choice")
+    return { error: "kind must be 'choice'; free-form input questions are not allowed" };
 
-  if (raw.kind === "input") {
-    const inputType = VALID_INPUT_TYPES.includes(raw.inputType)
-      ? raw.inputType
-      : "text";
+  const options = Array.isArray(raw.options)
+    ? raw.options.map((option) => String(option || "").trim()).filter(Boolean)
+    : [];
+  if (options.length !== MAX_CHOICE_OPTIONS)
     return {
-      kind: "input",
-      question: truncateUnicode(raw.question),
-      inputType,
-      placeholder: typeof raw.placeholder === "string" ? raw.placeholder : null,
+      error: `choice questions must include exactly ${MAX_CHOICE_OPTIONS} non-empty options`,
     };
-  }
 
-  if (raw.kind === "choice") {
-    if (!Array.isArray(raw.options) || raw.options.length < 1) return null;
-    return {
+  return {
+    question: {
       kind: "choice",
       question: truncateUnicode(raw.question),
-      options: raw.options.slice(0, MAX_CHOICE_OPTIONS).map(String),
+      options,
       optionDescriptions: Array.isArray(raw.optionDescriptions)
-        ? raw.optionDescriptions.slice(0, MAX_CHOICE_OPTIONS).map(String)
+        ? raw.optionDescriptions
+            .slice(0, MAX_CHOICE_OPTIONS)
+            .map((description) => String(description || "").trim())
         : [],
       multiSelect: false,
       allowOther: true,
-    };
-  }
-
-  return null;
+    },
+  };
 }
 
 const AskUser = {
-  name: "request-user-input",
+  name: REQUEST_USER_INPUT_TOOL_NAME,
   plugin: function () {
     return {
-      name: "request-user-input",
+      name: REQUEST_USER_INPUT_TOOL_NAME,
       setup(aibitat) {
         // Skip when the runtime can't actually prompt the user. The websocket
         // plugin attaches requestUserClarification only when a socket is present.
@@ -127,13 +126,13 @@ const AskUser = {
 
         aibitat.function({
           super: aibitat,
-          name: "request-user-input",
+          name: REQUEST_USER_INPUT_TOOL_NAME,
           description:
-            "Prompt the user for input via an interactive form. " +
+            "Prompt the user with multiple-choice clarification questions via an interactive form. " +
             "This is the ONLY way to ask the user questions - text responses cannot receive replies. " +
             "Call this tool when you need a URL, file path, name, date, preference, or any other detail to proceed. " +
             "Ask at most 3 questions per turn, and keep each question under 150 Unicode characters. " +
-            "For choice questions, provide exactly three guessed options when possible: option 1 is your best recommendation, options 2 and 3 are backups. The user will always have a custom answer input after those options. " +
+            "Every question MUST be kind='choice' with exactly three guessed options: option 1 is your best recommendation, options 2 and 3 are backups. The user will always have a fourth custom answer input after those options. " +
             "The user will see a form and their answers are returned to you.",
           examples: [
             {
@@ -141,9 +140,13 @@ const AskUser = {
               call: JSON.stringify({
                 questions: [
                   {
-                    kind: "input",
+                    kind: "choice",
                     question: "Which URL would you like me to scrape?",
-                    inputType: "url",
+                    options: [
+                      "Use the URL already mentioned in this chat",
+                      "Use the currently open browser page",
+                      "Use the project documentation URL",
+                    ],
                   },
                 ],
               }),
@@ -153,14 +156,22 @@ const AskUser = {
               call: JSON.stringify({
                 questions: [
                   {
-                    kind: "input",
+                    kind: "choice",
                     question: "What is the product or feature?",
-                    inputType: "text",
+                    options: [
+                      "New user onboarding",
+                      "Team admin controls",
+                      "Search and discovery",
+                    ],
                   },
                   {
-                    kind: "input",
+                    kind: "choice",
                     question: "Who are the target users?",
-                    inputType: "text",
+                    options: [
+                      "New customers",
+                      "Power users",
+                      "Internal operators",
+                    ],
                   },
                   {
                     kind: "choice",
@@ -188,13 +199,14 @@ const AskUser = {
                   "Array of independent question objects. Batch only when they do not depend on each other.",
                 items: {
                   type: "object",
-                  required: ["kind", "question"],
+                  required: ["kind", "question", "options"],
+                  additionalProperties: false,
                   properties: {
                     kind: {
                       type: "string",
-                      enum: ["input", "choice"],
+                      enum: ["choice"],
                       description:
-                        "'input' for free-form, 'choice' for a fixed list.",
+                        "Must be 'choice'. The UI adds a fourth custom free-form answer input automatically.",
                     },
                     question: {
                       type: "string",
@@ -202,20 +214,13 @@ const AskUser = {
                       description:
                         "The question to show the user. Keep it under 150 Unicode characters.",
                     },
-                    inputType: {
-                      type: "string",
-                      enum: VALID_INPUT_TYPES,
-                      description:
-                        "Required when kind='input'. text|url|number|date|email|textarea.",
-                    },
-                    placeholder: { type: "string" },
                     options: {
                       type: "array",
-                      minItems: 1,
+                      minItems: MAX_CHOICE_OPTIONS,
                       maxItems: MAX_CHOICE_OPTIONS,
                       items: { type: "string" },
                       description:
-                        "Required when kind='choice'. Provide up to three model-guessed options ordered by recommendation strength: option 1 is the best recommendation, options 2 and 3 are backups. The UI always adds a custom answer input after these options.",
+                        "Exactly three non-empty model-guessed options ordered by recommendation strength: option 1 is the best recommendation, options 2 and 3 are backups. The UI always adds a custom answer input after these options.",
                     },
                     optionDescriptions: {
                       type: "array",
@@ -239,11 +244,12 @@ const AskUser = {
             if (!Array.isArray(questions) || questions.length < 1)
               return "[ask-user requires a 'questions' array with at least 1 entry]";
 
-            const normalized = questions
-              .map((q) => normalizeQuestion(q))
-              .filter((q) => !!q);
-            if (normalized.length < 1)
-              return "[ask-user received no well-formed questions after validation]";
+            const normalizedResults = questions.map((q) =>
+              normalizeChoiceQuestion(q)
+            );
+            const invalid = normalizedResults.find((result) => result.error);
+            if (invalid) return choiceRepairMessage(invalid.error);
+            const normalized = normalizedResults.map((result) => result.question);
 
             const state = await ensureState(this.super);
             const remaining = state.maxPerTurn - state.asked;
@@ -285,7 +291,7 @@ const AskUser = {
 };
 
 const requestUserInput = {
-  name: "request-user-input",
+  name: REQUEST_USER_INPUT_TOOL_NAME,
   startupConfig: {
     params: {},
   },
@@ -293,9 +299,13 @@ const requestUserInput = {
 };
 
 module.exports = {
+  REQUEST_USER_INPUT_TOOL_NAME,
   requestUserInput,
+  normalizeChoiceQuestion,
+  choiceRepairMessage,
   formatAnswersForAgent,
   formatAnswersForPromptTail,
   HARD_MAX_PER_TURN,
   MAX_QUESTION_CHARS,
+  MAX_CHOICE_OPTIONS,
 };

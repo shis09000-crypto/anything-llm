@@ -2,10 +2,15 @@ import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
 import { assertSecureHttpUrl } from "./transportSecurity";
-
-function createRequestId() {
-  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-}
+import {
+  createCommunicationRequestId,
+  withClientIdentityHeaders,
+} from "./clientIdentity";
+import {
+  clearSigningSecretCache,
+  isRecoverableSigningError,
+  maybeSignedRequestHeaders,
+} from "./requestSigningClient";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -65,29 +70,30 @@ export function apiUrl(path = "") {
   );
 }
 
-export function jsonHeaders(headers = {}, { includeBaseHeaders = true } = {}) {
-  return cleanHeaders({
-    ...(includeBaseHeaders ? baseHeaders() : {}),
-    "Content-Type": "application/json",
-    ...headers,
-  });
+export function jsonHeaders(
+  headers = {},
+  { includeBaseHeaders = true, requestId } = {}
+) {
+  return withClientIdentityHeaders(
+    {
+      ...(includeBaseHeaders ? baseHeaders() : {}),
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    { requestId }
+  );
 }
 
 export function formDataHeaders(
   headers = {},
-  { includeBaseHeaders = true } = {}
+  { includeBaseHeaders = true, requestId } = {}
 ) {
-  return cleanHeaders({
-    ...(includeBaseHeaders ? baseHeaders() : {}),
-    ...headers,
-  });
-}
-
-function cleanHeaders(headers = {}) {
-  return Object.fromEntries(
-    Object.entries(headers).filter(
-      ([, value]) => value !== null && value !== undefined
-    )
+  return withClientIdentityHeaders(
+    {
+      ...(includeBaseHeaders ? baseHeaders() : {}),
+      ...headers,
+    },
+    { requestId }
   );
 }
 
@@ -111,12 +117,19 @@ export async function requestJson(path, options = {}) {
     includeBaseHeaders = true,
     retryAttempt = 0,
     rawBody = false,
+    signing = "auto",
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
-  const requestId = createRequestId();
+  const requestId = createCommunicationRequestId();
   const startedAt = nowMs();
   const signalState = requestSignal({ signal, timeoutMs });
+  const url = apiUrl(path);
+  const bodyString = rawBody
+    ? body || ""
+    : body === undefined
+      ? ""
+      : JSON.stringify(body);
 
   if (retryAttempt > 0) {
     devLog("retry", {
@@ -133,20 +146,64 @@ export async function requestJson(path, options = {}) {
   });
 
   try {
-    const response = await fetch(apiUrl(path), {
+    const signingResult = await maybeSignedRequestHeaders({
       method: normalizedMethod,
-      headers: jsonHeaders(headers, { includeBaseHeaders }),
-      body: rawBody
-        ? body
-        : body === undefined
-          ? undefined
-          : JSON.stringify(body),
+      path,
+      url,
+      requestId,
+      bodyString,
+      signal: signalState.signal,
+      signing,
+    });
+    const response = await fetch(url, {
+      method: normalizedMethod,
+      headers: {
+        ...jsonHeaders(headers, { includeBaseHeaders, requestId }),
+        ...signingResult.headers,
+      },
+      body: bodyString ? bodyString : undefined,
       signal: signalState.signal,
       ...rest,
     });
     const data = await parseJsonResponse(response);
     if (!response.ok) {
+      if (
+        signingResult.signed &&
+        retryAttempt < 1 &&
+        isRecoverableSigningError(data?.error)
+      ) {
+        clearSigningSecretCache();
+        devLog("retry", {
+          requestId,
+          method: normalizedMethod,
+          path,
+          status: response.status,
+          reason: data?.error,
+          retryAttempt: retryAttempt + 1,
+        });
+        return requestJson(path, {
+          method,
+          body,
+          headers,
+          signal,
+          timeoutMs,
+          includeBaseHeaders,
+          retryAttempt: retryAttempt + 1,
+          rawBody,
+          signing,
+          ...rest,
+        });
+      }
+      if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) {
+        clearSigningSecretCache();
+      }
       const apiError = normalizeApiError(null, response, {
+        code:
+          data?.error === API_ERROR_CODES.CLIENT_REVOKED
+            ? API_ERROR_CODES.CLIENT_REVOKED
+            : isRecoverableSigningError(data?.error)
+              ? data.error
+              : undefined,
         details: { requestId, method: normalizedMethod, path },
         raw: data,
       });
@@ -156,6 +213,7 @@ export async function requestJson(path, options = {}) {
         path,
         status: response.status,
         durationMs: durationSince(startedAt),
+        signed: signingResult.signed,
       });
       throw apiError;
     }
@@ -166,6 +224,7 @@ export async function requestJson(path, options = {}) {
       path,
       status: response.status,
       durationMs: durationSince(startedAt),
+      signed: signingResult.signed,
     });
     return { response, data, requestId };
   } catch (error) {

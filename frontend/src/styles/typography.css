@@ -1,0 +1,67 @@
+* {
+  -webkit-font-smoothing: antialiased;
+}
+
+:root {
+  --athena-font-apple:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", sans-serif;
+  --athena-font-cjk:
+    "Athena Noto Sans SC", "Noto Sans SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", sans-serif;
+  --athena-font-sans: var(--athena-font-cjk);
+}
+
+html[data-font-platform="apple"] {
+  --athena-font-sans: var(--athena-font-apple);
+}
+
+html[data-font-platform="cjk-webfont"] {
+  --athena-font-sans: var(--athena-font-cjk);
+}
+
+@font-face {
+  font-family: "Athena Noto Sans SC";
+  src: url("/fonts/NotoSansSC-VF.ttf") format("truetype");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 100 900;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: var(--athena-font-sans);
+  background-color: white;
+}
+
+body button,
+body input,
+body textarea,
+body select {
+  font-family: var(--athena-font-sans);
+}
+
+@media (min-width: 769px) {
+  #chat-history,
+  #chat-history *,
+  #primary-prompt-input {
+    font-family: var(--athena-font-sans) !important;
+  }
+
+  #chat-history .font-black {
+    font-weight: 500 !important;
+  }
+
+  #chat-history .font-bold,
+  #chat-history .font-semibold,
+  #primary-prompt-input.font-semibold {
+    font-weight: 400 !important;
+  }
+
+  #chat-history strong,
+  #chat-history b {
+    font-weight: 500 !important;
+  }
+}

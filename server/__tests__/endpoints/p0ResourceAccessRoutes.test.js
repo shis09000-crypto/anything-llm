@@ -175,8 +175,15 @@ function loadAgentRoutes() {
     getAuthorizedAgentInvocation: (...args) =>
       mockGetAuthorizedAgentInvocation(...args),
   }));
+  jest.doMock("../../utils/clientIdentity", () => ({
+    attachAuthenticatedClientContext: jest.fn(),
+    recordClientTrustCheckpoint: jest.fn(),
+  }));
   jest.doMock("../../utils/middleware/validatedRequest", () => ({
     validatedRequest: (_request, _response, next) => next?.(),
+  }));
+  jest.doMock("../../utils/security/transportSecurity", () => ({
+    ensureSecureWebSocketRequest: jest.fn(() => true),
   }));
 
   const app = captureApp();
@@ -184,6 +191,8 @@ function loadAgentRoutes() {
   agentWebsocket(app);
   return {
     stateRoute: app.routes.get["/agent-invocation/:uuid/state"],
+    clarificationRoute:
+      app.routes.post["/agent-invocation/:uuid/clarification-response"],
     socketRoute: app.routes.ws["/agent-invocation/:uuid"],
   };
 }
@@ -291,5 +300,123 @@ describe("P0 resource access route guards", () => {
 
     expect(socket.close).toHaveBeenCalledWith(1008);
     expect(mockAgentHandlerInit).not.toHaveBeenCalled();
+  });
+
+  it("hides clarification fallback when the invocation is not authorized", async () => {
+    mockGetAuthorizedAgentInvocation.mockResolvedValue(null);
+    const { clarificationRoute } = loadAgentRoutes();
+    const res = response();
+
+    await clarificationRoute(
+      { params: { uuid: "agent-uuid" }, body: { requestId: "r1" } },
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: "agent_invocation_not_found",
+    });
+  });
+
+  it("returns an explicit fallback error when no active agent session exists", async () => {
+    mockGetAuthorizedAgentInvocation.mockResolvedValue({
+      invocation: { uuid: "agent-uuid", closed: false },
+      user: { id: 10 },
+    });
+    const { clarificationRoute } = loadAgentRoutes();
+    const res = response();
+
+    await clarificationRoute(
+      { params: { uuid: "agent-uuid" }, body: { requestId: "r1" } },
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: "agent_session_not_active",
+    });
+  });
+
+  it("relays clarification fallback only to the active matching request", async () => {
+    let activeBridge = null;
+    const handledMessages = [];
+    mockGetAuthorizedAgentInvocation.mockResolvedValue({
+      invocation: { uuid: "agent-uuid", closed: false },
+      user: { id: 10 },
+    });
+    mockAgentHandlerInit.mockResolvedValue({
+      invocation: { uuid: "agent-uuid" },
+      provider: "debug",
+      model: "debug-model",
+      createAIbitat: jest.fn(async ({ socket }) => {
+        activeBridge = socket;
+        socket.activeClarificationRequest = { requestId: "r1" };
+        socket.handleClarificationResponse = (message) => {
+          handledMessages.push(JSON.parse(message));
+          delete socket.activeClarificationRequest;
+          delete socket.handleClarificationResponse;
+          return { ok: true };
+        };
+      }),
+      startAgentCluster: jest.fn(),
+      closeAlert: jest.fn(),
+      log: jest.fn(),
+      aibitat: { abort: jest.fn() },
+    });
+    const { clarificationRoute, socketRoute } = loadAgentRoutes();
+    const socket = {
+      readyState: 1,
+      send: jest.fn(),
+      close: jest.fn(),
+      on: jest.fn(),
+    };
+
+    await socketRoute(socket, {
+      params: { uuid: "agent-uuid" },
+      query: {},
+    });
+
+    expect(activeBridge).toBeTruthy();
+
+    const mismatchRes = response();
+    await clarificationRoute(
+      {
+        params: { uuid: "agent-uuid" },
+        body: { requestId: "other", answers: [{ answer: "no" }] },
+      },
+      mismatchRes
+    );
+
+    expect(mismatchRes.status).toHaveBeenCalledWith(409);
+    expect(mismatchRes.json).toHaveBeenCalledWith({
+      success: false,
+      error: "request_id_mismatch",
+    });
+    expect(handledMessages).toEqual([]);
+
+    const res = response();
+    await clarificationRoute(
+      {
+        params: { uuid: "agent-uuid" },
+        body: { requestId: "r1", answers: [{ answer: "yes" }] },
+      },
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      requestId: "r1",
+    });
+    expect(handledMessages).toEqual([
+      {
+        type: "clarificationResponse",
+        requestId: "r1",
+        skipped: false,
+        answers: [{ answer: "yes" }],
+      },
+    ]);
   });
 });

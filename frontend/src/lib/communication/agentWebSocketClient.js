@@ -1,18 +1,27 @@
 import { useEffect, useState } from "react";
-import { API_BASE, AUTH_TOKEN } from "@/utils/constants";
+import { API_BASE } from "@/utils/constants";
 import {
   CODEX_DEV_AUTH_BYPASS_KEY,
   CODEX_DEV_AUTH_BYPASS_QUERY,
   isCodexDevAuthBypassEnabled,
 } from "@/utils/codexDevAuthBypass";
 import { requestJson } from "./apiClient";
-import { createWebSocket, safeClose, safeSendJson } from "./webSocketClient";
+import {
+  createWebSocket,
+  safeClose,
+  safeSendSignedJson,
+} from "./webSocketClient";
 import { webSocketOriginForHttpBase } from "./transportSecurity";
 import {
   debugAgentProtocolEvent,
   normalizeAgentWebSocketEvent,
   parseAgentWebSocketMessage,
 } from "./agentWebSocketProtocol";
+import {
+  clearSigningSecretCache,
+  isRecoverableSigningError,
+} from "./requestSigningClient";
+import { getAuthToken } from "@/utils/authTokenStorage";
 
 export const AgentSessionState = {
   IDLE: "idle",
@@ -73,10 +82,7 @@ export function useIsAgentSessionActive() {
 }
 
 export function agentWebSocketURI() {
-  const apiBase =
-    API_BASE === "/api"
-      ? window.location.origin
-      : import.meta.env.VITE_API_BASE || API_BASE;
+  const apiBase = API_BASE === "/api" ? window.location.origin : API_BASE;
   return webSocketOriginForHttpBase(apiBase, { kind: "agent_websocket" });
 }
 
@@ -85,10 +91,7 @@ export function agentWebSocketUrl(
   { resume = false, lastEventSeq = 0 } = {}
 ) {
   const query = new URLSearchParams();
-  const token =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem(AUTH_TOKEN)
-      : null;
+  const token = typeof window !== "undefined" ? getAuthToken() : null;
   if (token) query.set("token", token);
   if (isCodexDevAuthBypassEnabled()) {
     query.set(CODEX_DEV_AUTH_BYPASS_QUERY, CODEX_DEV_AUTH_BYPASS_KEY);
@@ -129,13 +132,34 @@ function isMeaningfulAgentEvent(event = {}) {
     "tool_result",
     "approval_request",
     "approval_result",
-    "clarification_request",
-    "clarification_result",
   ].includes(event.event?.type);
 }
 
 function isTerminalState(state) {
   return TERMINAL_STATES.has(state);
+}
+
+export function getAgentSessionSnapshot(agentSession) {
+  if (!agentSession || typeof agentSession.getState !== "function") return null;
+  try {
+    return agentSession.getState() || null;
+  } catch {
+    return null;
+  }
+}
+
+export function canReuseAgentSessionForInvocation(agentSession, websocketUUID) {
+  if (!agentSession || !websocketUUID) return false;
+  const snapshot = getAgentSessionSnapshot(agentSession);
+  if (snapshot?.websocketUUID !== websocketUUID) return false;
+  if (TERMINAL_STATES.has(snapshot?.state)) return false;
+  if (
+    typeof agentSession.isTerminal === "function" &&
+    agentSession.isTerminal()
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function stateAllowsSend(state) {
@@ -149,6 +173,7 @@ function stateAllowsReconnect(state) {
     AgentSessionState.CONNECTING,
     AgentSessionState.OPEN,
     AgentSessionState.RECONNECTING,
+    AgentSessionState.WAITING_ON_INPUT,
   ].includes(state);
 }
 
@@ -164,6 +189,50 @@ async function fetchAgentInvocationState(websocketUUID) {
     `/agent-invocation/${websocketUUID}/state`
   );
   return data?.state || null;
+}
+
+export async function respondToClarificationViaHttp(
+  websocketUUID,
+  requestId,
+  payload = {}
+) {
+  if (!websocketUUID) return { ok: false, reason: "missing_websocket_uuid" };
+  if (!requestId) return { ok: false, reason: "missing_request_id" };
+
+  try {
+    const { data } = await requestJson(
+      `/agent-invocation/${websocketUUID}/clarification-response`,
+      {
+        method: "POST",
+        body: {
+          requestId,
+          skipped: !!payload.skipped,
+          answers: Array.isArray(payload.answers) ? payload.answers : [],
+        },
+        timeoutMs: 10_000,
+      }
+    );
+    if (data?.success) {
+      return { ok: true, reason: null, transport: "http_fallback" };
+    }
+    return {
+      ok: false,
+      reason: data?.error || "clarification_http_failed",
+      error: data,
+      transport: "http_fallback",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      reason:
+        error?.raw?.error ||
+        error?.code ||
+        error?.message ||
+        "clarification_http_failed",
+      error,
+      transport: "http_fallback",
+    };
+  }
 }
 
 export function createAgentWebSocketSession({
@@ -485,10 +554,14 @@ export function createAgentWebSocketSession({
       return;
     }
 
-    if (session.current === AgentSessionState.WAITING_ON_INPUT) {
+    const isClarificationRequest =
+      normalized.type === "timeline_event" &&
+      normalized.event?.type === "clarification_request";
+    if (isClarificationRequest) {
       emittedTurnFinal = false;
       emittedFinalWithChatId = false;
-      transition(AgentSessionState.OPEN, "input_resumed");
+      transition(AgentSessionState.WAITING_ON_INPUT, "clarification_request");
+      clearSilenceTimer();
     }
 
     if (normalized.type === "assistant_final") {
@@ -504,6 +577,11 @@ export function createAgentWebSocketSession({
     emitEvent(normalized);
 
     if (normalized.type === "assistant_error") {
+      const signingErrorCode =
+        normalized?.protocolEvent?.raw?.code || normalized?.code || null;
+      if (isRecoverableSigningError(signingErrorCode)) {
+        clearSigningSecretCache();
+      }
       if (
         session.current !== AgentSessionState.STOPPING &&
         session.current !== AgentSessionState.FINALIZED
@@ -629,11 +707,11 @@ export function createAgentWebSocketSession({
     return true;
   }
 
-  function sendPayload(payload) {
+  async function sendPayload(payload) {
     if (!canSend()) {
       return { ok: false, reason: isTerminal() ? session.current : "not_open" };
     }
-    const result = safeSendJson(socket, payload);
+    const result = await safeSendSignedJson(socket, payload);
     if (!result.ok) return result;
     if (session.current === AgentSessionState.WAITING_ON_INPUT) {
       emittedTurnFinal = false;
@@ -644,7 +722,7 @@ export function createAgentWebSocketSession({
     return result;
   }
 
-  function stop(reason = "user_stop") {
+  async function stop(reason = "user_stop") {
     if (emittedStop || isTerminal()) {
       return {
         ok: false,
@@ -653,15 +731,18 @@ export function createAgentWebSocketSession({
     }
     emittedStop = true;
     const canNotifyBackend = socket?.readyState === WebSocket.OPEN;
-    if (canNotifyBackend) {
-      safeSendJson(socket, { type: "awaitingFeedback", feedback: "/exit" });
-    }
     transition(AgentSessionState.STOPPING, reason);
     clearTimers();
     emitEvent({
       type: "stop_generation",
       content: "Generation stopped by user.",
     });
+    if (canNotifyBackend) {
+      await safeSendSignedJson(socket, {
+        type: "awaitingFeedback",
+        feedback: "/exit",
+      });
+    }
     safeClose(socket);
     if (!socket) {
       transition(AgentSessionState.CLOSED, "stopped");
@@ -682,7 +763,7 @@ export function createAgentWebSocketSession({
     }
   }
 
-  function sendFeedback({
+  async function sendFeedback({
     feedback,
     attachments: nextAttachments = [],
     fileAccessMode: nextMode = null,
@@ -697,7 +778,7 @@ export function createAgentWebSocketSession({
     });
   }
 
-  function respondToApproval(requestId, approved) {
+  async function respondToApproval(requestId, approved) {
     if (!requestId) return { ok: false, reason: "missing_request_id" };
     return sendPayload({
       type: "toolApprovalResponse",
@@ -706,7 +787,7 @@ export function createAgentWebSocketSession({
     });
   }
 
-  function respondToClarification(requestId, payload = {}) {
+  async function respondToClarification(requestId, payload = {}) {
     if (!requestId) return { ok: false, reason: "missing_request_id" };
     return sendPayload({
       type: "clarificationResponse",

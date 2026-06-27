@@ -21,6 +21,9 @@ function loadEndpoint(storageDir, helpersMock = null) {
   jest.doMock("../../utils/fileAccessPolicy", () => ({
     validateReadPath: jest.fn(),
   }));
+  jest.doMock("exceljs", () => ({
+    Workbook: jest.fn(),
+  }));
   jest.doMock("../../utils/middleware/multiUserProtected", () => ({
     flexUserRoleValid: () => (_request, _response, next) => next(),
     ROLES: { all: "all" },

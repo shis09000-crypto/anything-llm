@@ -33,10 +33,18 @@ const {
   subscribeToThreadTitleUpdates,
 } = require("../utils/chats/threadTitleEvents");
 const {
+  publishWorkspaceSyncEvent,
+  subscribeToWorkspaceSyncEvents,
+} = require("../utils/chats/workspaceSyncEvents");
+const {
   chatIdentifierPayload,
   chatIdentifiersWhere,
   chatIdentityFromRequest,
 } = require("../utils/chats/chatIdentifiers");
+const {
+  setSseTransportHeaders,
+} = require("../utils/security/transportSecurity");
+const { getClientContext } = require("../utils/clientIdentity");
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -166,6 +174,16 @@ function workspaceThreadEndpoints(app) {
           },
           user?.id
         );
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "thread_created",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          senderClientId: clientContext.clientId,
+        });
         response.status(200).json({ thread, message });
       } catch (e) {
         console.error(e.message, e);
@@ -211,10 +229,9 @@ function workspaceThreadEndpoints(app) {
       const workspace = response.locals.workspace;
       const userId = user?.id ?? null;
 
-      response.setHeader("Cache-Control", "no-cache");
-      response.setHeader("Content-Type", "text/event-stream");
-      response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Connection", "keep-alive");
+      setSseTransportHeaders(response, {
+        "Access-Control-Allow-Origin": "*",
+      });
       response.flushHeaders?.();
 
       writeResponseChunk(response, {
@@ -265,6 +282,45 @@ function workspaceThreadEndpoints(app) {
     }
   );
 
+  app.get(
+    "/workspace/:slug/sync-events",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      const user = await userFromSession(request, response);
+      const workspace = response.locals.workspace;
+      const userId = user?.id ?? null;
+
+      setSseTransportHeaders(response, {
+        "Access-Control-Allow-Origin": "*",
+      });
+      response.flushHeaders?.();
+
+      writeResponseChunk(response, {
+        type: "workspace_sync_ready",
+        workspaceSlug: workspace.slug,
+      });
+
+      const heartbeat = setInterval(() => {
+        if (response.destroyed || response.writableEnded) return;
+        writeResponseChunk(response, { type: "heartbeat" });
+      }, 25_000);
+
+      const unsubscribe = subscribeToWorkspaceSyncEvents((event) => {
+        if (Number(event.workspaceId) !== Number(workspace.id)) return;
+        if ((event.userId ?? null) !== userId) return;
+        if (response.destroyed || response.writableEnded) return;
+        writeResponseChunk(response, event);
+      });
+
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      };
+      request.once("close", cleanup);
+      response.once("close", cleanup);
+    }
+  );
+
   app.delete(
     "/workspace/:slug/thread/:threadSlug",
     [
@@ -272,8 +328,10 @@ function workspaceThreadEndpoints(app) {
       flexUserRoleValid([ROLES.all]),
       validWorkspaceAndThreadSlug,
     ],
-    async (_, response) => {
+    async (request, response) => {
       try {
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
         const thread = response.locals.thread;
         if (WorkspaceThread.isOverviewThread(thread)) {
           return response
@@ -281,6 +339,16 @@ function workspaceThreadEndpoints(app) {
             .json({ error: "Overview thread cannot be deleted." });
         }
         await WorkspaceThread.delete({ id: thread.id });
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "thread_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          senderClientId: clientContext.clientId,
+        });
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -724,6 +792,17 @@ function workspaceThreadEndpoints(app) {
           id: { gte: Number(startingId) },
         });
 
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "chat_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          senderClientId: clientContext.clientId,
+        });
+
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -780,6 +859,19 @@ function workspaceThreadEndpoints(app) {
             }),
           });
         }
+
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "chat_updated",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          chatId: existingChat.id,
+          publicChatId: existingChat.public_id || null,
+          senderClientId: clientContext.clientId,
+        });
 
         response.sendStatus(200).end();
       } catch (e) {

@@ -12,14 +12,22 @@ async function loadUploadClient({ dev = false } = {}) {
   globalThis.__uploadClientTestApiError = apiError;
   globalThis.__uploadClientTestApiClient = {
     apiUrl: (path = "") => `/api${path.startsWith("/") ? path : `/${path}`}`,
-    formDataHeaders: (headers = {}, { includeBaseHeaders = true } = {}) => ({
+    formDataHeaders: (
+      headers = {},
+      { includeBaseHeaders = true, requestId } = {}
+    ) => ({
       ...(includeBaseHeaders ? { Authorization: "Bearer upload-token" } : {}),
       ...headers,
+      "X-Athena-Client-Id": "client-upload-test",
+      "X-Athena-Request-Id": requestId,
     }),
     parseJsonResponse: async (response) => {
       const text = await response.text().catch(() => "");
       return text ? JSON.parse(text) : null;
     },
+  };
+  globalThis.__uploadClientTestIdentity = {
+    createCommunicationRequestId: () => "req-upload-test",
   };
 
   const transformed = source
@@ -30,6 +38,10 @@ async function loadUploadClient({ dev = false } = {}) {
     .replace(
       'import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";',
       "const { API_ERROR_CODES, createApiError, normalizeApiError } = globalThis.__uploadClientTestApiError;"
+    )
+    .replace(
+      'import { createCommunicationRequestId } from "./clientIdentity";',
+      "const { createCommunicationRequestId } = globalThis.__uploadClientTestIdentity;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__uploadClientTestDev");
 
@@ -59,6 +71,11 @@ test("uploadFormData does not set Content-Type and returns requestId", async () 
     assert.equal(receivedUrl, "/api/workspace/demo/upload");
     assert.equal(receivedInit.method, "POST");
     assert.equal(receivedInit.headers.Authorization, "Bearer upload-token");
+    assert.equal(
+      receivedInit.headers["X-Athena-Client-Id"],
+      "client-upload-test"
+    );
+    assert.equal(receivedInit.headers["X-Athena-Request-Id"], result.requestId);
     assert.equal(receivedInit.headers["Content-Type"], undefined);
     assert.equal(receivedInit.body, formData);
     assert.equal(receivedInit.signal, undefined);
@@ -144,6 +161,10 @@ test("uploadFormData can skip base headers", async () => {
       includeBaseHeaders: false,
     });
     assert.equal(receivedInit.headers.Authorization, undefined);
+    assert.equal(
+      receivedInit.headers["X-Athena-Client-Id"],
+      "client-upload-test"
+    );
   } finally {
     globalThis.fetch = originalFetch;
   }

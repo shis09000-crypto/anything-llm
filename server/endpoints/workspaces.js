@@ -39,6 +39,9 @@ const {
   chatIdentifiersWhere,
   chatIdentityFromRequest,
 } = require("../utils/chats/chatIdentifiers");
+const {
+  setSseTransportHeaders,
+} = require("../utils/security/transportSecurity");
 
 const truncate = require("truncate");
 const { purgeWorkspaceDocument } = require("../utils/files/purgeDocument");
@@ -54,6 +57,13 @@ const {
   redactSensitiveText,
   redactUrl,
 } = require("../utils/security/redaction");
+const {
+  getClientContext,
+  recordClientTrustCheckpoint,
+} = require("../utils/clientIdentity");
+const {
+  publishWorkspaceSyncEvent,
+} = require("../utils/chats/workspaceSyncEvents");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath = environmentStoragePath("documents");
@@ -672,6 +682,12 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        void recordClientTrustCheckpoint(request, {
+          action: "workspace_delete",
+          resourceType: "workspace",
+          resourceId: workspace.id,
+          outcome: "received",
+        });
         await WorkspaceChats.delete({ workspaceId: Number(workspace.id) });
         await DocumentVectors.deleteForWorkspace(workspace.id);
         await Document.delete({ workspaceId: Number(workspace.id) });
@@ -922,6 +938,17 @@ function workspaceEndpoints(app) {
           workspaceId: workspace.id,
         });
 
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "chat_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: null,
+          threadSlug: null,
+          senderClientId: clientContext.clientId,
+        });
+
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
@@ -944,6 +971,17 @@ function workspaceEndpoints(app) {
           thread_id: null,
           user_id: user?.id,
           id: { gte: Number(startingId) },
+        });
+
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "chat_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: null,
+          threadSlug: null,
+          senderClientId: clientContext.clientId,
         });
 
         response.sendStatus(200).end();
@@ -997,6 +1035,19 @@ function workspaceEndpoints(app) {
             }),
           });
         }
+
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "chat_updated",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: null,
+          threadSlug: null,
+          chatId: existingChat.id,
+          publicChatId: existingChat.public_id || null,
+          senderClientId: clientContext.clientId,
+        });
 
         response.sendStatus(200).end();
       } catch (e) {
@@ -1589,6 +1640,12 @@ function workspaceEndpoints(app) {
         });
         if (!document) return response.sendStatus(404).end();
 
+        void recordClientTrustCheckpoint(request, {
+          action: "document_delete",
+          resourceType: "document",
+          resourceId: `${currWorkspace.id}:${body.documentLocation}`,
+          outcome: "received",
+        });
         await purgeWorkspaceDocument(currWorkspace, body.documentLocation);
         response.status(200).end();
       } catch (e) {
@@ -1685,10 +1742,9 @@ function workspaceEndpoints(app) {
           removeSSEConnection,
         } = require("../utils/EmbeddingWorkerManager");
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
         addSSEConnection(workspace.slug, response);
         request.on("close", () => {

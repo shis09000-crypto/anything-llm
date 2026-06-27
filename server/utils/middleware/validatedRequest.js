@@ -5,12 +5,17 @@ const { decodeJWT } = require("../http");
 const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
 const { jwtIdleState } = require("../sessionIdle");
 const { AuthIdentity } = require("../../models/authIdentity");
+const { attachAuthenticatedClientContext } = require("../clientIdentity");
+const { requireSignedHighRiskRequest } = require("../requestSigning");
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {
   if (applyCodexDevAuthBypass(request, response)) {
-    next();
-    return;
+    await attachAuthenticatedClientContext({
+      request,
+      user: response.locals.user,
+    });
+    return requireSignedHighRiskRequest(request, response, next);
   }
 
   const multiUserMode = await SystemSettings.isMultiUserMode();
@@ -25,8 +30,7 @@ async function validatedRequest(request, response, next) {
     !process.env.AUTH_TOKEN ||
     !process.env.JWT_SECRET
   ) {
-    next();
-    return;
+    return requireSignedHighRiskRequest(request, response, next);
   }
 
   if (!process.env.AUTH_TOKEN) {
@@ -73,7 +77,7 @@ async function validatedRequest(request, response, next) {
     return;
   }
 
-  next();
+  return requireSignedHighRiskRequest(request, response, next);
 }
 
 async function validateMultiUserRequest(request, response, next) {
@@ -132,7 +136,11 @@ async function validateMultiUserRequest(request, response, next) {
 
   const syncedUser = await AuthIdentity.ensureShadowUser(authUser);
   response.locals.user = User.filterFields(syncedUser);
-  next();
+  await attachAuthenticatedClientContext({
+    request,
+    user: response.locals.user,
+  });
+  return requireSignedHighRiskRequest(request, response, next);
 }
 
 module.exports = {

@@ -58,9 +58,11 @@ function assertProductionTransportConfig(env = process.env) {
   );
 }
 
-function isSecureRequest(request) {
+function isSecureRequest(request, env = process.env) {
   if (request?.secure) return true;
   if (request?.socket?.encrypted) return true;
+  if (!envFlag(env.TRUST_PROXY)) return false;
+
   const forwardedProto = String(
     request?.headers?.["x-forwarded-proto"] ||
       request?.get?.("x-forwarded-proto") ||
@@ -72,6 +74,17 @@ function isSecureRequest(request) {
   return forwardedProto === "https";
 }
 
+function isSecureWebSocketOrigin(request) {
+  const origin = request?.headers?.origin || request?.get?.("origin");
+  if (!origin) return true;
+
+  try {
+    return new URL(origin).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 function productionHstsValue(env = process.env) {
   return env.ATHENA_HSTS_HEADER || "max-age=15552000; includeSubDomains";
 }
@@ -80,7 +93,7 @@ function transportSecurityMiddleware(env = process.env) {
   return function enforceTransportSecurity(request, response, next) {
     if (!isProduction(env)) return next();
 
-    if (isSecureRequest(request)) {
+    if (isSecureRequest(request, env)) {
       response.setHeader("Strict-Transport-Security", productionHstsValue(env));
       return next();
     }
@@ -129,11 +142,55 @@ function corsOptionsForEnvironment(env = process.env) {
 }
 
 function ensureSecureWebSocketRequest(request, socket, env = process.env) {
-  if (!isProduction(env) || isSecureRequest(request)) return true;
+  if (
+    !isProduction(env) ||
+    (isSecureRequest(request, env) && isSecureWebSocketOrigin(request))
+  ) {
+    return true;
+  }
+
   try {
     socket?.close?.(1008, "secure_transport_required");
   } catch {}
   return false;
+}
+
+const SSE_TRANSPORT_HEADERS = {
+  "Content-Type": "text/event-stream",
+  "Cache-Control": "no-cache, no-transform",
+  Connection: "keep-alive",
+  "X-Accel-Buffering": "no",
+};
+
+function sseTransportHeaders(extraHeaders = {}) {
+  return { ...SSE_TRANSPORT_HEADERS, ...extraHeaders };
+}
+
+function setSseTransportHeaders(response, extraHeaders = {}) {
+  for (const [header, value] of Object.entries(
+    sseTransportHeaders(extraHeaders)
+  )) {
+    response.setHeader(header, value);
+  }
+}
+
+function transportSecurityStatus(env = process.env) {
+  const mode = productionTransportMode(env);
+  const production = isProduction(env);
+
+  return {
+    mode: mode.mode,
+    production,
+    httpsRequired: mode.required,
+    trustProxyEnabled: envFlag(env.TRUST_PROXY),
+    forceHttps: envFlag(env.FORCE_HTTPS),
+    publicAppUrlHttps: isHttpsUrl(env.PUBLIC_APP_URL),
+    hstsConfigured: production && mode.mode !== "invalid",
+    tlsMinVersion: "TLSv1.2",
+    tls13Recommended: true,
+    sseHeaders: { ...SSE_TRANSPORT_HEADERS },
+    webSocketSecureRequired: production,
+  };
 }
 
 module.exports = {
@@ -145,5 +202,8 @@ module.exports = {
   envFlag,
   isSecureRequest,
   productionTransportMode,
+  setSseTransportHeaders,
+  sseTransportHeaders,
+  transportSecurityStatus,
   transportSecurityMiddleware,
 };

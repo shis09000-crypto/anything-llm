@@ -14,6 +14,9 @@ const {
 } = require("../../../utils/chats/openaiCompatible");
 const { getModelTag } = require("../../utils");
 const { extractTextContent, extractAttachments } = require("./helpers");
+const {
+  setSseTransportHeaders,
+} = require("../../../utils/security/transportSecurity");
 
 function apiOpenAICompatibleEndpoints(app) {
   if (!app) return;
@@ -163,10 +166,9 @@ function apiOpenAICompatibleEndpoints(app) {
           return response.status(200).json(chatResult);
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
 
         await OpenAICompatibleChat.streamChat({

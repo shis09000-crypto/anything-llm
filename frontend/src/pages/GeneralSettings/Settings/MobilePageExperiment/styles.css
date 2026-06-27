@@ -1,0 +1,664 @@
+.mobile-experiment-device-screen,
+.mobile-popover-animated,
+.mobile-account-settings-modal {
+  --mobile-font-sans: var(--athena-font-sans);
+}
+
+.mobile-experiment-device-screen {
+  font-family:
+    var(--mobile-font-sans);
+  font-weight: 400;
+  letter-spacing: 0;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mobile-experiment-device-screen button,
+.mobile-experiment-device-screen input,
+.mobile-experiment-device-screen textarea,
+.mobile-experiment-device-screen select,
+.mobile-experiment-device-screen * {
+  font-family: var(--mobile-font-sans) !important;
+}
+
+.mobile-experiment-device-screen .font-black {
+  font-weight: 500 !important;
+}
+
+.mobile-experiment-device-screen .font-bold,
+.mobile-experiment-device-screen .font-semibold {
+  font-weight: 400 !important;
+}
+
+.mobile-experiment-device-screen .font-medium,
+.mobile-experiment-user-message-content,
+.mobile-experiment-markdown {
+  font-weight: 400 !important;
+}
+
+.mobile-experiment-device-screen strong,
+.mobile-experiment-device-screen b,
+.mobile-experiment-device-screen .mobile-experiment-markdown strong,
+.mobile-experiment-device-screen .mobile-experiment-markdown b {
+  font-weight: 500 !important;
+}
+
+.mobile-popover-animated,
+.mobile-popover-animated *,
+.mobile-account-settings-modal,
+.mobile-account-settings-modal * {
+  font-family: var(--mobile-font-sans) !important;
+}
+
+.mobile-popover-animated .font-black,
+.mobile-account-settings-modal .font-black {
+  font-weight: 500 !important;
+}
+
+.mobile-popover-animated .font-bold,
+.mobile-popover-animated .font-semibold,
+.mobile-account-settings-modal .font-bold,
+.mobile-account-settings-modal .font-semibold {
+  font-weight: 400 !important;
+}
+
+.mobile-popover-animated strong,
+.mobile-popover-animated b,
+.mobile-account-settings-modal strong,
+.mobile-account-settings-modal b {
+  font-weight: 500 !important;
+}
+
+.mobile-popover-animated,
+.mobile-account-settings-modal {
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+.mobile-popover-animated .text-\[10px\],
+.mobile-popover-animated .text-\[11px\],
+.mobile-popover-animated .text-xs,
+.mobile-account-settings-modal .text-\[10px\],
+.mobile-account-settings-modal .text-\[11px\],
+.mobile-account-settings-modal .text-xs {
+  font-size: 13px !important;
+  line-height: 1.45 !important;
+}
+
+.mobile-popover-animated .text-sm,
+.mobile-account-settings-modal .text-sm {
+  font-size: 15px !important;
+  line-height: 1.45 !important;
+}
+
+.mobile-composer-toolbar,
+.mobile-composer-toolbar span,
+.mobile-composer-toolbar p,
+.mobile-composer-toolbar button {
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.mobile-composer-toolbar .font-black,
+.mobile-composer-toolbar .font-bold,
+.mobile-composer-toolbar .font-semibold {
+  font-weight: 400 !important;
+}
+
+.mobile-popover-animated {
+  transform-origin: var(--mobile-popover-origin, center bottom);
+  will-change: opacity, transform;
+}
+
+.mobile-popover-animated-enter {
+  animation: mobilePopoverIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1.08) both;
+}
+
+.mobile-popover-animated-exit {
+  pointer-events: none;
+  animation: mobilePopoverOut 110ms ease-in both;
+}
+
+.mobile-popover-origin-bottom {
+  --mobile-popover-origin: center bottom;
+}
+
+.mobile-popover-origin-bottom-left {
+  --mobile-popover-origin: left bottom;
+}
+
+.mobile-popover-origin-bottom-right {
+  --mobile-popover-origin: right bottom;
+}
+
+.mobile-popover-origin-top-right {
+  --mobile-popover-origin: right top;
+}
+
+.mobile-runtime-sheet {
+  transform-origin: center bottom;
+  will-change: opacity, transform;
+  animation: mobilePopoverIn 180ms cubic-bezier(0.2, 0.8, 0.2, 1.08) both;
+}
+
+.mobile-agent-activity-text {
+  letter-spacing: 0;
+  text-shadow: none;
+}
+
+.mobile-agent-activity-shimmer {
+  color: rgb(100 116 139 / 0.88) !important;
+}
+
+.mobile-agent-activity-shimmer .mobile-agent-activity-label {
+  color: transparent !important;
+  background-image: linear-gradient(
+    90deg,
+    rgb(148 163 184 / 0.42) 0%,
+    rgb(100 116 139 / 0.88) 42%,
+    rgb(148 163 184 / 0.42) 70%
+  );
+  background-size: 240% 100%;
+  background-position: -160% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: mobileAgentActivityShimmer 2000ms ease-in-out infinite;
+}
+
+.mobile-agent-activity-shimmer .mobile-agent-activity-icon {
+  color: rgb(100 116 139 / 0.88);
+  animation: mobileAgentActivityIconShimmer 2000ms ease-in-out infinite;
+}
+
+.mobile-login-card-animated {
+  will-change: opacity, transform;
+  animation: mobileLoginRiseIn 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobile-login-panel-animated {
+  will-change: opacity, transform;
+  animation: mobileLoginRiseIn 210ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobile-login-item {
+  opacity: 0;
+  will-change: opacity, transform;
+  animation: mobileLoginItemRiseIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: var(--mobile-login-item-delay, 0ms);
+}
+
+.mobile-drawer-panel-animated {
+  will-change: transform;
+}
+
+.mobile-drawer-panel-enter {
+  animation: mobileDrawerIn 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.mobile-drawer-panel-exit {
+  pointer-events: none;
+  animation: mobileDrawerOut 170ms ease-in both;
+}
+
+.mobile-scrim-animated {
+  will-change: opacity;
+}
+
+.mobile-scrim-enter {
+  animation: mobileScrimIn 180ms ease-out both;
+}
+
+.mobile-scrim-exit {
+  pointer-events: none;
+  animation: mobileScrimOut 140ms ease-in both;
+}
+
+.mobile-account-settings-modal-shell {
+  height: min(560px, calc(100% - 150px));
+  min-height: 360px;
+}
+
+.mobile-account-settings-modal {
+  contain: layout paint;
+}
+
+.mobile-account-settings-modal-enter {
+  transform-origin: center center;
+  will-change: opacity, transform;
+  animation: mobileAccountSettingsModalIn 190ms
+    cubic-bezier(0.2, 0.8, 0.2, 1.04) both;
+}
+
+.mobile-account-settings-detail {
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-account-settings-detail .account-card {
+  width: 100%;
+  max-width: 100%;
+  border-radius: 24px;
+  padding: 16px;
+  scroll-margin-top: 0;
+  box-shadow: 0 14px 38px rgb(15 23 42 / 0.08);
+}
+
+.mobile-account-settings-detail .account-card + .account-card {
+  margin-top: 12px;
+}
+
+.mobile-account-settings-detail .account-card h2 {
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.mobile-account-settings-detail .account-card p,
+.mobile-account-settings-detail .account-card textarea,
+.mobile-account-settings-detail .account-card input {
+  letter-spacing: 0;
+}
+
+.mobile-account-settings-detail .account-card table {
+  white-space: nowrap;
+}
+
+.mobile-account-settings-detail .account-card th,
+.mobile-account-settings-detail .account-card td {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.mobile-account-settings-detail .account-setting-row {
+  display: grid !important;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: start !important;
+  gap: 8px 12px !important;
+  padding: 14px 2px !important;
+}
+
+.mobile-account-settings-detail .account-setting-row__icon {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+}
+
+.mobile-account-settings-detail .account-setting-row__body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.mobile-account-settings-detail .account-setting-row__status,
+.mobile-account-settings-detail .account-setting-row__action {
+  grid-column: 2;
+  justify-self: start;
+}
+
+.mobile-account-settings-detail .account-setting-row__status {
+  margin-top: -2px;
+  line-height: 1.35;
+}
+
+.mobile-account-settings-detail .account-setting-row__action {
+  width: 100%;
+  margin-top: 2px;
+}
+
+.mobile-account-settings-detail .account-setting-row__action > * {
+  max-width: 100%;
+}
+
+.mobile-account-settings-detail .account-setting-row__caret {
+  display: none;
+}
+
+.mobile-account-settings-detail .account-card .sm\:flex-row,
+.mobile-account-settings-detail .account-card .md\:flex-row,
+.mobile-account-settings-detail .account-card .lg\:flex-row {
+  flex-direction: column !important;
+}
+
+.mobile-account-settings-detail .account-card .sm\:items-start,
+.mobile-account-settings-detail .account-card .sm\:items-center,
+.mobile-account-settings-detail .account-card .md\:items-start,
+.mobile-account-settings-detail .account-card .lg\:items-center {
+  align-items: stretch !important;
+}
+
+.mobile-account-settings-detail .account-card .sm\:justify-between,
+.mobile-account-settings-detail .account-card .lg\:justify-between,
+.mobile-account-settings-detail .account-card .lg\:justify-end {
+  justify-content: flex-start !important;
+}
+
+.mobile-account-settings-detail .account-card .md\:grid-cols-2,
+.mobile-account-settings-detail .account-card .md\:grid-cols-3,
+.mobile-account-settings-detail .account-card .md\:grid-cols-4,
+.mobile-account-settings-detail .account-card .sm\:grid-cols-2 {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.mobile-account-settings-detail .account-card .md\:grid-cols-\[1fr_auto\] {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.mobile-account-settings-detail .account-card .sm\:w-auto,
+.mobile-account-settings-detail .account-card .sm\:w-48 {
+  width: 100% !important;
+}
+
+.mobile-account-settings-detail .account-card .max-w-\[220px\] {
+  max-width: 180px !important;
+}
+
+.mobile-account-settings-detail .account-card .min-w-\[720px\] {
+  min-width: 680px !important;
+}
+
+.mobile-account-settings-detail .account-card .min-w-\[860px\] {
+  min-width: 780px !important;
+}
+
+@keyframes mobilePopoverIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 6px, 0) scale(0.94);
+  }
+
+  68% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(1.015);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes mobilePopoverOut {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate3d(0, 5px, 0) scale(0.98);
+  }
+}
+
+@keyframes mobileLoginRiseIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mobileLoginItemRiseIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 9px, 0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mobileAccountSettingsModalIn {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.96);
+  }
+
+  70% {
+    opacity: 1;
+    transform: translate3d(0, -1px, 0) scale(1.01);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes mobileAgentActivityShimmer {
+  0% {
+    background-position: -160% 0;
+  }
+
+  100% {
+    background-position: 160% 0;
+  }
+}
+
+@keyframes mobileAgentActivityIconShimmer {
+  0%,
+  100% {
+    color: rgb(148 163 184 / 0.42);
+    opacity: 0.58;
+  }
+
+  42% {
+    color: rgb(100 116 139 / 0.88);
+    opacity: 1;
+  }
+
+  70% {
+    color: rgb(148 163 184 / 0.42);
+    opacity: 0.68;
+  }
+}
+
+@keyframes mobileDrawerIn {
+  0% {
+    transform: translate3d(-100%, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes mobileDrawerOut {
+  0% {
+    transform: translate3d(0, 0, 0);
+  }
+
+  100% {
+    transform: translate3d(-100%, 0, 0);
+  }
+}
+
+@keyframes mobileScrimIn {
+  0% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes mobileScrimOut {
+  0% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-popover-animated,
+  .mobile-runtime-sheet,
+  .mobile-login-card-animated,
+  .mobile-login-panel-animated,
+  .mobile-login-item,
+  .mobile-drawer-panel-animated,
+  .mobile-scrim-animated {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .mobile-agent-activity-shimmer,
+  .mobile-agent-activity-shimmer .mobile-agent-activity-label,
+  .mobile-agent-activity-shimmer .mobile-agent-activity-icon {
+    color: rgb(148 163 184) !important;
+    background-image: none !important;
+    animation: none !important;
+    opacity: 1 !important;
+  }
+}
+
+.mobile-experiment-user-message-frame {
+  flex: 0 1 auto;
+  width: max-content;
+  max-width: 82%;
+  min-width: 0;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+.mobile-experiment-user-message-frame > div,
+.mobile-experiment-user-message-card,
+.mobile-experiment-user-message-card .glass,
+.mobile-experiment-user-message-card .glass > div:last-child {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.mobile-experiment-user-message-content,
+.mobile-experiment-user-message-text {
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.mobile-experiment-user-message-text {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.mobile-experiment-markdown .hljs {
+  display: flex !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 360px !important;
+  margin: 18px 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  flex-direction: column !important;
+  border: 1px solid rgb(148 163 184 / 0.22) !important;
+  border-radius: 20px !important;
+  background: radial-gradient(
+      circle at 18% 0%,
+      rgb(59 130 246 / 0.12),
+      transparent 36%
+    ),
+    linear-gradient(180deg, #0f172a 0%, #020617 100%) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 14px 26px rgb(15 23 42 / 0.18) !important;
+  color: #e5edf8 !important;
+  font-size: 12px !important;
+  line-height: 1.65 !important;
+}
+
+.mobile-experiment-markdown .hljs > div:first-child {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 2 !important;
+  display: flex !important;
+  flex: 0 0 auto !important;
+  width: 100% !important;
+  min-height: 38px !important;
+  margin: 0 !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  border-bottom: 1px solid rgb(255 255 255 / 0.1) !important;
+  border-radius: 20px 20px 0 0 !important;
+  background: rgb(15 23 42 / 0.96) !important;
+  padding: 8px 10px !important;
+  color: #e5edf8 !important;
+}
+
+.mobile-experiment-markdown .hljs > div:first-child code {
+  max-width: 150px !important;
+  overflow: hidden !important;
+  border-radius: 999px !important;
+  background: rgb(255 255 255 / 0.08) !important;
+  padding: 2px 8px !important;
+  color: #dbeafe !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.mobile-experiment-markdown .hljs [data-code-snippet] {
+  display: inline-flex !important;
+  margin-left: auto !important;
+  align-items: center !important;
+  gap: 4px !important;
+  border: 1px solid rgb(255 255 255 / 0.1) !important;
+  border-radius: 999px !important;
+  background: rgb(255 255 255 / 0.1) !important;
+  padding: 4px 8px !important;
+  color: #f8fafc !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+
+.mobile-experiment-markdown .hljs [data-code-snippet] svg {
+  width: 12px !important;
+  height: 12px !important;
+  color: currentColor !important;
+}
+
+.mobile-experiment-markdown .hljs [data-code-snippet] p {
+  margin: 0 !important;
+  padding: 0 !important;
+  color: currentColor !important;
+  white-space: nowrap !important;
+}
+
+.mobile-experiment-markdown .hljs pre {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 16px 14px 18px !important;
+  overflow: auto !important;
+  overscroll-behavior: contain !important;
+  background: transparent !important;
+  color: #e5edf8 !important;
+  font-size: 12px !important;
+  line-height: 1.65 !important;
+  white-space: pre !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-experiment-markdown .hljs pre,
+.mobile-experiment-markdown .hljs pre * {
+  color: #e5edf8 !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace !important;
+}
+
+.mobile-experiment-markdown .hljs pre::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.mobile-experiment-markdown .hljs pre::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(148 163 184 / 0.42);
+}

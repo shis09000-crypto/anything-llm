@@ -23,6 +23,7 @@ const MAX_WHEEL_ZOOM_STEP = 0.18;
 const RESET_DATA_ZOOM_GUARD_MS = 900;
 const USER_DATA_ZOOM_WINDOW_MS = 2_500;
 const INDICATOR_STORAGE_KEY = "anythingllm.cryptoCandlestickIndicators.v1";
+let indicatorPreferencesHydrated = false;
 const RIGHT_PAD_RATIO = 0.5;
 const LATEST_DEFAULT_RIGHT_PAD_CANDLES = 2;
 const BTC_CHART_BACKGROUND_URL = "/crypto-chart-backgrounds/btc-background.png";
@@ -421,6 +422,26 @@ function dataModeLabel(mode: TradingPairCandlestickChartProps["mode"]) {
 
 function readIndicatorPreferences(): IndicatorPreferences {
   if (typeof window === "undefined") return { showMA: false, showBoll: false };
+  if (!indicatorPreferencesHydrated) {
+    indicatorPreferencesHydrated = true;
+    import("@/utils/userStateSync")
+      .then(({ hydrateUserStateValue, USER_STATE_NAMESPACES }) =>
+        hydrateUserStateValue({
+          namespace: USER_STATE_NAMESPACES.cryptoUi,
+          fallback: {
+            candlestickIndicators: readIndicatorPreferences(),
+          },
+          apply: (value: { candlestickIndicators?: IndicatorPreferences }) => {
+            if (!value?.candlestickIndicators) return;
+            window.localStorage.setItem(
+              INDICATOR_STORAGE_KEY,
+              JSON.stringify(value.candlestickIndicators)
+            );
+          },
+        })
+      )
+      .catch(() => {});
+  }
 
   try {
     const raw = window.localStorage.getItem(INDICATOR_STORAGE_KEY);
@@ -444,6 +465,16 @@ function writeIndicatorPreferences(preferences: IndicatorPreferences) {
       INDICATOR_STORAGE_KEY,
       JSON.stringify(preferences)
     );
+    import("@/utils/userStateSync")
+      .then(({ pushUserStateValue, USER_STATE_NAMESPACES }) =>
+        pushUserStateValue(
+          USER_STATE_NAMESPACES.cryptoUi,
+          "global",
+          { candlestickIndicators: preferences },
+          { debounceMs: 1_000 }
+        )
+      )
+      .catch(() => {});
   } catch {
     // Non-critical: the chart should remain usable even if localStorage is unavailable.
   }

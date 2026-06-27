@@ -1,15 +1,16 @@
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { apiUrl, jsonHeaders } from "./apiClient";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
+import { createCommunicationRequestId } from "./clientIdentity";
 
-function parseSseJsonMessage(msg) {
+function parseSseJsonMessage(msg, { requestId, path } = {}) {
   try {
     return JSON.parse(msg.data);
   } catch (error) {
     throw createApiError({
       code: API_ERROR_CODES.STREAM_PARSE_ERROR,
       message: "Failed to parse stream message.",
-      details: { data: msg?.data ?? null },
+      details: { requestId, path, data: msg?.data ?? null },
       raw: error,
     });
   }
@@ -34,10 +35,11 @@ async function jsonSse({
   retryOnError = false,
 } = {}) {
   const normalizedMethod = method.toUpperCase();
+  const requestId = createCommunicationRequestId();
   await fetchEventSource(apiUrl(path), {
     method: normalizedMethod,
     body: normalizedMethod === "GET" ? undefined : JSON.stringify(body),
-    headers: jsonHeaders(headers),
+    headers: jsonHeaders(headers, { requestId }),
     signal,
     openWhenHidden,
     async onopen(response) {
@@ -56,11 +58,12 @@ async function jsonSse({
             ? `An error occurred while streaming response. Code ${response.status}`
             : "An error occurred while streaming response. Unknown Error.",
         raw: response,
+        details: { requestId, method: normalizedMethod, path },
       });
     },
     async onmessage(msg) {
       await onRawMessage?.(msg);
-      const payload = parseSseJsonMessage(msg);
+      const payload = parseSseJsonMessage(msg, { requestId, path });
       await onMessage?.(payload, msg);
     },
     onclose() {
@@ -78,6 +81,7 @@ async function jsonSse({
               message: `An error occurred while streaming response. ${
                 error?.message || "Unknown error"
               }`,
+              details: { requestId, method: normalizedMethod, path },
               raw: error,
             });
 

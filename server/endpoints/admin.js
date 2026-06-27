@@ -1,6 +1,5 @@
 const crypto = require("crypto");
 const { ApiKey } = require("../models/apiKeys");
-const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const { Document } = require("../models/documents");
 const { EventLogs } = require("../models/eventLogs");
 const { Invite } = require("../models/invite");
@@ -25,9 +24,6 @@ const authPrisma = require("../utils/authPrisma");
 const {
   ROLES: ACCOUNT_ROLES,
   OWNER_TYPES,
-  assertOwnerCap,
-  assertOwnerHierarchyMutationAllowed,
-  assertOwnerWillRemain,
   assertOwnerWillRemainAfterMutation,
   assertBanAllowed,
   assertUnbanAllowed,
@@ -52,6 +48,7 @@ const ImportedPlugin = require("../utils/agents/imported");
 const {
   simpleSSOLoginDisabledMiddleware,
 } = require("../utils/middleware/simpleSSOEnabled");
+const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
 
 function banContextFor({ actorAuth, targetAuth }) {
   const now = new Date();
@@ -97,6 +94,20 @@ function clearBanContext() {
   };
 }
 
+function recordAdminCheckpoint(
+  request,
+  action,
+  resourceType,
+  resourceId = null
+) {
+  void recordClientTrustCheckpoint(request, {
+    action,
+    resourceType,
+    resourceId,
+    outcome: "received",
+  });
+}
+
 function adminEndpoints(app) {
   if (!app) return;
 
@@ -121,6 +132,7 @@ function adminEndpoints(app) {
       try {
         const currUser = await userFromSession(request, response);
         const newUserParams = reqBody(request);
+        recordAdminCheckpoint(request, "admin_user_create", "admin_user");
         if (normalizeRole(newUserParams.role) === ACCOUNT_ROLES.owner) {
           response.status(200).json({
             user: null,
@@ -165,6 +177,7 @@ function adminEndpoints(app) {
         const currUser = await userFromSession(request, response);
         const { id } = request.params;
         const updates = reqBody(request);
+        recordAdminCheckpoint(request, "admin_user_update", "admin_user", id);
         const user = await User.get({ id: Number(id) });
 
         const canModify = validCanModify(currUser, user);
@@ -224,6 +237,7 @@ function adminEndpoints(app) {
       const { id } = request.params;
       const user = await User._get({ id: Number(id) });
       const { confirm, reauthToken } = reqBody(request) || {};
+      recordAdminCheckpoint(request, "admin_user_delete", "admin_user", id);
 
       if (!user) {
         response.status(404).json({ success: false, error: "User not found" });
@@ -276,7 +290,9 @@ function adminEndpoints(app) {
         const currUser = await userFromSession(request, response);
         const user = await User._get({ id: Number(request.params.id) });
         if (!user) {
-          response.status(404).json({ success: false, error: "User not found" });
+          response
+            .status(404)
+            .json({ success: false, error: "User not found" });
           return;
         }
         const preview = await AccountDeletionService.preview({
@@ -301,8 +317,16 @@ function adminEndpoints(app) {
       try {
         const actor = await userFromSession(request, response);
         const target = await User._get({ id: Number(request.params.id) });
+        recordAdminCheckpoint(
+          request,
+          "admin_user_ban",
+          "admin_user",
+          request.params.id
+        );
         if (!target?.authUserId) {
-          response.status(404).json({ success: false, error: "User not found" });
+          response
+            .status(404)
+            .json({ success: false, error: "User not found" });
           return;
         }
         const actorAuth = await AuthIdentity.findById(actor.authUserId);
@@ -352,8 +376,16 @@ function adminEndpoints(app) {
       try {
         const actor = await userFromSession(request, response);
         const target = await User._get({ id: Number(request.params.id) });
+        recordAdminCheckpoint(
+          request,
+          "admin_user_unban",
+          "admin_user",
+          request.params.id
+        );
         if (!target?.authUserId) {
-          response.status(404).json({ success: false, error: "User not found" });
+          response
+            .status(404)
+            .json({ success: false, error: "User not found" });
           return;
         }
         const body = reqBody(request) || {};
@@ -435,6 +467,7 @@ function adminEndpoints(app) {
         const user = await userFromSession(request, response);
         const body = reqBody(request);
         const role = normalizeRole(body?.role || ACCOUNT_ROLES.user);
+        recordAdminCheckpoint(request, "admin_invite_create", "invite");
         if (role === ACCOUNT_ROLES.owner) {
           response.status(200).json({
             invite: null,
@@ -483,6 +516,7 @@ function adminEndpoints(app) {
     async (request, response) => {
       try {
         const { id } = request.params;
+        recordAdminCheckpoint(request, "admin_invite_delete", "invite", id);
         const { success, error, invite } = await Invite.deactivate(id);
         await EventLogs.logEvent(
           normalizeRole(invite?.role) === ACCOUNT_ROLES.user
@@ -539,6 +573,7 @@ function adminEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { name } = reqBody(request);
+        recordAdminCheckpoint(request, "admin_workspace_create", "workspace");
         const { workspace, message: error } = await Workspace.new(
           name,
           user.id
@@ -558,6 +593,12 @@ function adminEndpoints(app) {
       try {
         const { workspaceId } = request.params;
         const { userIds } = reqBody(request);
+        recordAdminCheckpoint(
+          request,
+          "admin_workspace_update_users",
+          "workspace",
+          workspaceId
+        );
         const { success, error } = await Workspace.updateUsers(
           workspaceId,
           userIds
@@ -578,6 +619,12 @@ function adminEndpoints(app) {
         const { id } = request.params;
         const VectorDb = getVectorDbClass();
         const workspace = await Workspace.get({ id: Number(id) });
+        recordAdminCheckpoint(
+          request,
+          "admin_workspace_delete",
+          "workspace",
+          id
+        );
         if (!workspace) {
           response.sendStatus(404).end();
           return;
@@ -730,6 +777,11 @@ function adminEndpoints(app) {
     async (request, response) => {
       try {
         let updates = reqBody(request);
+        recordAdminCheckpoint(
+          request,
+          "admin_system_preferences_update",
+          "system_settings"
+        );
 
         const result = await SystemSettings.updateSettings(updates);
         const fileAccessKeys = [
@@ -784,6 +836,7 @@ function adminEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { name = null } = reqBody(request);
+        recordAdminCheckpoint(request, "admin_api_key_create", "api_key");
         const { apiKey, error } = await ApiKey.create(user.id, name);
         await EventLogs.logEvent(
           "api_key_created",
@@ -808,6 +861,7 @@ function adminEndpoints(app) {
       try {
         const { id } = request.params;
         if (!id || isNaN(Number(id))) return response.sendStatus(400).end();
+        recordAdminCheckpoint(request, "admin_api_key_delete", "api_key", id);
         await ApiKey.delete({ id: Number(id) });
 
         await EventLogs.logEvent(
@@ -826,11 +880,17 @@ function adminEndpoints(app) {
 
 function hashId(value) {
   if (!value) return null;
-  return crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+  return crypto
+    .createHash("sha256")
+    .update(String(value))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 function safeAuditText(value = "") {
-  return String(value || "").replace(/[<>]/g, "").slice(0, 160);
+  return String(value || "")
+    .replace(/[<>]/g, "")
+    .slice(0, 160);
 }
 
 module.exports = { adminEndpoints };

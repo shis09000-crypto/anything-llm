@@ -302,7 +302,47 @@ function themeByName(name) {
   return EPUB_READER_THEMES[name] || EPUB_READER_THEMES.paper;
 }
 
+let epubPreferencesHydrated = false;
+
+function readerProgressStateWithEpubPreferences(epubPreferences) {
+  const parse = (key, fallback) => {
+    try {
+      return JSON.parse(window.localStorage.getItem(key) || "");
+    } catch {
+      return fallback;
+    }
+  };
+  return {
+    bookMemory: parse("anythingllm_document_reader_book_memory:v1", []),
+    progressBackups: parse(
+      "anythingllm_document_reader_progress_backup:v1",
+      []
+    ),
+    epubPreferences,
+  };
+}
+
 function readEpubPreferences() {
+  if (!epubPreferencesHydrated && typeof window !== "undefined") {
+    epubPreferencesHydrated = true;
+    import("@/utils/userStateSync")
+      .then(({ hydrateUserStateValue, USER_STATE_NAMESPACES }) =>
+        hydrateUserStateValue({
+          namespace: USER_STATE_NAMESPACES.readerProgress,
+          fallback: readerProgressStateWithEpubPreferences(
+            readEpubPreferences()
+          ),
+          apply: (value) => {
+            if (!value?.epubPreferences) return;
+            window.localStorage.setItem(
+              EPUB_PREFERENCES_STORAGE_KEY,
+              JSON.stringify(value.epubPreferences)
+            );
+          },
+        })
+      )
+      .catch(() => {});
+  }
   try {
     if (typeof window === "undefined")
       return { fontSize: 100, readerTheme: "paper" };
@@ -332,6 +372,16 @@ function writeEpubPreferences(preferences = {}) {
         fontSize: clampFontSize(preferences.fontSize || previous.fontSize),
       })
     );
+    import("@/utils/userStateSync")
+      .then(({ pushUserStateValue, USER_STATE_NAMESPACES }) =>
+        pushUserStateValue(
+          USER_STATE_NAMESPACES.readerProgress,
+          "global",
+          readerProgressStateWithEpubPreferences(readEpubPreferences()),
+          { debounceMs: 1_000 }
+        )
+      )
+      .catch(() => {});
   } catch {}
 }
 

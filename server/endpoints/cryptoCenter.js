@@ -14,6 +14,7 @@ const {
 const {
   ensureSecureWebSocketRequest,
 } = require("../utils/security/transportSecurity");
+const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
 
 const CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY =
   "anythingllm_crypto_trading_pair_detail_config_v1";
@@ -63,6 +64,15 @@ function sendSocket(socket, payload) {
 
 function isRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function recordCryptoConfigCheckpoint(request, action, kind) {
+  void recordClientTrustCheckpoint(request, {
+    action,
+    resourceType: "crypto_config",
+    resourceId: kind,
+    outcome: "received",
+  });
 }
 
 async function isCryptoSocketAuthorized(request) {
@@ -119,6 +129,11 @@ function cryptoCenterEndpoints(app) {
       try {
         const body = reqBody(request);
         const config = body?.config;
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_save",
+          "trading_pair_detail"
+        );
         if (!isRecord(config)) {
           response.status(400).json({
             success: false,
@@ -149,8 +164,13 @@ function cryptoCenterEndpoints(app) {
   app.delete(
     "/crypto-component-experiment/config",
     cryptoCenterAccessMiddleware([ROLES.admin]),
-    async (_request, response) => {
+    async (request, response) => {
       try {
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_delete",
+          "trading_pair_detail"
+        );
         await SystemSettings.delete({
           label: CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY,
         });
@@ -197,6 +217,11 @@ function cryptoCenterEndpoints(app) {
       try {
         const body = reqBody(request);
         const config = body?.config;
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_save",
+          "asset_allocation_donut"
+        );
         if (!isRecord(config)) {
           response.status(400).json({
             success: false,
@@ -224,8 +249,13 @@ function cryptoCenterEndpoints(app) {
   app.delete(
     "/crypto-component-experiment/asset-allocation-donut/config",
     cryptoCenterAccessMiddleware([ROLES.admin]),
-    async (_request, response) => {
+    async (request, response) => {
       try {
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_delete",
+          "asset_allocation_donut"
+        );
         await SystemSettings.delete({
           label: ASSET_ALLOCATION_DONUT_CONFIG_KEY,
         });
@@ -272,6 +302,11 @@ function cryptoCenterEndpoints(app) {
       try {
         const body = reqBody(request);
         const config = body?.config;
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_save",
+          "open_futures_positions"
+        );
         if (!isRecord(config)) {
           response.status(400).json({
             success: false,
@@ -299,8 +334,13 @@ function cryptoCenterEndpoints(app) {
   app.delete(
     "/crypto-component-experiment/open-futures-positions/config",
     cryptoCenterAccessMiddleware([ROLES.admin]),
-    async (_request, response) => {
+    async (request, response) => {
       try {
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_delete",
+          "open_futures_positions"
+        );
         await SystemSettings.delete({
           label: OPEN_FUTURES_POSITIONS_CONFIG_KEY,
         });
@@ -347,6 +387,11 @@ function cryptoCenterEndpoints(app) {
       try {
         const body = reqBody(request);
         const config = body?.config;
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_save",
+          "trade_records"
+        );
         if (!isRecord(config)) {
           response.status(400).json({
             success: false,
@@ -374,8 +419,13 @@ function cryptoCenterEndpoints(app) {
   app.delete(
     "/crypto-component-experiment/trade-records/config",
     cryptoCenterAccessMiddleware([ROLES.admin]),
-    async (_request, response) => {
+    async (request, response) => {
       try {
+        recordCryptoConfigCheckpoint(
+          request,
+          "crypto_config_delete",
+          "trade_records"
+        );
         await SystemSettings.delete({
           label: TRADE_RECORDS_CONFIG_KEY,
         });

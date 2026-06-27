@@ -155,7 +155,7 @@ export default function Survey({ setHeader, setForwardBtn, setBackBtn }) {
             type="email"
             placeholder="you@gmail.com"
             required={true}
-            className="mt-2 bg-theme-settings-input-bg text-white focus:outline-primary-button active:outline-primary-button placeholder:text-theme-settings-input-placeholder outline-none text-sm font-medium font-['Plus Jakarta Sans'] leading-tight w-full h-11 p-2.5 bg-theme-settings-input-bg rounded-lg"
+            className="mt-2 bg-theme-settings-input-bg text-white focus:outline-primary-button active:outline-primary-button placeholder:text-theme-settings-input-placeholder outline-none text-sm font-medium font-sans leading-tight w-full h-11 p-2.5 bg-theme-settings-input-bg rounded-lg"
           />
         </div>
 
@@ -189,7 +189,7 @@ export default function Survey({ setHeader, setForwardBtn, setBackBtn }) {
                     : ""
                 }`}
               ></div>
-              <div className="text-theme-text-primary text-sm font-medium font-['Plus Jakarta Sans'] leading-tight">
+              <div className="text-theme-text-primary text-sm font-medium font-sans leading-tight">
                 {t("onboarding.survey.useCaseWork")}
               </div>
             </label>
@@ -215,7 +215,7 @@ export default function Survey({ setHeader, setForwardBtn, setBackBtn }) {
                     : ""
                 }`}
               ></div>
-              <div className="text-theme-text-primary text-sm font-medium font-['Plus Jakarta Sans'] leading-tight">
+              <div className="text-theme-text-primary text-sm font-medium font-sans leading-tight">
                 {t("onboarding.survey.useCasePersonal")}
               </div>
             </label>
@@ -241,7 +241,7 @@ export default function Survey({ setHeader, setForwardBtn, setBackBtn }) {
                     : ""
                 }`}
               ></div>
-              <div className="text-theme-text-primary text-sm font-medium font-['Plus Jakarta Sans'] leading-tight">
+              <div className="text-theme-text-primary text-sm font-medium font-sans leading-tight">
                 {t("onboarding.survey.useCaseOther")}
               </div>
             </label>

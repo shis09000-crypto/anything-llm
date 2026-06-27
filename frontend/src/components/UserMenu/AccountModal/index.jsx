@@ -4,7 +4,6 @@ import System from "@/models/system";
 import Appearance from "@/models/appearance";
 import {
   AUTH_TIMESTAMP,
-  AUTH_TOKEN,
   AUTH_USER,
   LAST_USER_ACTION_AT,
   LAST_VISITED_WORKSPACE,
@@ -20,6 +19,7 @@ import { Tooltip } from "react-tooltip";
 import { safeJsonParse } from "@/utils/request";
 import Toggle from "@/components/lib/Toggle";
 import AppButton from "@/components/lib/AppButton";
+import { removeAuthToken } from "@/utils/authTokenStorage";
 import AppIcon from "@/components/lib/AppIcon";
 import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
 import { normalizeEmailInput } from "@/utils/emailInput";
@@ -169,7 +169,7 @@ export default function AccountModal({ user, hideModal }) {
     closingRef.current = false;
     if (!saved) return;
     window.localStorage.removeItem(AUTH_USER);
-    window.localStorage.removeItem(AUTH_TOKEN);
+    removeAuthToken();
     window.localStorage.removeItem(AUTH_TIMESTAMP);
     window.localStorage.removeItem(LAST_USER_ACTION_AT);
     window.localStorage.removeItem(LAST_VISITED_WORKSPACE);

@@ -1,0 +1,42 @@
+{
+  "signed": [
+    ["POST", "/workspace/demo/tool-approval"],
+    ["DELETE", "/api/workspace/demo/remove-and-unembed"],
+    ["POST", "/auth/passkeys/register/options"],
+    ["POST", "/auth/passkeys/register/verify"],
+    ["POST", "/auth/trusted-devices/enable"],
+    ["POST", "/agent-invocation/uuid/clarification-response"],
+    ["POST", "/api/agent-invocation/uuid/clarification-response"],
+    ["DELETE", "/auth/passkeys/12"],
+    ["DELETE", "/auth/trusted-devices/12"],
+    ["DELETE", "/auth/zk-login/devices/12"],
+    ["POST", "/system/user"],
+    ["DELETE", "/system/user"],
+    ["DELETE", "/system/user/memory/12"],
+    ["POST", "/system/user/memory/12/reveal"],
+    ["POST", "/system/user/memory/reauth/passkey/options"],
+    ["POST", "/system/user/memory/reauth/passkey/verify"],
+    ["POST", "/system/user/memory/candidates"],
+    ["POST", "/system/user/memory/rebuild"],
+    ["PATCH", "/system/user/memory/12"],
+    ["POST", "/system/user/delete/reauth/password"],
+    ["POST", "/system/user/email-verification/request"],
+    ["POST", "/system/user/email-verification/confirm"],
+    ["DELETE", "/system/remove-document"],
+    ["DELETE", "/system/remove-documents"],
+    ["DELETE", "/system/remove-folder"],
+    ["POST", "/system/prompt-variables"],
+    ["PUT", "/system/prompt-variables/12"],
+    ["DELETE", "/system/prompt-variables/12"],
+    ["POST", "/client-identity/revoke"],
+    ["POST", "/api/client-identity/revoke-all-others"],
+    ["POST", "/client-identity/rotate-signing-secret"],
+    ["POST", "/api/client-identity/rotate-all-signing-secrets"]
+  ],
+  "unsigned": [
+    ["GET", "/workspace/demo/chats"],
+    ["POST", "/workspace/demo/chat"],
+    ["POST", "/system/slash-command-presets"],
+    ["DELETE", "/v1/admin/users/1"]
+  ]
+}

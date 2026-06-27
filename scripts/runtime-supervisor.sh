@@ -13,6 +13,11 @@ CRASH_COOLDOWN_SECONDS="${CRASH_COOLDOWN_SECONDS:-30}"
 LOG_MAX_BYTES="${LOG_MAX_BYTES:-10485760}"
 LOG_KEEP="${LOG_KEEP:-5}"
 STOPPING=0
+MOBILE_HTTPS="${MOBILE_HTTPS:-false}"
+
+mobile_https_enabled() {
+  [[ "$MOBILE_HTTPS" == "1" || "$MOBILE_HTTPS" == "true" ]]
+}
 
 usage() {
   cat <<EOF
@@ -61,8 +66,14 @@ if [[ "$APP_ENV" == "development" ]]; then
   SERVER_PORT="${SERVER_PORT:-3002}"
   COLLECTOR_PORT="${COLLECTOR_PORT:-8889}"
   FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-  APP_URL="http://localhost:${FRONTEND_PORT}"
-  API_URL="http://localhost:${SERVER_PORT}/api"
+  DEV_PUBLIC_HOST="${PUBLIC_DEV_HOST:-localhost}"
+  if mobile_https_enabled; then
+    APP_URL="${APP_URL:-https://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}}"
+    API_URL="${API_URL:-${MOBILE_HTTPS_API_BASE:-/api}}"
+  else
+    APP_URL="${APP_URL:-http://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}}"
+    API_URL="${API_URL:-http://${DEV_PUBLIC_HOST}:${SERVER_PORT}/api}"
+  fi
   COMPONENTS="server collector frontend"
 else
   SERVER_PORT="${SERVER_PORT:-3001}"
@@ -437,21 +448,42 @@ start_component_process() {
     development:frontend)
       (
         cd "$ROOT_DIR/frontend" || exit 1
-        nohup env \
-          APP_ENV=development \
-          NODE_ENV=development \
-          SERVER_PORT="$SERVER_PORT" \
-          COLLECTOR_PORT="$COLLECTOR_PORT" \
-          ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
-          ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
-          STORAGE_DIR="$ENV_STORAGE_ROOT" \
-          VITE_API_BASE="$API_URL" \
-          ./node_modules/.bin/vite \
-            --debug \
-            --host 0.0.0.0 \
-            --port "$FRONTEND_PORT" \
-            --strictPort \
-          </dev/null >>"$logfile" 2>&1 &
+        if mobile_https_enabled; then
+          nohup env \
+            APP_ENV=development \
+            NODE_ENV=development \
+            SERVER_PORT="$SERVER_PORT" \
+            COLLECTOR_PORT="$COLLECTOR_PORT" \
+            ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+            ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+            STORAGE_DIR="$ENV_STORAGE_ROOT" \
+            VITE_API_BASE="$API_URL" \
+            VITE_DEV_HTTPS=true \
+            VITE_HTTPS_KEY_PATH="${VITE_HTTPS_KEY_PATH:-}" \
+            VITE_HTTPS_CERT_PATH="${VITE_HTTPS_CERT_PATH:-}" \
+            ./node_modules/.bin/vite \
+              --debug \
+              --host 0.0.0.0 \
+              --port "$FRONTEND_PORT" \
+              --strictPort \
+            </dev/null >>"$logfile" 2>&1 &
+        else
+          nohup env \
+            APP_ENV=development \
+            NODE_ENV=development \
+            SERVER_PORT="$SERVER_PORT" \
+            COLLECTOR_PORT="$COLLECTOR_PORT" \
+            ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
+            ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
+            STORAGE_DIR="$ENV_STORAGE_ROOT" \
+            VITE_API_BASE="$API_URL" \
+            ./node_modules/.bin/vite \
+              --debug \
+              --host 0.0.0.0 \
+              --port "$FRONTEND_PORT" \
+              --strictPort \
+            </dev/null >>"$logfile" 2>&1 &
+        fi
         echo $!
       )
       ;;
@@ -633,6 +665,7 @@ write_state() {
   write_kv "$tmp" COLLECTOR_PORT "$COLLECTOR_PORT"
   write_kv "$tmp" FRONTEND_PORT "$FRONTEND_PORT"
   write_kv "$tmp" APP_URL "$APP_URL"
+  write_kv "$tmp" API_URL "$API_URL"
   write_kv "$tmp" STARTED_AT "$SUPERVISOR_STARTED_AT"
 
   for component in server collector frontend; do

@@ -1,6 +1,7 @@
 const winston = require("winston");
 const fs = require("fs");
 const path = require("path");
+const { sanitizeLogArgs } = require("../security/redaction");
 
 function fileLogger(service) {
   const logDir = process.env.DESKTOP_LOG_DIR;
@@ -26,9 +27,8 @@ function fileLogger(service) {
 
   return function append(level, args) {
     rotateIfNeeded();
-    const message = args
+    const message = sanitizeLogArgs(args)
       .map((arg) => {
-        if (arg instanceof Error) return arg.stack;
         if (typeof arg === "object") {
           try {
             return JSON.stringify(arg);
@@ -51,10 +51,28 @@ class Logger {
   static _instance;
   constructor() {
     if (Logger._instance) return Logger._instance;
+    this.attachConsoleRedaction();
     this.logger =
       process.env.NODE_ENV === "production" ? this.getWinstonLogger() : console;
     this.attachDesktopFileLogger();
     Logger._instance = this;
+  }
+
+  attachConsoleRedaction() {
+    if (console.__athenaRedactionAttached) return;
+    console.__athenaRedactionAttached = true;
+    const original = {
+      log: console.log.bind(console),
+      error: console.error.bind(console),
+      info: console.info.bind(console),
+      warn: console.warn.bind(console),
+      debug: console.debug.bind(console),
+    };
+    console.log = (...args) => original.log(...sanitizeLogArgs(args));
+    console.error = (...args) => original.error(...sanitizeLogArgs(args));
+    console.info = (...args) => original.info(...sanitizeLogArgs(args));
+    console.warn = (...args) => original.warn(...sanitizeLogArgs(args));
+    console.debug = (...args) => original.debug(...sanitizeLogArgs(args));
   }
 
   attachDesktopFileLogger() {
@@ -106,11 +124,9 @@ class Logger {
     });
 
     function formatArgs(args) {
-      return args
+      return sanitizeLogArgs(args)
         .map((arg) => {
-          if (arg instanceof Error) {
-            return arg.stack; // If argument is an Error object, return its stack trace
-          } else if (typeof arg === "object") {
+          if (typeof arg === "object") {
             return JSON.stringify(arg); // Convert objects to JSON string
           } else {
             return arg; // Otherwise, return as-is

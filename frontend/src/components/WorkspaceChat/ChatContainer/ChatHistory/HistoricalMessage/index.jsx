@@ -97,6 +97,15 @@ const HistoricalMessage = ({
           turnId,
           chatId,
         });
+  const safeOutputs = Array.isArray(outputs) ? outputs : [];
+  const quizOutputs =
+    role === "assistant"
+      ? safeOutputs.filter((output) => output?.type === "QuizCard")
+      : [];
+  const nonQuizOutputs =
+    role === "assistant"
+      ? safeOutputs.filter((output) => output?.type !== "QuizCard")
+      : safeOutputs;
 
   if (completeDelete) return null;
 
@@ -212,6 +221,13 @@ const HistoricalMessage = ({
           />
         ) : (
           <div className="break-words">
+            <HistoricalOutputs
+              outputs={quizOutputs}
+              workspace={workspace}
+              chatKey={chatKey}
+              turnId={turnId}
+              className="flex flex-col gap-2 mb-4"
+            />
             <RenderChatContent
               role={role}
               message={message}
@@ -241,7 +257,7 @@ const HistoricalMessage = ({
                 <div className="motion-skeleton h-3 w-1/3 rounded" />
               </div>
             )}
-            <HistoricalOutputs outputs={outputs} workspace={workspace} />
+            <HistoricalOutputs outputs={nonQuizOutputs} workspace={workspace} />
             <HistoricalClarifyingQuestions surveys={clarifyingQuestions} />
           </div>
         )}

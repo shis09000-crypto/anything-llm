@@ -214,7 +214,7 @@ export const ChatModeSelection = ({ defaultValue = null }) => {
                 : ""
             }`}
           ></div>
-          <div className="text-theme-text-primary text-sm font-medium font-['Plus Jakarta Sans'] leading-tight">
+          <div className="text-theme-text-primary text-sm font-medium font-sans leading-tight">
             Chat: Respond to all questions regardless of context
           </div>
         </label>
@@ -240,7 +240,7 @@ export const ChatModeSelection = ({ defaultValue = null }) => {
                 : ""
             }`}
           ></div>
-          <div className="text-theme-text-primary text-sm font-medium font-['Plus Jakarta Sans'] leading-tight">
+          <div className="text-theme-text-primary text-sm font-medium font-sans leading-tight">
             Query: Only respond to chats related to documents in workspace
           </div>
         </label>

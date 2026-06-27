@@ -1,6 +1,7 @@
 import { v4 } from "uuid";
 import { normalizeTurnItemsOrder } from "./historyOrder.js";
 import { dedupeReaderTextSources } from "./readerTextSources.js";
+import { displayPrompt } from "./displayPrompt.js";
 
 export const TURN_STATUSES = {
   running: "running",
@@ -16,6 +17,8 @@ export const AGENT_RECONNECT_TIER_TIMEOUT_MS = {
 };
 
 const DEFAULT_AGENT_RECONNECT_TIER = "refined";
+const LOCAL_SERVER_TURN_MATCH_EARLY_TOLERANCE_MS = 5_000;
+const LOCAL_SERVER_TURN_MATCH_LATE_TOLERANCE_MS = 2 * 60 * 1000;
 
 const TIMELINE_TYPES = new Set([
   "thought",
@@ -75,6 +78,7 @@ export function createTurn({
     readerTextSources: normalizedReaderTextSources,
     chatId,
     publicChatId,
+    clientTurnId: turnId,
     createdAt,
   };
   const assistantTurn = {
@@ -89,6 +93,7 @@ export function createTurn({
     metrics: {},
     chatId,
     publicChatId,
+    clientTurnId: turnId,
     chatKey,
     error: null,
     createdAt: createdAt + 1,
@@ -463,6 +468,7 @@ function groupedServerHistory(history = []) {
       byChatId.set(chatId, {
         chatId,
         publicChatId: message.publicChatId || null,
+        clientTurnId: message.clientTurnId || null,
         user: null,
         assistant: null,
       });
@@ -471,6 +477,7 @@ function groupedServerHistory(history = []) {
 
     const group = byChatId.get(chatId);
     group.publicChatId = group.publicChatId || message.publicChatId || null;
+    group.clientTurnId = group.clientTurnId || message.clientTurnId || null;
     if (message.role === "user" && !group.user) group.user = message;
     if (message.role === "assistant") group.assistant = message;
   }
@@ -480,20 +487,22 @@ function groupedServerHistory(history = []) {
 
 function serverGroupToItems(group, chatKey = null) {
   const turnId = serverTurnId(group.chatId);
-  const createdAt =
-    (group.user?.sentAt || group.assistant?.sentAt || nowMs()) * 1000;
+  const serverSentAt = group.user?.sentAt || group.assistant?.sentAt || null;
+  const createdAt = serverSentAt ? serverSentAt * 1000 : nowMs();
   const userMessage = {
     id: userItemId(turnId),
     type: "user",
     role: "user",
     turnId,
-    content: group.user?.content || "",
+    content: displayPrompt(group.user?.content || ""),
     attachments: group.user?.attachments || [],
     readerTextSources: dedupeReaderTextSources(group.user?.readerTextSources),
     chatId: group.chatId,
     createdAt,
+    sentAt: serverSentAt,
     hydrationStatus: group.user?.hydrationStatus || null,
     publicChatId: group.publicChatId,
+    clientTurnId: group.clientTurnId || group.user?.clientTurnId || null,
   };
 
   const assistant = group.assistant || {};
@@ -514,10 +523,16 @@ function serverGroupToItems(group, chatKey = null) {
     metrics: assistant.metrics || {},
     chatId: group.chatId,
     publicChatId: group.publicChatId,
+    clientTurnId:
+      group.clientTurnId ||
+      group.assistant?.clientTurnId ||
+      group.user?.clientTurnId ||
+      null,
     chatKey,
     error: assistant.error || null,
     createdAt: createdAt + 1,
     updatedAt: createdAt + 1,
+    sentAt: serverSentAt,
     timeline,
     feedbackScore: assistant.feedbackScore,
     outputs: assistant.outputs || [],
@@ -530,9 +545,127 @@ function serverGroupToItems(group, chatKey = null) {
   return [userMessage, assistantTurn];
 }
 
+function historyWindowSnapshot(history = []) {
+  return history.reduce(
+    (snapshot, message) => {
+      if (!message) return snapshot;
+      const chatId = Number(message.chatId);
+      if (Number.isFinite(chatId) && chatId > 0) {
+        snapshot.chatIds.add(String(chatId));
+        snapshot.maxChatId =
+          snapshot.maxChatId === null
+            ? chatId
+            : Math.max(snapshot.maxChatId, chatId);
+      }
+      if (message.publicChatId) {
+        snapshot.publicChatIds.add(String(message.publicChatId));
+      }
+      const sentAt = Number(message.sentAt);
+      if (Number.isFinite(sentAt) && sentAt > 0) {
+        snapshot.maxSentAt =
+          snapshot.maxSentAt === null
+            ? sentAt
+            : Math.max(snapshot.maxSentAt, sentAt);
+      }
+      return snapshot;
+    },
+    {
+      chatIds: new Set(),
+      publicChatIds: new Set(),
+      maxChatId: null,
+      maxSentAt: null,
+    }
+  );
+}
+
+function itemHasServerIdentity(item = {}) {
+  return !!(item.chatId || item.publicChatId);
+}
+
+function itemInHistoryWindow(item = {}, snapshot = {}) {
+  if (item.chatId && snapshot.chatIds?.has(String(item.chatId))) return true;
+  if (
+    item.publicChatId &&
+    snapshot.publicChatIds?.has(String(item.publicChatId))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function groupTurnItems(items = []) {
+  const groups = new Map();
+  for (const item of items) {
+    const turnId = item.turnId || item.id;
+    if (!turnId) continue;
+    if (!groups.has(turnId)) groups.set(turnId, []);
+    groups.get(turnId).push(item);
+  }
+  return groups;
+}
+
+function shouldPruneServerBackedTurn(items = [], snapshot = {}, options = {}) {
+  if (!items.length) return false;
+  const preserveTurnIds = options.preserveTurnIds || new Set();
+  const turnId = items[0]?.turnId || null;
+  if (turnId && preserveTurnIds.has(turnId)) return false;
+  if (!items.some(itemHasServerIdentity)) return false;
+  if (items.some((item) => itemInHistoryWindow(item, snapshot))) return false;
+  if (
+    items.some(
+      (item) => isAssistantTurn(item) && item.status !== TURN_STATUSES.completed
+    )
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function pruneServerBackedTurnsOutsideHistory(
+  items = [],
+  history = [],
+  options = {}
+) {
+  if (!history.length) return normalizeTurnItems(items);
+  const normalized = normalizeTurnItems(items);
+  const snapshot = historyWindowSnapshot(history);
+  const preserveTurnIds = new Set(options.preserveTurnIds || []);
+  const removedTurnIds = new Set();
+
+  for (const [turnId, turnItems] of groupTurnItems(normalized)) {
+    if (
+      shouldPruneServerBackedTurn(turnItems, snapshot, {
+        ...options,
+        preserveTurnIds,
+      })
+    ) {
+      removedTurnIds.add(turnId);
+    }
+  }
+
+  if (!removedTurnIds.size) return normalized;
+  return normalizeTurnItems(
+    normalized.filter((item) => !removedTurnIds.has(item.turnId))
+  );
+}
+
 function userFingerprint(item = {}) {
   if (!isUserItem(item)) return null;
   return `${String(item.content || "").trim()}:${stableJson(item.attachments || [])}`;
+}
+
+function clientTurnIdOf(item = {}) {
+  return item.clientTurnId || item.turnId || null;
+}
+
+function clientTurnIdsMatch(localAssistant = {}, serverAssistant = {}) {
+  const localClientTurnId = clientTurnIdOf(localAssistant);
+  const serverClientTurnId = serverAssistant.clientTurnId || null;
+  return !!(
+    localClientTurnId &&
+    serverClientTurnId &&
+    localClientTurnId === serverClientTurnId
+  );
 }
 
 function localTurnTimeDistance(
@@ -549,19 +682,52 @@ function localTurnTimeDistance(
   return Math.abs(localTime - serverTime);
 }
 
+function localTurnTimeMatchesServer(
+  localItems = [],
+  assistant = {},
+  serverUser = {}
+) {
+  const localUser = localItems.find(
+    (candidate) => candidate.id === assistant.userMessageId
+  );
+  const localTime = Number(localUser?.createdAt || assistant.createdAt || 0);
+  const serverTime = Number(serverUser?.sentAt ? serverUser.sentAt * 1000 : 0);
+  if (!localTime || !serverTime) return false;
+  return (
+    serverTime >= localTime - LOCAL_SERVER_TURN_MATCH_EARLY_TOLERANCE_MS &&
+    serverTime <= localTime + LOCAL_SERVER_TURN_MATCH_LATE_TOLERANCE_MS
+  );
+}
+
+function turnHasAttachments(localItems = [], assistant = {}) {
+  const localUser = localItems.find(
+    (candidate) => candidate.id === assistant.userMessageId
+  );
+  return (
+    Array.isArray(localUser?.attachments) && localUser.attachments.length > 0
+  );
+}
+
 function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
   let localAssistantIdx = localItems.findIndex(
-    (item) =>
-      isAssistantTurn(item) &&
-      serverAssistant.chatId &&
-      item.chatId === serverAssistant.chatId
+    (item) => isAssistantTurn(item) && clientTurnIdsMatch(item, serverAssistant)
   );
+
+  if (localAssistantIdx === -1) {
+    localAssistantIdx = localItems.findIndex(
+      (item) =>
+        isAssistantTurn(item) &&
+        serverAssistant.chatId &&
+        item.chatId === serverAssistant.chatId &&
+        localTurnTimeMatchesServer(localItems, item, serverUser)
+    );
+  }
 
   if (localAssistantIdx === -1) {
     const candidates = localItems
       .map((item, index) => ({ item, index }))
       .filter(({ item }) => {
-        if (!isAssistantTurn(item) || item.chatId) return false;
+        if (!isAssistantTurn(item)) return false;
         if (
           ![
             TURN_STATUSES.completed,
@@ -575,7 +741,29 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
         const localUser = localItems.find(
           (candidate) => candidate.id === item.userMessageId
         );
-        return userFingerprint(localUser) === userFingerprint(serverUser);
+        return (
+          userFingerprint(localUser) === userFingerprint(serverUser) &&
+          localTurnTimeMatchesServer(localItems, item, serverUser)
+        );
+      })
+      .sort((a, b) => {
+        const distance =
+          localTurnTimeDistance(localItems, a.item, serverUser) -
+          localTurnTimeDistance(localItems, b.item, serverUser);
+        if (distance !== 0) return distance;
+        return Number(a.item.createdAt || 0) - Number(b.item.createdAt || 0);
+      });
+
+    localAssistantIdx = candidates[0]?.index ?? -1;
+  }
+
+  if (localAssistantIdx === -1) {
+    const candidates = localItems
+      .map((item, index) => ({ item, index }))
+      .filter(({ item }) => {
+        if (!isAssistantTurn(item)) return false;
+        if (!turnHasAttachments(localItems, item)) return false;
+        return localTurnTimeMatchesServer(localItems, item, serverUser);
       })
       .sort((a, b) => {
         const distance =
@@ -599,10 +787,13 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
   if (localUserIdx >= 0) {
     nextItems[localUserIdx] = {
       ...nextItems[localUserIdx],
-      chatId: nextItems[localUserIdx].chatId || serverUser.chatId,
+      chatId: serverUser.chatId || nextItems[localUserIdx].chatId,
       publicChatId:
-        nextItems[localUserIdx].publicChatId || serverUser.publicChatId || null,
-      content: nextItems[localUserIdx].content || serverUser.content,
+        serverUser.publicChatId || nextItems[localUserIdx].publicChatId || null,
+      clientTurnId:
+        serverUser.clientTurnId || nextItems[localUserIdx].clientTurnId || null,
+      content:
+        nextItems[localUserIdx].content || displayPrompt(serverUser.content),
       attachments:
         nextItems[localUserIdx].attachments?.length > 0
           ? nextItems[localUserIdx].attachments
@@ -616,6 +807,8 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     chatId: serverAssistant.chatId || localAssistant.chatId,
     publicChatId:
       serverAssistant.publicChatId || localAssistant.publicChatId || null,
+    clientTurnId:
+      serverAssistant.clientTurnId || localAssistant.clientTurnId || null,
     finalContent: serverAssistant.finalContent || localAssistant.finalContent,
     sources: serverAssistant.sources || localAssistant.sources,
     metrics: serverAssistant.metrics || localAssistant.metrics,
@@ -673,7 +866,11 @@ export function mergeServerHistoryIntoTurns(
     }
   }
 
-  return normalizeTurnItems(merged);
+  const normalized = normalizeTurnItems(merged);
+  if (options.pruneServerBackedItemsOutsideHistory) {
+    return pruneServerBackedTurnsOutsideHistory(normalized, history, options);
+  }
+  return normalized;
 }
 
 export function findAssistantTurn(items = [], turnId = null) {

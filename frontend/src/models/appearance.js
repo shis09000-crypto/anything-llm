@@ -1,5 +1,6 @@
 import { APPEARANCE_SETTINGS } from "@/utils/constants";
 import { safeJsonParse } from "@/utils/request";
+import { persistAppearancePreferences } from "@/utils/userStateSync";
 
 /**
  * @typedef { 'showScrollbar' |
@@ -63,6 +64,7 @@ const Appearance = {
   updateSettings: (newSettings) => {
     const updatedSettings = { ...Appearance.getSettings(), ...newSettings };
     localStorage.setItem(APPEARANCE_SETTINGS, JSON.stringify(updatedSettings));
+    persistAppearancePreferences({ appearanceSettings: updatedSettings });
     return updatedSettings;
   },
 };

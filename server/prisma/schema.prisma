@@ -303,6 +303,8 @@ model users {
   desktop_mobile_devices       desktop_mobile_devices[]
   workspace_parsed_files       workspace_parsed_files[]
   workspace_mind_maps          workspace_mind_maps[]
+  athena_clients               athena_clients[]
+  user_state_preferences       user_state_preferences[]
 
   @@index([originEnv])
   @@index([role])
@@ -580,6 +582,63 @@ model TrustedLoginDevice {
   @@unique([userId, deviceId])
   @@index([userId])
   @@index([userId, revokedAt])
+}
+
+model athena_clients {
+  id                       Int       @id @default(autoincrement())
+  clientId                 String
+  userId                   Int
+  platform                 String
+  deviceName               String?
+  appVersion               String?
+  trustLevel               String    @default("low")
+  capabilities             String?
+  capabilitySource         String    @default("unknown")
+  publicKey                String?
+  deviceFingerprintVersion String?
+  signingSecretEncrypted   String?
+  signingSecretVersion     String?
+  signingSecretIssuedAt    DateTime?
+  signingSecretRotatedAt   DateTime?
+  createdAt                DateTime  @default(now())
+  lastSeenAt               DateTime  @default(now())
+  revokedAt                DateTime?
+  user                     users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId])
+  @@index([clientId])
+  @@index([userId, revokedAt])
+}
+
+model athena_request_nonces {
+  id        Int      @id @default(autoincrement())
+  clientId  String
+  userId    Int?
+  nonce     String
+  requestId String?
+  timestamp DateTime
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([clientId, nonce])
+  @@index([expiresAt])
+  @@index([clientId, createdAt])
+}
+
+model user_state_preferences {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  namespace String
+  scope     String   @default("global")
+  value     String
+  version   String   @default("1")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, namespace, scope])
+  @@index([userId, namespace])
+  @@index([updatedAt])
 }
 
 model ZkLoginAttempt {

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import useTimeoutProgress from "@/hooks/useTimeoutProgress";
 import Header from "./Header";
 import InputForm from "./InputForm";
@@ -30,7 +31,13 @@ function CardWrapper({ children }) {
   );
 }
 
-function ActiveInputForm({ question, draft, updateDraft, onSubmit }) {
+function ActiveInputForm({
+  question,
+  draft,
+  updateDraft,
+  onSubmit,
+  disabled = false,
+}) {
   if (question?.kind !== "input") return null;
   return (
     <InputForm
@@ -38,6 +45,7 @@ function ActiveInputForm({ question, draft, updateDraft, onSubmit }) {
       draft={draft}
       onChange={(value) => updateDraft({ skipped: false, value })}
       onSubmit={onSubmit}
+      disabled={disabled}
     />
   );
 }
@@ -47,6 +55,7 @@ function ActiveChoiceForm({
   draft,
   updateDraft,
   onAutoAdvance,
+  disabled = false,
 }) {
   if (question?.kind !== "choice") return null;
   return (
@@ -59,6 +68,7 @@ function ActiveChoiceForm({
           ? null
           : (patch) => onAutoAdvance({ skipped: false, ...patch })
       }
+      disabled={disabled}
     />
   );
 }
@@ -74,6 +84,7 @@ function ActiveFooter({
   onSkipThis,
   onNext,
   onSubmitAll,
+  disabled = false,
 }) {
   const isChoice = question?.kind === "choice";
   const isInput = question?.kind === "input";
@@ -92,6 +103,7 @@ function ActiveFooter({
       onSkipThis={onSkipThis}
       onNext={onNext}
       onSubmitAll={onSubmitAll}
+      disabled={disabled}
     />
   );
 }
@@ -110,11 +122,13 @@ export default function ClarifyingQuestionCard({
   questions = [],
   allowSkip = true,
   timeoutMs = null,
-  websocket,
   onRespond,
 }) {
+  const { t } = useTranslation();
   const [index, setIndex] = useState(0);
   const [responded, setResponded] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const [submittedResult, setSubmittedResult] = useState(null);
   const [drafts, setDrafts] = useState(() =>
     questions.map((q) => emptyDraftFor(q))
@@ -123,10 +137,7 @@ export default function ClarifyingQuestionCard({
   const progressPercent = useTimeoutProgress(timeoutMs, {
     active: !responded,
     onTimeout: () => {
-      const payload = { timedOut: true };
-      setResponded(true);
-      setSubmittedResult(payload);
-      onRespond?.(requestId, payload);
+      send({ timedOut: true });
     },
   });
 
@@ -149,28 +160,51 @@ export default function ClarifyingQuestionCard({
   if (!total) return null;
 
   function updateDraft(patch) {
+    if (submitting) return;
     setDrafts((prev) =>
       prev.map((draft, i) => (i === index ? { ...draft, ...patch } : draft))
     );
   }
 
-  function send(payload) {
-    if (responded) return;
-    setResponded(true);
-    setSubmittedResult(payload);
-    if (websocket && websocket.readyState === WebSocket.OPEN) {
-      websocket.send(
-        JSON.stringify({
-          type: "clarificationResponse",
+  async function send(payload) {
+    if (responded || submitting) return false;
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const result = await onRespond?.(requestId, payload);
+      if (result?.ok === false) {
+        throw new Error(result.reason || "clarification_send_failed");
+      }
+
+      setResponded(true);
+      setSubmittedResult(payload);
+      return true;
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        window.__lastClarifyingCardError = {
           requestId,
-          ...payload,
-        })
+          message: error?.message || String(error || "unknown"),
+          stack: error?.stack || null,
+        };
+        console.warn(
+          `[clarification] card response failed ${JSON.stringify(
+            window.__lastClarifyingCardError
+          )}`
+        );
+      }
+      setSubmitError(
+        error?.message ||
+          t("chat_window.agent_invocation.clarifying_send_failed")
       );
+      return false;
+    } finally {
+      setSubmitting(false);
     }
-    onRespond?.(requestId, payload);
   }
 
   function handleSkipThis() {
+    if (submitting) return;
     const skipPatch = { skipped: true };
     updateDraft(skipPatch);
     if (isLast) return handleSubmitAll(skipPatch);
@@ -178,21 +212,25 @@ export default function ClarifyingQuestionCard({
   }
 
   function handleNext() {
+    if (submitting) return;
     if (isLast) return handleSubmitAll();
     setIndex(index + 1);
   }
 
   function handleAutoAdvance(pendingPatch) {
+    if (submitting) return;
     if (isLast) return handleSubmitAll(pendingPatch);
     setIndex(index + 1);
   }
 
   function handlePrev() {
+    if (submitting) return;
     if (isFirst) return;
     setIndex(index - 1);
   }
 
   function handleSubmitAll(pendingPatch) {
+    if (submitting) return;
     const resolved = pendingPatch
       ? drafts.map((draft, i) =>
           i === index ? { ...draft, ...pendingPatch } : draft
@@ -203,6 +241,7 @@ export default function ClarifyingQuestionCard({
   }
 
   function handleClose() {
+    if (submitting) return;
     send({ skipped: true });
   }
 
@@ -227,6 +266,7 @@ export default function ClarifyingQuestionCard({
             draft={currentDraft}
             updateDraft={updateDraft}
             onSubmit={isSingle ? handleSubmitAll : handleNext}
+            disabled={submitting}
           />
           <ActiveChoiceForm
             question={currentQuestion}
@@ -235,7 +275,13 @@ export default function ClarifyingQuestionCard({
             onAutoAdvance={handleAutoAdvance}
             allowSkip={allowSkip}
             onSkip={handleSkipThis}
+            disabled={submitting}
           />
+          {submitError && (
+            <div className="text-xs text-red-400 light:text-red-600">
+              {t("chat_window.agent_invocation.clarifying_send_failed")}
+            </div>
+          )}
           <ActiveFooter
             question={currentQuestion}
             draft={currentDraft}
@@ -247,6 +293,7 @@ export default function ClarifyingQuestionCard({
             onSkipThis={handleSkipThis}
             onNext={handleNext}
             onSubmitAll={handleSubmitAll}
+            disabled={submitting}
           />
         </>
       )}

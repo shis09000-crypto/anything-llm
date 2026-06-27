@@ -8,11 +8,13 @@ STATE_FILE="$RUNTIME_DIR/status-development.env"
 SERVER_PORT="${SERVER_PORT:-3002}"
 COLLECTOR_PORT="${COLLECTOR_PORT:-8889}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
-FRONTEND_URL="http://localhost:${FRONTEND_PORT}"
-API_URL="http://localhost:${SERVER_PORT}/api"
 STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
 ENV_STORAGE_ROOT="$STORAGE_BASE/development"
 OPEN_BROWSER=1
+LAN_MODE=0
+DEV_PUBLIC_HOST="${PUBLIC_DEV_HOST:-localhost}"
+FRONTEND_URL=""
+API_URL=""
 
 mkdir -p "$LOG_DIR"
 
@@ -22,17 +24,66 @@ log() {
 
 usage() {
   cat <<EOF
-Usage: bash ./run-development [--no-open]
+Usage: bash ./run-development [--no-open] [--lan]
 
 Options:
   --no-open   Start services without opening or refreshing a browser tab.
+  --lan       Use this Mac's LAN IP for the frontend URL and VITE_API_BASE.
+
+Environment:
+  PUBLIC_DEV_HOST  Override the host advertised to browser clients.
 EOF
+}
+
+detect_lan_host() {
+  local candidate
+  local iface
+
+  for iface in en0 en1; do
+    candidate="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+    if [[ -n "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  candidate="$(ifconfig 2>/dev/null | awk '
+    $1 == "inet" && $2 !~ /^127\\./ && $2 != "0.0.0.0" {
+      print $2
+      exit
+    }
+  ')"
+  if [[ -n "$candidate" ]]; then
+    printf '%s\n' "$candidate"
+    return 0
+  fi
+
+  return 1
+}
+
+configure_public_urls() {
+  if [[ -n "${PUBLIC_DEV_HOST:-}" ]]; then
+    DEV_PUBLIC_HOST="$PUBLIC_DEV_HOST"
+  elif [[ "$LAN_MODE" == "1" ]]; then
+    if ! DEV_PUBLIC_HOST="$(detect_lan_host)"; then
+      log "error: unable to detect a LAN IP. Set PUBLIC_DEV_HOST=<ip-or-host> and retry."
+      exit 1
+    fi
+  else
+    DEV_PUBLIC_HOST="localhost"
+  fi
+
+  FRONTEND_URL="http://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}"
+  API_URL="http://${DEV_PUBLIC_HOST}:${SERVER_PORT}/api"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-open)
       OPEN_BROWSER=0
+      ;;
+    --lan)
+      LAN_MODE=1
       ;;
     -h|--help)
       usage
@@ -45,6 +96,8 @@ while [[ $# -gt 0 ]]; do
   esac
   shift
 done
+
+configure_public_urls
 
 is_port_open() {
   nc -z localhost "$1" >/dev/null 2>&1
@@ -206,6 +259,16 @@ email_verification_schema_exists() {
   [[ "$table_count" == "1" && "$user_column_count" == "2" ]]
 }
 
+user_state_preferences_schema_exists() {
+  local db_path="$1"
+  local table_count
+  local column_count
+
+  table_count="$(sqlite_scalar "$db_path" "select count(*) from sqlite_master where type='table' and name='user_state_preferences';")"
+  column_count="$(sqlite_scalar "$db_path" "select count(*) from pragma_table_info('user_state_preferences') where name in ('userId','namespace','scope','value','version','createdAt','updatedAt');")"
+  [[ "$table_count" == "1" && "$column_count" == "7" ]]
+}
+
 reconcile_known_sqlite_migration() {
   local db_path="$1"
   local migration_name="$2"
@@ -214,6 +277,13 @@ reconcile_known_sqlite_migration() {
   case "$migration_name" in
     20260612090000_add_email_verification)
       if email_verification_schema_exists "$db_path"; then
+        log "recording already-applied migration $migration_name"
+        record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
+        return 0
+      fi
+      ;;
+    20260624100000_add_user_state_preferences)
+      if user_state_preferences_schema_exists "$db_path"; then
         log "recording already-applied migration $migration_name"
         record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
         return 0
@@ -446,6 +516,19 @@ supervisor_alive() {
   [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
 }
 
+supervisor_urls_match() {
+  local state_output
+  local state_frontend_url
+  local state_api_url
+
+  [[ -f "$STATE_FILE" ]] || return 1
+  state_output="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 1; printf "%s\n%s\n" "${APP_URL:-}" "${API_URL:-}"' _ "$STATE_FILE" 2>/dev/null || true)"
+  state_frontend_url="$(printf '%s\n' "$state_output" | sed -n '1p')"
+  state_api_url="$(printf '%s\n' "$state_output" | sed -n '2p')"
+
+  [[ "$state_frontend_url" == "$FRONTEND_URL" && "$state_api_url" == "$API_URL" ]]
+}
+
 cleanup_stale_supervisor_lock() {
   if [[ -d "$SUPERVISOR_LOCK_DIR" ]] && ! supervisor_alive; then
     log "removing stale supervisor lock: $SUPERVISOR_LOCK_DIR"
@@ -456,15 +539,46 @@ cleanup_stale_supervisor_lock() {
 launch_supervisor() {
   log "starting development supervisor..."
   : >"$SUPERVISOR_LOG"
-  nohup env \
-    APP_ENV=development \
-    SERVER_PORT="$SERVER_PORT" \
-    COLLECTOR_PORT="$COLLECTOR_PORT" \
-    FRONTEND_PORT="$FRONTEND_PORT" \
-    STORAGE_DIR="$STORAGE_BASE" \
-    bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
-    >/dev/null 2>&1 &
+  if command -v setsid >/dev/null 2>&1; then
+    nohup setsid env \
+      APP_ENV=development \
+      SERVER_PORT="$SERVER_PORT" \
+      COLLECTOR_PORT="$COLLECTOR_PORT" \
+      FRONTEND_PORT="$FRONTEND_PORT" \
+      PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
+      APP_URL="$FRONTEND_URL" \
+      API_URL="$API_URL" \
+      STORAGE_DIR="$STORAGE_BASE" \
+      bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
+      >/dev/null 2>&1 &
+  elif command -v perl >/dev/null 2>&1; then
+    nohup perl -MPOSIX=setsid -e 'setsid() or die "setsid failed: $!"; exec @ARGV' \
+      env \
+      APP_ENV=development \
+      SERVER_PORT="$SERVER_PORT" \
+      COLLECTOR_PORT="$COLLECTOR_PORT" \
+      FRONTEND_PORT="$FRONTEND_PORT" \
+      PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
+      APP_URL="$FRONTEND_URL" \
+      API_URL="$API_URL" \
+      STORAGE_DIR="$STORAGE_BASE" \
+      bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
+      >/dev/null 2>&1 &
+  else
+    nohup env \
+      APP_ENV=development \
+      SERVER_PORT="$SERVER_PORT" \
+      COLLECTOR_PORT="$COLLECTOR_PORT" \
+      FRONTEND_PORT="$FRONTEND_PORT" \
+      PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
+      APP_URL="$FRONTEND_URL" \
+      API_URL="$API_URL" \
+      STORAGE_DIR="$STORAGE_BASE" \
+      bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
+      >/dev/null 2>&1 &
+  fi
   SUPERVISOR_PID="$!"
+  disown "$SUPERVISOR_PID" >/dev/null 2>&1 || true
   sleep 0.75
   if ! kill -0 "$SUPERVISOR_PID" >/dev/null 2>&1; then
     log "error: development supervisor exited during startup. Last log lines:"
@@ -487,6 +601,34 @@ wait_for_supervisor_state() {
   return 1
 }
 
+wait_for_running_components() {
+  local attempts=90
+  local count=0
+  local server_status
+  local collector_status
+  local frontend_status
+
+  while (( count < attempts )); do
+    if [[ -f "$STATE_FILE" ]]; then
+      # shellcheck disable=SC1090
+      source "$STATE_FILE" >/dev/null 2>&1 || true
+      server_status="${SERVER_STATUS:-}"
+      collector_status="${COLLECTOR_STATUS:-}"
+      frontend_status="${FRONTEND_STATUS:-}"
+      if [[ "$server_status" == "running" &&
+        "$collector_status" == "running" &&
+        "$frontend_status" == "running" ]]; then
+        return 0
+      fi
+    fi
+    sleep 1
+    count=$((count + 1))
+  done
+
+  log "warning: development components did not all report running within ${attempts}s"
+  return 1
+}
+
 warn_degraded_components() {
   local component
   local label
@@ -505,11 +647,15 @@ warn_degraded_components() {
 }
 
 cleanup_stale_supervisor_lock
-if supervisor_alive; then
+if supervisor_alive && supervisor_urls_match; then
   SUPERVISOR_PID="$(supervisor_pid_from_lock)"
   log "reusing existing development supervisor pid=$SUPERVISOR_PID"
 else
-  log "stopping existing development AnythingLLM processes..."
+  if supervisor_alive; then
+    log "restarting development supervisor for URL change: $FRONTEND_URL"
+  else
+    log "stopping existing development AnythingLLM processes..."
+  fi
   SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --env development --quiet || true
   prepare_storage_dirs
   ensure_env_database
@@ -521,6 +667,7 @@ wait_for_supervisor_state || true
 wait_for_port server "$SERVER_PORT" 90 || true
 wait_for_port collector "$COLLECTOR_PORT" 60 || true
 wait_for_port frontend "$FRONTEND_PORT" 90 || true
+wait_for_running_components || true
 assert_single_listener server "$SERVER_PORT" || true
 assert_single_listener collector "$COLLECTOR_PORT" || true
 assert_single_listener frontend "$FRONTEND_PORT" || true

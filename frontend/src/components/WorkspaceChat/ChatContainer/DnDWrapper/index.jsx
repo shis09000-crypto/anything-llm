@@ -1,4 +1,11 @@
-import { useState, useEffect, createContext, useContext } from "react";
+import {
+  useState,
+  useEffect,
+  createContext,
+  useContext,
+  useRef,
+  useCallback,
+} from "react";
 import { v4 } from "uuid";
 import System from "@/models/system";
 import { useDropzone } from "react-dropzone";
@@ -23,7 +30,9 @@ export const PARSED_FILE_ATTACHMENT_REMOVED_EVENT =
  * @property {string} uid - unique file id.
  * @property {File} file - native File object
  * @property {string|null} contentString - base64 encoded string of file
- * @property {('in_progress'|'failed'|'embedded'|'added_context')} status - the automatic upload status.
+ * @property {string|null} previewUrl - local object URL for immediate previews.
+ * @property {string|null} mime - normalized mime type for the file.
+ * @property {('in_progress'|'failed'|'success'|'embedded'|'added_context')} status - the automatic upload status.
  * @property {string|null} error - Error message
  * @property {{id:string, location:string}|null} document - uploaded document details
  * @property {('attachment'|'upload')} type - The type of upload. Attachments are chat-specific, uploads go to the workspace.
@@ -54,9 +63,20 @@ export function DnDFileUploaderProvider({
   const [pendingFiles, setPendingFiles] = useState([]);
   const [tokenCount, setTokenCount] = useState(0);
   const [maxTokens, setMaxTokens] = useState(Number.POSITIVE_INFINITY);
+  const filesRef = useRef([]);
 
   useEffect(() => {
     System.checkDocumentProcessorOnline().then((status) => setReady(status));
+  }, []);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
+
+  useEffect(() => {
+    return () => {
+      revokeAttachmentPreviews(filesRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -89,9 +109,14 @@ export function DnDFileUploaderProvider({
    */
   async function handleRemoveParsedFile(event) {
     const { document } = event.detail;
-    setFiles((prev) =>
-      prev.filter((prevFile) => prevFile.document.id !== document.id)
-    );
+    if (!document?.id) return;
+    setFiles((prev) => {
+      const next = prev.filter(
+        (prevFile) => prevFile.document?.id !== document.id
+      );
+      revokeRemovedAttachmentPreviews(prev, next);
+      return next;
+    });
   }
 
   /**
@@ -101,7 +126,11 @@ export function DnDFileUploaderProvider({
   async function handleRemove(event) {
     /** @type {{uid: Attachment['uid'], document: Attachment['document']}} */
     const { uid, document } = event.detail;
-    setFiles((prev) => prev.filter((prevFile) => prevFile.uid !== uid));
+    setFiles((prev) => {
+      const next = prev.filter((prevFile) => prevFile.uid !== uid);
+      revokeRemovedAttachmentPreviews(prev, next);
+      return next;
+    });
     if (!document?.location) return;
     await Workspace.deleteAndUnembedFile(workspace.slug, document.location);
   }
@@ -110,7 +139,10 @@ export function DnDFileUploaderProvider({
    * Clear queue of attached files currently in prompt box
    */
   function resetAttachments() {
-    setFiles([]);
+    setFiles((prev) => {
+      revokeAttachmentPreviews(prev);
+      return [];
+    });
   }
 
   /**
@@ -118,10 +150,11 @@ export function DnDFileUploaderProvider({
    * for a chat.
    * @returns {{name:string,mime:string,contentString:string}[]}
    */
-  function parseAttachments() {
+  const parseAttachments = useCallback(() => {
     return (
       files
         ?.filter((file) => file.type === "attachment")
+        ?.filter((file) => !!file.contentString)
         ?.map(
           (
             /** @type {Attachment} */
@@ -129,45 +162,26 @@ export function DnDFileUploaderProvider({
           ) => {
             return {
               name: attachment.file.name,
-              mime: attachment.file.type,
+              mime: attachment.mime || normalizedFileMime(attachment.file),
               contentString: attachment.contentString,
             };
           }
         ) || []
     );
-  }
+  }, [files]);
 
   /**
    * Handle pasted attachments.
-   * @param {CustomEvent<{files: File[]}>} event
+   * @param {CustomEvent<{files: File[], source?: string}>} event
    */
-  async function handlePastedAttachment(event) {
-    const { files = [] } = event.detail;
-    if (!files.length) return;
-    const newAccepted = [];
-    for (const file of files) {
-      if (file.type.startsWith("image/")) {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: await toBase64(file),
-          status: "success",
-          error: null,
-          type: "attachment",
-        });
-      } else {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: null,
-          status: "in_progress",
-          error: null,
-          type: "upload",
-        });
-      }
-    }
-    setFiles((prev) => [...prev, ...newAccepted]);
-    embedEligibleAttachments(newAccepted);
+  function handlePastedAttachment(event) {
+    const { files = [], source = "paste" } = event.detail;
+    emitAttachmentDebug("attachment-event-received", {
+      source,
+      count: files.length,
+      items: files.map(fileDebugPayload),
+    });
+    handleIncomingFiles(files, source);
   }
 
   /**
@@ -175,43 +189,124 @@ export function DnDFileUploaderProvider({
    * @param {Attachment[]} acceptedFiles
    * @param {any[]} _rejections
    */
-  async function onDrop(acceptedFiles, _rejections) {
+  function onDrop(acceptedFiles, _rejections) {
     setDragging(false);
+    handleIncomingFiles(acceptedFiles, "drop");
+  }
 
+  /**
+   * Add files to the queue immediately, then finish expensive processing.
+   * @param {File[]} acceptedFiles
+   * @param {string} source
+   */
+  function handleIncomingFiles(acceptedFiles = [], source = "upload") {
+    emitAttachmentDebug("attachment-incoming", {
+      source,
+      count: acceptedFiles.length,
+      items: acceptedFiles.map(fileDebugPayload),
+    });
+    if (!acceptedFiles.length) return;
     /** @type {Attachment[]} */
-    const newAccepted = [];
-    for (const file of acceptedFiles) {
-      if (file.type.startsWith("image/")) {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: await toBase64(file),
-          status: "success",
-          error: null,
-          type: "attachment",
-        });
-      } else {
-        newAccepted.push({
-          uid: v4(),
-          file,
-          contentString: null,
-          status: "in_progress",
-          error: null,
-          type: "upload",
-        });
-      }
-    }
-
+    const newAccepted = acceptedFiles.map((file) =>
+      createAttachmentRecord(file, source)
+    );
+    emitAttachmentDebug("attachment-records-created", {
+      source,
+      records: newAccepted.map(attachmentDebugPayload),
+    });
     setFiles((prev) => [...prev, ...newAccepted]);
-    embedEligibleAttachments(newAccepted);
+    emitAttachmentDebug("attachment-state-enqueue-scheduled", {
+      source,
+      addedCount: newAccepted.length,
+    });
+
+    window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSING_EVENT));
+    const imageTask = processImageAttachments(newAccepted);
+    const uploadTask = embedEligibleAttachments(newAccepted, {
+      emitEvents: false,
+    });
+    Promise.allSettled([imageTask, uploadTask]).finally(() => {
+      window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSED_EVENT));
+    });
+  }
+
+  /**
+   * Convert queued image attachments to request-ready base64.
+   * @param {Attachment[]} newAttachments
+   */
+  async function processImageAttachments(newAttachments = []) {
+    const imageAttachments = newAttachments.filter(
+      (attachment) => attachment.type === "attachment"
+    );
+    if (!imageAttachments.length) return;
+
+    await Promise.all(
+      imageAttachments.map(async (attachment) => {
+        const mime = attachment.mime || normalizedFileMime(attachment.file);
+        emitAttachmentDebug("attachment-image-convert-start", {
+          uid: attachment.uid,
+          mime,
+          asset: fileDebugPayload(attachment.file),
+        });
+        try {
+          const contentString = await toBase64(attachment.file, mime);
+          setFiles((prev) =>
+            prev.map((prevFile) =>
+              prevFile.uid === attachment.uid
+                ? {
+                    ...prevFile,
+                    contentString,
+                    mime,
+                    status: "success",
+                    error: null,
+                  }
+                : prevFile
+            )
+          );
+          emitAttachmentDebug("attachment-image-convert-success", {
+            uid: attachment.uid,
+            mime,
+            contentStringLength: contentString.length,
+            dataPrefix: contentString.slice(0, 32),
+          });
+        } catch (error) {
+          setFiles((prev) =>
+            prev.map((prevFile) =>
+              prevFile.uid === attachment.uid
+                ? {
+                    ...prevFile,
+                    status: "failed",
+                    error: error?.message || "Image processing failed",
+                  }
+                : prevFile
+            )
+          );
+          emitAttachmentDebug("attachment-image-convert-failed", {
+            uid: attachment.uid,
+            error: error?.message || String(error),
+          });
+        }
+      })
+    );
   }
 
   /**
    * Embeds attachments that are eligible for embedding - basically files that are not images.
    * @param {Attachment[]} newAttachments
    */
-  async function embedEligibleAttachments(newAttachments = []) {
-    window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSING_EVENT));
+  async function embedEligibleAttachments(newAttachments = [], options = {}) {
+    const { emitEvents = true } = options;
+    const uploadAttachments = newAttachments.filter(
+      (attachment) => attachment.type !== "attachment"
+    );
+    emitAttachmentDebug("attachment-upload-embed-start", {
+      count: uploadAttachments.length,
+      items: uploadAttachments.map(attachmentDebugPayload),
+    });
+    if (!uploadAttachments.length) return;
+    if (emitEvents) {
+      window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSING_EVENT));
+    }
     const promises = [];
 
     const { currentContextTokenCount, contextWindow } =
@@ -224,10 +319,7 @@ export function DnDFileUploaderProvider({
     let totalTokenCount = currentContextTokenCount;
     let batchPendingFiles = [];
 
-    for (const attachment of newAttachments) {
-      // Images/attachments are chat specific.
-      if (attachment.type === "attachment") continue;
-
+    for (const attachment of uploadAttachments) {
       const formData = new FormData();
       formData.append("file", attachment.file, attachment.file.name);
       formData.append("threadSlug", threadSlug || null);
@@ -297,9 +389,14 @@ export function DnDFileUploaderProvider({
     }
 
     // Wait for all promises to resolve in some way before dispatching the event to unlock the send button
-    Promise.all(promises).finally(() =>
-      window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSED_EVENT))
-    );
+    return Promise.all(promises).finally(() => {
+      emitAttachmentDebug("attachment-upload-embed-finished", {
+        count: uploadAttachments.length,
+      });
+      if (emitEvents) {
+        window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSED_EVENT));
+      }
+    });
   }
 
   // Handle modal actions
@@ -461,17 +558,152 @@ export default function DnDFileUploaderWrapper({ children }) {
   );
 }
 
+const IMAGE_EXTENSION_MIME_MAP = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  tif: "image/tiff",
+  tiff: "image/tiff",
+};
+
+function emitAttachmentDebug(label, payload = {}) {
+  if (typeof window === "undefined" || typeof CustomEvent === "undefined")
+    return;
+  window.dispatchEvent(
+    new CustomEvent("athena:chat-turn-debug", {
+      detail: {
+        label,
+        at: new Date().toISOString(),
+        payload,
+      },
+    })
+  );
+}
+
+function fileDebugPayload(file = {}) {
+  return {
+    name: file?.name || null,
+    type: file?.type || null,
+    size: file?.size || 0,
+    lastModified: file?.lastModified || null,
+  };
+}
+
+function attachmentDebugPayload(attachment = {}) {
+  return {
+    uid: attachment.uid,
+    type: attachment.type,
+    status: attachment.status,
+    mime: attachment.mime || null,
+    hasPreviewUrl: !!attachment.previewUrl,
+    hasContentString: !!attachment.contentString,
+    asset: fileDebugPayload(attachment.file),
+  };
+}
+
+function fileExtension(file = {}) {
+  const name = String(file?.name || "");
+  const extension = name.includes(".") ? name.split(".").pop() : "";
+  return String(extension || "").toLowerCase();
+}
+
+function sourceImpliesImage(source = "") {
+  return ["camera", "photos", "photo", "image"].includes(String(source));
+}
+
+function inferredImageMime(file = {}, source = "") {
+  const existingType = String(file?.type || "").toLowerCase();
+  if (existingType.startsWith("image/")) return existingType;
+  const extensionMime = IMAGE_EXTENSION_MIME_MAP[fileExtension(file)];
+  if (extensionMime) return extensionMime;
+  return sourceImpliesImage(source) ? "image/jpeg" : null;
+}
+
+function normalizedFileMime(file = {}, source = "") {
+  return (
+    file?.type || inferredImageMime(file, source) || "application/octet-stream"
+  );
+}
+
+function isImageAttachmentFile(file = {}, source = "") {
+  return !!inferredImageMime(file, source);
+}
+
+function createObjectPreviewUrl(file) {
+  if (typeof URL === "undefined" || !URL.createObjectURL) return null;
+  try {
+    return URL.createObjectURL(file);
+  } catch {
+    return null;
+  }
+}
+
+function revokeAttachmentPreview(attachment = {}) {
+  if (!attachment?.previewUrl) return;
+  if (typeof URL === "undefined" || !URL.revokeObjectURL) return;
+  try {
+    URL.revokeObjectURL(attachment.previewUrl);
+  } catch {
+    // best effort cleanup only
+  }
+}
+
+function revokeAttachmentPreviews(attachments = []) {
+  attachments.forEach(revokeAttachmentPreview);
+}
+
+function revokeRemovedAttachmentPreviews(previous = [], next = []) {
+  const nextUids = new Set(next.map((attachment) => attachment.uid));
+  previous.forEach((attachment) => {
+    if (!nextUids.has(attachment.uid)) revokeAttachmentPreview(attachment);
+  });
+}
+
+function createAttachmentRecord(file, source = "upload") {
+  if (isImageAttachmentFile(file, source)) {
+    return {
+      uid: v4(),
+      file,
+      contentString: null,
+      previewUrl: createObjectPreviewUrl(file),
+      mime: normalizedFileMime(file, source),
+      status: "in_progress",
+      error: null,
+      type: "attachment",
+    };
+  }
+
+  return {
+    uid: v4(),
+    file,
+    contentString: null,
+    previewUrl: null,
+    mime: normalizedFileMime(file, source),
+    status: "in_progress",
+    error: null,
+    type: "upload",
+  };
+}
+
 /**
  * Convert image types into Base64 strings for requests.
  * @param {File} file
+ * @param {string|null} fallbackMime
  * @returns {Promise<string>}
  */
-async function toBase64(file) {
+async function toBase64(file, fallbackMime = null) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const base64String = reader.result.split(",")[1];
-      resolve(`data:${file.type};base64,${base64String}`);
+      const result = String(reader.result || "");
+      const base64String = result.includes(",") ? result.split(",")[1] : result;
+      const mime = fallbackMime || normalizedFileMime(file);
+      resolve(`data:${mime};base64,${base64String}`);
     };
     reader.onerror = (error) => reject(error);
     reader.readAsDataURL(file);

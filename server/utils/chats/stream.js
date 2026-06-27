@@ -19,6 +19,9 @@ const {
   recentChatHistoryWithCompaction,
 } = require("./threadCompaction");
 const {
+  publishWorkspaceSyncEvent,
+} = require("./workspaceSyncEvents");
+const {
   resolveGraphContext,
 } = require("../knowledgeGraph/graphContextResolver");
 const {
@@ -43,6 +46,7 @@ const {
   toolCallEventFrom,
 } = require("./saveMemoryTool");
 const { requestChatToolApproval } = require("./toolApproval");
+const { promptForHistory } = require("./displayPrompt");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -163,7 +167,12 @@ async function streamChatWithWorkspace(
   options = {}
 ) {
   const uuid = uuidv4();
+  const syncEvent = options.syncEvent || null;
   let updatedMessage = await grepCommand(message, user);
+  const displayMessage = promptForHistory({
+    message,
+    displayPrompt: options.displayPrompt,
+  });
 
   if (Object.keys(VALID_COMMANDS).includes(updatedMessage)) {
     const data = await VALID_COMMANDS[updatedMessage](
@@ -235,7 +244,7 @@ async function streamChatWithWorkspace(
     thread,
     attachments: llmAttachments,
     displayAttachments: historyAttachments,
-    displayPrompt: updatedMessage,
+    displayPrompt: displayMessage,
     visionAnalysisContext: imageAnalysisText,
     fileAccess: options.fileAccess || {},
   });
@@ -280,7 +289,7 @@ async function streamChatWithWorkspace(
     });
     await WorkspaceChats.new({
       workspaceId: workspace.id,
-      prompt: message,
+      prompt: displayMessage,
       response: {
         text: textResponse,
         sources: [],
@@ -292,6 +301,13 @@ async function streamChatWithWorkspace(
       include: false,
       user,
     });
+    if (syncEvent) {
+      publishWorkspaceSyncEvent({
+        ...syncEvent,
+        type: "chat_finalized",
+        clientTurnId: options.clientTurnId || null,
+      });
+    }
     return;
   }
 
@@ -482,7 +498,7 @@ async function streamChatWithWorkspace(
 
     await WorkspaceChats.new({
       workspaceId: workspace.id,
-      prompt: message,
+      prompt: displayMessage,
       response: {
         text: textResponse,
         sources: [],
@@ -642,7 +658,7 @@ async function streamChatWithWorkspace(
   if (completeText?.length > 0) {
     const { chat } = await WorkspaceChats.new({
       workspaceId: workspace.id,
-      prompt: message,
+      prompt: displayMessage,
       response: {
         text: completeText,
         sources,
@@ -660,6 +676,15 @@ async function streamChatWithWorkspace(
       });
       return { chat: null };
     });
+    if (syncEvent) {
+      publishWorkspaceSyncEvent({
+        ...syncEvent,
+        type: "chat_finalized",
+        chatId: chat?.id || null,
+        publicChatId: chat?.public_id || null,
+        clientTurnId: options.clientTurnId || null,
+      });
+    }
     maybeAutoCompact({
       workspace,
       user,

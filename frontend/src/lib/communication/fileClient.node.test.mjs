@@ -6,11 +6,16 @@ import * as apiError from "./apiError.js";
 
 const fileClientUrl = new URL("./fileClient.js", import.meta.url);
 
-function jsonHeaders(headers = {}, { includeBaseHeaders = true } = {}) {
+function jsonHeaders(
+  headers = {},
+  { includeBaseHeaders = true, requestId } = {}
+) {
   return {
     ...(includeBaseHeaders ? { Authorization: "Bearer file-token" } : {}),
     "Content-Type": "application/json",
     ...headers,
+    "X-Athena-Client-Id": "client-file-test",
+    "X-Athena-Request-Id": requestId,
   };
 }
 
@@ -19,6 +24,9 @@ async function loadFileClient({ dev = false } = {}) {
   globalThis.__fileClientTestDev = dev;
   globalThis.__fileClientTestApiError = apiError;
   globalThis.__fileClientTestApiClient = { jsonHeaders };
+  globalThis.__fileClientTestIdentity = {
+    createCommunicationRequestId: () => "req-file-test",
+  };
   globalThis.__fileClientTestBlobClient = {
     BLOB_KINDS: {
       generatedFile: "generated_file",
@@ -55,6 +63,10 @@ async function loadFileClient({ dev = false } = {}) {
     .replace(
       'import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";',
       "const { API_ERROR_CODES, createApiError, normalizeApiError } = globalThis.__fileClientTestApiError;"
+    )
+    .replace(
+      'import { createCommunicationRequestId } from "./clientIdentity";',
+      "const { createCommunicationRequestId } = globalThis.__fileClientTestIdentity;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__fileClientTestDev");
 
@@ -143,6 +155,11 @@ test("postJsonDownloadEventStream parses split chunks, glued events, and blank l
     assert.equal(receivedInit.method, "POST");
     assert.equal(receivedInit.headers.Authorization, "Bearer file-token");
     assert.equal(receivedInit.headers["Content-Type"], "application/json");
+    assert.equal(
+      receivedInit.headers["X-Athena-Client-Id"],
+      "client-file-test"
+    );
+    assert.equal(receivedInit.headers["X-Athena-Request-Id"], result.requestId);
     assert.equal(receivedInit.body, JSON.stringify({ modelId: "demo" }));
     assert.deepEqual(events, [
       { type: "progress", percentage: 10 },

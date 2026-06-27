@@ -35,16 +35,10 @@ const DETAILS_FIELD_CONFIG = {
   key: "details",
   label: "你的详情",
   multiline: true,
-  placeholder:
-    "例如：我关注金融史、知识图谱和长期学习，希望回答有结构、有判断",
+  placeholder: "例如：我关注金融史、知识图谱和长期学习，希望回答有结构、有判断",
 };
 
-const PERSONALIZATION_LABELS = [
-  "你的昵称",
-  "模型的身份",
-  "风格",
-  "你的详情",
-];
+const PERSONALIZATION_LABELS = ["你的昵称", "模型的身份", "风格", "你的详情"];
 
 const EMPTY_PERSONALIZATION = {
   style: "",
@@ -61,9 +55,10 @@ export default function PersonalizationCard({ user, onUserUpdated }) {
     setDraft(parsePersonalizationBio(user?.bio));
   }, [user?.bio]);
 
-  const serializedBio = useMemo(() => serializePersonalizationBio(draft), [
-    draft,
-  ]);
+  const serializedBio = useMemo(
+    () => serializePersonalizationBio(draft),
+    [draft]
+  );
   const remainingCharacters = MAX_BIO_LENGTH - serializedBio.length;
   const isOverLimit = remainingCharacters < 0;
 
@@ -110,9 +105,7 @@ export default function PersonalizationCard({ user, onUserUpdated }) {
             <Sparkle className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">
-              个性化设置
-            </h2>
+            <h2 className="text-lg font-semibold text-slate-950">个性化设置</h2>
             <p className="mt-1 text-sm leading-5 text-slate-500">
               这些内容会作为你的个人偏好保存，让模型更了解你的交流方式和背景。
             </p>

@@ -6,8 +6,16 @@ import {
 import {
   isReaderCurrentDocumentFresh,
   readReaderCurrentDocumentClearedAt,
+  readReaderDrawerState,
   READER_DRAWER_OPEN_STORAGE_KEY,
+  READER_DRAWER_STATE_STORAGE_KEY,
 } from "@/utils/chat/readerDrawerState";
+import {
+  hydrateUserStateValue,
+  pushUserStateValue,
+  sanitizeReaderState,
+  USER_STATE_NAMESPACES,
+} from "@/utils/userStateSync";
 export { READER_DRAWER_OPEN_STORAGE_KEY };
 
 export const READER_SCHEMA_VERSION = 1;
@@ -70,6 +78,118 @@ function safeJson(value, fallback) {
   } catch {
     return fallback;
   }
+}
+
+let readerLibraryHydrated = false;
+let readerProgressHydrated = false;
+
+function rawReaderLibraryState() {
+  return {
+    history: safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []),
+    bookshelf: safeJson(localStorage.getItem(READER_BOOKSHELF_STORAGE_KEY), []),
+    categories: safeJson(
+      localStorage.getItem(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY),
+      []
+    ),
+    drawerState: readReaderDrawerState(),
+  };
+}
+
+function applyReaderLibraryState(value = {}) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value.history)) {
+    localStorage.setItem(
+      READER_HISTORY_STORAGE_KEY,
+      JSON.stringify(value.history)
+    );
+  }
+  if (Array.isArray(value.bookshelf)) {
+    localStorage.setItem(
+      READER_BOOKSHELF_STORAGE_KEY,
+      JSON.stringify(value.bookshelf)
+    );
+  }
+  if (Array.isArray(value.categories)) {
+    localStorage.setItem(
+      READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
+      JSON.stringify(value.categories)
+    );
+  }
+  if (value.drawerState) {
+    localStorage.setItem(
+      READER_DRAWER_STATE_STORAGE_KEY,
+      JSON.stringify(value.drawerState)
+    );
+  }
+}
+
+function hydrateReaderLibraryOnce() {
+  if (readerLibraryHydrated) return;
+  readerLibraryHydrated = true;
+  void hydrateUserStateValue({
+    namespace: USER_STATE_NAMESPACES.readerLibrary,
+    fallback: sanitizeReaderState(rawReaderLibraryState()),
+    sanitize: sanitizeReaderState,
+    apply: applyReaderLibraryState,
+  });
+}
+
+function persistReaderLibraryState() {
+  pushUserStateValue(
+    USER_STATE_NAMESPACES.readerLibrary,
+    "global",
+    rawReaderLibraryState(),
+    { sanitize: sanitizeReaderState, debounceMs: 1_000 }
+  );
+}
+
+function rawReaderProgressState() {
+  return {
+    bookMemory: safeJson(
+      localStorage.getItem(READER_BOOK_MEMORY_STORAGE_KEY),
+      []
+    ),
+    progressBackups: safeJson(
+      localStorage.getItem(READER_PROGRESS_BACKUP_STORAGE_KEY),
+      []
+    ),
+  };
+}
+
+function applyReaderProgressState(value = {}) {
+  if (!value || typeof value !== "object") return;
+  if (Array.isArray(value.bookMemory)) {
+    localStorage.setItem(
+      READER_BOOK_MEMORY_STORAGE_KEY,
+      JSON.stringify(value.bookMemory)
+    );
+  }
+  if (Array.isArray(value.progressBackups)) {
+    localStorage.setItem(
+      READER_PROGRESS_BACKUP_STORAGE_KEY,
+      JSON.stringify(value.progressBackups)
+    );
+  }
+}
+
+function hydrateReaderProgressOnce() {
+  if (readerProgressHydrated) return;
+  readerProgressHydrated = true;
+  void hydrateUserStateValue({
+    namespace: USER_STATE_NAMESPACES.readerProgress,
+    fallback: sanitizeReaderState(rawReaderProgressState()),
+    sanitize: sanitizeReaderState,
+    apply: applyReaderProgressState,
+  });
+}
+
+function persistReaderProgressState() {
+  pushUserStateValue(
+    USER_STATE_NAMESPACES.readerProgress,
+    "global",
+    rawReaderProgressState(),
+    { sanitize: sanitizeReaderState, debounceMs: 1_000 }
+  );
 }
 
 function legacyReaderStorageKey(workspaceSlug, threadSlug = null) {
@@ -312,6 +432,7 @@ export function normalizeReaderBookshelfCategories(categories = []) {
 }
 
 export function readReaderBookshelfCategories() {
+  hydrateReaderLibraryOnce();
   const parsed = safeJson(
     localStorage.getItem(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY),
     []
@@ -330,6 +451,7 @@ export function writeReaderBookshelfCategories(categories = []) {
     READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
     JSON.stringify(next)
   );
+  persistReaderLibraryState();
   return next;
 }
 
@@ -662,6 +784,7 @@ function normalizeHistory(history = []) {
 }
 
 export function readReaderHistory() {
+  hydrateReaderLibraryOnce();
   const parsed = safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []);
   return readerItemsWithLatestBookMemory(normalizeHistory(parsed));
 }
@@ -675,6 +798,7 @@ export function writeReaderHistory(
   void threadSlug;
   const next = normalizeHistory(history).slice(0, 20);
   localStorage.setItem(READER_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  persistReaderLibraryState();
   return next;
 }
 
@@ -682,10 +806,12 @@ export function clearReaderHistory(workspaceSlug, threadSlug = null) {
   void workspaceSlug;
   void threadSlug;
   localStorage.removeItem(READER_HISTORY_STORAGE_KEY);
+  persistReaderLibraryState();
   return [];
 }
 
 export function readReaderBookshelf() {
+  hydrateReaderLibraryOnce();
   const parsed = safeJson(
     localStorage.getItem(READER_BOOKSHELF_STORAGE_KEY),
     []
@@ -740,6 +866,7 @@ export function writeReaderBookshelf(items = []) {
       timestampValue(a.updatedAt || a.addedAt)
   );
   localStorage.setItem(READER_BOOKSHELF_STORAGE_KEY, JSON.stringify(next));
+  persistReaderLibraryState();
   return next;
 }
 
@@ -1062,6 +1189,7 @@ function readerBookMemorySort(a, b) {
 }
 
 export function readReaderBookMemories() {
+  hydrateReaderProgressOnce();
   const parsed = safeJson(
     localStorage.getItem(READER_BOOK_MEMORY_STORAGE_KEY),
     []
@@ -1087,6 +1215,7 @@ export function writeReaderBookMemories(memories = []) {
   }
   const next = [...byKey.values()].sort(readerBookMemorySort).slice(0, 200);
   localStorage.setItem(READER_BOOK_MEMORY_STORAGE_KEY, JSON.stringify(next));
+  persistReaderProgressState();
   return next;
 }
 
@@ -1217,6 +1346,7 @@ function readerProgressBackupSort(a, b) {
 }
 
 export function readReaderProgressBackups() {
+  hydrateReaderProgressOnce();
   const parsed = safeJson(
     localStorage.getItem(READER_PROGRESS_BACKUP_STORAGE_KEY),
     []
@@ -1248,6 +1378,7 @@ export function writeReaderProgressBackups(backups = []) {
     READER_PROGRESS_BACKUP_STORAGE_KEY,
     JSON.stringify(next)
   );
+  persistReaderProgressState();
   return next;
 }
 

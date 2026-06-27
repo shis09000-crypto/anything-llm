@@ -18,7 +18,9 @@ import {
 import { respondToChatToolApproval } from "@/lib/communication/chatControlClient";
 import {
   AgentSessionState,
+  canReuseAgentSessionForInvocation,
   createAgentWebSocketSession,
+  respondToClarificationViaHttp,
 } from "@/lib/communication/agentWebSocketClient";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { emitAssistantMessageCompleteEvent } from "@/components/contexts/TTSProvider";
@@ -66,6 +68,7 @@ const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
 const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const MAX_AGENT_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_AGENT_SILENCE_TIMEOUT_MS = 90_000;
+const AGENT_SOCKET_STARTUP_TIMEOUT_MS = 15_000;
 const RUNNING_DRAFT_STORAGE_GRACE_MS = 10 * 60 * 1000;
 const LATEST_HISTORY_REFRESH_LIMIT = 30;
 const AGENT_RECONNECT_TURN_FIELDS = [
@@ -100,6 +103,20 @@ function compactClarifyingQuestions(questions = []) {
     }
     return compacted;
   });
+}
+
+function clarificationPayloadFromText(clarification, text = "") {
+  const answer = String(text || "").trim();
+  const questions = Array.isArray(clarification?.questions)
+    ? clarification.questions
+    : [];
+  return {
+    skipped: false,
+    answers: (questions.length ? questions : [null]).map(() => ({
+      skipped: false,
+      answer,
+    })),
+  };
 }
 
 export function getChatThreadKey(workspaceSlug, threadSlug = null) {
@@ -562,6 +579,8 @@ function clearSettledRuntimeState(draft = {}) {
 
   if (
     !hasRuntimeState ||
+    draft.pendingApproval ||
+    draft.pendingClarification ||
     (activeTurn && activeTurn.status === TURN_STATUSES.running) ||
     (!draft.activeTurnId && hasRunningTurn)
   ) {
@@ -757,6 +776,44 @@ function isRunningActivityStale(activity = {}, now = Date.now()) {
   return now - lastSeen > RUNNING_STALE_TIMEOUT_MS;
 }
 
+function compactActivityAttachments(attachments = []) {
+  if (!Array.isArray(attachments)) return [];
+  return attachments.map((attachment) => ({
+    ...attachment,
+    base64: undefined,
+    content: undefined,
+  }));
+}
+
+function activityHasRecoverableTurn(activity = {}) {
+  return !!(
+    activity?.chatKey &&
+    activity?.turnId &&
+    activity.status === TURN_STATUSES.running &&
+    (activity.prompt || activity.displayPrompt || activity.clientTurnId)
+  );
+}
+
+function runningActivityMetadata({
+  prompt = "",
+  displayPrompt = null,
+  attachments = [],
+  fileAccessMode = null,
+  nodeContext = null,
+  clientTurnId = null,
+  acceptedByServer = false,
+} = {}) {
+  return {
+    prompt: String(prompt || ""),
+    displayPrompt: displayPrompt || prompt || "",
+    attachments: compactActivityAttachments(attachments),
+    fileAccessMode: fileAccessMode || null,
+    nodeContext: nodeContext || null,
+    clientTurnId: clientTurnId || null,
+    acceptedByServer: !!acceptedByServer,
+  };
+}
+
 function normalizeRunningState(stored = {}) {
   const now = Date.now();
   const threadActivityByKey = {};
@@ -806,7 +863,10 @@ function restoreActiveRunningState() {
         )
       );
       const turn = findAssistantTurn(draft?.items || [], activity.turnId);
-      if (turn?.status === TURN_STATUSES.running) {
+      if (
+        turn?.status === TURN_STATUSES.running ||
+        activityHasRecoverableTurn(activity)
+      ) {
         threadActivityByKey[chatKey] = activity;
       }
     }
@@ -852,6 +912,39 @@ function failTurnItems(items = [], turnId, reason) {
       error: reason,
     }
   );
+}
+
+function restoreDraftFromRunningActivity(draft = {}, activity = null) {
+  if (!activityHasRecoverableTurn(activity)) return draft;
+  const items = normalizeTurnItems(draft.items || []);
+  const existingTurn = findAssistantTurn(items, activity.turnId);
+  const base = {
+    ...draft,
+    items,
+    activeTurnId: activity.turnId,
+    isStreaming: !activity.isAgentRunning,
+    isAgentRunning: !!activity.isAgentRunning,
+    persistError: null,
+  };
+
+  if (existingTurn) {
+    if (existingTurn.status !== TURN_STATUSES.running) return draft;
+    return base;
+  }
+
+  const { items: turnItems } = createTurn({
+    prompt: activity.displayPrompt || activity.prompt || "",
+    attachments: activity.attachments || [],
+    chatKey: activity.chatKey,
+    turnId: activity.turnId,
+    createdAt: activity.startedAt || Date.now(),
+  });
+
+  return {
+    ...base,
+    items: normalizeTurnItems([...items, ...turnItems]),
+    tailCleanup: null,
+  };
 }
 
 function cleanupTransientDraftState(
@@ -992,6 +1085,49 @@ function turnRuntimeSnapshot(draft = {}, turnId = null) {
   };
 }
 
+function waitForAgentSessionOpen(agentSession, timeoutMs = 5_000) {
+  if (!agentSession) return Promise.resolve(false);
+  if (agentSession.isOpen?.()) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      if (agentSession.isOpen?.()) {
+        clearInterval(interval);
+        resolve(true);
+        return;
+      }
+      const state = agentSession.getState?.().state;
+      if (
+        [
+          AgentSessionState.CLOSED,
+          AgentSessionState.FAILED,
+          AgentSessionState.FINALIZED,
+        ].includes(state) ||
+        Date.now() - startedAt >= timeoutMs
+      ) {
+        clearInterval(interval);
+        resolve(false);
+      }
+    }, 100);
+  });
+}
+
+function findClarificationTurnId(draft = {}, requestId = null) {
+  if (!requestId) return null;
+  return [...(draft.items || [])]
+    .reverse()
+    .find(
+      (item) =>
+        isAssistantTurn(item) &&
+        (item.timeline || []).some(
+          (event) =>
+            event?.type === "clarification_request" &&
+            event.requestId === requestId
+        )
+    )?.turnId;
+}
+
 export function ChatThreadDraftProvider({ children }) {
   const [drafts, setDrafts] = useState(() => restoreStoredDrafts());
   const [runningState, setRunningState] = useState(() =>
@@ -1000,6 +1136,8 @@ export function ChatThreadDraftProvider({ children }) {
   const draftsRef = useRef(drafts);
   const runningStateRef = useRef(runningState);
   const agentSessionRefs = useRef({});
+  const agentStartupTimeoutRefs = useRef({});
+  const openAgentSocketRef = useRef(null);
   const approvalTimeoutRefs = useRef({});
   const clarificationTimeoutRefs = useRef({});
   const stoppedThreadRefs = useRef({});
@@ -1145,7 +1283,7 @@ export function ChatThreadDraftProvider({ children }) {
   );
 
   const markThreadRunning = useCallback(
-    (chatKey, turnId) => {
+    (chatKey, turnId, metadata = {}) => {
       const { workspaceSlug, threadSlug } = parseChatKey(chatKey);
       if (!workspaceSlug || !turnId) return;
       const now = Date.now();
@@ -1158,6 +1296,7 @@ export function ChatThreadDraftProvider({ children }) {
           activity: existing || null,
         });
         const activity = {
+          ...(existing || {}),
           workspaceSlug,
           threadSlug,
           chatKey,
@@ -1165,6 +1304,9 @@ export function ChatThreadDraftProvider({ children }) {
           status: TURN_STATUSES.running,
           startedAt: existing?.turnId === turnId ? existing.startedAt : now,
           updatedAt: now,
+          ...(metadata || {}),
+          acceptedByServer:
+            metadata.acceptedByServer ?? existing?.acceptedByServer ?? false,
         };
         const next = {
           activeRunningThread: activity,
@@ -1178,6 +1320,7 @@ export function ChatThreadDraftProvider({ children }) {
           turnId,
           running: next,
           activity,
+          snapshotPersisted: activityHasRecoverableTurn(activity),
         });
         return next;
       });
@@ -1211,6 +1354,11 @@ export function ChatThreadDraftProvider({ children }) {
           turnId,
           running: next,
           activity: next.threadActivityByKey?.[chatKey] || null,
+        });
+        debugRuntime("runtime-snapshot:clear", {
+          chatKey,
+          turnId,
+          reason: "completed",
         });
         return next;
       });
@@ -1249,6 +1397,11 @@ export function ChatThreadDraftProvider({ children }) {
           running: next,
           reason: failureReason,
           activity: next.threadActivityByKey?.[chatKey] || null,
+        });
+        debugRuntime("runtime-snapshot:clear", {
+          chatKey,
+          turnId,
+          reason: "failed",
         });
         return next;
       });
@@ -1312,6 +1465,11 @@ export function ChatThreadDraftProvider({ children }) {
           running: next,
           activity: next.threadActivityByKey?.[chatKey] || null,
         });
+        debugRuntime("runtime-snapshot:clear", {
+          chatKey,
+          turnId,
+          reason: "clear-running",
+        });
         return next;
       });
     },
@@ -1323,6 +1481,7 @@ export function ChatThreadDraftProvider({ children }) {
       const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
       updateRunningState((prev) => {
         const nextActivity = { ...(prev.threadActivityByKey || {}) };
+        const clearedTurnId = nextActivity[chatKey]?.turnId || null;
         debugRuntime("clearThreadActivity:before", {
           chatKey,
           running: prev,
@@ -1341,10 +1500,62 @@ export function ChatThreadDraftProvider({ children }) {
           running: next,
           activity: next.threadActivityByKey?.[chatKey] || null,
         });
+        debugRuntime("runtime-snapshot:clear", {
+          chatKey,
+          turnId: clearedTurnId,
+          reason: "clear-activity",
+        });
         return next;
       });
     },
     [debugRuntime, updateRunningState]
+  );
+
+  const clearConfirmedLocalTurn = useCallback(
+    ({ workspaceSlug, threadSlug = null, turnId = null }) => {
+      if (!workspaceSlug || !turnId) return false;
+      const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
+      const cleared = normalizeTurnItems(
+        draftsRef.current[chatKey]?.items || []
+      ).some((item) => item.turnId === turnId);
+
+      clearThreadRunning(chatKey, turnId);
+      updateDraft(
+        chatKey,
+        (draft) => {
+          const items = normalizeTurnItems(draft.items || []);
+          const nextItems = items.filter((item) => item.turnId !== turnId);
+          const next = {
+            ...draft,
+            items: nextItems,
+            activeTurnId:
+              draft.activeTurnId === turnId ? null : draft.activeTurnId,
+            pendingApproval:
+              draft.activeTurnId === turnId ? null : draft.pendingApproval,
+            pendingClarification:
+              draft.activeTurnId === turnId ? null : draft.pendingClarification,
+            activeToolCall:
+              draft.activeTurnId === turnId ? null : draft.activeToolCall,
+            isStreaming:
+              draft.activeTurnId === turnId ? false : draft.isStreaming,
+            isAgentRunning:
+              draft.activeTurnId === turnId ? false : draft.isAgentRunning,
+            persistError: null,
+          };
+          debugRuntime("clearConfirmedLocalTurn:after", {
+            chatKey,
+            turnId,
+            cleared,
+            draft: next,
+          });
+          return next;
+        },
+        { cleanupReason: "clearConfirmedLocalTurn" }
+      );
+
+      return cleared;
+    },
+    [clearThreadRunning, debugRuntime, updateDraft]
   );
 
   useEffect(() => {
@@ -1396,6 +1607,8 @@ export function ChatThreadDraftProvider({ children }) {
           )
         );
         const existing = prev[chatKey] || restored;
+        const runningActivity =
+          runningStateRef.current.threadActivityByKey?.[chatKey] || null;
         const integrity = draftHistoryIntegrity(existing);
         if (draftNeedsServerHistoryRefresh(existing)) {
           debugChatTurn("ensureDraft:needsServerHistoryRefresh", {
@@ -1417,7 +1630,7 @@ export function ChatThreadDraftProvider({ children }) {
                 chatKey,
               })
             : normalizeTurnItems(items);
-        const next = existing
+        let next = existing
           ? {
               ...existing,
               items:
@@ -1427,6 +1640,16 @@ export function ChatThreadDraftProvider({ children }) {
               updatedAt: Date.now(),
             }
           : createDraft({ workspaceSlug, threadSlug, items: seedItems });
+        const beforeRecoveryTurnId = next.activeTurnId || null;
+        next = restoreDraftFromRunningActivity(next, runningActivity);
+        if (next.activeTurnId && next.activeTurnId !== beforeRecoveryTurnId) {
+          debugRuntime("runtime-snapshot:restore", {
+            chatKey,
+            turnId: next.activeTurnId,
+            reason: "ensureDraft",
+            acceptedByServer: !!runningActivity?.acceptedByServer,
+          });
+        }
         debugRuntime("ensureDraft:after", {
           chatKey,
           turnId: next.activeTurnId || null,
@@ -1712,20 +1935,29 @@ export function ChatThreadDraftProvider({ children }) {
         updateDraft(
           chatKey,
           (current) => {
+            const restoredCurrent = restoreDraftFromRunningActivity(
+              current,
+              runningStateRef.current.threadActivityByKey?.[chatKey] || null
+            );
             const items = mergeServerHistoryIntoTurnItems(
               history,
-              current.items,
-              { chatKey }
+              restoredCurrent.items,
+              {
+                chatKey,
+                preserveTurnIds: [restoredCurrent.activeTurnId, turnId].filter(
+                  Boolean
+                ),
+              }
             );
             const patchedTurn = turnId
               ? findAssistantTurn(items, turnId)
               : null;
             const next = {
-              ...current,
+              ...restoredCurrent,
               items,
               persistError: null,
               tailHydration: {
-                seq: Number(current.tailHydration?.seq || 0) + 1,
+                seq: Number(restoredCurrent.tailHydration?.seq || 0) + 1,
                 chatId: patchedTurn?.chatId || null,
                 publicChatId: patchedTurn?.publicChatId || null,
                 turnId,
@@ -1741,6 +1973,7 @@ export function ChatThreadDraftProvider({ children }) {
               patchedChatId: patchedTurn?.chatId || null,
               patchedPublicChatId: patchedTurn?.publicChatId || null,
               beforeItemCount: current.items?.length || 0,
+              restoredItemCount: restoredCurrent.items?.length || 0,
               afterItemCount: items.length,
             });
             return next;
@@ -1768,6 +2001,8 @@ export function ChatThreadDraftProvider({ children }) {
         chatKey,
         turnId,
         eventType: event.type,
+        timelineType: event.event?.type || null,
+        requestId: event.event?.requestId || null,
         eventChatId: event.chatId || event.patch?.chatId || null,
         eventPublicChatId:
           event.publicChatId || event.patch?.publicChatId || null,
@@ -1809,6 +2044,13 @@ export function ChatThreadDraftProvider({ children }) {
             reason: "missing-target-turn",
           });
           return null;
+        }
+        if (event.event?.type === "thought" && event.event?.animate) {
+          debugRuntime("stream:status-response-visible", {
+            chatKey,
+            turnId,
+            contentLength: String(event.event.content || "").length,
+          });
         }
         appendTimelineEvent(chatKey, turnId, event.event);
         return event;
@@ -1981,10 +2223,10 @@ export function ChatThreadDraftProvider({ children }) {
   const confirmPersisted = useCallback(
     async (chatKey, turnId, expectedChatId = null, attempt = 0) => {
       const draft = draftsRef.current[chatKey];
-      if (!draft || !turnId) return;
+      if (!draft || !turnId) return false;
       const turn = findAssistantTurn(draft.items, turnId);
       const chatId = expectedChatId || turn?.chatId;
-      if (!chatId) return;
+      if (!chatId) return false;
       debugRuntime("confirmPersisted:before", {
         chatKey,
         turnId,
@@ -2016,7 +2258,7 @@ export function ChatThreadDraftProvider({ children }) {
               const items = mergeServerHistoryIntoTurnItems(
                 history,
                 current.items,
-                { chatKey }
+                { chatKey, preserveTurnIds: [turnId].filter(Boolean) }
               );
               const shouldKeepDraft = hasUnfinishedDraft({ ...current, items });
               if (!shouldKeepDraft) {
@@ -2036,7 +2278,15 @@ export function ChatThreadDraftProvider({ children }) {
             },
             { cleanupReason: "confirmPersisted" }
           );
-          return;
+          debugRuntime("confirmPersisted:hydrate-first-applied", {
+            chatKey,
+            turnId,
+            chatId,
+            attempt,
+            historyLength: history.length,
+            hydratedChatIds: hydration?.hydratedChatIds || [],
+          });
+          return true;
         }
 
         if (attempt < 3) {
@@ -2056,7 +2306,7 @@ export function ChatThreadDraftProvider({ children }) {
               ),
             750 * (attempt + 1)
           );
-          return;
+          return null;
         }
 
         debugRuntime("confirmPersisted:missing", {
@@ -2072,12 +2322,13 @@ export function ChatThreadDraftProvider({ children }) {
           threadSlug: draft.threadSlug,
           reason: "confirmPersisted-missing",
         });
-        if (recovered) return;
+        if (recovered) return true;
         updateDraft(chatKey, (current) => ({
           ...current,
           persistError:
             "Message completed locally, but server history has not returned the final assistant message yet.",
         }));
+        return false;
       } catch (error) {
         debugRuntime("confirmPersisted:error", {
           chatKey,
@@ -2093,11 +2344,12 @@ export function ChatThreadDraftProvider({ children }) {
           threadSlug: draft.threadSlug,
           reason: "confirmPersisted-error",
         });
-        if (recovered) return;
+        if (recovered) return true;
         updateDraft(chatKey, (current) => ({
           ...current,
           persistError: error.message,
         }));
+        return false;
       }
     },
     [debugRuntime, mergeLatestPersistedHistory, updateDraft]
@@ -2203,7 +2455,7 @@ export function ChatThreadDraftProvider({ children }) {
       });
 
       const agentSession = agentSessionRefs.current[chatKey];
-      const sendResult = agentSession?.respondToApproval?.(
+      const sendResult = await agentSession?.respondToApproval?.(
         requestId,
         !!approved
       );
@@ -2233,9 +2485,148 @@ export function ChatThreadDraftProvider({ children }) {
     async (chatKey, requestId, payload = {}) => {
       const draft = draftsRef.current[chatKey];
       const clarification = draft?.pendingClarification;
-      const turnId = draft?.activeTurnId;
-      if (!clarification || clarification.requestId !== requestId || !turnId)
-        return;
+      const turnId =
+        draft?.activeTurnId || findClarificationTurnId(draft, requestId);
+      if (!clarification || clarification.requestId !== requestId || !turnId) {
+        if (import.meta.env.DEV) {
+          const debugPayload = {
+            chatKey,
+            requestId,
+            reason: "clarification_not_pending",
+            hasClarification: !!clarification,
+            pendingRequestId: clarification?.requestId || null,
+            activeTurnId: turnId || null,
+          };
+          console.warn(
+            `[clarification] response skipped ${JSON.stringify(debugPayload)}`
+          );
+          window.__lastClarificationSendFailure = debugPayload;
+        }
+        return { ok: false, reason: "clarification_not_pending" };
+      }
+
+      let sendResult = { ok: true, transport: "local" };
+      let websocketResult = null;
+      let fallbackAttempted = false;
+
+      if (!payload.timedOut) {
+        const turn = findAssistantTurn(draft.items || [], turnId);
+        const userMessage = draft.items?.find(
+          (item) => item.id === turn?.userMessageId
+        );
+        let agentSession = agentSessionRefs.current[chatKey];
+        if (
+          !canReuseAgentSessionForInvocation(agentSession, turn?.websocketUUID)
+        ) {
+          agentSession = null;
+        }
+        if (
+          !agentSession &&
+          turn?.websocketUUID &&
+          openAgentSocketRef.current
+        ) {
+          agentSession = openAgentSocketRef.current(
+            chatKey,
+            turnId,
+            turn.websocketUUID,
+            {
+              workspaceSlug: draft.workspaceSlug,
+              threadSlug: draft.threadSlug,
+              prompt: userMessage?.content || "",
+              displayPrompt: userMessage?.content || "",
+              attachments: userMessage?.attachments || [],
+              forceReconnect: true,
+              agentProvider: turn.agentProvider || null,
+              agentModel: turn.agentModel || null,
+              agentModelTier: turn.agentModelTier || null,
+              silenceTimeoutMs:
+                turn.silenceTimeoutMs || DEFAULT_AGENT_SILENCE_TIMEOUT_MS,
+              reconnectAttemptStartedAt: turn.reconnectAttemptStartedAt || null,
+              reconnectDueAt: turn.reconnectDueAt || null,
+              lastEventSeq: turn.lastEventSeq || 0,
+              retryCount: turn.retryCount || 0,
+            }
+          );
+          await waitForAgentSessionOpen(agentSession);
+        }
+        if (typeof agentSession?.respondToClarification !== "function") {
+          websocketResult = {
+            ok: false,
+            reason: "agent_session_missing",
+            transport: "websocket",
+          };
+        } else if (!agentSession.isOpen?.()) {
+          await waitForAgentSessionOpen(agentSession);
+        }
+
+        if (!websocketResult) {
+          websocketResult = await agentSession.respondToClarification(
+            requestId,
+            payload
+          );
+          if (
+            !websocketResult?.ok &&
+            ["not_open", "sign_or_send_failed"].includes(
+              websocketResult?.reason
+            )
+          ) {
+            const reopened = await waitForAgentSessionOpen(agentSession, 8_000);
+            if (reopened) {
+              websocketResult = await agentSession.respondToClarification(
+                requestId,
+                payload
+              );
+            }
+          }
+        }
+
+        sendResult = websocketResult?.ok
+          ? { ...websocketResult, transport: "websocket" }
+          : websocketResult;
+
+        if (!sendResult?.ok) {
+          fallbackAttempted = true;
+          const fallbackResult = await respondToClarificationViaHttp(
+            turn?.websocketUUID,
+            requestId,
+            payload
+          );
+          sendResult = fallbackResult?.ok
+            ? {
+                ...fallbackResult,
+                websocketReason: websocketResult?.reason || null,
+              }
+            : {
+                ...fallbackResult,
+                websocketReason: websocketResult?.reason || null,
+              };
+        }
+
+        if (!sendResult?.ok) {
+          if (import.meta.env.DEV) {
+            const debugPayload = {
+              chatKey,
+              requestId,
+              reason: sendResult?.reason || "clarification_send_failed",
+              websocketReason: websocketResult?.reason || null,
+              fallbackAttempted,
+              error: sendResult?.error?.message || null,
+              state: agentSession?.getState?.() || null,
+            };
+            console.warn(
+              `[clarification] response send failed ${JSON.stringify(debugPayload)}`
+            );
+            window.__lastClarificationSendFailure = debugPayload;
+          }
+          return {
+            ok: false,
+            reason: sendResult?.reason || "clarification_send_failed",
+            websocketReason: websocketResult?.reason || null,
+            fallbackAttempted,
+            error: sendResult?.error,
+          };
+        }
+      }
 
       appendTimelineEvent(chatKey, turnId, {
         type: "clarification_result",
@@ -2244,11 +2635,12 @@ export function ChatThreadDraftProvider({ children }) {
         timedOut: !!payload.timedOut,
       });
 
-      if (payload.timedOut) return;
-      agentSessionRefs.current[chatKey]?.respondToClarification?.(
-        requestId,
-        payload
-      );
+      return {
+        ok: true,
+        transport: sendResult?.transport || "websocket",
+        fallbackAttempted,
+        websocketReason: websocketResult?.reason || null,
+      };
     },
     [appendTimelineEvent]
   );
@@ -2437,6 +2829,8 @@ export function ChatThreadDraftProvider({ children }) {
         chatKey,
         turnId,
         eventType: event?.type || null,
+        timelineType: event?.event?.type || null,
+        requestId: event?.event?.requestId || null,
         protocolType: event?.protocolEvent?.type || null,
       });
       const applied = applyTurnEvent(chatKey, turnId, event);
@@ -2454,13 +2848,52 @@ export function ChatThreadDraftProvider({ children }) {
     [applyTurnEvent, scheduleApprovalTimeout, scheduleClarificationTimeout]
   );
 
+  const clearAgentStartupTimeout = useCallback((chatKey, turnId) => {
+    if (!chatKey || !turnId) return;
+    const key = turnRefKey(chatKey, turnId);
+    const timeout = agentStartupTimeoutRefs.current[key];
+    if (timeout) clearTimeout(timeout);
+    delete agentStartupTimeoutRefs.current[key];
+  }, []);
+
   const openAgentSocket = useCallback(
     (chatKey, turnId, websocketUUID, options = {}) => {
       if (!websocketUUID) return null;
       const existingSession = agentSessionRefs.current[chatKey];
-      if (existingSession && !options.forceReconnect) return existingSession;
+      if (
+        existingSession &&
+        !options.forceReconnect &&
+        canReuseAgentSessionForInvocation(existingSession, websocketUUID)
+      ) {
+        return existingSession;
+      }
 
-      existingSession?.close?.("superseded");
+      if (existingSession) {
+        const existingState = existingSession.getState?.() || {};
+        debugRuntime("websocket:discard-session", {
+          chatKey,
+          turnId,
+          websocketUUID,
+          existingWebsocketUUID: existingState.websocketUUID || null,
+          existingTurnId: existingState.turnId || null,
+          existingState: existingState.state || null,
+          forceReconnect: !!options.forceReconnect,
+        });
+        if (existingState.turnId) {
+          clearAgentStartupTimeout(chatKey, existingState.turnId);
+        }
+        existingSession.close?.(
+          existingState.websocketUUID === websocketUUID
+            ? "force_reconnect"
+            : "superseded"
+        );
+        if (agentSessionRefs.current[chatKey] === existingSession) {
+          delete agentSessionRefs.current[chatKey];
+        }
+      }
+
+      clearAgentStartupTimeout(chatKey, turnId);
+      const startupTimeoutKey = turnRefKey(chatKey, turnId);
       const controller = createAgentWebSocketSession({
         websocketUUID,
         chatKey,
@@ -2484,8 +2917,21 @@ export function ChatThreadDraftProvider({ children }) {
         reconnectDueAt: options.reconnectDueAt || null,
         getInterruptedContext: (reason, stateSnapshot) =>
           buildInterruptedAgentContext(chatKey, turnId, reason, stateSnapshot),
-        onState: (stateSnapshot) =>
-          handleAgentSessionState(chatKey, turnId, stateSnapshot),
+        onState: (stateSnapshot) => {
+          if (
+            [
+              AgentSessionState.OPEN,
+              AgentSessionState.WAITING_ON_INPUT,
+              AgentSessionState.FINALIZED,
+              AgentSessionState.CLOSED,
+              AgentSessionState.FAILED,
+              AgentSessionState.STOPPING,
+            ].includes(stateSnapshot?.state)
+          ) {
+            clearAgentStartupTimeout(chatKey, turnId);
+          }
+          handleAgentSessionState(chatKey, turnId, stateSnapshot);
+        },
         onReconnectOffer: (reason, interruptedContext, stateSnapshot) =>
           offerAgentReconnect(
             chatKey,
@@ -2505,6 +2951,7 @@ export function ChatThreadDraftProvider({ children }) {
           });
         },
         onFinal: (chatId) => {
+          clearAgentStartupTimeout(chatKey, turnId);
           markThreadCompleted(chatKey, turnId);
           setTimeout(() => {
             if (chatId) confirmPersisted(chatKey, turnId, chatId);
@@ -2530,6 +2977,7 @@ export function ChatThreadDraftProvider({ children }) {
           });
         },
         onClose: (stateSnapshot) => {
+          clearAgentStartupTimeout(chatKey, turnId);
           debugChatTurn("websocket:close", {
             chatKey,
             turnId,
@@ -2550,11 +2998,49 @@ export function ChatThreadDraftProvider({ children }) {
       });
 
       agentSessionRefs.current[chatKey] = controller;
+      agentStartupTimeoutRefs.current[startupTimeoutKey] = setTimeout(() => {
+        if (agentSessionRefs.current[chatKey] !== controller) return;
+        const state = controller.getState?.() || {};
+        if (
+          [
+            AgentSessionState.OPEN,
+            AgentSessionState.WAITING_ON_INPUT,
+            AgentSessionState.FINALIZED,
+            AgentSessionState.CLOSED,
+            AgentSessionState.FAILED,
+          ].includes(state.state)
+        ) {
+          clearAgentStartupTimeout(chatKey, turnId);
+          return;
+        }
+
+        const reason =
+          "Agent websocket did not connect for this request. Please retry.";
+        debugRuntime("websocket:startup-timeout", {
+          chatKey,
+          turnId,
+          websocketUUID,
+          state: state.state || null,
+          retryCount: state.retryCount || 0,
+        });
+        applyTurnEvent(chatKey, turnId, {
+          type: "assistant_error",
+          content: reason,
+          error: reason,
+        });
+        controller.close?.("startup_timeout");
+        if (agentSessionRefs.current[chatKey] === controller) {
+          delete agentSessionRefs.current[chatKey];
+        }
+        clearAgentStartupTimeout(chatKey, turnId);
+      }, options.startupTimeoutMs || AGENT_SOCKET_STARTUP_TIMEOUT_MS);
       markThreadRunning(chatKey, turnId);
       return controller;
     },
     [
+      applyTurnEvent,
       buildInterruptedAgentContext,
+      clearAgentStartupTimeout,
       clearThreadRunning,
       confirmPersisted,
       debugRuntime,
@@ -2566,6 +3052,7 @@ export function ChatThreadDraftProvider({ children }) {
       offerAgentReconnect,
     ]
   );
+  openAgentSocketRef.current = openAgentSocket;
 
   useEffect(() => {
     Object.entries(draftsRef.current || {}).forEach(([chatKey, draft]) => {
@@ -2580,7 +3067,14 @@ export function ChatThreadDraftProvider({ children }) {
 
       const resumeKey = agentReconnectKey(chatKey, turn.turnId);
       if (resumedAgentTurnRefs.current.has(resumeKey)) return;
-      if (agentSessionRefs.current[chatKey]) return;
+      if (
+        canReuseAgentSessionForInvocation(
+          agentSessionRefs.current[chatKey],
+          turn.websocketUUID
+        )
+      ) {
+        return;
+      }
 
       const userMessage = draft.items?.find(
         (item) => item.id === turn.userMessageId
@@ -2636,6 +3130,46 @@ export function ChatThreadDraftProvider({ children }) {
       });
       const agentSession = agentSessionRefs.current[chatKey];
       const preparedAttachments = attachments || parseAttachments();
+      const activeDraft = draftsRef.current[chatKey];
+      if (sendToExistingAgent && activeDraft?.pendingClarification) {
+        const answer = String(displayPrompt || prompt || "").trim();
+        if (!answer) {
+          return { ok: false, reason: "pending_clarification_requires_answer" };
+        }
+        return respondToClarification(
+          chatKey,
+          activeDraft.pendingClarification.requestId,
+          clarificationPayloadFromText(activeDraft.pendingClarification, answer)
+        );
+      }
+
+      const activeTurn = activeDraft?.activeTurnId
+        ? findAssistantTurn(activeDraft.items || [], activeDraft.activeTurnId)
+        : null;
+      const activeAgentSession = canReuseAgentSessionForInvocation(
+        agentSession,
+        activeTurn?.websocketUUID
+      )
+        ? agentSession
+        : null;
+      let routeToExistingAgent = false;
+      if (sendToExistingAgent && activeAgentSession) {
+        if (!activeAgentSession.isOpen?.()) {
+          await waitForAgentSessionOpen(activeAgentSession, 8_000);
+        }
+        routeToExistingAgent = !!activeAgentSession.isOpen?.();
+      }
+      if (sendToExistingAgent && !routeToExistingAgent) {
+        debugRuntime("startStream:existingAgentUnavailable", {
+          chatKey,
+          activeTurnId: activeTurn?.turnId || null,
+          activeWebsocketUUID: activeTurn?.websocketUUID || null,
+          sessionWebsocketUUID:
+            agentSession?.getState?.()?.websocketUUID || null,
+          sessionState: agentSession?.getState?.()?.state || null,
+        });
+      }
+
       const { turnId, items: turnItems } = createTurn({
         prompt: displayPrompt || prompt,
         attachments: preparedAttachments,
@@ -2658,28 +3192,42 @@ export function ChatThreadDraftProvider({ children }) {
         pendingApproval: null,
         pendingClarification: null,
         activeToolCall: null,
-        isStreaming: !sendToExistingAgent,
-        isAgentRunning: !!sendToExistingAgent,
+        isStreaming: !routeToExistingAgent,
+        isAgentRunning: routeToExistingAgent,
         persistError: null,
       }));
       debugRuntime("startStream:turnScheduled", {
         chatKey,
         turnId,
-        sendToExistingAgent,
+        sendToExistingAgent: routeToExistingAgent,
       });
-      markThreadRunning(chatKey, turnId);
+      const runningSnapshot = runningActivityMetadata({
+        prompt,
+        displayPrompt: displayPrompt || prompt,
+        attachments: preparedAttachments,
+        fileAccessMode,
+        nodeContext,
+        clientTurnId: turnId,
+      });
+      markThreadRunning(chatKey, turnId, runningSnapshot);
+      debugRuntime("runtime-snapshot:persist", {
+        chatKey,
+        turnId,
+        source: "startStream",
+        acceptedByServer: false,
+      });
       window.dispatchEvent(
         new CustomEvent("anythingllm-document-reader-associate-selection", {
           detail: { chatKey, clientGeneratedTurnId: turnId, turnId },
         })
       );
 
-      if (sendToExistingAgent && agentSession?.isOpen?.()) {
+      if (routeToExistingAgent && activeAgentSession?.isOpen?.()) {
         debugRuntime("startStream:sendToExistingAgent", {
           chatKey,
           turnId,
         });
-        const sendResult = agentSession.sendFeedback({
+        const sendResult = await activeAgentSession.sendFeedback({
           feedback: prompt,
           attachments: preparedAttachments,
           fileAccessMode,
@@ -2696,13 +3244,26 @@ export function ChatThreadDraftProvider({ children }) {
             content: "Agent session is no longer accepting input.",
             error: "Agent session is no longer accepting input.",
           });
-          return;
+          return {
+            ok: false,
+            chatKey,
+            turnId,
+            turnScheduled: true,
+            routedToExistingAgent: true,
+            reason: sendResult?.reason || "existing_agent_feedback_failed",
+          };
         }
         appendTimelineEvent(chatKey, turnId, {
           type: "thought",
           content: "Sent follow-up input to the active agent session.",
         });
-        return;
+        return {
+          ok: true,
+          chatKey,
+          turnId,
+          turnScheduled: true,
+          routedToExistingAgent: true,
+        };
       }
 
       try {
@@ -2715,10 +3276,22 @@ export function ChatThreadDraftProvider({ children }) {
           threadSlug,
           body: buildChatStreamBody({
             message: prompt,
+            displayPrompt: displayPrompt || prompt,
             attachments: preparedAttachments,
             fileAccessMode,
             nodeContext,
+            clientTurnId: turnId,
           }),
+          onOpen: () => {
+            markThreadRunning(chatKey, turnId, {
+              ...runningSnapshot,
+              acceptedByServer: true,
+            });
+            debugRuntime("pending:server-accepted", {
+              chatKey,
+              turnId,
+            });
+          },
           onEvent: (event, protocolEvent, rawEvent) => {
             debugChatTurn("sse:event", {
               chatKey,
@@ -2755,18 +3328,25 @@ export function ChatThreadDraftProvider({ children }) {
           },
         });
         setTimeout(() => {
-          if (completedChatId) {
-            confirmPersisted(chatKey, turnId, completedChatId);
-          }
-          mergeLatestPersistedHistory({
-            chatKey,
-            turnId,
-            workspaceSlug,
-            threadSlug,
-            reason: completedChatId
-              ? "stream-complete-refresh"
-              : "stream-missing-chat-id",
-          });
+          void (async () => {
+            if (completedChatId) {
+              const hydrated = await confirmPersisted(
+                chatKey,
+                turnId,
+                completedChatId
+              );
+              if (hydrated !== false) return;
+            }
+            mergeLatestPersistedHistory({
+              chatKey,
+              turnId,
+              workspaceSlug,
+              threadSlug,
+              reason: completedChatId
+                ? "stream-complete-refresh-fallback"
+                : "stream-missing-chat-id",
+            });
+          })();
         }, 500);
         if (threadSlug) {
           [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
@@ -2784,6 +3364,14 @@ export function ChatThreadDraftProvider({ children }) {
           turnId,
           completedChatId,
         });
+        return {
+          ok: true,
+          chatKey,
+          turnId,
+          turnScheduled: true,
+          routedToExistingAgent: false,
+          completedChatId,
+        };
       } catch (error) {
         debugRuntime("startStream:error", {
           chatKey,
@@ -2795,6 +3383,15 @@ export function ChatThreadDraftProvider({ children }) {
           content: error.message || "Chat stream failed.",
           error: error.message || "Chat stream failed.",
         });
+        return {
+          ok: false,
+          chatKey,
+          turnId,
+          turnScheduled: true,
+          routedToExistingAgent: false,
+          reason: "stream_error",
+          error,
+        };
       }
     },
     [
@@ -2806,6 +3403,7 @@ export function ChatThreadDraftProvider({ children }) {
       markThreadRunning,
       mergeLatestPersistedHistory,
       openAgentSocket,
+      respondToClarification,
       scheduleApprovalTimeout,
       scheduleClarificationTimeout,
       updateDraft,
@@ -2813,7 +3411,13 @@ export function ChatThreadDraftProvider({ children }) {
   );
 
   const startLocalTurn = useCallback(
-    ({ workspaceSlug, threadSlug = null, prompt, history = [] }) => {
+    ({
+      workspaceSlug,
+      threadSlug = null,
+      prompt,
+      history = [],
+      turnId: clientGeneratedTurnId = null,
+    }) => {
       const chatKey = ensureDraft({
         workspaceSlug,
         threadSlug,
@@ -2822,6 +3426,7 @@ export function ChatThreadDraftProvider({ children }) {
       const { turnId, items: turnItems } = createTurn({
         prompt,
         chatKey,
+        turnId: clientGeneratedTurnId || undefined,
       });
       delete settledTurnRefs.current[turnRefKey(chatKey, turnId)];
       updateDraft(chatKey, (draft) => ({
@@ -2835,7 +3440,16 @@ export function ChatThreadDraftProvider({ children }) {
         isAgentRunning: false,
         persistError: null,
       }));
-      markThreadRunning(chatKey, turnId);
+      markThreadRunning(
+        chatKey,
+        turnId,
+        runningActivityMetadata({
+          prompt,
+          displayPrompt: prompt,
+          clientTurnId: turnId,
+          acceptedByServer: true,
+        })
+      );
       return { chatKey, turnId };
     },
     [ensureDraft, markThreadRunning, updateDraft]
@@ -2906,13 +3520,21 @@ export function ChatThreadDraftProvider({ children }) {
         if (!turnId) return;
         stoppedThreadRefs.current[key] = true;
         const agentSession = agentSessionRefs.current[key];
-        const stopResult = agentSession?.stop?.("user_stop");
-        if (!stopResult?.ok) {
-          applyTurnEvent(key, turnId, {
-            type: "stop_generation",
-            content: "Generation stopped by user.",
+        Promise.resolve(agentSession?.stop?.("user_stop"))
+          .then((stopResult) => {
+            if (!stopResult?.ok) {
+              applyTurnEvent(key, turnId, {
+                type: "stop_generation",
+                content: "Generation stopped by user.",
+              });
+            }
+          })
+          .catch(() => {
+            applyTurnEvent(key, turnId, {
+              type: "stop_generation",
+              content: "Generation stopped by user.",
+            });
           });
-        }
       });
     },
     [applyTurnEvent]
@@ -2929,6 +3551,9 @@ export function ChatThreadDraftProvider({ children }) {
       Object.values(agentSessionRefs.current).forEach((session) =>
         session?.close?.("provider_unmount")
       );
+      Object.values(agentStartupTimeoutRefs.current).forEach((timeout) =>
+        clearTimeout(timeout)
+      );
       Object.values(approvalTimeoutRefs.current).forEach((timeout) =>
         clearTimeout(timeout)
       );
@@ -2939,22 +3564,43 @@ export function ChatThreadDraftProvider({ children }) {
   }, []);
 
   const mergeServerHistory = useCallback(
-    ({ workspaceSlug, threadSlug = null, history = [] }) => {
+    ({
+      workspaceSlug,
+      threadSlug = null,
+      history = [],
+      pruneServerBackedItemsOutsideHistory = false,
+      preserveTurnIds = [],
+    }) => {
       const chatKey = ensureDraft({ workspaceSlug, threadSlug });
       debugRuntime("mergeServerHistory:before", {
         chatKey,
         historyLength: history.length,
+        pruneServerBackedItemsOutsideHistory,
+        preserveTurnIds,
         ...draftHistoryIntegrity(draftsRef.current[chatKey]),
       });
       updateDraft(
         chatKey,
         (draft) => {
-          const beforeIntegrity = draftHistoryIntegrity(draft);
-          const items = mergeServerHistoryIntoTurnItems(history, draft.items, {
-            chatKey,
-          });
+          const restoredDraft = restoreDraftFromRunningActivity(
+            draft,
+            runningStateRef.current.threadActivityByKey?.[chatKey] || null
+          );
+          const beforeIntegrity = draftHistoryIntegrity(restoredDraft);
+          const items = mergeServerHistoryIntoTurnItems(
+            history,
+            restoredDraft.items,
+            {
+              chatKey,
+              pruneServerBackedItemsOutsideHistory,
+              preserveTurnIds: [
+                restoredDraft.activeTurnId,
+                ...preserveTurnIds,
+              ].filter(Boolean),
+            }
+          );
           const next = {
-            ...draft,
+            ...restoredDraft,
             items,
           };
           const afterIntegrity = draftHistoryIntegrity(next);
@@ -2963,6 +3609,8 @@ export function ChatThreadDraftProvider({ children }) {
             turnId: next.activeTurnId || null,
             draft: next,
             historyLength: history.length,
+            pruneServerBackedItemsOutsideHistory,
+            preserveTurnIds,
             beforeBlankServerBackedUserItemCount:
               beforeIntegrity.blankServerBackedUserItemCount,
             beforeUserItemCount: beforeIntegrity.userItemCount,
@@ -3053,6 +3701,32 @@ export function ChatThreadDraftProvider({ children }) {
     return runningThreads.sort((a, b) => b.updatedAt - a.updatedAt)[0] || null;
   }, []);
 
+  const restoreRunningTurnSnapshot = useCallback(
+    ({ workspaceSlug, threadSlug = null, turnId = null } = {}) => {
+      const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
+      const activity = runningStateRef.current.threadActivityByKey?.[chatKey];
+      if (!activityHasRecoverableTurn(activity)) return false;
+      if (turnId && activity.turnId !== turnId) return false;
+
+      updateDraft(
+        chatKey,
+        (draft) => {
+          const next = restoreDraftFromRunningActivity(draft, activity);
+          debugRuntime("runtime-snapshot:restore", {
+            chatKey,
+            turnId: activity.turnId,
+            reason: "explicit-restore",
+            acceptedByServer: !!activity.acceptedByServer,
+          });
+          return next;
+        },
+        { cleanupReason: "runtime-snapshot-restore" }
+      );
+      return true;
+    },
+    [debugRuntime, updateDraft]
+  );
+
   const getAssistantTurnByChatId = useCallback((chatKey, chatId) => {
     return assistantTurnByChatId(
       draftsRef.current[chatKey]?.items || [],
@@ -3081,6 +3755,7 @@ export function ChatThreadDraftProvider({ children }) {
       subscribeDraft,
       ensureDraft,
       mergeServerHistory,
+      refreshLatestHistory: mergeLatestPersistedHistory,
       createTurn,
       appendTimelineEvent,
       updateAssistantTurn,
@@ -3100,14 +3775,17 @@ export function ChatThreadDraftProvider({ children }) {
       subscribeThreadActivity,
       getRunningThreads,
       getRunningThread,
+      restoreRunningTurnSnapshot,
       getAssistantTurnByChatId,
       updateUserItem,
       clearThreadActivity,
+      clearConfirmedLocalTurn,
       getThreadPath,
       getChatKey: getChatThreadKey,
     }),
     [
       appendTimelineEvent,
+      clearConfirmedLocalTurn,
       clearThreadActivity,
       completeAssistantTurn,
       continueInterruptedAgentTurn,
@@ -3118,12 +3796,14 @@ export function ChatThreadDraftProvider({ children }) {
       getDraftByKey,
       getRunningThread,
       getRunningThreads,
+      restoreRunningTurnSnapshot,
       getThreadActivity,
       getThreadActivityByKey,
       getActivityVersion,
       hasThreadActivity,
       hasWorkspaceActivity,
       mergeServerHistory,
+      mergeLatestPersistedHistory,
       respondToApproval,
       respondToClarification,
       startStream,

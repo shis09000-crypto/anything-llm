@@ -7,6 +7,12 @@ export const READER_CURRENT_DOCUMENT_STORAGE_KEY =
 export const READER_CURRENT_DOCUMENT_CLEAR_STORAGE_KEY =
   "anythingllm_document_reader_current_cleared_at:v1:global";
 
+const READER_HISTORY_STORAGE_KEY =
+  "anythingllm_document_reader_history:v1:global";
+const READER_BOOKSHELF_STORAGE_KEY = "anythingllm_document_reader_bookshelf:v1";
+const READER_BOOKSHELF_CATEGORIES_STORAGE_KEY =
+  "anythingllm_document_reader_bookshelf_categories:v1";
+
 const READER_CURRENT_DOCUMENT_LEGACY_PREFIX = "anythingllm_document_reader:v1:";
 const DEFAULT_DRAWER_SECTION = "history";
 const VALID_DRAWER_SECTIONS = new Set(["history", "bookshelf", "workspace"]);
@@ -26,6 +32,33 @@ function safeJson(value, fallback = null) {
   } catch {
     return fallback;
   }
+}
+
+function persistReaderDrawerState(state = {}) {
+  import("@/utils/userStateSync")
+    .then(
+      ({ pushUserStateValue, sanitizeReaderState, USER_STATE_NAMESPACES }) => {
+        const storage = safeLocalStorage();
+        pushUserStateValue(
+          USER_STATE_NAMESPACES.readerLibrary,
+          "global",
+          sanitizeReaderState({
+            history: safeJson(storage?.getItem(READER_HISTORY_STORAGE_KEY), []),
+            bookshelf: safeJson(
+              storage?.getItem(READER_BOOKSHELF_STORAGE_KEY),
+              []
+            ),
+            categories: safeJson(
+              storage?.getItem(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY),
+              []
+            ),
+            drawerState: state,
+          }),
+          { sanitize: sanitizeReaderState, debounceMs: 1_000 }
+        );
+      }
+    )
+    .catch(() => {});
 }
 
 function storageKeys(storage) {
@@ -118,6 +151,7 @@ export function setReaderDrawerState(nextState = {}) {
   } catch {
     // Drawer state is only a UI convenience.
   }
+  persistReaderDrawerState(state);
   return state;
 }
 

@@ -13,6 +13,11 @@ import {
   apiErrorMessage as responseError,
 } from "@/lib/communication/apiError";
 import { safeJsonParse } from "@/utils/request";
+import {
+  hydrateUserStateValue,
+  pushUserStateValue,
+  USER_STATE_NAMESPACES,
+} from "@/utils/userStateSync";
 import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
@@ -33,6 +38,7 @@ function historyPageQuery({
 
 const Workspace = {
   workspaceOrderStorageKey: "anythingllm-workspace-order",
+  workspaceOrderHydrated: false,
   /** The maximum percentage of the context window that can be used for attachments */
   maxContextWindowLimit: 0.8,
 
@@ -431,6 +437,9 @@ const Workspace = {
         this.workspaceOrderStorageKey,
         JSON.stringify(workspaceIds)
       );
+      pushUserStateValue(USER_STATE_NAMESPACES.workspaceOrder, "global", {
+        workspaceIds,
+      });
       return true;
     } catch (error) {
       console.error("Error reordering workspaces:", error);
@@ -444,6 +453,26 @@ const Workspace = {
    * @returns {Array} - ordered workspaces
    */
   orderWorkspaces: function (workspaces = []) {
+    if (!this.workspaceOrderHydrated) {
+      this.workspaceOrderHydrated = true;
+      void hydrateUserStateValue({
+        namespace: USER_STATE_NAMESPACES.workspaceOrder,
+        fallback: {
+          workspaceIds:
+            safeJsonParse(
+              localStorage.getItem(this.workspaceOrderStorageKey)
+            ) || [],
+        },
+        apply: (value) => {
+          if (Array.isArray(value?.workspaceIds)) {
+            localStorage.setItem(
+              this.workspaceOrderStorageKey,
+              JSON.stringify(value.workspaceIds)
+            );
+          }
+        },
+      });
+    }
     const workspaceOrderPreference =
       safeJsonParse(localStorage.getItem(this.workspaceOrderStorageKey)) || [];
     if (workspaceOrderPreference.length === 0) return workspaces;

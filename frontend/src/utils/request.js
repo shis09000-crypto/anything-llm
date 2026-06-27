@@ -1,4 +1,5 @@
-import { AUTH_TOKEN, AUTH_USER } from "./constants";
+import { AUTH_USER } from "./constants";
+import { getAuthToken } from "./authTokenStorage";
 import {
   CODEX_DEV_AUTH_BYPASS_HEADER,
   CODEX_DEV_AUTH_BYPASS_KEY,
@@ -18,7 +19,7 @@ export function userFromStorage() {
 }
 
 export function baseHeaders(providedToken = null) {
-  const token = providedToken || window.localStorage.getItem(AUTH_TOKEN);
+  const token = providedToken || getAuthToken();
   const headers = {
     Authorization: token ? `Bearer ${token}` : null,
   };

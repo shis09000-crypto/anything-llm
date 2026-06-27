@@ -130,7 +130,7 @@ class BackgroundService {
       runJobsAs: "process",
     });
     this.graceful = new Graceful({ brees: [this.bree], logger: this.logger });
-    this.graceful.listen();
+    if (process.env.NODE_ENV !== "test") this.graceful.listen();
 
     this.bree.start();
     this.#log(

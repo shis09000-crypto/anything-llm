@@ -79,6 +79,14 @@ export function saveTextSizePreference(value, customPx = null) {
 
   window.localStorage.setItem(TEXT_SIZE_KEY, safeValue);
   const preference = getTextSizePreference(safeValue);
+  import("@/utils/userStateSync")
+    .then(({ persistAppearancePreferences }) =>
+      persistAppearancePreferences({
+        textSize: preference.value,
+        customTextSizePx: preference.customPx,
+      })
+    )
+    .catch(() => {});
   window.dispatchEvent(
     new CustomEvent(TEXT_SIZE_CHANGE_EVENT, { detail: preference })
   );

@@ -17,7 +17,8 @@ import { useNavigate } from "react-router-dom";
 import AppButton from "@/components/lib/AppButton";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import showToast from "@/utils/toast";
-import { AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import { AUTH_USER } from "@/utils/constants";
+import { removeAuthToken } from "@/utils/authTokenStorage";
 import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
@@ -54,7 +55,8 @@ export default function DataPrivacyCard() {
   const [revealedMemories, setRevealedMemories] = useState({});
   const [editingSensitiveMemory, setEditingSensitiveMemory] = useState(null);
   const [savingSensitiveMemory, setSavingSensitiveMemory] = useState(false);
-  const [deletingSensitiveMemoryId, setDeletingSensitiveMemoryId] = useState(null);
+  const [deletingSensitiveMemoryId, setDeletingSensitiveMemoryId] =
+    useState(null);
   const [passkeys, setPasskeys] = useState([]);
   const [passkeysLoading, setPasskeysLoading] = useState(false);
   const [revealMethod, setRevealMethod] = useState("password");
@@ -256,7 +258,7 @@ export default function DataPrivacyCard() {
 
     await AccountSettingsApi.clearLocalZkDevices().catch(() => null);
     window.localStorage.removeItem(AUTH_USER);
-    window.localStorage.removeItem(AUTH_TOKEN);
+    removeAuthToken();
     showToast("账户已删除，已退出登录。", "success");
     navigate("/login?nt=1", { replace: true });
   }
@@ -340,7 +342,8 @@ export default function DataPrivacyCard() {
   async function deleteSensitiveMemory(memory) {
     const confirmed = await showAppConfirm({
       title: "删除敏感记忆",
-      description: "确定删除这条敏感记忆吗？删除后会进入记忆归档，但不会归档明文。",
+      description:
+        "确定删除这条敏感记忆吗？删除后会进入记忆归档，但不会归档明文。",
       confirmText: "删除",
       cancelText: "取消",
       tone: "danger",
@@ -587,30 +590,30 @@ function SensitiveMemoryDrawer({
                           {revealed?.title || memory.title}
                         </p>
                         <div className="flex shrink-0 items-center gap-1">
-                        {revealed ? (
-                          <button
-                            type="button"
-                            className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
-                            onClick={() =>
-                              onEdit({
-                                ...memory,
-                                title: revealed.title,
-                                detail: revealed.detail,
-                              })
-                            }
-                            aria-label="编辑敏感记忆"
-                          >
-                            <PencilSimpleLine className="h-3.5 w-3.5" />
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
-                            onClick={() => onStartReveal(memory)}
-                          >
-                            查看
-                          </button>
-                        )}
+                          {revealed ? (
+                            <button
+                              type="button"
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-50 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-100"
+                              onClick={() =>
+                                onEdit({
+                                  ...memory,
+                                  title: revealed.title,
+                                  detail: revealed.detail,
+                                })
+                              }
+                              aria-label="编辑敏感记忆"
+                            >
+                              <PencilSimpleLine className="h-3.5 w-3.5" />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                              onClick={() => onStartReveal(memory)}
+                            >
+                              查看
+                            </button>
+                          )}
                           <button
                             type="button"
                             disabled={deletingMemoryId === memory.id}
@@ -1037,7 +1040,8 @@ function AccountDeleteDialog({
               删除账户？
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-500">
-              此操作会删除当前环境中的账号数据和相关业务数据。请确认下方删除范围，完成二次验证后，等待 5 秒冷却再手动确认删除。
+              此操作会删除当前环境中的账号数据和相关业务数据。请确认下方删除范围，完成二次验证后，等待
+              5 秒冷却再手动确认删除。
             </p>
           </div>
         </div>
@@ -1048,7 +1052,9 @@ function AccountDeleteDialog({
           </p>
           <p className="mt-1">
             环境：{preview?.currentEnv || "当前环境"} · 共享认证账号：
-            {preview?.willDeleteSharedAuthUser ? "同步删除" : "保留并写入当前环境删除记录"}
+            {preview?.willDeleteSharedAuthUser
+              ? "同步删除"
+              : "保留并写入当前环境删除记录"}
           </p>
         </div>
 
@@ -1056,8 +1062,14 @@ function AccountDeleteDialog({
           <PreviewMetric label="工作区" value={totals.workspaceCount || 0} />
           <PreviewMetric label="线程" value={totals.threadCount || 0} />
           <PreviewMetric label="聊天记录" value={totals.chatCount || 0} />
-          <PreviewMetric label="文档与向量空间" value={totals.documentCount || 0} />
-          <PreviewMetric label="记忆/学习数据" value={totals.memoryCount || 0} />
+          <PreviewMetric
+            label="文档与向量空间"
+            value={totals.documentCount || 0}
+          />
+          <PreviewMetric
+            label="记忆/学习数据"
+            value={totals.memoryCount || 0}
+          />
           <PreviewMetric
             label="向量命名空间"
             value={totals.vectorNamespaceCount || 0}

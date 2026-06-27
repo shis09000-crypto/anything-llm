@@ -105,6 +105,7 @@ const TRANSLATIONS = {
     embeds: "チャット埋め込み",
     security: "セキュリティ",
     "button-lab": "ボタンラボ",
+    "mobile-page-experiment": "モバイルページ実験",
     "crypto-component-experiment": "暗号コンポーネント実験",
     "crypto-center": "Crypto Center",
     "event-logs": "イベントログ",
@@ -1810,6 +1811,8 @@ const readable = true;
       clarifying_other_placeholder: "回答を入力",
       clarifying_recommended: "おすすめ",
       clarifying_backup: "代替案",
+      clarifying_send_failed:
+        "回答を送信できませんでした。もう一度お試しください。",
       batch_progress: "{{answered}} / {{total}} 回答済み",
       batch_skip_this: "スキップ",
       batch_submit_all: "すべて送信",

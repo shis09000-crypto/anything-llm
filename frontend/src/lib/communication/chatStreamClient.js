@@ -6,12 +6,21 @@ import {
   normalizeChatTurnEvent,
 } from "./chatStreamProtocol";
 
-function chatStreamBody({ message, attachments, fileAccessMode, nodeContext }) {
+function chatStreamBody({
+  message,
+  displayPrompt = null,
+  attachments,
+  fileAccessMode,
+  nodeContext,
+  clientTurnId,
+}) {
   return {
     message,
+    displayPrompt,
     attachments,
     fileAccess: { mode: fileAccessMode },
     nodeContext,
+    clientTurnId,
   };
 }
 
@@ -41,6 +50,7 @@ async function streamChat({
   onRawEvent,
   onProtocolEvent,
   onEvent,
+  onOpen,
   onError,
   onClose,
 } = {}) {
@@ -90,6 +100,7 @@ async function streamChat({
       path,
       body,
       signal: ctrl.signal,
+      onOpen,
       onMessage(raw) {
         if (stopped) return;
         emitRaw(raw);
@@ -116,6 +127,7 @@ export async function streamWorkspaceChat({
   onRawEvent,
   onProtocolEvent,
   onEvent,
+  onOpen,
   onError,
   onClose,
 }) {
@@ -126,6 +138,7 @@ export async function streamWorkspaceChat({
     onRawEvent,
     onProtocolEvent,
     onEvent,
+    onOpen,
     onError,
     onClose,
   });
@@ -139,6 +152,7 @@ export async function streamWorkspaceThreadChat({
   onRawEvent,
   onProtocolEvent,
   onEvent,
+  onOpen,
   onError,
   onClose,
 }) {
@@ -149,6 +163,7 @@ export async function streamWorkspaceThreadChat({
     onRawEvent,
     onProtocolEvent,
     onEvent,
+    onOpen,
     onError,
     onClose,
   });
@@ -156,9 +171,18 @@ export async function streamWorkspaceThreadChat({
 
 export function buildChatStreamBody({
   message,
+  displayPrompt = null,
   attachments = [],
   fileAccessMode = null,
   nodeContext = null,
+  clientTurnId = null,
 }) {
-  return chatStreamBody({ message, attachments, fileAccessMode, nodeContext });
+  return chatStreamBody({
+    message,
+    displayPrompt,
+    attachments,
+    fileAccessMode,
+    nodeContext,
+    clientTurnId,
+  });
 }

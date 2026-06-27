@@ -2,6 +2,11 @@ import { API_BASE } from "@/utils/constants";
 import { baseHeaders } from "@/utils/request";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
 import { assertSecureHttpUrl } from "./transportSecurity";
+import {
+  createCommunicationRequestId,
+  shouldAttachClientIdentityToUrl,
+  withClientIdentityHeaders,
+} from "./clientIdentity";
 
 export const BLOB_KINDS = {
   ttsAudio: "tts_audio",
@@ -14,10 +19,6 @@ export const BLOB_KINDS = {
   exportText: "export_text",
   modelDownloadStream: "model_download_stream",
 };
-
-function createRequestId() {
-  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-}
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -96,11 +97,17 @@ export function downloadUrl(pathOrUrl = "") {
   );
 }
 
-function blobHeaders(headers = {}, { includeBaseHeaders = true } = {}) {
-  return cleanHeaders({
+function blobHeaders(
+  headers = {},
+  { includeBaseHeaders = true, includeClientIdentity = true, requestId } = {}
+) {
+  const nextHeaders = cleanHeaders({
     ...(includeBaseHeaders ? baseHeaders() : {}),
     ...headers,
   });
+  return includeClientIdentity
+    ? withClientIdentityHeaders(nextHeaders, { requestId })
+    : nextHeaders;
 }
 
 function bodyForRequest(body, rawBody = false) {
@@ -173,9 +180,10 @@ async function requestBody(kind, path, options = {}, reader) {
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
-  const requestId = createRequestId();
+  const requestId = createCommunicationRequestId();
   const startedAt = nowMs();
   const signalState = requestSignal({ signal, timeoutMs });
+  const url = downloadUrl(path);
 
   devLog(
     "start",
@@ -188,9 +196,13 @@ async function requestBody(kind, path, options = {}, reader) {
   );
 
   try {
-    const response = await fetch(downloadUrl(path), {
+    const response = await fetch(url, {
       method: normalizedMethod,
-      headers: blobHeaders(headers, { includeBaseHeaders }),
+      headers: blobHeaders(headers, {
+        includeBaseHeaders,
+        includeClientIdentity: shouldAttachClientIdentityToUrl(url),
+        requestId,
+      }),
       body: bodyForRequest(body, rawBody),
       signal: signalState.signal,
       ...rest,

@@ -20,8 +20,12 @@ async function loadCryptoShared({ prod = false, dev = true } = {}) {
   const source = await readFile(cryptoSharedUrl, "utf8");
   const transformed = source
     .replace(
-      'import { API_BASE, AUTH_TOKEN, fullApiUrl } from "@/utils/constants";',
-      'const API_BASE = "/api"; const AUTH_TOKEN = "auth-token"; const fullApiUrl = () => "http://localhost:3002/api";'
+      'import { API_BASE, fullApiUrl } from "@/utils/constants";',
+      'const API_BASE = "/api"; const fullApiUrl = () => "http://localhost:3002/api";'
+    )
+    .replace(
+      'import { getAuthToken } from "@/utils/authTokenStorage";',
+      "const getAuthToken = () => globalThis.__cryptoClientTestToken || null;"
     )
     .replace(
       'import { assertSecureWebSocketUrl } from "../transportSecurity";',
@@ -70,11 +74,10 @@ async function loadCryptoHubStreamClient() {
 }
 
 function installWindow({ search = "", token = "jwt-secret" } = {}) {
+  globalThis.__cryptoClientTestToken = token;
   globalThis.window = {
     location: { search },
-    localStorage: {
-      getItem: (key) => (key === "auth-token" ? token : null),
-    },
+    localStorage: {},
   };
 }
 

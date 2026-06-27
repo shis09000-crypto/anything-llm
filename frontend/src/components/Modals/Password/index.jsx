@@ -3,13 +3,13 @@ import System from "../../../models/system";
 import SingleUserAuth from "./SingleUserAuth";
 import MultiUserAuth from "./MultiUserAuth";
 import {
-  AUTH_TOKEN,
   AUTH_USER,
   AUTH_TIMESTAMP,
   LAST_USER_ACTION_AT,
 } from "../../../utils/constants";
 import useLogo from "../../../hooks/useLogo";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
+import { getAuthToken, removeAuthToken } from "@/utils/authTokenStorage";
 
 export default function PasswordModal({ mode = "single" }) {
   const { loginLogo, isCustomLogo } = useLogo();
@@ -63,7 +63,7 @@ export function usePasswordModal(notry = false) {
 
       const settings = await System.keys();
       if (settings?.MultiUserMode) {
-        const currentToken = window.localStorage.getItem(AUTH_TOKEN);
+        const currentToken = getAuthToken();
         if (!!currentToken) {
           const valid = notry ? false : await System.checkAuth(currentToken);
           if (!valid) {
@@ -73,7 +73,7 @@ export function usePasswordModal(notry = false) {
               mode: "multi",
             });
             window.localStorage.removeItem(AUTH_USER);
-            window.localStorage.removeItem(AUTH_TOKEN);
+            removeAuthToken();
             window.localStorage.removeItem(AUTH_TIMESTAMP);
             window.localStorage.removeItem(LAST_USER_ACTION_AT);
             return;
@@ -106,7 +106,7 @@ export function usePasswordModal(notry = false) {
           return;
         }
 
-        const currentToken = window.localStorage.getItem(AUTH_TOKEN);
+        const currentToken = getAuthToken();
         if (!!currentToken) {
           const valid = notry ? false : await System.checkAuth(currentToken);
           if (!valid) {
@@ -115,7 +115,7 @@ export function usePasswordModal(notry = false) {
               requiresAuth: true,
               mode: "single",
             });
-            window.localStorage.removeItem(AUTH_TOKEN);
+            removeAuthToken();
             window.localStorage.removeItem(AUTH_USER);
             window.localStorage.removeItem(AUTH_TIMESTAMP);
             window.localStorage.removeItem(LAST_USER_ACTION_AT);

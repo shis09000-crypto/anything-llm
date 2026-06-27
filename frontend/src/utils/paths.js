@@ -160,6 +160,9 @@ export default {
     buttonLab: () => {
       return "/settings/button-lab";
     },
+    mobilePageExperiment: () => {
+      return "/settings/mobile-page-experiment";
+    },
     cryptoComponentExperiment: () => {
       return "/settings/crypto-component-experiment";
     },

@@ -1,4 +1,64 @@
-export const API_BASE = import.meta.env.VITE_API_BASE || "/api";
+export function isLoopbackHost(hostname = "") {
+  return ["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname);
+}
+
+function isPrivateIpv4Host(hostname = "") {
+  const parts = String(hostname || "")
+    .split(".")
+    .map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part))) {
+    return false;
+  }
+
+  const [first, second] = parts;
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function isLocalDevelopmentHost(hostname = "") {
+  return isLoopbackHost(hostname) || isPrivateIpv4Host(hostname);
+}
+
+export function resolveApiBase(configuredBase = "/api") {
+  if (!configuredBase || !/^https?:\/\//i.test(configuredBase)) {
+    return configuredBase || "/api";
+  }
+  if (typeof window === "undefined") return configuredBase;
+
+  try {
+    const apiUrl = new URL(configuredBase);
+    const pageHost = window.location.hostname;
+    if (
+      window.location.protocol === "https:" &&
+      apiUrl.protocol === "http:" &&
+      (isLoopbackHost(apiUrl.hostname) || apiUrl.hostname === pageHost)
+    ) {
+      return "/api";
+    }
+    if (isLoopbackHost(apiUrl.hostname) && !isLoopbackHost(pageHost)) {
+      apiUrl.hostname = pageHost;
+      return apiUrl.toString().replace(/\/$/, "");
+    }
+    if (
+      import.meta.env.DEV &&
+      apiUrl.protocol === "http:" &&
+      window.location.protocol === "http:" &&
+      apiUrl.hostname !== pageHost &&
+      isLocalDevelopmentHost(apiUrl.hostname) &&
+      isLocalDevelopmentHost(pageHost)
+    ) {
+      apiUrl.hostname = pageHost;
+      return apiUrl.toString().replace(/\/$/, "");
+    }
+  } catch {}
+
+  return configuredBase;
+}
+
+export const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE || "/api");
 export const ONBOARDING_SURVEY_URL = "https://onboarding.anythingllm.com";
 
 export const AUTH_USER = "anythingllm_user";

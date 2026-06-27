@@ -23,8 +23,7 @@ function getTabs(t, user) {
   ];
 
   // Only show agent skills tab for admins or when multiuser mode is off
-  const canSeeAgentSkills =
-    !user?.hasOwnProperty("role") || canSeeAdmin(user);
+  const canSeeAgentSkills = !user?.hasOwnProperty("role") || canSeeAdmin(user);
   if (canSeeAgentSkills) {
     tabs.push({
       key: "agent-skills",

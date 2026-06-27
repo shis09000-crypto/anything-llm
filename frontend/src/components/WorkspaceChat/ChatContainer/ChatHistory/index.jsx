@@ -15,6 +15,7 @@ import AssistantTurn from "./AssistantTurn";
 import { useManageWorkspaceModal } from "../../../Modals/ManageWorkspace";
 import ManageWorkspace from "../../../Modals/ManageWorkspace";
 import { ArrowDown } from "@phosphor-icons/react";
+import { isMobile } from "react-device-detect";
 import debounce from "lodash.debounce";
 import Workspace from "@/models/workspace";
 import { useNavigate, useParams } from "react-router-dom";
@@ -194,13 +195,26 @@ export default forwardRef(function (
   );
   const { showScrollbar } = Appearance.getSettings();
   const { textSize, textSizeClass, textSizeStyle } = useTextSize();
+  const mobileSystemFontStyle = isMobile
+    ? {
+        fontFamily: "var(--athena-font-sans)",
+      }
+    : {};
+  const textSizePx = Number.parseFloat(textSizeStyle?.fontSize);
+  const chatTextSizeStyle =
+    isMobile && Number.isFinite(textSizePx)
+      ? {
+          ...textSizeStyle,
+          fontSize: `${Math.min(24, Math.max(17, textSizePx + 1))}px`,
+        }
+      : textSizeStyle;
   const { updateAssistantTurn, updateUserItem } = useChatThreadDrafts();
   const baseShouldVirtualize = items.length > 80;
   const [layoutFallbackActive, setLayoutFallbackActive] = useState(false);
   const shouldVirtualize = baseShouldVirtualize && !layoutFallbackActive;
   const normalizedBottomInset =
     Number.isFinite(bottomInset) && bottomInset >= 0 ? bottomInset : null;
-  const textSizeFontSize = textSizeStyle?.fontSize || "";
+  const textSizeFontSize = chatTextSizeStyle?.fontSize || "";
   const rowLayoutContextKey = [
     textSize || "",
     textSizeFontSize,
@@ -2207,7 +2221,7 @@ export default forwardRef(function (
     <MessageActionsProvider>
       <ThoughtExpansionProvider chatKey={chatKey}>
         <div
-          className={`markdown text-white/80 light:text-theme-text-primary font-light ${textSizeClass} h-full pb-4 pt-6 md:pt-0 md:pb-4 md:mx-0 overflow-y-scroll flex flex-col items-center justify-start ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
+          className={`markdown chatgpt-mobile-chat text-white/80 light:text-theme-text-primary font-light ${textSizeClass} h-full pb-4 pt-6 md:pt-0 md:pb-4 md:mx-0 overflow-y-scroll flex flex-col items-center justify-start ${showScrollbar ? "show-scrollbar" : "no-scroll"}`}
           id="chat-history"
           ref={chatHistoryRef}
           onScroll={handleScroll}
@@ -2215,7 +2229,11 @@ export default forwardRef(function (
           onTouchStart={() => markUserScrollIntentFor("touch")}
           onPointerDown={markPointerScrollIntent}
           onKeyDown={markKeyboardScrollIntent}
-          style={{ ...textSizeStyle, ...scrollContainerStyle }}
+          style={{
+            ...mobileSystemFontStyle,
+            ...chatTextSizeStyle,
+            ...scrollContainerStyle,
+          }}
         >
           <div className={`w-full max-w-[920px] ${contentClassName}`}>
             {isLoadingOlderHistory && (

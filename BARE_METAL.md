@@ -59,7 +59,9 @@ cd server && npx prisma migrate deploy --schema=./prisma/schema.prisma
 5. Boot the collection in another process
 `cd collector && NODE_ENV=production node index.js &`
 
-AnythingLLM should now be running on `http://localhost:3001`!
+AnythingLLM should now be running on `http://localhost:3001` locally. For
+production access, put it behind HTTPS/WSS with a reverse proxy or enable Node
+HTTPS directly.
 
 ## Updating AnythingLLM
 
@@ -114,20 +116,33 @@ cd $HOME/anything-llm/collector
 
 ## Using Nginx?
 
-If you are using Nginx, you can use the following example configuration to proxy the requests to the server. Chats for streaming require **websocket** connections, so you need to ensure that the Nginx configuration is set up to support websockets. You can do this with a simple reverse proxy configuration.
+If you are using Nginx, use HTTPS at the public edge and proxy to the local
+server. Chats, Agent sessions, and model streams require WebSocket/SSE-friendly
+proxy settings.
 
 ```nginx
-server {
-   # Enable websocket connections for agent protocol.
-   location ~* ^/api/agent-invocation/(.*) {
-      proxy_pass http://0.0.0.0:3001;
-      proxy_http_version 1.1;
-      proxy_set_header Upgrade $http_upgrade;
-      proxy_set_header Connection "Upgrade";
-   }
+map $http_upgrade $connection_upgrade {
+   default upgrade;
+   '' close;
+}
 
+server {
    listen 80;
    server_name [insert FQDN here];
+   return 301 https://$host$request_uri;
+}
+
+server {
+   listen 443 ssl http2;
+   server_name [insert FQDN here];
+
+   ssl_certificate /etc/letsencrypt/live/[insert FQDN here]/fullchain.pem;
+   ssl_certificate_key /etc/letsencrypt/live/[insert FQDN here]/privkey.pem;
+   ssl_protocols TLSv1.2 TLSv1.3;
+   ssl_prefer_server_ciphers on;
+   ssl_ciphers ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256;
+   add_header Strict-Transport-Security "max-age=15552000; includeSubDomains" always;
+
    location / {
       # Prevent timeouts on long-running requests.
       proxy_connect_timeout       605;
@@ -137,11 +152,22 @@ server {
       keepalive_timeout           605;
 
       # Enable readable HTTP Streaming for LLM streamed responses
-      proxy_buffering off; 
+      proxy_buffering off;
       proxy_cache off;
 
       # Proxy your locally running service
-      proxy_pass  http://0.0.0.0:3001;
+      proxy_pass  http://127.0.0.1:3001;
+      proxy_http_version 1.1;
+      proxy_set_header Host $host;
+      proxy_set_header X-Forwarded-Host $host;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto https;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection $connection_upgrade;
     }
 }
 ```
+
+When using this proxy in production, set `PUBLIC_APP_URL=https://your-domain`,
+`ATHENA_ALLOWED_ORIGINS=https://your-domain`, `TRUST_PROXY=true`, and
+`FORCE_HTTPS=true` in `server/.env`.

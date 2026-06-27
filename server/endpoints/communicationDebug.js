@@ -1,5 +1,13 @@
 const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
 const multer = require("multer");
+const { sseTransportHeaders } = require("../utils/security/transportSecurity");
+const { ensureStoragePath } = require("../utils/environment");
+const {
+  redactLogObject,
+  redactLogText,
+} = require("../utils/security/redaction");
 
 const DEBUG_PREFIX = "/debug/communication";
 const upload = multer({
@@ -14,8 +22,21 @@ function communicationDebugEnabled() {
   );
 }
 
+function mobileClientDebugEnabled() {
+  return (
+    communicationDebugEnabled() ||
+    (process.env.NODE_ENV !== "production" &&
+      process.env.ATHENA_MOBILE_CLIENT_DEBUG !== "0")
+  );
+}
+
 function guardDebug(_request, response, next) {
   if (!communicationDebugEnabled()) return response.sendStatus(404);
+  return next();
+}
+
+function guardMobileClientDebug(_request, response, next) {
+  if (!mobileClientDebugEnabled()) return response.sendStatus(404);
   return next();
 }
 
@@ -197,11 +218,7 @@ function debugStreamEndpoints(app) {
       return;
     }
 
-    response.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    });
+    response.writeHead(200, sseTransportHeaders());
 
     if (mode === "malformed") {
       writeRawSse(response, "{bad-json");
@@ -256,6 +273,123 @@ function debugStreamEndpoints(app) {
     }
     response.end();
   });
+}
+
+const MOBILE_CLIENT_LOG_FILE = "mobile-client-debug.log";
+const MOBILE_CLIENT_LOG_MAX_EVENTS = 80;
+const MOBILE_CLIENT_LOG_MAX_TEXT = 1_000;
+const MOBILE_CLIENT_LOG_TAIL_MAX_LINES = 500;
+
+function boundedString(value = "", max = MOBILE_CLIENT_LOG_MAX_TEXT) {
+  const text = redactLogText(String(value || ""));
+  return text.length > max ? `${text.slice(0, max)}...[truncated]` : text;
+}
+
+function sanitizeMobileLogValue(value, depth = 0) {
+  if (value === null || value === undefined) return value;
+  if (depth > 6) return "[max-depth]";
+  if (typeof value === "string") return boundedString(value);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 80)
+      .map((item) => sanitizeMobileLogValue(item, depth + 1));
+  }
+  if (typeof value === "object") {
+    return redactLogObject(
+      Object.fromEntries(
+        Object.entries(value)
+          .slice(0, 120)
+          .map(([key, entry]) => [
+            boundedString(key, 120),
+            sanitizeMobileLogValue(entry, depth + 1),
+          ])
+      )
+    );
+  }
+  return boundedString(String(value));
+}
+
+function mobileClientLogPath() {
+  return path.join(ensureStoragePath("logs"), MOBILE_CLIENT_LOG_FILE);
+}
+
+function mobileClientLogEvents(body = {}) {
+  const events = Array.isArray(body.events)
+    ? body.events
+    : [body.event || body];
+  return events
+    .filter(Boolean)
+    .slice(0, MOBILE_CLIENT_LOG_MAX_EVENTS)
+    .map((event) => sanitizeMobileLogValue(event));
+}
+
+function appendMobileClientLogs({ request, events = [] }) {
+  if (!events.length) return { written: 0, file: mobileClientLogPath() };
+  const file = mobileClientLogPath();
+  const receivedAt = new Date().toISOString();
+  const requestMeta = sanitizeMobileLogValue({
+    ip: request.ip,
+    userAgent: request.get?.("user-agent") || null,
+    origin: request.get?.("origin") || null,
+    referer: request.get?.("referer") || null,
+    clientRequestId: request.get?.("x-athena-client-debug-request-id") || null,
+  });
+  const lines = events.map((event) =>
+    JSON.stringify({
+      receivedAt,
+      request: requestMeta,
+      event,
+    })
+  );
+  fs.appendFileSync(file, `${lines.join("\n")}\n`, "utf8");
+  return { written: lines.length, file };
+}
+
+function tailFileLines(file, limit = 100) {
+  if (!fs.existsSync(file)) return [];
+  const lines = fs.readFileSync(file, "utf8").trimEnd().split("\n");
+  return lines.slice(-Math.min(limit, MOBILE_CLIENT_LOG_TAIL_MAX_LINES));
+}
+
+function debugMobileClientLogEndpoints(app) {
+  app.post(
+    `${DEBUG_PREFIX}/mobile-client-log`,
+    guardMobileClientDebug,
+    (request, response) => {
+      try {
+        const events = mobileClientLogEvents(request.body || {});
+        const result = appendMobileClientLogs({ request, events });
+        response.status(200).json({
+          success: true,
+          written: result.written,
+          logFile: result.file,
+        });
+      } catch (error) {
+        response.status(500).json({
+          success: false,
+          error: error.message,
+        });
+      }
+    }
+  );
+
+  app.get(
+    `${DEBUG_PREFIX}/mobile-client-log`,
+    guardMobileClientDebug,
+    (request, response) => {
+      const limit = intValue(request.query?.limit, 120, {
+        min: 1,
+        max: MOBILE_CLIENT_LOG_TAIL_MAX_LINES,
+      });
+      const file = mobileClientLogPath();
+      response.status(200).json({
+        success: true,
+        logFile: file,
+        lines: tailFileLines(file, limit),
+      });
+    }
+  );
 }
 
 function debugWebSocketEndpoints(app) {
@@ -375,10 +509,12 @@ function communicationDebugEndpoints(app) {
   debugUploadEndpoints(app);
   debugBlobEndpoints(app);
   debugStreamEndpoints(app);
+  debugMobileClientLogEndpoints(app);
   debugWebSocketEndpoints(app);
 }
 
 module.exports = {
   communicationDebugEndpoints,
   communicationDebugEnabled,
+  mobileClientDebugEnabled,
 };

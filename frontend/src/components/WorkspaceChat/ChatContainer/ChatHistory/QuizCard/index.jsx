@@ -225,6 +225,7 @@ export default function QuizCard({
   workspace,
   chatKey,
   turnId,
+  onQuizUpdate = null,
 }) {
   const [quiz, setQuiz] = useState(initialQuiz || {});
   const [answers, setAnswers] = useState(initialQuiz?.answers || {});
@@ -240,6 +241,8 @@ export default function QuizCard({
   const { updateAssistantTurn } = useChatThreadDrafts();
 
   function publishQuiz(nextQuiz, finalContent) {
+    if (typeof onQuizUpdate === "function")
+      onQuizUpdate(nextQuiz, finalContent);
     if (!chatKey || !turnId) return;
     updateAssistantTurn(chatKey, turnId, {
       ...(finalContent !== undefined ? { finalContent } : {}),

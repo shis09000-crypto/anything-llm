@@ -18,16 +18,10 @@ const {
 const {
   appendUserLongTermMemoryToSystemPrompt,
 } = require("../../chats/longTermMemoryContext.js");
-
-const DEFAULT_TOOL_EXECUTION_TIMEOUT_MS = 30 * 1_000;
-const REQUEST_USER_INPUT_TOOL_NAME = "request-user-input";
-
-function agentToolExecutionTimeoutMs() {
-  const envTimeout = parseInt(process.env.AGENT_TOOL_TIMEOUT_MS, 10);
-  return !isNaN(envTimeout) && envTimeout > 0
-    ? envTimeout
-    : DEFAULT_TOOL_EXECUTION_TIMEOUT_MS;
-}
+const { toolExecutionTimeoutMs } = require("./toolTimeouts.js");
+const {
+  REQUEST_USER_INPUT_TOOL_NAME,
+} = require("./plugins/request-user-input.js");
 
 /**
  * AIbitat is a class that manages the conversation between agents.
@@ -984,7 +978,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
    * @returns {Promise<any>} Tool result or a timeout error string.
    */
   async #executeToolHandler(fn, args = {}, name = "") {
-    const timeoutMs = agentToolExecutionTimeoutMs();
+    const timeoutMs = toolExecutionTimeoutMs(name);
     const startedAt = Date.now();
     let timeoutId = null;
     const timeoutResult = Symbol("tool-timeout");

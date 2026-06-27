@@ -1,7 +1,14 @@
 import { PencilSimple } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
 
-function OptionButton({ label, description, index, selected, onClick }) {
+function OptionButton({
+  label,
+  description,
+  index,
+  selected,
+  onClick,
+  disabled = false,
+}) {
   const { t } = useTranslation();
   const badge =
     index === 0
@@ -12,8 +19,11 @@ function OptionButton({ label, description, index, selected, onClick }) {
     <button
       type="button"
       aria-pressed={selected}
+      disabled={disabled}
       onClick={onClick}
       className={`border-none w-full flex items-center gap-[9px] p-2 rounded-lg text-left transition-colors ${
+        disabled ? "opacity-60 cursor-not-allowed" : ""
+      } ${
         selected
           ? "bg-zinc-800 light:bg-slate-200"
           : "bg-transparent hover:bg-zinc-800/60 light:hover:bg-slate-200/60"
@@ -47,7 +57,7 @@ function OptionButton({ label, description, index, selected, onClick }) {
   );
 }
 
-function CustomAnswerInput({ value, onChange }) {
+function CustomAnswerInput({ value, onChange, disabled = false }) {
   const { t } = useTranslation();
   return (
     <div className="mt-1 flex items-center gap-[9px] p-2 rounded-lg bg-zinc-900/50 light:bg-slate-100/70">
@@ -60,6 +70,7 @@ function CustomAnswerInput({ value, onChange }) {
         </span>
         <input
           type="text"
+          disabled={disabled}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={t(
@@ -72,14 +83,17 @@ function CustomAnswerInput({ value, onChange }) {
   );
 }
 
-function OtherRow({ selected, onToggle }) {
+function OtherRow({ selected, onToggle, disabled = false }) {
   const { t } = useTranslation();
   return (
     <button
       type="button"
       aria-pressed={selected}
+      disabled={disabled}
       onClick={onToggle}
       className={`border-none flex flex-1 min-w-0 items-center gap-[9px] p-2 rounded-lg text-left transition-colors ${
+        disabled ? "opacity-60 cursor-not-allowed" : ""
+      } ${
         selected
           ? "bg-zinc-800 light:bg-slate-200"
           : "bg-transparent hover:bg-zinc-800/60 light:hover:bg-slate-200/60"
@@ -106,6 +120,7 @@ export default function ChoiceForm({
   draft,
   onChange,
   onAutoAdvance,
+  disabled = false,
 }) {
   const showOther = question.allowOther !== false;
   const options = Array.isArray(question.options)
@@ -119,6 +134,7 @@ export default function ChoiceForm({
   }
 
   function handleSelect(opt) {
+    if (disabled) return;
     if (question.multiSelect) {
       const list = Array.isArray(draft.selected) ? draft.selected : [];
       const next = list.includes(opt)
@@ -133,6 +149,7 @@ export default function ChoiceForm({
   }
 
   function handleOtherToggle() {
+    if (disabled) return;
     if (question.multiSelect) {
       onChange({ otherSelected: !draft.otherSelected });
       return;
@@ -141,6 +158,7 @@ export default function ChoiceForm({
   }
 
   function handleCustomAnswer(text) {
+    if (disabled) return;
     const hasText = text.trim().length > 0;
     if (question.multiSelect) {
       onChange({ otherText: text, otherSelected: hasText });
@@ -159,24 +177,28 @@ export default function ChoiceForm({
           index={idx}
           selected={isChecked(opt)}
           onClick={() => handleSelect(opt)}
+          disabled={disabled}
         />
       ))}
       {showOther && question.multiSelect && (
         <OtherRow
           selected={!!draft.otherSelected}
           onToggle={handleOtherToggle}
+          disabled={disabled}
         />
       )}
       {showOther && !question.multiSelect && (
         <CustomAnswerInput
           value={draft.otherText || ""}
           onChange={handleCustomAnswer}
+          disabled={disabled}
         />
       )}
       {showOther && question.multiSelect && draft.otherSelected && (
         <CustomAnswerInput
           value={draft.otherText || ""}
           onChange={(text) => onChange({ otherText: text })}
+          disabled={disabled}
         />
       )}
     </div>

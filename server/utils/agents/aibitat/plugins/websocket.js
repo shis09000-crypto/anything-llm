@@ -450,17 +450,24 @@ const websocket = {
           const requestId = uuidv4();
           return new Promise((resolve) => {
             let timeoutId = null;
+            const clearClarificationWait = () => {
+              if (socket.activeClarificationRequest?.requestId === requestId) {
+                delete socket.activeClarificationRequest;
+              }
+              delete socket.handleClarificationResponse;
+            };
 
             socket.handleClarificationResponse = (message) => {
               try {
                 const data = safeJsonParse(message, {});
-                if (
-                  data?.type !== "clarificationResponse" ||
-                  data?.requestId !== requestId
-                )
-                  return;
+                if (data?.type !== "clarificationResponse") {
+                  return { ok: false, reason: "not_clarification_response" };
+                }
+                if (data?.requestId !== requestId) {
+                  return { ok: false, reason: "request_id_mismatch" };
+                }
 
-                delete socket.handleClarificationResponse;
+                clearClarificationWait();
                 clearTimeout(timeoutId);
 
                 if (data.skipped) {
@@ -478,7 +485,8 @@ const websocket = {
                     skipped: true,
                     timedOut: false,
                   });
-                  return resolve(skippedResult);
+                  resolve(skippedResult);
+                  return { ok: true };
                 }
 
                 const answers = Array.isArray(data.answers) ? data.answers : [];
@@ -495,14 +503,21 @@ const websocket = {
                   skipped: false,
                   timedOut: false,
                 });
-                return resolve({
+                resolve({
                   skipped: false,
                   timedOut: false,
                   answers: normalized,
                 });
+                return { ok: true };
               } catch (e) {
                 console.error("Error handling clarification response:", e);
+                return { ok: false, reason: "handler_error", error: e.message };
               }
+            };
+            socket.activeClarificationRequest = {
+              requestId,
+              requestedAt: Date.now(),
+              timeoutMs,
             };
 
             recordAgentEvent(aibitat, {
@@ -524,7 +539,7 @@ const websocket = {
             );
 
             timeoutId = setTimeout(() => {
-              delete socket.handleClarificationResponse;
+              clearClarificationWait();
               recordAgentEvent(aibitat, {
                 type: "clarification_result",
                 requestId,

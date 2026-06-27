@@ -25,7 +25,11 @@ async function loadStreamClient() {
       )
       .replace(
         /import\s+\{\s*apiUrl,\s*jsonHeaders\s*\}\s+from\s+"\.\/apiClient";/,
-        'const apiUrl = (path) => `/api${path.startsWith("/") ? path : `/${path}`}`; const jsonHeaders = () => ({ "Content-Type": "application/json" });'
+        'const apiUrl = (path) => `/api${path.startsWith("/") ? path : `/${path}`}`; const jsonHeaders = (_headers = {}, { requestId } = {}) => ({ "Content-Type": "application/json", "X-Athena-Client-Id": "client-stream-test", "X-Athena-Request-Id": requestId });'
+      )
+      .replace(
+        'import { createCommunicationRequestId } from "./clientIdentity";',
+        'const createCommunicationRequestId = () => "req-stream-test";'
       )
       .replaceAll('from "./apiError"', 'from "./apiError.js"'),
     "utf8"
@@ -131,6 +135,14 @@ test("getJsonSse uses GET, forwards raw messages, and supports retry intervals",
     assert.equal(receivedUrl, "/api/debug/get-stream");
     assert.equal(receivedOptions.method, "GET");
     assert.equal(receivedOptions.body, undefined);
+    assert.equal(
+      receivedOptions.headers["X-Athena-Client-Id"],
+      "client-stream-test"
+    );
+    assert.equal(
+      receivedOptions.headers["X-Athena-Request-Id"],
+      "req-stream-test"
+    );
     assert.deepEqual(events, [{ type: "ready" }]);
     assert.equal(rawMessages.length, 1);
 

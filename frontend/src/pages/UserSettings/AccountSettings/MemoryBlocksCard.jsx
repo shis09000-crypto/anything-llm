@@ -221,7 +221,9 @@ export default function MemoryBlocksCard() {
     }
 
     showToast("长期记忆已删除并归档。", "success");
-    await refreshMemoryData({ selectedKey: selectedBlock?.key || blockKeyForMemory(memory) });
+    await refreshMemoryData({
+      selectedKey: selectedBlock?.key || blockKeyForMemory(memory),
+    });
   }
 
   return (
@@ -288,7 +290,8 @@ function buildEmptyMemoryBlocks() {
 function normalizeMemoryBlocks(incomingBlocks = []) {
   const incomingByKey = new Map(
     incomingBlocks.map((block) => [
-      block.key || (block.category === "open_topics" ? "open-topics" : block.category),
+      block.key ||
+        (block.category === "open_topics" ? "open-topics" : block.category),
       block,
     ])
   );
@@ -299,8 +302,11 @@ function normalizeMemoryBlocks(incomingBlocks = []) {
 }
 
 function withBlockPresentation(block) {
-  const key = block.key || (block.category === "open_topics" ? "open-topics" : block.category);
-  const config = MEMORY_BLOCK_CONFIG[key] || MEMORY_BLOCK_CONFIG[block.category];
+  const key =
+    block.key ||
+    (block.category === "open_topics" ? "open-topics" : block.category);
+  const config =
+    MEMORY_BLOCK_CONFIG[key] || MEMORY_BLOCK_CONFIG[block.category];
   return {
     ...config,
     ...block,

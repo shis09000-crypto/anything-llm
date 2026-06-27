@@ -1,5 +1,9 @@
 import { REFETCH_LOGO_EVENT } from "@/LogoContext";
 import { useState, useEffect } from "react";
+import {
+  hydrateAppearancePreferences,
+  persistAppearancePreferences,
+} from "@/utils/userStateSync";
 
 const availableThemes = {
   system: "System",
@@ -49,9 +53,16 @@ export function useTheme() {
   const resolvedTheme = theme === "system" ? systemTheme : theme;
 
   useEffect(() => {
+    void hydrateAppearancePreferences((value) => {
+      if (value?.theme) _setTheme(value.theme);
+    });
+  }, []);
+
+  useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolvedTheme);
     document.body.classList.toggle("light", resolvedTheme === "light");
     localStorage.setItem("theme", theme);
+    persistAppearancePreferences({ theme });
     window.dispatchEvent(new Event(REFETCH_LOGO_EVENT));
   }, [resolvedTheme, theme]);
 

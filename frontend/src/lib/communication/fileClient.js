@@ -6,16 +6,13 @@ import {
   requestText,
 } from "./blobClient";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
+import { createCommunicationRequestId } from "./clientIdentity";
 
 export const FILE_KINDS = {
   generatedFile: BLOB_KINDS.generatedFile,
   exportText: BLOB_KINDS.exportText,
   modelDownloadStream: BLOB_KINDS.modelDownloadStream,
 };
-
-function createRequestId() {
-  return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-}
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -177,7 +174,7 @@ export async function postJsonDownloadEventStream(
     onChunk = null,
     ...rest
   } = options;
-  const requestId = createRequestId();
+  const requestId = createCommunicationRequestId();
   const startedAt = nowMs();
   const signalState = requestSignal({ signal, timeoutMs });
 
@@ -194,7 +191,7 @@ export async function postJsonDownloadEventStream(
   try {
     const response = await fetch(downloadUrl(path), {
       method: "POST",
-      headers: jsonHeaders(headers, { includeBaseHeaders }),
+      headers: jsonHeaders(headers, { includeBaseHeaders, requestId }),
       body: JSON.stringify(body),
       signal: signalState.signal,
       ...rest,

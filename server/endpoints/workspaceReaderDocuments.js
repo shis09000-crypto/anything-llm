@@ -38,6 +38,8 @@ const {
   requestAuthContext,
   stripFileBackedOwnerMetadata,
 } = require("../utils/authz/resourceAccess");
+const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
+const { hashLogValue } = require("../utils/security/redaction");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -1759,8 +1761,27 @@ function classificationSampleCharCount(samples = []) {
   );
 }
 
+function confidenceBucket(value) {
+  const confidence = Number(value);
+  if (!Number.isFinite(confidence)) return null;
+  if (confidence >= 0.8) return "high";
+  if (confidence >= 0.5) return "medium";
+  if (confidence > 0) return "low";
+  return "none";
+}
+
 function readerClassificationLog(message, data = {}) {
-  console.log("[ReaderDocumentClassification]", message, data);
+  console.log("[ReaderDocumentClassification]", message, {
+    titleHash: data.title ? hashLogValue(data.title) : null,
+    documentType: data.documentType,
+    sampleCount: data.sampleCount,
+    sampleChars: data.sampleChars,
+    categoryCount: data.categoryCount,
+    categoryId: data.categoryId,
+    confidence: confidenceBucket(data.confidence),
+    durationMs: data.durationMs,
+    responseChars: data.responseChars,
+  });
 }
 
 function extractFirstJsonObject(text = "") {
@@ -2550,6 +2571,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "delete"
         );
+        void recordClientTrustCheckpoint(request, {
+          action: "reader_delete",
+          resourceType: "reader_document",
+          resourceId: readerDocumentId,
+          outcome: "received",
+        });
         fs.rmSync(documentRoot, { recursive: true, force: true });
         return response.status(200).json({ success: true });
       } catch (error) {
@@ -3074,6 +3101,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           return response
             .status(404)
             .json({ success: false, error: "Reader document not found." });
+        void recordClientTrustCheckpoint(request, {
+          action: "reader_delete",
+          resourceType: "reader_document",
+          resourceId: readerDocumentId,
+          outcome: "received",
+        });
         fs.rmSync(documentRoot, { recursive: true, force: true });
         return response.status(200).json({ success: true });
       } catch (error) {

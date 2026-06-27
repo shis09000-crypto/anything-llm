@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   CaretDown,
+  CircleNotch,
   CurrencyBtc,
   House,
   List,
+  NotePencil,
   Plus,
 } from "@phosphor-icons/react";
 import NewWorkspaceModal, {
@@ -228,7 +230,10 @@ export default function Sidebar() {
   );
 }
 
-export function SidebarMobileHeader() {
+export function SidebarMobileHeader({
+  onNewThread = null,
+  newThreadLoading = false,
+}) {
   const { t } = useTranslation();
   const { logo } = useLogo();
   const productName = t("common.productName");
@@ -282,7 +287,24 @@ export function SidebarMobileHeader() {
             </span>
           )}
         </div>
-        <div className="w-12"></div>
+        {onNewThread ? (
+          <button
+            type="button"
+            onClick={onNewThread}
+            disabled={newThreadLoading}
+            aria-label={t("common.newThread")}
+            aria-busy={newThreadLoading}
+            className="rounded-md p-2 flex h-10 w-10 items-center justify-center text-theme-text-secondary disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {newThreadLoading ? (
+              <CircleNotch className="h-6 w-6 animate-spin" />
+            ) : (
+              <NotePencil className="h-6 w-6" />
+            )}
+          </button>
+        ) : (
+          <div className="w-12"></div>
+        )}
       </div>
       <div
         style={{

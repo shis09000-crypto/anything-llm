@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Invite from "@/models/invite";
 import paths from "@/utils/paths";
-import { AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import { AUTH_USER } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import {
   USERNAME_MIN_LENGTH,
@@ -9,6 +9,7 @@ import {
   USERNAME_PATTERN,
 } from "@/utils/username";
 import { setLoginUserActionNow } from "@/utils/userAction";
+import { setAuthToken } from "@/utils/authTokenStorage";
 import {
   ACCOUNT_ROLES,
   normalizeRole,
@@ -74,7 +75,7 @@ export default function NewUserModal({ invite, inviteToken }) {
     setLoading(false);
     if (success && valid && !!token && !!user) {
       window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-      window.localStorage.setItem(AUTH_TOKEN, token);
+      setAuthToken(token);
       setLoginUserActionNow();
       window.location = paths.home();
       return;

@@ -18,9 +18,17 @@ const {
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
 const { User } = require("../models/user");
 const { getModelTag } = require("./utils");
+const { respondToChatToolApproval } = require("../utils/chats/toolApproval");
 const {
-  respondToChatToolApproval,
-} = require("../utils/chats/toolApproval");
+  getClientContext,
+  recordClientTrustCheckpoint,
+} = require("../utils/clientIdentity");
+const {
+  setSseTransportHeaders,
+} = require("../utils/security/transportSecurity");
+const {
+  publishWorkspaceSyncEvent,
+} = require("../utils/chats/workspaceSyncEvents");
 
 function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
   if (!workspace?.id || !thread?.id) return () => {};
@@ -61,6 +69,13 @@ function chatEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { requestId, approved } = reqBody(request);
+        void recordClientTrustCheckpoint(request, {
+          action: "chat_tool_approval",
+          resourceType: "workspace",
+          resourceId: response.locals.workspace?.id || request.params.slug,
+          outcome: approved ? "approved" : "rejected",
+          metadata: { hasApprovalRequestId: !!requestId },
+        });
         const result = respondToChatToolApproval({
           requestId,
           userId: user?.id,
@@ -82,9 +97,11 @@ function chatEndpoints(app) {
         const user = await userFromSession(request, response);
         const {
           message,
+          displayPrompt = null,
           attachments = [],
           fileAccess = {},
           nodeContext = null,
+          clientTurnId = null,
         } = reqBody(request);
         const workspace = response.locals.workspace;
 
@@ -100,11 +117,11 @@ function chatEndpoints(app) {
           return;
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
+        const clientContext = getClientContext(request, { user });
 
         if (multiUserMode(response) && !(await User.canSendChat(user))) {
           writeResponseChunk(response, {
@@ -118,6 +135,18 @@ function chatEndpoints(app) {
           return;
         }
 
+        publishWorkspaceSyncEvent({
+          type: "chat_prompt_submitted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: null,
+          threadSlug: null,
+          senderClientId: clientContext.clientId,
+          clientTurnId,
+          message: displayPrompt || message,
+        });
+
         await streamChatWithWorkspace(
           response,
           workspace,
@@ -126,7 +155,20 @@ function chatEndpoints(app) {
           user,
           null,
           attachments,
-          { fileAccess, nodeContext }
+          {
+            fileAccess,
+            nodeContext,
+            clientTurnId,
+            displayPrompt,
+            syncEvent: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              userId: user?.id ?? null,
+              threadId: null,
+              threadSlug: null,
+              senderClientId: clientContext.clientId,
+            },
+          }
         );
         await Telemetry.sendTelemetry("sent_chat", {
           multiUserMode: multiUserMode(response),
@@ -149,6 +191,24 @@ function chatEndpoints(app) {
         response.end();
       } catch (e) {
         console.error(e);
+        const workspace = response.locals.workspace;
+        if (workspace?.id) {
+          const user = await userFromSession(request, response).catch(
+            () => null
+          );
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "chat_failed",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: null,
+            threadSlug: null,
+            senderClientId: clientContext.clientId,
+            clientTurnId: reqBody(request)?.clientTurnId || null,
+            error: e.message,
+          });
+        }
         writeResponseChunk(response, {
           id: uuidv4(),
           type: "abort",
@@ -174,9 +234,11 @@ function chatEndpoints(app) {
         const user = await userFromSession(request, response);
         const {
           message,
+          displayPrompt = null,
           attachments = [],
           fileAccess = {},
           nodeContext = null,
+          clientTurnId = null,
         } = reqBody(request);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
@@ -193,15 +255,15 @@ function chatEndpoints(app) {
           return;
         }
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
         const detachTitleUpdates = attachThreadTitleUpdateStream(response, {
           workspace,
           thread,
         });
+        const clientContext = getClientContext(request, { user });
 
         if (multiUserMode(response) && !(await User.canSendChat(user))) {
           writeResponseChunk(response, {
@@ -216,6 +278,18 @@ function chatEndpoints(app) {
           return;
         }
 
+        publishWorkspaceSyncEvent({
+          type: "chat_prompt_submitted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          senderClientId: clientContext.clientId,
+          clientTurnId,
+          message: displayPrompt || message,
+        });
+
         await streamChatWithWorkspace(
           response,
           workspace,
@@ -224,7 +298,20 @@ function chatEndpoints(app) {
           user,
           thread,
           attachments,
-          { fileAccess, nodeContext }
+          {
+            fileAccess,
+            nodeContext,
+            clientTurnId,
+            displayPrompt,
+            syncEvent: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              userId: user?.id ?? null,
+              threadId: thread.id,
+              threadSlug: thread.slug,
+              senderClientId: clientContext.clientId,
+            },
+          }
         );
 
         await Telemetry.sendTelemetry("sent_chat", {
@@ -249,6 +336,25 @@ function chatEndpoints(app) {
         response.end();
       } catch (e) {
         console.error(e);
+        const workspace = response.locals.workspace;
+        const thread = response.locals.thread;
+        if (workspace?.id) {
+          const user = await userFromSession(request, response).catch(
+            () => null
+          );
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "chat_failed",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: thread?.id || null,
+            threadSlug: thread?.slug || request.params.threadSlug || null,
+            senderClientId: clientContext.clientId,
+            clientTurnId: reqBody(request)?.clientTurnId || null,
+            error: e.message,
+          });
+        }
         writeResponseChunk(response, {
           id: uuidv4(),
           type: "abort",

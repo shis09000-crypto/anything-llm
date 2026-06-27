@@ -10,6 +10,13 @@ import { warmWorkspaceChat } from "@/utils/chat/workspaceChatPrefetch";
 import { rememberLastVisitedWorkspace } from "@/utils/lastVisitedWorkspace";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { ChatThreadDraftProviderBoundary } from "@/contexts/ChatThreadDraftProvider";
+import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
+
+const MobileWebPwa = React.lazy(() =>
+  import("@/components/MobileWeb").then((module) => ({
+    default: module.MobileWebPwa,
+  }))
+);
 
 function workspaceSwitchFlickerDebugEnabled() {
   try {
@@ -30,18 +37,32 @@ function debugWorkspaceSwitchFlicker(label, payload = {}) {
 
 export default function WorkspaceChat() {
   const { loading, requiresAuth, mode } = usePasswordModal();
+  const { slug, threadSlug = null } = useParams();
 
   if (loading) return <FullScreenLoader />;
   if (requiresAuth !== false) {
     return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
   }
 
+  if (isMobile) {
+    return (
+      <React.Suspense fallback={<FullScreenLoader />}>
+        <MobileWebPwa
+          initialWorkspaceSlug={slug}
+          initialThreadSlug={threadSlug}
+        />
+      </React.Suspense>
+    );
+  }
+
   return (
     <ChatThreadDraftProviderBoundary>
-      <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-        {!isMobile && <Sidebar />}
-        <ShowWorkspaceChat />
-      </div>
+      <SyncCenterProvider>
+        <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+          {!isMobile && <Sidebar />}
+          <ShowWorkspaceChat />
+        </div>
+      </SyncCenterProvider>
     </ChatThreadDraftProviderBoundary>
   );
 }

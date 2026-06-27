@@ -7,11 +7,12 @@ function HistoricalOutputs({
   workspace = null,
   chatKey = null,
   turnId = null,
+  className = "flex flex-col gap-2 mt-4",
 }) {
   if (!outputs || outputs.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2 mt-4">
+    <div className={className}>
       {outputs.map((output, index) => {
         if (output.type === "QuizCard") {
           return (

@@ -6,7 +6,7 @@ import * as apiError from "./apiError.js";
 
 const apiClientUrl = new URL("./apiClient.js", import.meta.url);
 
-async function loadApiClient({ dev = false } = {}) {
+async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
   const source = await readFile(apiClientUrl, "utf8");
   globalThis.__apiClientTestBaseHeaders = () => ({
     Authorization: "Bearer test-token",
@@ -15,6 +15,26 @@ async function loadApiClient({ dev = false } = {}) {
   globalThis.__apiClientTestDev = dev;
   globalThis.__apiClientTestTransportSecurity = {
     assertSecureHttpUrl: (url) => url,
+  };
+  globalThis.__apiClientTestIdentity = {
+    createCommunicationRequestId: () => "req-api-test",
+    withClientIdentityHeaders: (headers = {}, { requestId } = {}) => ({
+      ...headers,
+      "X-Athena-Client-Id": "client-api-test",
+      "X-Athena-Platform": "web",
+      "X-Athena-App-Version": "test",
+      "X-Athena-Request-Id": requestId,
+    }),
+  };
+  globalThis.__apiClientTestSigning = {
+    cleared: 0,
+    clearSigningSecretCache: () => {
+      globalThis.__apiClientTestSigning.cleared += 1;
+    },
+    isRecoverableSigningError: (code) =>
+      ["INVALID_SIGNATURE", "SIGNING_SECRET_ROTATED"].includes(code),
+    maybeSignedRequestHeaders: async () => ({ headers: {}, signed: false }),
+    ...signingOverrides,
   };
 
   const transformed = source
@@ -33,6 +53,14 @@ async function loadApiClient({ dev = false } = {}) {
     .replace(
       'import { assertSecureHttpUrl } from "./transportSecurity";',
       "const { assertSecureHttpUrl } = globalThis.__apiClientTestTransportSecurity;"
+    )
+    .replace(
+      /import\s+\{\s*createCommunicationRequestId,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
+      "const { createCommunicationRequestId, withClientIdentityHeaders } = globalThis.__apiClientTestIdentity;"
+    )
+    .replace(
+      /import\s+\{[\s\S]*?\}\s+from\s+"\.\/requestSigningClient";/,
+      "const { clearSigningSecretCache, isRecoverableSigningError, maybeSignedRequestHeaders } = globalThis.__apiClientTestSigning;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 
@@ -65,6 +93,8 @@ test("requestJson returns data, requestId, and DEV logs correlated metadata", as
     assert.equal(receivedUrl, "/api/ping");
     assert.equal(receivedInit.method, "POST");
     assert.equal(receivedInit.headers.Authorization, "Bearer test-token");
+    assert.equal(receivedInit.headers["X-Athena-Client-Id"], "client-api-test");
+    assert.equal(receivedInit.headers["X-Athena-Request-Id"], result.requestId);
     assert.equal(receivedInit.body, JSON.stringify({ hello: "world" }));
     assert.deepEqual(result.data, { ok: true });
     assert.equal(typeof result.requestId, "string");
@@ -102,6 +132,70 @@ test("requestJson converts non-ok responses to HTTP_OPEN_ERROR with raw JSON", a
   }
 });
 
+test("requestJson maps CLIENT_REVOKED and clears signing cache", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ success: false, error: "CLIENT_REVOKED" }), {
+      status: 403,
+    });
+
+  try {
+    const { requestJson } = await loadApiClient();
+    await assert.rejects(
+      requestJson("/client-identity/revoke", {
+        method: "POST",
+        body: { clientId: "client-api-test" },
+      }),
+      (error) =>
+        error.code === apiError.API_ERROR_CODES.CLIENT_REVOKED &&
+        error.status === 403 &&
+        globalThis.__apiClientTestSigning.cleared === 1
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestJson clears stale signing secret and retries recoverable signature failures once", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSigning = globalThis.__apiClientTestSigning;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    if (fetchCount === 1) {
+      return new Response(
+        JSON.stringify({ success: false, error: "INVALID_SIGNATURE" }),
+        { status: 401 }
+      );
+    }
+    return new Response(JSON.stringify({ success: true, retried: true }), {
+      status: 200,
+    });
+  };
+
+  try {
+    const { requestJson } = await loadApiClient({
+      dev: true,
+      signingOverrides: {
+        maybeSignedRequestHeaders: async () => ({
+          headers: { "X-Athena-Signature": "sig" },
+          signed: true,
+        }),
+      },
+    });
+    const result = await requestJson("/client-identity/rotate-signing-secret", {
+      method: "POST",
+      body: { clientId: "client-api-test" },
+    });
+    assert.deepEqual(result.data, { success: true, retried: true });
+    assert.equal(fetchCount, 2);
+    assert.equal(globalThis.__apiClientTestSigning.cleared, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.__apiClientTestSigning = originalSigning;
+  }
+});
+
 test("requestJson can skip base headers for unauthenticated JSON requests", async () => {
   const originalFetch = globalThis.fetch;
   let receivedInit;
@@ -115,6 +209,7 @@ test("requestJson can skip base headers for unauthenticated JSON requests", asyn
     await requestJson("/login", { method: "POST", includeBaseHeaders: false });
     assert.equal(receivedInit.headers.Authorization, undefined);
     assert.equal(receivedInit.headers["Content-Type"], "application/json");
+    assert.equal(receivedInit.headers["X-Athena-Client-Id"], "client-api-test");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -122,12 +217,14 @@ test("requestJson can skip base headers for unauthenticated JSON requests", asyn
 
 test("requestJson maps timeoutMs aborts to API_TIMEOUT_ERROR", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init) =>
-    new Promise((_resolve, reject) => {
+  globalThis.fetch = async (_url, init) => {
+    if (init.signal.aborted) throw new DOMException("Aborted", "AbortError");
+    return new Promise((_resolve, reject) => {
       init.signal.addEventListener("abort", () =>
         reject(new DOMException("Aborted", "AbortError"))
       );
     });
+  };
 
   try {
     const { requestJson } = await loadApiClient();
@@ -144,12 +241,14 @@ test("requestJson maps timeoutMs aborts to API_TIMEOUT_ERROR", async () => {
 
 test("requestJson preserves external AbortError", async () => {
   const originalFetch = globalThis.fetch;
-  globalThis.fetch = async (_url, init) =>
-    new Promise((_resolve, reject) => {
+  globalThis.fetch = async (_url, init) => {
+    if (init.signal.aborted) throw new DOMException("Aborted", "AbortError");
+    return new Promise((_resolve, reject) => {
       init.signal.addEventListener("abort", () =>
         reject(new DOMException("Aborted", "AbortError"))
       );
     });
+  };
 
   try {
     const { requestJson } = await loadApiClient();

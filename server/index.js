@@ -77,11 +77,16 @@ const {
 const {
   communicationDebugEndpoints,
 } = require("./endpoints/communicationDebug");
+const { syncCenterEndpoints } = require("./endpoints/syncCenter");
+const { clientIdentityEndpoints } = require("./endpoints/clientIdentity");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
   corsOptionsForEnvironment,
 } = require("./utils/security/transportSecurity");
+const {
+  clientIdentityMiddleware,
+} = require("./utils/clientIdentity");
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
@@ -101,6 +106,7 @@ if (
   );
 }
 applyTransportSecurity(app);
+app.use(clientIdentityMiddleware);
 app.use(cors(corsOptionsForEnvironment()));
 app.use(bodyParser.text({ limit: FILE_LIMIT, verify: rawBodySaver }));
 app.use(bodyParser.json({ limit: FILE_LIMIT, verify: rawBodySaver }));
@@ -120,6 +126,8 @@ if (!!process.env.ENABLE_HTTPS) {
 
 app.use("/api", apiRouter);
 systemEndpoints(apiRouter);
+clientIdentityEndpoints(apiRouter);
+syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);
 authZkLoginEndpoints(apiRouter);

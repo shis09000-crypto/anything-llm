@@ -12,6 +12,9 @@ const {
   convertToChatHistory,
   writeResponseChunk,
 } = require("../../utils/helpers/chat/responses");
+const {
+  setSseTransportHeaders,
+} = require("../../utils/security/transportSecurity");
 
 function embeddedEndpoints(app) {
   if (!app) return;
@@ -32,10 +35,9 @@ function embeddedEndpoints(app) {
           username = null,
         } = reqBody(request);
 
-        response.setHeader("Cache-Control", "no-cache");
-        response.setHeader("Content-Type", "text/event-stream");
-        response.setHeader("Access-Control-Allow-Origin", "*");
-        response.setHeader("Connection", "keep-alive");
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
         response.flushHeaders();
 
         await streamChatWithForEmbed(response, embed, message, sessionId, {

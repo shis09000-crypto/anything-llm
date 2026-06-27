@@ -1,12 +1,17 @@
 const prisma = require("../utils/prisma");
+const { redactLogObject } = require("../utils/security/redaction");
 
 const EventLogs = {
   logEvent: async function (event, metadata = {}, userId = null) {
     try {
+      const safeMetadata =
+        metadata && typeof metadata === "object" && !Array.isArray(metadata)
+          ? redactLogObject(metadata)
+          : metadata;
       const eventLog = await prisma.event_logs.create({
         data: {
           event,
-          metadata: metadata ? JSON.stringify(metadata) : null,
+          metadata: safeMetadata ? JSON.stringify(safeMetadata) : null,
           userId: userId ? Number(userId) : null,
           occurredAt: new Date(),
         },

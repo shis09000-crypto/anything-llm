@@ -8,6 +8,9 @@ const { safeJsonParse, decodeHtmlEntities } = require("../../utils/http");
 const {
   parseLemonadeServerEndpoint,
 } = require("../../utils/AiProviders/lemonade");
+const {
+  sseTransportHeaders,
+} = require("../../utils/security/transportSecurity");
 
 function lemonadeUtilsEndpoints(app) {
   if (!app) return;
@@ -25,11 +28,7 @@ function lemonadeUtilsEndpoints(app) {
           )
         );
         lemonadeUrl.pathname += "api/v1/pull";
-        response.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        });
+        response.writeHead(200, sseTransportHeaders());
 
         const lemonadeResponse = await fetch(lemonadeUrl.toString(), {
           method: "POST",

@@ -1,0 +1,324 @@
+import {
+  getUserStates,
+  patchUserStates,
+  deleteUserState,
+  USER_STATE_NAMESPACES,
+} from "@/lib/communication/userStateClient";
+import { APPEARANCE_SETTINGS } from "@/utils/constants";
+import { safeJsonParse } from "@/utils/request";
+
+export { USER_STATE_NAMESPACES };
+
+const META_STORAGE_KEY = "athena_user_state_sync_meta:v1";
+const DEFAULT_SCOPE = "global";
+const WRITE_DEBOUNCE_MS = 800;
+const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const pendingWrites = new Map();
+const hydrationKeys = new Set();
+
+function storage() {
+  try {
+    if (typeof window !== "undefined" && window.localStorage)
+      return window.localStorage;
+    if (typeof localStorage !== "undefined") return localStorage;
+  } catch {}
+  return null;
+}
+
+function stateKey(namespace, scope = DEFAULT_SCOPE) {
+  return `${namespace}:${scope || DEFAULT_SCOPE}`;
+}
+
+function readMeta() {
+  return safeJsonParse(storage()?.getItem(META_STORAGE_KEY), {}) || {};
+}
+
+function writeMeta(meta = {}) {
+  try {
+    storage()?.setItem(META_STORAGE_KEY, JSON.stringify(meta));
+  } catch {}
+}
+
+function metaTimestamp(namespace, scope = DEFAULT_SCOPE) {
+  return Number(readMeta()[stateKey(namespace, scope)] || 0);
+}
+
+function touchMeta(namespace, scope = DEFAULT_SCOPE, timestamp = Date.now()) {
+  const meta = readMeta();
+  meta[stateKey(namespace, scope)] = timestamp;
+  writeMeta(meta);
+  return timestamp;
+}
+
+function remoteTimestamp(state = null) {
+  const valueTimestamp = Number(state?.value?.updatedAt || 0);
+  const rowTimestamp = new Date(state?.updatedAt || 0).getTime();
+  return Math.max(valueTimestamp, rowTimestamp, 0);
+}
+
+function safeClone(value) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? null));
+  } catch {
+    return null;
+  }
+}
+
+const SENSITIVE_READER_KEYS = new Set([
+  "absolutePath",
+  "buffer",
+  "content",
+  "dataUrl",
+  "file",
+  "fileContent",
+  "localPath",
+  "originalUrl",
+  "raw",
+  "sourceText",
+  "text",
+  "thumbnailDataUrl",
+]);
+
+export function sanitizeReaderState(value) {
+  if (Array.isArray(value)) return value.map(sanitizeReaderState);
+  if (!value || typeof value !== "object") return value;
+  const next = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (SENSITIVE_READER_KEYS.has(key)) continue;
+    next[key] = sanitizeReaderState(item);
+  }
+  return next;
+}
+
+async function getRemoteState(namespace, scope = DEFAULT_SCOPE) {
+  const states = await getUserStates([namespace]);
+  return (
+    states.find(
+      (state) =>
+        state.namespace === namespace &&
+        (state.scope || DEFAULT_SCOPE) === (scope || DEFAULT_SCOPE)
+    ) || null
+  );
+}
+
+export function pushUserStateValue(
+  namespace,
+  scope = DEFAULT_SCOPE,
+  value = null,
+  options = {}
+) {
+  const safeValue = options.sanitize
+    ? options.sanitize(value)
+    : safeClone(value);
+  const updatedAt = touchMeta(namespace, scope);
+  const payload = {
+    namespace,
+    scope: scope || DEFAULT_SCOPE,
+    version: options.version || "1",
+    value: {
+      ...(safeValue &&
+      typeof safeValue === "object" &&
+      !Array.isArray(safeValue)
+        ? safeValue
+        : { value: safeValue }),
+      updatedAt,
+    },
+  };
+  const key = stateKey(namespace, scope);
+  clearTimeout(pendingWrites.get(key));
+  pendingWrites.set(
+    key,
+    setTimeout(() => {
+      pendingWrites.delete(key);
+      patchUserStates([payload]).catch(() => {});
+    }, options.debounceMs ?? WRITE_DEBOUNCE_MS)
+  );
+  return payload.value;
+}
+
+export async function hydrateJsonStorageKey({
+  namespace,
+  scope = DEFAULT_SCOPE,
+  storageKey,
+  fallback = null,
+  sanitize,
+  apply,
+} = {}) {
+  const cacheKey = `${namespace}:${scope}:${storageKey}`;
+  if (hydrationKeys.has(cacheKey)) return null;
+  hydrationKeys.add(cacheKey);
+
+  const localStorageRef = storage();
+  if (!localStorageRef || !storageKey) return null;
+  const localValue = safeJsonParse(
+    localStorageRef.getItem(storageKey),
+    fallback
+  );
+  try {
+    const remote = await getRemoteState(namespace, scope);
+    if (remote && remoteTimestamp(remote) > metaTimestamp(namespace, scope)) {
+      const remoteValue = sanitize ? sanitize(remote.value) : remote.value;
+      localStorageRef.setItem(storageKey, JSON.stringify(remoteValue));
+      touchMeta(namespace, scope, remoteTimestamp(remote));
+      apply?.(remoteValue);
+      return remoteValue;
+    }
+
+    if (localValue !== null && localValue !== undefined) {
+      pushUserStateValue(namespace, scope, localValue, { sanitize });
+    }
+  } catch {}
+  return localValue;
+}
+
+export async function hydrateUserStateValue({
+  namespace,
+  scope = DEFAULT_SCOPE,
+  fallback = null,
+  sanitize,
+  apply,
+} = {}) {
+  try {
+    const remote = await getRemoteState(namespace, scope);
+    if (remote && remoteTimestamp(remote) > metaTimestamp(namespace, scope)) {
+      const remoteValue = sanitize ? sanitize(remote.value) : remote.value;
+      touchMeta(namespace, scope, remoteTimestamp(remote));
+      apply?.(remoteValue);
+      return remoteValue;
+    }
+    if (fallback !== null && fallback !== undefined) {
+      pushUserStateValue(namespace, scope, fallback, { sanitize });
+    }
+  } catch {}
+  return fallback;
+}
+
+export function writeJsonStorageKey(
+  namespace,
+  scope = DEFAULT_SCOPE,
+  storageKey,
+  value,
+  options = {}
+) {
+  try {
+    storage()?.setItem(storageKey, JSON.stringify(value));
+  } catch {}
+  pushUserStateValue(namespace, scope, value, options);
+  return value;
+}
+
+export async function deleteSyncedState(namespace, scope = DEFAULT_SCOPE) {
+  try {
+    await deleteUserState({ namespace, scope });
+  } catch {}
+}
+
+export function recentNavigationScope() {
+  return DEFAULT_SCOPE;
+}
+
+export function promptDraftScope({
+  workspaceSlug = null,
+  threadSlug = null,
+} = {}) {
+  if (threadSlug) return `thread:${workspaceSlug || "unknown"}:${threadSlug}`;
+  if (workspaceSlug) return `workspace:${workspaceSlug}`;
+  return DEFAULT_SCOPE;
+}
+
+export function normalizeDraftValue(value = "", options = {}) {
+  return {
+    text: String(value || "").slice(0, 64 * 1024),
+    workspaceSlug: options.workspaceSlug || null,
+    threadSlug: options.threadSlug || null,
+    expiresAt: Date.now() + DRAFT_TTL_MS,
+  };
+}
+
+export async function hydratePromptDraft(scope, fallback = "") {
+  try {
+    const remote = await getRemoteState(USER_STATE_NAMESPACES.chatDraft, scope);
+    const draft = remote?.value;
+    if (!draft?.text) return fallback;
+    if (Number(draft.expiresAt || 0) && Number(draft.expiresAt) < Date.now()) {
+      await deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
+      return fallback;
+    }
+    touchMeta(USER_STATE_NAMESPACES.chatDraft, scope, remoteTimestamp(remote));
+    return String(draft.text || "");
+  } catch {
+    return fallback;
+  }
+}
+
+export function persistPromptDraft(scope, value = "", options = {}) {
+  return pushUserStateValue(
+    USER_STATE_NAMESPACES.chatDraft,
+    scope,
+    normalizeDraftValue(value, options),
+    { debounceMs: 600 }
+  );
+}
+
+export function clearPromptDraft(scope) {
+  const key = stateKey(USER_STATE_NAMESPACES.chatDraft, scope);
+  clearTimeout(pendingWrites.get(key));
+  pendingWrites.delete(key);
+  touchMeta(USER_STATE_NAMESPACES.chatDraft, scope);
+  void deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
+}
+
+export function appearancePreferenceValue(patch = {}) {
+  const localStorageRef = storage();
+  const value = {
+    theme: localStorageRef?.getItem("theme") || "system",
+    appearanceSettings:
+      safeJsonParse(localStorageRef?.getItem(APPEARANCE_SETTINGS), {}) || {},
+    textSize: localStorageRef?.getItem("anythingllm_text_size") || "normal",
+    customTextSizePx:
+      localStorageRef?.getItem("anythingllm_text_size_custom_px") || null,
+    ...patch,
+  };
+  return value;
+}
+
+export function persistAppearancePreferences(patch = {}) {
+  return pushUserStateValue(
+    USER_STATE_NAMESPACES.appearance,
+    DEFAULT_SCOPE,
+    appearancePreferenceValue(patch)
+  );
+}
+
+export async function hydrateAppearancePreferences(apply = () => {}) {
+  try {
+    const remote = await getRemoteState(USER_STATE_NAMESPACES.appearance);
+    if (!remote?.value) return null;
+    const value = remote.value;
+    const localStorageRef = storage();
+    if (!localStorageRef) return value;
+    if (value.theme) localStorageRef.setItem("theme", value.theme);
+    if (value.appearanceSettings) {
+      localStorageRef.setItem(
+        APPEARANCE_SETTINGS,
+        JSON.stringify(value.appearanceSettings)
+      );
+    }
+    if (value.textSize)
+      localStorageRef.setItem("anythingllm_text_size", value.textSize);
+    if (value.customTextSizePx)
+      localStorageRef.setItem(
+        "anythingllm_text_size_custom_px",
+        String(value.customTextSizePx)
+      );
+    touchMeta(
+      USER_STATE_NAMESPACES.appearance,
+      DEFAULT_SCOPE,
+      remoteTimestamp(remote)
+    );
+    apply(value);
+    return value;
+  } catch {
+    return null;
+  }
+}

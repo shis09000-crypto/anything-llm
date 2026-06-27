@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { AUTH_TOKEN, AUTH_USER } from "@/utils/constants";
+import { AUTH_USER } from "@/utils/constants";
+import { getAuthToken } from "@/utils/authTokenStorage";
 
 export default function useLoginMode() {
   const [mode, setMode] = useState(null);
@@ -7,7 +8,7 @@ export default function useLoginMode() {
   useEffect(() => {
     if (!window) return;
     const user = !!window.localStorage.getItem(AUTH_USER);
-    const token = !!window.localStorage.getItem(AUTH_TOKEN);
+    const token = !!getAuthToken();
     let _mode = null;
     if (user && token) _mode = "multi";
     if (!user && token) _mode = "single";

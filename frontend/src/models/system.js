@@ -85,7 +85,7 @@ const System = {
       .catch(() => false);
   },
   keys: async function () {
-    return await getJson("/setup-complete")
+    return await getJson("/setup-complete", { timeoutMs: 8_000 })
       .then(({ data }) => data.results)
       .catch(() => null);
   },
@@ -104,6 +104,7 @@ const System = {
   checkAuth: async function (currentToken = null) {
     const valid = await getJson("/system/check-token", {
       headers: baseHeaders(currentToken),
+      timeoutMs: 8_000,
     })
       .then(() => true)
       .catch(() => false);

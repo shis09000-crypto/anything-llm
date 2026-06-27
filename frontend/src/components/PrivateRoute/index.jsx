@@ -5,11 +5,11 @@ import validateSessionTokenForUser from "@/utils/session";
 import paths from "@/utils/paths";
 import {
   AUTH_TIMESTAMP,
-  AUTH_TOKEN,
   AUTH_USER,
   LAST_USER_ACTION_AT,
 } from "@/utils/constants";
 import { userFromStorage } from "@/utils/request";
+import { getAuthToken, removeAuthToken } from "@/utils/authTokenStorage";
 import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
@@ -57,7 +57,7 @@ function useIsAuthenticated() {
 
       // Single User password mode check
       if (!MultiUserMode && RequiresAuth) {
-        const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+        const localAuthToken = getAuthToken();
         if (!localAuthToken) {
           setIsAuthed(false);
           return;
@@ -70,7 +70,7 @@ function useIsAuthenticated() {
 
       // Multi-user mode checks
       const localUser = localStorage.getItem(AUTH_USER);
-      const localAuthToken = localStorage.getItem(AUTH_TOKEN);
+      const localAuthToken = getAuthToken();
       if (!localUser || !localAuthToken) {
         setIsAuthed(false);
         return;
@@ -78,7 +78,7 @@ function useIsAuthenticated() {
 
       if (localIdleExpired()) {
         localStorage.removeItem(AUTH_USER);
-        localStorage.removeItem(AUTH_TOKEN);
+        removeAuthToken();
         localStorage.removeItem(AUTH_TIMESTAMP);
         localStorage.removeItem(LAST_USER_ACTION_AT);
         setIsAuthed(false);
@@ -88,7 +88,7 @@ function useIsAuthenticated() {
       const isValid = await validateSessionTokenForUser();
       if (!isValid) {
         localStorage.removeItem(AUTH_USER);
-        localStorage.removeItem(AUTH_TOKEN);
+        removeAuthToken();
         localStorage.removeItem(AUTH_TIMESTAMP);
         localStorage.removeItem(LAST_USER_ACTION_AT);
         setIsAuthed(false);

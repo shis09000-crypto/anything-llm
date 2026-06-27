@@ -46,6 +46,7 @@ import {
   useChatDraft,
   useChatThreadDrafts,
 } from "@/contexts/ChatThreadDraftProvider";
+import { useWorkspaceSyncEvents } from "@/hooks/useWorkspaceSyncEvents";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import {
   createTurnId,
@@ -106,6 +107,7 @@ export default function ChatContainer({
     completeAssistantTurn,
     failAssistantTurn,
     respondToApproval,
+    respondToClarification,
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
@@ -158,6 +160,7 @@ export default function ChatContainer({
   const [branchPromptBottomInset, setBranchPromptBottomInset] = useState(
     DEFAULT_CHAT_HISTORY_BOTTOM_INSET
   );
+  const [mobileNewThreadLoading, setMobileNewThreadLoading] = useState(false);
   const [emptyThreadComposeActive, setEmptyThreadComposeActive] =
     useState(false);
   const readerActive =
@@ -181,6 +184,12 @@ export default function ChatContainer({
     controller: null,
     timeout: null,
     timedOut: false,
+  });
+  useWorkspaceSyncEvents({
+    workspaceSlug: workspace?.slug,
+    activeThreadSlug: threadSlug,
+    enabled: !!workspace?.slug,
+    onThreadDeleted: () => navigate(paths.workspace.chat(workspace.slug)),
   });
   const compactionUserId = user?.id ?? undefined;
   const compactionApiSessionId = undefined;
@@ -215,6 +224,45 @@ export default function ChatContainer({
     workspace?.slug,
     dualThreadFork.sourceThreadSlug
   );
+
+  function clarificationPayloadFromText(clarification, text = "") {
+    const answer = String(text || "").trim();
+    const questions = Array.isArray(clarification?.questions)
+      ? clarification.questions
+      : [];
+    return {
+      skipped: false,
+      answers: (questions.length ? questions : [null]).map(() => ({
+        skipped: false,
+        answer,
+      })),
+    };
+  }
+
+  async function submitPendingClarificationFromInput({
+    currentDraft,
+    currentChatKey,
+    message,
+    clearInput,
+  }) {
+    const clarification = currentDraft?.pendingClarification;
+    const answer = String(message || "").trim();
+    if (!clarification?.requestId || !answer || !currentChatKey) return false;
+
+    const result = await respondToClarification(
+      currentChatKey,
+      clarification.requestId,
+      clarificationPayloadFromText(clarification, answer)
+    );
+    if (!result?.ok) {
+      showToast("补充回答发送失败，请重试。", "error");
+      return true;
+    }
+
+    clearInput?.();
+    return true;
+  }
+
   const sourceItems = useMemo(
     () =>
       sourceHistory
@@ -612,7 +660,10 @@ export default function ChatContainer({
       dualThreadFork.branchThreadSlug
     );
     if (deleted) {
-      clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+      clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+        workspaceSlug: workspace.slug,
+        threadSlug: dualThreadFork.branchThreadSlug,
+      });
       refreshWorkspaceThreads();
       showToast("未改动的分支线程已自动取消", "success");
     } else {
@@ -809,7 +860,10 @@ export default function ChatContainer({
   }
 
   async function submitQuizMessage(message = "", nodeContext = null) {
-    clearPromptInputDraft(threadSlug ?? workspace.slug);
+    clearPromptInputDraft(threadSlug ?? workspace.slug, {
+      workspaceSlug: workspace.slug,
+      threadSlug,
+    });
     setMessageEmit("");
     setQuizModeActive(false);
     if (listening) endSTTSession();
@@ -959,6 +1013,41 @@ export default function ChatContainer({
       new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
         detail: { workspaceSlug: workspace.slug },
       })
+    );
+  }
+
+  async function createMobileWorkspaceThread() {
+    if (mobileNewThreadLoading || !workspace?.slug) return;
+
+    try {
+      setMobileNewThreadLoading(true);
+      const { thread, error } = await Workspace.threads.new(workspace.slug);
+      if (error || !thread?.slug) {
+        showToast(
+          `新建线程失败 - ${error || "Invalid thread response"}`,
+          "error",
+          { clear: true }
+        );
+        return;
+      }
+
+      refreshWorkspaceThreads();
+      navigate(paths.workspace.thread(workspace.slug, thread.slug), {
+        state: { userSelectedThread: true },
+      });
+    } catch (error) {
+      showToast(`新建线程失败 - ${error.message}`, "error", { clear: true });
+    } finally {
+      setMobileNewThreadLoading(false);
+    }
+  }
+
+  function renderMobileHeader() {
+    return (
+      <SidebarMobileHeader
+        onNewThread={createMobileWorkspaceThread}
+        newThreadLoading={mobileNewThreadLoading}
+      />
     );
   }
 
@@ -1145,7 +1234,28 @@ export default function ChatContainer({
     const currentMessage =
       document.getElementById(BRANCH_PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage || !dualThreadFork.branchThreadSlug) return false;
-    clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+    if (
+      await submitPendingClarificationFromInput({
+        currentDraft: branchDraft,
+        currentChatKey: branchChatKey,
+        message: currentMessage,
+        clearInput: () => {
+          clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+            workspaceSlug: workspace.slug,
+            threadSlug: dualThreadFork.branchThreadSlug,
+          });
+          branchMessageEmit("");
+        },
+      })
+    ) {
+      requestBranchSendScrollToBottom();
+      return false;
+    }
+
+    clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+      workspaceSlug: workspace.slug,
+      threadSlug: dualThreadFork.branchThreadSlug,
+    });
     branchMessageEmit("");
     startStream({
       workspaceSlug: workspace.slug,
@@ -1185,8 +1295,28 @@ export default function ChatContainer({
       text = currentText + text;
     }
     if (!text || !dualThreadFork.branchThreadSlug) return false;
+    if (
+      await submitPendingClarificationFromInput({
+        currentDraft: branchDraft,
+        currentChatKey: branchChatKey,
+        message: text,
+        clearInput: () => {
+          clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+            workspaceSlug: workspace.slug,
+            threadSlug: dualThreadFork.branchThreadSlug,
+          });
+          branchMessageEmit("");
+        },
+      })
+    ) {
+      requestBranchSendScrollToBottom();
+      return false;
+    }
 
-    clearPromptInputDraft(dualThreadFork.branchThreadSlug);
+    clearPromptInputDraft(dualThreadFork.branchThreadSlug, {
+      workspaceSlug: workspace.slug,
+      threadSlug: dualThreadFork.branchThreadSlug,
+    });
     branchMessageEmit("");
     startStream({
       workspaceSlug: workspace.slug,
@@ -1295,13 +1425,35 @@ export default function ChatContainer({
       document.getElementById(PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage) return false;
 
+    if (
+      await submitPendingClarificationFromInput({
+        currentDraft: draft,
+        currentChatKey: chatKey,
+        message: currentMessage,
+        clearInput: () => {
+          clearPromptInputDraft(threadSlug ?? workspace.slug, {
+            workspaceSlug: workspace.slug,
+            threadSlug,
+          });
+          setMessageEmit("");
+        },
+      })
+    ) {
+      if (listening) endSTTSession();
+      requestSendScrollToBottom();
+      return false;
+    }
+
     if (quizModeActive) {
       await submitQuizMessage(currentMessage);
       return false;
     }
 
     if (handleMindMapCommand(currentMessage)) {
-      clearPromptInputDraft(threadSlug ?? workspace.slug);
+      clearPromptInputDraft(threadSlug ?? workspace.slug, {
+        workspaceSlug: workspace.slug,
+        threadSlug,
+      });
       setMessageEmit("");
       return false;
     }
@@ -1313,7 +1465,10 @@ export default function ChatContainer({
 
     // Clear the localStorage draft for this thread/workspace so that if the
     // PromptInput remounts (empty→chat transition), it won't restore stale text
-    clearPromptInputDraft(threadSlug ?? workspace.slug);
+    clearPromptInputDraft(threadSlug ?? workspace.slug, {
+      workspaceSlug: workspace.slug,
+      threadSlug,
+    });
 
     if (listening) {
       // Stop the mic if the send button is clicked
@@ -1405,13 +1560,34 @@ export default function ChatContainer({
 
     if (!text || text === "") return false;
 
+    if (
+      await submitPendingClarificationFromInput({
+        currentDraft: draft,
+        currentChatKey: chatKey,
+        message: text,
+        clearInput: () => {
+          clearPromptInputDraft(threadSlug ?? workspace.slug, {
+            workspaceSlug: workspace.slug,
+            threadSlug,
+          });
+          setMessageEmit("");
+        },
+      })
+    ) {
+      requestSendScrollToBottom();
+      return false;
+    }
+
     if (quizModeActive) {
       await submitQuizMessage(text, nodeContext);
       return false;
     }
 
     if (handleMindMapCommand(text)) {
-      clearPromptInputDraft(threadSlug ?? workspace.slug);
+      clearPromptInputDraft(threadSlug ?? workspace.slug, {
+        workspaceSlug: workspace.slug,
+        threadSlug,
+      });
       setMessageEmit("");
       return false;
     }
@@ -1423,7 +1599,10 @@ export default function ChatContainer({
     // Clear the localStorage draft so that if the PromptInput remounts
     // (e.g. /reset causing empty→chat or chat→empty transitions),
     // it won't restore stale text.
-    clearPromptInputDraft(threadSlug ?? workspace.slug);
+    clearPromptInputDraft(threadSlug ?? workspace.slug, {
+      workspaceSlug: workspace.slug,
+      threadSlug,
+    });
 
     const readerPayload = readerPromptPayload(
       text,
@@ -1519,7 +1698,7 @@ export default function ChatContainer({
             style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
             className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
           >
-            {isMobile && <SidebarMobileHeader />}
+            {isMobile && renderMobileHeader()}
             <WorkspaceModelPicker workspaceSlug={workspace.slug} />
             <DnDFileUploaderWrapper>
               <WorkspaceOverview
@@ -1565,7 +1744,7 @@ export default function ChatContainer({
           className="relative flex gap-4 md:gap-5 md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3"
         >
           <div className="flex-[1.08] min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70">
-            {isMobile && <SidebarMobileHeader />}
+            {isMobile && renderMobileHeader()}
             <WorkspaceModelPicker workspaceSlug={workspace.slug} />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -1711,7 +1890,7 @@ export default function ChatContainer({
                     : "1 1 0%",
                 }}
               >
-                {isMobile && <SidebarMobileHeader />}
+                {isMobile && renderMobileHeader()}
                 {!readerActive && (
                   <TopRightActionZone
                     isMindMapOpen={mindMapOpen}
@@ -1805,7 +1984,7 @@ export default function ChatContainer({
               style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
               className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
             >
-              {isMobile && <SidebarMobileHeader />}
+              {isMobile && renderMobileHeader()}
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}
                 onMindMap={openMindMap}
@@ -1940,7 +2119,7 @@ export default function ChatContainer({
                 : "1 1 0%",
             }}
           >
-            {isMobile && <SidebarMobileHeader />}
+            {isMobile && renderMobileHeader()}
             {!readerActive && (
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}

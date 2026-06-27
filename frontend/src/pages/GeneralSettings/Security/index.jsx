@@ -6,10 +6,10 @@ import System from "@/models/system";
 import paths from "@/utils/paths";
 import {
   AUTH_TIMESTAMP,
-  AUTH_TOKEN,
   AUTH_USER,
   LAST_USER_ACTION_AT,
 } from "@/utils/constants";
+import { removeAuthToken } from "@/utils/authTokenStorage";
 import PreLoader from "@/components/Preloader";
 import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
@@ -66,7 +66,7 @@ function MultiUserMode() {
         setSaving(false);
         setTimeout(() => {
           window.localStorage.removeItem(AUTH_USER);
-          window.localStorage.removeItem(AUTH_TOKEN);
+          removeAuthToken();
           window.localStorage.removeItem(AUTH_TIMESTAMP);
           window.localStorage.removeItem(LAST_USER_ACTION_AT);
           window.location = paths.settings.users();
@@ -241,7 +241,7 @@ function PasswordProtection() {
       setSaving(false);
       setTimeout(() => {
         window.localStorage.removeItem(AUTH_USER);
-        window.localStorage.removeItem(AUTH_TOKEN);
+        removeAuthToken();
         window.localStorage.removeItem(AUTH_TIMESTAMP);
         window.localStorage.removeItem(LAST_USER_ACTION_AT);
         window.location.reload();
