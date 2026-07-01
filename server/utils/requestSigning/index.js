@@ -63,9 +63,26 @@ function nonceTtlMs() {
 
 function signingWarnOnly() {
   if (process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK === "true") return false;
+  if (process.env.REQUEST_SIGNING_DEVICE_REQUIRED === "true") return false;
+  if (process.env.ATHENA_DEVICE_SIGNATURE_REQUIRED === "true") return false;
   if (process.env.ATHENA_SIGNING_WARN_ONLY === "true") return true;
   if (process.env.ATHENA_SIGNING_WARN_ONLY === "false") return false;
   return process.env.NODE_ENV !== "production";
+}
+
+function hmacHighRiskCompatEnabled() {
+  if (process.env.REQUEST_SIGNING_HMAC_COMPAT === "true") return true;
+  if (process.env.ATHENA_ALLOW_HMAC_HIGH_RISK_COMPAT === "true") return true;
+  return false;
+}
+
+function deviceSignatureRequired() {
+  if (process.env.REQUEST_SIGNING_DEVICE_REQUIRED === "false") return false;
+  if (process.env.ATHENA_DEVICE_SIGNATURE_REQUIRED === "false") return false;
+  if (process.env.REQUEST_SIGNING_DEVICE_REQUIRED === "true") return true;
+  if (process.env.ATHENA_DEVICE_SIGNATURE_REQUIRED === "true") return true;
+  if (hmacHighRiskCompatEnabled()) return false;
+  return process.env.NODE_ENV === "production";
 }
 
 function productionRuntime() {
@@ -442,6 +459,14 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   if (
     ["POST", "DELETE"].includes(normalizedMethod) &&
     /^\/vault\/items(?:\/[^/]+)?$/.test(comparablePath)
+  ) {
+    return true;
+  }
+  if (
+    ["POST", "DELETE"].includes(normalizedMethod) &&
+    /^\/vault\/(?:reauth\/password|access-grants(?:\/current)?|lock)$/.test(
+      comparablePath
+    )
   ) {
     return true;
   }
@@ -901,6 +926,24 @@ async function requireSignedHighRiskRequest(request, response, next) {
 
   const result = await verifySignedRequest(request);
   await recordSigningAudit(request, result, { transport: "http" });
+  if (
+    result.ok &&
+    deviceSignatureRequired() &&
+    result.signatureVersion !== DEVICE_SIGNATURE_VERSION
+  ) {
+    const rejected = {
+      ok: false,
+      reasonCode: "device_signature_required",
+      signatureVersion: result.signatureVersion,
+    };
+    await recordSigningAudit(request, rejected, {
+      transport: "http",
+      policy: "device_signature_required",
+    });
+    return response
+      .status(401)
+      .json({ success: false, error: INVALID_SIGNATURE_ERROR });
+  }
   if (result.ok || signingWarnOnly()) {
     if (!result.ok) {
       console.warn("[request-signing] Warn-only signature failure", {
@@ -908,6 +951,7 @@ async function requireSignedHighRiskRequest(request, response, next) {
         ...consoleAuditMetadata(request),
       });
     }
+    if (result.ok) request.signedRequest = result;
     return next();
   }
 
@@ -994,6 +1038,7 @@ module.exports = {
   DEVICE_SIGNATURE_PREFIX,
   SIGNING_HEADERS,
   canonicalSigningString,
+  deviceSignatureRequired,
   ensureClientSigningSecret,
   signingErrorCode,
   hmacBase64Url,

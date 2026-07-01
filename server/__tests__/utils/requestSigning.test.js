@@ -184,6 +184,8 @@ describe("request signing", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalWarnOnly = process.env.ATHENA_SIGNING_WARN_ONLY;
   const originalRequireSigned = process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
+  const originalDeviceRequired = process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
+  const originalHmacCompat = process.env.REQUEST_SIGNING_HMAC_COMPAT;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -204,6 +206,8 @@ describe("request signing", () => {
     process.env.NODE_ENV = "test";
     delete process.env.ATHENA_SIGNING_WARN_ONLY;
     delete process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
+    delete process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
+    delete process.env.REQUEST_SIGNING_HMAC_COMPAT;
   });
 
   afterAll(() => {
@@ -213,6 +217,12 @@ describe("request signing", () => {
     if (originalRequireSigned === undefined)
       delete process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
     else process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK = originalRequireSigned;
+    if (originalDeviceRequired === undefined)
+      delete process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
+    else process.env.REQUEST_SIGNING_DEVICE_REQUIRED = originalDeviceRequired;
+    if (originalHmacCompat === undefined)
+      delete process.env.REQUEST_SIGNING_HMAC_COMPAT;
+    else process.env.REQUEST_SIGNING_HMAC_COMPAT = originalHmacCompat;
   });
 
   it("accepts a valid signed high-risk request and claims nonce", async () => {
@@ -365,6 +375,39 @@ describe("request signing", () => {
       success: false,
       error: "invalid_signed_request",
     });
+  });
+
+  it("requires device signatures for high-risk production requests unless HMAC compatibility is enabled", async () => {
+    process.env.NODE_ENV = "production";
+    const hmacRequest = requestDouble({ headers: signedHeaders() });
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+    const next = jest.fn();
+
+    await requireSignedHighRiskRequest(hmacRequest, response, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: INVALID_SIGNATURE_ERROR,
+    });
+
+    process.env.REQUEST_SIGNING_HMAC_COMPAT = "true";
+    response.status.mockClear();
+    response.json.mockClear();
+    next.mockClear();
+    await requireSignedHighRiskRequest(
+      requestDouble({
+        headers: signedHeaders({ nonce: "compat_nonce" }),
+      }),
+      response,
+      next
+    );
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(response.status).not.toHaveBeenCalled();
   });
 
   it("rejects revoked clients with CLIENT_REVOKED in enforced mode", async () => {

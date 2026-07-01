@@ -9,6 +9,15 @@ const mockSystemSettings = {
 jest.mock("../../utils/prisma", () => ({
   system_settings: mockSystemSettings,
 }));
+jest.mock("../../utils/agents/aibitat/plugins/gmail/lib", () => ({
+  reset: jest.fn(),
+}));
+jest.mock("../../utils/agents/aibitat/plugins/google-calendar/lib", () => ({
+  reset: jest.fn(),
+}));
+jest.mock("../../utils/agents/aibitat/plugins/outlook/lib", () => ({
+  reset: jest.fn(),
+}));
 
 describe("SystemSettings secret storage", () => {
   beforeEach(() => {
@@ -84,5 +93,44 @@ describe("SystemSettings secret storage", () => {
     await expect(SystemSettings.hubSettings()).resolves.toEqual({
       connectionKey: "hub-key",
     });
+  });
+
+  it("encrypts Agent SQL connection strings while returning usable values", async () => {
+    const { SystemSettings } = require("../../models/systemSettings");
+    const { isSecretEncrypted, readSecret } = require("../../utils/security");
+
+    await SystemSettings.updateSettings({
+      agent_sql_connections: JSON.stringify([
+        {
+          action: "add",
+          database_id: "primary db",
+          engine: "postgresql",
+          connectionString: "postgres://user:pass@localhost:5432/appdb",
+          schema: "public",
+        },
+      ]),
+    });
+
+    const stored = JSON.parse(mockSystemSettings.upsert.mock.calls[0][0].create.value);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].database_id).toBe("primary-db");
+    expect(isSecretEncrypted(stored[0].connectionString)).toBe(true);
+    expect(readSecret(stored[0].connectionString)).toBe(
+      "postgres://user:pass@localhost:5432/appdb"
+    );
+
+    mockSystemSettings.findFirst.mockResolvedValue({
+      label: "agent_sql_connections",
+      value: JSON.stringify(stored),
+    });
+    await expect(SystemSettings.agent_sql_connections()).resolves.toEqual([
+      expect.objectContaining({
+        database_id: "primary-db",
+        connectionString: "postgres://user:pass@localhost:5432/appdb",
+        username: "user",
+        password: "pass",
+        database: "appdb",
+      }),
+    ]);
   });
 });

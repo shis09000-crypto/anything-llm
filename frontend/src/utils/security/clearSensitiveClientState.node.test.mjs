@@ -34,6 +34,8 @@ async function loadClearSensitiveClientState() {
   globalThis.__clearSensitiveStateTest = {
     removedAuthTokens: 0,
     removedAuthUsers: 0,
+    clearedVaultGrants: 0,
+    lockedVaults: 0,
     threadClears: 0,
     workspaceClears: 0,
   };
@@ -90,6 +92,18 @@ async function loadClearSensitiveClientState() {
     .replace(
       'import { clearLocalCacheCryptoKeys } from "@/utils/security/localCacheCrypto";',
       "const clearLocalCacheCryptoKeys = async () => {};"
+    )
+    .replace(
+      'import { lockVault } from "@/utils/security/vaultCrypto";',
+      `const lockVault = () => {
+        globalThis.__clearSensitiveStateTest.lockedVaults += 1;
+      };`
+    )
+    .replace(
+      'import { clearVaultAccessGrant } from "@/lib/communication/vaultClient";',
+      `const clearVaultAccessGrant = () => {
+        globalThis.__clearSensitiveStateTest.clearedVaultGrants += 1;
+      };`
     );
 
   return import(
@@ -123,6 +137,8 @@ test("session-only clear preserves durable caches when requested", async () => {
     );
     assert.equal(globalThis.__clearSensitiveStateTest.removedAuthTokens, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.removedAuthUsers, 1);
+    assert.equal(globalThis.__clearSensitiveStateTest.clearedVaultGrants, 1);
+    assert.equal(globalThis.__clearSensitiveStateTest.lockedVaults, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.threadClears, 0);
     assert.equal(globalThis.__clearSensitiveStateTest.workspaceClears, 0);
   } finally {
@@ -151,6 +167,8 @@ test("default session clear removes durable local work caches", async () => {
     assert.equal(localStorage.getItem("last_visited_workspace_threads"), null);
     assert.equal(sessionStorage.getItem("chat-thread-draft:abc"), null);
     assert.equal(sessionStorage.getItem("chat-thread-active-running"), null);
+    assert.equal(globalThis.__clearSensitiveStateTest.clearedVaultGrants, 1);
+    assert.equal(globalThis.__clearSensitiveStateTest.lockedVaults, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.threadClears, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.workspaceClears, 1);
   } finally {

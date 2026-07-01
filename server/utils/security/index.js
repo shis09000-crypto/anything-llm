@@ -4,6 +4,7 @@ module.exports = {
   ...require("./keyManager"),
   ...require("./encryption"),
   ...require("./secretStore"),
+  ...require("./chatHistorySerialEncryption"),
   ...require("./chatHistoryEncryption"),
   ...require("./documentStoreEncryption"),
   ...require("./vectorTextEncryption"),

@@ -146,7 +146,7 @@ async function main() {
     deepSeekCacheDiagnosis,
     hasDeepSeekCacheDiagnostics,
   } = require("../utils/AiProviders/deepseek/promptCache");
-  const { decryptWorkspaceChatRecords } = require("../utils/security");
+  const { decryptWorkspaceChatRecordsAsync } = require("../utils/security");
   const dbPath = databasePath();
   if (!fs.existsSync(dbPath)) throw new Error(`Database not found: ${dbPath}`);
 
@@ -161,7 +161,7 @@ async function main() {
       workspaceSlug: args.workspace || null,
       thread: args.thread,
     });
-    const chats = decryptWorkspaceChatRecords(
+    const chats = await decryptWorkspaceChatRecordsAsync(
       await prisma.workspace_chats.findMany({
         where: { thread_id: thread.id },
         orderBy: { id: "desc" },

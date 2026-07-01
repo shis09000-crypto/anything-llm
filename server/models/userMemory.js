@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const prisma = require("../utils/prisma");
-const { encryptSecret, decryptSecret } = require("../utils/security/encryption");
+const {
+  encryptSecret,
+  decryptSecret,
+} = require("../utils/security/encryption");
 
 const MEMORY_CATEGORIES = [
   "preferences",
@@ -53,9 +56,7 @@ function normalizeText(value = "", fallback = "") {
 }
 
 function normalizeTitle(value = "") {
-  return normalizeText(value)
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+  return normalizeText(value).replace(/\s+/g, " ").toLowerCase();
 }
 
 function fingerprintFor({ category, title, detail }) {
@@ -118,7 +119,10 @@ function sensitiveMemoryPayload(memory = {}) {
   }
 }
 
-function toMemoryItem(memory = {}, { maskSensitive = false, detail = "full" } = {}) {
+function toMemoryItem(
+  memory = {},
+  { maskSensitive = false, detail = "full" } = {}
+) {
   const isSensitive = Boolean(memory.isSensitive);
   const shouldLighten = detail === "light";
   return {
@@ -240,20 +244,15 @@ const UserMemory = {
       });
 
       const previous = candidates.find((candidate) => {
-        if (!isSensitive) return normalizeTitle(candidate.title) === normalizedTitle;
+        if (!isSensitive)
+          return normalizeTitle(candidate.title) === normalizedTitle;
         const payload = sensitiveMemoryPayload(candidate);
         return normalizeTitle(payload.title) === normalizedTitle;
       });
 
       let archive = null;
       if (previous) {
-        const archivedValue = isSensitive
-          ? serializeMemoryValue({
-              ...previous,
-              title: sensitiveMemoryPayload(previous).title || MASKED_MEMORY_TEXT,
-              detail: sensitiveMemoryPayload(previous).detail || MASKED_MEMORY_TEXT,
-            })
-          : serializeMemoryValue(previous);
+        const archivedValue = archiveValueForMemory(previous);
 
         archive = await tx.user_memory_archives.create({
           data: {
@@ -440,7 +439,10 @@ const UserMemory = {
     });
   },
 
-  sensitive: async function (userId, { limit = 100, offset = 0, detail = "light" } = {}) {
+  sensitive: async function (
+    userId,
+    { limit = 100, offset = 0, detail = "light" } = {}
+  ) {
     const memories = await prisma.user_memory_blocks.findMany({
       where: { userId: Number(userId), isSensitive: true },
       orderBy: [{ updatedAt: "desc" }, { id: "desc" }],

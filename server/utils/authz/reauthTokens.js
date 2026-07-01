@@ -14,13 +14,21 @@ function issueReauthToken(userId, method, purpose = "generic") {
   return token;
 }
 
+function purposeMatches(recordPurpose, expectedPurpose = null) {
+  if (!expectedPurpose) return true;
+  if (Array.isArray(expectedPurpose)) {
+    return expectedPurpose.includes(recordPurpose);
+  }
+  return recordPurpose === expectedPurpose;
+}
+
 function validateReauthToken(token, userId, purpose = null) {
   const record = reauthTokens.get(token);
   if (
     !record ||
     record.userId !== Number(userId) ||
     record.expiresAt < Date.now() ||
-    (purpose && record.purpose !== purpose)
+    !purposeMatches(record.purpose, purpose)
   ) {
     if (record) reauthTokens.delete(token);
     return null;

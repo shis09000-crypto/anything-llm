@@ -19,8 +19,26 @@ const {
   isEncryptedVectorText,
   vectorTextEncryptionEnabled,
 } = require("../utils/security/vectorTextEncryption");
+const {
+  auditWorkspaceChatSerialIntegrity,
+  chatHistorySerialEncryptionRequired,
+} = require("../utils/security/chatHistorySerialEncryption");
+const {
+  deviceSignatureRequired,
+  signingWarnOnly,
+} = require("../utils/requestSigning");
+const { vaultGrantRequired } = require("../utils/authz/vaultAccessGrants");
 
 const SECRET_PREFIX = "enc:v1:";
+const CHAT_HISTORY_V2_PREFIX = "chat:v2:";
+const HIGH_RISK_ENCRYPTED_FIELDS = new Set([
+  "api_keys.secret",
+  "browser_extension_api_keys.key",
+  "system_prompt_variables.value",
+  "workspace_chat_compactions.summary",
+  "workspace_chat_compactions.capsule_json",
+  "vault_items.encryptedPayload",
+]);
 
 function countValue(value) {
   if (typeof value === "bigint") return Number(value);
@@ -44,12 +62,20 @@ async function safeMetric(name, fn) {
   }
 }
 
-async function fieldCoverage({ table, field, where = "1=1" }) {
+async function fieldCoverage({
+  table,
+  field,
+  where = "1=1",
+  prefixes = [SECRET_PREFIX],
+}) {
   const total = await count(
     `SELECT COUNT(*) AS count FROM "${table}" WHERE ${where}`
   );
+  const encryptedWhere = prefixes
+    .map((prefix) => `"${field}" LIKE '${prefix}%'`)
+    .join(" OR ");
   const encrypted = await count(
-    `SELECT COUNT(*) AS count FROM "${table}" WHERE ${where} AND "${field}" LIKE '${SECRET_PREFIX}%'`
+    `SELECT COUNT(*) AS count FROM "${table}" WHERE ${where} AND (${encryptedWhere})`
   );
   return {
     available: true,
@@ -73,6 +99,27 @@ async function vaultCoverage() {
     total,
     encrypted,
     invalidOrLegacy: total - encrypted,
+  };
+}
+
+async function securityPolicyCoverage() {
+  let hmacHighRiskEvents = 0;
+  try {
+    hmacHighRiskEvents = await count(
+      `SELECT COUNT(*) AS count FROM "event_logs" WHERE "event" = 'client_trust_checkpoint' AND "metadata" LIKE '%"action":"signed_high_risk_request"%' AND "metadata" LIKE '%"signatureVersion":"v1"%'`
+    );
+  } catch {
+    hmacHighRiskEvents = 0;
+  }
+
+  return {
+    available: true,
+    requestSigningDeviceRequired: deviceSignatureRequired(),
+    requestSigningWarnOnly: signingWarnOnly(),
+    vaultGrantRequired: vaultGrantRequired(),
+    hmacHighRiskEvents,
+    strictReady:
+      deviceSignatureRequired() && vaultGrantRequired() && !signingWarnOnly(),
   };
 }
 
@@ -259,6 +306,36 @@ async function main() {
     )
   );
   metrics.push(
+    await safeMetric("system_prompt_variables.value", () =>
+      fieldCoverage({
+        name: "system_prompt_variables.value",
+        table: "system_prompt_variables",
+        field: "value",
+        where: `"value" IS NOT NULL AND "value" != ''`,
+      })
+    )
+  );
+  metrics.push(
+    await safeMetric("workspace_chat_compactions.summary", () =>
+      fieldCoverage({
+        name: "workspace_chat_compactions.summary",
+        table: "workspace_chat_compactions",
+        field: "summary",
+        where: `"summary" IS NOT NULL AND "summary" != ''`,
+      })
+    )
+  );
+  metrics.push(
+    await safeMetric("workspace_chat_compactions.capsule_json", () =>
+      fieldCoverage({
+        name: "workspace_chat_compactions.capsule_json",
+        table: "workspace_chat_compactions",
+        field: "capsule_json",
+        where: `"capsule_json" IS NOT NULL AND "capsule_json" != ''`,
+      })
+    )
+  );
+  metrics.push(
     await safeMetric("user_memory_blocks.encryptedPayload", () =>
       fieldCoverage({
         name: "user_memory_blocks.encryptedPayload",
@@ -274,6 +351,7 @@ async function main() {
         name: "workspace_chats.prompt",
         table: "workspace_chats",
         field: "prompt",
+        prefixes: [SECRET_PREFIX, CHAT_HISTORY_V2_PREFIX],
       })
     )
   );
@@ -283,7 +361,13 @@ async function main() {
         name: "workspace_chats.response",
         table: "workspace_chats",
         field: "response",
+        prefixes: [SECRET_PREFIX, CHAT_HISTORY_V2_PREFIX],
       })
+    )
+  );
+  metrics.push(
+    await safeMetric("workspace_chat_serial_integrity", () =>
+      auditWorkspaceChatSerialIntegrity()
     )
   );
   metrics.push(
@@ -297,6 +381,7 @@ async function main() {
     )
   );
   metrics.push(await safeMetric("vault_items.encryptedPayload", vaultCoverage));
+  metrics.push(await safeMetric("security_policy", securityPolicyCoverage));
   metrics.push(
     await safeMetric("workspace_documents_and_rag", documentCoverage)
   );
@@ -304,15 +389,20 @@ async function main() {
   const highRisk = metrics.filter(
     (metric) =>
       metric.available !== false &&
-      (([
-        "api_keys.secret",
-        "browser_extension_api_keys.key",
-        "vault_items.encryptedPayload",
-      ].includes(metric.name) &&
+      ((HIGH_RISK_ENCRYPTED_FIELDS.has(metric.name) &&
         Number(metric.plaintextOrLegacy ?? metric.invalidOrLegacy ?? 0) > 0) ||
+        (metric.name === "workspace_chat_serial_integrity" &&
+          chatHistorySerialEncryptionRequired() &&
+          (Number(metric.legacyOrV1 || 0) > 0 ||
+            Number(metric.metadataMissing || 0) > 0 ||
+            Number(metric.chainInvalid || 0) > 0)) ||
         (metric.name === "workspace_documents_and_rag" &&
           metric.vectorProviderPayloads?.newWritesEncryptedByAthena &&
-          !metric.vectorProviderPayloads?.existingProviderPayloadsMigrated))
+          !metric.vectorProviderPayloads?.existingProviderPayloadsMigrated) ||
+        (metric.name === "security_policy" &&
+          (process.env.REQUEST_SIGNING_DEVICE_REQUIRED === "true" ||
+            process.env.VAULT_GRANT_REQUIRED === "true") &&
+          !metric.strictReady))
   );
 
   const report = {

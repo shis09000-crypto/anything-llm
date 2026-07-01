@@ -26,6 +26,7 @@ import {
 import { openImageLightbox } from "@/components/ImageLightbox";
 import { AuthContext } from "@/AuthContext";
 import paths from "@/utils/paths";
+import { confirmSignOut } from "@/utils/authSignOutConfirm";
 import MemoryBlocksCard from "@/pages/UserSettings/AccountSettings/MemoryBlocksCard";
 import ContactMethodsCard from "@/pages/UserSettings/AccountSettings/ContactMethodsCard";
 import LoginSecurityCard from "@/pages/UserSettings/AccountSettings/LoginSecurityCard";
@@ -3559,7 +3560,10 @@ export function MobilePageExperimentContent({
     }
   }
 
-  function handleMobileSessionSignOut() {
+  async function handleMobileSessionSignOut() {
+    const confirmed = await confirmSignOut();
+    if (!confirmed) return;
+
     if (productionMode && fullscreenPresentation) {
       auth?.actions?.unsetUser?.();
       window.location.assign(paths.login());

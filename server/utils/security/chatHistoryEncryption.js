@@ -1,9 +1,14 @@
-const {
-  decryptSecretIfNeeded,
-  encryptSecret,
-  isEncryptedSecret,
-} = require("./encryption");
+const { decryptSecretIfNeeded, encryptSecret } = require("./encryption");
 const { MASTER_KEY_ENV } = require("./constants");
+const {
+  chatHistorySerialEncryptionEnabled,
+  decryptChatRecordCompat,
+  decryptChatRecordsCompat,
+  encryptSerialChatField,
+  isAnyEncryptedChatField,
+  rebuildChatCryptoChainForScope,
+  scopeFromChat,
+} = require("./chatHistorySerialEncryption");
 
 function chatHistoryEncryptionEnabled(env = process.env) {
   if (String(env.CHAT_HISTORY_ENCRYPTION || "").toLowerCase() === "false")
@@ -22,13 +27,23 @@ function encryptWorkspaceChatField(value) {
   return encryptSecret(text);
 }
 
+async function encryptWorkspaceChatFieldAsync(value, scope = {}) {
+  if (value === null || value === undefined) return value;
+  const text = String(value);
+  if (!chatHistoryEncryptionEnabled()) return text;
+  if (chatHistorySerialEncryptionEnabled()) {
+    return encryptSerialChatField(text, scope);
+  }
+  return encryptSecret(text);
+}
+
 function decryptWorkspaceChatField(value) {
   if (value === null || value === undefined) return value;
   return decryptSecretIfNeeded(value);
 }
 
 function workspaceChatFieldIsEncrypted(value) {
-  return isEncryptedSecret(value);
+  return isAnyEncryptedChatField(value);
 }
 
 function decryptWorkspaceChatRecord(chat = null) {
@@ -45,6 +60,14 @@ function decryptWorkspaceChatRecords(chats = []) {
   return chats.map(decryptWorkspaceChatRecord);
 }
 
+async function decryptWorkspaceChatRecordAsync(chat = null) {
+  return decryptChatRecordCompat(chat);
+}
+
+async function decryptWorkspaceChatRecordsAsync(chats = []) {
+  return decryptChatRecordsCompat(chats);
+}
+
 function encryptWorkspaceChatWrite(data = {}) {
   const next = { ...(data || {}) };
   if (Object.prototype.hasOwnProperty.call(next, "prompt")) {
@@ -56,12 +79,29 @@ function encryptWorkspaceChatWrite(data = {}) {
   return next;
 }
 
+async function encryptWorkspaceChatWriteAsync(data = {}, scope = {}) {
+  const next = { ...(data || {}) };
+  if (Object.prototype.hasOwnProperty.call(next, "prompt")) {
+    next.prompt = await encryptWorkspaceChatFieldAsync(next.prompt, scope);
+  }
+  if (Object.prototype.hasOwnProperty.call(next, "response")) {
+    next.response = await encryptWorkspaceChatFieldAsync(next.response, scope);
+  }
+  return next;
+}
+
 module.exports = {
   chatHistoryEncryptionEnabled,
   decryptWorkspaceChatField,
   decryptWorkspaceChatRecord,
+  decryptWorkspaceChatRecordAsync,
   decryptWorkspaceChatRecords,
+  decryptWorkspaceChatRecordsAsync,
   encryptWorkspaceChatField,
+  encryptWorkspaceChatFieldAsync,
   encryptWorkspaceChatWrite,
+  encryptWorkspaceChatWriteAsync,
+  rebuildChatCryptoChainForScope,
+  scopeFromChat,
   workspaceChatFieldIsEncrypted,
 };

@@ -6,10 +6,11 @@ const {
 } = require("../utils/AiProviders/deepseek/promptCache");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
 const {
-  decryptWorkspaceChatRecord,
-  decryptWorkspaceChatRecords,
-  encryptWorkspaceChatField,
-  encryptWorkspaceChatWrite,
+  decryptWorkspaceChatRecordAsync,
+  decryptWorkspaceChatRecordsAsync,
+  encryptWorkspaceChatFieldAsync,
+  rebuildChatCryptoChainForScope,
+  scopeFromChat,
 } = require("../utils/security/chatHistoryEncryption");
 
 function safeParseResponse(response = null) {
@@ -62,7 +63,9 @@ async function previousDeepSeekMetricsForSave({
   });
 
   for (const chat of previousChats) {
-    const metrics = deepSeekMetricsFromChat(decryptWorkspaceChatRecord(chat));
+    const metrics = deepSeekMetricsFromChat(
+      await decryptWorkspaceChatRecordAsync(chat)
+    );
     if (metrics && comparableDeepSeekMetrics(currentMetrics, metrics))
       return metrics;
   }
@@ -120,18 +123,28 @@ const WorkspaceChats = {
         apiSessionId,
         response,
       });
+      const scope = {
+        workspaceId,
+        userId: user?.id || null,
+        threadId,
+        apiSessionId,
+      };
       const chat = await prisma.workspace_chats.create({
         data: {
           public_id: newPublicChatId(),
           workspaceId,
-          prompt: encryptWorkspaceChatField(prompt),
-          response: encryptWorkspaceChatField(safeJSONStringify(response)),
+          prompt: await encryptWorkspaceChatFieldAsync(prompt, scope),
+          response: await encryptWorkspaceChatFieldAsync(
+            safeJSONStringify(response),
+            scope
+          ),
           user_id: user?.id || null,
           thread_id: threadId,
           api_session_id: apiSessionId,
           include,
         },
       });
+      await rebuildChatCryptoChainForScope(scope);
       if (threadId && include && !apiSessionId) {
         const {
           maybeEnqueueTitleGenerationAfterChat,
@@ -146,7 +159,10 @@ const WorkspaceChats = {
           console.warn("[ThreadTitle] failed to schedule", error.message)
         );
       }
-      return { chat: decryptWorkspaceChatRecord(chat), message: null };
+      return {
+        chat: await decryptWorkspaceChatRecordAsync(chat),
+        message: null,
+      };
     } catch (error) {
       console.error(error.message);
       return { chat: null, message: error.message };
@@ -172,7 +188,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return decryptWorkspaceChatRecords(chats);
+      return await decryptWorkspaceChatRecordsAsync(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -197,7 +213,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return decryptWorkspaceChatRecords(chats);
+      return await decryptWorkspaceChatRecordsAsync(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -221,7 +237,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return decryptWorkspaceChatRecords(chats);
+      return await decryptWorkspaceChatRecordsAsync(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -305,7 +321,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return decryptWorkspaceChatRecord(chat || null);
+      return await decryptWorkspaceChatRecordAsync(chat || null);
     } catch (error) {
       console.error(error.message);
       return null;
@@ -337,7 +353,7 @@ const WorkspaceChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return decryptWorkspaceChatRecords(chats);
+      return await decryptWorkspaceChatRecordsAsync(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -442,10 +458,32 @@ const WorkspaceChats = {
     if (!id) throw new Error("No workspace chat id provided for update");
 
     try {
+      const existing = await prisma.workspace_chats.findFirst({
+        where: { id },
+      });
+      if (!existing) return false;
+      const scope = scopeFromChat(existing);
+      const contentUpdated =
+        Object.prototype.hasOwnProperty.call(data, "prompt") ||
+        Object.prototype.hasOwnProperty.call(data, "response");
+      const payload = { ...data };
+      if (Object.prototype.hasOwnProperty.call(data, "prompt")) {
+        payload.prompt = await encryptWorkspaceChatFieldAsync(
+          data.prompt,
+          scope
+        );
+      }
+      if (Object.prototype.hasOwnProperty.call(data, "response")) {
+        payload.response = await encryptWorkspaceChatFieldAsync(
+          data.response,
+          scope
+        );
+      }
       await prisma.workspace_chats.update({
         where: { id },
-        data: encryptWorkspaceChatWrite(data),
+        data: payload,
       });
+      if (contentUpdated) await rebuildChatCryptoChainForScope(scope);
       return true;
     } catch (error) {
       console.error(error.message);
@@ -458,13 +496,37 @@ const WorkspaceChats = {
     try {
       const createdChats = [];
       for (const chatData of chatsData) {
+        const scope = {
+          workspaceId: chatData.workspaceId,
+          userId: chatData.user_id ?? chatData.user?.id ?? null,
+          threadId: chatData.thread_id ?? chatData.threadId ?? null,
+          apiSessionId:
+            chatData.api_session_id ?? chatData.apiSessionId ?? null,
+        };
         const chat = await prisma.workspace_chats.create({
           data: {
-            ...encryptWorkspaceChatWrite(chatData),
+            ...chatData,
+            ...(Object.prototype.hasOwnProperty.call(chatData, "prompt")
+              ? {
+                  prompt: await encryptWorkspaceChatFieldAsync(
+                    chatData.prompt,
+                    scope
+                  ),
+                }
+              : {}),
+            ...(Object.prototype.hasOwnProperty.call(chatData, "response")
+              ? {
+                  response: await encryptWorkspaceChatFieldAsync(
+                    chatData.response,
+                    scope
+                  ),
+                }
+              : {}),
             public_id: chatData.public_id || newPublicChatId(),
           },
         });
-        createdChats.push(decryptWorkspaceChatRecord(chat));
+        await rebuildChatCryptoChainForScope(scope);
+        createdChats.push(await decryptWorkspaceChatRecordAsync(chat));
       }
       return { chats: createdChats, message: null };
     } catch (error) {
@@ -492,9 +554,18 @@ const WorkspaceChats = {
         excludeChatId: chatId,
         response: data.response,
       });
+      const scope = {
+        workspaceId: data.workspaceId,
+        userId: data.user?.id || null,
+        threadId: data.threadId,
+        apiSessionId: data.apiSessionId,
+      };
       const payload = {
         workspaceId: data.workspaceId,
-        response: encryptWorkspaceChatField(safeJSONStringify(data.response)),
+        response: await encryptWorkspaceChatFieldAsync(
+          safeJSONStringify(data.response),
+          scope
+        ),
         user_id: data.user?.id || null,
         thread_id: data.threadId,
         api_session_id: data.apiSessionId,
@@ -512,11 +583,15 @@ const WorkspaceChats = {
         // On creates, we need to set the prompt or else record will fail.
         create: {
           ...payload,
-          prompt: encryptWorkspaceChatField(data.prompt),
+          prompt: await encryptWorkspaceChatFieldAsync(data.prompt, scope),
           public_id: data.public_id || newPublicChatId(),
         },
       });
-      return { chat: decryptWorkspaceChatRecord(chat), message: null };
+      await rebuildChatCryptoChainForScope(scope);
+      return {
+        chat: await decryptWorkspaceChatRecordAsync(chat),
+        message: null,
+      };
     } catch (error) {
       console.error(error.message);
       return { chat: null, message: error.message };

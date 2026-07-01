@@ -2,7 +2,17 @@ const {
   issueUserSessionToken,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
+const crypto = require("crypto");
 const prisma = require("../utils/prisma");
+
+const TEMP_AUTH_TOKEN_HASH_PREFIX = "sha256:v1:";
+
+function hashTemporaryAuthToken(token = "") {
+  return `${TEMP_AUTH_TOKEN_HASH_PREFIX}${crypto
+    .createHash("sha256")
+    .update(String(token))
+    .digest("base64url")}`;
+}
 
 /**
  * Temporary auth tokens are used for simple SSO.
@@ -34,7 +44,7 @@ const TemporaryAuthToken = {
       const expiresAt = new Date(Date.now() + this.expiry);
       await prisma.temporary_auth_tokens.create({
         data: {
-          token,
+          token: hashTemporaryAuthToken(token),
           expiresAt,
           userId: Number(userId),
         },
@@ -79,9 +89,16 @@ const TemporaryAuthToken = {
           "Public token is required to validate a temporary auth token."
         );
       token = await prisma.temporary_auth_tokens.findUnique({
-        where: { token: String(publicToken) },
+        where: { token: hashTemporaryAuthToken(publicToken) },
         include: { user: true },
       });
+      if (!token) {
+        // Backward compatibility for unexpired plaintext temporary auth tokens.
+        token = await prisma.temporary_auth_tokens.findUnique({
+          where: { token: String(publicToken) },
+          include: { user: true },
+        });
+      }
       if (!token) throw new Error("Invalid token.");
       if (token.expiresAt < new Date()) throw new Error("Token expired.");
       if (token.user.suspended) throw new Error("User account suspended.");
@@ -103,4 +120,4 @@ const TemporaryAuthToken = {
   },
 };
 
-module.exports = { TemporaryAuthToken };
+module.exports = { TemporaryAuthToken, _private: { hashTemporaryAuthToken } };

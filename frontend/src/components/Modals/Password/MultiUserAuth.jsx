@@ -1,4 +1,10 @@
-import React, { useCallback, useContext, useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   EnvelopeSimple,
@@ -28,6 +34,7 @@ import { setStoredAuthUser } from "@/utils/authUserStorage";
 import { AuthContext } from "@/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { markLoginBoot } from "@/utils/loginBootPerf";
+import "./styles.css";
 
 const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
 const RESET_TOKEN_STORAGE_KEY = "resetToken";
@@ -97,111 +104,7 @@ function isValidRegistrationEmail(email = "") {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
 }
 
-const RecoveryForm = ({ onSubmit, setShowRecoveryForm, onEmailResetToken }) => {
-  const [method, setMethod] = useState("email");
-
-  if (method === "email") {
-    return (
-      <EmailRecoveryForm
-        setMethod={setMethod}
-        setShowRecoveryForm={setShowRecoveryForm}
-        onEmailResetToken={onEmailResetToken}
-      />
-    );
-  }
-
-  return (
-    <RecoveryCodeForm
-      onSubmit={onSubmit}
-      setShowRecoveryForm={setShowRecoveryForm}
-      setMethod={setMethod}
-    />
-  );
-};
-
-const RecoveryCodeForm = ({ onSubmit, setShowRecoveryForm, setMethod }) => {
-  const [username, setUsername] = useState("");
-  const [recoveryCodeInputs, setRecoveryCodeInputs] = useState(
-    Array(2).fill("")
-  );
-
-  const handleRecoveryCodeChange = (index, value) => {
-    const updatedCodes = [...recoveryCodeInputs];
-    updatedCodes[index] = value;
-    setRecoveryCodeInputs(updatedCodes);
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    const recoveryCodes = recoveryCodeInputs.filter(
-      (code) => code.trim() !== ""
-    );
-    onSubmit(username, recoveryCodes);
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="w-full space-y-6">
-      <AuthSectionHeader
-        title={t("login.password-reset.title")}
-        description={t("login.password-reset.description")}
-      />
-      <div className="space-y-4">
-        <AppleInput
-          label="账号名"
-          name="username"
-          type="text"
-          icon={<UserCircle className="h-5 w-5" />}
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          required
-          autoComplete="username"
-        />
-        <div className="space-y-2">
-          <label className="block text-sm font-semibold text-slate-700">
-            {t("login.password-reset.recovery-codes")}
-          </label>
-          <div className="space-y-3">
-            {recoveryCodeInputs.map((code, index) => (
-              <AppleInput
-                key={index}
-                label={`${t("login.password-reset.recovery-codes")} ${
-                  index + 1
-                }`}
-                hideLabel
-                type="text"
-                name={`recoveryCode${index + 1}`}
-                icon={<LockKey className="h-5 w-5" />}
-                value={code}
-                onChange={(e) =>
-                  handleRecoveryCodeChange(index, e.target.value)
-                }
-                required
-                autoComplete="off"
-              />
-            ))}
-          </div>
-        </div>
-      </div>
-      <div className="space-y-4">
-        <AppButton type="submit" size="lg" fullWidth style={appleButtonStyle}>
-          {t("login.password-reset.title")}
-        </AppButton>
-        <AuthTextButton onClick={() => setMethod("email")}>
-          {t("login.password-reset.use-email")}
-        </AuthTextButton>
-        <AuthTextButton onClick={() => setShowRecoveryForm(false)}>
-          {t("login.password-reset.back-to-login")}
-        </AuthTextButton>
-      </div>
-    </form>
-  );
-};
-
-const EmailRecoveryForm = ({
-  setMethod,
-  setShowRecoveryForm,
-  onEmailResetToken,
-}) => {
+const RecoveryForm = ({ setShowRecoveryForm, onEmailResetToken }) => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [step, setStep] = useState("request");
@@ -334,9 +237,6 @@ const EmailRecoveryForm = ({
               })
             : t("login.password-reset.send-code")}
         </AppButton>
-        <AuthTextButton onClick={() => setMethod("recovery")}>
-          {t("login.password-reset.use-recovery-codes")}
-        </AuthTextButton>
         <AuthTextButton onClick={() => setShowRecoveryForm(false)}>
           {t("login.password-reset.back-to-login")}
         </AuthTextButton>
@@ -861,21 +761,6 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     showToast(message, "error", { clear: true });
   };
 
-  const handleRecoverySubmit = async (username, recoveryCodes) => {
-    const { success, resetToken, error } = await System.recoverAccount(
-      username,
-      recoveryCodes
-    );
-
-    if (success && resetToken) {
-      storePasswordResetToken(resetToken);
-      setShowRecoveryForm(false);
-      setShowResetPasswordForm(true);
-    } else {
-      showToast(error || "恢复码验证失败。", "error", { clear: true });
-    }
-  };
-
   const handleEmailResetToken = (resetToken) => {
     storePasswordResetToken(resetToken);
     setShowRecoveryForm(false);
@@ -969,6 +854,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       .catch(() => setTrustedDevice(null));
   }, []);
 
+  let contentKey = "login";
   let content = (
     <LoginForm
       loginIdentifier={loginIdentifier}
@@ -1000,6 +886,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   );
 
   if (showRegisterForm && allowPublicRegistration) {
+    contentKey = "register";
     content = (
       <RegistrationForm
         onBack={() => setShowRegisterForm(false)}
@@ -1009,9 +896,9 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   }
 
   if (showRecoveryForm) {
+    contentKey = "recovery";
     content = (
       <RecoveryForm
-        onSubmit={handleRecoverySubmit}
         setShowRecoveryForm={setShowRecoveryForm}
         onEmailResetToken={handleEmailResetToken}
       />
@@ -1019,14 +906,17 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   }
 
   if (showResetPasswordForm) {
+    contentKey = "reset-password";
     content = <ResetPasswordForm onSubmit={handleResetSubmit} />;
   }
 
   return (
     <>
-      <AppleAuthShell loginLogo={loginLogo} isCustomLogo={isCustomLogo}>
-        {content}
-      </AppleAuthShell>
+      <SoftLoginShell loginLogo={loginLogo} isCustomLogo={isCustomLogo}>
+        <AuthContentTransition transitionKey={contentKey}>
+          {content}
+        </AuthContentTransition>
+      </SoftLoginShell>
       <ModalWrapper isOpen={isRecoveryCodeModalOpen} noPortal={true}>
         <RecoveryCodeModal
           recoveryCodes={recoveryCodes}
@@ -1035,6 +925,91 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
         />
       </ModalWrapper>
     </>
+  );
+}
+
+function AuthContentTransition({ transitionKey, children }) {
+  const previousKeyRef = useRef(transitionKey);
+  const lastChildrenRef = useRef(children);
+  const timersRef = useRef([]);
+  const [transitionState, setTransitionState] = useState({
+    visible: true,
+    entering: true,
+    exitingContent: null,
+  });
+
+  useEffect(() => {
+    if (previousKeyRef.current === transitionKey) return;
+
+    timersRef.current.forEach((timer) => window.clearTimeout(timer));
+    timersRef.current = [];
+
+    const exitingContent = {
+      key: previousKeyRef.current,
+      node: lastChildrenRef.current,
+    };
+    previousKeyRef.current = transitionKey;
+
+    setTransitionState({
+      visible: false,
+      entering: false,
+      exitingContent,
+    });
+
+    timersRef.current.push(
+      window.setTimeout(() => {
+        setTransitionState({
+          visible: false,
+          entering: false,
+          exitingContent: null,
+        });
+      }, 155)
+    );
+
+    timersRef.current.push(
+      window.setTimeout(() => {
+        setTransitionState({
+          visible: true,
+          entering: true,
+          exitingContent: null,
+        });
+      }, 215)
+    );
+
+    return () => {
+      timersRef.current.forEach((timer) => window.clearTimeout(timer));
+      timersRef.current = [];
+    };
+  }, [transitionKey]);
+
+  useEffect(() => {
+    if (!transitionState.exitingContent && transitionState.visible) {
+      lastChildrenRef.current = children;
+    }
+  }, [children, transitionState.exitingContent, transitionState.visible]);
+
+  return (
+    <div className="soft-login-content-stage">
+      {transitionState.exitingContent && (
+        <div
+          key={`exit-${transitionState.exitingContent.key}`}
+          className="soft-login-content-panel soft-login-content-panel-exit"
+          aria-hidden="true"
+        >
+          {transitionState.exitingContent.node}
+        </div>
+      )}
+      {transitionState.visible && (
+        <div
+          key={`enter-${transitionKey}`}
+          className={`soft-login-content-panel ${
+            transitionState.entering ? "soft-login-content-panel-enter" : ""
+          }`}
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1290,32 +1265,50 @@ function TrustedDeviceQuickLoginSlot({
   );
 }
 
-function AppleAuthShell({ children, loginLogo, isCustomLogo }) {
+export function SoftLoginShell({ children, loginLogo, isCustomLogo }) {
   return (
-    <div
-      className="fixed inset-0 flex min-h-screen flex-col overflow-y-auto overflow-x-hidden px-4 py-8 text-slate-950"
-      style={{
-        fontFamily: "var(--athena-font-sans)",
-        backgroundColor: "#F5F5F7",
-        backgroundImage:
-          "radial-gradient(circle at 50% -8%, rgba(255,255,255,0.95) 0, rgba(255,255,255,0.62) 28%, rgba(245,245,247,0) 58%), radial-gradient(circle at 6% 12%, rgba(0,122,255,0.08) 0, rgba(0,122,255,0) 30%), radial-gradient(circle at 94% 80%, rgba(142,142,147,0.11) 0, rgba(142,142,147,0) 34%)",
-      }}
-    >
-      <main className="flex flex-1 items-center justify-center py-8">
-        <section className="relative w-full min-h-[560px] max-w-[540px] rounded-[34px] border border-white/80 bg-white/90 px-8 py-10 shadow-[0_24px_70px_rgba(15,23,42,0.12)] backdrop-blur-xl sm:px-14 sm:py-14">
+    <div className="soft-login-page text-slate-950">
+      <SoftLoginVisual />
+
+      <main className="soft-login-panel">
+        <section className="soft-login-card">
           <BrandHeader loginLogo={loginLogo} isCustomLogo={isCustomLogo} />
           {children}
         </section>
+        <footer className="soft-login-footer">
+          <span>Athena</span>
+          <span>Privacy</span>
+          <span>Terms</span>
+          <span>Version</span>
+        </footer>
       </main>
-      <footer className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 pb-2 text-xs font-medium text-slate-400">
-        <span>Athena</span>
-        <span>Privacy</span>
-        <span>Terms</span>
-        <span>Version</span>
-      </footer>
     </div>
   );
 }
+
+const SoftLoginVisual = React.memo(function SoftLoginVisual() {
+  return (
+    <section className="soft-login-visual" aria-hidden="true">
+      <div className="soft-login-copy">
+        <h1>Athena</h1>
+        <p className="soft-login-copy-subtitle">Knowledge Operating System</p>
+        <p className="soft-login-copy-tagline">知识 · 智能 · 连接未来</p>
+        <p className="soft-login-copy-description">
+          为个人与团队打造的智能知识中枢
+        </p>
+      </div>
+      <img
+        src="/login/athena-soft-login-cube.png"
+        alt=""
+        className="soft-login-cube"
+        draggable={false}
+      />
+      <span className="soft-login-orb soft-login-orb-one" />
+      <span className="soft-login-orb soft-login-orb-two" />
+      <span className="soft-login-orb soft-login-orb-three" />
+    </section>
+  );
+});
 
 function BrandHeader({ loginLogo, isCustomLogo }) {
   return (

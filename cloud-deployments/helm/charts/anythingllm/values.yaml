@@ -8,7 +8,7 @@ initContainers: []
 image:
   repository: mintplexlabs/anythingllm
   pullPolicy: IfNotPresent
-  tag: "1.12.1"
+  tag: "2.1.1"
 
 imagePullSecrets: []
 nameOverride: ""
@@ -266,4 +266,3 @@ extraObjects: []
 #         remoteRef:
 #           key: secret/data/anything-llm
 #           property: open_ai_key
-

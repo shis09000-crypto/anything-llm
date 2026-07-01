@@ -1,5 +1,10 @@
 const prisma = require("../utils/prisma");
-const { decryptWorkspaceChatRecords } = require("../utils/security");
+const {
+  chatHistoryEncryptionEnabled,
+  decryptSecretIfNeeded,
+  decryptWorkspaceChatRecordsAsync,
+  encryptSecret,
+} = require("../utils/security");
 
 const SUMMARY_FORMAT = "thread-compact-markdown-v1";
 const CAPSULE_FORMAT = "conversation-state-capsule-json-v1";
@@ -71,9 +76,11 @@ function normalizeRow(row = null) {
     user_id: row.user_id === null ? null : Number(row.user_id),
     thread_id: row.thread_id === null ? null : Number(row.thread_id),
     api_session_id: row.api_session_id || null,
-    summary: row.summary,
+    summary: decryptCompactionField(row.summary),
     summary_format: row.summary_format || SUMMARY_FORMAT,
-    capsule_json: row.capsule_json || null,
+    capsule_json: row.capsule_json
+      ? decryptCompactionField(row.capsule_json)
+      : null,
     covered_chat_ids: row.covered_chat_ids || "[]",
     covered_from_chat_id:
       row.covered_from_chat_id === null
@@ -89,6 +96,18 @@ function normalizeRow(row = null) {
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function encryptCompactionField(value = null) {
+  if (value === null || value === undefined) return value;
+  const text = String(value);
+  if (!chatHistoryEncryptionEnabled()) return text;
+  return encryptSecret(text);
+}
+
+function decryptCompactionField(value = null) {
+  if (value === null || value === undefined) return value;
+  return decryptSecretIfNeeded(value);
 }
 
 async function ensureTable() {
@@ -178,9 +197,11 @@ const WorkspaceChatCompaction = {
       scope.user_id,
       scope.thread_id,
       scope.api_session_id,
-      String(data.summary || ""),
+      encryptCompactionField(String(data.summary || "")),
       data.summary_format || SUMMARY_FORMAT,
-      data.capsule_json ? String(data.capsule_json) : null,
+      data.capsule_json
+        ? encryptCompactionField(String(data.capsule_json))
+        : null,
       data.covered_chat_ids || "[]",
       data.covered_from_chat_id ?? null,
       data.covered_to_chat_id ?? null,
@@ -225,7 +246,7 @@ const WorkspaceChatCompaction = {
       ${limit !== null ? "LIMIT ?" : ""}`,
       ...params
     );
-    return decryptWorkspaceChatRecords(rows || []);
+    return await decryptWorkspaceChatRecordsAsync(rows || []);
   },
 
   async deleteForScope(scope = {}) {

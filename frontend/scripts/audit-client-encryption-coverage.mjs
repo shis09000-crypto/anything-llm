@@ -48,6 +48,7 @@ const files = {
     "src/utils/security/clearSensitiveClientState.js"
   ),
   vaultCrypto: read("src/utils/security/vaultCrypto.js"),
+  vaultClient: read("src/lib/communication/vaultClient.js"),
   zkLoginStorage: read("src/utils/zkLoginStorage.js"),
   threadHistoryCache: read("src/utils/chat/threadHistoryCache.js"),
   readerStorage: read(
@@ -166,6 +167,17 @@ const requiredChecks = [
       has(files.vaultCrypto, "assertVaultUnlocked"),
   },
   {
+    id: "vault-client-access-grant-memory-only",
+    area: "vault",
+    pass:
+      has(files.vaultClient, "VAULT_GRANT_HEADER") &&
+      has(files.vaultClient, "requestVaultAccessGrantWithPassword") &&
+      has(files.vaultClient, "clearVaultAccessGrant") &&
+      has(files.vaultClient, "lockRemoteVault") &&
+      notHas(files.vaultClient, /localStorage\.(setItem|getItem)/) &&
+      notHas(files.vaultClient, /sessionStorage\.(setItem|getItem)/),
+  },
+  {
     id: "zk-login-device-secret-wrapped",
     area: "device-trust",
     pass:
@@ -199,6 +211,11 @@ const forbiddenPatterns = [
   {
     id: "signing-secret-local-storage",
     pattern: /localStorage[\s\S]{0,120}athena_signing_secret_v1/,
+    severity: "high",
+  },
+  {
+    id: "vault-grant-durable-storage",
+    pattern: /(localStorage|sessionStorage)[\s\S]{0,120}(vaultGrant|X-Athena-Vault-Grant)/,
     severity: "high",
   },
   {

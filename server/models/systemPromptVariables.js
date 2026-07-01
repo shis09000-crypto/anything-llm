@@ -1,5 +1,11 @@
 const prisma = require("../utils/prisma");
 const moment = require("moment");
+const {
+  MASTER_KEY_ENV,
+  isSecretEncrypted,
+  readSecret,
+  saveSecret,
+} = require("../utils/security");
 
 /**
  * @typedef {Object} SystemPromptVariable
@@ -120,7 +126,7 @@ const SystemPromptVariables = {
     const variable = await prisma.system_prompt_variables.findUnique({
       where: { key: String(key) },
     });
-    return variable;
+    return publicPromptVariable(variable);
   },
 
   /**
@@ -133,14 +139,8 @@ const SystemPromptVariables = {
     // All user-defined system variables are available to everyone globally since only admins can create them.
     const userDefinedSystemVariables =
       await prisma.system_prompt_variables.findMany();
-    const formattedDbVars = userDefinedSystemVariables.map((v) => ({
-      id: v.id,
-      key: v.key,
-      value: v.value,
-      description: v.description,
-      type: v.type,
-      userId: v.userId,
-    }));
+    const formattedDbVars =
+      userDefinedSystemVariables.map(publicPromptVariable);
 
     // If userId is not provided, filter the default variables to only include non-multiUserRequired variables
     // since we wont be able to dynamically inject user-related content.
@@ -164,15 +164,17 @@ const SystemPromptVariables = {
     userId = null,
   }) {
     await this._checkVariableKey(key, true);
-    return await prisma.system_prompt_variables.create({
-      data: {
-        key: String(key),
-        value: String(value),
-        description: description ? String(description) : null,
-        type: type ? String(type) : "static",
-        userId: userId ? Number(userId) : null,
-      },
-    });
+    return await prisma.system_prompt_variables
+      .create({
+        data: {
+          key: String(key),
+          value: encryptPromptVariableValue(value),
+          description: description ? String(description) : null,
+          type: type ? String(type) : "static",
+          userId: userId ? Number(userId) : null,
+        },
+      })
+      .then(publicPromptVariable);
   },
 
   /**
@@ -189,14 +191,16 @@ const SystemPromptVariables = {
     if (!existingRecord) throw new Error("System prompt variable not found");
     await this._checkVariableKey(key, false);
 
-    return await prisma.system_prompt_variables.update({
-      where: { id: existingRecord.id },
-      data: {
-        key: String(key),
-        value: String(value),
-        description: description ? String(description) : null,
-      },
-    });
+    return await prisma.system_prompt_variables
+      .update({
+        where: { id: existingRecord.id },
+        data: {
+          key: String(key),
+          value: encryptPromptVariableValue(value),
+          description: description ? String(description) : null,
+        },
+      })
+      .then(publicPromptVariable);
   },
 
   /**
@@ -360,6 +364,33 @@ const SystemPromptVariables = {
 
 function normalizeUserBioForPrompt(bio = "") {
   return String(bio || "").replace(/^你的身份:/gm, "模型的身份:");
+}
+
+function promptVariableEncryptionConfigured() {
+  return Boolean(String(process.env[MASTER_KEY_ENV] || "").trim());
+}
+
+function encryptPromptVariableValue(value = "") {
+  const text = String(value);
+  if (!promptVariableEncryptionConfigured() || isSecretEncrypted(text))
+    return text;
+  return saveSecret(text);
+}
+
+function decryptPromptVariableValue(value = "") {
+  return readSecret(value);
+}
+
+function publicPromptVariable(variable = null) {
+  if (!variable) return null;
+  return {
+    id: variable.id,
+    key: variable.key,
+    value: decryptPromptVariableValue(variable.value),
+    description: variable.description,
+    type: variable.type,
+    userId: variable.userId,
+  };
 }
 
 module.exports = { SystemPromptVariables };

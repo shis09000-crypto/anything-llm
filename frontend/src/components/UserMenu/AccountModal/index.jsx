@@ -25,6 +25,7 @@ import paths from "@/utils/paths";
 import { createPortal } from "react-dom";
 import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
+import { confirmSignOut } from "@/utils/authSignOutConfirm";
 import {
   USERNAME_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
@@ -165,6 +166,14 @@ export default function AccountModal({ user, hideModal }) {
 
   async function signOut() {
     if (closingRef.current) return;
+    const confirmed = await confirmSignOut({
+      title: t("profile_settings.signout_confirm_title"),
+      description: t("profile_settings.signout_confirm_description"),
+      confirmText: t("profile_settings.signout_confirm_action"),
+      cancelText: t("profile_settings.cancel"),
+    });
+    if (!confirmed) return;
+
     closingRef.current = true;
     const saved = await saveIfChanged();
     closingRef.current = false;

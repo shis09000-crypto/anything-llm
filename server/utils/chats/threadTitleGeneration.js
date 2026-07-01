@@ -5,7 +5,7 @@ const { getTaskConnector } = require("../llmTasks");
 const { WorkspaceThread } = require("../../models/workspaceThread");
 const { publishThreadTitleUpdate } = require("./threadTitleEvents");
 const {
-  decryptWorkspaceChatRecords,
+  decryptWorkspaceChatRecordsAsync,
 } = require("../security/chatHistoryEncryption");
 
 const TITLE_GENERATION_TIMEOUT_MS = 15_000;
@@ -253,7 +253,7 @@ async function userPromptsForScope({
 }) {
   const clause = visibleThreadChatClause({ workspaceId, threadId, userId });
   if (scope === TITLE_SCOPES.firstUserMessage) {
-    const chats = decryptWorkspaceChatRecords(
+    const chats = await decryptWorkspaceChatRecordsAsync(
       await prisma.workspace_chats.findMany({
         where: clause,
         take: 1,
@@ -264,7 +264,7 @@ async function userPromptsForScope({
   }
 
   if (scope === TITLE_SCOPES.firstFiveUserMessages) {
-    const chats = decryptWorkspaceChatRecords(
+    const chats = await decryptWorkspaceChatRecordsAsync(
       await prisma.workspace_chats.findMany({
         where: clause,
         take: 5,
@@ -274,7 +274,7 @@ async function userPromptsForScope({
     return chats.map((chat) => chat.prompt);
   }
 
-  const chats = decryptWorkspaceChatRecords(
+  const chats = await decryptWorkspaceChatRecordsAsync(
     await prisma.workspace_chats.findMany({
       where: clause,
       take: 5,

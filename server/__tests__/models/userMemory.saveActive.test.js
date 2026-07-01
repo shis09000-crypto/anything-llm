@@ -157,6 +157,39 @@ describe("UserMemory.saveActiveMemory", () => {
     });
   });
 
+  test("archives replaced sensitive memory without decrypted plaintext", async () => {
+    tx.user_memory_blocks.findMany.mockResolvedValueOnce([
+      {
+        id: 7,
+        userId: 7001,
+        category: "facts",
+        title: "••••••••",
+        detail: "••••••••",
+        source: "manual",
+        confidence: "中",
+        updatedAt: new Date("2026-06-20T00:00:00Z"),
+        isSensitive: true,
+        encryptedPayload:
+          'encrypted:{"title":"旧敏感标题","detail":"旧敏感内容"}',
+      },
+    ]);
+
+    await UserMemory.saveActiveMemory(7001, {
+      category: "facts",
+      title: "旧敏感标题",
+      detail: "新敏感内容",
+      source: "manual",
+      confidence: "高",
+      isSensitive: true,
+    });
+
+    const archivePayload =
+      tx.user_memory_archives.create.mock.calls[0][0].data.oldValue;
+    expect(archivePayload).toContain("••••••••");
+    expect(archivePayload).not.toContain("旧敏感标题");
+    expect(archivePayload).not.toContain("旧敏感内容");
+  });
+
   test("updates an active non-sensitive memory by owner id", async () => {
     tx.user_memory_blocks.findFirst.mockResolvedValueOnce({
       id: 5,

@@ -2,6 +2,7 @@ const mockEnsureCompactionTable = jest.fn();
 const mockEnsureMindMapTable = jest.fn();
 const mockEnsureQuizTables = jest.fn();
 const mockTransaction = jest.fn();
+const mockRebuildChatCryptoChainForScope = jest.fn();
 
 const tx = {
   workspace_threads: {
@@ -42,12 +43,18 @@ jest.mock("../../utils/quiz/learningRecords", () => ({
   ensureQuizLearningTables: (...args) => mockEnsureQuizTables(...args),
 }));
 
+jest.mock("../../utils/security/chatHistorySerialEncryption", () => ({
+  rebuildChatCryptoChainForScope: (...args) =>
+    mockRebuildChatCryptoChainForScope(...args),
+}));
+
 describe("WorkspaceThread.moveToWorkspace", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockEnsureCompactionTable.mockResolvedValue();
     mockEnsureMindMapTable.mockResolvedValue();
     mockEnsureQuizTables.mockResolvedValue();
+    mockRebuildChatCryptoChainForScope.mockResolvedValue({ rebuilt: 2 });
     mockTransaction.mockImplementation((callback) => callback(tx));
     tx.workspace_threads.findFirst.mockResolvedValue({
       id: 7,
@@ -65,7 +72,9 @@ describe("WorkspaceThread.moveToWorkspace", () => {
       user_id: 2,
       thread_type: "chat",
     });
-    tx.workspace_chats.findMany.mockResolvedValue([{ id: 10 }, { id: 11 }]);
+    tx.workspace_chats.findMany
+      .mockResolvedValueOnce([{ id: 10 }, { id: 11 }])
+      .mockResolvedValueOnce([{ user_id: 2, api_session_id: null }]);
     tx.workspace_chats.updateMany.mockResolvedValue({ count: 2 });
     tx.workspace_parsed_files.updateMany.mockResolvedValue({ count: 1 });
     tx.workspace_agent_invocations.updateMany.mockResolvedValue({ count: 1 });
@@ -97,6 +106,15 @@ describe("WorkspaceThread.moveToWorkspace", () => {
       where: { workspaceId: 1, thread_id: 7 },
       data: expect.objectContaining({ workspaceId: 2 }),
     });
+    expect(mockRebuildChatCryptoChainForScope).toHaveBeenCalledWith(
+      {
+        workspaceId: 2,
+        userId: 2,
+        threadId: 7,
+        apiSessionId: null,
+      },
+      { client: tx, reencrypt: true }
+    );
     expect(tx.workspace_parsed_files.updateMany).toHaveBeenCalledWith({
       where: { workspaceId: 1, threadId: 7 },
       data: { workspaceId: 2 },

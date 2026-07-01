@@ -1,6 +1,6 @@
 {
   "name": "anything-llm-server",
-  "version": "1.12.1",
+  "version": "2.1.1",
   "description": "Server endpoints to process or create content for chatting",
   "main": "index.js",
   "author": "Timothy Carambat (Mintplex Labs)",
@@ -18,6 +18,17 @@
   },
   "prisma": {
     "seed": "node prisma/seed.js"
+  },
+  "jest": {
+    "modulePathIgnorePatterns": [
+      "<rootDir>/storage/"
+    ],
+    "testPathIgnorePatterns": [
+      "<rootDir>/storage/"
+    ],
+    "watchPathIgnorePatterns": [
+      "<rootDir>/storage/"
+    ]
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",

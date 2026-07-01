@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import System from "../../../models/system";
 import SingleUserAuth from "./SingleUserAuth";
-import MultiUserAuth from "./MultiUserAuth";
+import MultiUserAuth, { SoftLoginShell } from "./MultiUserAuth";
 import useLogo from "../../../hooks/useLogo";
 import { isCodexDevAuthBypassEnabled } from "@/utils/codexDevAuthBypass";
 import { getAuthToken } from "@/utils/authTokenStorage";
@@ -14,15 +14,9 @@ export default function PasswordModal({ mode = "single" }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-zinc-950 light:bg-slate-50 flex flex-col items-center justify-center overflow-hidden">
-      <img
-        src={loginLogo}
-        alt="Logo"
-        className={`max-h-[80px] ${isCustomLogo ? "rounded-lg" : ""}`}
-        style={{ objectFit: "contain" }}
-      />
+    <SoftLoginShell loginLogo={loginLogo} isCustomLogo={isCustomLogo}>
       <SingleUserAuth />
-    </div>
+    </SoftLoginShell>
   );
 }
 

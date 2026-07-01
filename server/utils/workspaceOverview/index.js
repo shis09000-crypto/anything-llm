@@ -15,7 +15,7 @@ const {
 } = require("../knowledgeGraph/recommendationAdapter");
 const { getOrScheduleWorkspaceOverviewNarrative } = require("./narrative");
 const {
-  decryptWorkspaceChatRecords,
+  decryptWorkspaceChatRecordsAsync,
 } = require("../security/chatHistoryEncryption");
 
 const FORMULA_VERSION = "overview-rec-v1";
@@ -752,7 +752,7 @@ async function getRecentChats(workspaceId, userId = 0, threadSlug = null) {
     ...params
   );
   return {
-    chats: decryptWorkspaceChatRecords(rows),
+    chats: await decryptWorkspaceChatRecordsAsync(rows),
     activeThread: threadRows?.[0] || null,
   };
 }

@@ -286,6 +286,14 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
   ) {
     return true;
   }
+  if (
+    ["POST", "DELETE"].includes(normalizedMethod) &&
+    /^\/vault\/(?:reauth\/password|access-grants(?:\/current)?|lock)$/.test(
+      normalizedPath
+    )
+  ) {
+    return true;
+  }
 
   return false;
 }

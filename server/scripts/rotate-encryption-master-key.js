@@ -12,9 +12,13 @@ const FIELD_SPECS = [
   { table: "api_keys", field: "secret" },
   { table: "browser_extension_api_keys", field: "key" },
   { table: "system_settings", field: "value" },
+  { table: "system_prompt_variables", field: "value" },
   { table: "user_memory_blocks", field: "encryptedPayload" },
   { table: "workspace_chats", field: "prompt" },
   { table: "workspace_chats", field: "response" },
+  { table: "workspace_chat_conversation_keys", field: "wrapped_key" },
+  { table: "workspace_chat_compactions", field: "summary" },
+  { table: "workspace_chat_compactions", field: "capsule_json" },
   { table: "athena_clients", field: "signingSecretEncrypted" },
 ];
 
@@ -80,7 +84,19 @@ function countValue(value) {
 
 async function rowsForField({ table, field, cursor = null }) {
   const delegate = prisma[table];
-  if (!delegate?.findMany) throw new Error(`unsupported_table:${table}`);
+  if (!delegate?.findMany) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT "id", "${field}" AS "value" FROM "${table}"
+        WHERE "${field}" LIKE ?
+        ${cursor ? `AND "id" > ?` : ""}
+        ORDER BY "id" ASC
+        LIMIT ?`,
+      `${PREFIX}%`,
+      ...(cursor ? [cursor] : []),
+      ROTATION_BATCH_SIZE
+    );
+    return rows.map((row) => ({ id: row.id, value: row.value }));
+  }
   const rows = await delegate.findMany({
     where: {
       [field]: { startsWith: PREFIX },
@@ -95,7 +111,13 @@ async function rowsForField({ table, field, cursor = null }) {
 
 async function updateField({ table, field, id, value }) {
   const delegate = prisma[table];
-  if (!delegate?.update) throw new Error(`unsupported_table:${table}`);
+  if (!delegate?.update) {
+    return prisma.$executeRawUnsafe(
+      `UPDATE "${table}" SET "${field}" = ? WHERE "id" = ?`,
+      value,
+      id
+    );
+  }
   return delegate.update({
     where: { id },
     data: { [field]: value },

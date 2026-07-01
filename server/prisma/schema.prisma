@@ -1219,6 +1219,44 @@ model workspace_chats {
   @@index([workspaceId, user_id, api_session_id, include, thread_id, createdAt, id], map: "workspace_chats_thread_activity_idx")
 }
 
+model workspace_chat_conversation_keys {
+  id             Int      @id @default(autoincrement())
+  key_id         String   @unique
+  scope_hash     String   @unique
+  workspace_id   Int
+  user_id        Int?
+  thread_id      Int?
+  api_session_id String?
+  wrapped_key    String
+  crypto_version String   @default("athena-chat-key:v1")
+  algorithm      String   @default("aes-256-gcm")
+  created_at     DateTime @default(now())
+  updated_at     DateTime @default(now())
+
+  @@index([workspace_id, user_id, thread_id, api_session_id])
+}
+
+model workspace_chat_crypto_metadata {
+  id                   Int      @id @default(autoincrement())
+  chat_id              Int      @unique
+  workspace_id         Int
+  user_id              Int?
+  thread_id            Int?
+  api_session_id       String?
+  scope_hash           String
+  key_id               String
+  crypto_version       String
+  prompt_cipher_hash   String
+  response_cipher_hash String
+  prev_chain_hash      String?
+  chain_hash           String
+  created_at           DateTime @default(now())
+  updated_at           DateTime @default(now())
+
+  @@index([scope_hash, chat_id])
+  @@index([key_id])
+}
+
 model workspace_chat_compactions {
   id                    Int      @id @default(autoincrement())
   workspace_id          Int

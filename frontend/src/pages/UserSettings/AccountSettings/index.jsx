@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import useUser from "@/hooks/useUser";
 import { userFromStorage } from "@/utils/request";
 import paths from "@/utils/paths";
@@ -18,9 +19,11 @@ import { AccountSettingsDataProvider } from "./AccountSettingsDataProvider";
 import { detectAuthCapability } from "@/utils/authCapability";
 import { canSeeAdmin } from "@/utils/authz";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
+import { confirmSignOut } from "@/utils/authSignOutConfirm";
 import "./styles.css";
 
 export default function AccountSettings() {
+  const { t } = useTranslation();
   const { user: contextUser } = useUser();
   const mainRef = useRef(null);
   const [localUser, setLocalUser] = useState(
@@ -204,7 +207,15 @@ export default function AccountSettings() {
     };
   }, [activeView]);
 
-  function signOut() {
+  async function signOut() {
+    const confirmed = await confirmSignOut({
+      title: t("profile_settings.signout_confirm_title"),
+      description: t("profile_settings.signout_confirm_description"),
+      confirmText: t("profile_settings.signout_confirm_action"),
+      cancelText: t("profile_settings.cancel"),
+    });
+    if (!confirmed) return;
+
     clearSensitiveClientSession();
     window.location.replace(paths.home());
   }

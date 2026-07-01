@@ -5,7 +5,12 @@ process.env.NODE_ENV === "development"
 const { default: slugify } = require("slugify");
 const { isValidUrl, safeJsonParse } = require("../utils/http");
 const prisma = require("../utils/prisma");
-const { readSecret, saveSecret } = require("../utils/security");
+const {
+  MASTER_KEY_ENV,
+  isSecretEncrypted,
+  readSecret,
+  saveSecret,
+} = require("../utils/security");
 const { MetaGenerator } = require("../utils/boot/MetaGenerator");
 const { PGVector } = require("../utils/vectorDbProviders/pgvector");
 const { NativeEmbedder } = require("../utils/EmbeddingEngines/native");
@@ -62,6 +67,38 @@ function setSecretField(target, source, fieldName) {
       ? saveSecret(source[fieldName])
       : null;
   }
+}
+
+function secretEncryptionConfigured() {
+  return Boolean(String(process.env[MASTER_KEY_ENV] || "").trim());
+}
+
+function encryptSettingSecret(value = null) {
+  if (value === null || value === undefined || value === "") return value;
+  const text = String(value);
+  if (!secretEncryptionConfigured() || isSecretEncrypted(text)) return text;
+  return saveSecret(text);
+}
+
+function decryptSettingSecret(value = null) {
+  if (value === null || value === undefined || value === "") return value;
+  return readSecret(value);
+}
+
+function normalizeSqlConnectionForStorage(connection = {}) {
+  if (!connection || typeof connection !== "object") return connection;
+  return {
+    ...connection,
+    connectionString: encryptSettingSecret(connection.connectionString),
+  };
+}
+
+function normalizeSqlConnectionForUse(connection = {}) {
+  if (!connection || typeof connection !== "object") return connection;
+  return {
+    ...connection,
+    connectionString: decryptSettingSecret(connection.connectionString),
+  };
 }
 
 const SystemSettings = {
@@ -397,7 +434,7 @@ const SystemSettings = {
         const updatedConnections = mergeConnections(
           existingConnections,
           safeJsonParse(updates, [])
-        );
+        ).map(normalizeSqlConnectionForStorage);
         return JSON.stringify(updatedConnections);
       } catch {
         console.error(`Failed to merge connections`);
@@ -1227,7 +1264,8 @@ const SystemSettings = {
     });
     if (!setting) return [];
 
-    const connections = safeJsonParse(setting.value, []).map((conn) => {
+    const connections = safeJsonParse(setting.value, []).map((storedConn) => {
+      const conn = normalizeSqlConnectionForUse(storedConn);
       let scheme = conn.engine;
       if (scheme === "sql-server") scheme = "mssql";
       if (scheme === "postgresql") scheme = "postgres";
@@ -1390,7 +1428,10 @@ const SystemSettings = {
  */
 function mergeConnections(existingConnections = [], updates = []) {
   const connectionsMap = new Map(
-    existingConnections.map((conn) => [conn.database_id, conn])
+    existingConnections.map((conn) => [
+      conn.database_id,
+      normalizeSqlConnectionForStorage(conn),
+    ])
   );
 
   for (const update of updates) {
@@ -1433,7 +1474,7 @@ function mergeConnections(existingConnections = [], updates = []) {
         connectionsMap.set(newId, {
           engine,
           database_id: newId,
-          connectionString,
+          connectionString: encryptSettingSecret(connectionString),
           ...(schema && { schema }),
         });
         break;
@@ -1454,7 +1495,7 @@ function mergeConnections(existingConnections = [], updates = []) {
         connectionsMap.set(slugifiedId, {
           engine,
           database_id: slugifiedId,
-          connectionString,
+          connectionString: encryptSettingSecret(connectionString),
           ...(schema && { schema }),
         });
         break;

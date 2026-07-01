@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const {
+  rebuildChatCryptoChainForScope,
+} = require("../utils/security/chatHistorySerialEncryption");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
 
@@ -487,6 +490,29 @@ const WorkspaceThread = {
             lastUpdatedAt: new Date(),
           },
         });
+
+        const movedChatScopes = await tx.workspace_chats.findMany({
+          where: {
+            workspaceId: targetWorkspaceId,
+            thread_id: threadId,
+          },
+          select: {
+            user_id: true,
+            api_session_id: true,
+          },
+          distinct: ["user_id", "api_session_id"],
+        });
+        for (const scope of movedChatScopes) {
+          await rebuildChatCryptoChainForScope(
+            {
+              workspaceId: targetWorkspaceId,
+              userId: scope.user_id ?? null,
+              threadId,
+              apiSessionId: scope.api_session_id ?? null,
+            },
+            { client: tx, reencrypt: true }
+          );
+        }
 
         await tx.workspace_parsed_files.updateMany({
           where: {

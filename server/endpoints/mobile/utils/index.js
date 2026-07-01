@@ -10,7 +10,7 @@ const {
   setSseTransportHeaders,
 } = require("../../../utils/security/transportSecurity");
 const {
-  decryptWorkspaceChatRecords,
+  decryptWorkspaceChatRecordsAsync,
 } = require("../../../utils/security/chatHistoryEncryption");
 
 /**
@@ -74,14 +74,16 @@ async function handleMobileCommand(request, response) {
         },
       })),
     ];
-    const chats = decryptWorkspaceChatRecords(
-      await prisma.workspace_chats.findMany({
-        where: {
-          workspaceId: workspace.id,
-          include: true,
-          ...(user ? { user_id: user.id } : {}),
-        },
-      })
+    const chats = (
+      await decryptWorkspaceChatRecordsAsync(
+        await prisma.workspace_chats.findMany({
+          where: {
+            workspaceId: workspace.id,
+            include: true,
+            ...(user ? { user_id: user.id } : {}),
+          },
+        })
+      )
     ).map((chat) => ({
       ...chat,
       // Create a dummy thread_id for the default thread so the chats can be mapped correctly.

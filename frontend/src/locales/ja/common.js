@@ -1864,6 +1864,10 @@ const readable = true;
     account: "アカウント",
     support: "サポート",
     signout: "ログアウト",
+    signout_confirm_title: "ログアウトしますか？",
+    signout_confirm_description:
+      "このデバイスの現在のセッションが消去されます。後で再度ログインできます。",
+    signout_confirm_action: "ログアウト",
   },
   customization: {
     interface: {

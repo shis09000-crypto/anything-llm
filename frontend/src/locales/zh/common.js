@@ -2036,6 +2036,10 @@ const readable = true;
     processing: "处理中...",
     support: "支援",
     signout: "登出",
+    signout_confirm_title: "确认退出登录？",
+    signout_confirm_description:
+      "退出后，此设备上的当前会话会被清除。你可以稍后重新登录。",
+    signout_confirm_action: "退出登录",
   },
   email_verification_errors: {
     not_found: "没有找到有效验证码，请重新发送验证码。",

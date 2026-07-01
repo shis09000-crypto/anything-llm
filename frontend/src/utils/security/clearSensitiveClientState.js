@@ -11,6 +11,8 @@ import { storageKeys } from "@/utils/appEnvironment";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { clearLocalCacheCryptoKeys } from "@/utils/security/localCacheCrypto";
+import { lockVault } from "@/utils/security/vaultCrypto";
+import { clearVaultAccessGrant } from "@/lib/communication/vaultClient";
 
 const CHAT_THREAD_DRAFT_PREFIX = "chat-thread-draft:";
 const CHAT_THREAD_ACTIVE_RUNNING_KEY = "chat-thread-active-running";
@@ -54,6 +56,8 @@ export function clearSensitiveClientSession({
   includeDurableCaches = true,
 } = {}) {
   if (includeDurableCaches) clearSensitiveClientCaches();
+  clearVaultAccessGrant();
+  lockVault();
   removeStoredAuthUser();
   removeLocalStorageKeys([AUTH_TIMESTAMP, LAST_USER_ACTION_AT]);
   removeAuthToken();

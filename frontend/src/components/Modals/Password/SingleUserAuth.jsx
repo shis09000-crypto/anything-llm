@@ -71,16 +71,16 @@ export default function SingleUserAuth() {
     <>
       <form
         onSubmit={handleLogin}
-        className="flex flex-col justify-center items-center"
+        className="flex w-full flex-col items-center justify-center"
       >
-        <div className="flex items-start justify-between pt-7 pb-9">
+        <div className="flex items-start justify-between pb-9">
           <div className="flex items-center flex-col gap-y-[18px] max-w-[300px]">
             <div className="flex gap-x-1">
-              <h3 className="text-white light:text-slate-950 text-3xl leading-[28px] font-medium text-center white-space-nowrap block">
+              <h3 className="block text-center text-3xl font-semibold leading-[28px] text-slate-950 whitespace-nowrap">
                 {t("login.multi-user.welcome")}
               </h3>
             </div>
-            <p className="text-zinc-400 light:text-zinc-600 text-sm text-center">
+            <p className="text-center text-sm font-medium text-slate-500">
               {t("login.sign-in", {
                 appName: customAppName || t("common.productName"),
               })}
@@ -90,13 +90,13 @@ export default function SingleUserAuth() {
         <div className="w-full px-12">
           <div className="w-full flex flex-col gap-y-3">
             <div className="w-full flex flex-col gap-y-2">
-              <label className="text-zinc-300 light:text-slate-800 text-sm">
+              <label className="text-sm font-semibold text-slate-700">
                 Password
               </label>
               <input
                 name="password"
                 type="password"
-                className="border-none bg-zinc-800 light:bg-slate-200 text-zinc-200 light:text-zinc-600 text-sm rounded-lg p-2.5 w-[300px] h-[34px] focus:outline-none focus:ring-1 focus:ring-sky-300"
+                className="h-12 w-[300px] rounded-2xl border border-slate-200/80 bg-slate-100/75 p-3 text-sm font-semibold text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-400/15"
                 required={true}
                 autoComplete="off"
               />
@@ -108,7 +108,7 @@ export default function SingleUserAuth() {
           <button
             disabled={loading}
             type="submit"
-            className="text-zinc-950 bg-white hover:bg-zinc-300 light:bg-sky-200 light:text-slate-950 light:hover:bg-sky-300 text-sm font-semibold rounded-lg border-primary-button h-[34px] w-full"
+            className="h-12 w-full rounded-2xl bg-gradient-to-br from-[#5ab0ff] via-[#007aff] to-[#0066d6] text-sm font-semibold text-white shadow-[0_16px_34px_rgba(0,122,255,0.2)] transition hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading
               ? t("login.multi-user.validating")

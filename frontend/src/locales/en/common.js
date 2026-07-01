@@ -2347,6 +2347,10 @@ const readable = true;
     processing: "Processing...",
     support: "Support",
     signout: "Sign out",
+    signout_confirm_title: "Sign out?",
+    signout_confirm_description:
+      "Your current session on this device will be cleared. You can sign in again later.",
+    signout_confirm_action: "Sign out",
   },
   email_verification_errors: {
     not_found:
