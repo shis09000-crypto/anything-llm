@@ -7,6 +7,11 @@ const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { parseAuthHeader } = require("../../http");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorText,
+} = require("../../security");
 const COLLECTION_REGEX = new RegExp(
   /^(?!\d+\.\d+\.\d+\.\d+$)(?!.*\.\.)(?=^[a-zA-Z0-9][a-zA-Z0-9_-]{1,61}[a-zA-Z0-9]$).{3,63}$/
 );
@@ -157,8 +162,12 @@ class Chroma extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(response.documents[0][i]);
-      result.sourceDocuments.push(response.metadatas[0][i]);
+      const text = decryptVectorText(response.documents[0][i]);
+      const metadata = decryptVectorMetadataText(
+        response.metadatas?.[0]?.[i] || {}
+      );
+      result.contextTexts.push(text);
+      result.sourceDocuments.push({ ...metadata, text });
       result.scores.push(similarity);
     });
 
@@ -237,11 +246,12 @@ class Chroma extends VectorDatabase {
             chunk.forEach((chunk) => {
               const id = uuidv4();
               const { id: _id, ...metadata } = chunk.metadata;
+              const text = encryptVectorText(metadata.text || "");
               documentVectors.push({ docId, vectorId: id });
               submission.ids.push(id);
               submission.embeddings.push(chunk.values);
-              submission.metadatas.push(metadata);
-              submission.documents.push(metadata.text);
+              submission.metadatas.push({ ...metadata, text });
+              submission.documents.push(text);
             });
 
             await this.smartAdd(collection, submission);
@@ -292,13 +302,13 @@ class Chroma extends VectorDatabase {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           submission.ids.push(vectorRecord.id);
           submission.embeddings.push(vectorRecord.values);
-          submission.metadatas.push(metadata);
-          submission.documents.push(textChunks[i]);
+          submission.metadatas.push(vectorRecord.metadata);
+          submission.documents.push(vectorRecord.metadata.text);
 
           vectors.push(vectorRecord);
           documentVectors.push({ docId, vectorId: vectorRecord.id });
@@ -442,10 +452,11 @@ class Chroma extends VectorDatabase {
     for (const source of sources) {
       const { metadata = {} } = source;
       if (Object.keys(metadata).length > 0) {
+        const decryptedMetadata = decryptVectorMetadataText(metadata);
         documents.push({
-          ...metadata,
+          ...decryptedMetadata,
           ...(source.hasOwnProperty("pageContent")
-            ? { text: source.pageContent }
+            ? { text: decryptVectorText(source.pageContent) }
             : {}),
         });
       }

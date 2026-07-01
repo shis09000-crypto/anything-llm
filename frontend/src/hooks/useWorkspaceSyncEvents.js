@@ -2,19 +2,66 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { getClientIdentity } from "@/lib/communication";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { useSyncCenterEvents } from "@/hooks/useSyncCenterEvents";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 
 const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const HISTORY_REFRESH_DEBOUNCE_MS = 220;
+const THREADS_REFRESH_DEDUP_MS = 900;
+const recentThreadsRefreshes = new Map();
 
 function sameThread(left = null, right = null) {
   return (left || null) === (right || null);
 }
 
-function dispatchWorkspaceThreadsRefresh(workspaceSlug) {
+function eventCreatedAtMs(event = {}) {
+  const value = event?.createdAt ? Date.parse(event.createdAt) : NaN;
+  return Number.isFinite(value) ? value : Date.now();
+}
+
+function isOlderThan(updatedAt = 0, event = {}) {
+  if (!updatedAt) return false;
+  return eventCreatedAtMs(event) <= updatedAt;
+}
+
+function dispatchWorkspaceThreadsRefresh(workspaceSlug, detail = {}) {
   if (!workspaceSlug || typeof window === "undefined") return;
+  const key = [
+    workspaceSlug,
+    detail.threadSlug || "__workspace__",
+    detail.eventId || detail.createdAt || "__no_event__",
+    detail.reason || "refresh",
+  ].join(":");
+  const now = Date.now();
+  const lastAt = recentThreadsRefreshes.get(key) || 0;
+  if (now - lastAt < THREADS_REFRESH_DEDUP_MS) return;
+  recentThreadsRefreshes.set(key, now);
+  if (recentThreadsRefreshes.size > 100) {
+    for (const [entryKey, entryAt] of recentThreadsRefreshes) {
+      if (now - entryAt > THREADS_REFRESH_DEDUP_MS) {
+        recentThreadsRefreshes.delete(entryKey);
+      }
+    }
+  }
+  recordCommunicationEvent({
+    type: "workspace-threads-refresh-dispatch",
+    method: "EVENT",
+    path: WORKSPACE_THREADS_REFRESH_EVENT,
+    communicationScene: "workspace-navigation",
+    durationMs: 0,
+    requestBytes: 0,
+    responseBytes: 0,
+    ok: true,
+    workspaceSlug,
+    threadSlug: detail.threadSlug || null,
+    reason: detail.reason || "refresh",
+    source: detail.source || null,
+    eventId: detail.eventId || null,
+  });
   window.dispatchEvent(
     new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-      detail: { workspaceSlug },
+      detail: { workspaceSlug, ...detail },
     })
   );
 }
@@ -53,7 +100,6 @@ export function useWorkspaceSyncEvents({
   const handlePromptSubmitted = useCallback(
     (event) => {
       const threadSlug = event.threadSlug || null;
-      dispatchWorkspaceThreadsRefresh(event.workspaceSlug);
 
       if (event.senderClientId === clientId) return;
       if (!sameThread(threadSlug, activeThreadSlug)) return;
@@ -72,7 +118,6 @@ export function useWorkspaceSyncEvents({
   const handleChatFinished = useCallback(
     (event) => {
       const threadSlug = event.threadSlug || null;
-      dispatchWorkspaceThreadsRefresh(event.workspaceSlug);
       if (sameThread(threadSlug, activeThreadSlug)) {
         scheduleHistoryRefresh({
           threadSlug,
@@ -86,7 +131,6 @@ export function useWorkspaceSyncEvents({
   const handleChatFailed = useCallback(
     (event) => {
       const threadSlug = event.threadSlug || null;
-      dispatchWorkspaceThreadsRefresh(event.workspaceSlug);
       if (!sameThread(threadSlug, activeThreadSlug) || !event.clientTurnId)
         return;
 
@@ -112,6 +156,7 @@ export function useWorkspaceSyncEvents({
           : event.type;
     return {
       eventId: event.eventId,
+      namespace: event.namespace || null,
       type,
       workspaceId: event.scope?.workspaceId ?? null,
       workspaceSlug: payload.workspaceSlug || null,
@@ -131,15 +176,64 @@ export function useWorkspaceSyncEvents({
   const handleWorkspaceEvent = useCallback(
     (event) => {
       event = workspaceEventFromSyncEvent(event);
-      if (!event?.type || event.workspaceSlug !== workspaceSlug) return;
+      if (!event?.type) return;
+
+      if (event.namespace === "workspace") {
+        const workspacesMeta = workspaceNavigationCache.getWorkspacesMeta();
+        if (isOlderThan(workspacesMeta.updatedAt, event)) return;
+        switch (event.type) {
+          case "created":
+          case "workspace_created":
+            return;
+          case "updated":
+          case "workspace_updated":
+            if (event.workspaceSlug) {
+              workspaceNavigationCache.invalidateWorkspaceDetail(
+                event.workspaceSlug
+              );
+            }
+            return;
+          case "deleted":
+          case "workspace_deleted":
+            if (event.workspaceSlug) {
+              workspaceNavigationCache.invalidateWorkspaceDetail(
+                event.workspaceSlug
+              );
+              workspaceNavigationCache.invalidateThreads(event.workspaceSlug);
+            }
+            return;
+          default:
+            return;
+        }
+      }
+
+      if (event.workspaceSlug !== workspaceSlug) return;
 
       switch (event.type) {
         case "thread_created":
         case "thread_updated":
-          dispatchWorkspaceThreadsRefresh(event.workspaceSlug);
+          if (
+            isOlderThan(
+              workspaceNavigationCache.getThreadsMeta(event.workspaceSlug)
+                .updatedAt,
+              event
+            )
+          ) {
+            return;
+          }
+          workspaceNavigationCache.invalidateThreads(event.workspaceSlug);
           return;
         case "thread_deleted":
-          dispatchWorkspaceThreadsRefresh(event.workspaceSlug);
+          if (
+            isOlderThan(
+              workspaceNavigationCache.getThreadsMeta(event.workspaceSlug)
+                .updatedAt,
+              event
+            )
+          ) {
+            return;
+          }
+          workspaceNavigationCache.invalidateThreads(event.workspaceSlug);
           if (sameThread(event.threadSlug, activeThreadSlug)) {
             onThreadDeleted?.(event);
           }
@@ -192,4 +286,86 @@ export function useWorkspaceSyncEvents({
       refreshTimersRef.current.clear();
     };
   }, []);
+}
+
+export function useWorkspaceNavigationSyncInvalidation({
+  enabled = true,
+} = {}) {
+  const handleNavigationEvent = useCallback((event = {}) => {
+    const payload = event.payload || {};
+    const workspaceSlug = payload.workspaceSlug || null;
+    const isWorkspaceEvent = event.namespace === "workspace";
+    const isThreadEvent = event.namespace === "thread";
+
+    if (isWorkspaceEvent) {
+      const workspacesMeta = workspaceNavigationCache.getWorkspacesMeta();
+      if (isOlderThan(workspacesMeta.updatedAt, event)) return;
+      switch (event.type) {
+        case "created":
+        case "workspace_created":
+          dispatchWorkspacesRefresh(null, {
+            force: true,
+            source: "sync-center",
+            createdAt: event.createdAt,
+            eventId: event.eventId,
+          });
+          return;
+        case "updated":
+        case "workspace_updated":
+          if (workspaceSlug) {
+            workspaceNavigationCache.invalidateWorkspaceDetail(workspaceSlug);
+          }
+          dispatchWorkspacesRefresh(null, {
+            force: true,
+            source: "sync-center",
+            createdAt: event.createdAt,
+            eventId: event.eventId,
+          });
+          return;
+        case "deleted":
+        case "workspace_deleted":
+          if (workspaceSlug) {
+            workspaceNavigationCache.invalidateWorkspaceDetail(workspaceSlug);
+            workspaceNavigationCache.invalidateThreads(workspaceSlug);
+          }
+          dispatchWorkspacesRefresh(null, {
+            force: true,
+            source: "sync-center",
+            createdAt: event.createdAt,
+            eventId: event.eventId,
+          });
+          return;
+        default:
+          return;
+      }
+    }
+
+    if (isThreadEvent && workspaceSlug) {
+      const threadsMeta =
+        workspaceNavigationCache.getThreadsMeta(workspaceSlug);
+      if (isOlderThan(threadsMeta.updatedAt, event)) return;
+      workspaceNavigationCache.invalidateThreads(workspaceSlug);
+      dispatchWorkspaceThreadsRefresh(workspaceSlug, {
+        force: false,
+        source: "sync-center",
+        createdAt: event.createdAt,
+        eventId: event.eventId,
+        threadSlug: payload.threadSlug || null,
+        reason: event.type || "thread",
+      });
+    }
+  }, []);
+
+  const syncHandlers = useMemo(
+    () => ({
+      "thread.*": handleNavigationEvent,
+      "workspace.*": handleNavigationEvent,
+    }),
+    [handleNavigationEvent]
+  );
+
+  useSyncCenterEvents({
+    handlers: syncHandlers,
+    enabled,
+  });
 }

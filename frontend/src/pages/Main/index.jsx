@@ -1,9 +1,12 @@
 import React from "react";
-import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
+import PasswordModal, {
+  AuthBootstrapError,
+  usePasswordModal,
+} from "@/components/Modals/Password";
 import { FullScreenLoader } from "@/components/Preloader";
 import Home from "./Home";
-import { isMobile } from "react-device-detect";
 import Sidebar from "@/components/Sidebar";
+import { mobileRuntimeActive } from "@/utils/mobileRuntime";
 
 const MobileWebPwa = React.lazy(() =>
   import("@/components/MobileWeb").then((module) => ({
@@ -12,13 +15,14 @@ const MobileWebPwa = React.lazy(() =>
 );
 
 export default function Main() {
-  const { loading, requiresAuth, mode } = usePasswordModal();
+  const { loading, requiresAuth, mode, error } = usePasswordModal();
 
   if (loading) return <FullScreenLoader />;
+  if (error) return <AuthBootstrapError message={error} />;
   if (requiresAuth !== false)
     return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
 
-  if (isMobile) {
+  if (mobileRuntimeActive()) {
     return (
       <React.Suspense fallback={<FullScreenLoader />}>
         <MobileWebPwa />

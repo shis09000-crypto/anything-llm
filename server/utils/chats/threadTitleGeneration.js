@@ -4,6 +4,9 @@ const prisma = require("../prisma");
 const { getTaskConnector } = require("../llmTasks");
 const { WorkspaceThread } = require("../../models/workspaceThread");
 const { publishThreadTitleUpdate } = require("./threadTitleEvents");
+const {
+  decryptWorkspaceChatRecords,
+} = require("../security/chatHistoryEncryption");
 
 const TITLE_GENERATION_TIMEOUT_MS = 15_000;
 const TITLE_REFRESH_PAGE_SIZE =
@@ -250,28 +253,34 @@ async function userPromptsForScope({
 }) {
   const clause = visibleThreadChatClause({ workspaceId, threadId, userId });
   if (scope === TITLE_SCOPES.firstUserMessage) {
-    const chats = await prisma.workspace_chats.findMany({
-      where: clause,
-      take: 1,
-      orderBy: { id: "asc" },
-    });
+    const chats = decryptWorkspaceChatRecords(
+      await prisma.workspace_chats.findMany({
+        where: clause,
+        take: 1,
+        orderBy: { id: "asc" },
+      })
+    );
     return chats.map((chat) => chat.prompt);
   }
 
   if (scope === TITLE_SCOPES.firstFiveUserMessages) {
-    const chats = await prisma.workspace_chats.findMany({
-      where: clause,
-      take: 5,
-      orderBy: { id: "asc" },
-    });
+    const chats = decryptWorkspaceChatRecords(
+      await prisma.workspace_chats.findMany({
+        where: clause,
+        take: 5,
+        orderBy: { id: "asc" },
+      })
+    );
     return chats.map((chat) => chat.prompt);
   }
 
-  const chats = await prisma.workspace_chats.findMany({
-    where: clause,
-    take: 5,
-    orderBy: { id: "desc" },
-  });
+  const chats = decryptWorkspaceChatRecords(
+    await prisma.workspace_chats.findMany({
+      where: clause,
+      take: 5,
+      orderBy: { id: "desc" },
+    })
+  );
   return chats.reverse().map((chat) => chat.prompt);
 }
 

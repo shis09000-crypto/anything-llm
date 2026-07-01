@@ -12,7 +12,11 @@ const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
-const { issueUserSessionToken } = require("../utils/sessionIdle");
+const {
+  issueUserSessionToken,
+  sessionTokenOptionsFromClientContext,
+} = require("../utils/sessionIdle");
+const { getClientContext } = require("../utils/clientIdentity");
 
 const RP_NAME = process.env.PASSKEY_RP_NAME || "Athena";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
@@ -72,7 +76,7 @@ function authPasskeyEndpoints(app) {
           })),
           authenticatorSelection: {
             residentKey: "preferred",
-            userVerification: "preferred",
+            userVerification: "required",
             authenticatorAttachment: "platform",
           },
         });
@@ -232,7 +236,7 @@ function authPasskeyEndpoints(app) {
       assertSecurePasskeyOrigin(origin);
       const options = await generateAuthenticationOptions({
         rpID,
-        userVerification: "preferred",
+        userVerification: "required",
         allowCredentials: [],
       });
 
@@ -399,7 +403,9 @@ function authPasskeyEndpoints(app) {
         localUser.id
       );
 
-      const sessionToken = issueUserSessionToken(localUser);
+      const sessionToken = issueUserSessionToken(localUser, {
+        ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+      });
       return response.status(200).json({
         valid: true,
         user: User.filterFields(localUser),

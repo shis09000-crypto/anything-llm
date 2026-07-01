@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from "react";
+import { forwardRef, lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   Books,
   Clock,
@@ -28,9 +28,10 @@ import {
 } from "./storage";
 import { useDocumentReader } from "./Provider";
 import ReaderMarkdownRenderer from "./ReaderMarkdownRenderer";
-import XlsxReader from "./XlsxReader";
-import PdfReader from "./PdfReader";
-import EpubReader from "./EpubReader";
+
+const PdfReader = lazy(() => import("./PdfReader"));
+const EpubReader = lazy(() => import("./EpubReader"));
+const XlsxReader = lazy(() => import("./XlsxReader"));
 
 const READER_PROGRESS_AUTO_SAVE_INTERVAL_MS = 5000;
 const READER_FILE_PICKER_TYPES = [
@@ -65,6 +66,14 @@ const BOOKSHELF_SORT_OPTIONS = [
   { value: "title", label: "书名" },
   { value: "type", label: "文件类型" },
 ];
+
+function ReaderFormatLoading({ label = "正在加载阅读器..." }) {
+  return (
+    <div className="flex h-full min-h-[220px] items-center justify-center px-6 text-center text-sm text-white/60 light:text-slate-600">
+      {label}
+    </div>
+  );
+}
 
 function formatFileSize(size) {
   const bytes = Number(size || 0);
@@ -315,30 +324,38 @@ const ReaderBody = forwardRef(function ReaderBody(
     document.renderType === "pdf-preview"
   ) {
     return (
-      <PdfReader
-        ref={ref}
-        document={document}
-        onCite={onCite}
-        onThumbnailReady={onThumbnailReady}
-        onProgressChange={onProgressChange}
-        readerTextSources={readerTextSources}
-        onFocusTextSource={onFocusTextSource}
-        onRemoveTextSource={onRemoveTextSource}
-      />
+      <Suspense
+        fallback={<ReaderFormatLoading label="正在加载 PDF 阅读器..." />}
+      >
+        <PdfReader
+          ref={ref}
+          document={document}
+          onCite={onCite}
+          onThumbnailReady={onThumbnailReady}
+          onProgressChange={onProgressChange}
+          readerTextSources={readerTextSources}
+          onFocusTextSource={onFocusTextSource}
+          onRemoveTextSource={onRemoveTextSource}
+        />
+      </Suspense>
     );
   }
   if (document.documentType === "epub") {
     return (
-      <EpubReader
-        ref={ref}
-        document={document}
-        onCite={onCite}
-        onThumbnailReady={onThumbnailReady}
-        onProgressChange={onProgressChange}
-        readerTextSources={readerTextSources}
-        onFocusTextSource={onFocusTextSource}
-        onRemoveTextSource={onRemoveTextSource}
-      />
+      <Suspense
+        fallback={<ReaderFormatLoading label="正在加载 EPUB 阅读器..." />}
+      >
+        <EpubReader
+          ref={ref}
+          document={document}
+          onCite={onCite}
+          onThumbnailReady={onThumbnailReady}
+          onProgressChange={onProgressChange}
+          readerTextSources={readerTextSources}
+          onFocusTextSource={onFocusTextSource}
+          onRemoveTextSource={onRemoveTextSource}
+        />
+      </Suspense>
     );
   }
   if (["markdown", "docx"].includes(document.documentType)) {
@@ -353,7 +370,13 @@ const ReaderBody = forwardRef(function ReaderBody(
     );
   }
   if (document.documentType === "xlsx") {
-    return <XlsxReader document={document} onCite={onCite} />;
+    return (
+      <Suspense
+        fallback={<ReaderFormatLoading label="正在加载表格阅读器..." />}
+      >
+        <XlsxReader document={document} onCite={onCite} />
+      </Suspense>
+    );
   }
   return (
     <p className="text-sm text-white/50 light:text-slate-500">

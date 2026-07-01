@@ -15,12 +15,21 @@ export default function GeneralInfo({ slug }) {
   const formEl = useRef(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchWorkspace() {
-      const workspace = await Workspace.bySlug(slug);
+      const workspace = await Workspace.bySlug(slug, {
+        signal: controller.signal,
+        communicationScene: "settings-tab",
+      });
+      if (controller.signal.aborted) return;
       setWorkspace(workspace);
       setLoading(false);
     }
-    fetchWorkspace();
+    fetchWorkspace().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
   }, [slug]);
 
   const handleUpdate = async (e) => {

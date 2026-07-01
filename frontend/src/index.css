@@ -681,12 +681,16 @@
 }
 
 [data-theme="light"] .liquid-glass-user-message-bubble,
-[data-theme="light"] .button-lab-message-glass-bubble {
+[data-theme="light"] .button-lab-message-glass-bubble,
+.light .liquid-glass-user-message-bubble,
+.light .button-lab-message-glass-bubble {
   color: rgb(15 23 42 / var(--user-message-glass-text-alpha));
 }
 
 [data-theme="light"] .liquid-glass-user-message-bubble .glass,
-[data-theme="light"] .button-lab-message-glass-bubble .glass {
+[data-theme="light"] .button-lab-message-glass-bubble .glass,
+.light .liquid-glass-user-message-bubble .glass,
+.light .button-lab-message-glass-bubble .glass {
   background: var(--user-message-glass-tint-light) !important;
 }
 
@@ -987,7 +991,7 @@
   overflow-wrap: anywhere;
   overflow: hidden;
   color: var(--overview-text-primary, rgb(15 23 42 / 0.96));
-  font-family: "Songti SC", STSong, "Noto Serif CJK SC", serif;
+  font-family: var(--athena-font-serif-cjk);
   font-size: clamp(34px, 9vw, 42px);
   font-weight: 600;
   letter-spacing: 0;

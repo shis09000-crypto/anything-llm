@@ -1,4 +1,16 @@
+const fs = require("fs");
 const nodemailer = require("nodemailer");
+const path = require("path");
+const {
+  DEFAULT_LOGO_CID,
+  maskedEmail: templateMaskedEmail,
+  normalizeLanguage,
+  publicAppOrigin,
+  renderSecurityNotificationEmail,
+  renderVerificationEmail,
+} = require("./templates");
+
+const DEFAULT_LOGO_PATH = path.resolve(__dirname, "assets", "athena-logo.png");
 
 function smtpConfig() {
   const host = process.env.EMAIL_SMTP_HOST;
@@ -17,10 +29,7 @@ function isConfigured() {
 }
 
 function maskedEmail(email = "") {
-  const [name = "", domain = ""] = String(email).split("@");
-  if (!name || !domain) return "";
-  const visible = name.length <= 2 ? name[0] : `${name[0]}${name.slice(-1)}`;
-  return `${visible}${"*".repeat(Math.max(name.length - visible.length, 2))}@${domain}`;
+  return templateMaskedEmail(email);
 }
 
 function transporter() {
@@ -33,111 +42,89 @@ function transporter() {
   });
 }
 
-function normalizeLanguage(language = "") {
-  const value = String(language || "")
-    .trim()
-    .toLowerCase();
-  const primary = value.split(",")[0]?.trim() || "";
-  if (!primary) return "en";
-  if (primary.startsWith("zh")) return "zh";
-  return primary.split("-")[0] || "en";
+function logoAttachmentFor(html = "", attachments = []) {
+  const hasInlineLogo = String(html || "").includes(`cid:${DEFAULT_LOGO_CID}`);
+  const alreadyAttached = attachments.some(
+    (attachment) => attachment?.cid === DEFAULT_LOGO_CID
+  );
+  if (!hasInlineLogo || alreadyAttached) return [];
+
+  const logoPath = process.env.EMAIL_BRAND_LOGO_PATH || DEFAULT_LOGO_PATH;
+  if (!fs.existsSync(logoPath)) return [];
+
+  return [
+    {
+      filename: "athena-logo.png",
+      path: logoPath,
+      cid: DEFAULT_LOGO_CID,
+      contentType: "image/png",
+      contentDisposition: "inline",
+    },
+  ];
 }
 
-const verificationLocaleCopy = {
-  zh: {
-    bindEmail: {
-      purpose: "绑定或更换邮箱",
-      subject: "Athena 邮箱验证码",
-      bodyLabel: "你的 Athena 绑定或更换邮箱验证码是：",
-      expiry: "验证码 10 分钟内有效，请勿转发给他人。",
-      caution: "如果这不是你本人操作，请忽略本邮件，并尽快检查账号安全。",
-    },
-    passwordReset: {
-      purpose: "重置密码",
-      subject: "Athena 密码重置验证码",
-      bodyLabel: "你的 Athena 重置密码验证码是：",
-      expiry: "验证码 10 分钟内有效，请勿转发给他人。",
-      caution: "如果这不是你本人操作，请忽略本邮件，并尽快检查账号安全。",
-    },
-    register: {
-      purpose: "注册账号",
-      subject: "Athena 注册验证码",
-      bodyLabel: "你的 Athena 注册验证码是：",
-      expiry: "验证码 10 分钟内有效，请勿转发给他人。",
-      caution: "如果这不是你本人操作，请忽略本邮件。",
-    },
-  },
-  en: {
-    bindEmail: {
-      purpose: "email binding or change",
-      subject: "Athena Email Verification Code",
-      bodyLabel: "Your Athena email binding or change verification code is:",
-      expiry: "This code is valid for 10 minutes. Do not forward it to anyone.",
-      caution:
-        "If this wasn't you, please ignore this email and check account security right away.",
-    },
-    passwordReset: {
-      purpose: "password reset",
-      subject: "Athena Password Reset Verification Code",
-      bodyLabel: "Your Athena password reset verification code is:",
-      expiry: "This code is valid for 10 minutes. Do not forward it to anyone.",
-      caution:
-        "If this wasn't you, please ignore this email and check account security right away.",
-    },
-    register: {
-      purpose: "account registration",
-      subject: "Athena Registration Verification Code",
-      bodyLabel: "Your Athena registration verification code is:",
-      expiry: "This code is valid for 10 minutes. Do not forward it to anyone.",
-      caution: "If this wasn't you, please ignore this email.",
-    },
-  },
-};
-
-function getVerificationCopy({ purpose, language = "en" }) {
-  const locale = normalizeLanguage(language);
-  const copyBundle =
-    verificationLocaleCopy[locale] || verificationLocaleCopy.en;
-  if (purpose === "password_reset") return copyBundle.passwordReset;
-  if (purpose === "register") return copyBundle.register;
-  return copyBundle.bindEmail;
-}
-
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, subject, text, html, attachments = [] }) {
   if (!isConfigured()) throw new Error("email_smtp_not_configured");
   const { from } = smtpConfig();
-  return await transporter().sendMail({ from, to, subject, text, html });
+  const inlineAttachments = logoAttachmentFor(html, attachments);
+  const mailAttachments = [...inlineAttachments, ...attachments];
+  const payload = { from, to, subject, text, html };
+  if (mailAttachments.length) payload.attachments = mailAttachments;
+  return await transporter().sendMail(payload);
 }
 
-function verificationMessage({ code, purpose, language = "en" }) {
-  const copy = getVerificationCopy({ purpose, language });
-  const text = [
-    `${copy.bodyLabel} ${code}`,
-    "",
-    copy.expiry,
-    copy.caution,
-  ].join("\n");
-  const html = [
-    `<p>${copy.bodyLabel}</p>`,
-    `<p style="font-size:24px;font-weight:700;letter-spacing:6px;">${code}</p>`,
-    `<p>${copy.expiry}</p>`,
-    `<p>${copy.caution}</p>`,
-  ].join("");
-  return { subject: copy.subject, text, html };
+function verificationMessage({
+  code,
+  purpose,
+  language = "en",
+  securityContext = {},
+  brandLogoUrl = null,
+}) {
+  return renderVerificationEmail({
+    code,
+    purpose,
+    language,
+    securityContext,
+    brandLogoUrl,
+  });
 }
 
-async function sendVerificationCode({ to, code, purpose, language = "en" }) {
-  const message = verificationMessage({ code, purpose, language });
+async function sendVerificationCode({
+  to,
+  code,
+  purpose,
+  language = "en",
+  securityContext = {},
+  brandLogoUrl = null,
+}) {
+  const message = verificationMessage({
+    code,
+    purpose,
+    language,
+    securityContext,
+    brandLogoUrl,
+  });
   return await sendMail({ to, ...message });
 }
 
-async function sendSecurityNotification({ to, subject, text }) {
-  return await sendMail({
-    to,
+async function sendSecurityNotification({
+  to,
+  subject,
+  text,
+  language = "en",
+  securityContext = {},
+  variant = "info",
+  brandLogoUrl = null,
+}) {
+  const message = renderSecurityNotificationEmail({
     subject,
     text,
-    html: `<p>${String(text).replace(/\n/g, "<br />")}</p>`,
+    language,
+    securityContext,
+    variant,
+    brandLogoUrl,
   });
+  return await sendMail({ to, ...message });
 }
 
 module.exports = {
@@ -148,4 +135,10 @@ module.exports = {
   sendSecurityNotification,
   smtpConfig,
   normalizeLanguage,
+  publicAppOrigin,
+  verificationMessage,
+  _private: {
+    DEFAULT_LOGO_PATH,
+    logoAttachmentFor,
+  },
 };

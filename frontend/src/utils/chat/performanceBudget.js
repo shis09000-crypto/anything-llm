@@ -31,18 +31,47 @@ function pruneMarks() {
 function setDegraded(reason) {
   if (state.degraded) return;
   state.degraded = true;
-  document.documentElement.dataset.motionBudget = "degraded";
-  document.documentElement.classList.add("motion-budget-degraded");
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.motionBudget = "degraded";
+    document.documentElement.classList.add("motion-budget-degraded");
+  }
   requestPriorityQueue.setPaused("P3", true);
-  window.dispatchEvent(
-    new CustomEvent("workspacechat-performance-degraded", {
-      detail: { reason },
-    })
-  );
+  if (typeof window !== "undefined")
+    window.dispatchEvent(
+      new CustomEvent("workspacechat-performance-degraded", {
+        detail: { reason },
+      })
+    );
+}
+
+function performanceDebugEnabled() {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.localStorage.getItem("workspaceChatPerfDebug") === "true"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function exposePerformanceDebug() {
+  if (!performanceDebugEnabled()) return;
+  window.__anythingWorkspacePerf = {
+    snapshot: () => WorkspaceChatPerfMarks.snapshot(),
+    clear: () => {
+      state.marks.clear();
+      state.measures.splice(0, state.measures.length);
+      state.longTasks.splice(0, state.longTasks.length);
+      state.degraded = false;
+      return WorkspaceChatPerfMarks.snapshot();
+    },
+  };
 }
 
 export const WorkspaceChatPerfMarks = {
   mark(name) {
+    exposePerformanceDebug();
     state.marks.set(name, performance.now());
     pruneMarks();
   },
@@ -59,6 +88,7 @@ export const WorkspaceChatPerfMarks = {
     return measure;
   },
   recordLongTask(duration, label = "long-task") {
+    exposePerformanceDebug();
     pushBounded(
       state.longTasks,
       { duration, label, createdAt: Date.now() },
@@ -74,7 +104,9 @@ export const WorkspaceChatPerfMarks = {
       measures: [...state.measures],
       longTasks: [...state.longTasks],
       memory:
-        performance?.memory && typeof performance.memory === "object"
+        typeof performance !== "undefined" &&
+        performance?.memory &&
+        typeof performance.memory === "object"
           ? {
               usedJSHeapSize: performance.memory.usedJSHeapSize,
               totalJSHeapSize: performance.memory.totalJSHeapSize,
@@ -83,6 +115,8 @@ export const WorkspaceChatPerfMarks = {
     };
   },
 };
+
+exposePerformanceDebug();
 
 export function usePerformanceBudget() {
   return WorkspaceChatPerfMarks;

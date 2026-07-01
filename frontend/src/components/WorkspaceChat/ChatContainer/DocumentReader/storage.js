@@ -16,6 +16,10 @@ import {
   sanitizeReaderState,
   USER_STATE_NAMESPACES,
 } from "@/utils/userStateSync";
+import {
+  decryptLocalCachePayload,
+  encryptLocalCachePayload,
+} from "@/utils/security/localCacheCrypto";
 export { READER_DRAWER_OPEN_STORAGE_KEY };
 
 export const READER_SCHEMA_VERSION = 1;
@@ -42,6 +46,14 @@ export const READER_PROGRESS_BACKUP_STORAGE_KEY =
 export const READER_BOOK_MEMORY_STORAGE_KEY =
   "anythingllm_document_reader_book_memory:v1";
 export const UNKNOWN_READER_CATEGORY_ID = "unknown";
+const READER_HYDRATE_IDLE_DELAY_MS = 7_500;
+const READER_LOCAL_CACHE_CRYPTO_STORAGE_VERSION =
+  "athena-reader-local-cache:v1";
+let readerLibraryHydrateTimer = null;
+let readerProgressHydrateTimer = null;
+const readerLocalJsonCache = new Map();
+const readerLocalJsonDecrypting = new Set();
+const readerLocalJsonWriteVersions = new Map();
 
 export const ALLOWED_READER_EXTENSIONS = [
   ".md",
@@ -58,6 +70,24 @@ export function readerStorageKey() {
 
 export function readerSourcesStorageKey() {
   return READER_SOURCES_STORAGE_KEY;
+}
+
+export function readReaderCurrentDocument(fallback = null) {
+  return readReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY, fallback);
+}
+
+export function writeReaderCurrentDocument(document = null) {
+  if (!document)
+    return removeReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY);
+  return writeReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY, document);
+}
+
+export function readReaderSources(fallback = {}) {
+  return readReaderLocalJson(READER_SOURCES_STORAGE_KEY, fallback);
+}
+
+export function writeReaderSources(sources = {}) {
+  return writeReaderLocalJson(READER_SOURCES_STORAGE_KEY, sources || {});
 }
 
 export function readerHistoryStorageKey() {
@@ -80,15 +110,102 @@ function safeJson(value, fallback) {
   }
 }
 
+function readerLocalCacheNamespace(key = "") {
+  return `document-reader:${String(key || "").slice(0, 256)}`;
+}
+
+function isSealedReaderLocalValue(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    value.sealed === READER_LOCAL_CACHE_CRYPTO_STORAGE_VERSION &&
+    value.encryptedPayload
+  );
+}
+
+function readReaderLocalJson(key, fallback) {
+  if (!key) return fallback;
+  if (readerLocalJsonCache.has(key)) return readerLocalJsonCache.get(key);
+  const parsed = safeJson(localStorage.getItem(key), fallback);
+  if (!isSealedReaderLocalValue(parsed)) return parsed;
+  scheduleReaderLocalDecrypt(key, parsed.encryptedPayload);
+  return fallback;
+}
+
+function writeReaderLocalJson(key, value) {
+  if (!key) return;
+  readerLocalJsonCache.set(key, value);
+  const version = (readerLocalJsonWriteVersions.get(key) || 0) + 1;
+  readerLocalJsonWriteVersions.set(key, version);
+  localStorage.removeItem(key);
+  void encryptLocalCachePayload({
+    namespace: readerLocalCacheNamespace(key),
+    payload: value,
+  })
+    .then((encryptedPayload) => {
+      if (readerLocalJsonWriteVersions.get(key) !== version) return;
+      if (encryptedPayload?.encrypted !== true) {
+        localStorage.removeItem(key);
+        return;
+      }
+      localStorage.setItem(
+        key,
+        JSON.stringify({
+          sealed: READER_LOCAL_CACHE_CRYPTO_STORAGE_VERSION,
+          encryptedPayload,
+        })
+      );
+    })
+    .catch(() => {
+      if (readerLocalJsonWriteVersions.get(key) === version) {
+        localStorage.removeItem(key);
+      }
+    });
+}
+
+function removeReaderLocalJson(key) {
+  if (!key) return;
+  readerLocalJsonCache.delete(key);
+  readerLocalJsonWriteVersions.delete(key);
+  localStorage.removeItem(key);
+}
+
+function scheduleReaderLocalDecrypt(key, encryptedPayload) {
+  if (!key || readerLocalJsonDecrypting.has(key)) return;
+  readerLocalJsonDecrypting.add(key);
+  const writeVersion = readerLocalJsonWriteVersions.get(key) || 0;
+  void decryptLocalCachePayload({
+    namespace: readerLocalCacheNamespace(key),
+    encryptedPayload,
+  })
+    .then((value) => {
+      if ((readerLocalJsonWriteVersions.get(key) || 0) !== writeVersion) return;
+      readerLocalJsonCache.set(key, value);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("athena-reader-local-cache-hydrated", {
+            detail: { key },
+          })
+        );
+      }
+    })
+    .catch(() => {
+      removeReaderLocalJson(key);
+    })
+    .finally(() => {
+      readerLocalJsonDecrypting.delete(key);
+    });
+}
+
 let readerLibraryHydrated = false;
 let readerProgressHydrated = false;
 
 function rawReaderLibraryState() {
   return {
-    history: safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []),
-    bookshelf: safeJson(localStorage.getItem(READER_BOOKSHELF_STORAGE_KEY), []),
-    categories: safeJson(
-      localStorage.getItem(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY),
+    history: readReaderLocalJson(READER_HISTORY_STORAGE_KEY, []),
+    bookshelf: readReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, []),
+    categories: readReaderLocalJson(
+      READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
       []
     ),
     drawerState: readReaderDrawerState(),
@@ -98,21 +215,15 @@ function rawReaderLibraryState() {
 function applyReaderLibraryState(value = {}) {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value.history)) {
-    localStorage.setItem(
-      READER_HISTORY_STORAGE_KEY,
-      JSON.stringify(value.history)
-    );
+    writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, value.history);
   }
   if (Array.isArray(value.bookshelf)) {
-    localStorage.setItem(
-      READER_BOOKSHELF_STORAGE_KEY,
-      JSON.stringify(value.bookshelf)
-    );
+    writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, value.bookshelf);
   }
   if (Array.isArray(value.categories)) {
-    localStorage.setItem(
+    writeReaderLocalJson(
       READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
-      JSON.stringify(value.categories)
+      value.categories
     );
   }
   if (value.drawerState) {
@@ -126,12 +237,15 @@ function applyReaderLibraryState(value = {}) {
 function hydrateReaderLibraryOnce() {
   if (readerLibraryHydrated) return;
   readerLibraryHydrated = true;
-  void hydrateUserStateValue({
-    namespace: USER_STATE_NAMESPACES.readerLibrary,
-    fallback: sanitizeReaderState(rawReaderLibraryState()),
-    sanitize: sanitizeReaderState,
-    apply: applyReaderLibraryState,
-  });
+  clearTimeout(readerLibraryHydrateTimer);
+  readerLibraryHydrateTimer = setTimeout(() => {
+    void hydrateUserStateValue({
+      namespace: USER_STATE_NAMESPACES.readerLibrary,
+      fallback: sanitizeReaderState(rawReaderLibraryState()),
+      sanitize: sanitizeReaderState,
+      apply: applyReaderLibraryState,
+    });
+  }, READER_HYDRATE_IDLE_DELAY_MS);
 }
 
 function persistReaderLibraryState() {
@@ -145,12 +259,9 @@ function persistReaderLibraryState() {
 
 function rawReaderProgressState() {
   return {
-    bookMemory: safeJson(
-      localStorage.getItem(READER_BOOK_MEMORY_STORAGE_KEY),
-      []
-    ),
-    progressBackups: safeJson(
-      localStorage.getItem(READER_PROGRESS_BACKUP_STORAGE_KEY),
+    bookMemory: readReaderLocalJson(READER_BOOK_MEMORY_STORAGE_KEY, []),
+    progressBackups: readReaderLocalJson(
+      READER_PROGRESS_BACKUP_STORAGE_KEY,
       []
     ),
   };
@@ -159,15 +270,12 @@ function rawReaderProgressState() {
 function applyReaderProgressState(value = {}) {
   if (!value || typeof value !== "object") return;
   if (Array.isArray(value.bookMemory)) {
-    localStorage.setItem(
-      READER_BOOK_MEMORY_STORAGE_KEY,
-      JSON.stringify(value.bookMemory)
-    );
+    writeReaderLocalJson(READER_BOOK_MEMORY_STORAGE_KEY, value.bookMemory);
   }
   if (Array.isArray(value.progressBackups)) {
-    localStorage.setItem(
+    writeReaderLocalJson(
       READER_PROGRESS_BACKUP_STORAGE_KEY,
-      JSON.stringify(value.progressBackups)
+      value.progressBackups
     );
   }
 }
@@ -175,12 +283,15 @@ function applyReaderProgressState(value = {}) {
 function hydrateReaderProgressOnce() {
   if (readerProgressHydrated) return;
   readerProgressHydrated = true;
-  void hydrateUserStateValue({
-    namespace: USER_STATE_NAMESPACES.readerProgress,
-    fallback: sanitizeReaderState(rawReaderProgressState()),
-    sanitize: sanitizeReaderState,
-    apply: applyReaderProgressState,
-  });
+  clearTimeout(readerProgressHydrateTimer);
+  readerProgressHydrateTimer = setTimeout(() => {
+    void hydrateUserStateValue({
+      namespace: USER_STATE_NAMESPACES.readerProgress,
+      fallback: sanitizeReaderState(rawReaderProgressState()),
+      sanitize: sanitizeReaderState,
+      apply: applyReaderProgressState,
+    });
+  }, READER_HYDRATE_IDLE_DELAY_MS);
 }
 
 function persistReaderProgressState() {
@@ -240,14 +351,14 @@ function migrateReaderHistoryToGlobal() {
   );
   if (!legacyKeys.length) return;
   const merged = normalizeHistory([
-    ...safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []),
+    ...readReaderLocalJson(READER_HISTORY_STORAGE_KEY, []),
     ...legacyKeys.flatMap((key) =>
       safeJson(localStorage.getItem(key), []).map((item) =>
         withLegacyReaderWorkspace(item, key, prefix)
       )
     ),
   ]);
-  localStorage.setItem(READER_HISTORY_STORAGE_KEY, JSON.stringify(merged));
+  writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, merged);
 }
 
 function migrateReaderSourcesToGlobal() {
@@ -257,12 +368,12 @@ function migrateReaderSourcesToGlobal() {
   );
   if (!legacyKeys.length) return;
   const merged = {
-    ...safeJson(localStorage.getItem(READER_SOURCES_STORAGE_KEY), {}),
+    ...readReaderLocalJson(READER_SOURCES_STORAGE_KEY, {}),
   };
   for (const key of legacyKeys) {
     Object.assign(merged, safeJson(localStorage.getItem(key), {}));
   }
-  localStorage.setItem(READER_SOURCES_STORAGE_KEY, JSON.stringify(merged));
+  writeReaderLocalJson(READER_SOURCES_STORAGE_KEY, merged);
 }
 
 function migrateCurrentReaderDocumentToGlobal(
@@ -270,13 +381,13 @@ function migrateCurrentReaderDocumentToGlobal(
   threadSlug = null
 ) {
   const clearedAt = readReaderCurrentDocumentClearedAt();
-  const currentDocument = safeJson(
-    localStorage.getItem(READER_CURRENT_DOCUMENT_STORAGE_KEY),
+  const currentDocument = readReaderLocalJson(
+    READER_CURRENT_DOCUMENT_STORAGE_KEY,
     null
   );
   if (currentDocument) {
     if (isReaderCurrentDocumentFresh(currentDocument, clearedAt)) return;
-    localStorage.removeItem(READER_CURRENT_DOCUMENT_STORAGE_KEY);
+    removeReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY);
   }
   const prefix = "anythingllm_document_reader:v1:";
   const legacyKeys = legacyStorageKeysForPrefix(
@@ -304,10 +415,7 @@ function migrateCurrentReaderDocumentToGlobal(
     .filter((document) => isReaderCurrentDocumentFresh(document, clearedAt))
     .find(Boolean);
   if (preferred) {
-    localStorage.setItem(
-      READER_CURRENT_DOCUMENT_STORAGE_KEY,
-      JSON.stringify(preferred)
-    );
+    writeReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY, preferred);
     return;
   }
 
@@ -321,11 +429,7 @@ function migrateCurrentReaderDocumentToGlobal(
     )
     .filter((document) => isReaderCurrentDocumentFresh(document, clearedAt))
     .sort((a, b) => readerDocumentTimestamp(b) - readerDocumentTimestamp(a))[0];
-  if (newest)
-    localStorage.setItem(
-      READER_CURRENT_DOCUMENT_STORAGE_KEY,
-      JSON.stringify(newest)
-    );
+  if (newest) writeReaderLocalJson(READER_CURRENT_DOCUMENT_STORAGE_KEY, newest);
 }
 
 export function migrateReaderStorage(workspaceSlug, threadSlug = null) {
@@ -433,24 +537,18 @@ export function normalizeReaderBookshelfCategories(categories = []) {
 
 export function readReaderBookshelfCategories() {
   hydrateReaderLibraryOnce();
-  const parsed = safeJson(
-    localStorage.getItem(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY),
+  const parsed = readReaderLocalJson(
+    READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
     []
   );
   const categories = normalizeReaderBookshelfCategories(parsed);
-  localStorage.setItem(
-    READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
-    JSON.stringify(categories)
-  );
+  writeReaderLocalJson(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY, categories);
   return categories;
 }
 
 export function writeReaderBookshelfCategories(categories = []) {
   const next = normalizeReaderBookshelfCategories(categories);
-  localStorage.setItem(
-    READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
-    JSON.stringify(next)
-  );
+  writeReaderLocalJson(READER_BOOKSHELF_CATEGORIES_STORAGE_KEY, next);
   persistReaderLibraryState();
   return next;
 }
@@ -790,7 +888,7 @@ function normalizeHistory(history = []) {
 
 export function readReaderHistory() {
   hydrateReaderLibraryOnce();
-  const parsed = safeJson(localStorage.getItem(READER_HISTORY_STORAGE_KEY), []);
+  const parsed = readReaderLocalJson(READER_HISTORY_STORAGE_KEY, []);
   return readerItemsWithLatestBookMemory(normalizeHistory(parsed));
 }
 
@@ -802,7 +900,7 @@ export function writeReaderHistory(
   void workspaceSlug;
   void threadSlug;
   const next = normalizeHistory(history).slice(0, 20);
-  localStorage.setItem(READER_HISTORY_STORAGE_KEY, JSON.stringify(next));
+  writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, next);
   persistReaderLibraryState();
   return next;
 }
@@ -810,17 +908,14 @@ export function writeReaderHistory(
 export function clearReaderHistory(workspaceSlug, threadSlug = null) {
   void workspaceSlug;
   void threadSlug;
-  localStorage.removeItem(READER_HISTORY_STORAGE_KEY);
+  removeReaderLocalJson(READER_HISTORY_STORAGE_KEY);
   persistReaderLibraryState();
   return [];
 }
 
 export function readReaderBookshelf() {
   hydrateReaderLibraryOnce();
-  const parsed = safeJson(
-    localStorage.getItem(READER_BOOKSHELF_STORAGE_KEY),
-    []
-  );
+  const parsed = readReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, []);
   const byKey = new Map();
   for (const rawItem of Array.isArray(parsed) ? parsed : []) {
     if (!rawItem?.title) continue;
@@ -870,7 +965,7 @@ export function writeReaderBookshelf(items = []) {
       timestampValue(b.updatedAt || b.addedAt) -
       timestampValue(a.updatedAt || a.addedAt)
   );
-  localStorage.setItem(READER_BOOKSHELF_STORAGE_KEY, JSON.stringify(next));
+  writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, next);
   persistReaderLibraryState();
   return next;
 }
@@ -1200,10 +1295,7 @@ function readerBookMemorySort(a, b) {
 
 export function readReaderBookMemories() {
   hydrateReaderProgressOnce();
-  const parsed = safeJson(
-    localStorage.getItem(READER_BOOK_MEMORY_STORAGE_KEY),
-    []
-  );
+  const parsed = readReaderLocalJson(READER_BOOK_MEMORY_STORAGE_KEY, []);
   const rawItems = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
   const byKey = new Map();
   for (const rawItem of rawItems) {
@@ -1224,7 +1316,7 @@ export function writeReaderBookMemories(memories = []) {
     byKey.set(item.key, mergeReaderBookMemoryItems(byKey.get(item.key), item));
   }
   const next = [...byKey.values()].sort(readerBookMemorySort).slice(0, 200);
-  localStorage.setItem(READER_BOOK_MEMORY_STORAGE_KEY, JSON.stringify(next));
+  writeReaderLocalJson(READER_BOOK_MEMORY_STORAGE_KEY, next);
   persistReaderProgressState();
   return next;
 }
@@ -1360,10 +1452,7 @@ function readerProgressBackupSort(a, b) {
 
 export function readReaderProgressBackups() {
   hydrateReaderProgressOnce();
-  const parsed = safeJson(
-    localStorage.getItem(READER_PROGRESS_BACKUP_STORAGE_KEY),
-    []
-  );
+  const parsed = readReaderLocalJson(READER_PROGRESS_BACKUP_STORAGE_KEY, []);
   const rawItems = Array.isArray(parsed) ? parsed : Object.values(parsed || {});
   const byKey = new Map();
   for (const rawItem of rawItems) {
@@ -1387,10 +1476,7 @@ export function writeReaderProgressBackups(backups = []) {
     .filter(Boolean)
     .sort(readerProgressBackupSort)
     .slice(0, 100);
-  localStorage.setItem(
-    READER_PROGRESS_BACKUP_STORAGE_KEY,
-    JSON.stringify(next)
-  );
+  writeReaderLocalJson(READER_PROGRESS_BACKUP_STORAGE_KEY, next);
   persistReaderProgressState();
   return next;
 }
@@ -1613,28 +1699,45 @@ export function clearDeletedReaderDocumentIdsFromAllStorage(ids = []) {
   const readerPrefix = "anythingllm_document_reader:v1:";
   for (const key of storageKeys(localStorage)) {
     if (!key) continue;
-    if (key.startsWith(historyPrefix)) {
-      const history = safeJson(localStorage.getItem(key), []);
-      localStorage.setItem(
+    if (key === READER_HISTORY_STORAGE_KEY) {
+      writeReaderLocalJson(
         key,
-        JSON.stringify(
-          normalizeHistory(
-            history.map((item) =>
-              clearDeletedReaderDocumentIdsFromItem(item, deletedIds)
-            )
+        normalizeHistory(
+          readReaderLocalJson(key, []).map((item) =>
+            clearDeletedReaderDocumentIdsFromItem(item, deletedIds)
+          )
+        )
+      );
+      continue;
+    }
+    if (key === READER_CURRENT_DOCUMENT_STORAGE_KEY) {
+      const document = readReaderLocalJson(key, null);
+      if (document) {
+        writeReaderLocalJson(
+          key,
+          clearDeletedReaderDocumentIdsFromItem(document, deletedIds)
+        );
+      }
+      continue;
+    }
+    if (key.startsWith(historyPrefix)) {
+      const history = readReaderLocalJson(key, []);
+      writeReaderLocalJson(
+        key,
+        normalizeHistory(
+          history.map((item) =>
+            clearDeletedReaderDocumentIdsFromItem(item, deletedIds)
           )
         )
       );
       continue;
     }
     if (key.startsWith(readerPrefix) && !key.startsWith(historyPrefix)) {
-      const document = safeJson(localStorage.getItem(key), null);
+      const document = readReaderLocalJson(key, null);
       if (!document) continue;
-      localStorage.setItem(
+      writeReaderLocalJson(
         key,
-        JSON.stringify(
-          clearDeletedReaderDocumentIdsFromItem(document, deletedIds)
-        )
+        clearDeletedReaderDocumentIdsFromItem(document, deletedIds)
       );
     }
   }

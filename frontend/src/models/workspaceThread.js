@@ -2,6 +2,7 @@ import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
 import { apiErrorMessage as failureMessage } from "@/lib/communication/apiError";
 import { streamThreadTitleEvents } from "@/lib/communication/workspaceRealtimeClient";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 
 function historyPageQuery({
   limit = 20,
@@ -22,14 +23,22 @@ function historyPageQuery({
 }
 
 const WorkspaceThread = {
-  all: async function (workspaceSlug) {
+  all: async function (workspaceSlug, options = {}) {
     const { threads, defaultThreads } = await getJson(
-      `/workspace/${workspaceSlug}/threads`
+      `/workspace/${workspaceSlug}/threads`,
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-navigation",
+      }
     )
       .then(({ data }) => data)
-      .catch(() => {
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
         return { threads: [], defaultThreads: null };
       });
+    if (Array.isArray(threads))
+      workspaceNavigationCache.setThreads(workspaceSlug, threads);
 
     return { threads, defaultThreads };
   },
@@ -52,6 +61,7 @@ const WorkspaceThread = {
       if (error) return { thread: null, error };
       if (!payload?.thread?.slug)
         return { thread: null, error: "Invalid thread response" };
+      workspaceNavigationCache.updateThread(workspaceSlug, payload.thread);
       return { thread: payload.thread, error: null };
     } catch (e) {
       return { thread: null, error: failureMessage(e) };
@@ -67,6 +77,8 @@ const WorkspaceThread = {
         return { thread: null, message: e.message };
       });
 
+    if (thread?.slug)
+      workspaceNavigationCache.updateThread(workspaceSlug, thread);
     return { thread, message };
   },
   move: async function (workspaceSlug, threadSlug, targetWorkspaceSlug) {
@@ -80,6 +92,12 @@ const WorkspaceThread = {
 
       threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
       threadHistoryCache.invalidateThread(targetWorkspaceSlug, threadSlug);
+      workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
+      if (payload.thread?.slug)
+        workspaceNavigationCache.updateThread(
+          targetWorkspaceSlug,
+          payload.thread
+        );
       return {
         success: !!payload.success,
         thread: payload.thread || null,
@@ -96,6 +114,7 @@ const WorkspaceThread = {
     return await deleteJson(`/workspace/${workspaceSlug}/thread/${threadSlug}`)
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
+        workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
         return true;
       })
       .catch(() => false);
@@ -108,6 +127,7 @@ const WorkspaceThread = {
         threadSlugs.forEach((threadSlug) =>
           threadHistoryCache.invalidateThread(workspaceSlug, threadSlug)
         );
+        workspaceNavigationCache.invalidateThreads(workspaceSlug);
         return true;
       })
       .catch(() => false);
@@ -115,7 +135,7 @@ const WorkspaceThread = {
   chatHistory: async function (workspaceSlug, threadSlug, options = {}) {
     const history = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats`,
-      { signal: options.signal }
+      { signal: options.signal, communicationScene: "workspace-chat" }
     )
       .then(({ data }) => data.history || [])
       .catch((error) => {
@@ -128,7 +148,7 @@ const WorkspaceThread = {
     const query = historyPageQuery(options);
     const payload = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
-      { signal: options.signal }
+      { signal: options.signal, communicationScene: "workspace-chat" }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -144,7 +164,7 @@ const WorkspaceThread = {
     const query = historyPageQuery(options);
     const payload = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/bootstrap?${query}`,
-      { signal: options.signal }
+      { signal: options.signal, communicationScene: "workspace-chat" }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -166,12 +186,13 @@ const WorkspaceThread = {
     chatIds = [],
     options = {}
   ) {
-    if (!chatIds.length)
+    const publicChatIds = options.publicChatIds || [];
+    if (!chatIds.length && !publicChatIds.length)
       return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
     const payload = await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats/hydrate`,
-      { chatIds },
-      { signal: options.signal }
+      { chatIds, publicChatIds },
+      { signal: options.signal, communicationScene: "workspace-chat" }
     )
       .then(({ data }) => data)
       .catch((error) => {

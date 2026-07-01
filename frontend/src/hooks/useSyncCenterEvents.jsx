@@ -7,6 +7,8 @@ import {
   useRef,
 } from "react";
 import { streamSyncCenterEvents } from "@/lib/communication";
+import { markLoginBoot } from "@/utils/loginBootPerf";
+import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 
 const EVENT_CACHE_LIMIT = 500;
 const SyncCenterContext = createContext(null);
@@ -41,12 +43,37 @@ export function SyncCenterProvider({ children, enabled = true }) {
   const subscribersRef = useRef(new Map());
   const seenEventsRef = useRef(new Set());
   const nextSubscriberIdRef = useRef(0);
+  const connectedMarkedRef = useRef(false);
 
   const subscribe = useCallback((handlers = {}) => {
     const subscriberId = nextSubscriberIdRef.current + 1;
     nextSubscriberIdRef.current = subscriberId;
     subscribersRef.current.set(subscriberId, handlers);
-    return () => subscribersRef.current.delete(subscriberId);
+    recordCommunicationEvent({
+      type: "sync-center-subscriber-add",
+      method: "EVENT",
+      path: "sync-center:subscriber",
+      communicationScene: "sync",
+      durationMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      ok: true,
+      subscriberCount: subscribersRef.current.size,
+    });
+    return () => {
+      subscribersRef.current.delete(subscriberId);
+      recordCommunicationEvent({
+        type: "sync-center-subscriber-remove",
+        method: "EVENT",
+        path: "sync-center:subscriber",
+        communicationScene: "sync",
+        durationMs: 0,
+        requestBytes: 0,
+        responseBytes: 0,
+        ok: true,
+        subscriberCount: subscribersRef.current.size,
+      });
+    };
   }, []);
 
   const emit = useCallback((event) => {
@@ -63,16 +90,46 @@ export function SyncCenterProvider({ children, enabled = true }) {
   useEffect(() => {
     if (!enabled) return;
     const controller = new AbortController();
+    recordCommunicationEvent({
+      type: "sync-center-provider-start",
+      method: "EVENT",
+      path: "/sync/events",
+      communicationScene: "sync",
+      durationMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      ok: true,
+    });
 
     streamSyncCenterEvents({
       signal: controller.signal,
-      onEvent: emit,
+      onEvent: (event) => {
+        if (!connectedMarkedRef.current) {
+          connectedMarkedRef.current = true;
+          markLoginBoot("sync_connected", {
+            firstEvent: event?.type || null,
+          });
+        }
+        emit(event);
+      },
     }).catch((error) => {
       if (controller.signal.aborted) return;
       console.warn("[SyncCenter] stream stopped", error.message);
     });
 
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      recordCommunicationEvent({
+        type: "sync-center-provider-stop",
+        method: "EVENT",
+        path: "/sync/events",
+        communicationScene: "sync",
+        durationMs: 0,
+        requestBytes: 0,
+        responseBytes: 0,
+        ok: true,
+      });
+    };
   }, [emit, enabled]);
 
   const value = useMemo(() => ({ subscribe }), [subscribe]);

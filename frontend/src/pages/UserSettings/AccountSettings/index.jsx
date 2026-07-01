@@ -2,15 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useUser from "@/hooks/useUser";
 import { userFromStorage } from "@/utils/request";
 import paths from "@/utils/paths";
-import {
-  AUTH_TIMESTAMP,
-  AUTH_USER,
-  LAST_USER_ACTION_AT,
-  LAST_VISITED_WORKSPACE,
-  LAST_VISITED_WORKSPACE_THREADS,
-  USER_PROMPT_INPUT_MAP,
-} from "@/utils/constants";
-import { removeAuthToken } from "@/utils/authTokenStorage";
 import AccountSidebar from "./AccountSidebar";
 import ProfileCard from "./ProfileCard";
 import PersonalizationCard from "./PersonalizationCard";
@@ -26,6 +17,7 @@ import AccountSettingsApi from "./accountSettingsApi";
 import { AccountSettingsDataProvider } from "./AccountSettingsDataProvider";
 import { detectAuthCapability } from "@/utils/authCapability";
 import { canSeeAdmin } from "@/utils/authz";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import "./styles.css";
 
 export default function AccountSettings() {
@@ -213,13 +205,7 @@ export default function AccountSettings() {
   }, [activeView]);
 
   function signOut() {
-    window.localStorage.removeItem(AUTH_USER);
-    removeAuthToken();
-    window.localStorage.removeItem(AUTH_TIMESTAMP);
-    window.localStorage.removeItem(LAST_USER_ACTION_AT);
-    window.localStorage.removeItem(LAST_VISITED_WORKSPACE);
-    window.localStorage.removeItem(LAST_VISITED_WORKSPACE_THREADS);
-    window.localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+    clearSensitiveClientSession();
     window.location.replace(paths.home());
   }
 

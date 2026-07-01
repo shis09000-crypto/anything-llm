@@ -106,6 +106,8 @@ const HistoricalMessage = ({
     role === "assistant"
       ? safeOutputs.filter((output) => output?.type !== "QuizCard")
       : safeOutputs;
+  const isLightPlaceholder =
+    role === "assistant" && hydrationStatus === "light" && !message;
 
   if (completeDelete) return null;
 
@@ -228,12 +230,14 @@ const HistoricalMessage = ({
               turnId={turnId}
               className="flex flex-col gap-2 mb-4"
             />
-            <RenderChatContent
-              role={role}
-              message={message}
-              messageId={uuid}
-              onContentLayoutChange={onContentLayoutChange}
-            />
+            {isLightPlaceholder ? null : (
+              <RenderChatContent
+                role={role}
+                message={message}
+                messageId={uuid}
+                onContentLayoutChange={onContentLayoutChange}
+              />
+            )}
             {isRefusalMessage && (
               <Link
                 data-tooltip-id="query-refusal-info"
@@ -252,7 +256,10 @@ const HistoricalMessage = ({
             )}
             <ChatAttachments attachments={attachments} />
             {hydrationStatus === "light" && (
-              <div className="mt-3 space-y-2" aria-hidden="true">
+              <div
+                className="mt-3 space-y-2 min-h-[44px]"
+                aria-label="正在加载对话内容"
+              >
                 <div className="motion-skeleton h-3 w-1/2 rounded" />
                 <div className="motion-skeleton h-3 w-1/3 rounded" />
               </div>
@@ -261,7 +268,7 @@ const HistoricalMessage = ({
             <HistoricalClarifyingQuestions surveys={clarifyingQuestions} />
           </div>
         )}
-        {!readOnly && (
+        {!readOnly && !isLightPlaceholder && (
           <div className="flex items-start gap-x-1">
             <TTSMessage
               slug={workspace?.slug}

@@ -1,4 +1,4 @@
-import { API_BASE } from "./constants";
+import { API_BASE } from "./constants.js";
 
 function applyOptions(path, options = {}) {
   let updatedPath = path;
@@ -8,6 +8,7 @@ function applyOptions(path, options = {}) {
     const searchParams = new URLSearchParams(options.search);
     updatedPath += `?${searchParams.toString()}`;
   }
+  if (options.hash) updatedPath += `#${String(options.hash).replace(/^#/, "")}`;
   return updatedPath;
 }
 
@@ -151,8 +152,8 @@ export default {
     security: () => {
       return "/settings/security";
     },
-    interface: () => {
-      return "/settings/interface";
+    interface: (options = {}) => {
+      return applyOptions("/settings/interface", options);
     },
     branding: () => {
       return "/settings/branding";
@@ -184,6 +185,9 @@ export default {
     },
     batchJobs: () => {
       return "/settings/batch-jobs";
+    },
+    systemPatrol: () => {
+      return "/settings/system-patrol";
     },
     privacy: () => {
       return "/settings/privacy";

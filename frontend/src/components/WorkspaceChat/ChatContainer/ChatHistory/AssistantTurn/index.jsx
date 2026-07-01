@@ -117,6 +117,8 @@ function AssistantTurn({
     () => turnOutputs.filter((output) => output?.type !== "QuizCard"),
     [turnOutputs]
   );
+  const isLightPlaceholder =
+    turn.hydrationStatus === "light" && !turn.finalContent && !isRunning;
 
   useEffect(() => {
     debugChatTurn("AssistantTurn:renderState", {
@@ -217,7 +219,10 @@ function AssistantTurn({
               <div className="mt-3 ml-1 dot-falling light:invert" />
             ) : null}
             {turn.hydrationStatus === "light" && (
-              <div className="mt-3 space-y-2" aria-hidden="true">
+              <div
+                className="mt-3 space-y-2 min-h-[44px]"
+                aria-label="正在加载对话内容"
+              >
                 <div className="motion-skeleton h-3 w-1/2 rounded" />
                 <div className="motion-skeleton h-3 w-1/3 rounded" />
               </div>
@@ -288,7 +293,7 @@ function AssistantTurn({
             </div>
           </div>
         )}
-        {!readOnly && (
+        {!readOnly && !isLightPlaceholder && (
           <div className="flex items-start gap-x-1">
             <TTSMessage
               slug={workspace?.slug}

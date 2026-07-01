@@ -156,6 +156,47 @@ describe("client identity helpers", () => {
     });
   });
 
+  it("preserves iPad platform and device profile without mapping it to generic iOS", () => {
+    const profile = {
+      viewport: { width: 820, height: 1180, devicePixelRatio: 2 },
+      input: { touch: true, hover: false, pointer: "coarse" },
+      surface: "browser",
+      device: { formFactor: "tablet", family: "ipad", os: "ipados" },
+      capabilities: {
+        camera: true,
+        microphone: true,
+        filePicker: true,
+        notifications: true,
+        clipboard: true,
+      },
+    };
+    const request = requestDouble({
+      headers: {
+        "X-Athena-Client-Id": "client_ipad",
+        "X-Athena-Platform": "ipad",
+        "X-Athena-Capability-Source": "detected",
+        "X-Athena-Capability-Profile": encodedProfile(profile),
+      },
+    });
+
+    const context = getClientContext(request, { user: { id: 10 } });
+    expect(context).toMatchObject({
+      clientId: "client_ipad",
+      platform: "ipad",
+      trustLevel: "medium",
+      layoutMode: "tablet",
+      inputMode: "touch",
+      surface: "browser",
+      capabilityProfile: profile,
+    });
+    expect(context.capabilities.profile.device).toEqual({
+      formFactor: "tablet",
+      family: "ipad",
+      os: "ipados",
+    });
+  });
+
+
   it("falls back safely when capability profile is malformed", () => {
     const request = requestDouble({
       query: {
@@ -411,6 +452,7 @@ describe("client identity helpers", () => {
   it("maps trust levels by platform", () => {
     expect(resolveTrustLevel("web")).toBe("low");
     expect(resolveTrustLevel("desktop")).toBe("medium");
+    expect(resolveTrustLevel("ipad")).toBe("medium");
     expect(resolveTrustLevel("ios")).toBe("medium");
     expect(resolveTrustLevel("android")).toBe("medium");
     expect(resolveTrustLevel("api")).toBe("low");

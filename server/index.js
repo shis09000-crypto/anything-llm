@@ -5,6 +5,12 @@ const envPath =
 require("dotenv").config({ path: envPath });
 const { applyEnvironmentStorage } = require("./utils/environment");
 applyEnvironmentStorage();
+const { ensureWebCrypto } = require("./utils/security/webCrypto");
+ensureWebCrypto();
+const {
+  assertProductionSecurityConfig,
+} = require("./utils/security/startupValidation");
+assertProductionSecurityConfig();
 
 const {
   ensureVectorProviderPersistenceDefaults,
@@ -19,6 +25,7 @@ const cors = require("cors");
 const path = require("path");
 const { reqBody } = require("./utils/http");
 const { systemEndpoints } = require("./endpoints/system");
+const { systemPatrolEndpoints } = require("./endpoints/systemPatrol");
 const { authPasskeyEndpoints } = require("./endpoints/authPasskeys");
 const {
   authTrustedDeviceEndpoints,
@@ -79,14 +86,16 @@ const {
 } = require("./endpoints/communicationDebug");
 const { syncCenterEndpoints } = require("./endpoints/syncCenter");
 const { clientIdentityEndpoints } = require("./endpoints/clientIdentity");
+const { vaultEndpoints } = require("./endpoints/vault");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
   corsOptionsForEnvironment,
 } = require("./utils/security/transportSecurity");
 const {
-  clientIdentityMiddleware,
-} = require("./utils/clientIdentity");
+  setBrowserSecurityHeaders,
+} = require("./utils/security/browserHeaders");
+const { clientIdentityMiddleware } = require("./utils/clientIdentity");
 const {
   communicationMetricsMiddleware,
 } = require("./middleware/communicationMetrics");
@@ -96,6 +105,12 @@ const FILE_LIMIT = "3GB";
 const rawBodySaver = (request, _response, buffer, encoding) => {
   if (buffer?.length) request.rawBody = buffer.toString(encoding || "utf8");
 };
+
+app.disable("x-powered-by");
+app.use((_, response, next) => {
+  setBrowserSecurityHeaders(response);
+  next();
+});
 
 // Only log HTTP requests in development mode and if the ENABLE_HTTP_LOGGER environment variable is set to true
 if (
@@ -130,7 +145,9 @@ if (!!process.env.ENABLE_HTTPS) {
 app.use("/api", apiRouter);
 apiRouter.use(communicationMetricsMiddleware);
 systemEndpoints(apiRouter);
+systemPatrolEndpoints(apiRouter);
 clientIdentityEndpoints(apiRouter);
+vaultEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);
@@ -186,14 +203,40 @@ resumeActiveBatchJobs().catch((error) =>
 if (process.env.NODE_ENV !== "development") {
   const { MetaGenerator } = require("./utils/boot/MetaGenerator");
   const IndexPage = new MetaGenerator();
+  const publicDir = path.resolve(__dirname, "public");
+  const ONE_YEAR_SECONDS = 31_536_000;
+
+  function isLongLivedStaticAsset(filePath = "") {
+    const relativePath = path
+      .relative(publicDir, filePath)
+      .split(path.sep)
+      .join("/");
+    const fileName = path.basename(relativePath);
+    if (relativePath.startsWith("assets/")) return true;
+    if (/[-.][a-f0-9]{8,}\.(?:js|mjs|css)$/i.test(fileName)) return true;
+    if (relativePath.startsWith("pdfjs/")) return true;
+    if (/\.(?:wasm|data)$/i.test(fileName)) return true;
+    return false;
+  }
+
+  app.get("/_index.html", function (_, response) {
+    response.status(404).json({ error: "Not found." });
+  });
 
   app.use(
-    express.static(path.resolve(__dirname, "public"), {
+    express.static(publicDir, {
       extensions: ["js"],
-      setHeaders: (res) => {
+      setHeaders: (res, filePath) => {
         // Disable I-framing of entire site UI
-        res.removeHeader("X-Powered-By");
-        res.setHeader("X-Frame-Options", "DENY");
+        setBrowserSecurityHeaders(res);
+        if (isLongLivedStaticAsset(filePath)) {
+          res.setHeader(
+            "Cache-Control",
+            `public, max-age=${ONE_YEAR_SECONDS}, immutable`
+          );
+        } else {
+          res.setHeader("Cache-Control", "public, max-age=0, must-revalidate");
+        }
       },
     })
   );
@@ -204,11 +247,14 @@ if (process.env.NODE_ENV !== "development") {
   });
 
   app.get("/manifest.json", async function (_, response) {
+    setBrowserSecurityHeaders(response);
+    response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     IndexPage.generateManifest(response);
     return;
   });
 
   app.use("/", function (_, response) {
+    setBrowserSecurityHeaders(response);
     IndexPage.generate(response);
     return;
   });

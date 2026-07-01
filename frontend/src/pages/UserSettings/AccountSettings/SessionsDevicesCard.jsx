@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { DeviceMobile, SignOut } from "@phosphor-icons/react";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import AppButton from "@/components/lib/AppButton";
@@ -9,9 +9,14 @@ import { CardHeader } from "./ContactMethodsCard";
 export default function SessionsDevicesCard() {
   const [sessions, setSessions] = useState([]);
 
-  useEffect(() => {
-    AccountSettingsApi.fetchSessions().then(setSessions);
+  const refreshSessions = useCallback(async () => {
+    const next = await AccountSettingsApi.fetchSessions();
+    setSessions(next);
   }, []);
+
+  useEffect(() => {
+    refreshSessions();
+  }, [refreshSessions]);
 
   async function signOutOthers() {
     const confirmed = await showAppConfirm({
@@ -23,7 +28,7 @@ export default function SessionsDevicesCard() {
     });
     if (!confirmed) return;
     await AccountSettingsApi.signOutOtherSessions();
-    setSessions((current) => current.filter((session) => session.current));
+    await refreshSessions();
     showToast("其它设备已退出。", "success");
   }
 
@@ -37,8 +42,31 @@ export default function SessionsDevicesCard() {
       cancelText: "取消",
     });
     if (!confirmed) return;
-    await AccountSettingsApi.signOutAllSessions();
-    showToast("退出全部设备接口已预留。", "info");
+    const result = await AccountSettingsApi.signOutAllSessions();
+    if (!result?.success) {
+      showToast(result?.error || "退出全部设备失败。", "error");
+      return;
+    }
+    showToast("全部设备已退出。", "success");
+    window.location.assign("/login");
+  }
+
+  async function signOutSession(session) {
+    const confirmed = await showAppConfirm({
+      tone: "warning",
+      title: "退出这个设备？",
+      description: `${session.deviceName} 将无法继续使用当前会话。`,
+      confirmText: "退出设备",
+      cancelText: "取消",
+    });
+    if (!confirmed) return;
+    const result = await AccountSettingsApi.signOutSession(session.clientId);
+    if (!result?.success) {
+      showToast(result?.error || "退出设备失败。", "error");
+      return;
+    }
+    await refreshSessions();
+    showToast("设备已退出。", "success");
   }
 
   return (
@@ -92,18 +120,29 @@ export default function SessionsDevicesCard() {
                     当前设备
                   </span>
                 )}
+                {session.revokedAt && (
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-semibold text-slate-600">
+                    已撤销
+                  </span>
+                )}
+                {session.hasDevicePublicKey && (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    设备密钥
+                  </span>
+                )}
               </div>
               <div className="mt-1 text-sm text-slate-500">
                 {session.ip} · {session.browser} ·{" "}
                 {formatDateTime(session.lastActiveAt)}
               </div>
             </div>
-            {!session.current && (
+            {!session.current && !session.revokedAt && (
               <AppButton
                 type="button"
                 size="sm"
                 variant="secondary"
                 leftIcon={<SignOut className="h-4 w-4" />}
+                onClick={() => signOutSession(session)}
               >
                 退出
               </AppButton>

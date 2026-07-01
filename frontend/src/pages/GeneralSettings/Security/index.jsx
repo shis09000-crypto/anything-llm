@@ -1,17 +1,10 @@
 import { useEffect, useState } from "react";
-import Sidebar from "@/components/SettingsSidebar";
-import { isMobile } from "react-device-detect";
 import showToast from "@/utils/toast";
 import System from "@/models/system";
 import paths from "@/utils/paths";
-import {
-  AUTH_TIMESTAMP,
-  AUTH_USER,
-  LAST_USER_ACTION_AT,
-} from "@/utils/constants";
-import { removeAuthToken } from "@/utils/authTokenStorage";
+import { AUTH_TIMESTAMP, LAST_USER_ACTION_AT } from "@/utils/constants";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import PreLoader from "@/components/Preloader";
-import CTAButton from "@/components/lib/CTAButton";
 import { useTranslation } from "react-i18next";
 import Toggle from "@/components/lib/Toggle";
 import {
@@ -19,25 +12,19 @@ import {
   USERNAME_MAX_LENGTH,
   USERNAME_PATTERN,
 } from "@/utils/username";
+import {
+  SoftButton,
+  SoftCard,
+  SoftSettingsLayout,
+} from "@/components/SoftSettings";
 
 export default function GeneralSecurity() {
   const { t } = useTranslation();
   return (
-    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-      >
-        <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:pt-6">
-          <p className="text-lg leading-6 font-bold text-theme-text-primary md-6 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10 py-4">
-            {t("security.title")}
-          </p>
-        </div>
-        <MultiUserMode />
-        <PasswordProtection />
-      </div>
-    </div>
+    <SoftSettingsLayout title={t("security.title")}>
+      <MultiUserMode />
+      <PasswordProtection />
+    </SoftSettingsLayout>
   );
 }
 
@@ -65,8 +52,7 @@ function MultiUserMode() {
         showToast("Multi-User mode enabled successfully.", "success");
         setSaving(false);
         setTimeout(() => {
-          window.localStorage.removeItem(AUTH_USER);
-          removeAuthToken();
+          clearSensitiveClientSession();
           window.localStorage.removeItem(AUTH_TIMESTAMP);
           window.localStorage.removeItem(LAST_USER_ACTION_AT);
           window.location = paths.settings.users();
@@ -92,41 +78,32 @@ function MultiUserMode() {
 
   if (loading) {
     return (
-      <div className="h-1/2 motion-hover relative md:ml-[2px] md:mr-[8px] md:my-[16px] md:rounded-[26px] p-[18px] h-full overflow-y-scroll">
+      <SoftCard>
         <div className="w-full h-full flex justify-center items-center">
           <PreLoader />
         </div>
-      </div>
+      </SoftCard>
     );
   }
 
   return (
     <form
+      id="multi-user-mode-form"
       onSubmit={handleSubmit}
       onChange={() => setHasChanges(true)}
-      className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px]"
+      className="settings-soft-form"
     >
-      <div className="w-full flex flex-col gap-y-1 w-full flex flex-col gap-y-1 pb-6 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10">
-        <div className="w-full flex flex-col gap-y-1">
-          <div className="items-center flex gap-x-4">
-            <p className="text-base font-bold text-white mt-6">
-              {t("security.multiuser.title")}
-            </p>
-          </div>
-          <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-            {t("security.multiuser.description")}
-          </p>
-        </div>
-        {hasChanges && (
-          <div className="flex justify-end">
-            <CTAButton
-              onClick={() => handleSubmit()}
-              className="mt-3 mr-0 -mb-20 z-10"
-            >
+      <SoftCard
+        title={t("security.multiuser.title")}
+        description={t("security.multiuser.description")}
+        actions={
+          hasChanges && (
+            <SoftButton type="submit" form="multi-user-mode-form">
               {saving ? t("common.saving") : t("common.save")}
-            </CTAButton>
-          </div>
-        )}
+            </SoftButton>
+          )
+        }
+      >
         <div className="relative w-full max-h-full">
           <div className="relative rounded-lg">
             <div className="flex items-start justify-between px-6 py-4"></div>
@@ -150,14 +127,14 @@ function MultiUserMode() {
                     <div className="w-80">
                       <label
                         htmlFor="username"
-                        className="text-white text-sm font-semibold block mb-3"
+                        className="text-sm font-semibold block mb-3 text-[var(--soft-text-primary)]"
                       >
                         {t("security.multiuser.enable.username")}
                       </label>
                       <input
                         name="username"
                         type="text"
-                        className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder focus:ring-blue-500"
+                        className="border bg-theme-settings-input-bg text-sm outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder"
                         placeholder="Your admin username"
                         minLength={USERNAME_MIN_LENGTH}
                         maxLength={USERNAME_MAX_LENGTH}
@@ -167,21 +144,21 @@ function MultiUserMode() {
                         disabled={multiUserModeEnabled}
                         defaultValue={multiUserModeEnabled ? "********" : ""}
                       />
-                      <p className="text-white text-opacity-60 text-xs mt-2">
+                      <p className="text-[var(--soft-text-secondary)] text-xs mt-2">
                         {t("common.username_requirements")}
                       </p>
                     </div>
                     <div className="mt-4 w-80">
                       <label
                         htmlFor="password"
-                        className="text-white text-sm font-semibold block mb-3"
+                        className="text-sm font-semibold block mb-3 text-[var(--soft-text-primary)]"
                       >
                         {t("security.multiuser.enable.password")}
                       </label>
                       <input
                         name="password"
                         type="text"
-                        className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder focus:ring-blue-500"
+                        className="border bg-theme-settings-input-bg text-sm outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder"
                         placeholder="Your admin password"
                         minLength={8}
                         required={true}
@@ -200,7 +177,7 @@ function MultiUserMode() {
             </div>
           </div>
         </div>
-      </div>
+      </SoftCard>
     </form>
   );
 }
@@ -240,8 +217,7 @@ function PasswordProtection() {
       showToast("Your page will refresh in a few seconds.", "success");
       setSaving(false);
       setTimeout(() => {
-        window.localStorage.removeItem(AUTH_USER);
-        removeAuthToken();
+        clearSensitiveClientSession();
         window.localStorage.removeItem(AUTH_TIMESTAMP);
         window.localStorage.removeItem(LAST_USER_ACTION_AT);
         window.location.reload();
@@ -267,42 +243,33 @@ function PasswordProtection() {
 
   if (loading) {
     return (
-      <div className="h-1/2 motion-hover relative md:ml-[2px] md:mr-[8px] md:my-[16px] md:rounded-[26px] p-[18px] h-full overflow-y-scroll">
+      <SoftCard>
         <div className="w-full h-full flex justify-center items-center">
           <PreLoader />
         </div>
-      </div>
+      </SoftCard>
     );
   }
 
   if (multiUserModeEnabled) return null;
   return (
     <form
+      id="password-protection-form"
       onSubmit={handleSubmit}
       onChange={() => setHasChanges(true)}
-      className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px]"
+      className="settings-soft-form"
     >
-      <div className="w-full flex flex-col gap-y-1 pb-6 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10">
-        <div className="w-full flex flex-col gap-y-1">
-          <div className="items-center flex gap-x-4">
-            <p className="text-base font-bold text-white mt-6">
-              {t("security.password.title")}
-            </p>
-          </div>
-          <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-            {t("security.password.description")}
-          </p>
-        </div>
-        {hasChanges && (
-          <div className="flex justify-end">
-            <CTAButton
-              onClick={() => handleSubmit()}
-              className="mt-3 mr-0 -mb-20 z-10"
-            >
+      <SoftCard
+        title={t("security.password.title")}
+        description={t("security.password.description")}
+        actions={
+          hasChanges && (
+            <SoftButton type="submit" form="password-protection-form">
               {saving ? t("common.saving") : t("common.save")}
-            </CTAButton>
-          </div>
-        )}
+            </SoftButton>
+          )
+        }
+      >
         <div className="relative w-full max-h-full">
           <div className="relative rounded-lg">
             <div className="flex items-start justify-between px-6 py-4"></div>
@@ -320,14 +287,14 @@ function PasswordProtection() {
                     <div className="mt-4 w-80">
                       <label
                         htmlFor="password"
-                        className="text-white text-sm font-semibold block mb-3"
+                        className="text-sm font-semibold block mb-3 text-[var(--soft-text-primary)]"
                       >
                         {t("security.password.password-label")}
                       </label>
                       <input
                         name="password"
                         type="text"
-                        className="border-none bg-theme-settings-input-bg text-white text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder"
+                        className="border bg-theme-settings-input-bg text-sm outline-none block w-full p-2.5 placeholder:text-theme-settings-input-placeholder"
                         placeholder="Your Instance Password"
                         minLength={8}
                         required={true}
@@ -346,7 +313,7 @@ function PasswordProtection() {
             </div>
           </div>
         </div>
-      </div>
+      </SoftCard>
     </form>
   );
 }

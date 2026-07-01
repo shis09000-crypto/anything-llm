@@ -100,6 +100,7 @@ async function streamChat({
       path,
       body,
       signal: ctrl.signal,
+      communicationScene: "workspace-chat",
       onOpen,
       onMessage(raw) {
         if (stopped) return;

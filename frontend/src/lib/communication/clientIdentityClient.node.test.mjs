@@ -55,6 +55,10 @@ async function loadClientIdentityClient() {
   };
   globalThis.__clientIdentityClientTestIdentity = {
     getClientIdentity: () => ({ clientId: "client_current" }),
+    resetCalls: [],
+    async resetClientIdentity(options = {}) {
+      globalThis.__clientIdentityClientTestIdentity.resetCalls.push(options);
+    },
   };
   globalThis.__clientIdentityClientTestSigning = {
     cleared: [],
@@ -71,6 +75,12 @@ async function loadClientIdentityClient() {
       });
     },
   };
+  globalThis.__clientIdentityClientTestSensitiveState = {
+    cleared: [],
+    clearSensitiveClientSession(options = {}) {
+      globalThis.__clientIdentityClientTestSensitiveState.cleared.push(options);
+    },
+  };
 
   const transformed = source
     .replace(
@@ -78,12 +88,16 @@ async function loadClientIdentityClient() {
       "const { getJson, postJson } = globalThis.__clientIdentityClientTestApi;"
     )
     .replace(
-      'import { getClientIdentity } from "./clientIdentity";',
-      "const { getClientIdentity } = globalThis.__clientIdentityClientTestIdentity;"
+      'import { getClientIdentity, resetClientIdentity } from "./clientIdentity";',
+      "const { getClientIdentity, resetClientIdentity } = globalThis.__clientIdentityClientTestIdentity;"
     )
     .replace(
       /import\s+\{[\s\S]*?\}\s+from\s+"\.\/requestSigningClient";/,
       "const { clearSigningSecretCache, setSigningSecretCache } = globalThis.__clientIdentityClientTestSigning;"
+    )
+    .replace(
+      'import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";',
+      "const { clearSensitiveClientSession } = globalThis.__clientIdentityClientTestSensitiveState;"
     );
 
   const mod = await import(
@@ -115,12 +129,24 @@ test("client identity client lists clients and revokes through JSON client", asy
   );
 });
 
-test("self revoke clears only the current signing secret cache", async () => {
+test("self revoke clears the current signing secret and local device session", async () => {
   const { mod } = await loadClientIdentityClient();
   await mod.revokeClient("client_current");
   assert.deepEqual(globalThis.__clientIdentityClientTestSigning.cleared, [
     "client_current",
   ]);
+  assert.deepEqual(globalThis.__clientIdentityClientTestIdentity.resetCalls, [
+    { rotateDeviceKey: true },
+  ]);
+  assert.deepEqual(
+    globalThis.__clientIdentityClientTestSensitiveState.cleared,
+    [
+      {
+        reason: "current_client_revoked",
+        includeDurableCaches: false,
+      },
+    ]
+  );
 });
 
 test("rotation updates only the current signing secret cache", async () => {

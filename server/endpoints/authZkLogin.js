@@ -12,7 +12,11 @@ const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
-const { issueUserSessionToken } = require("../utils/sessionIdle");
+const {
+  issueUserSessionToken,
+  sessionTokenOptionsFromClientContext,
+} = require("../utils/sessionIdle");
+const { getClientContext } = require("../utils/clientIdentity");
 const { readSecret, saveSecret } = require("../utils/security");
 const {
   DEFAULT_REAUTH_TTL_MS,
@@ -98,7 +102,7 @@ function authZkLoginEndpoints(app) {
         assertSecurePasskeyOrigin(origin);
         const options = await generateAuthenticationOptions({
           rpID,
-          userVerification: "preferred",
+          userVerification: "required",
           allowCredentials: passkeys.map((passkey) => ({
             id: passkey.credentialId,
             transports: parseTransports(passkey.transports),
@@ -244,7 +248,7 @@ function authZkLoginEndpoints(app) {
         assertSecurePasskeyOrigin(origin);
         const options = await generateAuthenticationOptions({
           rpID,
-          userVerification: "preferred",
+          userVerification: "required",
           allowCredentials: passkeys.map((passkey) => ({
             id: passkey.credentialId,
             transports: parseTransports(passkey.transports),
@@ -690,7 +694,9 @@ function authZkLoginEndpoints(app) {
       return response.status(200).json({
         valid: true,
         user: User.filterFields(localUser),
-        token: issueUserSessionToken(localUser),
+        token: issueUserSessionToken(localUser, {
+          ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+        }),
         message: null,
       });
     } catch (error) {

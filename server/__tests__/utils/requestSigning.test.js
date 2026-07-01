@@ -1,3 +1,7 @@
+const crypto = require("crypto");
+process.env.ENCRYPTION_MASTER_KEY =
+  process.env.ENCRYPTION_MASTER_KEY ||
+  "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 const mockFindFirst = jest.fn();
 const mockFindMany = jest.fn();
 const mockNonceCreate = jest.fn();
@@ -39,6 +43,8 @@ jest.mock("../../models/eventLogs", () => ({
 
 const {
   CLIENT_REVOKED_ERROR,
+  DEVICE_SIGNATURE_PREFIX,
+  DEVICE_SIGNATURE_VERSION,
   INVALID_SIGNATURE_ERROR,
   SIGNATURE_VERSION,
   canonicalSigningString,
@@ -120,6 +126,60 @@ function signedHeaders({
   };
 }
 
+function deviceSignedHeaders({
+  method = "POST",
+  path = "/api/workspace/demo/tool-approval",
+  body = JSON.stringify({ requestId: "approval-1", approved: true }),
+  clientId = "client_abc",
+  requestId = "req_1",
+  nonce = "nonce_device_1",
+  timestamp = String(Date.now()),
+} = {}) {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ec", {
+    namedCurve: "prime256v1",
+  });
+  const publicJwk = publicKey.export({ format: "jwk" });
+  const devicePublicKey = JSON.stringify({
+    kty: "EC",
+    crv: "P-256",
+    x: publicJwk.x,
+    y: publicJwk.y,
+    ext: true,
+    key_ops: ["verify"],
+  });
+  const bodySha256 = sha256Base64Url(body);
+  const signature = crypto
+    .sign(
+      "sha256",
+      Buffer.from(
+        canonicalSigningString({
+          method,
+          canonicalPath: path,
+          timestamp,
+          nonce,
+          requestId,
+          clientId,
+          bodySha256,
+          prefix: DEVICE_SIGNATURE_PREFIX,
+        })
+      ),
+      { key: privateKey, dsaEncoding: "ieee-p1363" }
+    )
+    .toString("base64url");
+
+  return {
+    "X-Athena-Client-Id": clientId,
+    "X-Athena-Request-Id": requestId,
+    "X-Athena-Timestamp": timestamp,
+    "X-Athena-Nonce": nonce,
+    "X-Athena-Body-SHA256": bodySha256,
+    "X-Athena-Signature": signature,
+    "X-Athena-Signature-Version": DEVICE_SIGNATURE_VERSION,
+    "X-Athena-Device-Public-Key": devicePublicKey,
+    "X-Athena-Device-Key-Algorithm": "p256-v1",
+  };
+}
+
 describe("request signing", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalWarnOnly = process.env.ATHENA_SIGNING_WARN_ONLY;
@@ -167,6 +227,37 @@ describe("request signing", () => {
       requestId: "req_1",
       signatureVersion: SIGNATURE_VERSION,
     });
+    expect(mockNonceCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts a device public-key signed request and binds the public key once", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 1,
+      clientId: "client_abc",
+      userId: 10,
+      publicKey: null,
+      revokedAt: null,
+    });
+    const body = JSON.stringify({ requestId: "approval-1", approved: true });
+    const request = requestDouble({
+      body,
+      headers: deviceSignedHeaders({ body }),
+    });
+
+    await expect(verifySignedRequest(request)).resolves.toMatchObject({
+      ok: true,
+      requestId: "req_1",
+      signatureVersion: DEVICE_SIGNATURE_VERSION,
+    });
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          deviceFingerprintVersion: "p256-v1",
+          publicKey: expect.stringContaining('"P-256"'),
+          trustLevel: "medium",
+        }),
+      })
+    );
     expect(mockNonceCreate).toHaveBeenCalledTimes(1);
   });
 

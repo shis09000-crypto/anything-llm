@@ -253,9 +253,16 @@ function fittedCenterFontSize(
   preferredSize: number,
   minSize: number
 ) {
-  const measuredTextLength = Math.max(1, text.length);
-  const estimatedMaxSize = availableWidth / (measuredTextLength * 0.52);
-  return Math.round(clamp(estimatedMaxSize, minSize, preferredSize));
+  const measuredTextWidth = Array.from(text).reduce((width, char) => {
+    if (/[0-9]/.test(char)) return width + 0.64;
+    if (/[.,%]/.test(char)) return width + 0.34;
+    if (/\s/.test(char)) return width + 0.3;
+    if (/[A-Z]/.test(char)) return width + 0.72;
+    if (/[a-z]/.test(char)) return width + 0.58;
+    return width + 0.88;
+  }, 0);
+  const estimatedMaxSize = availableWidth / Math.max(1, measuredTextWidth);
+  return Math.floor(clamp(estimatedMaxSize, minSize, preferredSize));
 }
 
 export default function AssetAllocationDonutCard({
@@ -344,7 +351,7 @@ export default function AssetAllocationDonutCard({
     centerPrimaryText,
     centerSafeWidth,
     centerItem ? (smallLayout ? 26 : 44) : smallLayout ? 24 : 58,
-    smallLayout ? 18 : 28
+    centerItem ? (smallLayout ? 18 : 28) : smallLayout ? 15 : 24
   );
   const centerLabelFontSize = Math.round(
     clamp(centerContentSize * 0.085, 9, smallLayout ? 10 : 16)
@@ -364,10 +371,11 @@ export default function AssetAllocationDonutCard({
   const showDetailPopup = Boolean(activeItem);
 
   const reapplyChartHighlight = useCallback(
-    (chart = chartRef.current?.getEchartsInstance?.()) => {
-      if (!chart) return;
+    (chart?: any) => {
+      const targetChart = chart ?? chartRef.current?.getEchartsInstance?.();
+      if (!targetChart) return;
 
-      chart.dispatchAction({
+      targetChart.dispatchAction({
         type: "downplay",
         seriesIndex: 0,
       });
@@ -378,7 +386,7 @@ export default function AssetAllocationDonutCard({
       );
       if (activeIndex < 0) return;
 
-      chart.dispatchAction({
+      targetChart.dispatchAction({
         type: "highlight",
         seriesIndex: 0,
         dataIndex: activeIndex,

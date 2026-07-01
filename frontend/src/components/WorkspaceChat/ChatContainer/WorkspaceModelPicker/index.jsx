@@ -11,30 +11,26 @@ import {
   PROVIDER_SETUP_EVENT,
 } from "../PromptInput/LLMSelector/action";
 import Workspace from "@/models/workspace";
-import System from "@/models/system";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
 import { canSeeAdmin } from "@/utils/authz";
 
 function fetchModelName(slug, setModelName) {
   if (!slug) return;
-  Promise.all([
-    Workspace.bySlug(slug),
-    System.settingsBootstrap({ sections: ["llm"] }).then(
-      async (response) => response?.settings || (await System.keys()) || {}
-    ),
-  ]).then(([workspace, systemSettings]) => {
-    const model = workspace.chatModel ?? systemSettings?.LLMModel ?? "";
-    setModelName(model);
+  Workspace.bySlug(slug).then((workspace) => {
+    setModelName(workspace?.chatModel || "");
   });
 }
 
-export default function WorkspaceModelPicker({ workspaceSlug = null }) {
+export default function WorkspaceModelPicker({
+  workspaceSlug = null,
+  modelName: initialModelName = "",
+}) {
   const { t } = useTranslation();
   const { slug: urlSlug } = useParams();
   const slug = urlSlug ?? workspaceSlug;
   const { user } = useUser();
   const [showSelector, setShowSelector] = useState(false);
-  const [modelName, setModelName] = useState("");
+  const [modelName, setModelName] = useState(initialModelName || "");
   const {
     isOpen: isSetupProviderOpen,
     openModal: openSetupProviderModal,
@@ -52,8 +48,15 @@ export default function WorkspaceModelPicker({ workspaceSlug = null }) {
     return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle);
   }, []);
 
-  // Fetch current model name for display
-  useEffect(() => fetchModelName(slug, setModelName), [slug]);
+  // Use the workspace payload already loaded for chat first paint. Only fetch
+  // when embedded elsewhere without a model value.
+  useEffect(() => {
+    if (initialModelName) {
+      setModelName(initialModelName);
+      return;
+    }
+    fetchModelName(slug, setModelName);
+  }, [slug, initialModelName]);
 
   // Close selector and refresh model name when model is saved
   useEffect(() => {

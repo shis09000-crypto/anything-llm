@@ -30,22 +30,30 @@ export default function AttachItem({
   const [currentTokens, setCurrentTokens] = useState(0);
   const [contextWindow, setContextWindow] = useState(Infinity);
   const [showTooltip, setShowTooltip] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const hasFetchedRef = useRef(false);
+  const inFlightRef = useRef(null);
 
-  const fetchFiles = () => {
+  const fetchFiles = ({ force = false } = {}) => {
     if (!slug) return;
     if (isEmbedding) return;
+    if (!force && hasFetchedRef.current) return;
+    if (inFlightRef.current) return inFlightRef.current;
     setIsLoading(true);
-    Workspace.getParsedFiles(slug, threadSlug)
+    const request = Workspace.getParsedFiles(slug, threadSlug)
       .then(({ files, contextWindow, currentContextTokenCount }) => {
+        hasFetchedRef.current = true;
         setFiles(files);
         setShowTooltip(files.length > 0);
         setContextWindow(contextWindow);
         setCurrentTokens(currentContextTokenCount);
       })
       .finally(() => {
+        inFlightRef.current = null;
         setIsLoading(false);
       });
+    inFlightRef.current = request;
+    return request;
   };
 
   /**
@@ -57,7 +65,7 @@ export default function AttachItem({
   async function handleRemoveAttachment(e) {
     const { document } = e.detail;
     await Workspace.deleteParsedFiles(slug, [document.id]);
-    fetchFiles();
+    fetchFiles({ force: true });
   }
 
   /**
@@ -72,11 +80,20 @@ export default function AttachItem({
   }
 
   useEffect(() => {
-    fetchFiles();
-    window.addEventListener(ATTACHMENTS_PROCESSED_EVENT, fetchFiles);
+    hasFetchedRef.current = false;
+    setFiles([]);
+    setShowTooltip(false);
+    const handleAttachmentsProcessed = () => fetchFiles({ force: true });
+    window.addEventListener(
+      ATTACHMENTS_PROCESSED_EVENT,
+      handleAttachmentsProcessed
+    );
     window.addEventListener(REMOVE_ATTACHMENT_EVENT, handleRemoveAttachment);
     return () => {
-      window.removeEventListener(ATTACHMENTS_PROCESSED_EVENT, fetchFiles);
+      window.removeEventListener(
+        ATTACHMENTS_PROCESSED_EVENT,
+        handleAttachmentsProcessed
+      );
       window.removeEventListener(
         REMOVE_ATTACHMENT_EVENT,
         handleRemoveAttachment
@@ -100,6 +117,7 @@ export default function AttachItem({
         type="button"
         onClick={handleClick}
         onPointerEnter={fetchFiles}
+        onFocus={fetchFiles}
         className="group border-none relative flex justify-center items-center cursor-pointer w-6 h-6 rounded-full hover:bg-zinc-700 light:hover:bg-slate-200"
       >
         <div className="relative">

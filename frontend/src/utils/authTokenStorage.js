@@ -1,4 +1,5 @@
 import { AUTH_TOKEN } from "@/utils/constants";
+import { clearRouteAuthCache } from "@/utils/routeAuthCache";
 
 export const AUTH_TOKEN_STORAGE_MODE = "session";
 export const AUTH_SESSION_CLEARED_EVENT = "athena-auth-session-cleared";
@@ -66,6 +67,7 @@ export function setAuthToken(token) {
 
   sessionStorage?.setItem(AUTH_TOKEN, normalized);
   localStorage?.removeItem(AUTH_TOKEN);
+  clearRouteAuthCache();
   return normalized;
 }
 
@@ -73,6 +75,7 @@ export function removeAuthToken() {
   safeSessionStorage()?.removeItem(AUTH_TOKEN);
   safeLocalStorage()?.removeItem(AUTH_TOKEN);
   clearSigningSecretSessionStorage();
+  clearRouteAuthCache();
   notifyAuthSessionCleared();
 }
 

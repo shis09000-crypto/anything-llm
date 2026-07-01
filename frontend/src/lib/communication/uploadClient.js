@@ -144,6 +144,7 @@ function uploadWithProgress({
   signal,
   timeoutMs,
   onUploadProgress,
+  communicationScene,
 }) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -191,6 +192,7 @@ function uploadWithProgress({
         total: progress.total,
         percent: Math.round(progress.percent),
         speedBps: progress.speedBps,
+        communicationScene,
         ok: true,
       });
     };
@@ -201,6 +203,7 @@ function uploadWithProgress({
         requestId,
         type: "reader_upload:server_wait",
         path,
+        communicationScene,
         ok: true,
       });
     };
@@ -251,6 +254,7 @@ export async function uploadFormData(path, formData, options = {}) {
     uploadKind = "unknown",
     method = "POST",
     onUploadProgress,
+    communicationScene = null,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -276,6 +280,7 @@ export async function uploadFormData(path, formData, options = {}) {
       path,
       uploadKind,
       requestBytes: formDataSize(formData),
+      communicationScene,
       ok: true,
     });
   }
@@ -292,6 +297,7 @@ export async function uploadFormData(path, formData, options = {}) {
           signal: signalState.signal,
           timeoutMs,
           onUploadProgress,
+          communicationScene,
         })
       : {
           response: await fetch(apiUrl(path), {
@@ -351,6 +357,7 @@ export async function uploadFormData(path, formData, options = {}) {
         durationMs,
         requestBytes,
         responseBytes,
+        communicationScene,
         serverTiming: response.headers?.get?.("Server-Timing") || null,
         ok: false,
       });
@@ -382,6 +389,7 @@ export async function uploadFormData(path, formData, options = {}) {
       serverWaitMs: result.uploadDurationMs
         ? Math.max(0, durationMs - result.uploadDurationMs)
         : null,
+      communicationScene,
       serverTiming: response.headers?.get?.("Server-Timing") || null,
       ok: true,
     });
@@ -455,6 +463,7 @@ export async function uploadFormData(path, formData, options = {}) {
       durationMs: durationSince(startedAt),
       requestBytes: formDataSize(formData),
       responseBytes: 0,
+      communicationScene,
       ok: false,
       error: apiError.message,
     });

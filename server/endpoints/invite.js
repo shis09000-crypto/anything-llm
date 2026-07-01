@@ -1,13 +1,19 @@
-const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { EventLogs } = require("../models/eventLogs");
-const { EmailVerificationCode } = require("../models/emailVerification");
+const {
+  EmailVerificationCode,
+  EmailVerificationRateLimit,
+} = require("../models/emailVerification");
 const { Invite } = require("../models/invite");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { reqBody } = require("../utils/http");
 const { generateRecoveryCodes } = require("../utils/PasswordRecovery");
-const { issueUserSessionToken } = require("../utils/sessionIdle");
+const {
+  issueUserSessionToken,
+  sessionTokenOptionsFromClientContext,
+} = require("../utils/sessionIdle");
+const { getClientContext } = require("../utils/clientIdentity");
 const { ROLES, LOGIN_GENERIC_ERROR } = require("../utils/authz/accountRoles");
 const {
   isConfigured: emailSmtpConfigured,
@@ -19,11 +25,13 @@ const {
 } = require("../utils/middleware/simpleSSOEnabled");
 
 const INVITE_REGISTER_PURPOSE = "register";
+const INVITE_RATE_LIMIT_PURPOSE = "invite_register";
 const INVITE_GENERIC_ERROR = "无法完成邀请注册，请检查信息后重试。";
-const INVITE_CODE_SENT =
-  "如果该邀请和邮箱可以注册，验证码已发送，请检查邮箱。";
+const INVITE_CODE_SENT = "如果该邀请和邮箱可以注册，验证码已发送，请检查邮箱。";
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-const IP_HOURLY_LIMIT = Number(process.env.INVITE_REGISTER_IP_HOURLY_LIMIT || 20);
+const IP_HOURLY_LIMIT = Number(
+  process.env.INVITE_REGISTER_IP_HOURLY_LIMIT || 20
+);
 const EMAIL_HOURLY_LIMIT = Number(
   process.env.INVITE_REGISTER_EMAIL_HOURLY_LIMIT || 5
 );
@@ -49,6 +57,21 @@ function requestLanguage(request = {}) {
   return primary.split("-")[0] || "en";
 }
 
+function emailSecurityContext(request = {}, clientContext = null) {
+  const platform = clientContext?.platform || "";
+  const device =
+    clientContext?.surface ||
+    clientContext?.layoutMode ||
+    (platform ? `${platform} client` : "");
+  return {
+    device,
+    platform,
+    ip: request?.ip || "Unknown IP",
+    time: new Date().toISOString(),
+    requestId: clientContext?.requestId || "",
+  };
+}
+
 function sixDigitCode() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
@@ -57,11 +80,21 @@ function codeIsSixDigits(code = "") {
   return /^\d{6}$/.test(String(code || ""));
 }
 
+function verificationClientMatches(verification = null, clientContext = null) {
+  if (!verification?.client_id) return true;
+  const clientId = String(clientContext?.clientId || "").trim();
+  if (!clientId || clientId === "legacy") return true;
+  return verification.client_id === clientId;
+}
+
 function rateLimited(key, limit) {
   const now = Date.now();
   const bucket = inviteRateBuckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
-    inviteRateBuckets.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    inviteRateBuckets.set(key, {
+      count: 1,
+      resetAt: now + RATE_LIMIT_WINDOW_MS,
+    });
     return false;
   }
 
@@ -70,20 +103,63 @@ function rateLimited(key, limit) {
   return false;
 }
 
-function inviteRegisterRateLimited({ ip = "", email = "", username = "" }) {
+async function durableInviteRateLimited({
+  bucketType,
+  value,
+  limit,
+  fallbackKey,
+}) {
+  if (!value) return false;
+  try {
+    return await EmailVerificationRateLimit.hit({
+      bucketType,
+      purpose: INVITE_RATE_LIMIT_PURPOSE,
+      value,
+      limit,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    });
+  } catch (error) {
+    console.warn(
+      "INVITE REGISTRATION RATE LIMIT FALLING BACK TO MEMORY.",
+      error?.code || error?.name || "UnknownRateLimitError"
+    );
+    return rateLimited(fallbackKey, limit);
+  }
+}
+
+async function inviteRegisterRateLimited({
+  ip = "",
+  email = "",
+  username = "",
+}) {
   const safeIp = String(ip || "unknown").slice(0, 128);
-  if (rateLimited(`invite:ip:${safeIp}`, IP_HOURLY_LIMIT)) return true;
+  if (
+    await durableInviteRateLimited({
+      bucketType: "ip",
+      value: safeIp,
+      limit: IP_HOURLY_LIMIT,
+      fallbackKey: `invite:ip:${safeIp}`,
+    })
+  )
+    return true;
   if (
     email &&
-    rateLimited(`invite:email:${normalizeEmail(email)}`, EMAIL_HOURLY_LIMIT)
+    (await durableInviteRateLimited({
+      bucketType: "email",
+      value: normalizeEmail(email),
+      limit: EMAIL_HOURLY_LIMIT,
+      fallbackKey: `invite:email:${normalizeEmail(email)}`,
+    }))
   )
     return true;
   if (
     username &&
-    rateLimited(
-      `invite:username:${String(username).trim().toLowerCase()}`,
-      USERNAME_HOURLY_LIMIT
-    )
+    (await durableInviteRateLimited({
+      bucketType: "username",
+      value: String(username).trim().toLowerCase(),
+      limit: USERNAME_HOURLY_LIMIT,
+      fallbackKey: `invite:username:${String(username).trim().toLowerCase()}`,
+    }))
   )
     return true;
   return false;
@@ -115,18 +191,25 @@ function inviteRoleLabel(role = "default") {
 }
 
 async function completeInviteRegistration({ token, body, request, response }) {
-  const { username, email, password, confirmPassword, emailCode } = body || {};
+  const {
+    username,
+    email,
+    password,
+    confirmPassword,
+    emailCode,
+    emailChallengeId,
+  } = body || {};
   const normalizedEmail = normalizeEmail(email);
   const normalizedUsername = String(username || "").trim();
   const invite = await Invite.getByToken(token);
 
   if (
     !Invite.isUsable(invite) ||
-    inviteRegisterRateLimited({
+    (await inviteRegisterRateLimited({
       ip: request.ip,
       email: normalizedEmail,
       username: normalizedUsername,
-    })
+    }))
   ) {
     await EventLogs.logEvent("invite_abuse_blocked", {
       flow: "invite_register_finish",
@@ -159,20 +242,31 @@ async function completeInviteRegistration({ token, body, request, response }) {
   });
   if (existingEmail || existingUsername) return genericInviteFailure(response);
 
-  const verification = await EmailVerificationCode.latest({
-    userId: null,
-    email: normalizedEmail,
-    purpose: INVITE_REGISTER_PURPOSE,
-  });
+  const clientContext = getClientContext(request);
+  const verification = emailChallengeId
+    ? await EmailVerificationCode.findByChallenge({
+        challengeId: emailChallengeId,
+        userId: null,
+        email: normalizedEmail,
+        purpose: INVITE_REGISTER_PURPOSE,
+      })
+    : await EmailVerificationCode.latest({
+        userId: null,
+        email: normalizedEmail,
+        purpose: INVITE_REGISTER_PURPOSE,
+      });
   if (
     !verification ||
+    !verificationClientMatches(verification, clientContext) ||
     verification.consumedAt ||
     verification.expiresAt < new Date() ||
     verification.attempts >= EmailVerificationCode.maxAttempts
   )
     return genericInviteFailure(response);
 
-  if (!bcrypt.compareSync(String(emailCode), verification.code_hash)) {
+  if (
+    !EmailVerificationCode.verifyCode(String(emailCode), verification.code_hash)
+  ) {
     await EmailVerificationCode.incrementAttempts(verification.id);
     await EventLogs.logEvent("register_failed", {
       reason: "invite_code_mismatch",
@@ -211,7 +305,9 @@ async function completeInviteRegistration({ token, body, request, response }) {
 
   await Invite.markClaimed(invite.id, user);
   await EventLogs.logEvent(
-    inviteRole === ROLES.user ? "invite_consumed" : "admin_registered_by_invite",
+    inviteRole === ROLES.user
+      ? "invite_consumed"
+      : "admin_registered_by_invite",
     {
       inviteId: invite.id,
       role: inviteRole,
@@ -246,7 +342,9 @@ async function completeInviteRegistration({ token, body, request, response }) {
     });
   }
 
-  const sessionToken = issueUserSessionToken(user);
+  const sessionToken = issueUserSessionToken(user, {
+    ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+  });
   const recoveryCodes = await generateRecoveryCodes(user.id);
   return response.status(200).json({
     success: true,
@@ -265,7 +363,9 @@ function inviteEndpoints(app) {
       const { code } = request.params;
       const invite = await Invite.getByToken(code);
       if (!Invite.isUsable(invite)) {
-        response.status(200).json({ invite: null, error: "Invite is invalid." });
+        response
+          .status(200)
+          .json({ invite: null, error: "Invite is invalid." });
         return;
       }
 
@@ -290,12 +390,16 @@ function inviteEndpoints(app) {
         resendCooldownSeconds: Math.ceil(
           EmailVerificationCode.resendCooldownMs / 1000
         ),
+        challengeId: crypto.randomUUID(),
       };
 
       const invite = await Invite.getByToken(code);
       if (
         !Invite.isUsable(invite) ||
-        inviteRegisterRateLimited({ ip: request.ip, email: normalizedEmail })
+        (await inviteRegisterRateLimited({
+          ip: request.ip,
+          email: normalizedEmail,
+        }))
       ) {
         await EventLogs.logEvent("invite_abuse_blocked", {
           flow: "invite_register_code",
@@ -328,11 +432,15 @@ function inviteEndpoints(app) {
         Date.now() - new Date(latest.createdAt).getTime() <
           EmailVerificationCode.resendCooldownMs
       ) {
-        response.status(200).json(generic);
+        response.status(200).json({
+          ...generic,
+          challengeId: latest.challenge_id || generic.challengeId,
+        });
         return;
       }
 
       const verificationCode = sixDigitCode();
+      const clientContext = getClientContext(request);
       await EmailVerificationCode.expireOpenCodes({
         userId: null,
         email: normalizedEmail,
@@ -344,6 +452,10 @@ function inviteEndpoints(app) {
         purpose: INVITE_REGISTER_PURPOSE,
         code: verificationCode,
         requestIp: request.ip || "Unknown IP",
+        clientId:
+          clientContext.clientId !== "legacy" ? clientContext.clientId : null,
+        deviceId:
+          clientContext.clientId !== "legacy" ? clientContext.clientId : null,
       });
 
       try {
@@ -352,16 +464,25 @@ function inviteEndpoints(app) {
           code: verificationCode,
           purpose: INVITE_REGISTER_PURPOSE,
           language: requestLanguage(request),
+          securityContext: emailSecurityContext(request, clientContext),
         });
       } catch (error) {
         if (verification) await EmailVerificationCode.consume(verification.id);
-        console.error("FAILED TO SEND INVITE REGISTRATION CODE.", error.message);
+        console.error(
+          "FAILED TO SEND INVITE REGISTRATION CODE.",
+          error.message
+        );
       }
 
-      response.status(200).json(generic);
+      response.status(200).json({
+        ...generic,
+        challengeId: verification?.challenge_id || generic.challengeId,
+      });
     } catch (e) {
       console.error(e);
-      response.status(500).json({ success: false, error: INVITE_GENERIC_ERROR });
+      response
+        .status(500)
+        .json({ success: false, error: INVITE_GENERIC_ERROR });
     }
   });
 

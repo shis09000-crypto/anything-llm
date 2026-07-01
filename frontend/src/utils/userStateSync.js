@@ -6,6 +6,11 @@ import {
 } from "@/lib/communication/userStateClient";
 import { APPEARANCE_SETTINGS } from "@/utils/constants";
 import { safeJsonParse } from "@/utils/request";
+import { getStoredAuthUser } from "@/utils/authUserStorage";
+import {
+  decryptLocalCachePayload,
+  encryptLocalCachePayload,
+} from "@/utils/security/localCacheCrypto";
 
 export { USER_STATE_NAMESPACES };
 
@@ -13,6 +18,7 @@ const META_STORAGE_KEY = "athena_user_state_sync_meta:v1";
 const DEFAULT_SCOPE = "global";
 const WRITE_DEBOUNCE_MS = 800;
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DRAFT_CRYPTO_VERSION = "athena-chat-draft:v1";
 const pendingWrites = new Map();
 const hydrationKeys = new Set();
 
@@ -25,7 +31,17 @@ function storage() {
   return null;
 }
 
+function stateOwnerKey() {
+  const user = getStoredAuthUser();
+  const userId = user?.authUserId || user?.id || user?.username || user?.email;
+  return userId ? `user:${String(userId)}` : "anonymous";
+}
+
 function stateKey(namespace, scope = DEFAULT_SCOPE) {
+  return `${stateOwnerKey()}:${namespace}:${scope || DEFAULT_SCOPE}`;
+}
+
+function legacyStateKey(namespace, scope = DEFAULT_SCOPE) {
   return `${namespace}:${scope || DEFAULT_SCOPE}`;
 }
 
@@ -40,7 +56,11 @@ function writeMeta(meta = {}) {
 }
 
 function metaTimestamp(namespace, scope = DEFAULT_SCOPE) {
-  return Number(readMeta()[stateKey(namespace, scope)] || 0);
+  const meta = readMeta();
+  const key = stateKey(namespace, scope);
+  if (meta[key]) return Number(meta[key] || 0);
+  if (stateOwnerKey() !== "anonymous") return 0;
+  return Number(meta[legacyStateKey(namespace, scope)] || 0);
 }
 
 function touchMeta(namespace, scope = DEFAULT_SCOPE, timestamp = Date.now()) {
@@ -235,29 +255,95 @@ export function normalizeDraftValue(value = "", options = {}) {
   };
 }
 
+function draftCryptoNamespace(scope) {
+  return `chat-draft:${scope || DEFAULT_SCOPE}`;
+}
+
+async function normalizeEncryptedDraftValue(scope, value = "", options = {}) {
+  const legacyValue = normalizeDraftValue(value, options);
+  try {
+    const encryptedText = await encryptLocalCachePayload({
+      namespace: draftCryptoNamespace(scope),
+      payload: { text: legacyValue.text },
+    });
+    if (encryptedText?.encrypted) {
+      return {
+        encrypted: true,
+        cryptoVersion: DRAFT_CRYPTO_VERSION,
+        encryptedText,
+        workspaceSlug: legacyValue.workspaceSlug,
+        threadSlug: legacyValue.threadSlug,
+        expiresAt: legacyValue.expiresAt,
+      };
+    }
+  } catch {}
+  return {
+    ...legacyValue,
+    encrypted: false,
+  };
+}
+
+async function draftTextFromValue(scope, draft = null, fallback = "") {
+  if (!draft) return fallback;
+  if (Number(draft.expiresAt || 0) && Number(draft.expiresAt) < Date.now()) {
+    await deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
+    return fallback;
+  }
+  if (draft.encryptedText?.encrypted) {
+    try {
+      const decrypted = await decryptLocalCachePayload({
+        namespace: draftCryptoNamespace(scope),
+        encryptedPayload: draft.encryptedText,
+      });
+      return String(decrypted?.text || "");
+    } catch {
+      return fallback;
+    }
+  }
+  return draft.text ? String(draft.text || "") : fallback;
+}
+
 export async function hydratePromptDraft(scope, fallback = "") {
   try {
     const remote = await getRemoteState(USER_STATE_NAMESPACES.chatDraft, scope);
     const draft = remote?.value;
-    if (!draft?.text) return fallback;
-    if (Number(draft.expiresAt || 0) && Number(draft.expiresAt) < Date.now()) {
-      await deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
-      return fallback;
-    }
+    if (!draft) return fallback;
     touchMeta(USER_STATE_NAMESPACES.chatDraft, scope, remoteTimestamp(remote));
-    return String(draft.text || "");
+    return draftTextFromValue(scope, draft, fallback);
   } catch {
     return fallback;
   }
 }
 
 export function persistPromptDraft(scope, value = "", options = {}) {
-  return pushUserStateValue(
-    USER_STATE_NAMESPACES.chatDraft,
-    scope,
-    normalizeDraftValue(value, options),
-    { debounceMs: 600 }
+  const normalizedScope = scope || DEFAULT_SCOPE;
+  const key = stateKey(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
+  clearTimeout(pendingWrites.get(key));
+  const updatedAt = touchMeta(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
+  const preview = normalizeDraftValue(value, options);
+  pendingWrites.set(
+    key,
+    setTimeout(async () => {
+      pendingWrites.delete(key);
+      const draftValue = await normalizeEncryptedDraftValue(
+        normalizedScope,
+        value,
+        options
+      );
+      patchUserStates([
+        {
+          namespace: USER_STATE_NAMESPACES.chatDraft,
+          scope: normalizedScope,
+          version: draftValue.encrypted ? "2" : "1",
+          value: {
+            ...draftValue,
+            updatedAt,
+          },
+        },
+      ]).catch(() => {});
+    }, options.debounceMs ?? 600)
   );
+  return preview;
 }
 
 export function clearPromptDraft(scope) {
@@ -290,10 +376,40 @@ export function persistAppearancePreferences(patch = {}) {
   );
 }
 
+async function applyTextSizeFromAppearance(value = {}) {
+  const hasTextSize = Boolean(value?.textSize);
+  const hasCustomTextSize =
+    value?.customTextSizePx !== null && value?.customTextSizePx !== undefined;
+  if (!hasTextSize && !hasCustomTextSize) return;
+
+  try {
+    const { applySyncedTextSizePreference } = await import("@/utils/textSize");
+    applySyncedTextSizePreference({
+      textSize: value.textSize,
+      customTextSizePx: value.customTextSizePx,
+    });
+    return;
+  } catch {}
+
+  try {
+    window.dispatchEvent(new Event("textSizeChange"));
+  } catch {}
+}
+
 export async function hydrateAppearancePreferences(apply = () => {}) {
   try {
     const remote = await getRemoteState(USER_STATE_NAMESPACES.appearance);
-    if (!remote?.value) return null;
+    if (!remote?.value) {
+      persistAppearancePreferences();
+      return null;
+    }
+
+    const incomingTimestamp = remoteTimestamp(remote);
+    if (incomingTimestamp < metaTimestamp(USER_STATE_NAMESPACES.appearance)) {
+      persistAppearancePreferences();
+      return appearancePreferenceValue();
+    }
+
     const value = remote.value;
     const localStorageRef = storage();
     if (!localStorageRef) return value;
@@ -304,18 +420,12 @@ export async function hydrateAppearancePreferences(apply = () => {}) {
         JSON.stringify(value.appearanceSettings)
       );
     }
-    if (value.textSize)
-      localStorageRef.setItem("anythingllm_text_size", value.textSize);
-    if (value.customTextSizePx)
-      localStorageRef.setItem(
-        "anythingllm_text_size_custom_px",
-        String(value.customTextSizePx)
-      );
     touchMeta(
       USER_STATE_NAMESPACES.appearance,
       DEFAULT_SCOPE,
-      remoteTimestamp(remote)
+      incomingTimestamp
     );
+    await applyTextSizeFromAppearance(value);
     apply(value);
     return value;
   } catch {

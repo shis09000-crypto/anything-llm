@@ -1,11 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { isMobile } from "react-device-detect";
-import Sidebar from "@/components/SettingsSidebar";
 import SpeechToTextProvider from "./stt";
 import TextToSpeechProvider from "./tts";
 import { useTranslation } from "react-i18next";
-import { SettingsSectionSkeleton } from "@/pages/GeneralSettings/SettingsDataProvider";
 import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
+import { SoftCard, SoftSettingsLayout } from "@/components/SoftSettings";
 
 export default function AudioPreference() {
   const [settings, setSettings] = useState(null);
@@ -24,19 +22,21 @@ export default function AudioPreference() {
   }, [refreshSettings]);
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
+    <SoftSettingsLayout title={t("settings.voice-speech")}>
       {loading ? (
-        <SettingsSectionSkeleton title={t("settings.voice-speech")} />
+        <SoftCard>
+          <div className="flex w-full max-w-[720px] flex-col gap-y-4">
+            <div className="motion-skeleton h-16 rounded-2xl" />
+            <div className="motion-skeleton h-28 rounded-2xl" />
+            <div className="motion-skeleton h-10 w-2/3 rounded-2xl" />
+          </div>
+        </SoftCard>
       ) : (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
+        <div className="settings-soft-form">
           <SpeechToTextProvider settings={settings} />
           <TextToSpeechProvider settings={settings} />
         </div>
       )}
-    </div>
+    </SoftSettingsLayout>
   );
 }

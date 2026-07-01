@@ -6,6 +6,12 @@ const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 class PineconeDB extends VectorDatabase {
   constructor() {
@@ -77,9 +83,13 @@ class PineconeDB extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(match.metadata.text);
+      const metadata = {
+        ...(match.metadata || {}),
+        text: decryptVectorText(match.metadata?.text),
+      };
+      result.contextTexts.push(metadata.text);
       result.sourceDocuments.push({
-        ...match.metadata,
+        ...metadata,
         score: match.score,
       });
       result.scores.push(match.score);
@@ -138,7 +148,11 @@ class PineconeDB extends VectorDatabase {
             const newChunks = chunk.map((chunk) => {
               const id = uuidv4();
               documentVectors.push({ docId, vectorId: id });
-              return { ...chunk, id };
+              return {
+                ...chunk,
+                id,
+                metadata: encryptVectorMetadataText(chunk.metadata || {}),
+              };
             });
             await pineconeNamespace.upsert([...newChunks]);
           }
@@ -183,7 +197,7 @@ class PineconeDB extends VectorDatabase {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           vectors.push(vectorRecord);
@@ -302,11 +316,13 @@ class PineconeDB extends VectorDatabase {
     for (const source of sources) {
       const { metadata = {} } = source;
       if (Object.keys(metadata).length > 0) {
+        const decryptedMetadata = decryptVectorMetadataText(metadata);
+        const text = source.hasOwnProperty("pageContent")
+          ? decryptVectorText(source.pageContent)
+          : undefined;
         documents.push({
-          ...metadata,
-          ...(source.hasOwnProperty("pageContent")
-            ? { text: source.pageContent }
-            : {}),
+          ...decryptedMetadata,
+          ...(text ? { text } : {}),
         });
       }
     }

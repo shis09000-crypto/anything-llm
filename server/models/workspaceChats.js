@@ -5,6 +5,12 @@ const {
   withDeepSeekCacheDiagnosis,
 } = require("../utils/AiProviders/deepseek/promptCache");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
+const {
+  decryptWorkspaceChatRecord,
+  decryptWorkspaceChatRecords,
+  encryptWorkspaceChatField,
+  encryptWorkspaceChatWrite,
+} = require("../utils/security/chatHistoryEncryption");
 
 function safeParseResponse(response = null) {
   if (!response) return {};
@@ -56,7 +62,7 @@ async function previousDeepSeekMetricsForSave({
   });
 
   for (const chat of previousChats) {
-    const metrics = deepSeekMetricsFromChat(chat);
+    const metrics = deepSeekMetricsFromChat(decryptWorkspaceChatRecord(chat));
     if (metrics && comparableDeepSeekMetrics(currentMetrics, metrics))
       return metrics;
   }
@@ -118,8 +124,8 @@ const WorkspaceChats = {
         data: {
           public_id: newPublicChatId(),
           workspaceId,
-          prompt,
-          response: safeJSONStringify(response),
+          prompt: encryptWorkspaceChatField(prompt),
+          response: encryptWorkspaceChatField(safeJSONStringify(response)),
           user_id: user?.id || null,
           thread_id: threadId,
           api_session_id: apiSessionId,
@@ -140,7 +146,7 @@ const WorkspaceChats = {
           console.warn("[ThreadTitle] failed to schedule", error.message)
         );
       }
-      return { chat, message: null };
+      return { chat: decryptWorkspaceChatRecord(chat), message: null };
     } catch (error) {
       console.error(error.message);
       return { chat: null, message: error.message };
@@ -166,7 +172,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return chats;
+      return decryptWorkspaceChatRecords(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -191,7 +197,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return chats;
+      return decryptWorkspaceChatRecords(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -215,7 +221,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return chats;
+      return decryptWorkspaceChatRecords(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -299,7 +305,7 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chat || null;
+      return decryptWorkspaceChatRecord(chat || null);
     } catch (error) {
       console.error(error.message);
       return null;
@@ -331,7 +337,7 @@ const WorkspaceChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return chats;
+      return decryptWorkspaceChatRecords(chats);
     } catch (error) {
       console.error(error.message);
       return [];
@@ -438,7 +444,7 @@ const WorkspaceChats = {
     try {
       await prisma.workspace_chats.update({
         where: { id },
-        data,
+        data: encryptWorkspaceChatWrite(data),
       });
       return true;
     } catch (error) {
@@ -454,11 +460,11 @@ const WorkspaceChats = {
       for (const chatData of chatsData) {
         const chat = await prisma.workspace_chats.create({
           data: {
-            ...chatData,
+            ...encryptWorkspaceChatWrite(chatData),
             public_id: chatData.public_id || newPublicChatId(),
           },
         });
-        createdChats.push(chat);
+        createdChats.push(decryptWorkspaceChatRecord(chat));
       }
       return { chats: createdChats, message: null };
     } catch (error) {
@@ -488,14 +494,14 @@ const WorkspaceChats = {
       });
       const payload = {
         workspaceId: data.workspaceId,
-        response: safeJSONStringify(data.response),
+        response: encryptWorkspaceChatField(safeJSONStringify(data.response)),
         user_id: data.user?.id || null,
         thread_id: data.threadId,
         api_session_id: data.apiSessionId,
         include: data.include,
       };
 
-      const { chat } = await prisma.workspace_chats.upsert({
+      const chat = await prisma.workspace_chats.upsert({
         where: {
           id: Number(chatId),
           user_id: data.user?.id || null,
@@ -506,11 +512,11 @@ const WorkspaceChats = {
         // On creates, we need to set the prompt or else record will fail.
         create: {
           ...payload,
-          prompt: data.prompt,
+          prompt: encryptWorkspaceChatField(data.prompt),
           public_id: data.public_id || newPublicChatId(),
         },
       });
-      return { chat, message: null };
+      return { chat: decryptWorkspaceChatRecord(chat), message: null };
     } catch (error) {
       console.error(error.message);
       return { chat: null, message: error.message };

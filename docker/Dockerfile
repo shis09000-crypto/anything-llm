@@ -166,6 +166,7 @@ USER anythingllm
 # Since we are building from backend-build we just need to move built frontend into server/public
 FROM backend-build AS production-build
 WORKDIR /app
+RUN rm -rf /app/server/public && mkdir -p /app/server/public
 COPY --chown=anythingllm:anythingllm --from=frontend-build /app/frontend/dist /app/server/public
 
 # Setup the environment

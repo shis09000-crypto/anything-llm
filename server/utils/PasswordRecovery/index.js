@@ -8,7 +8,11 @@ const {
   RecoveryCode,
   PasswordResetToken,
 } = require("../../models/passwordRecovery");
-const { EmailVerificationCode } = require("../../models/emailVerification");
+const {
+  EmailVerificationCode,
+  EmailVerificationGrant,
+  EmailVerificationRateLimit,
+} = require("../../models/emailVerification");
 const {
   isConfigured: emailSmtpConfigured,
   maskedEmail,
@@ -32,6 +36,13 @@ const IP_HOURLY_LIMIT = Number(
 const USERNAME_HOURLY_LIMIT = Number(
   process.env.EMAIL_VERIFICATION_USERNAME_HOURLY_LIMIT || 5
 );
+const EMAIL_HOURLY_LIMIT = Number(
+  process.env.EMAIL_VERIFICATION_EMAIL_HOURLY_LIMIT || 5
+);
+const DEVICE_HOURLY_LIMIT = Number(
+  process.env.EMAIL_VERIFICATION_DEVICE_HOURLY_LIMIT || 10
+);
+const PASSWORD_RESET_GRANT_SCOPE = "password_reset";
 const rateBuckets = new Map();
 
 const EMAIL_VERIFICATION_ERRORS = {
@@ -79,8 +90,27 @@ function sixDigitCode() {
   return String(crypto.randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
+function fakeChallengeId() {
+  return crypto.randomUUID();
+}
+
 function requestIp(requestIp = "") {
   return String(requestIp || "unknown").slice(0, 128);
+}
+
+function emailSecurityContext({ ip, clientContext = null } = {}) {
+  const platform = clientContext?.platform || "";
+  const device =
+    clientContext?.surface ||
+    clientContext?.layoutMode ||
+    (platform ? `${platform} client` : "");
+  return {
+    device,
+    platform,
+    ip: requestIp(ip),
+    time: new Date().toISOString(),
+    requestId: clientContext?.requestId || "",
+  };
 }
 
 function rateLimited(key, limit) {
@@ -96,16 +126,76 @@ function rateLimited(key, limit) {
   return false;
 }
 
-function verificationRateLimited({ ip, username }) {
+async function durableRateLimited({
+  bucketType,
+  purpose,
+  value,
+  limit,
+  fallbackKey,
+}) {
+  if (!value) return false;
+  try {
+    return await EmailVerificationRateLimit.hit({
+      bucketType,
+      purpose,
+      value,
+      limit,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    });
+  } catch (error) {
+    console.warn(
+      "EMAIL VERIFICATION RATE LIMIT FALLING BACK TO MEMORY.",
+      error?.code || error?.name || "UnknownRateLimitError"
+    );
+    return rateLimited(fallbackKey, limit);
+  }
+}
+
+async function verificationRateLimited({
+  ip,
+  username,
+  email = "",
+  clientId = "",
+  purpose = "email_verification",
+}) {
   const normalizedIp = requestIp(ip);
   const normalizedUsername = String(username || "")
     .trim()
     .toLowerCase();
-  const ipLimited = rateLimited(`ip:${normalizedIp}`, IP_HOURLY_LIMIT);
-  const usernameLimited = normalizedUsername
-    ? rateLimited(`username:${normalizedUsername}`, USERNAME_HOURLY_LIMIT)
-    : false;
-  return ipLimited || usernameLimited;
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedClientId = String(clientId || "").trim();
+  const ipLimited = await durableRateLimited({
+    bucketType: "ip",
+    purpose,
+    value: normalizedIp,
+    limit: IP_HOURLY_LIMIT,
+    fallbackKey: `ip:${normalizedIp}`,
+  });
+  const usernameLimited = await durableRateLimited({
+    bucketType: "username",
+    purpose,
+    value: normalizedUsername,
+    limit: USERNAME_HOURLY_LIMIT,
+    fallbackKey: `username:${normalizedUsername}`,
+  });
+  const emailLimited = await durableRateLimited({
+    bucketType: "email",
+    purpose,
+    value: normalizedEmail,
+    limit: EMAIL_HOURLY_LIMIT,
+    fallbackKey: `email:${normalizedEmail}`,
+  });
+  const deviceLimited = await durableRateLimited({
+    bucketType: "device",
+    purpose,
+    value:
+      normalizedClientId && normalizedClientId !== "legacy"
+        ? normalizedClientId
+        : "",
+    limit: DEVICE_HOURLY_LIMIT,
+    fallbackKey: `device:${normalizedClientId}`,
+  });
+  return ipLimited || usernameLimited || emailLimited || deviceLimited;
 }
 
 function codeIsSixDigits(code = "") {
@@ -116,6 +206,13 @@ function resendCooldownSecondsRemaining(latest) {
   const elapsedMs = Date.now() - new Date(latest?.createdAt || 0).getTime();
   const remainingMs = EmailVerificationCode.resendCooldownMs - elapsedMs;
   return Math.max(1, Math.ceil(remainingMs / 1000));
+}
+
+function verificationClientMatches(verification = null, clientContext = null) {
+  if (!verification?.client_id) return true;
+  const clientId = String(clientContext?.clientId || "").trim();
+  if (!clientId || clientId === "legacy") return true;
+  return verification.client_id === clientId;
 }
 
 async function logEmailEvent(
@@ -165,6 +262,7 @@ async function sendAndStoreVerification({
   purpose,
   ip,
   language = "",
+  clientContext = null,
 }) {
   const authUserId = await authUserIdForUser(user);
   const code = sixDigitCode();
@@ -175,6 +273,14 @@ async function sendAndStoreVerification({
     purpose,
     code,
     requestIp: requestIp(ip),
+    clientId:
+      clientContext?.clientId && clientContext.clientId !== "legacy"
+        ? clientContext.clientId
+        : null,
+    deviceId:
+      clientContext?.clientId && clientContext.clientId !== "legacy"
+        ? clientContext.clientId
+        : null,
   });
   if (error) return { success: false, error };
 
@@ -184,6 +290,7 @@ async function sendAndStoreVerification({
       code,
       purpose,
       language,
+      securityContext: emailSecurityContext({ ip, clientContext }),
     });
     await logEmailEvent("email_verification_sent", {
       user,
@@ -206,17 +313,34 @@ async function sendAndStoreVerification({
   }
 }
 
-async function verifyEmailCode({ user, email, purpose, code, ip }) {
+async function verifyEmailCode({
+  user,
+  email,
+  purpose,
+  code,
+  ip,
+  challengeId = null,
+  clientContext = null,
+}) {
   const authUserId = await authUserIdForUser(user);
   if (!codeIsSixDigits(code))
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.invalidFormat };
 
-  const verification = await EmailVerificationCode.latest({
-    userId: authUserId,
-    email,
-    purpose,
-  });
+  const verification = challengeId
+    ? await EmailVerificationCode.findByChallenge({
+        challengeId,
+        userId: authUserId,
+        email,
+        purpose,
+      })
+    : await EmailVerificationCode.latest({
+        userId: authUserId,
+        email,
+        purpose,
+      });
   if (!verification)
+    return { success: false, ...EMAIL_VERIFICATION_ERRORS.notFound };
+  if (!verificationClientMatches(verification, clientContext))
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.notFound };
   if (verification.consumedAt)
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.consumed };
@@ -225,7 +349,10 @@ async function verifyEmailCode({ user, email, purpose, code, ip }) {
   if (verification.attempts >= EmailVerificationCode.maxAttempts)
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.attemptsExceeded };
 
-  const validCode = bcrypt.compareSync(String(code), verification.code_hash);
+  const validCode = EmailVerificationCode.verifyCode(
+    String(code),
+    verification.code_hash
+  );
   if (!validCode) {
     await EmailVerificationCode.incrementAttempts(verification.id);
     return { success: false, ...EMAIL_VERIFICATION_ERRORS.mismatch };
@@ -301,11 +428,14 @@ async function recoverAccount(username = "", recoveryCodes = []) {
   });
   if (!validCodes) return { success: false, error: "Invalid recovery codes." };
 
-  const { passwordResetToken, error } = await PasswordResetToken.create(
-    recoveryUserId
-  );
+  const { grant, error } = await EmailVerificationGrant.create({
+    userId: recoveryUserId,
+    purpose: "recovery_code_reset",
+    scope: PASSWORD_RESET_GRANT_SCOPE,
+    email: identity.user?.email || "",
+  });
   if (!!error) return { success: false, error };
-  return { success: true, resetToken: passwordResetToken.token };
+  return { success: true, resetToken: grant.token };
 }
 
 async function emailStatus(userId = null) {
@@ -322,6 +452,7 @@ async function emailStatus(userId = null) {
     verified: Boolean(user.email && user.email_verified_at),
     verifiedAt: user.email_verified_at || null,
     pendingEmail: pending && pending.email !== user.email ? pending.email : "",
+    pendingChallengeId: pending?.challenge_id || null,
   };
 }
 
@@ -330,13 +461,22 @@ async function requestAuthenticatedEmailVerification({
   email = "",
   ip = "",
   language = "",
+  clientContext = null,
 }) {
   const user = await User._get({ id: Number(userId) });
   const normalizedEmail = normalizeEmail(email);
   if (!user) return { success: false, error: "User not found." };
   if (!validEmail(normalizedEmail))
     return { success: false, error: "Invalid email address." };
-  if (verificationRateLimited({ ip, username: user.username }))
+  if (
+    await verificationRateLimited({
+      ip,
+      username: user.username,
+      email: normalizedEmail,
+      clientId: clientContext?.clientId,
+      purpose: EMAIL_PURPOSES.bindEmail,
+    })
+  )
     return {
       success: false,
       error: "Too many verification requests. Try again later.",
@@ -366,6 +506,7 @@ async function requestAuthenticatedEmailVerification({
       success: false,
       ...EMAIL_VERIFICATION_ERRORS.resendCooldown,
       resendCooldownSeconds: resendCooldownSecondsRemaining(latest),
+      challengeId: latest.challenge_id || null,
     };
   }
 
@@ -375,11 +516,13 @@ async function requestAuthenticatedEmailVerification({
     purpose: EMAIL_PURPOSES.bindEmail,
     ip,
     language,
+    clientContext,
   });
   if (!result.success) return result;
   return {
     success: true,
     pendingEmail: normalizedEmail,
+    challengeId: result.verification?.challenge_id || null,
     resendCooldownSeconds: EMAIL_RESEND_COOLDOWN_SECONDS,
   };
 }
@@ -389,6 +532,8 @@ async function confirmAuthenticatedEmailVerification({
   email = "",
   code = "",
   ip = "",
+  challengeId = null,
+  clientContext = null,
 }) {
   const user = await User._get({ id: Number(userId) });
   const normalizedEmail = normalizeEmail(email);
@@ -407,6 +552,8 @@ async function confirmAuthenticatedEmailVerification({
     purpose: EMAIL_PURPOSES.bindEmail,
     code,
     ip,
+    challengeId,
+    clientContext,
   });
   if (!verified.success) return verified;
 
@@ -446,6 +593,7 @@ async function requestEmailPasswordReset({
   email = "",
   ip = "",
   language = "",
+  clientContext = null,
 }) {
   const normalizedUsername = String(username || "").trim();
   const normalizedEmail = normalizeEmail(email);
@@ -453,12 +601,16 @@ async function requestEmailPasswordReset({
     success: true,
     message: EMAIL_RECOVERY_GENERIC_RESPONSE,
     resendCooldownSeconds: EMAIL_RESEND_COOLDOWN_SECONDS,
+    challengeId: fakeChallengeId(),
   };
 
   if (
-    verificationRateLimited({
+    await verificationRateLimited({
       ip,
       username: normalizedUsername,
+      email: normalizedEmail,
+      clientId: clientContext?.clientId,
+      purpose: EMAIL_PURPOSES.passwordReset,
     })
   )
     return generic;
@@ -486,16 +638,23 @@ async function requestEmailPasswordReset({
     Date.now() - new Date(latest.createdAt).getTime() <
       EmailVerificationCode.resendCooldownMs
   )
-    return generic;
+    return {
+      ...generic,
+      challengeId: latest.challenge_id || generic.challengeId,
+    };
 
-  await sendAndStoreVerification({
+  const result = await sendAndStoreVerification({
     user,
     email: normalizedEmail,
     purpose: EMAIL_PURPOSES.passwordReset,
     ip,
     language,
+    clientContext,
   });
-  return generic;
+  return {
+    ...generic,
+    challengeId: result?.verification?.challenge_id || generic.challengeId,
+  };
 }
 
 async function confirmEmailPasswordReset({
@@ -503,6 +662,8 @@ async function confirmEmailPasswordReset({
   email = "",
   code = "",
   ip = "",
+  challengeId = null,
+  clientContext = null,
 }) {
   const normalizedUsername = String(username || "").trim();
   const normalizedEmail = normalizeEmail(email);
@@ -522,14 +683,23 @@ async function confirmEmailPasswordReset({
     purpose: EMAIL_PURPOSES.passwordReset,
     code,
     ip,
+    challengeId,
+    clientContext,
   });
   if (!verified.success) return verified;
 
-  const { passwordResetToken, error } = await PasswordResetToken.create(
-    identity.authUserId
-  );
+  const { grant, error } = await EmailVerificationGrant.create({
+    userId: identity.authUserId,
+    purpose: EMAIL_PURPOSES.passwordReset,
+    scope: PASSWORD_RESET_GRANT_SCOPE,
+    email: normalizedEmail,
+    challengeId: verified.verification?.challenge_id || null,
+    clientId: verified.verification?.client_id || null,
+    deviceId: verified.verification?.device_id || null,
+    sessionId: verified.verification?.session_id || null,
+  });
   if (error) return { success: false, error };
-  return { success: true, resetToken: passwordResetToken.token };
+  return { success: true, resetToken: grant.token };
 }
 
 async function resetPassword(token, _newPassword = "", confirmPassword = "") {
@@ -538,20 +708,32 @@ async function resetPassword(token, _newPassword = "", confirmPassword = "") {
   if (newPassword !== String(confirmPassword))
     throw new Error("Passwords do not match");
 
-  const resetToken = await PasswordResetToken.findUnique({
+  const resetGrant = await EmailVerificationGrant.findValid({
     token: String(token),
+    scope: PASSWORD_RESET_GRANT_SCOPE,
   });
-  if (!resetToken || resetToken.expiresAt < new Date()) {
+  const resetToken = resetGrant
+    ? null
+    : await PasswordResetToken.findUnique({
+        token: String(token),
+      });
+  const resetUserId = resetGrant?.user_id || resetToken?.user_id;
+  if (!resetUserId || (resetToken && resetToken.expiresAt < new Date())) {
     return { success: false, message: "Invalid reset token" };
   }
 
   // JOI password rules will be enforced inside .update.
-  const authUser = await AuthIdentity.findById(resetToken.user_id);
+  const authUser = await AuthIdentity.findById(resetUserId);
   if (!authUser || !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
     return { success: false, message: "Invalid reset token" };
   }
   const user = await AuthIdentity.ensureShadowUser(authUser);
   if (!user) return { success: false, message: "Invalid reset token" };
+
+  if (resetGrant) {
+    const consumed = await EmailVerificationGrant.consume(resetGrant.id);
+    if (!consumed) return { success: false, message: "Invalid reset token" };
+  }
 
   const { error } = await User.update(user.id, {
     password: newPassword,
@@ -564,8 +746,12 @@ async function resetPassword(token, _newPassword = "", confirmPassword = "") {
   });
 
   if (error) return { success: false, message: error };
-  await PasswordResetToken.deleteMany({ user_id: resetToken.user_id });
-  await RecoveryCode.deleteMany({ user_id: resetToken.user_id });
+  await EmailVerificationGrant.consumeMany({
+    userId: resetUserId,
+    scope: PASSWORD_RESET_GRANT_SCOPE,
+  });
+  await PasswordResetToken.deleteMany({ user_id: resetUserId });
+  await RecoveryCode.deleteMany({ user_id: resetUserId });
   const updatedUser = await User._get({ id: user.id });
   await EventLogs.logEvent(
     "password_reset_succeeded",
@@ -619,7 +805,7 @@ async function resolveAuthAndShadowByUsername(username = "") {
 async function safeFindAuthIdentity(identifier = "") {
   try {
     return await AuthIdentity.findByLoginIdentifier(identifier);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -627,7 +813,7 @@ async function safeFindAuthIdentity(identifier = "") {
 async function safeBootstrapAuthUserFromShadow(user = null) {
   try {
     return await AuthIdentity.bootstrapAuthUserFromShadow(user);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -648,5 +834,7 @@ module.exports = {
     validEmail,
     verificationRateLimited,
     rateBuckets,
+    fakeChallengeId,
+    verificationClientMatches,
   },
 };

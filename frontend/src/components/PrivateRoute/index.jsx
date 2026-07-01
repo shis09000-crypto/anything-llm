@@ -3,13 +3,8 @@ import { Navigate } from "react-router-dom";
 import { FullScreenLoader } from "../Preloader";
 import validateSessionTokenForUser from "@/utils/session";
 import paths from "@/utils/paths";
-import {
-  AUTH_TIMESTAMP,
-  AUTH_USER,
-  LAST_USER_ACTION_AT,
-} from "@/utils/constants";
 import { userFromStorage } from "@/utils/request";
-import { getAuthToken, removeAuthToken } from "@/utils/authTokenStorage";
+import { getAuthToken } from "@/utils/authTokenStorage";
 import System from "@/models/system";
 import UserMenu from "../UserMenu";
 import { KeyboardShortcutWrapper } from "@/utils/keyboardShortcuts";
@@ -21,94 +16,233 @@ import {
   canSeeExperiment,
   canSeeOwnerSecurity,
 } from "@/utils/authz";
+import { markLoginBoot } from "@/utils/loginBootPerf";
+import { AuthBootstrapError } from "@/components/Modals/Password";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
+import { hasStoredAuthUser } from "@/utils/authUserStorage";
+import {
+  clearRouteAuthCache,
+  readRouteAuthCache,
+  resolveRouteAuthCache,
+  routeAuthCacheKey,
+} from "@/utils/routeAuthCache";
+
+const EMPTY_AUTH_STATE = {
+  isAuthd: null,
+  shouldRedirectToOnboarding: false,
+  multiUserMode: false,
+  authUnavailable: false,
+};
+
+function currentRouteAuthCacheKey() {
+  return routeAuthCacheKey({
+    authToken: getAuthToken(),
+    hasUser: hasStoredAuthUser(),
+    codexDevAuthBypass: isCodexDevAuthBypassEnabled(),
+  });
+}
+
+function authResult({
+  isAuthd,
+  shouldRedirectToOnboarding = false,
+  multiUserMode = false,
+  authUnavailable = false,
+  mode = "unknown",
+  success = null,
+  cacheable = true,
+} = {}) {
+  return {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+    mode,
+    success,
+    cacheable,
+  };
+}
+
+async function validateRouteAuthState() {
+  if (isCodexDevAuthBypassEnabled()) {
+    return authResult({
+      isAuthd: true,
+      mode: "codex-dev",
+    });
+  }
+
+  const onboardingComplete = await System.isOnboardingComplete();
+  const settings = await System.keys();
+  if (!settings) {
+    clearRouteAuthCache();
+    return authResult({
+      isAuthd: false,
+      authUnavailable: true,
+      mode: "settings-unavailable",
+      cacheable: false,
+    });
+  }
+
+  const { MultiUserMode, RequiresAuth } = settings;
+
+  if (onboardingComplete === false) {
+    return authResult({
+      isAuthd: true,
+      shouldRedirectToOnboarding: true,
+      multiUserMode: MultiUserMode,
+      mode: "onboarding",
+    });
+  }
+
+  if (!MultiUserMode && !RequiresAuth) {
+    return authResult({
+      isAuthd: true,
+      multiUserMode: false,
+      mode: "single-public",
+    });
+  }
+
+  if (!MultiUserMode && RequiresAuth) {
+    const localAuthToken = getAuthToken();
+    if (!localAuthToken) {
+      return authResult({
+        isAuthd: false,
+        multiUserMode: false,
+        mode: "single-password",
+        success: false,
+      });
+    }
+
+    const isValid = await validateSessionTokenForUser();
+    if (!isValid) clearRouteAuthCache();
+    return authResult({
+      isAuthd: isValid,
+      multiUserMode: false,
+      mode: "single-password",
+      success: isValid,
+      cacheable: isValid,
+    });
+  }
+
+  const localUser = hasStoredAuthUser();
+  const localAuthToken = getAuthToken();
+  if (!localUser || !localAuthToken) {
+    return authResult({
+      isAuthd: false,
+      multiUserMode: true,
+      mode: "multi",
+      success: false,
+    });
+  }
+
+  if (localIdleExpired()) {
+    clearRouteAuthCache();
+    clearSensitiveClientSession();
+    return authResult({
+      isAuthd: false,
+      multiUserMode: true,
+      mode: "multi-idle-expired",
+      success: false,
+      cacheable: false,
+    });
+  }
+
+  const isValid = await validateSessionTokenForUser();
+  if (!isValid) {
+    clearRouteAuthCache();
+    clearSensitiveClientSession();
+  }
+
+  return authResult({
+    isAuthd: isValid,
+    multiUserMode: true,
+    mode: "multi",
+    success: isValid,
+    cacheable: isValid,
+  });
+}
+
+function toHookState(result = EMPTY_AUTH_STATE) {
+  return {
+    isAuthd: result.isAuthd,
+    shouldRedirectToOnboarding: Boolean(result.shouldRedirectToOnboarding),
+    multiUserMode: Boolean(result.multiUserMode),
+    authUnavailable: Boolean(result.authUnavailable),
+  };
+}
+
+function markRouteAuthValidated(result = {}) {
+  if (!result?.mode) return;
+  const payload = { mode: result.mode };
+  if (typeof result.success === "boolean") payload.success = result.success;
+  if (result.cached) payload.cached = true;
+  markLoginBoot("private_route_validated", payload);
+}
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.
 // When in single user mode we just bypass any authchecks.
 function useIsAuthenticated() {
-  const [isAuthd, setIsAuthed] = useState(null);
-  const [shouldRedirectToOnboarding, setShouldRedirectToOnboarding] =
-    useState(false);
-  const [multiUserMode, setMultiUserMode] = useState(false);
+  const cacheKey = currentRouteAuthCacheKey();
+  const [authState, setAuthState] = useState(() => {
+    const cached = readRouteAuthCache(cacheKey);
+    return cached ? toHookState(cached) : EMPTY_AUTH_STATE;
+  });
 
   useEffect(() => {
-    const validateSession = async () => {
-      if (isCodexDevAuthBypassEnabled()) {
-        setMultiUserMode(false);
-        setIsAuthed(true);
-        return;
-      }
+    let cancelled = false;
 
-      const onboardingComplete = await System.isOnboardingComplete();
-      const { MultiUserMode, RequiresAuth } = await System.keys();
-      setMultiUserMode(MultiUserMode);
+    const cached = readRouteAuthCache(cacheKey);
+    if (cached) {
+      setAuthState(toHookState(cached));
+      markRouteAuthValidated({ ...cached, cached: true });
+      return;
+    }
 
-      // Check for the onboarding redirect condition
-      if (onboardingComplete === false) {
-        setShouldRedirectToOnboarding(true);
-        setIsAuthed(true);
-        return;
-      }
+    setAuthState(EMPTY_AUTH_STATE);
+    resolveRouteAuthCache(cacheKey, validateRouteAuthState)
+      .then((result) => {
+        if (cancelled) return;
+        setAuthState(toHookState(result));
+        markRouteAuthValidated(result);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        clearRouteAuthCache();
+        setAuthState(
+          toHookState(
+            authResult({
+              isAuthd: false,
+              authUnavailable: true,
+              mode: "auth-bootstrap-error",
+              success: false,
+              cacheable: false,
+            })
+          )
+        );
+        markRouteAuthValidated({
+          mode: "auth-bootstrap-error",
+          success: false,
+        });
+      });
 
-      // Single User mode without password - no auth required
-      if (!MultiUserMode && !RequiresAuth) {
-        setIsAuthed(true);
-        return;
-      }
-
-      // Single User password mode check
-      if (!MultiUserMode && RequiresAuth) {
-        const localAuthToken = getAuthToken();
-        if (!localAuthToken) {
-          setIsAuthed(false);
-          return;
-        }
-
-        const isValid = await validateSessionTokenForUser();
-        setIsAuthed(isValid);
-        return;
-      }
-
-      // Multi-user mode checks
-      const localUser = localStorage.getItem(AUTH_USER);
-      const localAuthToken = getAuthToken();
-      if (!localUser || !localAuthToken) {
-        setIsAuthed(false);
-        return;
-      }
-
-      if (localIdleExpired()) {
-        localStorage.removeItem(AUTH_USER);
-        removeAuthToken();
-        localStorage.removeItem(AUTH_TIMESTAMP);
-        localStorage.removeItem(LAST_USER_ACTION_AT);
-        setIsAuthed(false);
-        return;
-      }
-
-      const isValid = await validateSessionTokenForUser();
-      if (!isValid) {
-        localStorage.removeItem(AUTH_USER);
-        removeAuthToken();
-        localStorage.removeItem(AUTH_TIMESTAMP);
-        localStorage.removeItem(LAST_USER_ACTION_AT);
-        setIsAuthed(false);
-        return;
-      }
-
-      setIsAuthed(true);
+    return () => {
+      cancelled = true;
     };
-    validateSession();
-  }, []);
+  }, [cacheKey]);
 
-  return { isAuthd, shouldRedirectToOnboarding, multiUserMode };
+  return authState;
 }
 
 // Allows only admin to access the route and if in single user mode,
 // allows all users to access the route
 export function AdminRoute({ Component, hideUserMenu = false }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
+  const {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+  } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to={paths.onboarding.home()} />;
@@ -125,9 +259,14 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
 // Legacy wrapper kept for older route declarations. Manager is no longer a real
 // account role, so this now maps to the admin/owner backend policy.
 export function ManagerRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
+  const {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+  } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to={paths.onboarding.home()} />;
@@ -142,9 +281,14 @@ export function ManagerRoute({ Component }) {
 }
 
 export function DeveloperRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
+  const {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+  } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to={paths.onboarding.home()} />;
@@ -159,9 +303,14 @@ export function DeveloperRoute({ Component }) {
 }
 
 export function OwnerRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
+  const {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+  } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to={paths.onboarding.home()} />;
@@ -177,9 +326,14 @@ export function OwnerRoute({ Component }) {
 
 // Allows access only in single user mode — redirects to home in multi-user mode
 export function SingleUserRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, multiUserMode } =
-    useIsAuthenticated();
+  const {
+    isAuthd,
+    shouldRedirectToOnboarding,
+    multiUserMode,
+    authUnavailable,
+  } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to={paths.onboarding.home()} />;
@@ -195,8 +349,10 @@ export function SingleUserRoute({ Component }) {
 }
 
 export default function PrivateRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding } = useIsAuthenticated();
+  const { isAuthd, shouldRedirectToOnboarding, authUnavailable } =
+    useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
+  if (authUnavailable) return <AuthBootstrapError />;
 
   if (shouldRedirectToOnboarding) {
     return <Navigate to="/onboarding" />;

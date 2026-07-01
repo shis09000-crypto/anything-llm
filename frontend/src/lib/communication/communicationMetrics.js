@@ -1,6 +1,18 @@
 const MAX_EVENTS = 300;
 const SLOW_REQUEST_MS = 800;
+const LOW_BANDWIDTH_BPS = 1_000_000;
 const events = [];
+
+function communicationDebugEnabled() {
+  if (import.meta.env.DEV) return true;
+  if (import.meta.env.VITE_ENABLE_COMMUNICATION_DEBUG !== "true") return false;
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage?.getItem("athenaCommunicationDebug") === "true";
+  } catch {
+    return false;
+  }
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -25,8 +37,154 @@ function responseSize(response, data) {
   }
 }
 
+function inferScene(event = {}) {
+  if (event.communicationScene) return event.communicationScene;
+  if (event.scene) return event.scene;
+  const path = String(event.path || event.url || "");
+  const type = String(event.type || "");
+  if (type.startsWith("reader_upload") || path.includes("reader-documents"))
+    return "reader";
+  if (path.includes("/system/settings/bootstrap")) return "model-settings";
+  if (
+    path.includes("/system/user") ||
+    path.includes("/auth/passkeys") ||
+    path.includes("/auth/zk-login/devices") ||
+    path.includes("/admin") ||
+    path.includes("/system/chats")
+  )
+    return "account-settings";
+  if (path.includes("/sync/events") || type.startsWith("sse")) return "sync";
+  if (path.includes("/workspace/") && path.includes("/bootstrap"))
+    return "workspace-chat";
+  if (path.includes("/workspace/") && path.includes("/threads"))
+    return "workspace-navigation";
+  if (path.includes("/workspace/") && path.includes("/settings"))
+    return "workspace-settings";
+  if (path === "/workspaces" || path.endsWith("/workspaces"))
+    return "workspace-navigation";
+  return "general";
+}
+
+function pathKey(event = {}) {
+  return `${event.method || "GET"} ${event.path || event.url || event.type}`;
+}
+
+function eventBytes(event = {}) {
+  return Number(event.requestBytes || 0) + Number(event.responseBytes || 0);
+}
+
+function summarizeEvents(sourceEvents = []) {
+  const byPath = new Map();
+  for (const event of sourceEvents) {
+    const key = pathKey(event);
+    const item = byPath.get(key) || {
+      key,
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      totalBytes: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      sseOpenCount: 0,
+      sseCloseCount: 0,
+      sseErrorCount: 0,
+    };
+    item.count += 1;
+    item.totalMs += event.durationMs || 0;
+    item.maxMs = Math.max(item.maxMs, event.durationMs || 0);
+    item.requestBytes += event.requestBytes || 0;
+    item.responseBytes += event.responseBytes || 0;
+    item.totalBytes += eventBytes(event);
+    if (event.cache === "hit" || event.accountSettings?.action === "hit")
+      item.cacheHits += 1;
+    if (event.cache === "miss" || event.accountSettings?.action === "miss")
+      item.cacheMisses += 1;
+    if (event.type === "sse-open") item.sseOpenCount += 1;
+    if (event.type === "sse-close") item.sseCloseCount += 1;
+    if (event.type === "sse-error") item.sseErrorCount += 1;
+    byPath.set(key, item);
+  }
+  return [...byPath.values()]
+    .map((item) => ({
+      ...item,
+      avgMs: item.count ? item.totalMs / item.count : 0,
+      cacheHitRate:
+        item.cacheHits + item.cacheMisses > 0
+          ? item.cacheHits / (item.cacheHits + item.cacheMisses)
+          : null,
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
+}
+
+function sceneSummary(sourceEvents = events) {
+  const byScene = new Map();
+  for (const event of sourceEvents) {
+    const scene = event.communicationScene || inferScene(event);
+    const item = byScene.get(scene) || {
+      scene,
+      count: 0,
+      totalMs: 0,
+      maxMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      totalBytes: 0,
+      cacheHits: 0,
+      cacheMisses: 0,
+      sseOpenCount: 0,
+      sseCloseCount: 0,
+      sseErrorCount: 0,
+      estimatedTransferMsAt1MBps: 0,
+      paths: new Map(),
+    };
+    item.count += 1;
+    item.totalMs += event.durationMs || 0;
+    item.maxMs = Math.max(item.maxMs, event.durationMs || 0);
+    item.requestBytes += event.requestBytes || 0;
+    item.responseBytes += event.responseBytes || 0;
+    item.totalBytes += eventBytes(event);
+    if (event.cache === "hit" || event.accountSettings?.action === "hit")
+      item.cacheHits += 1;
+    if (event.cache === "miss" || event.accountSettings?.action === "miss")
+      item.cacheMisses += 1;
+    if (event.type === "sse-open") item.sseOpenCount += 1;
+    if (event.type === "sse-close") item.sseCloseCount += 1;
+    if (event.type === "sse-error") item.sseErrorCount += 1;
+    item.paths.set(pathKey(event), (item.paths.get(pathKey(event)) || 0) + 1);
+    byScene.set(scene, item);
+  }
+  return [...byScene.values()]
+    .map((item) => ({
+      ...item,
+      cacheHitRate:
+        item.cacheHits + item.cacheMisses > 0
+          ? item.cacheHits / (item.cacheHits + item.cacheMisses)
+          : null,
+      avgMs: item.count ? item.totalMs / item.count : 0,
+      estimatedTransferMsAt1MBps: Math.round(
+        (item.totalBytes / LOW_BANDWIDTH_BPS) * 1000
+      ),
+      paths: [...item.paths.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([key, count]) => ({ key, count })),
+    }))
+    .sort((a, b) => b.totalMs - a.totalMs);
+}
+
 function expose() {
   if (typeof window === "undefined") return;
+  if (!communicationDebugEnabled()) {
+    if (window.__anythingCommunication) {
+      try {
+        delete window.__anythingCommunication;
+      } catch {
+        window.__anythingCommunication = undefined;
+      }
+    }
+    return;
+  }
   if (window.__anythingCommunication) return;
   window.__anythingCommunication = {
     events: () => [...events],
@@ -36,26 +194,14 @@ function expose() {
       events.splice(0, events.length);
     },
     summary: () => {
-      const byPath = new Map();
-      for (const event of events) {
-        const key = `${event.method || "GET"} ${event.path || event.url}`;
-        const item = byPath.get(key) || {
-          key,
-          count: 0,
-          totalMs: 0,
-          maxMs: 0,
-          requestBytes: 0,
-          responseBytes: 0,
-        };
-        item.count += 1;
-        item.totalMs += event.durationMs || 0;
-        item.maxMs = Math.max(item.maxMs, event.durationMs || 0);
-        item.requestBytes += event.requestBytes || 0;
-        item.responseBytes += event.responseBytes || 0;
-        byPath.set(key, item);
-      }
-      return [...byPath.values()].sort((a, b) => b.totalMs - a.totalMs);
+      return summarizeEvents(events);
     },
+    scenes: () => sceneSummary(events),
+    budget: () => ({
+      bandwidthBps: LOW_BANDWIDTH_BPS,
+      scenes: sceneSummary(events),
+      paths: summarizeEvents(events),
+    }),
     accountSettings: () => accountSettingsSummary(events),
     storageStats: () => storageStats(),
   };
@@ -66,6 +212,7 @@ export function recordCommunicationEvent(event = {}) {
     createdAt: nowIso(),
     ...event,
   };
+  next.communicationScene = inferScene(next);
   events.push(next);
   if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
   expose();

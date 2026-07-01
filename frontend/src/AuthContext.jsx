@@ -1,24 +1,23 @@
 import React, { useState, createContext, useEffect } from "react";
-import {
-  AUTH_TIMESTAMP,
-  AUTH_USER,
-  LAST_USER_ACTION_AT,
-  USER_PROMPT_INPUT_MAP,
-} from "@/utils/constants";
+import { AUTH_TIMESTAMP } from "@/utils/constants";
 import System from "./models/system";
 import { useNavigate } from "react-router-dom";
-import { safeJsonParse } from "@/utils/request";
 import {
   CODEX_DEV_AUTH_BYPASS_KEY,
   CODEX_DEV_AUTH_BYPASS_USER_ID,
   isCodexDevAuthBypassEnabled,
 } from "@/utils/codexDevAuthBypass";
-import { setLoginUserActionNow } from "@/utils/userAction";
+import { localIdleExpired, setLoginUserActionNow } from "@/utils/userAction";
+import { getAuthToken, setAuthToken } from "@/utils/authTokenStorage";
+import { markLoginBoot } from "@/utils/loginBootPerf";
+import showToast, { dismissToast } from "@/utils/toast";
 import {
-  getAuthToken,
-  removeAuthToken,
-  setAuthToken,
-} from "@/utils/authTokenStorage";
+  authMaintenanceRetryDelayMs,
+  classifyAuthRefreshResult,
+  DEV_AUTH_REFRESH_TOAST_ID,
+} from "@/utils/authSessionMaintenance";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
+import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
 
 export const AuthContext = createContext(null);
 
@@ -37,14 +36,14 @@ function codexDevAuthUser() {
 }
 
 export function AuthProvider(props) {
-  const localUser = localStorage.getItem(AUTH_USER);
+  const localUser = getStoredAuthUser();
   const localAuthToken = getAuthToken();
   const codexDevAuthBypass = isCodexDevAuthBypassEnabled();
   const [store, setStore] = useState({
     user: codexDevAuthBypass
       ? codexDevAuthUser()
       : localUser
-        ? safeJsonParse(localUser, null)
+        ? localUser
         : null,
     authToken: codexDevAuthBypass
       ? CODEX_DEV_AUTH_BYPASS_KEY
@@ -63,17 +62,15 @@ export function AuthProvider(props) {
    */
   const [actions] = useState({
     updateUser: (user, authToken = "") => {
-      localStorage.setItem(AUTH_USER, JSON.stringify(user));
+      setStoredAuthUser(user);
+      localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
       setAuthToken(authToken);
       setLoginUserActionNow();
+      markLoginBoot("token_received", { userId: user?.id || null });
       setStore({ user, authToken });
     },
     unsetUser: () => {
-      localStorage.removeItem(AUTH_USER);
-      removeAuthToken();
-      localStorage.removeItem(AUTH_TIMESTAMP);
-      localStorage.removeItem(LAST_USER_ACTION_AT);
-      localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+      clearSensitiveClientSession();
       setStore({ user: null, authToken: null });
     },
   });
@@ -85,7 +82,10 @@ export function AuthProvider(props) {
    * If success is true and data is null, do nothing (single-user mode only) with or without password protection
    */
   useEffect(() => {
-    async function refreshUser() {
+    let cancelled = false;
+    let retryTimer = null;
+
+    async function refreshUser(attempt = 0) {
       if (isCodexDevAuthBypassEnabled()) {
         setStore({
           user: codexDevAuthUser(),
@@ -94,27 +94,70 @@ export function AuthProvider(props) {
         return;
       }
 
-      const { success, user: refreshedUser } = await System.refreshUser();
-      if (success && refreshedUser === null) return;
+      const refreshResult = await System.refreshUser();
+      if (cancelled) return;
+
+      const { success, user: refreshedUser } = refreshResult;
+      markLoginBoot("refresh_user_done", { success });
+      if (success && refreshedUser === null) {
+        dismissToast(DEV_AUTH_REFRESH_TOAST_ID);
+        return;
+      }
+
+      const refreshState = classifyAuthRefreshResult(refreshResult);
+
+      if (refreshState === "transient") {
+        showToast("本地服务正在恢复，已暂时保留登录状态。", "warning", {
+          toastId: DEV_AUTH_REFRESH_TOAST_ID,
+          duration: 4_000,
+          dismissOnClick: true,
+        });
+        retryTimer = window.setTimeout(
+          () => refreshUser(attempt + 1),
+          authMaintenanceRetryDelayMs(attempt)
+        );
+        return;
+      }
 
       if (!success) {
-        localStorage.removeItem(AUTH_USER);
-        removeAuthToken();
-        localStorage.removeItem(AUTH_TIMESTAMP);
-        localStorage.removeItem(LAST_USER_ACTION_AT);
-        localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+        clearSensitiveClientSession();
         setStore({ user: null, authToken: null });
         navigate("/login");
         return;
       }
 
-      localStorage.setItem(AUTH_USER, JSON.stringify(refreshedUser));
+      setStoredAuthUser(refreshedUser);
+      dismissToast(DEV_AUTH_REFRESH_TOAST_ID);
       setStore((prev) => ({
         ...prev,
         user: refreshedUser,
       }));
     }
     if (store.authToken) refreshUser();
+    return () => {
+      cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [store.authToken]);
+
+  useEffect(() => {
+    if (!store.authToken || isCodexDevAuthBypassEnabled()) return;
+
+    function clearWhenIdleVisible() {
+      if (document.visibilityState === "hidden") return;
+      if (!localIdleExpired()) return;
+      clearSensitiveClientSession();
+      setStore({ user: null, authToken: null });
+      navigate("/login?reason=session-expired", { replace: true });
+    }
+
+    document.addEventListener("visibilitychange", clearWhenIdleVisible);
+    window.addEventListener("focus", clearWhenIdleVisible);
+    clearWhenIdleVisible();
+    return () => {
+      document.removeEventListener("visibilitychange", clearWhenIdleVisible);
+      window.removeEventListener("focus", clearWhenIdleVisible);
+    };
   }, [store.authToken]);
 
   return (

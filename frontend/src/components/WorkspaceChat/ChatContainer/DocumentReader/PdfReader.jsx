@@ -24,7 +24,9 @@ import "react-pdf-highlighter/dist/esm/style/AreaHighlight.css";
 import "react-pdf-highlighter/dist/esm/style/MouseSelection.css";
 import "react-pdf-highlighter/dist/esm/style/Tip.css";
 import "react-pdf-highlighter/dist/esm/style/pdf_viewer.css";
+import { downloadUrl } from "@/lib/communication/blobClient";
 import ReaderDocument from "@/models/readerDocument";
+import { baseHeaders } from "@/utils/request";
 import showToast from "@/utils/toast";
 import {
   pdfProgressRestoreKey,
@@ -42,6 +44,7 @@ const PDFJS_ASSET_BASE = `${PDFJS_PUBLIC_BASE}pdfjs/`;
 const PDF_SCALE_STORAGE_KEY = "anythingllm_reader_pdf_scale_v1";
 const MIN_SCREENSHOT_SELECTION_WIDTH = 20;
 const MIN_SCREENSHOT_SELECTION_HEIGHT = 20;
+const PDF_RANGE_CHUNK_SIZE = 256 * 1024;
 
 const EMPTY_SCREENSHOT_DRAG_STATE = {
   isDragging: false,
@@ -52,6 +55,29 @@ const EMPTY_SCREENSHOT_DRAG_STATE = {
   currentY: 0,
   selection: null,
 };
+
+function cleanPdfHeaders(headers = {}) {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([, value]) => value !== null && value !== undefined && value !== ""
+    )
+  );
+}
+
+function pdfSourceUrl(url) {
+  if (!url) return url;
+  try {
+    return downloadUrl(url);
+  } catch {
+    return url;
+  }
+}
+
+function pdfHttpHeadersForUrl(url) {
+  if (!url || /^(blob:|data:)/i.test(String(url))) return undefined;
+  const headers = cleanPdfHeaders(baseHeaders());
+  return Object.keys(headers).length > 0 ? headers : undefined;
+}
 
 const SCREENSHOT_OCR_STATUS = {
   idle: "idle",
@@ -266,6 +292,11 @@ const PdfReader = forwardRef(function PdfReader(
   );
   const [screenshotLayoutTick, setScreenshotLayoutTick] = useState(0);
   const url = document?.objectUrl;
+  const sourceUrl = pdfSourceUrl(url);
+  const httpHeaders = pdfHttpHeadersForUrl(url);
+  const useRangeLoading =
+    document?.renderType === "pdf-stream" ||
+    document?.metadata?.stream?.supportsRange;
   const pdfScaleKey = pdfScaleDocumentKey(document);
   const documentId = pdfDocumentIdentity(document);
   const pdfFingerprint = pdfDocumentFingerprint(document);
@@ -1353,7 +1384,12 @@ const PdfReader = forwardRef(function PdfReader(
       onKeyDownCapture={markPdfUserInteraction}
     >
       <PdfLoader
-        url={url}
+        url={sourceUrl}
+        httpHeaders={httpHeaders}
+        rangeChunkSize={useRangeLoading ? PDF_RANGE_CHUNK_SIZE : undefined}
+        disableRange={useRangeLoading ? false : undefined}
+        disableStream={useRangeLoading ? true : undefined}
+        disableAutoFetch={useRangeLoading ? true : undefined}
         workerSrc={`${PDFJS_ASSET_BASE}pdf.worker.min.js`}
         cMapUrl={`${PDFJS_ASSET_BASE}cmaps/`}
         cMapPacked={true}
@@ -1372,7 +1408,9 @@ const PdfReader = forwardRef(function PdfReader(
           if (
             onThumbnailReady &&
             thumbnailDocumentIdRef.current !== thumbnailKey &&
-            !document.thumbnailDataUrl
+            !document.thumbnailDataUrl &&
+            document.renderType !== "pdf-stream" &&
+            !useRangeLoading
           ) {
             thumbnailDocumentIdRef.current = thumbnailKey;
             thumbnailFromPdfDocument(pdfDocument)

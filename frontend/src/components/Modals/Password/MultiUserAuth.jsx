@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useContext, useEffect, useState } from "react";
 import {
   ArrowLeft,
   EnvelopeSimple,
@@ -9,7 +9,6 @@ import {
   UserCircle,
 } from "@phosphor-icons/react";
 import System from "../../../models/system";
-import { AUTH_USER } from "../../../utils/constants";
 import paths from "../../../utils/paths";
 import showToast from "@/utils/toast";
 import ModalWrapper from "@/components/ModalWrapper";
@@ -25,8 +24,43 @@ import { detectAuthCapability } from "@/utils/authCapability";
 import { getPreferredLocalZkDevice } from "@/utils/zkLoginStorage";
 import { setLoginUserActionNow } from "@/utils/userAction";
 import { setAuthToken } from "@/utils/authTokenStorage";
+import { setStoredAuthUser } from "@/utils/authUserStorage";
+import { AuthContext } from "@/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { markLoginBoot } from "@/utils/loginBootPerf";
 
 const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
+const RESET_TOKEN_STORAGE_KEY = "resetToken";
+
+function storePasswordResetToken(resetToken) {
+  try {
+    window.sessionStorage.setItem(RESET_TOKEN_STORAGE_KEY, resetToken);
+    window.localStorage.removeItem(RESET_TOKEN_STORAGE_KEY);
+  } catch {}
+}
+
+function readPasswordResetToken() {
+  try {
+    const sessionToken = window.sessionStorage.getItem(RESET_TOKEN_STORAGE_KEY);
+    if (sessionToken) return sessionToken;
+
+    const legacyToken = window.localStorage.getItem(RESET_TOKEN_STORAGE_KEY);
+    if (legacyToken) {
+      window.sessionStorage.setItem(RESET_TOKEN_STORAGE_KEY, legacyToken);
+      window.localStorage.removeItem(RESET_TOKEN_STORAGE_KEY);
+    }
+    return legacyToken;
+  } catch {
+    return null;
+  }
+}
+
+function clearPasswordResetToken() {
+  try {
+    window.sessionStorage.removeItem(RESET_TOKEN_STORAGE_KEY);
+    window.localStorage.removeItem(RESET_TOKEN_STORAGE_KEY);
+  } catch {}
+}
 
 const appleButtonStyle = {
   "--app-button-lg-height": "56px",
@@ -174,6 +208,7 @@ const EmailRecoveryForm = ({
   const [loading, setLoading] = useState(false);
   const [codeResetSignal, setCodeResetSignal] = useState(0);
   const [resendRemaining, setResendRemaining] = useState(0);
+  const [challengeId, setChallengeId] = useState("");
 
   useEffect(() => {
     if (resendRemaining <= 0) return;
@@ -204,6 +239,7 @@ const EmailRecoveryForm = ({
       "success",
       { clear: true }
     );
+    setChallengeId(result.challengeId || "");
     setStep("verify");
     setResendRemaining(Number(result.resendCooldownSeconds) || 60);
   };
@@ -212,7 +248,12 @@ const EmailRecoveryForm = ({
     if (loading) return;
     setLoading(true);
     const { success, resetToken, error, errorCode } =
-      await System.confirmEmailPasswordReset(username, email, code);
+      await System.confirmEmailPasswordReset(
+        username,
+        email,
+        code,
+        challengeId
+      );
     setLoading(false);
 
     if (success && resetToken) {
@@ -352,6 +393,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
   const [sendingCode, setSendingCode] = useState(false);
   const [resendRemaining, setResendRemaining] = useState(0);
   const [code, setCode] = useState("");
+  const [challengeId, setChallengeId] = useState("");
   const [codeResetSignal, setCodeResetSignal] = useState(0);
   const [autoSendAttemptedEmail, setAutoSendAttemptedEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -405,6 +447,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
     }
 
     setEmail(result.email || email);
+    setChallengeId(result.challengeId || "");
     setCode("");
     setCodeResetSignal((current) => current + 1);
     setResendRemaining(Number(result.resendCooldownSeconds) || 60);
@@ -437,6 +480,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
     setEmail(check.email || normalizedEmail);
     setLoading(false);
     setCode("");
+    setChallengeId("");
     setCodeResetSignal((current) => current + 1);
     setResendRemaining(0);
     setAutoSendAttemptedEmail("");
@@ -453,7 +497,11 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
     }
 
     setLoading(true);
-    const result = await System.verifyRegistrationCode({ email, code });
+    const result = await System.verifyRegistrationCode({
+      email,
+      code,
+      challengeId,
+    });
     setLoading(false);
     if (!result.success) {
       setCodeResetSignal((current) => current + 1);
@@ -464,6 +512,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
     }
 
     setEmail(result.email || email);
+    setChallengeId(result.challengeId || challengeId);
     setStep("password");
   };
 
@@ -484,6 +533,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
     const result = await System.registerAccount({
       email,
       code,
+      challengeId,
       password,
       confirmPassword,
     });
@@ -507,7 +557,7 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
         <AuthStepBackButton onClick={onBack} />
         <AuthSectionHeader
           title="创建账号"
-          description="先确认邮箱未被注册，再发送邮箱验证码。"
+          description="先确认邮箱并发送验证码。"
         />
         <AppleInput
           label="邮箱"
@@ -681,6 +731,8 @@ const RegistrationForm = ({ onBack, onSuccess }) => {
 };
 
 export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
+  const auth = useContext(AuthContext);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [recoveryCodes, setRecoveryCodes] = useState([]);
@@ -709,10 +761,27 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     closeModal: closeRecoveryCodeModal,
   } = useModal();
 
+  const completeAuthenticatedLogin = useCallback(
+    (user, token) => {
+      if (!user || !token) return;
+      markLoginBoot("token_received", { userId: user?.id || null });
+      if (auth?.actions?.updateUser) {
+        auth.actions.updateUser(user, token);
+      } else {
+        setStoredAuthUser(user);
+        setAuthToken(token);
+        setLoginUserActionNow();
+      }
+      navigate(paths.home(), { replace: true });
+    },
+    [auth?.actions, navigate]
+  );
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
+    markLoginBoot("login_submit", { mode: "password" });
 
     persistRememberedAccount(loginIdentifier, rememberAccount);
 
@@ -731,10 +800,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
           setRecoveryCodes(recoveryCodes);
           openRecoveryCodeModal();
         } else {
-          window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-          setAuthToken(token);
-          setLoginUserActionNow();
-          window.location = paths.home();
+          completeAuthenticatedLogin(user, token);
         }
       } else {
         const errorMessage =
@@ -767,6 +833,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       return;
     }
 
+    markLoginBoot("login_submit", { mode: "passkey" });
     setError(null);
     setPasskeyLoading(true);
     const result = await AccountSettingsApi.loginWithPasskey().catch(
@@ -785,10 +852,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     }
 
     if (result.valid && result.token && result.user) {
-      window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
-      setAuthToken(result.token);
-      setLoginUserActionNow();
-      window.location = paths.home();
+      completeAuthenticatedLogin(result.user, result.token);
       return;
     }
 
@@ -804,7 +868,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     );
 
     if (success && resetToken) {
-      window.localStorage.setItem("resetToken", resetToken);
+      storePasswordResetToken(resetToken);
       setShowRecoveryForm(false);
       setShowResetPasswordForm(true);
     } else {
@@ -813,23 +877,21 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   };
 
   const handleEmailResetToken = (resetToken) => {
-    window.localStorage.setItem("resetToken", resetToken);
+    storePasswordResetToken(resetToken);
     setShowRecoveryForm(false);
     setShowResetPasswordForm(true);
   };
 
   const handleTrustedDeviceLogin = async () => {
     if (!trustedDevice) return;
+    markLoginBoot("login_submit", { mode: "trusted-device" });
     setError(null);
     setTrustedDeviceLoading(true);
     const result = await AccountSettingsApi.loginWithZkDevice(trustedDevice);
     setTrustedDeviceLoading(false);
 
     if (result.valid && result.token && result.user) {
-      window.localStorage.setItem(AUTH_USER, JSON.stringify(result.user));
-      setAuthToken(result.token);
-      setLoginUserActionNow();
-      window.location = paths.home();
+      completeAuthenticatedLogin(result.user, result.token);
       return;
     }
 
@@ -843,7 +905,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
   };
 
   const handleResetSubmit = async (newPassword, confirmPassword) => {
-    const resetToken = window.localStorage.getItem("resetToken");
+    const resetToken = readPasswordResetToken();
 
     if (resetToken) {
       const { success, error } = await System.resetPassword(
@@ -853,7 +915,7 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       );
 
       if (success) {
-        window.localStorage.removeItem("resetToken");
+        clearPasswordResetToken();
         setShowResetPasswordForm(false);
         showToast("密码已重置。", "success", { clear: true });
       } else {
@@ -874,20 +936,14 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
       openRecoveryCodeModal();
       return;
     }
-    window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-    setAuthToken(token);
-    setLoginUserActionNow();
-    window.location = paths.home();
+    completeAuthenticatedLogin(user, token);
   };
 
   useEffect(() => {
     if (downloadComplete && user && token) {
-      window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
-      setAuthToken(token);
-      setLoginUserActionNow();
-      window.location = paths.home();
+      completeAuthenticatedLogin(user, token);
     }
-  }, [downloadComplete, user, token]);
+  }, [completeAuthenticatedLogin, downloadComplete, user, token]);
 
   useEffect(() => {
     setAuthCapability(detectAuthCapability());

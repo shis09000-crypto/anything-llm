@@ -539,6 +539,16 @@ function workspaceEndpoints(app) {
           },
           user?.id
         );
+        if (workspace) {
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "workspace_created",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            senderClientId: clientContext.clientId,
+          });
+        }
         response.status(200).json({ workspace, message, defaultThreads });
       } catch (e) {
         console.error(e.message, e);
@@ -569,6 +579,16 @@ function workspaceEndpoints(app) {
           currWorkspace.id,
           data
         );
+        if (workspace) {
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "workspace_updated",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            senderClientId: clientContext.clientId,
+          });
+        }
         response.status(200).json({ workspace, message });
       } catch (e) {
         console.error(e.message, e);
@@ -865,6 +885,14 @@ function workspaceEndpoints(app) {
         } catch (e) {
           console.error(e.message);
         }
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "workspace_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          senderClientId: clientContext.clientId,
+        });
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);

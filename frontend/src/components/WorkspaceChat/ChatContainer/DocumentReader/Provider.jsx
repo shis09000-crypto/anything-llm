@@ -9,7 +9,6 @@ import {
 } from "react";
 import ReaderDocument from "@/models/readerDocument";
 import showToast from "@/utils/toast";
-import { safeJsonParse } from "@/utils/request";
 import {
   clearDeletedReaderDocumentIdsFromAllStorage,
   compactDocumentForStorage,
@@ -30,10 +29,11 @@ import {
   readerTextSourceKey,
   readReaderBookshelf,
   readReaderBookshelfCategories,
+  readReaderCurrentDocument,
   readReaderHistory,
+  readReaderSources,
   readerItemWithLatestBookMemory,
   registerReaderBookMemoryAlias,
-  readerSourcesStorageKey,
   readerStorageKey,
   renameReaderBookshelfCategory,
   READER_EVENT_ASSOCIATE_SELECTION,
@@ -48,6 +48,8 @@ import {
   upsertReaderBookshelfItems,
   upsertReaderHistory,
   validateReaderFile,
+  writeReaderCurrentDocument,
+  writeReaderSources,
 } from "./storage";
 import {
   parseDocxFile,
@@ -78,6 +80,7 @@ import {
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 
 const DocumentReaderContext = createContext(null);
+const READER_CLOSE_SUPPRESSION_MS = 1_200;
 
 async function parseFileByType(file, readerDocumentId, documentType) {
   if (documentType === "markdown")
@@ -90,6 +93,35 @@ async function parseFileByType(file, readerDocumentId, documentType) {
   if (documentType === "epub")
     return await parseEpubFile(file, readerDocumentId);
   return null;
+}
+
+function readerDocumentTypeFromData(data = {}, historyItem = null) {
+  return (
+    data?.content?.documentType ||
+    data?.contentSummary?.documentType ||
+    data?.metadata?.documentType ||
+    historyItem?.documentType ||
+    null
+  );
+}
+
+function readerPdfStreamUrl(metadata = {}) {
+  return (
+    metadata?.stream?.streamUrl ||
+    metadata?.stream?.url ||
+    metadata?.originalUrl ||
+    null
+  );
+}
+
+function lightweightPdfContent(readerDocumentId) {
+  return {
+    schemaVersion: 1,
+    readerDocumentId,
+    documentType: "pdf",
+    pages: [],
+    streaming: true,
+  };
 }
 
 function loadingMessageForDocumentType(documentType) {
@@ -127,10 +159,9 @@ export function DocumentReaderProvider({
   children,
 }) {
   const storageKey = readerStorageKey(workspace?.slug, threadSlug);
-  const sourcesKey = readerSourcesStorageKey(workspace?.slug, threadSlug);
   const initialDrawerState = readReaderDrawerState();
   const initialStoredDocument = readerItemWithLatestBookMemory(
-    safeJsonParse(localStorage.getItem(storageKey), null)
+    readReaderCurrentDocument(null)
   );
   const initialHasFreshDocument = isReaderCurrentDocumentFresh(
     initialStoredDocument,
@@ -156,6 +187,8 @@ export function DocumentReaderProvider({
   const [docxPreviewStatus, setDocxPreviewStatus] = useState(null);
   const objectUrlRef = useRef(null);
   const readerClosingRef = useRef(false);
+  const readerCloseSuppressionUntilRef = useRef(0);
+  const readerCloseSuppressionTimerRef = useRef(null);
   const postprocessQueueRef = useRef(new Set());
   const uploadAbortControllersRef = useRef(new Map());
   const pendingSelectionsRef = useRef([]);
@@ -164,6 +197,11 @@ export function DocumentReaderProvider({
   const lastCitedRef = useRef({ signature: "", at: 0 });
   const localFileConflictResolverRef = useRef(null);
   const pendingReaderOpenRef = useRef(null);
+  const readerOpenSeqRef = useRef(0);
+  const readerOpenAbortRef = useRef(null);
+  const readerRouteKeyRef = useRef(
+    `${workspace?.slug || ""}:${threadSlug || ""}`
+  );
   const workspaceLayout = useWorkspaceLayout();
   const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
 
@@ -193,6 +231,52 @@ export function DocumentReaderProvider({
   const setReaderObjectUrl = useCallback((url = null) => {
     if (objectUrlRef.current) URL.revokeObjectURL(objectUrlRef.current);
     objectUrlRef.current = url;
+  }, []);
+
+  const readerCloseSuppressed = useCallback(() => {
+    return Date.now() < Number(readerCloseSuppressionUntilRef.current || 0);
+  }, []);
+
+  const clearReaderCloseSuppression = useCallback(() => {
+    window.clearTimeout(readerCloseSuppressionTimerRef.current);
+    readerCloseSuppressionTimerRef.current = null;
+    readerCloseSuppressionUntilRef.current = 0;
+    readerClosingRef.current = false;
+  }, []);
+
+  const beginReaderCloseSuppression = useCallback(() => {
+    readerClosingRef.current = true;
+    pendingReaderOpenRef.current = null;
+    readerCloseSuppressionUntilRef.current =
+      Date.now() + READER_CLOSE_SUPPRESSION_MS;
+    window.clearTimeout(readerCloseSuppressionTimerRef.current);
+    readerCloseSuppressionTimerRef.current = window.setTimeout(() => {
+      if (!readerCloseSuppressed()) readerClosingRef.current = false;
+    }, READER_CLOSE_SUPPRESSION_MS + 50);
+  }, [readerCloseSuppressed]);
+
+  const beginReaderOpen = useCallback(() => {
+    const seq = readerOpenSeqRef.current + 1;
+    readerOpenSeqRef.current = seq;
+    readerOpenAbortRef.current?.abort();
+    const controller = new AbortController();
+    readerOpenAbortRef.current = controller;
+    return { seq, signal: controller.signal };
+  }, []);
+
+  const readerOpenIsCurrent = useCallback((openContext = null) => {
+    if (!openContext) return true;
+    return (
+      !openContext.signal?.aborted &&
+      readerOpenSeqRef.current === openContext.seq
+    );
+  }, []);
+
+  const abortReaderOpen = useCallback(() => {
+    readerOpenSeqRef.current += 1;
+    readerOpenAbortRef.current?.abort();
+    readerOpenAbortRef.current = null;
+    pendingReaderOpenRef.current = null;
   }, []);
 
   const patchBookshelfUpload = useCallback((id, patch = {}) => {
@@ -613,23 +697,14 @@ export function DocumentReaderProvider({
     [addItemsToBookshelf, queueBookshelfPostprocess, readerBookshelf]
   );
 
-  const persistDocument = useCallback(
-    (doc) => {
-      clearReaderCurrentDocumentClearMarker();
-      localStorage.setItem(
-        storageKey,
-        JSON.stringify(compactDocumentForStorage(doc))
-      );
-    },
-    [storageKey]
-  );
+  const persistDocument = useCallback((doc) => {
+    clearReaderCurrentDocumentClearMarker();
+    writeReaderCurrentDocument(compactDocumentForStorage(doc));
+  }, []);
 
-  const persistSources = useCallback(
-    (nextSources) => {
-      localStorage.setItem(sourcesKey, JSON.stringify(nextSources || {}));
-    },
-    [sourcesKey]
-  );
+  const persistSources = useCallback((nextSources) => {
+    writeReaderSources(nextSources || {});
+  }, []);
 
   const setSources = useCallback(
     (updater) => {
@@ -720,8 +795,14 @@ export function DocumentReaderProvider({
   );
 
   const openServerDocumentData = useCallback(
-    async (data, historyItem = null) => {
-      if (!data?.content && data?.readerDocumentId) {
+    async (data, historyItem = null, options = {}) => {
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
+      const initialDocumentType = readerDocumentTypeFromData(data, historyItem);
+      const canStreamPdf =
+        initialDocumentType === "pdf" && readerPdfStreamUrl(data?.metadata);
+      if (!isCurrentOpen()) return null;
+      if (!data?.content && data?.readerDocumentId && !canStreamPdf) {
         const readerDocumentWorkspaceSlug =
           data.metadata?.readerDocumentWorkspaceSlug ||
           historyItem?.readerDocumentWorkspaceSlug ||
@@ -730,15 +811,24 @@ export function DocumentReaderProvider({
         const result = await ReaderDocument.get(
           readerDocumentWorkspaceSlug,
           data.readerDocumentId,
-          { detail: "content" }
+          { detail: "content", signal: openContext.signal }
         );
+        if (!isCurrentOpen()) return null;
         if (result?.response?.ok && result?.data?.success) {
-          return openServerDocumentData(result.data, historyItem);
+          return openServerDocumentData(result.data, historyItem, {
+            openContext,
+          });
         }
       }
-      if (!data?.content || !data?.metadata) return null;
-      readerClosingRef.current = false;
+      if (!data?.metadata || !isCurrentOpen()) return null;
       const readerDocumentId = data.metadata.readerDocumentId;
+      const documentType = readerDocumentTypeFromData(data, historyItem);
+      const content =
+        data.content ||
+        (documentType === "pdf" && readerPdfStreamUrl(data.metadata)
+          ? lightweightPdfContent(readerDocumentId)
+          : null);
+      if (!content) return null;
       const progressItem = readerItemWithLatestBookMemory({
         ...historyItem,
         source: data.metadata.source || historyItem?.source || "reader_upload",
@@ -748,7 +838,7 @@ export function DocumentReaderProvider({
           normalizeBookTitle(data.metadata.originalName),
         branchId: historyItem?.branchId || null,
         branchLabel: historyItem?.branchLabel || null,
-        documentType: data.content.documentType,
+        documentType: content.documentType,
         readerDocumentId:
           historyItem?.readerDocumentId || readerDocumentId || null,
         backupReaderDocumentId:
@@ -765,17 +855,17 @@ export function DocumentReaderProvider({
           updatedAt: null,
         },
       });
-      let parsedContent = data.content;
+      let parsedContent = content;
       let objectUrl = null;
       let renderType = null;
       let previewWarning = data.warning || data.metadata.previewWarning || null;
       setReaderObjectUrl(null);
-      if (
-        data.content.documentType === "docx" &&
-        data.metadata?.previewPdfUrl
-      ) {
+      if (content.documentType === "docx" && data.metadata?.previewPdfUrl) {
         const { response: previewResponse, blob: previewBlob } =
-          await ReaderDocument.previewBlob(data.metadata.previewPdfUrl);
+          await ReaderDocument.previewBlob(data.metadata.previewPdfUrl, {
+            signal: openContext.signal,
+          });
+        if (!isCurrentOpen()) return null;
         if (previewResponse.ok && previewBlob.size > 0) {
           objectUrl = URL.createObjectURL(previewBlob);
           setReaderObjectUrl(objectUrl);
@@ -788,22 +878,31 @@ export function DocumentReaderProvider({
         }
       }
       if (!renderType && data.metadata?.originalUrl) {
-        const { response: blobResponse, blob } =
-          await ReaderDocument.originalBlob(data.metadata.originalUrl);
-        if (blobResponse.ok) {
-          objectUrl = URL.createObjectURL(blob);
-          setReaderObjectUrl(objectUrl);
-          const file = new File(
-            [blob],
-            data.metadata.originalName || "original",
-            { type: data.metadata.mimeType }
-          );
-          parsedContent =
-            (await parseFileByType(
-              file,
-              readerDocumentId,
-              data.content?.documentType
-            )) || data.content;
+        if (content.documentType === "pdf") {
+          objectUrl = readerPdfStreamUrl(data.metadata);
+          renderType = "pdf-stream";
+        } else {
+          const { response: blobResponse, blob } =
+            await ReaderDocument.originalBlob(data.metadata.originalUrl, {
+              signal: openContext.signal,
+            });
+          if (!isCurrentOpen()) return null;
+          if (blobResponse.ok) {
+            objectUrl = URL.createObjectURL(blob);
+            setReaderObjectUrl(objectUrl);
+            const file = new File(
+              [blob],
+              data.metadata.originalName || "original",
+              { type: data.metadata.mimeType }
+            );
+            parsedContent =
+              (await parseFileByType(
+                file,
+                readerDocumentId,
+                content?.documentType
+              )) || content;
+            if (!isCurrentOpen()) return null;
+          }
         }
       }
 
@@ -811,7 +910,7 @@ export function DocumentReaderProvider({
         source: data.metadata.source || "reader_upload",
         readerDocumentId,
         backupReaderDocumentId: readerDocumentId,
-        documentType: data.content.documentType,
+        documentType: parsedContent.documentType,
         renderType,
         title: data.metadata.originalName,
         bookKey:
@@ -832,6 +931,8 @@ export function DocumentReaderProvider({
           null,
         previewWarning,
       };
+      if (!isCurrentOpen()) return null;
+      clearReaderCloseSuppression();
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
@@ -840,17 +941,23 @@ export function DocumentReaderProvider({
       return doc;
     },
     [
+      beginReaderOpen,
+      clearReaderCloseSuppression,
       persistDocument,
       rememberDocument,
+      readerOpenIsCurrent,
       setDrawerOpenPersisted,
       setReaderObjectUrl,
     ]
   );
 
   const openLocalSourceDocument = useCallback(
-    async (historyItem = null) => {
+    async (historyItem = null, options = {}) => {
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       if (!historyItem?.localSourceId) return { ok: false, reason: "missing" };
       const localSource = await openReaderLocalSource(historyItem);
+      if (!isCurrentOpen()) return { ok: false, reason: "aborted" };
       if (!localSource.ok || !localSource.file) return localSource;
 
       const file = localSource.file;
@@ -883,6 +990,7 @@ export function DocumentReaderProvider({
         readerDocumentId,
         validation.documentType
       );
+      if (!isCurrentOpen()) return { ok: false, reason: "aborted" };
       const doc = {
         source: historyItem.source || "reader_upload",
         readerDocumentId: historyItem.readerDocumentId || null,
@@ -930,7 +1038,7 @@ export function DocumentReaderProvider({
         thumbnailDataUrl: progressItem?.thumbnailDataUrl || null,
       };
 
-      readerClosingRef.current = false;
+      clearReaderCloseSuppression();
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
@@ -938,8 +1046,11 @@ export function DocumentReaderProvider({
       return { ok: true, opened: doc };
     },
     [
+      beginReaderOpen,
+      clearReaderCloseSuppression,
       persistDocument,
       rememberDocument,
+      readerOpenIsCurrent,
       setDrawerOpenPersisted,
       setReaderObjectUrl,
     ]
@@ -948,6 +1059,8 @@ export function DocumentReaderProvider({
   const openReaderDocument = useCallback(
     async (readerDocumentId, historyItem = null, options = {}) => {
       if (!readerDocumentId) return;
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       const readerDocumentWorkspaceSlug =
         historyItem?.readerDocumentWorkspaceSlug ||
         historyItem?.workspaceSlug ||
@@ -955,17 +1068,24 @@ export function DocumentReaderProvider({
       let response;
       let data;
       let requestError = null;
+      const detail =
+        historyItem?.documentType === "pdf" ||
+        historyItem?.metadata?.documentType === "pdf"
+          ? "metadata"
+          : "content";
       try {
         const result = await ReaderDocument.get(
           readerDocumentWorkspaceSlug,
           readerDocumentId,
-          { detail: "content" }
+          { detail, signal: openContext.signal }
         );
         response = result.response;
         data = result.data;
       } catch (error) {
+        if (error?.name === "AbortError") return null;
         requestError = error;
       }
+      if (!isCurrentOpen()) return null;
       if (!response?.ok || !data?.success) {
         const failure = readerOpenFailureDetails(
           response,
@@ -989,10 +1109,15 @@ export function DocumentReaderProvider({
         return null;
       }
       try {
-        const opened = await openServerDocumentData(data, historyItem);
+        const opened = await openServerDocumentData(data, historyItem, {
+          openContext,
+        });
+        if (!isCurrentOpen()) return null;
         if (opened) clearPendingReaderOpen("server", readerDocumentId);
         return opened;
       } catch (error) {
+        if (error?.name === "AbortError") return null;
+        if (!isCurrentOpen()) return null;
         const failure = readerOpenFailureDetails(
           null,
           null,
@@ -1015,12 +1140,20 @@ export function DocumentReaderProvider({
         return null;
       }
     },
-    [clearPendingReaderOpen, openServerDocumentData, queuePendingReaderOpen]
+    [
+      beginReaderOpen,
+      clearPendingReaderOpen,
+      openServerDocumentData,
+      queuePendingReaderOpen,
+      readerOpenIsCurrent,
+    ]
   );
 
   const reopenLocalPathDocument = useCallback(
     async (readerDocumentId, historyItem = null, options = {}) => {
       if (!readerDocumentId) return false;
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       const readerDocumentWorkspaceSlug =
         historyItem?.readerDocumentWorkspaceSlug ||
         historyItem?.workspaceSlug ||
@@ -1031,13 +1164,22 @@ export function DocumentReaderProvider({
       try {
         const result = await ReaderDocument.reopenLocalPath(
           readerDocumentWorkspaceSlug,
-          readerDocumentId
+          readerDocumentId,
+          { signal: openContext.signal }
         );
         response = result.response;
         data = result.data;
       } catch (error) {
+        if (error?.name === "AbortError")
+          return options.returnStatus
+            ? { ok: false, retryable: false, reason: "aborted" }
+            : false;
         requestError = error;
       }
+      if (!isCurrentOpen())
+        return options.returnStatus
+          ? { ok: false, retryable: false, reason: "aborted" }
+          : false;
       if (!response?.ok || !data?.success) {
         const failure = readerOpenFailureDetails(
           response,
@@ -1061,7 +1203,13 @@ export function DocumentReaderProvider({
         return options.returnStatus ? { ok: false, ...failure } : false;
       }
       try {
-        const opened = await openServerDocumentData(data, historyItem);
+        const opened = await openServerDocumentData(data, historyItem, {
+          openContext,
+        });
+        if (!isCurrentOpen())
+          return options.returnStatus
+            ? { ok: false, retryable: false, reason: "aborted" }
+            : false;
         if (opened) clearPendingReaderOpen("localPath", readerDocumentId);
         const result = {
           ok: !!opened,
@@ -1073,6 +1221,14 @@ export function DocumentReaderProvider({
         };
         return options.returnStatus ? result : result.ok;
       } catch (error) {
+        if (error?.name === "AbortError")
+          return options.returnStatus
+            ? { ok: false, retryable: false, reason: "aborted" }
+            : false;
+        if (!isCurrentOpen())
+          return options.returnStatus
+            ? { ok: false, retryable: false, reason: "aborted" }
+            : false;
         const failure = readerOpenFailureDetails(
           null,
           null,
@@ -1095,21 +1251,41 @@ export function DocumentReaderProvider({
         return options.returnStatus ? { ok: false, ...failure } : false;
       }
     },
-    [clearPendingReaderOpen, openServerDocumentData, queuePendingReaderOpen]
+    [
+      beginReaderOpen,
+      clearPendingReaderOpen,
+      openServerDocumentData,
+      queuePendingReaderOpen,
+      readerOpenIsCurrent,
+    ]
   );
 
   const openWorkspaceParsedDocument = useCallback(
     async (
       docPath,
       sourceWorkspaceSlug = workspace?.slug,
-      historyItem = null
+      historyItem = null,
+      options = {}
     ) => {
       if (!sourceWorkspaceSlug || !docPath) return;
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       if (!historyItem) setDrawerSectionPersisted("workspace");
-      const { response, data } = await ReaderDocument.fromWorkspace(
-        sourceWorkspaceSlug,
-        docPath
-      );
+      let response;
+      let data;
+      try {
+        const result = await ReaderDocument.fromWorkspace(
+          sourceWorkspaceSlug,
+          docPath,
+          { signal: openContext.signal }
+        );
+        response = result.response;
+        data = result.data;
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        throw error;
+      }
+      if (!isCurrentOpen()) return;
       if (!response.ok || !data?.success) {
         showToast(data?.error || "解析文本预览打开失败", "error");
         return;
@@ -1152,15 +1328,19 @@ export function DocumentReaderProvider({
         progress: normalizedReaderProgress(progressItem?.progress),
       };
       setReaderObjectUrl(null);
-      readerClosingRef.current = false;
+      if (!isCurrentOpen()) return;
+      clearReaderCloseSuppression();
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
       setDrawerOpenPersisted(false);
     },
     [
+      beginReaderOpen,
+      clearReaderCloseSuppression,
       persistDocument,
       rememberDocument,
+      readerOpenIsCurrent,
       setDrawerSectionPersisted,
       setDrawerOpenPersisted,
       setReaderObjectUrl,
@@ -1170,7 +1350,13 @@ export function DocumentReaderProvider({
 
   const retryPendingReaderOpen = useCallback(() => {
     const pending = pendingReaderOpenRef.current;
-    if (!pending || readerClosingRef.current || currentDocument) return;
+    if (
+      !pending ||
+      readerClosingRef.current ||
+      readerCloseSuppressed() ||
+      currentDocument
+    )
+      return;
     const now = Date.now();
     if (now - Number(pending.lastRetryAt || 0) < 1500) return;
     pendingReaderOpenRef.current = { ...pending, lastRetryAt: now };
@@ -1187,7 +1373,12 @@ export function DocumentReaderProvider({
     void openReaderDocument(pending.readerDocumentId, pending.historyItem, {
       silentRetry: true,
     });
-  }, [currentDocument, openReaderDocument, reopenLocalPathDocument]);
+  }, [
+    currentDocument,
+    openReaderDocument,
+    readerCloseSuppressed,
+    reopenLocalPathDocument,
+  ]);
 
   useEffect(() => {
     const retryWhenVisible = () => {
@@ -1205,9 +1396,34 @@ export function DocumentReaderProvider({
   }, [retryPendingReaderOpen]);
 
   useEffect(() => {
+    const routeKey = `${workspace?.slug || ""}:${threadSlug || ""}`;
+    if (readerRouteKeyRef.current === routeKey) return;
+    readerRouteKeyRef.current = routeKey;
+    abortReaderOpen();
+    beginReaderCloseSuppression();
+    setCurrentDocument(null);
+    setPendingSelectionSources([]);
+    setPendingTextSources([]);
+    setFocusedReaderTextSource(null);
+    clearReaderCurrentDocumentStorage();
+    setDrawerOpenPersisted(false);
+    setReaderObjectUrl(null);
+  }, [
+    abortReaderOpen,
+    beginReaderCloseSuppression,
+    setDrawerOpenPersisted,
+    setPendingSelectionSources,
+    setPendingTextSources,
+    setReaderObjectUrl,
+    threadSlug,
+    workspace?.slug,
+  ]);
+
+  useEffect(() => {
     const ensureDocumentForJump = async (event) => {
       const source = event.detail || {};
       if (source.__readerJumpResolved || !source?.selectedText) return;
+      if (readerCloseSuppressed()) return;
       const sourceReaderDocumentId =
         source.readerDocumentId || source.backupReaderDocumentId || null;
       const alreadyOpen =
@@ -1243,24 +1459,37 @@ export function DocumentReaderProvider({
         "anythingllm-document-reader-jump",
         ensureDocumentForJump
       );
-  }, [currentDocument, openReaderDocument]);
+  }, [
+    currentDocument,
+    openReaderDocument,
+    readerCloseSuppressed,
+    setDrawerOpenPersisted,
+  ]);
 
   useEffect(() => {
     migrateReaderStorage(workspace?.slug, threadSlug);
-    const storedSources = safeJsonParse(localStorage.getItem(sourcesKey), {});
+    const storedSources = readReaderSources({});
     setSourcesByTurn(storedSources || {});
     setReaderHistory(readReaderHistory());
     setReaderBookshelf(readReaderBookshelf());
     setReaderCategories(readReaderBookshelfCategories());
 
     const stored = readerItemWithLatestBookMemory(
-      safeJsonParse(localStorage.getItem(storageKey), null)
+      readReaderCurrentDocument(null)
     );
-    if (!stored) {
+    if (
+      !stored ||
+      !isReaderCurrentDocumentFresh(
+        stored,
+        readReaderCurrentDocumentClearedAt()
+      ) ||
+      readerCloseSuppressed()
+    ) {
       const restoredDrawerState = readReaderDrawerState();
       drawerSectionRef.current = restoredDrawerState.section;
       setDrawerInitialSection(restoredDrawerState.section);
-      if (readReaderDrawerOpenIntent()) setDrawerOpen(true);
+      if (readReaderDrawerOpenIntent() && !readerCloseSuppressed())
+        setDrawerOpen(true);
       return;
     }
     setDrawerOpen(true);
@@ -1298,8 +1527,8 @@ export function DocumentReaderProvider({
   }, [
     openReaderDocument,
     openWorkspaceParsedDocument,
+    readerCloseSuppressed,
     setDrawerOpenPersisted,
-    sourcesKey,
     storageKey,
     migrateReaderStorage,
     threadSlug,
@@ -1307,19 +1536,97 @@ export function DocumentReaderProvider({
   ]);
 
   useEffect(() => {
-    return () => {
-      setReaderObjectUrl(null);
+    const onReaderLocalCacheHydrated = (event) => {
+      const hydratedKey = event?.detail?.key;
+      if (hydratedKey && hydratedKey !== storageKey) {
+        setSourcesByTurn(readReaderSources({}) || {});
+        return;
+      }
+
+      setSourcesByTurn(readReaderSources({}) || {});
+      const stored = readerItemWithLatestBookMemory(
+        readReaderCurrentDocument(null)
+      );
+      if (
+        !stored ||
+        !isReaderCurrentDocumentFresh(
+          stored,
+          readReaderCurrentDocumentClearedAt()
+        ) ||
+        readerCloseSuppressed()
+      ) {
+        return;
+      }
+
+      setDrawerOpen(true);
+      if (stored.source === "workspace_parsed" && stored.workspaceDocPath) {
+        openWorkspaceParsedDocument(
+          stored.workspaceDocPath,
+          stored.readerDocumentWorkspaceSlug || workspace?.slug,
+          stored
+        );
+        return;
+      }
+
+      const storedServerId =
+        stored.readerDocumentId || stored.backupReaderDocumentId;
+      if (storedServerId) {
+        openReaderDocument(storedServerId, {
+          ...stored,
+          localPath: null,
+          localSourceId: null,
+        });
+        return;
+      }
+
+      if (stored.source === "local") {
+        setCurrentDocument((current) => current || stored);
+      }
     };
-  }, [setReaderObjectUrl]);
+
+    window.addEventListener(
+      "athena-reader-local-cache-hydrated",
+      onReaderLocalCacheHydrated
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-reader-local-cache-hydrated",
+        onReaderLocalCacheHydrated
+      );
+  }, [
+    openReaderDocument,
+    openWorkspaceParsedDocument,
+    readerCloseSuppressed,
+    storageKey,
+    workspace?.slug,
+  ]);
 
   useEffect(() => {
-    const open = () => {
-      readerClosingRef.current = false;
+    return () => {
+      window.clearTimeout(readerCloseSuppressionTimerRef.current);
+      abortReaderOpen();
+      setReaderObjectUrl(null);
+    };
+  }, [abortReaderOpen, setReaderObjectUrl]);
+
+  useEffect(() => {
+    const open = (event) => {
+      const userOpenSources = new Set(["toolbar", "reader-source-card"]);
+      const source = event?.detail?.source || null;
+      if (event?.detail?.force && userOpenSources.has(source)) {
+        clearReaderCloseSuppression();
+      } else if (readerCloseSuppressed()) {
+        return;
+      }
       setDrawerOpenPersisted(true);
     };
     window.addEventListener(READER_EVENT_OPEN_DRAWER, open);
     return () => window.removeEventListener(READER_EVENT_OPEN_DRAWER, open);
-  }, [setDrawerOpenPersisted]);
+  }, [
+    clearReaderCloseSuppression,
+    readerCloseSuppressed,
+    setDrawerOpenPersisted,
+  ]);
 
   useEffect(() => {
     const associate = (event) => {
@@ -1405,6 +1712,8 @@ export function DocumentReaderProvider({
   const openUploadedHistoryItem = useCallback(
     async (historyItem, options = {}) => {
       if (!historyItem) return false;
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       const showDocumentLoadingStatus = ["docx", "epub"].includes(
         historyItem.documentType
       );
@@ -1421,8 +1730,9 @@ export function DocumentReaderProvider({
           const opened = await openReaderDocument(
             readerDocumentId,
             { ...historyItem, localPath: null, localSourceId: null },
-            { suppressTerminalToast: true }
+            { suppressTerminalToast: true, openContext }
           );
+          if (!isCurrentOpen()) return false;
           if (!opened) continue;
           const nextBookshelf = updateReaderBookshelfItem(historyItem, {
             readerDocumentId: opened.readerDocumentId || readerDocumentId,
@@ -1453,8 +1763,10 @@ export function DocumentReaderProvider({
             {
               returnStatus: true,
               suppressTerminalToast: true,
+              openContext,
             }
           );
+          if (!isCurrentOpen()) return false;
           if (localPathResult.ok) return true;
           if (localPathResult.retryable) return false;
         }
@@ -1463,7 +1775,12 @@ export function DocumentReaderProvider({
         if (showDocumentLoadingStatus) setDocxPreviewStatus(null);
       }
     },
-    [openReaderDocument, reopenLocalPathDocument]
+    [
+      beginReaderOpen,
+      openReaderDocument,
+      readerOpenIsCurrent,
+      reopenLocalPathDocument,
+    ]
   );
 
   const requestLocalFileConflictChoice = useCallback(
@@ -1487,6 +1804,8 @@ export function DocumentReaderProvider({
 
   const openLocalFile = useCallback(
     async (file, options = {}) => {
+      const openContext = options.openContext || beginReaderOpen();
+      const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       if (!options.addToBookshelf) setDrawerSectionPersisted("history");
       const validation = validateReaderFile(file);
       if (!validation.ok) {
@@ -1500,8 +1819,10 @@ export function DocumentReaderProvider({
           file,
           existingUploaded
         );
+        if (!isCurrentOpen()) return;
         if (choice === "uploaded") {
-          await openUploadedHistoryItem(existingUploaded);
+          await openUploadedHistoryItem(existingUploaded, { openContext });
+          if (!isCurrentOpen()) return;
           if (options.addToBookshelf) {
             const item = {
               ...existingUploaded,
@@ -1535,15 +1856,23 @@ export function DocumentReaderProvider({
         message: loadingMessageForDocumentType(validation.documentType),
       });
       try {
-        const { response, data } = await ReaderDocument.upload(null, formData);
+        const { response, data } = await ReaderDocument.upload(null, formData, {
+          signal: openContext.signal,
+        });
+        if (!isCurrentOpen()) return;
         if (!response.ok || !data?.success)
           throw new Error(data?.error || "自动上传失败");
-        const doc = await openServerDocumentData(data, {
-          bookKey,
-          branchId: options.branch ? `local-${localDocumentId}` : null,
-          branchLabel: options.branch ? "本地分支" : null,
-          progress: { label: "阅读进度", percent: 0, updatedAt: null },
-        });
+        const doc = await openServerDocumentData(
+          data,
+          {
+            bookKey,
+            branchId: options.branch ? `local-${localDocumentId}` : null,
+            branchLabel: options.branch ? "本地分支" : null,
+            progress: { label: "阅读进度", percent: 0, updatedAt: null },
+          },
+          { openContext }
+        );
+        if (!isCurrentOpen()) return;
         if (options.addToBookshelf && doc) {
           const item = {
             ...bookshelfItemFromDocument(doc),
@@ -1557,6 +1886,7 @@ export function DocumentReaderProvider({
         }
         return doc;
       } catch (error) {
+        if (error?.name === "AbortError" || !isCurrentOpen()) return;
         showToast(
           `${error.message || "自动上传失败"}，已临时本地预览。`,
           "warning"
@@ -1564,6 +1894,7 @@ export function DocumentReaderProvider({
       } finally {
         setDocxPreviewStatus(null);
       }
+      if (!isCurrentOpen()) return;
       const objectUrl = URL.createObjectURL(file);
       setReaderObjectUrl(objectUrl);
       const content = await parseFileByType(
@@ -1571,6 +1902,7 @@ export function DocumentReaderProvider({
         localDocumentId,
         validation.documentType
       );
+      if (!isCurrentOpen()) return;
       const progressItem = readerItemWithLatestBookMemory({
         source: "local",
         title: file.name,
@@ -1601,7 +1933,8 @@ export function DocumentReaderProvider({
         file,
         progress: normalizedReaderProgress(progressItem?.progress),
       };
-      readerClosingRef.current = false;
+      if (!isCurrentOpen()) return;
+      clearReaderCloseSuppression();
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
@@ -1616,12 +1949,15 @@ export function DocumentReaderProvider({
     },
     [
       addItemsToBookshelf,
+      beginReaderOpen,
       bookshelfItemFromDocument,
+      clearReaderCloseSuppression,
       findUploadedHistoryForTitle,
       openUploadedHistoryItem,
       openServerDocumentData,
       persistDocument,
       queueBookshelfPostprocess,
+      readerOpenIsCurrent,
       rememberDocument,
       requestLocalFileConflictChoice,
       setDrawerSectionPersisted,
@@ -1973,7 +2309,8 @@ export function DocumentReaderProvider({
 
   const exitCurrentDocument = useCallback(
     (progress = null) => {
-      readerClosingRef.current = true;
+      abortReaderOpen();
+      beginReaderCloseSuppression();
       if (currentDocument && progress)
         recordCurrentProgress(progress, {
           force: true,
@@ -1988,6 +2325,8 @@ export function DocumentReaderProvider({
       setReaderObjectUrl(null);
     },
     [
+      abortReaderOpen,
+      beginReaderCloseSuppression,
       currentDocument,
       recordCurrentProgress,
       setDrawerOpenPersisted,
@@ -1999,7 +2338,8 @@ export function DocumentReaderProvider({
 
   const closeReader = useCallback(
     (progress = null) => {
-      readerClosingRef.current = true;
+      abortReaderOpen();
+      beginReaderCloseSuppression();
       if (currentDocument && progress)
         recordCurrentProgress(progress, {
           force: true,
@@ -2014,6 +2354,8 @@ export function DocumentReaderProvider({
       setReaderObjectUrl(null);
     },
     [
+      abortReaderOpen,
+      beginReaderCloseSuppression,
       currentDocument,
       recordCurrentProgress,
       setDrawerOpenPersisted,

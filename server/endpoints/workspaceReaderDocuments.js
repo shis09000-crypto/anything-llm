@@ -48,6 +48,11 @@ function includeUploadContent(request) {
   const value = request.query?.includeContent;
   return value === "1" || value === "true";
 }
+
+function includeReaderDocumentContent(request) {
+  const detail = String(request.query?.detail || "metadata").toLowerCase();
+  return detail === "content" || detail === "full";
+}
 const READER_DOCUMENT_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_TYPES = {
@@ -80,6 +85,7 @@ const READER_POSTPROCESS_QUEUE_CONCURRENCY = Math.max(
   1,
   Number(process.env.READER_POSTPROCESS_QUEUE_CONCURRENCY) || 1
 );
+const READER_STREAM_CACHE_CONTROL = "private, max-age=604800, no-transform";
 const readerPostprocessJobs = new Map();
 const readerPostprocessQueue = new PQueue({
   concurrency: READER_POSTPROCESS_QUEUE_CONCURRENCY,
@@ -792,13 +798,30 @@ async function ensureDocxPreview({
 
 function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
   const publicMetadata = stripFileBackedOwnerMetadata(metadata);
+  const originalUrl = `${readerApiPrefix(workspace)}/${readerDocumentId}/original`;
+  const size = Number(publicMetadata.size || 0);
+  const etag =
+    publicMetadata.originalFingerprint ||
+    publicMetadata.fingerprint ||
+    publicMetadata.previewFingerprint ||
+    null;
   return {
     ...publicMetadata,
     originalName: decodeMaybeMojibakeFilename(publicMetadata.originalName),
     readerDocumentWorkspaceSlug: workspace?.readerStandalone
       ? null
       : workspace?.slug || publicMetadata.readerDocumentWorkspaceSlug || null,
-    originalUrl: `${readerApiPrefix(workspace)}/${readerDocumentId}/original`,
+    originalUrl,
+    stream: {
+      streamUrl: originalUrl,
+      url: originalUrl,
+      size,
+      etag,
+      supportsRange: true,
+      cacheControl: READER_STREAM_CACHE_CONTROL,
+      mimeType: publicMetadata.mimeType || "application/octet-stream",
+      documentType: publicMetadata.documentType || null,
+    },
     ...(publicMetadata.previewPdfName
       ? {
           previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
@@ -1033,6 +1056,28 @@ function readReaderContentAndMetadata(documentRoot, context = {}) {
   };
 }
 
+function readReaderMetadata(documentRoot, context = {}) {
+  return readReaderJsonFile(documentRoot, "metadata.json", null, context);
+}
+
+function readerContentSummary({ content = null, metadata = null } = {}) {
+  return {
+    hasContent: !!content,
+    documentType: content?.documentType || metadata?.documentType || null,
+    size: metadata?.size || 0,
+    pageCount: Array.isArray(content?.pages) ? content.pages.length : null,
+    sectionCount: Array.isArray(content?.sections)
+      ? content.sections.length
+      : null,
+    textLength:
+      typeof content?.text === "string"
+        ? content.text.length
+        : typeof content?.markdown === "string"
+          ? content.markdown.length
+          : null,
+  };
+}
+
 function postprocessTaskPatch(status, task, patch = {}) {
   return {
     ...status,
@@ -1060,9 +1105,7 @@ function readerPostprocessProgress(status = {}) {
   const complete = tasks.filter((task) => task.status === "complete").length;
   const failed = tasks.filter((task) => task.status === "failed").length;
   const active = tasks.find((task) =>
-    ["queued", "processing", "extracting", "classifying"].includes(
-      task.status
-    )
+    ["queued", "processing", "extracting", "classifying"].includes(task.status)
   );
   const percent = Math.round(((complete + failed) / tasks.length) * 100);
   const errorTask = tasks.find((task) => task.status === "failed");
@@ -1542,7 +1585,7 @@ function wrapThumbnailTitle(title = "", maxChars = 13, maxLines = 5) {
   if (!text) return ["Untitled"];
   const chars = Array.from(text);
   const lines = [];
-  for (let index = 0; index < chars.length && lines.length < maxLines; ) {
+  for (let index = 0; index < chars.length && lines.length < maxLines;) {
     lines.push(chars.slice(index, index + maxChars).join(""));
     index += maxChars;
   }
@@ -1595,6 +1638,53 @@ async function originalPathForReaderDocument({ documentRoot, metadata }) {
     }
   }
   return storedPath;
+}
+
+function readerOriginalEtag(originalPath, metadata = {}) {
+  const fingerprint =
+    metadata.originalFingerprint ||
+    metadata.fingerprint ||
+    metadata.previewFingerprint ||
+    null;
+  if (fingerprint) return `"reader-${String(fingerprint).replace(/"/g, "")}"`;
+  try {
+    const stat = fs.statSync(originalPath);
+    return `"reader-${stat.size}-${Math.round(stat.mtimeMs)}"`;
+  } catch {
+    return null;
+  }
+}
+
+function setReaderOriginalHeaders(response, originalPath, metadata = {}) {
+  const etag = readerOriginalEtag(originalPath, metadata);
+  response.setHeader("Accept-Ranges", "bytes");
+  response.setHeader("Cache-Control", READER_STREAM_CACHE_CONTROL);
+  response.setHeader(
+    "Content-Type",
+    metadata.mimeType || "application/octet-stream"
+  );
+  if (etag) response.setHeader("ETag", etag);
+  response.setHeader("X-Reader-Stream", "range");
+}
+
+function sendReaderOriginalFile({ request, response, originalPath, metadata }) {
+  const startedAt = Date.now();
+  const range = request.headers.range || null;
+  setReaderOriginalHeaders(response, originalPath, metadata);
+  response.on("finish", () => {
+    console.info("[reader:original]", {
+      requestId: request.communicationRequestId || null,
+      method: request.method,
+      status: response.statusCode,
+      range,
+      contentRange: response.getHeader("Content-Range") || null,
+      contentLength: response.getHeader("Content-Length") || null,
+      originalSize: Number(metadata?.size || 0) || null,
+      mimeType: metadata?.mimeType || null,
+      durationMs: Date.now() - startedAt,
+    });
+  });
+  return response.sendFile(originalPath);
 }
 
 async function generateReaderDocumentThumbnail({
@@ -2327,10 +2417,8 @@ function workspaceReaderDocumentsEndpoints(app) {
               readerDocumentId,
               finalMetadata
             ),
-            postprocess: readerPostprocessResponse(
-              workspace,
-              readerDocumentId
-            ).postprocess,
+            postprocess: readerPostprocessResponse(workspace, readerDocumentId)
+              .postprocess,
           });
         } catch (error) {
           return sendUploadError(response, error);
@@ -2671,7 +2759,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           documentRoot,
           metadata,
         });
-        return response.sendFile(originalPath);
+        return sendReaderOriginalFile({
+          request,
+          response,
+          originalPath,
+          metadata,
+        });
       } catch (error) {
         return response
           .status(404)
@@ -2690,41 +2783,36 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const { content, metadata: initialMetadata } =
-          readReaderContentAndMetadata(documentRoot, {
-            readerDocumentId,
-            endpoint: "get",
-          });
+        const includeContent = includeReaderDocumentContent(request);
+        const metadata = readReaderMetadata(documentRoot, {
+          readerDocumentId,
+          endpoint: "get",
+        });
+        const content = includeContent
+          ? readReaderJsonFile(documentRoot, "content.json", null, {
+              readerDocumentId,
+              endpoint: "get",
+            })
+          : null;
         await assertAuthorizedStandaloneReaderDocument({
           request,
           response,
           readerDocumentId,
-          metadata: initialMetadata,
+          metadata,
         });
-        let metadata = initialMetadata;
-        if (metadataIsDocx(metadata)) {
-          const originalPath = await originalPathForReaderDocument({
-            documentRoot,
-            metadata,
-          });
-          metadata = await finalizeReaderDocumentMetadata({
-            workspace,
-            readerDocumentId,
-            metadata,
-            originalPath,
-          });
-          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
-        }
 
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
-          content,
+          ...(includeContent ? { content } : {}),
+          contentSummary: readerContentSummary({ content, metadata }),
           metadata: metadataWithOriginalUrl(
             workspace,
             readerDocumentId,
             metadata
           ),
+          postprocess: readerPostprocessResponse(workspace, readerDocumentId)
+            .postprocess,
         });
       } catch (error) {
         return response
@@ -2833,10 +2921,8 @@ function workspaceReaderDocumentsEndpoints(app) {
               readerDocumentId,
               finalMetadata
             ),
-            postprocess: readerPostprocessResponse(
-              workspace,
-              readerDocumentId
-            ).postprocess,
+            postprocess: readerPostprocessResponse(workspace, readerDocumentId)
+              .postprocess,
           });
         } catch (error) {
           return sendUploadError(response, error);
@@ -3219,7 +3305,12 @@ function workspaceReaderDocumentsEndpoints(app) {
           documentRoot,
           metadata,
         });
-        return response.sendFile(originalPath);
+        return sendReaderOriginalFile({
+          request,
+          response,
+          originalPath,
+          metadata,
+        });
       } catch (error) {
         return response
           .status(404)
@@ -3238,35 +3329,30 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        const { content, metadata: initialMetadata } =
-          readReaderContentAndMetadata(documentRoot, {
-            readerDocumentId,
-            endpoint: "get",
-          });
-        let metadata = initialMetadata;
-        if (metadataIsDocx(metadata)) {
-          const originalPath = await originalPathForReaderDocument({
-            documentRoot,
-            metadata,
-          });
-          metadata = await finalizeReaderDocumentMetadata({
-            workspace,
-            readerDocumentId,
-            metadata,
-            originalPath,
-          });
-          writeReaderJsonFile(documentRoot, "metadata.json", metadata);
-        }
+        const includeContent = includeReaderDocumentContent(request);
+        const metadata = readReaderMetadata(documentRoot, {
+          readerDocumentId,
+          endpoint: "get",
+        });
+        const content = includeContent
+          ? readReaderJsonFile(documentRoot, "content.json", null, {
+              readerDocumentId,
+              endpoint: "get",
+            })
+          : null;
 
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
-          content,
+          ...(includeContent ? { content } : {}),
+          contentSummary: readerContentSummary({ content, metadata }),
           metadata: metadataWithOriginalUrl(
             workspace,
             readerDocumentId,
             metadata
           ),
+          postprocess: readerPostprocessResponse(workspace, readerDocumentId)
+            .postprocess,
         });
       } catch (error) {
         return response
@@ -3327,6 +3413,7 @@ module.exports = {
     readEpubPackage,
     parseClassificationJson,
     readerDocumentRoot,
+    readerOriginalEtag,
     readerWorkspaceRoot,
     readerOcrConfigStatus,
     readerOcrProviderOptions,
@@ -3336,6 +3423,7 @@ module.exports = {
     sanitizedClassificationCategories,
     sanitizedPostprocessTasks,
     safeClassificationReason,
+    setReaderOriginalHeaders,
     STANDALONE_READER_SCOPE,
     validateClassificationResult,
   },

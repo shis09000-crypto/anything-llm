@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useContext,
@@ -15,7 +17,7 @@ import PromptInput, {
 import Workspace from "@/models/workspace";
 import { isMobile } from "react-device-detect";
 import { SidebarMobileHeader } from "../../Sidebar";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import DnDFileUploaderWrapper from "./DnDWrapper";
 import SpeechRecognition, {
   useSpeechRecognition,
@@ -30,17 +32,14 @@ import paths from "@/utils/paths";
 import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import WorkspaceModelPicker from "./WorkspaceModelPicker";
-import SourcesSidebar, { SourcesSidebarProvider } from "./SourcesSidebar";
-import MindMapPanel from "./MindMapPanel";
+import { SourcesSidebarProvider } from "./SourcesSidebar/context";
 import TopRightActionZone from "./TopRightActionZone";
-import DocumentReaderPanel from "./DocumentReader/Panel";
 import { DocumentReaderProvider } from "./DocumentReader/Provider";
 import {
   promptWithTempTextSources,
   READER_EVENT_CONSUME_TEXT_SOURCES,
   READER_EVENT_OPEN_DRAWER,
 } from "./DocumentReader/storage";
-import WorkspaceOverview from "./WorkspaceOverview";
 import {
   draftNeedsServerHistoryRefresh,
   useChatDraft,
@@ -87,6 +86,21 @@ const MEMORY_COMPACTION_ERROR_MS = 4_500;
 const DUAL_THREAD_RESUME_PROMPT =
   "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
 
+const DocumentReaderPanel = lazy(() => import("./DocumentReader/Panel"));
+const MindMapPanel = lazy(() => import("./MindMapPanel"));
+const SourcesSidebar = lazy(() => import("./SourcesSidebar"));
+const WorkspaceOverview = lazy(() => import("./WorkspaceOverview"));
+
+function LazyPanelFallback({ className = "" }) {
+  return (
+    <div
+      className={`flex h-full min-h-0 items-center justify-center text-sm text-white/50 light:text-slate-500 ${className}`}
+    >
+      正在加载...
+    </div>
+  );
+}
+
 export default function ChatContainer({
   workspace,
   threadSlug = null,
@@ -98,6 +112,19 @@ export default function ChatContainer({
   chatScrollMemory = null,
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const navigateIfChanged = useCallback(
+    (to, options) => {
+      const currentPath = `${location.pathname}${location.search}${location.hash}`;
+      const targetPath =
+        typeof to === "string"
+          ? to
+          : `${to?.pathname || ""}${to?.search || ""}${to?.hash || ""}`;
+      if (targetPath && targetPath === currentPath) return;
+      navigate(to, options);
+    },
+    [location.hash, location.pathname, location.search, navigate]
+  );
   const { user } = useUser();
   const {
     mergeServerHistory,
@@ -161,8 +188,7 @@ export default function ChatContainer({
     DEFAULT_CHAT_HISTORY_BOTTOM_INSET
   );
   const [mobileNewThreadLoading, setMobileNewThreadLoading] = useState(false);
-  const [emptyThreadComposeActive, setEmptyThreadComposeActive] =
-    useState(false);
+  const [, setEmptyThreadComposeActive] = useState(false);
   const readerActive =
     layoutMode === "readerDrawer" || layoutMode === "readerDocument";
   const mindMapOpen = layoutMode === "mindMap";
@@ -189,7 +215,8 @@ export default function ChatContainer({
     workspaceSlug: workspace?.slug,
     activeThreadSlug: threadSlug,
     enabled: !!workspace?.slug,
-    onThreadDeleted: () => navigate(paths.workspace.chat(workspace.slug)),
+    onThreadDeleted: () =>
+      navigateIfChanged(paths.workspace.chat(workspace.slug)),
   });
   const compactionUserId = user?.id ?? undefined;
   const compactionApiSessionId = undefined;
@@ -713,7 +740,11 @@ export default function ChatContainer({
       itemCount: chatItems.length,
     });
     setReaderActiveWithLayoutTransition(true, "reader-open", { force: true });
-    window.dispatchEvent(new CustomEvent(READER_EVENT_OPEN_DRAWER));
+    window.dispatchEvent(
+      new CustomEvent(READER_EVENT_OPEN_DRAWER, {
+        detail: { force: true, source: "toolbar" },
+      })
+    );
   }, [
     activeThreadId,
     activeThreadIsOverview,
@@ -1025,7 +1056,7 @@ export default function ChatContainer({
       }
 
       refreshWorkspaceThreads();
-      navigate(paths.workspace.thread(workspace.slug, thread.slug), {
+      navigateIfChanged(paths.workspace.thread(workspace.slug, thread.slug), {
         state: { userSelectedThread: true },
       });
     } catch (error) {
@@ -1332,7 +1363,7 @@ export default function ChatContainer({
     const sourceThreadSlug = dualThreadFork.sourceThreadSlug;
     resetDualThreadFork();
     if (deletedDisposableBranch) {
-      navigate(
+      navigateIfChanged(
         sourceThreadSlug
           ? paths.workspace.thread(workspace.slug, sourceThreadSlug)
           : paths.workspace.chat(workspace.slug)
@@ -1340,14 +1371,16 @@ export default function ChatContainer({
       return;
     }
     if (branchThreadSlug)
-      navigate(paths.workspace.thread(workspace.slug, branchThreadSlug));
+      navigateIfChanged(
+        paths.workspace.thread(workspace.slug, branchThreadSlug)
+      );
   }
 
   async function closeBranchThreadPanel() {
     const sourceThreadSlug = dualThreadFork.sourceThreadSlug;
     await deleteDisposableBranchIfNeeded();
     resetDualThreadFork();
-    navigate(
+    navigateIfChanged(
       sourceThreadSlug
         ? paths.workspace.thread(workspace.slug, sourceThreadSlug)
         : paths.workspace.chat(workspace.slug)
@@ -1641,11 +1674,6 @@ export default function ChatContainer({
   const hasPendingHomeMessage = !!sessionStorage.getItem(PENDING_HOME_MESSAGE);
   const isEmptyThread = !hasMessages && !hasPendingHomeMessage;
   const emptyThreadShellActive = isEmptyThread && readerActive;
-  const overviewIsVisible =
-    isEmptyThread &&
-    !loadingResponse &&
-    !readerActive &&
-    !emptyThreadComposeActive;
   const memoryCompactionControl = useMemo(
     () => ({
       visible: !!threadSlug && !dualThreadFork.enabled,
@@ -1692,37 +1720,44 @@ export default function ChatContainer({
             className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
           >
             {isMobile && renderMobileHeader()}
-            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <WorkspaceModelPicker
+              workspaceSlug={workspace.slug}
+              modelName={workspace.chatModel}
+            />
             <DnDFileUploaderWrapper>
-              <WorkspaceOverview
-                workspace={workspace}
-                threadSlug={threadSlug}
-                shouldLoad={true}
-                isVisible={true}
-                onOpenGraph={openGraphOverviewConcept}
-                onOpenPath={openGraphOverviewPath}
-                onOpenEvidence={openGraphOverviewEvidence}
-                onOpenDocument={() =>
-                  navigate(
-                    paths.workspace.settings.vectorDatabase(workspace.slug)
-                  )
-                }
-                onUploadDocument={() =>
-                  document.getElementById("dnd-chat-file-uploader")?.click()
-                }
-              />
+              <Suspense fallback={<LazyPanelFallback />}>
+                <WorkspaceOverview
+                  workspace={workspace}
+                  threadSlug={threadSlug}
+                  shouldLoad={true}
+                  isVisible={true}
+                  onOpenGraph={openGraphOverviewConcept}
+                  onOpenPath={openGraphOverviewPath}
+                  onOpenEvidence={openGraphOverviewEvidence}
+                  onOpenDocument={() =>
+                    navigateIfChanged(
+                      paths.workspace.settings.vectorDatabase(workspace.slug)
+                    )
+                  }
+                  onUploadDocument={() =>
+                    document.getElementById("dnd-chat-file-uploader")?.click()
+                  }
+                />
+              </Suspense>
             </DnDFileUploaderWrapper>
             <ChatTooltips />
-            <MindMapPanel
-              workspace={workspace}
-              threadSlug={threadSlug}
-              isOpen={mindMapOpen}
-              request={mindMapRequest}
-              onClose={closeMindMap}
-              sendCommand={sendCommand}
-              setMessage={(message) => setMessageEmit(message)}
-              floating
-            />
+            <Suspense fallback={null}>
+              <MindMapPanel
+                workspace={workspace}
+                threadSlug={threadSlug}
+                isOpen={mindMapOpen}
+                request={mindMapRequest}
+                onClose={closeMindMap}
+                sendCommand={sendCommand}
+                setMessage={(message) => setMessageEmit(message)}
+                floating
+              />
+            </Suspense>
           </div>
         </DocumentReaderProvider>
       </SourcesSidebarProvider>
@@ -1738,7 +1773,10 @@ export default function ChatContainer({
         >
           <div className="flex-[1.08] min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70">
             {isMobile && renderMobileHeader()}
-            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <WorkspaceModelPicker
+              workspaceSlug={workspace.slug}
+              modelName={workspace.chatModel}
+            />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
                 <div className="px-5 pt-4 pb-2 border-b border-white/10 light:border-slate-200">
@@ -1894,7 +1932,10 @@ export default function ChatContainer({
                     workspaceSlug={workspace.slug}
                   />
                 )}
-                <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+                <WorkspaceModelPicker
+                  workspaceSlug={workspace.slug}
+                  modelName={workspace.chatModel}
+                />
                 <DnDFileUploaderWrapper>
                   <div className="flex flex-col h-full w-full pb-20 md:pb-0">
                     <div className="contents">
@@ -1956,21 +1997,27 @@ export default function ChatContainer({
               {readerActive && (
                 <ReaderSplitResizeHandle onResizeStart={startReaderResize} />
               )}
-              <DocumentReaderPanel
-                percent={readerPanelPercent}
-                onBeforeActiveChange={setReaderActiveWithLayoutTransition}
-                onReaderLayoutTransition={beginChatLayoutTransition}
-              />
-              <MindMapPanel
-                workspace={workspace}
-                threadSlug={threadSlug}
-                isOpen={mindMapOpen}
-                request={mindMapRequest}
-                onClose={closeMindMap}
-                sendCommand={sendCommand}
-                setMessage={(message) => setMessageEmit(message)}
-              />
-              <SourcesSidebar />
+              <Suspense fallback={null}>
+                <DocumentReaderPanel
+                  percent={readerPanelPercent}
+                  onBeforeActiveChange={setReaderActiveWithLayoutTransition}
+                  onReaderLayoutTransition={beginChatLayoutTransition}
+                />
+              </Suspense>
+              <Suspense fallback={null}>
+                <MindMapPanel
+                  workspace={workspace}
+                  threadSlug={threadSlug}
+                  isOpen={mindMapOpen}
+                  request={mindMapRequest}
+                  onClose={closeMindMap}
+                  sendCommand={sendCommand}
+                  setMessage={(message) => setMessageEmit(message)}
+                />
+              </Suspense>
+              <Suspense fallback={null}>
+                <SourcesSidebar />
+              </Suspense>
             </div>
           ) : (
             <div
@@ -1986,40 +2033,13 @@ export default function ChatContainer({
                 dualThreadMode={dualThreadFork.enabled}
                 workspaceSlug={workspace.slug}
               />
-              <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+              <WorkspaceModelPicker
+                workspaceSlug={workspace.slug}
+                modelName={workspace.chatModel}
+              />
               <DnDFileUploaderWrapper>
                 <div className="flex flex-col h-full w-full">
-                  <div className="flex-1 min-h-0 overflow-hidden">
-                    <div
-                      className={`motion-hover h-full transform-gpu ${
-                        overviewIsVisible
-                          ? "translate-y-0 opacity-100 pointer-events-auto"
-                          : "translate-y-3 opacity-0 pointer-events-none"
-                      }`}
-                    >
-                      <WorkspaceOverview
-                        workspace={workspace}
-                        threadSlug={threadSlug}
-                        shouldLoad={isEmptyThread}
-                        isVisible={overviewIsVisible}
-                        onOpenGraph={openGraphOverviewConcept}
-                        onOpenPath={openGraphOverviewPath}
-                        onOpenEvidence={openGraphOverviewEvidence}
-                        onOpenDocument={() =>
-                          navigate(
-                            paths.workspace.settings.vectorDatabase(
-                              workspace.slug
-                            )
-                          )
-                        }
-                        onUploadDocument={() =>
-                          document
-                            .getElementById("dnd-chat-file-uploader")
-                            ?.click()
-                        }
-                      />
-                    </div>
-                  </div>
+                  <div className="flex-1 min-h-0 overflow-hidden" />
                   <div className="overview-input-fade">
                     <div className="pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
                       <PromptInput
@@ -2047,10 +2067,10 @@ export default function ChatContainer({
                       <QuickActions
                         hasAvailableWorkspace={!!workspace}
                         onCreateAgent={() =>
-                          navigate(paths.settings.agentSkills())
+                          navigateIfChanged(paths.settings.agentSkills())
                         }
                         onEditWorkspace={() =>
-                          navigate(
+                          navigateIfChanged(
                             paths.workspace.settings.generalAppearance(
                               workspace.slug
                             )
@@ -2073,16 +2093,18 @@ export default function ChatContainer({
                 </div>
               </DnDFileUploaderWrapper>
               <ChatTooltips />
-              <MindMapPanel
-                workspace={workspace}
-                threadSlug={threadSlug}
-                isOpen={mindMapOpen}
-                request={mindMapRequest}
-                onClose={closeMindMap}
-                sendCommand={sendCommand}
-                setMessage={(message) => setMessageEmit(message)}
-                floating
-              />
+              <Suspense fallback={null}>
+                <MindMapPanel
+                  workspace={workspace}
+                  threadSlug={threadSlug}
+                  isOpen={mindMapOpen}
+                  request={mindMapRequest}
+                  onClose={closeMindMap}
+                  sendCommand={sendCommand}
+                  setMessage={(message) => setMessageEmit(message)}
+                  floating
+                />
+              </Suspense>
             </div>
           )}
         </DocumentReaderProvider>
@@ -2123,7 +2145,10 @@ export default function ChatContainer({
                 workspaceSlug={workspace.slug}
               />
             )}
-            <WorkspaceModelPicker workspaceSlug={workspace.slug} />
+            <WorkspaceModelPicker
+              workspaceSlug={workspace.slug}
+              modelName={workspace.chatModel}
+            />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
                 <div className="contents">
@@ -2185,21 +2210,27 @@ export default function ChatContainer({
           {readerActive && (
             <ReaderSplitResizeHandle onResizeStart={startReaderResize} />
           )}
-          <DocumentReaderPanel
-            percent={readerPanelPercent}
-            onBeforeActiveChange={setReaderActiveWithLayoutTransition}
-            onReaderLayoutTransition={beginChatLayoutTransition}
-          />
-          <MindMapPanel
-            workspace={workspace}
-            threadSlug={threadSlug}
-            isOpen={mindMapOpen}
-            request={mindMapRequest}
-            onClose={closeMindMap}
-            sendCommand={sendCommand}
-            setMessage={(message) => setMessageEmit(message)}
-          />
-          <SourcesSidebar />
+          <Suspense fallback={null}>
+            <DocumentReaderPanel
+              percent={readerPanelPercent}
+              onBeforeActiveChange={setReaderActiveWithLayoutTransition}
+              onReaderLayoutTransition={beginChatLayoutTransition}
+            />
+          </Suspense>
+          <Suspense fallback={null}>
+            <MindMapPanel
+              workspace={workspace}
+              threadSlug={threadSlug}
+              isOpen={mindMapOpen}
+              request={mindMapRequest}
+              onClose={closeMindMap}
+              sendCommand={sendCommand}
+              setMessage={(message) => setMessageEmit(message)}
+            />
+          </Suspense>
+          <Suspense fallback={null}>
+            <SourcesSidebar />
+          </Suspense>
         </div>
       </DocumentReaderProvider>
     </SourcesSidebarProvider>

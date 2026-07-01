@@ -14,9 +14,15 @@ LOG_MAX_BYTES="${LOG_MAX_BYTES:-10485760}"
 LOG_KEEP="${LOG_KEEP:-5}"
 STOPPING=0
 MOBILE_HTTPS="${MOBILE_HTTPS:-false}"
+HTTPS_KEY_PATH="${HTTPS_KEY_PATH:-${VITE_HTTPS_KEY_PATH:-}}"
+HTTPS_CERT_PATH="${HTTPS_CERT_PATH:-${VITE_HTTPS_CERT_PATH:-}}"
+HTTPS_CA_CERT_PATH="${HTTPS_CA_CERT_PATH:-}"
+HTTPS_PUBLIC_CA_PATH="${HTTPS_PUBLIC_CA_PATH:-}"
+HTTPS_BACKEND_URL="${HTTPS_BACKEND_URL:-}"
+VITE_DEV_API_PROXY_TARGET="${VITE_DEV_API_PROXY_TARGET:-}"
 
 mobile_https_enabled() {
-  [[ "$MOBILE_HTTPS" == "1" || "$MOBILE_HTTPS" == "true" ]]
+  [[ "$MOBILE_HTTPS" == "1" || "$MOBILE_HTTPS" == "true" || "${VITE_DEV_HTTPS:-}" == "true" || "${ENABLE_HTTPS:-}" == "true" ]]
 }
 
 usage() {
@@ -70,9 +76,13 @@ if [[ "$APP_ENV" == "development" ]]; then
   if mobile_https_enabled; then
     APP_URL="${APP_URL:-https://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}}"
     API_URL="${API_URL:-${MOBILE_HTTPS_API_BASE:-/api}}"
+    HTTPS_BACKEND_URL="${HTTPS_BACKEND_URL:-https://localhost:${SERVER_PORT}}"
+    VITE_DEV_API_PROXY_TARGET="${VITE_DEV_API_PROXY_TARGET:-$HTTPS_BACKEND_URL}"
   else
     APP_URL="${APP_URL:-http://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}}"
     API_URL="${API_URL:-http://${DEV_PUBLIC_HOST}:${SERVER_PORT}/api}"
+    HTTPS_BACKEND_URL=""
+    VITE_DEV_API_PROXY_TARGET=""
   fi
   COMPONENTS="server collector frontend"
 else
@@ -145,6 +155,21 @@ pid_cwd() {
 pid_command() {
   local pid="$1"
   ps -p "$pid" -o command= 2>/dev/null || true
+}
+
+pid_environment_command() {
+  local pid="$1"
+  ps eww -p "$pid" -o command= 2>/dev/null || pid_command "$pid"
+}
+
+frontend_listener_matches_mobile_https() {
+  local pid="$1"
+  local command
+  command="$(pid_environment_command "$pid")"
+  [[ "$command" == *"VITE_DEV_HTTPS=true"* &&
+    "$command" == *"VITE_DEV_API_PROXY_TARGET=${VITE_DEV_API_PROXY_TARGET}"* &&
+    "$command" == *"VITE_HTTPS_KEY_PATH=${HTTPS_KEY_PATH}"* &&
+    "$command" == *"VITE_HTTPS_CERT_PATH=${HTTPS_CERT_PATH}"* ]]
 }
 
 pid_cwd_under_root() {
@@ -398,6 +423,11 @@ start_component_process() {
   local component="$1"
   local logfile
   local pid=""
+  local enable_https=""
+
+  if mobile_https_enabled; then
+    enable_https="true"
+  fi
 
   logfile="$(component_log "$component")"
   rotate_log "$logfile"
@@ -411,6 +441,9 @@ start_component_process() {
           NODE_ENV=development \
           SERVER_PORT="$SERVER_PORT" \
           COLLECTOR_PORT="$COLLECTOR_PORT" \
+          ENABLE_HTTPS="$enable_https" \
+          HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+          HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
           ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
           ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
           STORAGE_DIR="$ENV_STORAGE_ROOT" \
@@ -433,6 +466,9 @@ start_component_process() {
           NODE_ENV=development \
           SERVER_PORT="$SERVER_PORT" \
           COLLECTOR_PORT="$COLLECTOR_PORT" \
+          ENABLE_HTTPS="$enable_https" \
+          HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+          HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
           ANYTHINGLLM_STORAGE_BASE_DIR="$STORAGE_BASE" \
           ANYTHINGLLM_ENV_STORAGE_APPLIED=true \
           STORAGE_DIR="$ENV_STORAGE_ROOT" \
@@ -459,8 +495,9 @@ start_component_process() {
             STORAGE_DIR="$ENV_STORAGE_ROOT" \
             VITE_API_BASE="$API_URL" \
             VITE_DEV_HTTPS=true \
-            VITE_HTTPS_KEY_PATH="${VITE_HTTPS_KEY_PATH:-}" \
-            VITE_HTTPS_CERT_PATH="${VITE_HTTPS_CERT_PATH:-}" \
+            VITE_HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+            VITE_HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+            VITE_DEV_API_PROXY_TARGET="$VITE_DEV_API_PROXY_TARGET" \
             ./node_modules/.bin/vite \
               --debug \
               --host 0.0.0.0 \
@@ -553,6 +590,19 @@ start_component() {
   fi
 
   repo_pids="$(repo_listener_pids "$port" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  if [[ "$APP_ENV:$component" == "development:frontend" && -n "$repo_pids" ]] && mobile_https_enabled; then
+    local compatible_repo_pids=""
+    local repo_pid
+    for repo_pid in $repo_pids; do
+      if frontend_listener_matches_mobile_https "$repo_pid"; then
+        compatible_repo_pids="$compatible_repo_pids $repo_pid"
+      else
+        log "frontend repo listener pid=$repo_pid is not mobile HTTPS compatible; restarting it"
+        kill_pid_tree "$repo_pid" "frontend incompatible listener"
+      fi
+    done
+    repo_pids="$(printf '%s\n' "$compatible_repo_pids" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+  fi
   if [[ -n "$repo_pids" ]]; then
     pid="$(printf '%s\n' "$repo_pids" | awk '{print $1}')"
     adopt_component "$component" "$pid" "adopted-repo-listener"
@@ -602,6 +652,19 @@ check_component() {
   fi
 
   repo_pids="$(repo_listener_pids "$port" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+  if [[ "$APP_ENV:$component" == "development:frontend" && -n "$repo_pids" ]] && mobile_https_enabled; then
+    local compatible_repo_pids=""
+    local repo_pid
+    for repo_pid in $repo_pids; do
+      if frontend_listener_matches_mobile_https "$repo_pid"; then
+        compatible_repo_pids="$compatible_repo_pids $repo_pid"
+      else
+        log "frontend repo listener pid=$repo_pid is not mobile HTTPS compatible during health check; restarting it"
+        kill_pid_tree "$repo_pid" "frontend incompatible listener"
+      fi
+    done
+    repo_pids="$(printf '%s\n' "$compatible_repo_pids" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')"
+  fi
   if [[ -n "$repo_pids" ]]; then
     if [[ -z "$pid" ]] || ! pid_alive "$pid"; then
       adopt_component "$component" "$(printf '%s\n' "$repo_pids" | awk '{print $1}')" "adopted-repo-listener"
@@ -666,6 +729,16 @@ write_state() {
   write_kv "$tmp" FRONTEND_PORT "$FRONTEND_PORT"
   write_kv "$tmp" APP_URL "$APP_URL"
   write_kv "$tmp" API_URL "$API_URL"
+  if mobile_https_enabled; then
+    write_kv "$tmp" HTTPS_ENABLED "true"
+  else
+    write_kv "$tmp" HTTPS_ENABLED "false"
+  fi
+  write_kv "$tmp" HTTPS_KEY_PATH "$HTTPS_KEY_PATH"
+  write_kv "$tmp" HTTPS_CERT_PATH "$HTTPS_CERT_PATH"
+  write_kv "$tmp" HTTPS_CA_CERT_PATH "$HTTPS_CA_CERT_PATH"
+  write_kv "$tmp" HTTPS_PUBLIC_CA_PATH "$HTTPS_PUBLIC_CA_PATH"
+  write_kv "$tmp" HTTPS_BACKEND_URL "$HTTPS_BACKEND_URL"
   write_kv "$tmp" STARTED_AT "$SUPERVISOR_STARTED_AT"
 
   for component in server collector frontend; do
@@ -728,6 +801,13 @@ trap cleanup_lock EXIT
 
 SUPERVISOR_STARTED_EPOCH="$(now_epoch)"
 SUPERVISOR_STARTED_AT="$(now_human)"
+
+if [[ "$APP_ENV" == "development" ]] && mobile_https_enabled; then
+  if [[ ! -f "$HTTPS_KEY_PATH" || ! -f "$HTTPS_CERT_PATH" ]]; then
+    log "error: HTTPS dev mode requires HTTPS_KEY_PATH and HTTPS_CERT_PATH to point at existing files"
+    exit 1
+  fi
+fi
 
 acquire_lock
 init_component_state

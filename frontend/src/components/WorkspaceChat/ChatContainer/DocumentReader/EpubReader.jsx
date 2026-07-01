@@ -56,8 +56,16 @@ const PREVIEW_OFFSETS = [
 const PREVIEW_OFFSET_SET = new Set(PREVIEW_OFFSETS);
 const EPUB_PREFERENCES_STORAGE_KEY =
   "anythingllm_document_reader_epub_preferences:v1";
-const EPUB_READER_FONT_FAMILY = '"Songti SC", "Noto Serif SC", "SimSun", serif';
-const EPUB_READER_FONT_TOKENS = ["songti sc", "noto serif sc", "simsun"];
+const EPUB_READER_FONT_FAMILY =
+  '"Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", SimSun, "Songti SC", STSong, serif';
+const EPUB_READER_FONT_TOKENS = [
+  "noto serif sc",
+  "noto serif cjk sc",
+  "source han serif sc",
+  "simsun",
+  "songti sc",
+  "stsong",
+];
 const EPUB_READER_THEME_STYLE_ID = "anythingllm-epub-reader-theme";
 const EPUB_READER_FRAME_GUTTER = "clamp(56px, 7.5vw, 104px)";
 const EPUB_READER_PRESENTATION_MODES = {

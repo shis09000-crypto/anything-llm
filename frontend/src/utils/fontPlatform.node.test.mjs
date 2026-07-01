@@ -5,6 +5,8 @@ import {
   FONT_PLATFORM_APPLE,
   FONT_PLATFORM_ATTRIBUTE,
   FONT_PLATFORM_CJK_WEBFONT,
+  FONT_PLATFORM_WINDOWS,
+  FONT_PLATFORM_WINDOWS_FIREFOX,
   installFontPlatformScope,
 } from "./fontPlatform.js";
 
@@ -40,27 +42,39 @@ test("detects Apple platforms from navigator platform and user agent", () => {
   );
 });
 
-test("uses the CJK webfont platform for non-Apple devices", () => {
-  for (const navigatorLike of [
-    {
+test("detects Windows Firefox separately for safe Simplified Chinese fonts", () => {
+  assert.equal(
+    detectFontPlatform({
       platform: "Win32",
       userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    },
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    }),
+    FONT_PLATFORM_WINDOWS_FIREFOX
+  );
+});
+
+test("detects Windows browsers separately from generic CJK webfont devices", () => {
+  assert.equal(
+    detectFontPlatform({
+      platform: "Win32",
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    }),
+    FONT_PLATFORM_WINDOWS
+  );
+});
+
+test("uses the CJK webfont platform for non-Apple non-Windows devices", () => {
+  for (const navigatorLike of [
     {
       platform: "Linux armv8l",
-      userAgent:
-        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36",
+      userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36",
     },
     {
       platform: "Linux x86_64",
       userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
     },
   ]) {
-    assert.equal(
-      detectFontPlatform(navigatorLike),
-      FONT_PLATFORM_CJK_WEBFONT
-    );
+    assert.equal(detectFontPlatform(navigatorLike), FONT_PLATFORM_CJK_WEBFONT);
   }
 });
 
@@ -77,9 +91,7 @@ test("installFontPlatformScope writes the platform attribute", () => {
     userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
   });
 
-  assert.equal(platform, FONT_PLATFORM_CJK_WEBFONT);
-  assert.equal(
-    attributes.get(FONT_PLATFORM_ATTRIBUTE),
-    FONT_PLATFORM_CJK_WEBFONT
-  );
+  assert.equal(platform, FONT_PLATFORM_WINDOWS);
+  assert.equal(attributes.get(FONT_PLATFORM_ATTRIBUTE), FONT_PLATFORM_WINDOWS);
+  assert.equal(attributes.get("lang"), "zh-CN");
 });

@@ -982,33 +982,45 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
   const [defaultMode, setDefaultMode] = useState(
     FileAccessPolicy.modes.sandbox
   );
+  const policyLoadedRef = useRef(false);
 
   useEffect(() => {
-    let mounted = true;
     const sessionMode = FileAccessPolicy.getSessionMode(
       workspaceSlug,
       threadSlug
     );
-    FileAccessPolicy.getPolicy(sessionMode).then((res) => {
-      if (!mounted || !res?.policy) return;
-      const nextMode =
-        sessionMode ||
-        res.policy.effectiveMode ||
-        res.policy.defaultMode ||
-        FileAccessPolicy.modes.sandbox;
-      setMode(FileAccessPolicy.normalizeMode(nextMode));
-      setDefaultMode(
-        FileAccessPolicy.normalizeMode(
-          res.policy.defaultMode || FileAccessPolicy.modes.sandbox
-        )
-      );
-      if (!sessionMode)
-        FileAccessPolicy.setSessionMode(nextMode, workspaceSlug, threadSlug);
-    });
-    return () => {
-      mounted = false;
-    };
+    setMode(
+      FileAccessPolicy.normalizeMode(
+        sessionMode || FileAccessPolicy.modes.sandbox
+      )
+    );
+    setDefaultMode(FileAccessPolicy.modes.sandbox);
+    policyLoadedRef.current = false;
   }, [workspaceSlug, threadSlug]);
+
+  async function loadPolicyIfNeeded() {
+    if (policyLoadedRef.current) return;
+    const sessionMode = FileAccessPolicy.getSessionMode(
+      workspaceSlug,
+      threadSlug
+    );
+    const res = await FileAccessPolicy.getPolicy(sessionMode);
+    if (!res?.policy) return;
+    const nextMode =
+      sessionMode ||
+      res.policy.effectiveMode ||
+      res.policy.defaultMode ||
+      FileAccessPolicy.modes.sandbox;
+    setMode(FileAccessPolicy.normalizeMode(nextMode));
+    setDefaultMode(
+      FileAccessPolicy.normalizeMode(
+        res.policy.defaultMode || FileAccessPolicy.modes.sandbox
+      )
+    );
+    if (!sessionMode)
+      FileAccessPolicy.setSessionMode(nextMode, workspaceSlug, threadSlug);
+    policyLoadedRef.current = true;
+  }
 
   const config = {
     sandbox: {
@@ -1113,7 +1125,13 @@ function FileAccessModeButton({ workspaceSlug, threadSlug, textareaRef }) {
       <button
         ref={buttonRef}
         type="button"
-        onClick={() => setShowMenu((prev) => !prev)}
+        onClick={() => {
+          setShowMenu((prev) => {
+            const next = !prev;
+            if (next) loadPolicyIfNeeded();
+            return next;
+          });
+        }}
         data-tooltip-id="file-access-mode"
         data-tooltip-content={`${t("chat_window.controls.fileAccess.label")}: ${current.label}. ${current.tooltip}`}
         className={`group border-none cursor-pointer flex items-center justify-center gap-x-1 h-6 px-2 rounded-full hover:bg-zinc-700 light:hover:bg-slate-200 ${showMenu ? current.active : ""}`}

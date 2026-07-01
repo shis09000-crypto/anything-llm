@@ -1,5 +1,5 @@
 import { REFETCH_LOGO_EVENT } from "@/LogoContext";
-import { useState, useEffect } from "react";
+import { useCallback, useState, useEffect } from "react";
 import {
   hydrateAppearancePreferences,
   persistAppearancePreferences,
@@ -51,20 +51,27 @@ export function useTheme() {
   }, []);
 
   const resolvedTheme = theme === "system" ? systemTheme : theme;
+  const [appearanceHydrated, setAppearanceHydrated] = useState(false);
 
   useEffect(() => {
-    void hydrateAppearancePreferences((value) => {
+    let mounted = true;
+    hydrateAppearancePreferences((value) => {
       if (value?.theme) _setTheme(value.theme);
+    }).finally(() => {
+      if (mounted) setAppearanceHydrated(true);
     });
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", resolvedTheme);
     document.body.classList.toggle("light", resolvedTheme === "light");
     localStorage.setItem("theme", theme);
-    persistAppearancePreferences({ theme });
+    if (appearanceHydrated) persistAppearancePreferences({ theme });
     window.dispatchEvent(new Event(REFETCH_LOGO_EVENT));
-  }, [resolvedTheme, theme]);
+  }, [appearanceHydrated, resolvedTheme, theme]);
 
   // In development, attach keybind combinations to toggle theme
   useEffect(() => {
@@ -84,9 +91,9 @@ export function useTheme() {
    * other necessary side effects
    * @param {ThemeOption} newTheme The new theme to set
    */
-  function setTheme(newTheme) {
+  const setTheme = useCallback((newTheme) => {
     _setTheme(newTheme);
-  }
+  }, []);
 
   return {
     theme,

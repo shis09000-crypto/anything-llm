@@ -1,5 +1,6 @@
 const { makeJWT, decodeJWT } = require("./http");
 const { normalizeAllowedEnvs, normalizeRole } = require("./authz/accountRoles");
+const crypto = require("crypto");
 
 const IDLE_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const USER_ACTION_REFRESH_THROTTLE_MS = 60 * 1000;
@@ -21,7 +22,54 @@ function isAllowedUserActionReason(reason) {
   return USER_ACTION_REASON_SET.has(reason);
 }
 
-function issueUserSessionToken(user, lastUserActionAt = Date.now()) {
+function normalizeSessionClientId(value = null) {
+  if (value === null || value === undefined) return null;
+  const next = String(value).trim();
+  if (!next || next === "legacy") return null;
+  return next.slice(0, 256);
+}
+
+function normalizeSessionId(value = null) {
+  if (value === null || value === undefined) return null;
+  const next = String(value).trim();
+  return next ? next.slice(0, 128) : null;
+}
+
+function newSessionId() {
+  return `sess_${crypto.randomUUID?.() || crypto.randomBytes(16).toString("hex")}`;
+}
+
+function sessionTokenOptionsFromClientContext(context = {}, currentToken = {}) {
+  const clientId = normalizeSessionClientId(context?.clientId);
+  if (!clientId || context?.legacy) return {};
+  return {
+    clientId,
+    sessionId: normalizeSessionId(currentToken?.sessionId) || newSessionId(),
+  };
+}
+
+function sessionClientIdFromToken(decodedToken = {}) {
+  return normalizeSessionClientId(decodedToken?.clientId);
+}
+
+function issueUserSessionToken(
+  user,
+  lastUserActionAtOrOptions = Date.now(),
+  maybeOptions = {}
+) {
+  const options =
+    typeof lastUserActionAtOrOptions === "object" &&
+    lastUserActionAtOrOptions !== null
+      ? lastUserActionAtOrOptions
+      : maybeOptions;
+  const lastUserActionAt =
+    typeof lastUserActionAtOrOptions === "object"
+      ? Number(lastUserActionAtOrOptions.lastUserActionAt) || Date.now()
+      : Number(lastUserActionAtOrOptions) || Date.now();
+  const clientId = normalizeSessionClientId(options.clientId);
+  const sessionId = clientId
+    ? normalizeSessionId(options.sessionId) || newSessionId()
+    : null;
   return makeJWT(
     {
       id: user.id,
@@ -31,6 +79,7 @@ function issueUserSessionToken(user, lastUserActionAt = Date.now()) {
       role: normalizeRole(user.role),
       allowedEnvs: normalizeAllowedEnvs(user.allowedEnvs, user.role),
       lastUserActionAt: Number(lastUserActionAt),
+      ...(clientId ? { clientId, sessionId } : {}),
     },
     process.env.JWT_EXPIRY
   );
@@ -68,6 +117,8 @@ module.exports = {
   isAllowedUserActionReason,
   issueUserSessionToken,
   jwtIdleState,
+  sessionClientIdFromToken,
+  sessionTokenOptionsFromClientContext,
   sessionIdleStateFromToken,
   tokenLastUserActionAt,
 };

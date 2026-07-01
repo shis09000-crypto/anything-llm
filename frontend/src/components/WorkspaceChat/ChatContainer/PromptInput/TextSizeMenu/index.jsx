@@ -1,16 +1,26 @@
-import { useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import { TextT } from "@phosphor-icons/react";
 import { Tooltip } from "react-tooltip";
 import { useTranslation } from "react-i18next";
 import { useTheme } from "@/hooks/useTheme";
 import {
   CUSTOM_TEXT_SIZE,
+  TEXT_SIZE_CHANGE_EVENT,
   TEXT_SIZE_PRESETS,
   TEXT_SIZE_RANGE,
   clampCustomTextSize,
   getTextSizePreference,
   saveTextSizePreference,
 } from "@/utils/textSize";
+
+const TEXT_SIZE_LABEL_FALLBACKS = {
+  compact: "Compact",
+  small: "Small",
+  normal: "Normal",
+  comfortable: "Comfortable",
+  large: "Large",
+  xlarge: "Extra large",
+};
 
 export default function TextSizeButton() {
   const tooltipRef = useRef(null);
@@ -67,6 +77,19 @@ function TextSizeMenu({ tooltipRef }) {
   );
   const [customPx, setCustomPx] = useState(() => selectedSize.customPx);
 
+  useEffect(() => {
+    const handleTextSizeEvent = (event) => {
+      const nextPreference = event.detail?.px
+        ? event.detail
+        : getTextSizePreference();
+      setSelectedSize(nextPreference);
+      setCustomPx(nextPreference.customPx);
+    };
+    window.addEventListener(TEXT_SIZE_CHANGE_EVENT, handleTextSizeEvent);
+    return () =>
+      window.removeEventListener(TEXT_SIZE_CHANGE_EVENT, handleTextSizeEvent);
+  }, []);
+
   const handleTextSizeChange = (size) => {
     setSelectedSize(saveTextSizePreference(size));
     tooltipRef.current?.close();
@@ -94,7 +117,9 @@ function TextSizeMenu({ tooltipRef }) {
           }`}
         >
           <div className={`text-theme-text-primary ${textClass}`}>
-            {t(`chat_window.${value}`)}
+            {t(`chat_window.${value}`, {
+              defaultValue: TEXT_SIZE_LABEL_FALLBACKS[value] || value,
+            })}
           </div>
         </button>
       ))}

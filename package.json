@@ -27,6 +27,8 @@
     "dev:collector": "cd collector && yarn dev",
     "dev:frontend": "cd frontend && yarn dev",
     "dev:mobile-https": "bash scripts/mobile-https-dev.sh",
+    "dev:mobile-cloud": "bash scripts/mobile-cloud-dev.sh",
+    "logs:mobile-cloud": "bash scripts/tencent-cloud-logs.sh",
     "dev:all": "npx concurrently \"yarn dev:server\" \"yarn dev:frontend\" \"yarn dev:collector\"",
     "prisma:generate": "cd server && node scripts/prisma-runtime.js generate",
     "prisma:migrate": "cd server && node scripts/prisma-runtime.js migrate dev --name init",

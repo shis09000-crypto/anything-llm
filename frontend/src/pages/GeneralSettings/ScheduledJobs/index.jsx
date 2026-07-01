@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import Sidebar from "@/components/SettingsSidebar";
-import { isMobile } from "react-device-detect";
 import ScheduledJobs from "@/models/scheduledJobs";
 import { subscribeToPushNotifications } from "@/hooks/useWebPushNotifications";
 import useWebPushNotifications from "@/hooks/useWebPushNotifications";
@@ -14,6 +12,11 @@ import JobRow from "./components/JobRow";
 import { Bell } from "@phosphor-icons/react";
 import { Tooltip } from "react-tooltip";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import {
+  SoftButton,
+  SoftCard,
+  SoftSettingsLayout,
+} from "@/components/SoftSettings";
 
 export default function ScheduledJobsPage() {
   const { t } = useTranslation();
@@ -22,15 +25,20 @@ export default function ScheduledJobsPage() {
   const [loading, setLoading] = useState(true);
   const [jobs, setJobs] = useState([]);
   const [editingJob, setEditingJob] = useState(null);
+  const mountedRef = useRef(true);
 
   const fetchJobs = async () => {
     const { jobs: foundJobs } = await ScheduledJobs.list();
+    if (!mountedRef.current) return;
     setJobs(foundJobs || []);
     setLoading(false);
   };
 
   useEffect(() => {
     fetchJobs();
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   // Poll every 5s while tab is visible so status badges and run timestamps stay in sync.
@@ -103,8 +111,8 @@ export default function ScheduledJobsPage() {
       showNewJobButton={jobs.length !== 0}
       handleCreate={handleCreate}
     >
-      <div className="pt-8">
-        <div className="flex items-center justify-between px-4 pb-[18px] text-xs font-semibold uppercase tracking-[1.4px] text-zinc-400 light:text-slate-600">
+      <SoftCard className="mt-2">
+        <div className="flex items-center justify-between px-4 pb-[18px] text-xs font-bold uppercase tracking-[1.4px] text-[var(--soft-text-muted)]">
           <span className="w-[150px]">{t("scheduledJobs.table.name")}</span>
           <span className="w-[180px]">{t("scheduledJobs.table.schedule")}</span>
           <span className="w-[120px]">{t("scheduledJobs.table.status")}</span>
@@ -114,28 +122,24 @@ export default function ScheduledJobsPage() {
             {t("scheduledJobs.table.actions")}
           </span>
         </div>
-        <div className="h-px w-full bg-white/10 light:bg-slate-300" />
+        <div className="h-px w-full bg-slate-200/80 dark:bg-white/10" />
 
         {jobs.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-8 py-24 text-center">
             <div className="flex flex-col gap-1.5">
-              <p className="text-base font-semibold text-zinc-50 light:text-slate-950">
+              <p className="text-base font-bold text-[var(--soft-text-primary)]">
                 {t("scheduledJobs.emptyTitle")}
               </p>
-              <p className="text-sm font-medium text-zinc-400 light:text-slate-600">
+              <p className="text-sm font-medium text-[var(--soft-text-secondary)]">
                 {t("scheduledJobs.emptySubtitle")}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleCreate}
-              className="border-none h-9 px-5 rounded-lg bg-zinc-50 text-zinc-950 light:bg-slate-900 light:text-white text-sm font-medium hover:bg-zinc-200 light:hover:bg-slate-800 motion-hover"
-            >
+            <SoftButton type="button" onClick={handleCreate}>
               {t("scheduledJobs.newJob")}
-            </button>
+            </SoftButton>
           </div>
         ) : (
-          <div className="flex flex-col divide-y divide-white/5 light:divide-slate-300">
+          <div className="flex flex-col divide-y divide-slate-200/80 dark:divide-white/10">
             {jobs.map((job) => (
               <JobRow
                 key={job.id}
@@ -148,7 +152,7 @@ export default function ScheduledJobsPage() {
             ))}
           </div>
         )}
-      </div>
+      </SoftCard>
 
       <ModalWrapper isOpen={isOpen}>
         <JobFormModal
@@ -172,39 +176,22 @@ function BaseLayout({
   const { t } = useTranslation();
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-      >
-        <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:py-6 py-16">
-          <div className="w-full flex items-end justify-between gap-x-4 pb-6 border-white/10 light:border-slate-300 border-b-2">
-            <div className="flex flex-col gap-y-2">
-              <p className="text-lg leading-7 font-semibold text-zinc-50 light:text-slate-950">
-                {t("scheduledJobs.title")}
-              </p>
-              <p className="text-xs leading-4 text-zinc-400 light:text-slate-600 max-w-[700px]">
-                {t("scheduledJobs.description")}
-              </p>
-            </div>
-            <div className="flex items-center gap-x-2 shrink-0">
-              <NotificationBellButton />
-              {showNewJobButton && (
-                <button
-                  type="button"
-                  onClick={handleCreate}
-                  className="border-none h-9 px-5 rounded-lg bg-zinc-50 text-zinc-950 light:bg-slate-900 light:text-white text-sm font-medium hover:bg-zinc-200 light:hover:bg-slate-800 motion-hover"
-                >
-                  {t("scheduledJobs.newJob")}
-                </button>
-              )}
-            </div>
-          </div>
-          {children}
-        </div>
-      </div>
-    </div>
+    <SoftSettingsLayout
+      title={t("scheduledJobs.title")}
+      description={t("scheduledJobs.description")}
+      actions={
+        <>
+          <NotificationBellButton />
+          {showNewJobButton && (
+            <SoftButton type="button" onClick={handleCreate}>
+              {t("scheduledJobs.newJob")}
+            </SoftButton>
+          )}
+        </>
+      }
+    >
+      {children}
+    </SoftSettingsLayout>
   );
 }
 
@@ -237,7 +224,7 @@ function NotificationBellButton() {
           "scheduledJobs.enableNotifications",
           "Enable browser notifications for job results"
         )}
-        className="flex items-center justify-center w-9 h-9 rounded-lg hover:bg-white/10 light:hover:bg-slate-200 motion-hover"
+        className="settings-soft-button settings-soft-button-outline settings-soft-button-md flex items-center justify-center !w-9 !px-0"
       >
         <Bell size={20} className="text-orange-400" />
       </button>

@@ -6,8 +6,7 @@ import {
   Trash,
   UserCircle,
 } from "@phosphor-icons/react";
-import { AUTH_USER } from "@/utils/constants";
-import { safeJsonParse } from "@/utils/request";
+import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
 import AppButton from "@/components/lib/AppButton";
 import AppConfirmDialog from "@/components/lib/AppConfirmDialog";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
@@ -123,12 +122,12 @@ export default function ProfileCard({ user, onUserUpdated }) {
       return;
     }
 
-    const storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+    const storedUser = getStoredAuthUser();
     const nextUser = {
       ...(storedUser || user),
       displayName,
     };
-    localStorage.setItem(AUTH_USER, JSON.stringify(nextUser));
+    setStoredAuthUser(nextUser);
     onUserUpdated?.(nextUser);
     setEditing(false);
     showToast("个人资料已更新。", "success");

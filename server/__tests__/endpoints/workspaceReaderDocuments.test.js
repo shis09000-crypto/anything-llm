@@ -176,6 +176,9 @@ describe("workspace reader documents", () => {
       "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a",
       {
         originalName: "book.pdf",
+        mimeType: "application/pdf",
+        size: 1024,
+        originalFingerprint: "abc123",
         ownerScopeVersion: 1,
         ownerUserId: 10,
         ownerAuthUserId: "auth-10",
@@ -187,10 +190,51 @@ describe("workspace reader documents", () => {
       readerDocumentWorkspaceSlug: null,
       originalUrl:
         "/api/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/original",
+      stream: {
+        streamUrl:
+          "/api/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/original",
+        url: "/api/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/original",
+        size: 1024,
+        etag: "abc123",
+        supportsRange: true,
+        cacheControl: "private, max-age=604800, no-transform",
+        mimeType: "application/pdf",
+        documentType: null,
+      },
     });
     expect(metadata).not.toHaveProperty("ownerScopeVersion");
     expect(metadata).not.toHaveProperty("ownerUserId");
     expect(metadata).not.toHaveProperty("ownerAuthUserId");
+  });
+
+  it("sets cacheable byte-range headers for reader originals", () => {
+    const { readerOriginalEtag, setReaderOriginalHeaders } =
+      loadEndpoint(storageDir);
+    const originalPath = path.join(storageDir, "book.pdf");
+    fs.writeFileSync(originalPath, Buffer.from("0123456789"));
+    const headers = {};
+    const response = {
+      setHeader: jest.fn((name, value) => {
+        headers[name] = value;
+      }),
+    };
+
+    setReaderOriginalHeaders(response, originalPath, {
+      mimeType: "application/pdf",
+      originalFingerprint: "abc123",
+      size: 10,
+    });
+
+    expect(
+      readerOriginalEtag(originalPath, { originalFingerprint: "abc123" })
+    ).toBe('"reader-abc123"');
+    expect(headers).toMatchObject({
+      "Accept-Ranges": "bytes",
+      "Cache-Control": "private, max-age=604800, no-transform",
+      "Content-Type": "application/pdf",
+      ETag: '"reader-abc123"',
+      "X-Reader-Stream": "range",
+    });
   });
 
   it("reports reader OCR config without leaking secrets", () => {
@@ -312,9 +356,7 @@ describe("workspace reader documents", () => {
       )
     ).toEqual({ primaryCategoryId: "philosophy" });
     expect(
-      parseClassificationJson(
-        '```json\n{"primaryCategoryId":"history"}\n```'
-      )
+      parseClassificationJson('```json\n{"primaryCategoryId":"history"}\n```')
     ).toEqual({ primaryCategoryId: "history" });
     expect(
       parseClassificationJson(

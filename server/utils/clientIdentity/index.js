@@ -20,7 +20,14 @@ const CLIENT_QUERY = {
   capabilitySource: "athenaCapabilitySource",
 };
 
-const CLIENT_PLATFORMS = new Set(["web", "desktop", "ios", "android", "api"]);
+const CLIENT_PLATFORMS = new Set([
+  "web",
+  "desktop",
+  "ipad",
+  "ios",
+  "android",
+  "api",
+]);
 const TRUST_LEVELS = new Set(["low", "medium", "high"]);
 const CAPABILITY_SOURCE = new Set(["declared", "detected", "unknown"]);
 const LAST_SEEN_THROTTLE_MS = 60_000;
@@ -88,6 +95,7 @@ function normalizeCapabilityProfile(profile = null) {
 
   const viewport = profile.viewport || {};
   const input = profile.input || {};
+  const device = profile.device || {};
   const capabilities = profile.capabilities || {};
   const pointer = ["fine", "coarse", "none"].includes(input.pointer)
     ? input.pointer
@@ -117,6 +125,15 @@ function normalizeCapabilityProfile(profile = null) {
       pointer,
     },
     surface,
+    device: {
+      formFactor: ["desktop", "tablet", "phone", "unknown"].includes(
+        device.formFactor
+      )
+        ? device.formFactor
+        : "unknown",
+      family: compactString(device.family, 64) || "unknown",
+      os: compactString(device.os, 64) || "unknown",
+    },
     capabilities: {
       camera: !!capabilities.camera,
       microphone: !!capabilities.microphone,
@@ -159,6 +176,7 @@ function defaultCapabilities(platform = "api") {
         screenshot: true,
         clipboard: true,
       };
+    case "ipad":
     case "ios":
     case "android":
       return {
@@ -202,6 +220,7 @@ function resolveTrustLevel(platform, { verified = false } = {}) {
   if (verified) return "high";
   switch (normalizePlatform(platform)) {
     case "desktop":
+    case "ipad":
     case "ios":
     case "android":
       return "medium";
@@ -321,10 +340,21 @@ async function registerClient({
   };
 
   if (existing) {
+    const nextPublicKey =
+      !existing.publicKey && publicKey ? compactString(publicKey, 2048) : null;
     return prisma.athena_clients.update({
       where: { id: existing.id },
       data: {
         ...data,
+        ...(nextPublicKey
+          ? {
+              publicKey: nextPublicKey,
+              deviceFingerprintVersion: compactString(
+                deviceFingerprintVersion,
+                32
+              ),
+            }
+          : {}),
         lastSeenAt: now,
       },
     });
@@ -361,6 +391,7 @@ function safeClientRecord(client = null, { currentClientId = null } = {}) {
     trustLevel: client.trustLevel,
     capabilities: safeCapabilities(client.capabilities),
     capabilitySource: client.capabilitySource || "unknown",
+    hasDevicePublicKey: !!client.publicKey,
     createdAt: client.createdAt,
     lastSeenAt: client.lastSeenAt,
     revokedAt: client.revokedAt || null,

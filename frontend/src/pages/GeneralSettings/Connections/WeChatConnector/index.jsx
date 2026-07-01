@@ -44,18 +44,23 @@ export default function WeChatConnectorSettings() {
   const canGenerate = !isBusy && config.status !== "connected";
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchData() {
       const [isMultiUserMode, configRes] = await Promise.all([
         System.isMultiUserMode(),
         WeChat.getConfig(),
       ]);
 
+      if (cancelled) return;
       if (isMultiUserMode) navigate(paths.home());
       setConfig(configRes?.config || DEFAULT_CONFIG);
       setLoading(false);
     }
     fetchData();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   useEffect(() => {
     if (config.status !== "pending_scan") return;

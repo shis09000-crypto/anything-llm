@@ -6,14 +6,13 @@ import {
   List,
   Flask,
   Gear,
+  FirstAidKit,
   PencilSimpleLine,
   Nut,
   Toolbox,
   Plugs,
-  CurrencyBtc,
 } from "@phosphor-icons/react";
 import AgentIcon from "@/media/animations/agent-static.png";
-import CommunityHubIcon from "@/media/illustrations/community-hub.png";
 import useUser from "@/hooks/useUser";
 import { isMobile } from "react-device-detect";
 import Footer from "../Footer";
@@ -25,10 +24,8 @@ import Option from "./MenuOption";
 import { CanViewChatHistoryProvider } from "../CanViewChatHistory";
 import useAppVersion from "@/hooks/useAppVersion";
 import { canSeeAdmin } from "@/utils/authz";
-import {
-  AI_PROVIDER_SETTING_SECTIONS,
-  useSettingsData,
-} from "@/pages/GeneralSettings/SettingsDataProvider";
+import { useSoftSettingsShell } from "@/components/SoftSettings/context";
+import "@/components/SoftSettings/styles.css";
 
 export default function SettingsSidebar() {
   const { t } = useTranslation();
@@ -36,7 +33,7 @@ export default function SettingsSidebar() {
   const productName = t("common.productName");
   const showTextBrand = Boolean(productName);
   const { user } = useUser();
-  const { prewarmSettings } = useSettingsData();
+  const hasPersistentSettingsShell = useSoftSettingsShell();
   const sidebarRef = useRef(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [showBgOverlay, setShowBgOverlay] = useState(false);
@@ -54,14 +51,12 @@ export default function SettingsSidebar() {
     handleBg();
   }, [showSidebar]);
 
-  useEffect(() => {
-    prewarmSettings(AI_PROVIDER_SETTING_SECTIONS);
-  }, [prewarmSettings]);
+  if (hasPersistentSettingsShell) return null;
 
   if (isMobile) {
     return (
       <>
-        <div className="fixed top-0 left-0 right-0 z-10 flex justify-between items-center px-4 py-2 bg-theme-bg-sidebar light:bg-white text-theme-text-secondary shadow-lg h-16">
+        <div className="settings-soft-mobile-bar fixed top-0 left-0 right-0 z-10 flex justify-between items-center px-4 py-2 text-theme-text-secondary h-16">
           <button
             onClick={() => setShowSidebar(true)}
             className="rounded-md p-2 flex items-center justify-center text-theme-text-secondary"
@@ -94,13 +89,10 @@ export default function SettingsSidebar() {
               showBgOverlay
                 ? "motion-hover opacity-1"
                 : "transition-none opacity-0"
-            } fixed top-0 left-0 bg-theme-bg-secondary bg-opacity-75 w-screen h-screen`}
+            } fixed top-0 left-0 bg-slate-900/35 backdrop-blur-sm w-screen h-screen`}
             onClick={() => setShowSidebar(false)}
           />
-          <div
-            ref={sidebarRef}
-            className="h-[100vh] fixed top-0 left-0 rounded-r-[26px] bg-theme-bg-sidebar w-[80%] p-[18px]"
-          >
+          <div ref={sidebarRef} className="settings-soft-mobile-panel">
             <div className="w-full h-full flex flex-col overflow-x-hidden items-between">
               {/* Header Information */}
               <div className="flex w-full items-center justify-between gap-x-4">
@@ -132,7 +124,7 @@ export default function SettingsSidebar() {
                 <div className="h-auto md:sidebar-items">
                   <div className="flex flex-col gap-y-4 pb-[60px] overflow-y-scroll no-scroll">
                     <SidebarOptions user={user} t={t} />
-                    <div className="h-[1.5px] bg-[#3D4147] mx-3 mt-[14px]" />
+                    <div className="settings-soft-sidebar-divider" />
                     <SupportEmail />
                     <Link
                       hidden={
@@ -159,10 +151,10 @@ export default function SettingsSidebar() {
 
   return (
     <>
-      <div>
+      <div className="settings-soft-sidebar-shell">
         <Link
           to={paths.home()}
-          className="flex shrink-0 max-w-[90%] items-center justify-start gap-x-2 mx-[20.5px] my-[18px]"
+          className="settings-soft-sidebar-brand flex shrink-0 max-w-[90%] items-center justify-start gap-x-2 mx-[20.5px] my-[18px]"
         >
           <img
             src={logo}
@@ -176,19 +168,16 @@ export default function SettingsSidebar() {
             </span>
           )}
         </Link>
-        <div
-          ref={sidebarRef}
-          className="motion-hover relative m-[16px] rounded-[16px] bg-theme-bg-sidebar border-[2px] border-theme-sidebar-border light:border-none min-w-[250px] p-[10px] h-[calc(100%-76px)]"
-        >
+        <div ref={sidebarRef} className="settings-soft-sidebar-card">
           <div className="w-full h-full flex flex-col overflow-x-hidden items-between min-w-[235px]">
-            <div className="text-theme-text-secondary text-sm font-medium uppercase mt-[4px] mb-0 ml-2">
+            <div className="settings-soft-sidebar-label">
               {t("settings.title")}
             </div>
             <div className="relative h-[calc(100%-60px)] flex flex-col w-full justify-between pt-[10px] overflow-y-scroll no-scroll">
               <div className="h-auto sidebar-items">
                 <div className="flex flex-col gap-y-2 pb-[60px] overflow-y-scroll no-scroll">
                   <SidebarOptions user={user} t={t} />
-                  <div className="h-[1.5px] bg-[#3D4147] mx-3 mt-[14px]" />
+                  <div className="settings-soft-sidebar-divider" />
                   <SupportEmail />
                   <Link
                     hidden={user?.hasOwnProperty("role") && !canSeeAdmin(user)}
@@ -201,7 +190,7 @@ export default function SettingsSidebar() {
                 </div>
               </div>
             </div>
-            <div className="absolute bottom-0 left-0 right-0 pt-4 pb-3 rounded-b-[16px] bg-theme-bg-sidebar bg-opacity-80 backdrop-filter backdrop-blur-md z-10">
+            <div className="absolute bottom-0 left-0 right-0 pt-4 pb-3 rounded-b-[24px] bg-[var(--soft-sidebar-bg)] bg-opacity-80 backdrop-filter backdrop-blur-md z-10">
               <Footer />
             </div>
           </div>
@@ -330,35 +319,12 @@ const SidebarOptions = ({ user = null, t }) => {
             roles={["admin"]}
           />
           <Option
-            btnText={t("settings.community-hub.title")}
-            icon={
-              <img
-                src={CommunityHubIcon}
-                alt="Community Hub"
-                className="h-5 w-5 flex-shrink-0 light:invert"
-              />
-            }
+            btnText={t("settings.system-patrol")}
+            icon={<FirstAidKit className="h-5 w-5 flex-shrink-0" />}
+            href={paths.settings.systemPatrol()}
             user={user}
-            childOptions={[
-              {
-                btnText: t("settings.community-hub.trending"),
-                href: paths.communityHub.trending(),
-                flex: true,
-                roles: ["admin"],
-              },
-              {
-                btnText: t("settings.community-hub.your-account"),
-                href: paths.communityHub.authentication(),
-                flex: true,
-                roles: ["admin"],
-              },
-              {
-                btnText: t("settings.community-hub.import-item"),
-                href: paths.communityHub.importItem(),
-                flex: true,
-                roles: ["admin"],
-              },
-            ]}
+            flex={true}
+            roles={["admin"]}
           />
           <Option
             btnText={t("settings.customization")}
@@ -445,13 +411,6 @@ const SidebarOptions = ({ user = null, t }) => {
                 href: paths.settings.logs(),
                 flex: true,
                 roles: ["admin"],
-              },
-              {
-                btnText: t("settings.crypto-center"),
-                href: paths.settings.cryptoCenter(),
-                flex: true,
-                roles: ["admin"],
-                icon: <CurrencyBtc className="h-4 w-4 flex-shrink-0" />,
               },
               {
                 btnText: t("settings.scheduled-jobs"),

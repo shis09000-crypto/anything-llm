@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const prisma = require("../prisma");
 const { EncryptionManager } = require("../EncryptionManager");
+const { isSecretEncrypted, readSecret, saveSecret } = require("../security");
 const {
   CLIENT_HEADERS,
   clientAuditMetadata,
@@ -13,6 +14,8 @@ const { safeJsonParse } = require("../http");
 
 const SIGNATURE_VERSION = "v1";
 const SIGNATURE_PREFIX = "ATHENA-SIGN-V1";
+const DEVICE_SIGNATURE_VERSION = "v2-device-p256";
+const DEVICE_SIGNATURE_PREFIX = "ATHENA-DEVICE-SIGN-V1";
 const CLIENT_REVOKED_ERROR = "CLIENT_REVOKED";
 const INVALID_SIGNATURE_ERROR = "INVALID_SIGNATURE";
 const SIGNING_SECRET_ROTATED_ERROR = "SIGNING_SECRET_ROTATED";
@@ -20,7 +23,7 @@ const DEFAULT_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
 const NONCE_CLEANUP_INTERVAL_MS = 60 * 1000;
 const NONCE_VOLUME_AUDIT_INTERVAL_MS = 5 * 60 * 1000;
-const signingEncryption = new EncryptionManager();
+const legacySigningEncryption = new EncryptionManager();
 let lastNonceCleanupAt = 0;
 const nonceVolumeAuditAt = new Map();
 
@@ -30,6 +33,8 @@ const SIGNING_HEADERS = {
   bodySha256: "X-Athena-Body-SHA256",
   signature: "X-Athena-Signature",
   signatureVersion: "X-Athena-Signature-Version",
+  devicePublicKey: "X-Athena-Device-Public-Key",
+  deviceKeyAlgorithm: "X-Athena-Device-Key-Algorithm",
 };
 
 function compactString(value, maxLength = 512) {
@@ -63,6 +68,18 @@ function signingWarnOnly() {
   return process.env.NODE_ENV !== "production";
 }
 
+function productionRuntime() {
+  return process.env.NODE_ENV === "production";
+}
+
+function consoleAuditMetadata(request) {
+  if (!productionRuntime()) return clientAuditMetadata(request);
+  return {
+    method: request?.method || null,
+    path: highRiskComparablePath(canonicalPathForRequest(request)),
+  };
+}
+
 function sha256Base64Url(value = "") {
   return crypto.createHash("sha256").update(String(value)).digest("base64url");
 }
@@ -82,9 +99,37 @@ function newSigningSecretVersion() {
   return `sec_${crypto.randomUUID?.() || crypto.randomBytes(16).toString("hex")}`;
 }
 
+function encryptSigningSecret(secret) {
+  return saveSecret(secret);
+}
+
+function decryptSigningSecret(encryptedSecret) {
+  if (!encryptedSecret) return null;
+  if (isSecretEncrypted(encryptedSecret)) return readSecret(encryptedSecret);
+
+  try {
+    const decrypted = legacySigningEncryption.decrypt(encryptedSecret);
+    if (decrypted && decrypted !== encryptedSecret) return decrypted;
+  } catch {}
+
+  if (String(encryptedSecret).startsWith("enc:")) {
+    return String(encryptedSecret).slice(4);
+  }
+
+  return String(encryptedSecret);
+}
+
 function signingErrorCode(reasonCode) {
   if (reasonCode === "client_revoked") return CLIENT_REVOKED_ERROR;
-  if (reasonCode === "signature_mismatch") return INVALID_SIGNATURE_ERROR;
+  if (
+    [
+      "signature_mismatch",
+      "device_key_mismatch",
+      "invalid_device_public_key",
+    ].includes(reasonCode)
+  ) {
+    return INVALID_SIGNATURE_ERROR;
+  }
   if (reasonCode === "signing_secret_rotated")
     return SIGNING_SECRET_ROTATED_ERROR;
   return "invalid_signed_request";
@@ -109,9 +154,10 @@ function canonicalSigningString({
   requestId,
   clientId,
   bodySha256,
+  prefix = SIGNATURE_PREFIX,
 }) {
   return [
-    SIGNATURE_PREFIX,
+    prefix,
     String(method || "").toUpperCase(),
     canonicalPath,
     timestamp,
@@ -127,10 +173,119 @@ function highRiskComparablePath(value = "") {
   return path.startsWith("/api/") ? path.slice(4) : path;
 }
 
+function canonicalPublicKey(value = null) {
+  const raw = compactString(value, 2048);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed?.kty !== "EC" ||
+      parsed?.crv !== "P-256" ||
+      typeof parsed?.x !== "string" ||
+      typeof parsed?.y !== "string"
+    ) {
+      return null;
+    }
+    return JSON.stringify({
+      kty: "EC",
+      crv: "P-256",
+      x: parsed.x,
+      y: parsed.y,
+      ext: true,
+      key_ops: ["verify"],
+    });
+  } catch {
+    return null;
+  }
+}
+
+function verifyDeviceSignature({ publicKey, signingString, signature } = {}) {
+  const canonicalKey = canonicalPublicKey(publicKey);
+  if (!canonicalKey) return false;
+  try {
+    const publicKeyObject = crypto.createPublicKey({
+      key: JSON.parse(canonicalKey),
+      format: "jwk",
+    });
+    return crypto.verify(
+      "sha256",
+      Buffer.from(String(signingString)),
+      { key: publicKeyObject, dsaEncoding: "ieee-p1363" },
+      Buffer.from(String(signature || ""), "base64url")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function ensureClientDevicePublicKey({
+  userId,
+  clientId,
+  context = null,
+  publicKey,
+  deviceKeyAlgorithm,
+} = {}) {
+  const canonicalKey = canonicalPublicKey(publicKey);
+  if (!canonicalKey) {
+    return { ok: false, reasonCode: "invalid_device_public_key" };
+  }
+
+  const client = await getClientRecord({
+    userId,
+    clientId,
+    includeRevoked: true,
+  });
+  if (client?.revokedAt) return { ok: false, reasonCode: "client_revoked" };
+  if (!client && context) {
+    await registerClient({
+      userId,
+      clientId,
+      platform: context.platform,
+      appVersion: context.appVersion,
+      trustLevel: "medium",
+      capabilities: context.capabilities,
+      capabilitySource: context.capabilitySource,
+      publicKey: canonicalKey,
+      deviceFingerprintVersion:
+        compactString(deviceKeyAlgorithm, 32) || "p256-v1",
+    });
+    return { ok: true, publicKey: canonicalKey, client: null };
+  }
+  if (!client) return { ok: false, reasonCode: "missing_client" };
+  if (client.publicKey && client.publicKey !== canonicalKey) {
+    return { ok: false, reasonCode: "device_key_mismatch" };
+  }
+
+  if (!client.publicKey) {
+    await prisma.athena_clients.updateMany({
+      where: {
+        userId: Number(userId),
+        clientId: String(clientId),
+        revokedAt: null,
+        publicKey: null,
+      },
+      data: {
+        publicKey: canonicalKey,
+        deviceFingerprintVersion:
+          compactString(deviceKeyAlgorithm, 32) || "p256-v1",
+        trustLevel: "medium",
+      },
+    });
+  }
+
+  return { ok: true, publicKey: canonicalKey, client };
+}
+
 function isHighRiskSignedRequest({ method, path } = {}) {
   const normalizedMethod = String(method || "GET").toUpperCase();
-  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
   const comparablePath = highRiskComparablePath(path);
+  if (
+    normalizedMethod === "GET" &&
+    /^\/vault\/items\/[^/]+$/.test(comparablePath)
+  ) {
+    return true;
+  }
+  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
 
   const highRiskRoutes = [
     {
@@ -164,6 +319,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/system\/user$/,
+    },
+    {
+      methods: ["PATCH", "DELETE"],
+      pattern: /^\/system\/user\/state$/,
     },
     {
       methods: ["DELETE"],
@@ -208,6 +367,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["PUT", "DELETE"],
       pattern: /^\/system\/prompt-variables\/[^/]+$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/patrol\/repairs\/[^/]+\/confirm$/,
     },
   ];
   if (
@@ -276,6 +439,12 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   ) {
     return true;
   }
+  if (
+    ["POST", "DELETE"].includes(normalizedMethod) &&
+    /^\/vault\/items(?:\/[^/]+)?$/.test(comparablePath)
+  ) {
+    return true;
+  }
 
   return false;
 }
@@ -300,6 +469,14 @@ function requestSigningHeaders(request) {
     signatureVersion: compactString(
       headerValue(request, SIGNING_HEADERS.signatureVersion),
       32
+    ),
+    devicePublicKey: compactString(
+      headerValue(request, SIGNING_HEADERS.devicePublicKey),
+      2048
+    ),
+    deviceKeyAlgorithm: compactString(
+      headerValue(request, SIGNING_HEADERS.deviceKeyAlgorithm),
+      64
     ),
   };
 }
@@ -351,12 +528,10 @@ async function auditNonceVolume({ clientId, userId } = {}) {
     });
     if (activeNonceCount >= threshold) {
       nonceVolumeAuditAt.set(clientId, now);
-      console.warn("[request-signing] High active nonce volume", {
-        clientId,
-        userId: userId || null,
-        activeNonceCount,
-        threshold,
-      });
+      const metadata = productionRuntime()
+        ? { activeNonceCount, threshold }
+        : { clientId, userId: userId || null, activeNonceCount, threshold };
+      console.warn("[request-signing] High active nonce volume", metadata);
     }
   } catch (error) {
     console.warn("[request-signing] Nonce volume audit failed", error.message);
@@ -373,7 +548,28 @@ async function clientSigningSecret({ userId, clientId } = {}) {
   if (client?.revokedAt) return { client, secret: null, revoked: true };
   if (!client?.signingSecretEncrypted) return null;
 
-  const secret = signingEncryption.decrypt(client.signingSecretEncrypted);
+  const secret = decryptSigningSecret(client.signingSecretEncrypted);
+  if (secret && !isSecretEncrypted(client.signingSecretEncrypted)) {
+    try {
+      await prisma.athena_clients.updateMany({
+        where: {
+          userId: Number(userId),
+          clientId: String(clientId),
+          revokedAt: null,
+        },
+        data: {
+          signingSecretEncrypted: encryptSigningSecret(secret),
+        },
+      });
+    } catch (error) {
+      console.warn(
+        "[request-signing] Failed to migrate signing secret encryption",
+        productionRuntime()
+          ? { clientId: "[redacted]" }
+          : { clientId, error: error.message }
+      );
+    }
+  }
   return secret ? { client, secret } : null;
 }
 
@@ -406,7 +602,7 @@ async function ensureClientSigningSecret({ context } = {}) {
   }
 
   const secret = newSigningSecret();
-  const encrypted = signingEncryption.encrypt(secret);
+  const encrypted = encryptSigningSecret(secret);
   if (!encrypted) return null;
 
   const signingSecretVersion = newSigningSecretVersion();
@@ -459,7 +655,7 @@ async function rotateSigningSecret({
   if (client.revokedAt) return { client, revoked: true };
 
   const secret = newSigningSecret();
-  const encrypted = signingEncryption.encrypt(secret);
+  const encrypted = encryptSigningSecret(secret);
   if (!encrypted) return null;
 
   const issuedAt = new Date();
@@ -565,6 +761,8 @@ async function verifySignatureParts({
   const bodySha256 = compactString(signed.bodySha256, 256);
   const signature = compactString(signed.signature, 1024);
   const signatureVersion = compactString(signed.signatureVersion, 32);
+  const devicePublicKey = compactString(signed.devicePublicKey, 2048);
+  const deviceKeyAlgorithm = compactString(signed.deviceKeyAlgorithm, 64);
 
   if (
     !clientId ||
@@ -573,7 +771,7 @@ async function verifySignatureParts({
     !nonce ||
     !bodySha256 ||
     !signature ||
-    signatureVersion !== SIGNATURE_VERSION
+    ![SIGNATURE_VERSION, DEVICE_SIGNATURE_VERSION].includes(signatureVersion)
   ) {
     return signingFailure("missing_signature");
   }
@@ -595,13 +793,6 @@ async function verifySignatureParts({
     return signingFailure("body_hash_mismatch");
   }
 
-  const secretRecord = await clientSigningSecret({
-    userId: context.userId,
-    clientId,
-  });
-  if (secretRecord?.client?.revokedAt) return signingFailure("client_revoked");
-  if (!secretRecord?.secret) return signingFailure("missing_signing_secret");
-
   const signingString = canonicalSigningString({
     method,
     canonicalPath,
@@ -610,10 +801,43 @@ async function verifySignatureParts({
     requestId,
     clientId,
     bodySha256,
+    prefix:
+      signatureVersion === DEVICE_SIGNATURE_VERSION
+        ? DEVICE_SIGNATURE_PREFIX
+        : SIGNATURE_PREFIX,
   });
-  const expectedSignature = hmacBase64Url(secretRecord.secret, signingString);
-  if (!timingSafeEqualString(expectedSignature, signature)) {
-    return signingFailure("signature_mismatch");
+
+  if (signatureVersion === DEVICE_SIGNATURE_VERSION) {
+    const keyBinding = await ensureClientDevicePublicKey({
+      userId: context.userId,
+      clientId,
+      context,
+      publicKey: devicePublicKey,
+      deviceKeyAlgorithm,
+    });
+    if (!keyBinding.ok) return signingFailure(keyBinding.reasonCode);
+    if (
+      !verifyDeviceSignature({
+        publicKey: keyBinding.publicKey,
+        signingString,
+        signature,
+      })
+    ) {
+      return signingFailure("signature_mismatch");
+    }
+  } else {
+    const secretRecord = await clientSigningSecret({
+      userId: context.userId,
+      clientId,
+    });
+    if (secretRecord?.client?.revokedAt)
+      return signingFailure("client_revoked");
+    if (!secretRecord?.secret) return signingFailure("missing_signing_secret");
+
+    const expectedSignature = hmacBase64Url(secretRecord.secret, signingString);
+    if (!timingSafeEqualString(expectedSignature, signature)) {
+      return signingFailure("signature_mismatch");
+    }
   }
 
   const nonceClaimed = await claimNonce({
@@ -643,7 +867,7 @@ async function recordSigningAudit(request, result, metadata = {}) {
       outcome: result?.ok ? "verified" : "rejected",
       metadata: {
         ...metadata,
-        signatureVersion: SIGNATURE_VERSION,
+        signatureVersion: result?.signatureVersion || null,
         signatureResult: result?.ok ? "verified" : "failed",
         reasonCode,
         ...clientAuditMetadata(request),
@@ -681,7 +905,7 @@ async function requireSignedHighRiskRequest(request, response, next) {
     if (!result.ok) {
       console.warn("[request-signing] Warn-only signature failure", {
         reasonCode: result.reasonCode,
-        ...clientAuditMetadata(request),
+        ...consoleAuditMetadata(request),
       });
     }
     return next();
@@ -713,7 +937,9 @@ function parseSocketMessage(rawMessage) {
   }
   if (
     parsed.type === "athenaSignedMessage" &&
-    parsed.signatureVersion === SIGNATURE_VERSION &&
+    [SIGNATURE_VERSION, DEVICE_SIGNATURE_VERSION].includes(
+      parsed.signatureVersion
+    ) &&
     parsed.signed &&
     Object.prototype.hasOwnProperty.call(parsed, "payload")
   ) {
@@ -761,9 +987,11 @@ async function verifySignedWebSocketMessage(request, rawMessage) {
 
 module.exports = {
   SIGNATURE_VERSION,
+  DEVICE_SIGNATURE_VERSION,
   CLIENT_REVOKED_ERROR,
   INVALID_SIGNATURE_ERROR,
   SIGNING_SECRET_ROTATED_ERROR,
+  DEVICE_SIGNATURE_PREFIX,
   SIGNING_HEADERS,
   canonicalSigningString,
   ensureClientSigningSecret,

@@ -10,7 +10,7 @@ import {
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 import AccountSettingsApi from "./accountSettingsApi";
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 5 * 60_000;
 const AccountSettingsDataContext = createContext(null);
 
 export function AccountSettingsDataProvider({ user, children }) {

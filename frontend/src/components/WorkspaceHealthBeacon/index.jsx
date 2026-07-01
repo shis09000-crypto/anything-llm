@@ -153,6 +153,14 @@ export default function WorkspaceHealthBeacon({
     ? paths.workspace.settings.healthCenter(workspaceSlug)
     : null;
 
+  function ensureBeaconLoaded() {
+    if (beacon || health?.loading) return;
+    health?.loadBeacon?.({
+      priority: "P1",
+      communicationScene: "health-popover",
+    });
+  }
+
   function openHealthCenter() {
     if (!destination) return;
     navigate(destination);
@@ -160,6 +168,7 @@ export default function WorkspaceHealthBeacon({
 
   function showPopover() {
     clearTimeout(closeTimer.current);
+    ensureBeaconLoaded();
     setOpen(true);
   }
 
@@ -410,7 +419,7 @@ export default function WorkspaceHealthBeacon({
               <button
                 type="button"
                 onClick={() =>
-                  navigate(paths.workspace.settings.readingTools(workspaceSlug))
+                  navigate(paths.settings.interface({ hash: "reading-tools" }))
                 }
                 className="mt-2 w-full rounded-lg px-3 py-2 text-xs text-white/55 light:text-slate-500 hover:bg-white/5 light:hover:bg-slate-50"
               >

@@ -70,47 +70,34 @@ export default function MenuOption({
   return (
     <div>
       <div
-        className={`
-          flex items-center justify-between w-full
-          motion-hover
-          rounded-[6px]
-          ${
-            isActive
-              ? "bg-theme-sidebar-subitem-selected font-medium border-outline"
-              : "hover:bg-theme-sidebar-subitem-hover"
-          }
-        `}
+        className={`settings-soft-nav-item motion-hover ${
+          isActive ? "is-active" : ""
+        }`}
       >
         <Link
           ref={ref}
           to={href}
-          className={`flex flex-grow items-center px-[12px] h-[32px] font-medium ${
-            isChild ? "hover:text-white" : "text-white light:text-black"
-          }`}
+          className="settings-soft-nav-link"
           onClick={hasChildren ? handleClick : undefined}
           onMouseEnter={prefetchSettingsRoute}
           onFocus={prefetchSettingsRoute}
         >
           {icon}
           <p
-            className={`${
-              isChild ? "text-xs" : "text-sm"
-            } leading-loose whitespace-nowrap overflow-hidden ml-2 ${
-              isActive
-                ? "text-white font-semibold"
-                : "text-white light:text-black"
-            } ${!icon && "pl-5"}`}
+            className={`settings-soft-nav-text ${
+              isChild ? "is-child" : "text-sm"
+            } ${isActive ? "font-semibold" : ""} ${!icon && "pl-5"}`}
           >
             {btnText}
           </p>
         </Link>
         {hasChildren && (
-          <button onClick={handleClick} className="p-2 text-white">
+          <button onClick={handleClick} className="p-2 settings-soft-nav-caret">
             <CaretRight
               size={16}
               weight="bold"
               // color={isExpanded ? "#000000" : "var(--theme-sidebar-subitem-icon)"}
-              className={`motion-hover text-white light:text-black ${
+              className={`motion-hover settings-soft-nav-caret ${
                 isExpanded ? "rotate-90" : ""
               }`}
             />

@@ -4,27 +4,27 @@ import React, {
   useContext,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
+import { useLocation } from "react-router-dom";
 import System from "@/models/system";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
+import { useSoftSettingsShell } from "@/components/SoftSettings/context";
+import {
+  allAiProviderSections,
+  isPersistentSettingsRoute,
+  settingsSectionsForPath,
+} from "@/utils/settingsRoutes";
 
-export const AI_PROVIDER_SETTING_SECTIONS = [
-  "llm",
-  "vector",
-  "embedding",
-  "rerank",
-  "search",
-  "ocr",
-  "vision",
-  "audio",
-  "transcription",
-];
+export const AI_PROVIDER_SETTING_SECTIONS = allAiProviderSections();
 
 const SettingsDataContext = createContext(null);
 const STORAGE_KEY = "anythingllm_settings_section_cache_v1";
-const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const memoryCache = new Map();
 const inflightRequests = new Map();
+const SETTINGS_PREWARM_LABEL_PREFIX = "settings:prewarm:";
 
 function normalizeSections(sections = []) {
   const list = Array.isArray(sections) ? sections : [sections];
@@ -125,44 +125,146 @@ function requestIdle(fn) {
   return window.setTimeout(fn, 250);
 }
 
+function cancelIdle(handle) {
+  if (handle === null || handle === undefined || typeof window === "undefined")
+    return;
+  if ("cancelIdleCallback" in window) window.cancelIdleCallback(handle);
+  window.clearTimeout(handle);
+}
+
+function linkAbortSignal(controller, signal) {
+  if (!signal) return () => {};
+  const abort = () => controller.abort(signal.reason);
+  if (signal.aborted) {
+    abort();
+    return () => {};
+  }
+  signal.addEventListener("abort", abort, { once: true });
+  return () => signal.removeEventListener("abort", abort);
+}
+
 export function SettingsDataProvider({ children }) {
+  const location = useLocation();
+  const routeStateRef = useRef({
+    generation: 0,
+    pathname: location.pathname,
+    sections: settingsSectionsForPath(location.pathname),
+    isPersistentSettings: isPersistentSettingsRoute(location.pathname),
+  });
+  const activeCurrentRequestRef = useRef(null);
+  const backgroundPrewarmRef = useRef({
+    idleHandle: null,
+    controller: null,
+  });
+
   const loadSettings = useCallback(
     async (
       sections,
-      { force = false, priority = "P1", signal = null } = {}
+      { force = false, priority = "P1", signal = null, prewarm = false } = {}
     ) => {
       const normalized = normalizeSections(sections);
       const key = cacheKey(normalized);
+      const routeState = routeStateRef.current;
+      const isCurrentRouteRequest =
+        priority === "P0" &&
+        routeState.isPersistentSettings &&
+        routeState.sections.length > 0 &&
+        normalized.some((section) => routeState.sections.includes(section));
+      const requestGeneration = routeState.generation;
+
       if (!force) {
         const cached = mergeCachedSettings(normalized);
-        if (cached) return { success: true, settings: cached, cached: true };
+        if (cached) {
+          recordSettingsCacheEvent("hit", key);
+          return { success: true, settings: cached, cached: true };
+        }
       }
 
-      if (inflightRequests.has(key)) return inflightRequests.get(key);
+      if (inflightRequests.has(key)) {
+        recordSettingsCacheEvent("dedupe", key);
+        return inflightRequests.get(key);
+      }
+      recordSettingsCacheEvent(force ? "refresh" : "miss", key);
+
+      let currentAbortController = null;
+      let abortCleanup = () => {};
+      let requestSignal = signal;
+      if (isCurrentRouteRequest) {
+        const previous = activeCurrentRequestRef.current;
+        if (previous?.controller && previous.key !== key) {
+          previous.controller.abort();
+          inflightRequests.delete(previous.key);
+        }
+
+        currentAbortController = new AbortController();
+        abortCleanup = linkAbortSignal(currentAbortController, signal);
+        requestSignal = currentAbortController.signal;
+        activeCurrentRequestRef.current = {
+          controller: currentAbortController,
+          generation: requestGeneration,
+          key,
+        };
+      }
 
       const task = async () => {
-        const response = await System.settingsBootstrap({
-          sections: normalized,
-          signal,
-        });
+        const startedAt = performance.now();
+        let response = null;
+        try {
+          response = await System.settingsBootstrap({
+            sections: normalized,
+            signal: requestSignal,
+          });
+        } catch (error) {
+          if (error?.name === "AbortError") {
+            recordSettingsCacheEvent("aborted", key);
+            return { success: false, settings: null, aborted: true };
+          }
+          throw error;
+        } finally {
+          abortCleanup();
+        }
+
+        if (
+          isCurrentRouteRequest &&
+          routeStateRef.current.generation !== requestGeneration
+        ) {
+          recordSettingsCacheEvent("stale", key, {
+            durationMs: Math.round(performance.now() - startedAt),
+          });
+          return { success: false, settings: null, stale: true };
+        }
+
         if (response?.settings) {
           storeSectionSettings(normalized, response.settings, response.version);
         }
+        recordSettingsCacheEvent("loaded", key, {
+          durationMs: Math.round(performance.now() - startedAt),
+        });
         return response;
       };
 
+      const label = `${prewarm ? SETTINGS_PREWARM_LABEL_PREFIX : "settings:"}${
+        key || "bootstrap"
+      }`;
       const promise =
         priority === "P0"
           ? task()
           : requestPriorityQueue.schedule(task, {
               priority,
-              signal,
-              label: `settings:${key || "bootstrap"}`,
-              dedupeKey: `settings:${key || "bootstrap"}`,
+              signal: requestSignal,
+              label,
+              dedupeKey: label,
             });
 
       inflightRequests.set(key, promise);
-      promise.finally(() => inflightRequests.delete(key));
+      const cleanupInflight = () => {
+        inflightRequests.delete(key);
+        const current = activeCurrentRequestRef.current;
+        if (current?.key === key && current?.generation === requestGeneration) {
+          activeCurrentRequestRef.current = null;
+        }
+      };
+      promise.then(cleanupInflight, cleanupInflight);
       return promise;
     },
     []
@@ -170,12 +272,15 @@ export function SettingsDataProvider({ children }) {
 
   const prewarmSettings = useCallback(
     (sections, options = {}) => {
-      requestIdle(() => {
+      const idleHandle = requestIdle(() => {
+        if (options.signal?.aborted) return;
         loadSettings(sections, {
-          priority: "P3",
+          priority: "P4",
+          prewarm: true,
           ...options,
         }).catch(() => null);
       });
+      return () => cancelIdle(idleHandle);
     },
     [loadSettings]
   );
@@ -197,6 +302,72 @@ export function SettingsDataProvider({ children }) {
     }),
     [invalidateSettings, loadSettings, prewarmSettings]
   );
+
+  useEffect(() => {
+    const pathname = location.pathname;
+    const sections = settingsSectionsForPath(pathname);
+    const isPersistentSettings = isPersistentSettingsRoute(pathname);
+    const previousRouteState = routeStateRef.current;
+    const routeChanged = previousRouteState.pathname !== pathname;
+    routeStateRef.current = {
+      generation: routeChanged
+        ? previousRouteState.generation + 1
+        : previousRouteState.generation,
+      pathname,
+      sections,
+      isPersistentSettings,
+    };
+
+    if (routeChanged) {
+      const current = activeCurrentRequestRef.current;
+      if (current?.controller) {
+        current.controller.abort();
+        inflightRequests.delete(current.key);
+        activeCurrentRequestRef.current = null;
+      }
+    }
+
+    const background = backgroundPrewarmRef.current;
+    cancelIdle(background.idleHandle);
+    background.controller?.abort();
+    backgroundPrewarmRef.current = {
+      idleHandle: null,
+      controller: null,
+    };
+
+    requestPriorityQueue.clear((entry) => {
+      if (!String(entry.label || "").startsWith(SETTINGS_PREWARM_LABEL_PREFIX))
+        return false;
+      return ["P3", "P4"].includes(entry.priority);
+    });
+
+    if (!isPersistentSettings) return;
+
+    const controller = new AbortController();
+    const idleHandle = requestIdle(() => {
+      const latest = routeStateRef.current;
+      if (latest.pathname !== pathname || controller.signal.aborted) return;
+      const backgroundSections = AI_PROVIDER_SETTING_SECTIONS.filter(
+        (section) => !sections.includes(section)
+      );
+      if (!backgroundSections.length) return;
+      loadSettings(backgroundSections, {
+        priority: "P4",
+        signal: controller.signal,
+        prewarm: true,
+      }).catch(() => null);
+    });
+
+    backgroundPrewarmRef.current = {
+      idleHandle,
+      controller,
+    };
+
+    return () => {
+      cancelIdle(idleHandle);
+      controller.abort();
+    };
+  }, [loadSettings, location.pathname]);
 
   useEffect(() => {
     function handleInvalidation(event) {
@@ -222,6 +393,20 @@ export function SettingsDataProvider({ children }) {
   );
 }
 
+function recordSettingsCacheEvent(action, key, extra = {}) {
+  recordCommunicationEvent({
+    type: "settings-cache",
+    method: "CACHE",
+    path: `settings:${key || "bootstrap"}`,
+    communicationScene: "model-settings",
+    cache: action,
+    durationMs: extra.durationMs || 0,
+    requestBytes: 0,
+    responseBytes: 0,
+    ok: true,
+  });
+}
+
 export function useSettingsData() {
   const context = useContext(SettingsDataContext);
   if (!context) {
@@ -236,6 +421,28 @@ export function useSettingsData() {
 }
 
 export function SettingsSectionSkeleton({ title, description }) {
+  const hasPersistentSettingsShell = useSoftSettingsShell();
+
+  if (hasPersistentSettingsShell) {
+    return (
+      <div className="settings-soft-content">
+        <header className="settings-soft-header">
+          <div className="min-w-0">
+            <div className="h-8 w-56 animate-pulse rounded-xl bg-slate-200" />
+            {description ? (
+              <div className="mt-3 h-4 w-full max-w-[560px] animate-pulse rounded-full bg-slate-200/80" />
+            ) : null}
+          </div>
+        </header>
+        <section className="settings-soft-card">
+          <div className="h-16 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+          <div className="mt-4 h-28 animate-pulse rounded-2xl border border-slate-200 bg-slate-50" />
+          <div className="mt-4 h-10 w-2/3 animate-pulse rounded-xl border border-slate-200 bg-slate-50" />
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{ height: "calc(100% - 32px)" }}

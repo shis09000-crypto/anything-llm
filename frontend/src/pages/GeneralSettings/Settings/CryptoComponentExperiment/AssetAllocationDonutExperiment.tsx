@@ -7,99 +7,22 @@ import {
 import AssetAllocationDonutCard from "./AssetAllocationDonutCard";
 import { useAssetAllocationDonutData } from "./useAssetAllocationDonutData";
 import type { AssetAllocationDonutCardProps } from "./assetAllocationDonutTypes";
-
-const defaultVisual = {
-  maxVisibleItems: 6,
-  cardWidth: 560,
-  cardHeight: 310,
-  donutSize: 190,
-  donutThickness: 44,
-  borderRadius: 22,
-  glowIntensity: 0.45,
-  showFooterNote: true,
-  dimInactiveOnFocus: true,
-  compactMode: true,
-};
-
-type VisualParams = typeof defaultVisual;
+import {
+  assetAllocationDonutDefaultVisual,
+  sanitizeAssetAllocationDonutVisual,
+  type AssetAllocationDonutVisualParams,
+} from "./assetAllocationDonutVisual";
 
 type SavedVisualConfig = {
   version: 1;
   savedAt: string;
-  visual: VisualParams;
+  visual: AssetAllocationDonutVisualParams;
 };
 
 const REMOTE_CONFIG_KIND = CRYPTO_CONFIG_KINDS.assetAllocationDonut;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function numberValue(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number
-) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.max(min, Math.min(max, parsed));
-}
-
-function booleanValue(value: unknown, fallback: boolean) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function sanitizeVisualConfig(value: unknown): VisualParams {
-  const source = isRecord(value) ? value : {};
-  return {
-    maxVisibleItems: numberValue(
-      source.maxVisibleItems,
-      defaultVisual.maxVisibleItems,
-      2,
-      8
-    ),
-    cardWidth: numberValue(
-      source.cardWidth,
-      defaultVisual.cardWidth,
-      420,
-      1120
-    ),
-    cardHeight: numberValue(
-      source.cardHeight,
-      defaultVisual.cardHeight,
-      260,
-      760
-    ),
-    donutSize: numberValue(source.donutSize, defaultVisual.donutSize, 150, 440),
-    donutThickness: numberValue(
-      source.donutThickness,
-      defaultVisual.donutThickness,
-      30,
-      110
-    ),
-    borderRadius: numberValue(
-      source.borderRadius,
-      defaultVisual.borderRadius,
-      16,
-      42
-    ),
-    glowIntensity: numberValue(
-      source.glowIntensity,
-      defaultVisual.glowIntensity,
-      0,
-      1
-    ),
-    showFooterNote: booleanValue(
-      source.showFooterNote,
-      defaultVisual.showFooterNote
-    ),
-    dimInactiveOnFocus: booleanValue(
-      source.dimInactiveOnFocus,
-      defaultVisual.dimInactiveOnFocus
-    ),
-    compactMode: booleanValue(source.compactMode, defaultVisual.compactMode),
-  };
 }
 
 function ToggleControl({
@@ -165,7 +88,7 @@ function RangeControl({
 
 export default function AssetAllocationDonutExperiment() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
-  const [visual, setVisual] = useState(defaultVisual);
+  const [visual, setVisual] = useState(assetAllocationDonutDefaultVisual);
   const [saveStatus, setSaveStatus] =
     useState("后台参数尚未保存到本次实验预览。");
   const [isSavingConfig, setIsSavingConfig] = useState(false);
@@ -189,7 +112,7 @@ export default function AssetAllocationDonutExperiment() {
         )) as SavedVisualConfig | null;
         if (!mounted || !isRecord(config?.visual)) return;
 
-        setVisual(sanitizeVisualConfig(config.visual));
+        setVisual(sanitizeAssetAllocationDonutVisual(config.visual));
         setSaveStatus(
           config.savedAt
             ? `已加载后台参数 · ${new Date(config.savedAt).toLocaleString()}`
@@ -224,10 +147,9 @@ export default function AssetAllocationDonutExperiment() {
     [activeItems, activeTotalValueUsd, selectedAsset, visual]
   );
 
-  function updateVisual<K extends keyof typeof defaultVisual>(
-    key: K,
-    value: (typeof defaultVisual)[K]
-  ) {
+  function updateVisual<
+    K extends keyof typeof assetAllocationDonutDefaultVisual,
+  >(key: K, value: (typeof assetAllocationDonutDefaultVisual)[K]) {
     setVisual((current) => ({ ...current, [key]: value }));
   }
 
@@ -308,7 +230,7 @@ export default function AssetAllocationDonutExperiment() {
                 <button
                   type="button"
                   onClick={() => {
-                    setVisual(defaultVisual);
+                    setVisual(assetAllocationDonutDefaultVisual);
                     setSelectedAsset(null);
                     switchToMockData();
                     setSaveStatus("已重置为默认参数，尚未保存到后台。");

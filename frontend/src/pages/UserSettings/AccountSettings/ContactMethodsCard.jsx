@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { EnvelopeSimple, Phone } from "@phosphor-icons/react";
 import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
-import { AUTH_USER } from "@/utils/constants";
-import { safeJsonParse } from "@/utils/request";
+import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
 import { normalizeEmailInput } from "@/utils/emailInput";
 import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
 import showToast from "@/utils/toast";
@@ -29,6 +28,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
   );
   const [emailCodeResetSignal, setEmailCodeResetSignal] = useState(0);
   const [emailResendRemaining, setEmailResendRemaining] = useState(0);
+  const [emailChallengeId, setEmailChallengeId] = useState("");
 
   useEffect(() => {
     let mounted = true;
@@ -44,6 +44,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
       };
       setEmailStatus(nextStatus);
       setEmailDraft(nextStatus.pendingEmail || nextStatus.email || "");
+      setEmailChallengeId(result.pendingChallengeId || "");
       setEmailStep(nextStatus.pendingEmail ? "verify" : "request");
       setEmailEditMode(
         Boolean(nextStatus.pendingEmail || !nextStatus.verified)
@@ -67,6 +68,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
     setEmailDraft("");
     setEmailStep("request");
     setEmailResendRemaining(0);
+    setEmailChallengeId("");
     setEmailCodeResetSignal((current) => current + 1);
   }
 
@@ -97,6 +99,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
       ...current,
       pendingEmail: result.pendingEmail || emailDraft,
     }));
+    setEmailChallengeId(result.challengeId || "");
     setEmailStep("verify");
     setEmailResendRemaining(Number(result.resendCooldownSeconds) || 60);
     showToast("验证码已发送。", "success", { clear: true });
@@ -108,6 +111,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
     const result = await AccountSettingsApi.confirmEmailVerification({
       email: emailStatus.pendingEmail || emailDraft,
       code,
+      challengeId: emailChallengeId,
     });
     setEmailLoading(false);
 
@@ -127,16 +131,17 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
     };
     setEmailStatus(nextStatus);
     setEmailDraft(result.email);
+    setEmailChallengeId("");
     setEmailStep("request");
     setEmailEditMode(false);
 
-    const storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+    const storedUser = getStoredAuthUser();
     const nextUser = {
       ...(storedUser || user),
       email: result.email,
       email_verified_at: result.verifiedAt,
     };
-    localStorage.setItem(AUTH_USER, JSON.stringify(nextUser));
+    setStoredAuthUser(nextUser);
     onUserUpdated?.(nextUser);
     showToast("邮箱已验证。", "success", { clear: true });
   }
@@ -188,6 +193,7 @@ export default function ContactMethodsCard({ user, onUserUpdated }) {
                 onChange={(event) => {
                   setEmailDraft(normalizeEmailInput(event.target.value));
                   setEmailStep("request");
+                  setEmailChallengeId("");
                 }}
                 placeholder="noreply@example.com"
                 autoComplete="email"

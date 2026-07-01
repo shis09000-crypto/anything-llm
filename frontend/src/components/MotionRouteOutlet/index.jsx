@@ -1,21 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useLocation, useOutlet } from "react-router-dom";
+import { useLocation, useNavigationType, useOutlet } from "react-router-dom";
 import { useMotion } from "@/contexts/MotionProvider";
+import {
+  motionRouteKey,
+  rawRouteKey,
+  routeCategoryForMotionKey,
+  routeTransitionPolicy,
+} from "@/utils/routeTransitionPolicy";
 
 const ROUTE_DURATION = 700;
 const ROUTE_FALLBACK_DURATION = 180;
-const WORKSPACE_CHAT_ROUTE_PATTERN = /^\/workspace\/([^/]+)(?:\/t\/[^/]+)?\/?$/;
-const WORKSPACE_CHAT_SURFACE_KEY = "/workspace-chat-surface";
-
-function rawRouteKey(location) {
-  return `${location.pathname}${location.search}`;
-}
-
-function motionRouteKey(location) {
-  if (WORKSPACE_CHAT_ROUTE_PATTERN.test(location.pathname))
-    return WORKSPACE_CHAT_SURFACE_KEY;
-  return rawRouteKey(location);
-}
 
 function threadSwitchFlickerDebugEnabled() {
   try {
@@ -49,12 +43,14 @@ function isSameRouteOutlet(left, right) {
 export default function MotionRouteOutlet() {
   const outlet = useOutlet();
   const location = useLocation();
+  const navigationType = useNavigationType();
   const rawKey = rawRouteKey(location);
   const motionKey = motionRouteKey(location);
   const { reducedMotion, requestMotion, reportRouteMotion } = useMotion();
   const [current, setCurrent] = useState(() => ({
     rawKey,
     motionKey,
+    pathname: location.pathname,
     outlet,
     mode: "static",
   }));
@@ -78,28 +74,34 @@ export default function MotionRouteOutlet() {
   useEffect(() => {
     const nextRawKey = rawKey;
     const nextMotionKey = motionKey;
+    const nextPathname = location.pathname;
     const previous = currentRef.current;
 
     if (previous.rawKey === nextRawKey) {
       return;
     }
 
-    if (previous.motionKey === nextMotionKey) {
-      const reason =
-        nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
-          ? "workspace-chat-surface"
-          : "same-motion-surface";
+    const policy = routeTransitionPolicy({
+      navigationType,
+      previous,
+      next: {
+        rawKey: nextRawKey,
+        motionKey: nextMotionKey,
+        pathname: nextPathname,
+      },
+    });
+
+    if (policy.skipTransition) {
+      clearExitingLayers();
       debugThreadSwitchFlicker("MotionRouteOutlet:skip", {
         animated: false,
-        reason,
+        navigationType,
+        reason: policy.reason,
         previousRawKey: previous.rawKey,
         previousMotionKey: previous.motionKey,
         nextRawKey,
         nextMotionKey,
-        routeCategory:
-          nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
-            ? "workspace-chat"
-            : "default",
+        routeCategory: routeCategoryForMotionKey(nextMotionKey),
         exitingLayerCount: document.querySelectorAll(".motion-route-exiting")
           .length,
       });
@@ -107,8 +109,8 @@ export default function MotionRouteOutlet() {
         animated: false,
         duration: 0,
         mode: "static",
-        phase: "same-surface-skip",
-        reason,
+        phase: policy.phase,
+        reason: policy.reason,
         routeKey: nextRawKey,
         motionRouteKey: nextMotionKey,
         token: "motion-route-transition",
@@ -116,6 +118,7 @@ export default function MotionRouteOutlet() {
       setCurrent({
         rawKey: nextRawKey,
         motionKey: nextMotionKey,
+        pathname: nextPathname,
         outlet,
         mode: "static",
       });
@@ -141,7 +144,8 @@ export default function MotionRouteOutlet() {
       budgetReason: routeMotion.reason,
       duration,
       mode,
-      phase: "transitioning",
+      phase: policy.phase,
+      reason: policy.reason,
       routeKey: nextRawKey,
       motionRouteKey: nextMotionKey,
       token: "motion-route-transition",
@@ -151,19 +155,18 @@ export default function MotionRouteOutlet() {
       budgetReason: routeMotion.reason,
       duration,
       mode,
+      navigationType,
+      reason: policy.reason,
       previousRawKey: previous.rawKey,
       previousMotionKey: previous.motionKey,
       nextRawKey,
       nextMotionKey,
-      routeCategory:
-        nextMotionKey === WORKSPACE_CHAT_SURFACE_KEY
-          ? "workspace-chat"
-          : "default",
+      routeCategory: routeCategoryForMotionKey(nextMotionKey),
       exitingLayerCount: document.querySelectorAll(".motion-route-exiting")
         .length,
     });
 
-    if (mode !== "static") {
+    if (mode !== "static" && !policy.skipExitLayer) {
       setExiting((items) => [
         ...items,
         {
@@ -181,12 +184,15 @@ export default function MotionRouteOutlet() {
     setCurrent({
       rawKey: nextRawKey,
       motionKey: nextMotionKey,
+      pathname: nextPathname,
       outlet,
       mode,
     });
   }, [
     rawKey,
     motionKey,
+    location.pathname,
+    navigationType,
     outlet,
     reducedMotion,
     requestMotion,
@@ -220,6 +226,14 @@ export default function MotionRouteOutlet() {
       motionRouteKey: currentRef.current.motionKey,
       token: "motion-route-transition",
     });
+  }
+
+  function clearExitingLayers() {
+    for (const timeout of exitTimersRef.current.values()) {
+      window.clearTimeout(timeout);
+    }
+    exitTimersRef.current.clear();
+    setExiting([]);
   }
 
   return (

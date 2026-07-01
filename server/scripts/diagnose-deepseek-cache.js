@@ -146,6 +146,7 @@ async function main() {
     deepSeekCacheDiagnosis,
     hasDeepSeekCacheDiagnostics,
   } = require("../utils/AiProviders/deepseek/promptCache");
+  const { decryptWorkspaceChatRecords } = require("../utils/security");
   const dbPath = databasePath();
   if (!fs.existsSync(dbPath)) throw new Error(`Database not found: ${dbPath}`);
 
@@ -160,11 +161,13 @@ async function main() {
       workspaceSlug: args.workspace || null,
       thread: args.thread,
     });
-    const chats = await prisma.workspace_chats.findMany({
-      where: { thread_id: thread.id },
-      orderBy: { id: "desc" },
-      take: Math.max(limit * 5, limit),
-    });
+    const chats = decryptWorkspaceChatRecords(
+      await prisma.workspace_chats.findMany({
+        where: { thread_id: thread.id },
+        orderBy: { id: "desc" },
+        take: Math.max(limit * 5, limit),
+      })
+    );
 
     const rows = [];
     let previousMetrics = null;

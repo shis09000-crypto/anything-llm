@@ -8,19 +8,134 @@ import PrivateRoute, {
   ManagerRoute,
   SingleUserRoute,
 } from "@/components/PrivateRoute";
-import Login from "@/pages/Login";
-import SimpleSSOPassthrough from "@/pages/Login/SSO/simple";
-import OnboardingFlow from "@/pages/OnboardingFlow";
 import "@/index.css";
 import { installEnvironmentStorageScope } from "@/utils/appEnvironment";
 import { isCryptoCenterDevAuthBypassEnabled } from "@/utils/cryptoCenterDevAuthBypass";
-import { installFontPlatformScope } from "@/utils/fontPlatform";
+import {
+  installFontDiagnostics,
+  installFontPlatformScope,
+} from "@/utils/fontPlatform";
+import { SoftSettingsOutletLayout } from "@/components/SoftSettings";
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
 
 installEnvironmentStorageScope();
 installFontPlatformScope();
+installFontDiagnostics();
+
+const GeneralLLMPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/LLMPreference")
+);
+const GeneralVectorDatabase = React.lazy(
+  () => import("@/pages/GeneralSettings/VectorDatabase")
+);
+const GeneralEmbeddingPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/EmbeddingPreference")
+);
+const GeneralRerankPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/RerankPreference")
+);
+const GeneralSearchModelPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/SearchModelPreference")
+);
+const GeneralOcrPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/OcrPreference")
+);
+const GeneralVisionPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/VisionPreference")
+);
+const EmbeddingTextSplitterPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/EmbeddingTextSplitterPreference")
+);
+const BatchJobs = React.lazy(() => import("@/pages/GeneralSettings/BatchJobs"));
+const GeneralAudioPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/AudioPreference")
+);
+const GeneralTranscriptionPreference = React.lazy(
+  () => import("@/pages/GeneralSettings/TranscriptionPreference")
+);
+const GeneralSecurity = React.lazy(
+  () => import("@/pages/GeneralSettings/Security")
+);
+const InterfaceSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/Interface")
+);
+const GeneralApiKeys = React.lazy(
+  () => import("@/pages/GeneralSettings/ApiKeys")
+);
+const ScheduledJobs = React.lazy(
+  () => import("@/pages/GeneralSettings/ScheduledJobs")
+);
+const ScheduledJobRuns = React.lazy(
+  () => import("@/pages/GeneralSettings/ScheduledJobs/RunHistoryPage")
+);
+const ScheduledJobRunDetail = React.lazy(
+  () => import("@/pages/GeneralSettings/ScheduledJobs/RunDetailPage")
+);
+const AdminAgents = React.lazy(() => import("@/pages/Admin/Agents"));
+const AdminLogs = React.lazy(() => import("@/pages/Admin/Logging"));
+const SystemPatrol = React.lazy(
+  () => import("@/pages/GeneralSettings/SystemPatrol")
+);
+const CryptoCenter = React.lazy(() => import("@/pages/Admin/CryptoCenter"));
+const ChatEmbedWidgets = React.lazy(
+  () => import("@/pages/GeneralSettings/ChatEmbedWidgets")
+);
+const PrivacyAndData = React.lazy(
+  () => import("@/pages/GeneralSettings/PrivacyAndData")
+);
+const BrandingSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/Branding")
+);
+const ButtonLab = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/ButtonLab")
+);
+const MobilePageExperiment = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/MobilePageExperiment")
+);
+const CryptoComponentExperiment = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/CryptoComponentExperiment")
+);
+const ChatSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Settings/Chat")
+);
+const ExperimentalFeatures = React.lazy(
+  () => import("@/pages/Admin/ExperimentalFeatures")
+);
+const LiveDocumentSyncManage = React.lazy(
+  () => import("@/pages/Admin/ExperimentalFeatures/Features/LiveSync/manage")
+);
+const SystemPromptVariables = React.lazy(
+  () => import("@/pages/Admin/SystemPromptVariables")
+);
+const GeneralBrowserExtension = React.lazy(
+  () => import("@/pages/GeneralSettings/BrowserExtensionApiKey")
+);
+const MobileConnections = React.lazy(
+  () => import("@/pages/GeneralSettings/MobileConnections")
+);
+const TelegramBotSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Connections/TelegramBot")
+);
+const WeChatConnectorSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Connections/WeChatConnector")
+);
+const AdvancedGatewayConnectorSettings = React.lazy(
+  () => import("@/pages/GeneralSettings/Connections/AdvancedGatewayConnector")
+);
+
+function routeElement(RouteComponent, Component, props = {}) {
+  return <RouteComponent Component={Component} {...props} />;
+}
+
+function cryptoBypassElement(RouteComponent, Component) {
+  return isCryptoCenterDevAuthBypassEnabled() ? (
+    <Component />
+  ) : (
+    <RouteComponent Component={Component} />
+  );
+}
 
 const router = createBrowserRouter([
   {
@@ -36,11 +151,19 @@ const router = createBrowserRouter([
       },
       {
         path: "/login",
-        element: <Login />,
+        lazy: async () => {
+          const { default: Login } = await import("@/pages/Login");
+          return { element: <Login /> };
+        },
       },
       {
         path: "/sso/simple",
-        element: <SimpleSSOPassthrough />,
+        lazy: async () => {
+          const { default: SimpleSSOPassthrough } = await import(
+            "@/pages/Login/SSO/simple"
+          );
+          return { element: <SimpleSSOPassthrough /> };
+        },
       },
       {
         path: "/workspace/:slug/settings/:tab",
@@ -86,130 +209,157 @@ const router = createBrowserRouter([
       },
       // Admin routes
       {
-        path: "/settings/llm-preference",
-        lazy: async () => {
-          const { default: GeneralLLMPreference } = await import(
-            "@/pages/GeneralSettings/LLMPreference"
-          );
-          return { element: <AdminRoute Component={GeneralLLMPreference} /> };
-        },
+        path: "/settings",
+        element: <SoftSettingsOutletLayout />,
+        children: [
+          {
+            path: "llm-preference",
+            element: routeElement(AdminRoute, GeneralLLMPreference),
+          },
+          {
+            path: "vector-database",
+            element: routeElement(AdminRoute, GeneralVectorDatabase),
+          },
+          {
+            path: "embedding-preference",
+            element: routeElement(AdminRoute, GeneralEmbeddingPreference),
+          },
+          {
+            path: "rerank-preference",
+            element: routeElement(AdminRoute, GeneralRerankPreference),
+          },
+          {
+            path: "search-model-preference",
+            element: routeElement(AdminRoute, GeneralSearchModelPreference),
+          },
+          {
+            path: "ocr-preference",
+            element: routeElement(AdminRoute, GeneralOcrPreference),
+          },
+          {
+            path: "vision-preference",
+            element: routeElement(AdminRoute, GeneralVisionPreference),
+          },
+          {
+            path: "text-splitter-preference",
+            element: routeElement(AdminRoute, EmbeddingTextSplitterPreference),
+          },
+          {
+            path: "batch-jobs",
+            element: routeElement(AdminRoute, BatchJobs),
+          },
+          {
+            path: "audio-preference",
+            element: routeElement(AdminRoute, GeneralAudioPreference),
+          },
+          {
+            path: "transcription-preference",
+            element: routeElement(AdminRoute, GeneralTranscriptionPreference),
+          },
+          {
+            path: "security",
+            element: routeElement(ManagerRoute, GeneralSecurity),
+          },
+          {
+            path: "interface",
+            element: routeElement(PrivateRoute, InterfaceSettings),
+          },
+          {
+            path: "api-keys",
+            element: routeElement(AdminRoute, GeneralApiKeys),
+          },
+          {
+            path: "scheduled-jobs",
+            element: routeElement(SingleUserRoute, ScheduledJobs),
+          },
+          {
+            path: "scheduled-jobs/:id/runs",
+            element: routeElement(SingleUserRoute, ScheduledJobRuns),
+          },
+          {
+            path: "scheduled-jobs/:id/runs/:runId",
+            element: routeElement(SingleUserRoute, ScheduledJobRunDetail),
+          },
+          {
+            path: "agents",
+            element: routeElement(AdminRoute, AdminAgents),
+          },
+          {
+            path: "event-logs",
+            element: routeElement(AdminRoute, AdminLogs),
+          },
+          {
+            path: "system-patrol",
+            element: routeElement(AdminRoute, SystemPatrol),
+          },
+          {
+            path: "embed-chat-widgets",
+            element: routeElement(AdminRoute, ChatEmbedWidgets),
+          },
+          {
+            path: "privacy",
+            element: routeElement(AdminRoute, PrivacyAndData),
+          },
+          {
+            path: "branding",
+            element: routeElement(ManagerRoute, BrandingSettings),
+          },
+          {
+            path: "button-lab",
+            element: routeElement(ManagerRoute, ButtonLab),
+          },
+          {
+            path: "mobile-page-experiment",
+            element: routeElement(DeveloperRoute, MobilePageExperiment),
+          },
+          {
+            path: "crypto-component-experiment",
+            element: cryptoBypassElement(
+              DeveloperRoute,
+              CryptoComponentExperiment
+            ),
+          },
+          {
+            path: "chat",
+            element: routeElement(ManagerRoute, ChatSettings),
+          },
+          {
+            path: "beta-features",
+            element: routeElement(AdminRoute, ExperimentalFeatures),
+          },
+          {
+            path: "beta-features/live-document-sync/manage",
+            element: routeElement(AdminRoute, LiveDocumentSyncManage),
+          },
+          {
+            path: "system-prompt-variables",
+            element: routeElement(AdminRoute, SystemPromptVariables),
+          },
+          {
+            path: "browser-extension",
+            element: routeElement(ManagerRoute, GeneralBrowserExtension),
+          },
+          {
+            path: "mobile-connections",
+            element: routeElement(ManagerRoute, MobileConnections),
+          },
+          {
+            path: "external-connections/telegram",
+            element: routeElement(AdminRoute, TelegramBotSettings),
+          },
+          {
+            path: "external-connections/wechat",
+            element: routeElement(AdminRoute, WeChatConnectorSettings),
+          },
+          {
+            path: "external-connections/advanced-gateway",
+            element: routeElement(AdminRoute, AdvancedGatewayConnectorSettings),
+          },
+        ],
       },
       {
-        path: "/settings/transcription-preference",
-        lazy: async () => {
-          const { default: GeneralTranscriptionPreference } = await import(
-            "@/pages/GeneralSettings/TranscriptionPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralTranscriptionPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/audio-preference",
-        lazy: async () => {
-          const { default: GeneralAudioPreference } = await import(
-            "@/pages/GeneralSettings/AudioPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralAudioPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/embedding-preference",
-        lazy: async () => {
-          const { default: GeneralEmbeddingPreference } = await import(
-            "@/pages/GeneralSettings/EmbeddingPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralEmbeddingPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/rerank-preference",
-        lazy: async () => {
-          const { default: GeneralRerankPreference } = await import(
-            "@/pages/GeneralSettings/RerankPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralRerankPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/search-model-preference",
-        lazy: async () => {
-          const { default: GeneralSearchModelPreference } = await import(
-            "@/pages/GeneralSettings/SearchModelPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralSearchModelPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/ocr-preference",
-        lazy: async () => {
-          const { default: GeneralOcrPreference } = await import(
-            "@/pages/GeneralSettings/OcrPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralOcrPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/vision-preference",
-        lazy: async () => {
-          const { default: GeneralVisionPreference } = await import(
-            "@/pages/GeneralSettings/VisionPreference"
-          );
-          return {
-            element: <AdminRoute Component={GeneralVisionPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/text-splitter-preference",
-        lazy: async () => {
-          const { default: EmbeddingTextSplitterPreference } = await import(
-            "@/pages/GeneralSettings/EmbeddingTextSplitterPreference"
-          );
-          return {
-            element: <AdminRoute Component={EmbeddingTextSplitterPreference} />,
-          };
-        },
-      },
-      {
-        path: "/settings/batch-jobs",
-        lazy: async () => {
-          const { default: BatchJobs } = await import(
-            "@/pages/GeneralSettings/BatchJobs"
-          );
-          return {
-            element: <AdminRoute Component={BatchJobs} />,
-          };
-        },
-      },
-      {
-        path: "/settings/vector-database",
-        lazy: async () => {
-          const { default: GeneralVectorDatabase } = await import(
-            "@/pages/GeneralSettings/VectorDatabase"
-          );
-          return {
-            element: <AdminRoute Component={GeneralVectorDatabase} />,
-          };
-        },
-      },
-      {
-        path: "/settings/agents",
-        lazy: async () => {
-          const { default: AdminAgents } = await import("@/pages/Admin/Agents");
-          return { element: <AdminRoute Component={AdminAgents} /> };
-        },
+        path: "/settings/crypto-center",
+        element: cryptoBypassElement(AdminRoute, CryptoCenter),
       },
       {
         path: "/settings/agents/builder",
@@ -238,164 +388,12 @@ const router = createBrowserRouter([
         },
       },
       {
-        path: "/settings/event-logs",
-        lazy: async () => {
-          const { default: AdminLogs } = await import("@/pages/Admin/Logging");
-          return { element: <AdminRoute Component={AdminLogs} /> };
-        },
-      },
-      {
-        path: "/settings/crypto-center",
-        lazy: async () => {
-          const { default: CryptoCenter } = await import(
-            "@/pages/Admin/CryptoCenter"
-          );
-          return {
-            element: isCryptoCenterDevAuthBypassEnabled() ? (
-              <CryptoCenter />
-            ) : (
-              <AdminRoute Component={CryptoCenter} />
-            ),
-          };
-        },
-      },
-      {
-        path: "/settings/embed-chat-widgets",
-        lazy: async () => {
-          const { default: ChatEmbedWidgets } = await import(
-            "@/pages/GeneralSettings/ChatEmbedWidgets"
-          );
-          return { element: <AdminRoute Component={ChatEmbedWidgets} /> };
-        },
-      },
-      // Manager routes
-      {
-        path: "/settings/security",
-        lazy: async () => {
-          const { default: GeneralSecurity } = await import(
-            "@/pages/GeneralSettings/Security"
-          );
-          return { element: <ManagerRoute Component={GeneralSecurity} /> };
-        },
-      },
-      {
-        path: "/settings/privacy",
-        lazy: async () => {
-          const { default: PrivacyAndData } = await import(
-            "@/pages/GeneralSettings/PrivacyAndData"
-          );
-          return { element: <AdminRoute Component={PrivacyAndData} /> };
-        },
-      },
-      {
-        path: "/settings/interface",
-        lazy: async () => {
-          const { default: InterfaceSettings } = await import(
-            "@/pages/GeneralSettings/Settings/Interface"
-          );
-          return { element: <PrivateRoute Component={InterfaceSettings} /> };
-        },
-      },
-      {
-        path: "/settings/branding",
-        lazy: async () => {
-          const { default: BrandingSettings } = await import(
-            "@/pages/GeneralSettings/Settings/Branding"
-          );
-          return { element: <ManagerRoute Component={BrandingSettings} /> };
-        },
-      },
-      {
-        path: "/settings/button-lab",
-        lazy: async () => {
-          const { default: ButtonLab } = await import(
-            "@/pages/GeneralSettings/Settings/ButtonLab"
-          );
-          return { element: <ManagerRoute Component={ButtonLab} /> };
-        },
-      },
-      {
-        path: "/settings/mobile-page-experiment",
-        lazy: async () => {
-          const { default: MobilePageExperiment } = await import(
-            "@/pages/GeneralSettings/Settings/MobilePageExperiment"
-          );
-          return {
-            element: <DeveloperRoute Component={MobilePageExperiment} />,
-          };
-        },
-      },
-      {
-        path: "/settings/crypto-component-experiment",
-        lazy: async () => {
-          const { default: CryptoComponentExperiment } = await import(
-            "@/pages/GeneralSettings/Settings/CryptoComponentExperiment"
-          );
-          return {
-            element: isCryptoCenterDevAuthBypassEnabled() ? (
-              <CryptoComponentExperiment />
-            ) : (
-              <DeveloperRoute Component={CryptoComponentExperiment} />
-            ),
-          };
-        },
-      },
-      {
         path: "/settings/default-system-prompt",
         lazy: async () => {
           const { default: AdminLegacyRedirect } = await import(
             "@/pages/UserSettings/AccountSettings/AdminLegacyRedirect"
           );
           return { element: <AdminRoute Component={AdminLegacyRedirect} /> };
-        },
-      },
-      {
-        path: "/settings/chat",
-        lazy: async () => {
-          const { default: ChatSettings } = await import(
-            "@/pages/GeneralSettings/Settings/Chat"
-          );
-          return { element: <ManagerRoute Component={ChatSettings} /> };
-        },
-      },
-      {
-        path: "/settings/beta-features",
-        lazy: async () => {
-          const { default: ExperimentalFeatures } = await import(
-            "@/pages/Admin/ExperimentalFeatures"
-          );
-          return { element: <AdminRoute Component={ExperimentalFeatures} /> };
-        },
-      },
-      {
-        path: "/settings/api-keys",
-        lazy: async () => {
-          const { default: GeneralApiKeys } = await import(
-            "@/pages/GeneralSettings/ApiKeys"
-          );
-          return { element: <AdminRoute Component={GeneralApiKeys} /> };
-        },
-      },
-      {
-        path: "/settings/system-prompt-variables",
-        lazy: async () => {
-          const { default: SystemPromptVariables } = await import(
-            "@/pages/Admin/SystemPromptVariables"
-          );
-          return {
-            element: <AdminRoute Component={SystemPromptVariables} />,
-          };
-        },
-      },
-      {
-        path: "/settings/browser-extension",
-        lazy: async () => {
-          const { default: GeneralBrowserExtension } = await import(
-            "@/pages/GeneralSettings/BrowserExtensionApiKey"
-          );
-          return {
-            element: <ManagerRoute Component={GeneralBrowserExtension} />,
-          };
         },
       },
       {
@@ -437,124 +435,20 @@ const router = createBrowserRouter([
       // Onboarding Flow
       {
         path: "/onboarding",
-        element: <OnboardingFlow />,
+        lazy: async () => {
+          const { default: OnboardingFlow } = await import(
+            "@/pages/OnboardingFlow"
+          );
+          return { element: <OnboardingFlow /> };
+        },
       },
       {
         path: "/onboarding/:step",
-        element: <OnboardingFlow />,
-      },
-      // Experimental feature pages
-      {
-        path: "/settings/beta-features/live-document-sync/manage",
         lazy: async () => {
-          const { default: LiveDocumentSyncManage } = await import(
-            "@/pages/Admin/ExperimentalFeatures/Features/LiveSync/manage"
+          const { default: OnboardingFlow } = await import(
+            "@/pages/OnboardingFlow"
           );
-          return {
-            element: <AdminRoute Component={LiveDocumentSyncManage} />,
-          };
-        },
-      },
-      {
-        path: "/settings/community-hub/trending",
-        lazy: async () => {
-          const { default: CommunityHubTrending } = await import(
-            "@/pages/GeneralSettings/CommunityHub/Trending"
-          );
-          return { element: <AdminRoute Component={CommunityHubTrending} /> };
-        },
-      },
-      {
-        path: "/settings/community-hub/authentication",
-        lazy: async () => {
-          const { default: CommunityHubAuthentication } = await import(
-            "@/pages/GeneralSettings/CommunityHub/Authentication"
-          );
-          return {
-            element: <AdminRoute Component={CommunityHubAuthentication} />,
-          };
-        },
-      },
-      {
-        path: "/settings/community-hub/import-item",
-        lazy: async () => {
-          const { default: CommunityHubImportItem } = await import(
-            "@/pages/GeneralSettings/CommunityHub/ImportItem"
-          );
-          return {
-            element: <AdminRoute Component={CommunityHubImportItem} />,
-          };
-        },
-      },
-      {
-        path: "/settings/mobile-connections",
-        lazy: async () => {
-          const { default: MobileConnections } = await import(
-            "@/pages/GeneralSettings/MobileConnections"
-          );
-          return { element: <ManagerRoute Component={MobileConnections} /> };
-        },
-      },
-      {
-        path: "/settings/external-connections/telegram",
-        lazy: async () => {
-          const { default: TelegramBotSettings } = await import(
-            "@/pages/GeneralSettings/Connections/TelegramBot"
-          );
-          return { element: <AdminRoute Component={TelegramBotSettings} /> };
-        },
-      },
-      {
-        path: "/settings/external-connections/wechat",
-        lazy: async () => {
-          const { default: WeChatConnectorSettings } = await import(
-            "@/pages/GeneralSettings/Connections/WeChatConnector"
-          );
-          return {
-            element: <AdminRoute Component={WeChatConnectorSettings} />,
-          };
-        },
-      },
-      {
-        path: "/settings/external-connections/advanced-gateway",
-        lazy: async () => {
-          const { default: AdvancedGatewayConnectorSettings } = await import(
-            "@/pages/GeneralSettings/Connections/AdvancedGatewayConnector"
-          );
-          return {
-            element: (
-              <AdminRoute Component={AdvancedGatewayConnectorSettings} />
-            ),
-          };
-        },
-      },
-      {
-        path: "/settings/scheduled-jobs",
-        lazy: async () => {
-          const { default: ScheduledJobs } = await import(
-            "@/pages/GeneralSettings/ScheduledJobs"
-          );
-          return { element: <SingleUserRoute Component={ScheduledJobs} /> };
-        },
-      },
-      {
-        path: "/settings/scheduled-jobs/:id/runs",
-        lazy: async () => {
-          const { default: ScheduledJobRuns } = await import(
-            "@/pages/GeneralSettings/ScheduledJobs/RunHistoryPage"
-          );
-          return { element: <SingleUserRoute Component={ScheduledJobRuns} /> };
-        },
-      },
-      {
-        path: "/settings/scheduled-jobs/:id/runs/:runId",
-        lazy: async () => {
-          const { default: ScheduledJobRunDetail } = await import(
-            "@/pages/GeneralSettings/ScheduledJobs/RunDetailPage"
-          );
-          return {
-            element: <SingleUserRoute Component={ScheduledJobRunDetail} />,
-          };
+          return { element: <OnboardingFlow /> };
         },
       },
       // Catch-all route for 404s

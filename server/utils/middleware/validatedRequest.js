@@ -3,10 +3,16 @@ const { User } = require("../../models/user");
 const { EncryptionManager } = require("../EncryptionManager");
 const { decodeJWT } = require("../http");
 const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
-const { jwtIdleState } = require("../sessionIdle");
+const { jwtIdleState, sessionClientIdFromToken } = require("../sessionIdle");
 const { AuthIdentity } = require("../../models/authIdentity");
-const { attachAuthenticatedClientContext } = require("../clientIdentity");
-const { requireSignedHighRiskRequest } = require("../requestSigning");
+const {
+  attachAuthenticatedClientContext,
+  getClientRecord,
+} = require("../clientIdentity");
+const {
+  CLIENT_REVOKED_ERROR,
+  requireSignedHighRiskRequest,
+} = require("../requestSigning");
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {
@@ -136,10 +142,35 @@ async function validateMultiUserRequest(request, response, next) {
 
   const syncedUser = await AuthIdentity.ensureShadowUser(authUser);
   response.locals.user = User.filterFields(syncedUser);
-  await attachAuthenticatedClientContext({
+  const clientContext = await attachAuthenticatedClientContext({
     request,
     user: response.locals.user,
   });
+  response.locals.clientContext = clientContext;
+
+  const tokenClientId = sessionClientIdFromToken(valid);
+  if (tokenClientId) {
+    if (clientContext.legacy || clientContext.clientId !== tokenClientId) {
+      response.status(401).json({
+        error: "Session client mismatch.",
+      });
+      return;
+    }
+
+    const client = await getClientRecord({
+      userId: response.locals.user.id,
+      clientId: tokenClientId,
+      includeRevoked: true,
+    });
+    if (client?.revokedAt) {
+      response.status(403).json({
+        success: false,
+        error: CLIENT_REVOKED_ERROR,
+      });
+      return;
+    }
+  }
+
   return requireSignedHighRiskRequest(request, response, next);
 }
 

@@ -1,3 +1,9 @@
+import {
+  detectIPadLikeNavigator,
+  forcedMobilePlatform,
+  mobileRuntimeForced,
+} from "@/utils/mobileRuntime";
+
 export const ATHENA_CAPABILITY_PROFILE_HEADER = "X-Athena-Capability-Profile";
 export const ATHENA_CAPABILITY_SOURCE_HEADER = "X-Athena-Capability-Source";
 
@@ -53,6 +59,14 @@ function detectViewport(win = safeWindow()) {
 }
 
 function detectInput(win = safeWindow()) {
+  if (mobileRuntimeForced(win)) {
+    return {
+      touch: true,
+      hover: false,
+      pointer: "coarse",
+    };
+  }
+
   const nav = safeNavigator(win);
   const maxTouchPoints = finiteNumber(nav?.maxTouchPoints, 0);
   const coarsePointer =
@@ -81,8 +95,11 @@ function detectSurface(win = safeWindow()) {
     typeof win?.require === "function";
   if (isDesktopApp) return CLIENT_SURFACES.desktopApp;
 
-  const isMobileApp = !!win?.__ATHENA_MOBILE__ || !!win?.ReactNativeWebView;
-  if (isMobileApp) return CLIENT_SURFACES.mobileApp;
+  const mobileAppRuntime =
+    !!win?.__ATHENA_MOBILE__ || !!win?.ReactNativeWebView;
+  if (mobileAppRuntime) return CLIENT_SURFACES.mobileApp;
+
+  if (forcedMobilePlatform(win)) return CLIENT_SURFACES.pwa;
 
   const standalone =
     mediaMatches(win, "(display-mode: standalone)") ||
@@ -105,12 +122,40 @@ function detectCapabilities(win = safeWindow()) {
   };
 }
 
+function detectDevice(win = safeWindow()) {
+  const nav = safeNavigator(win);
+  const userAgent = nav?.userAgent || "";
+  const forcedPlatform = forcedMobilePlatform(win);
+
+  if (forcedPlatform === "android") {
+    return { formFactor: "phone", family: "android", os: "android" };
+  }
+  if (forcedPlatform === "ios") {
+    return { formFactor: "phone", family: "iphone", os: "ios" };
+  }
+  if (detectIPadLikeNavigator(win)) {
+    return { formFactor: "tablet", family: "ipad", os: "ipados" };
+  }
+  if (/iphone|ipod/i.test(userAgent)) {
+    return { formFactor: "phone", family: "iphone", os: "ios" };
+  }
+  if (/android/i.test(userAgent)) {
+    return {
+      formFactor: /mobile/i.test(userAgent) ? "phone" : "tablet",
+      family: "android",
+      os: "android",
+    };
+  }
+  return { formFactor: "desktop", family: "desktop-browser", os: "unknown" };
+}
+
 export function getClientCapabilityProfile() {
   const win = safeWindow();
   return {
     viewport: detectViewport(win),
     input: detectInput(win),
     surface: detectSurface(win),
+    device: detectDevice(win),
     capabilities: detectCapabilities(win),
   };
 }

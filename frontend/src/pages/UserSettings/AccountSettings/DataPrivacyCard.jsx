@@ -17,8 +17,7 @@ import { useNavigate } from "react-router-dom";
 import AppButton from "@/components/lib/AppButton";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import showToast from "@/utils/toast";
-import { AUTH_USER } from "@/utils/constants";
-import { removeAuthToken } from "@/utils/authTokenStorage";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import AccountSettingRow from "./AccountSettingRow";
 import AccountSettingsApi from "./accountSettingsApi";
 import { CardHeader } from "./ContactMethodsCard";
@@ -261,8 +260,7 @@ export default function DataPrivacyCard() {
     }
 
     await AccountSettingsApi.clearLocalZkDevices().catch(() => null);
-    window.localStorage.removeItem(AUTH_USER);
-    removeAuthToken();
+    clearSensitiveClientSession();
     showToast("账户已删除，已退出登录。", "success");
     navigate("/login?nt=1", { replace: true });
   }

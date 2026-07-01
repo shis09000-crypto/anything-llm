@@ -252,6 +252,46 @@ model system_settings {
   lastUpdatedAt DateTime @default(now())
 }
 
+model system_patrol_runs {
+  id            Int       @id @default(autoincrement())
+  mode          String    @default("light")
+  status        String    @default("running")
+  trigger       String    @default("manual")
+  triggeredBy   Int?
+  summaryScore  Int       @default(0)
+  summaryStatus String    @default("unknown")
+  countsJson    String    @default("{}")
+  reportJson    String    @default("{}")
+  error         String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([summaryStatus])
+}
+
+model system_patrol_repairs {
+  id          Int       @id @default(autoincrement())
+  repairId    String    @unique
+  runId       Int?
+  checkId     String
+  action      String
+  status      String    @default("previewed")
+  previewJson String    @default("{}")
+  backupPath  String?
+  confirmedBy Int?
+  resultJson  String    @default("{}")
+  error       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@index([runId])
+  @@index([repairId])
+  @@index([status])
+  @@index([action])
+}
+
 model users {
   id                           Int                           @id @default(autoincrement())
   authUserId                   Int?                          @unique
@@ -290,6 +330,7 @@ model users {
   recovery_codes               recovery_codes[]
   password_reset_tokens        password_reset_tokens[]
   email_verification_codes     email_verification_codes[]
+  email_verification_grants    email_verification_grants[]
   workspace_agent_invocations  workspace_agent_invocations[]
   slash_command_presets        slash_command_presets[]
   browser_extension_api_keys   browser_extension_api_keys[]
@@ -305,11 +346,33 @@ model users {
   workspace_mind_maps          workspace_mind_maps[]
   athena_clients               athena_clients[]
   user_state_preferences       user_state_preferences[]
+  vault_items                  vault_items[]
 
   @@index([originEnv])
   @@index([role])
   @@index([status])
   @@index([ownerType])
+}
+
+model vault_items {
+  id               Int       @id @default(autoincrement())
+  itemId           String
+  userId           Int
+  itemType         String    @default("secret")
+  label            String?
+  keyId            String
+  cryptoVersion    String
+  encryptedPayload String
+  metadataJson     String    @default("{}")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+  deletedAt        DateTime?
+  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, itemId])
+  @@index([userId, deletedAt])
+  @@index([userId, itemType])
+  @@index([updatedAt])
 }
 
 model memory_candidates {
@@ -507,6 +570,7 @@ model password_reset_tokens {
 model email_verification_codes {
   id         Int       @id @default(autoincrement())
   user_id    Int?
+  challenge_id String? @unique
   email      String
   purpose    String
   code_hash  String
@@ -514,6 +578,9 @@ model email_verification_codes {
   attempts   Int       @default(0)
   consumedAt DateTime?
   request_ip String?
+  client_id  String?
+  device_id  String?
+  session_id String?
   createdAt  DateTime  @default(now())
   user       users?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
@@ -521,6 +588,47 @@ model email_verification_codes {
   @@index([user_id, purpose])
   @@index([email, purpose])
   @@index([request_ip, createdAt])
+  @@index([client_id, purpose])
+  @@index([device_id, purpose])
+}
+
+model email_verification_grants {
+  id           Int       @id @default(autoincrement())
+  grant_id     String    @unique
+  user_id      Int
+  purpose      String
+  scope        String
+  grant_hash   String    @unique
+  challenge_id String?
+  email        String
+  client_id    String?
+  device_id    String?
+  session_id   String?
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  user         users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, scope])
+  @@index([challenge_id])
+  @@index([client_id, scope])
+  @@index([expiresAt])
+}
+
+model email_verification_rate_limits {
+  id           Int       @id @default(autoincrement())
+  bucket_hash  String    @unique
+  bucket_type  String
+  purpose      String
+  window_start DateTime
+  count        Int       @default(0)
+  blockedUntil DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now())
+
+  @@index([bucket_type, purpose])
+  @@index([blockedUntil])
+  @@index([window_start])
 }
 
 model PasskeyCredential {

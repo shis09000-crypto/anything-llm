@@ -445,8 +445,11 @@ const SystemSettings = {
     },
     meta_page_favicon: (faviconUrl) => {
       if (!faviconUrl) return null;
+      const value = String(faviconUrl).trim();
+      if (value.startsWith("/") && !value.startsWith("//")) return value;
       try {
-        const url = new URL(faviconUrl);
+        const url = new URL(value);
+        if (url.hostname === "116.204.132.44") return "/athena-mark.svg";
         return url.toString();
       } catch {
         return null;

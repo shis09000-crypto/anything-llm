@@ -58,7 +58,12 @@ export function resolveApiBase(configuredBase = "/api") {
   return configuredBase;
 }
 
-export const API_BASE = resolveApiBase(import.meta.env.VITE_API_BASE || "/api");
+const devProxyTarget = import.meta.env?.VITE_DEV_API_PROXY_TARGET;
+const configuredApiBase = import.meta.env.VITE_API_BASE || "/api";
+
+export const API_BASE = resolveApiBase(
+  import.meta.env.DEV && devProxyTarget ? "/api" : configuredApiBase
+);
 export const ONBOARDING_SURVEY_URL = "https://onboarding.anythingllm.com";
 
 export const AUTH_USER = "anythingllm_user";

@@ -7,9 +7,20 @@ const clientCapabilityProfileUrl = new URL(
   "./clientCapabilityProfile.js",
   import.meta.url
 );
+const mobileRuntimeUrl = new URL(
+  "../../utils/mobileRuntime.js",
+  import.meta.url
+);
 
 async function loadClientCapabilityProfile() {
-  const source = await readFile(clientCapabilityProfileUrl, "utf8");
+  const mobileRuntimeSource = await readFile(mobileRuntimeUrl, "utf8");
+  globalThis.__clientCapabilityProfileTestMobileRuntime = await import(
+    `data:text/javascript;base64,${Buffer.from(mobileRuntimeSource).toString("base64")}#mobile-runtime-${Date.now()}-${Math.random()}`
+  );
+  const source = (await readFile(clientCapabilityProfileUrl, "utf8")).replace(
+    /import\s+\{[\s\S]*?\}\s+from\s+"@\/utils\/mobileRuntime";/,
+    "const { detectIPadLikeNavigator, forcedMobilePlatform, mobileRuntimeForced } = globalThis.__clientCapabilityProfileTestMobileRuntime;"
+  );
   return import(
     `data:text/javascript;base64,${Buffer.from(source).toString("base64")}#${Date.now()}-${Math.random()}`
   );
@@ -51,6 +62,11 @@ test("getClientCapabilityProfile detects viewport, input, surface, and APIs", as
       pointer: "coarse",
     });
     assert.equal(profile.surface, "pwa");
+    assert.deepEqual(profile.device, {
+      formFactor: "desktop",
+      family: "desktop-browser",
+      os: "unknown",
+    });
     assert.deepEqual(profile.capabilities, {
       camera: true,
       microphone: true,
@@ -78,7 +94,47 @@ test("getClientCapabilityProfile has SSR-safe fallbacks", async () => {
     });
     assert.equal(profile.input.pointer, "none");
     assert.equal(profile.surface, "browser");
+    assert.deepEqual(profile.device, {
+      formFactor: "desktop",
+      family: "desktop-browser",
+      os: "unknown",
+    });
     assert.equal(profile.capabilities.clipboard, false);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test("getClientCapabilityProfile identifies iPad as tablet device", async () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    innerWidth: 820,
+    innerHeight: 1180,
+    devicePixelRatio: 2,
+    matchMedia: (query) => ({
+      matches:
+        query.includes("pointer: coarse") ||
+        query.includes("any-pointer: coarse"),
+    }),
+    document: { createElement: () => ({}) },
+    navigator: {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+    },
+  };
+
+  try {
+    const mod = await loadClientCapabilityProfile();
+    const profile = mod.getClientCapabilityProfile();
+    assert.deepEqual(profile.device, {
+      formFactor: "tablet",
+      family: "ipad",
+      os: "ipados",
+    });
+    assert.equal(profile.surface, "browser");
+    assert.equal(profile.input.touch, true);
   } finally {
     globalThis.window = originalWindow;
   }

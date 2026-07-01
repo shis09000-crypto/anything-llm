@@ -18,6 +18,7 @@ class BackgroundService {
   #scheduledJobQueue = new PQueue({
     concurrency: Number(process.env.SCHEDULED_JOB_MAX_CONCURRENT) || 1,
   });
+  #cryptoHubBackgroundRuntime = null;
   // Tracks in-flight worker processes per scheduled jobId so we can kill any
   // active runs when the job is deleted. Without this, a running worker
   // outlives the cascade-delete of its scheduled_job_runs row and throws when
@@ -49,6 +50,11 @@ class BackgroundService {
       name: "thread-title-refresh",
       timeout: "20m",
       interval: process.env.THREAD_TITLE_REFRESH_INTERVAL || "14d",
+    },
+    {
+      name: "system-patrol",
+      timeout: "2m",
+      interval: process.env.SYSTEM_PATROL_INTERVAL || "15m",
     },
   ];
 
@@ -133,12 +139,50 @@ class BackgroundService {
     if (process.env.NODE_ENV !== "test") this.graceful.listen();
 
     this.bree.start();
+    this.bree.run("system-patrol").catch((error) => {
+      this.logger.warn(
+        `Failed to run startup system patrol: ${error.message}`,
+        {
+          service: "bg-worker",
+          origin: "system-patrol",
+        }
+      );
+    });
     this.#log(
       `Service started with ${jobsToRun.length} jobs`,
       jobsToRun.map((j) => j.name)
     );
 
     await this.#bootScheduledJobs();
+    void this.#startCryptoHubBackgroundRuntime();
+  }
+
+  async #startCryptoHubBackgroundRuntime() {
+    try {
+      const {
+        startCryptoHubBackgroundRuntime,
+      } = require("../cryptoHub/backgroundRuntime");
+      const runtime = await startCryptoHubBackgroundRuntime({
+        logger: this.logger,
+      });
+      this.#cryptoHubBackgroundRuntime = runtime;
+
+      if (runtime?.started) {
+        this.#log("Crypto Hub background equity refresh started.");
+      } else if (runtime?.skipped) {
+        this.#log(
+          `Crypto Hub background equity refresh skipped: ${runtime.reason}`
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Failed to start Crypto Hub background equity refresh: ${error.message}`,
+        {
+          service: "bg-worker",
+          origin: "crypto-hub-background",
+        }
+      );
+    }
   }
 
   /**
@@ -154,6 +198,21 @@ class BackgroundService {
 
   async stop() {
     this.#log("Stopping...");
+    if (this.#cryptoHubBackgroundRuntime?.started) {
+      try {
+        const { cryptoDataHub } = require("../cryptoHub");
+        cryptoDataHub.stopBackgroundRefresh();
+      } catch (error) {
+        this.logger.warn(
+          `Failed to stop Crypto Hub background equity refresh: ${error.message}`,
+          {
+            service: "bg-worker",
+            origin: "crypto-hub-background",
+          }
+        );
+      }
+      this.#cryptoHubBackgroundRuntime = null;
+    }
     this.#cleanupScheduledJobs();
     if (!!this.graceful && !!this.bree) this.graceful.stopBree(this.bree, 0);
     this.bree = null;

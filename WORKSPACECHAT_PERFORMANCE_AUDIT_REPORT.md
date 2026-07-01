@@ -1,6 +1,6 @@
 # WorkspaceChat Performance Audit Report
 
-Generated: 2026-05-26T11:58:03.138Z
+Generated: 2026-07-01T09:09:59.637Z
 
 ## Summary
 
@@ -10,11 +10,11 @@ This report compares a deterministic local stress baseline that models the previ
 
 | Metric | Unit | Baseline | Optimized | Improvement |
 | --- | ---: | ---: | ---: | ---: |
-| Thread shell | ms | 1.19 | 0.06 | 95.2% |
-| First visible messages | ms | 1.19 | 0.08 | 93.6% |
-| Route switch latency | ms | 1.19 | 0.08 | 93.6% |
-| Message merge latency | ms | 0.56 | 0.06 | 89.7% |
-| Longest task | ms | 0.63 | 0.06 | 90.9% |
+| Thread shell | ms | 0.82 | 0.04 | 95.5% |
+| First visible messages | ms | 0.82 | 0.05 | 94.2% |
+| Route switch latency | ms | 0.82 | 0.05 | 94.2% |
+| Message merge latency | ms | 0.42 | 0.04 | 91.2% |
+| Longest task | ms | 0.42 | 0.04 | 91.2% |
 | Render count under stream | renders | 480000.00 | 24.00 | 100.0% |
 | Mounted message DOM nodes | nodes | 2000.00 | 40.00 | 98.0% |
 

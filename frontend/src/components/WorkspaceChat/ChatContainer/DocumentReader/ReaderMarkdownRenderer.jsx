@@ -366,7 +366,7 @@ export default function ReaderMarkdownRenderer({
               background: rgba(253, 224, 71, 0.52);
             }
             .reader-docx-html-fallback {
-              font-family: "Times New Roman", "Songti SC", "SimSun", serif;
+              font-family: var(--athena-font-serif-cjk, "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", SimSun, "Songti SC", STSong, serif);
               font-size: 15px;
               line-height: 1.72;
               color: #111827;

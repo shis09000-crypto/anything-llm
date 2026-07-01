@@ -3,14 +3,18 @@ import { default as WorkspaceChatContainer } from "@/components/WorkspaceChat";
 import Sidebar from "@/components/Sidebar";
 import { useParams } from "react-router-dom";
 import Workspace from "@/models/workspace";
-import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
-import { isMobile } from "react-device-detect";
+import PasswordModal, {
+  AuthBootstrapError,
+  usePasswordModal,
+} from "@/components/Modals/Password";
 import { FullScreenLoader } from "@/components/Preloader";
 import { warmWorkspaceChat } from "@/utils/chat/workspaceChatPrefetch";
 import { rememberLastVisitedWorkspace } from "@/utils/lastVisitedWorkspace";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { ChatThreadDraftProviderBoundary } from "@/contexts/ChatThreadDraftProvider";
-import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { mobileRuntimeActive } from "@/utils/mobileRuntime";
 
 const MobileWebPwa = React.lazy(() =>
   import("@/components/MobileWeb").then((module) => ({
@@ -35,16 +39,33 @@ function debugWorkspaceSwitchFlicker(label, payload = {}) {
   console.debug("[workspace-switch-flicker]", label, payload);
 }
 
+function delayUnlessAborted(ms, signal) {
+  if (signal?.aborted)
+    return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timeout);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+
 export default function WorkspaceChat() {
-  const { loading, requiresAuth, mode } = usePasswordModal();
+  const { loading, requiresAuth, mode, error } = usePasswordModal();
   const { slug, threadSlug = null } = useParams();
 
   if (loading) return <FullScreenLoader />;
+  if (error) return <AuthBootstrapError message={error} />;
   if (requiresAuth !== false) {
     return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
   }
 
-  if (isMobile) {
+  if (mobileRuntimeActive()) {
     return (
       <React.Suspense fallback={<FullScreenLoader />}>
         <MobileWebPwa
@@ -57,12 +78,10 @@ export default function WorkspaceChat() {
 
   return (
     <ChatThreadDraftProviderBoundary>
-      <SyncCenterProvider>
-        <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-          {!isMobile && <Sidebar />}
-          <ShowWorkspaceChat />
-        </div>
-      </SyncCenterProvider>
+      <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+        <Sidebar />
+        <ShowWorkspaceChat />
+      </div>
     </ChatThreadDraftProviderBoundary>
   );
 }
@@ -77,6 +96,7 @@ function ShowWorkspaceChat() {
   // (Slack/Linear-style transition) instead of flashing a skeleton.
   const [loadedSlug, setLoadedSlug] = useState(null);
   const workspaceFetchSeqRef = useRef(0);
+  const workspaceFetchAbortRef = useRef(null);
   const workspaceRef = useRef(workspace);
   const loadedSlugRef = useRef(loadedSlug);
 
@@ -102,8 +122,41 @@ function ShowWorkspaceChat() {
   useEffect(() => {
     const seq = workspaceFetchSeqRef.current + 1;
     workspaceFetchSeqRef.current = seq;
+    workspaceFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    workspaceFetchAbortRef.current = controller;
     const startedAt = performance.now();
     const retainedWorkspaceSlug = workspaceRef.current?.slug || null;
+    const isCurrent = () =>
+      !controller.signal.aborted && workspaceFetchSeqRef.current === seq;
+    const freshCachedWorkspace = workspaceNavigationCache.getWorkspaceDetail(
+      slug,
+      { allowStale: false }
+    );
+    if (freshCachedWorkspace) {
+      workspaceNavigationCache.debug("workspace-detail:hit", {
+        targetSlug: slug,
+        ...workspaceNavigationCache.getWorkspaceDetailMeta(slug),
+      });
+      setWorkspace(freshCachedWorkspace);
+      setLoadedSlug(slug);
+      warmWorkspaceChat(slug);
+      return () => {
+        controller.abort();
+      };
+    }
+
+    const staleCachedWorkspace =
+      workspaceNavigationCache.getWorkspaceDetail(slug);
+    if (staleCachedWorkspace) {
+      workspaceNavigationCache.debug("workspace-detail:stale", {
+        targetSlug: slug,
+        ...workspaceNavigationCache.getWorkspaceDetailMeta(slug),
+      });
+      setWorkspace(staleCachedWorkspace);
+      setLoadedSlug(slug);
+    }
+
     debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStart", {
       seq,
       targetSlug: slug,
@@ -117,9 +170,21 @@ function ShowWorkspaceChat() {
       if (!slug) return;
       let _workspace = null;
       try {
-        _workspace = await Workspace.bySlug(slug);
+        _workspace = await workspaceNavigationCache.runInFlight(
+          `workspace-detail:${slug}`,
+          () =>
+            requestPriorityQueue.schedule(
+              () => Workspace.bySlug(slug, { signal: controller.signal }),
+              {
+                priority: staleCachedWorkspace ? "P3" : "P0",
+                label: "workspacechat:workspace-detail",
+                signal: controller.signal,
+                dedupeKey: `workspace-detail:${slug}`,
+              }
+            )
+        );
       } catch (error) {
-        if (workspaceFetchSeqRef.current !== seq) {
+        if (error?.name === "AbortError" || !isCurrent()) {
           debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStale", {
             seq,
             targetSlug: slug,
@@ -136,12 +201,16 @@ function ShowWorkspaceChat() {
           retainedWorkspaceSlug,
         });
         console.error(error);
+        if (staleCachedWorkspace) {
+          setLoadedSlug(slug);
+          return;
+        }
         setWorkspace(null);
         setLoadedSlug(slug);
         return;
       }
 
-      if (workspaceFetchSeqRef.current !== seq) {
+      if (!isCurrent()) {
         debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStale", {
           seq,
           targetSlug: slug,
@@ -160,37 +229,10 @@ function ShowWorkspaceChat() {
           reason: "not-found",
           retainedWorkspaceSlug,
         });
-        setWorkspace(null);
-        setLoadedSlug(slug);
-        return;
-      }
-
-      let suggestedMessages = [];
-      let showAgentCommand = false;
-      try {
-        [suggestedMessages, { showAgentCommand }] = await Promise.all([
-          Workspace.getSuggestedMessages(slug),
-          Workspace.agentCommandAvailable(slug),
-        ]);
-      } catch (error) {
-        if (workspaceFetchSeqRef.current !== seq) {
-          debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStale", {
-            seq,
-            targetSlug: slug,
-            durationMs: Math.round(performance.now() - startedAt),
-            reason: "workspace-extras-failed-after-newer-request",
-          });
+        if (staleCachedWorkspace) {
+          setLoadedSlug(slug);
           return;
         }
-        debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchFailed", {
-          seq,
-          targetSlug: slug,
-          durationMs: Math.round(performance.now() - startedAt),
-          message: error?.message || String(error),
-          reason: "workspace-extras-failed",
-          retainedWorkspaceSlug,
-        });
-        console.error(error);
         setWorkspace(null);
         setLoadedSlug(slug);
         return;
@@ -198,11 +240,17 @@ function ShowWorkspaceChat() {
 
       const nextWorkspace = {
         ..._workspace,
-        suggestedMessages,
-        showAgentCommand,
+        suggestedMessages:
+          _workspace.suggestedMessages ||
+          staleCachedWorkspace?.suggestedMessages ||
+          [],
+        showAgentCommand:
+          _workspace.showAgentCommand ??
+          staleCachedWorkspace?.showAgentCommand ??
+          true,
       };
 
-      if (workspaceFetchSeqRef.current !== seq) {
+      if (!isCurrent()) {
         debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStale", {
           seq,
           targetSlug: slug,
@@ -215,6 +263,7 @@ function ShowWorkspaceChat() {
 
       setWorkspace(nextWorkspace);
       setLoadedSlug(slug);
+      workspaceNavigationCache.setWorkspaceDetail(slug, nextWorkspace);
       warmWorkspaceChat(_workspace.slug);
       debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchLoaded", {
         seq,
@@ -225,11 +274,56 @@ function ShowWorkspaceChat() {
         retainedUntilReady:
           !!retainedWorkspaceSlug &&
           retainedWorkspaceSlug !== nextWorkspace.slug,
-        suggestedMessageCount: suggestedMessages?.length || 0,
-        showAgentCommand,
+        suggestedMessageCount: nextWorkspace.suggestedMessages?.length || 0,
+        showAgentCommand: nextWorkspace.showAgentCommand,
       });
+
+      requestPriorityQueue
+        .schedule(
+          async () => {
+            await delayUnlessAborted(5_500, controller.signal);
+            return workspaceNavigationCache.runInFlight(
+              `workspace-detail-extras:${slug}`,
+              () =>
+                Promise.all([
+                  Workspace.getSuggestedMessages(slug, {
+                    signal: controller.signal,
+                  }),
+                  Workspace.agentCommandAvailable(slug, {
+                    signal: controller.signal,
+                  }),
+                ])
+            );
+          },
+          {
+            priority: "P4",
+            label: "workspacechat:workspace-extras",
+            signal: controller.signal,
+            dedupeKey: `workspace-detail-extras:${slug}`,
+          }
+        )
+        .then(([suggestedMessages, { showAgentCommand } = {}] = []) => {
+          if (!isCurrent()) return;
+          setWorkspace((current) => {
+            if (current?.slug !== slug) return current;
+            const updated = {
+              ...current,
+              suggestedMessages: suggestedMessages || [],
+              showAgentCommand: showAgentCommand ?? true,
+            };
+            workspaceNavigationCache.setWorkspaceDetail(slug, updated);
+            return updated;
+          });
+        })
+        .catch((error) => {
+          if (error?.name === "AbortError" || !isCurrent()) return;
+          console.error(error);
+        });
     }
     getWorkspace();
+    return () => {
+      controller.abort();
+    };
   }, [slug]);
 
   useEffect(() => {

@@ -1,7 +1,9 @@
+import { lazy, Suspense } from "react";
 import { useTTSProvider } from "@/components/contexts/TTSProvider";
 import NativeTTSMessage from "./native";
 import AsyncTTSMessage from "./asyncTts";
-import PiperTTSMessage from "./piperTTS";
+
+const PiperTTSMessage = lazy(() => import("./piperTTS"));
 
 function WrapTTS({ children }) {
   return <div className="mx-2">{children}</div>;
@@ -29,11 +31,13 @@ export default function TTSMessage({
     case "piper_local":
       return (
         <WrapTTS>
-          <PiperTTSMessage
-            chatId={chatId}
-            voiceId={settings?.TTSPiperTTSVoiceModel}
-            message={message}
-          />
+          <Suspense fallback={null}>
+            <PiperTTSMessage
+              chatId={chatId}
+              voiceId={settings?.TTSPiperTTSVoiceModel}
+              message={message}
+            />
+          </Suspense>
         </WrapTTS>
       );
     default:

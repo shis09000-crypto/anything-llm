@@ -25,6 +25,7 @@ const {
   isAllowedUserActionReason,
   issueUserSessionToken,
   jwtIdleState,
+  sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
@@ -32,6 +33,7 @@ const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const { getClientContext } = require("../utils/clientIdentity");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -76,7 +78,10 @@ const {
   resetPassword,
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
-const { EmailVerificationCode } = require("../models/emailVerification");
+const {
+  EmailVerificationCode,
+  EmailVerificationRateLimit,
+} = require("../models/emailVerification");
 
 const SETTINGS_BOOTSTRAP_MATCHERS = {
   llm: [
@@ -295,10 +300,25 @@ function requestLanguage(request = {}) {
   return primary.split("-")[0] || "en";
 }
 
+function emailSecurityContext(request = {}, clientContext = null) {
+  const platform = clientContext?.platform || "";
+  const device =
+    clientContext?.surface ||
+    clientContext?.layoutMode ||
+    (platform ? `${platform} client` : "");
+  return {
+    device,
+    platform,
+    ip: request?.ip || "Unknown IP",
+    time: new Date().toISOString(),
+    requestId: clientContext?.requestId || "",
+  };
+}
+
 const REGISTER_PURPOSE = "register";
+const REGISTER_RATE_LIMIT_PURPOSE = "public_register";
 const REGISTER_GENERIC_ERROR = "无法完成注册，请检查信息后重试。";
-const REGISTER_EMAIL_EXISTS_ERROR = "该邮箱已注册，请直接登录或找回密码。";
-const REGISTER_CODE_SENT = "验证码已发送，请检查邮箱。";
+const REGISTER_CODE_SENT = "如果该邮箱可以注册，验证码已发送，请检查邮箱。";
 const REGISTER_RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
 const REGISTER_IP_HOURLY_LIMIT = Number(
   process.env.PUBLIC_REGISTRATION_IP_HOURLY_LIMIT || 20
@@ -342,24 +362,59 @@ function rateLimited(bucketKey, limit) {
   return false;
 }
 
-function registerRateLimited({ ip = "", email = "", username = "" }) {
+async function durableRegisterRateLimited({
+  bucketType,
+  value,
+  limit,
+  fallbackKey,
+}) {
+  if (!value) return false;
+  try {
+    return await EmailVerificationRateLimit.hit({
+      bucketType,
+      purpose: REGISTER_RATE_LIMIT_PURPOSE,
+      value,
+      limit,
+      windowMs: REGISTER_RATE_LIMIT_WINDOW_MS,
+    });
+  } catch (error) {
+    console.warn(
+      "PUBLIC REGISTRATION RATE LIMIT FALLING BACK TO MEMORY.",
+      error?.code || error?.name || "UnknownRateLimitError"
+    );
+    return rateLimited(fallbackKey, limit);
+  }
+}
+
+async function registerRateLimited({ ip = "", email = "", username = "" }) {
   const safeIp = String(ip || "unknown").slice(0, 128);
-  if (rateLimited(`register:ip:${safeIp}`, REGISTER_IP_HOURLY_LIMIT))
+  if (
+    await durableRegisterRateLimited({
+      bucketType: "ip",
+      value: safeIp,
+      limit: REGISTER_IP_HOURLY_LIMIT,
+      fallbackKey: `register:ip:${safeIp}`,
+    })
+  )
     return true;
   if (
     email &&
-    rateLimited(
-      `register:email:${normalizeEmail(email)}`,
-      REGISTER_EMAIL_HOURLY_LIMIT
-    )
+    (await durableRegisterRateLimited({
+      bucketType: "email",
+      value: normalizeEmail(email),
+      limit: REGISTER_EMAIL_HOURLY_LIMIT,
+      fallbackKey: `register:email:${normalizeEmail(email)}`,
+    }))
   )
     return true;
   if (
     username &&
-    rateLimited(
-      `register:username:${String(username).trim().toLowerCase()}`,
-      REGISTER_USERNAME_HOURLY_LIMIT
-    )
+    (await durableRegisterRateLimited({
+      bucketType: "username",
+      value: String(username).trim().toLowerCase(),
+      limit: REGISTER_USERNAME_HOURLY_LIMIT,
+      fallbackKey: `register:username:${String(username).trim().toLowerCase()}`,
+    }))
   )
     return true;
   return false;
@@ -369,17 +424,17 @@ function codeIsSixDigits(code = "") {
   return /^\d{6}$/.test(String(code || ""));
 }
 
+function verificationClientMatches(verification = null, clientContext = null) {
+  if (!verification?.client_id) return true;
+  const clientId = String(clientContext?.clientId || "").trim();
+  if (!clientId || clientId === "legacy") return true;
+  return verification.client_id === clientId;
+}
+
 function genericRegisterFailure(response) {
   return response.status(400).json({
     success: false,
     error: REGISTER_GENERIC_ERROR,
-  });
-}
-
-function registrationEmailExists(response) {
-  return response.status(409).json({
-    success: false,
-    error: REGISTER_EMAIL_EXISTS_ERROR,
   });
 }
 
@@ -476,7 +531,7 @@ function systemEndpoints(app) {
       const normalizedEmail = normalizeEmail(email);
 
       if (
-        registerRateLimited({
+        await registerRateLimited({
           ip: request.ip,
           email: normalizedEmail,
         })
@@ -497,18 +552,15 @@ function systemEndpoints(app) {
         return;
       }
 
-      const existing = await AuthIdentity.identityExists({
-        email: normalizedEmail,
-      });
-      if (existing) return registrationEmailExists(response);
-
       response.status(200).json({
         success: true,
         email: normalizedEmail,
       });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+      response
+        .status(500)
+        .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
 
@@ -524,10 +576,11 @@ function systemEndpoints(app) {
         resendCooldownSeconds: Math.ceil(
           EmailVerificationCode.resendCooldownMs / 1000
         ),
+        challengeId: v4(),
       };
 
       if (
-        registerRateLimited({
+        await registerRateLimited({
           ip: request.ip,
           email: normalizedEmail,
         })
@@ -555,7 +608,15 @@ function systemEndpoints(app) {
       const existing = await AuthIdentity.identityExists({
         email: normalizedEmail,
       });
-      if (existing) return registrationEmailExists(response);
+      if (existing) {
+        await EventLogs.logEvent("register_code_suppressed", {
+          reason: "duplicate_identity",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        response.status(200).json(generic);
+        return;
+      }
 
       if (!emailSmtpConfigured()) {
         response.status(503).json({
@@ -576,11 +637,15 @@ function systemEndpoints(app) {
         Date.now() - new Date(latest.createdAt).getTime() <
           EmailVerificationCode.resendCooldownMs
       ) {
-        response.status(200).json(generic);
+        response.status(200).json({
+          ...generic,
+          challengeId: latest.challenge_id || generic.challengeId,
+        });
         return;
       }
 
       const code = sixDigitCode();
+      const clientContext = getClientContext(request);
       await EmailVerificationCode.expireOpenCodes({
         userId: null,
         email: normalizedEmail,
@@ -592,6 +657,10 @@ function systemEndpoints(app) {
         purpose: REGISTER_PURPOSE,
         code,
         requestIp: request.ip || "Unknown IP",
+        clientId:
+          clientContext.clientId !== "legacy" ? clientContext.clientId : null,
+        deviceId:
+          clientContext.clientId !== "legacy" ? clientContext.clientId : null,
       });
       if (error) {
         response.status(500).json({
@@ -607,6 +676,7 @@ function systemEndpoints(app) {
           code,
           purpose: REGISTER_PURPOSE,
           language: requestLanguage(request),
+          securityContext: emailSecurityContext(request, clientContext),
         });
       } catch (error) {
         await EmailVerificationCode.consume(verification.id);
@@ -618,10 +688,15 @@ function systemEndpoints(app) {
         return;
       }
 
-      response.status(200).json(generic);
+      response.status(200).json({
+        ...generic,
+        challengeId: verification.challenge_id || generic.challengeId,
+      });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+      response
+        .status(500)
+        .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
 
@@ -629,11 +704,11 @@ function systemEndpoints(app) {
     try {
       if (!(await publicRegistrationAvailable(response))) return;
 
-      const { email, code } = reqBody(request);
+      const { email, code, challengeId } = reqBody(request);
       const normalizedEmail = normalizeEmail(email);
 
       if (
-        registerRateLimited({
+        await registerRateLimited({
           ip: request.ip,
           email: normalizedEmail,
         })
@@ -653,16 +728,32 @@ function systemEndpoints(app) {
       const existing = await AuthIdentity.identityExists({
         email: normalizedEmail,
       });
-      if (existing) return registrationEmailExists(response);
+      if (existing) {
+        await EventLogs.logEvent("register_failed", {
+          reason: "duplicate_identity",
+          email: maskedEmail(normalizedEmail),
+          ip: request.ip || "Unknown IP",
+        });
+        return genericRegisterFailure(response);
+      }
 
-      const verification = await EmailVerificationCode.latest({
-        userId: null,
-        email: normalizedEmail,
-        purpose: REGISTER_PURPOSE,
-      });
+      const verification = challengeId
+        ? await EmailVerificationCode.findByChallenge({
+            challengeId,
+            userId: null,
+            email: normalizedEmail,
+            purpose: REGISTER_PURPOSE,
+          })
+        : await EmailVerificationCode.latest({
+            userId: null,
+            email: normalizedEmail,
+            purpose: REGISTER_PURPOSE,
+          });
+      const clientContext = getClientContext(request);
 
       if (
         !verification ||
+        !verificationClientMatches(verification, clientContext) ||
         verification.consumedAt ||
         verification.expiresAt < new Date() ||
         verification.attempts >= EmailVerificationCode.maxAttempts
@@ -675,8 +766,9 @@ function systemEndpoints(app) {
         return genericRegisterFailure(response);
       }
 
-      const bcrypt = require("bcryptjs");
-      if (!bcrypt.compareSync(String(code), verification.code_hash)) {
+      if (
+        !EmailVerificationCode.verifyCode(String(code), verification.code_hash)
+      ) {
         await EmailVerificationCode.incrementAttempts(verification.id);
         await EventLogs.logEvent("register_failed", {
           reason: "code_mismatch",
@@ -689,10 +781,13 @@ function systemEndpoints(app) {
       response.status(200).json({
         success: true,
         email: normalizedEmail,
+        challengeId: verification.challenge_id || null,
       });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+      response
+        .status(500)
+        .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
 
@@ -700,13 +795,13 @@ function systemEndpoints(app) {
     try {
       if (!(await publicRegistrationAvailable(response))) return;
 
-      const { email, code, username, password, confirmPassword } =
+      const { email, code, challengeId, username, password, confirmPassword } =
         reqBody(request);
       const normalizedEmail = normalizeEmail(email);
       const normalizedUsername = String(username || "").trim();
 
       if (
-        registerRateLimited({
+        await registerRateLimited({
           ip: request.ip,
           email: normalizedEmail,
           username: normalizedUsername,
@@ -744,16 +839,25 @@ function systemEndpoints(app) {
           email: maskedEmail(normalizedEmail),
           ip: request.ip || "Unknown IP",
         });
-        return registrationEmailExists(response);
+        return genericRegisterFailure(response);
       }
 
-      const verification = await EmailVerificationCode.latest({
-        userId: null,
-        email: normalizedEmail,
-        purpose: REGISTER_PURPOSE,
-      });
+      const verification = challengeId
+        ? await EmailVerificationCode.findByChallenge({
+            challengeId,
+            userId: null,
+            email: normalizedEmail,
+            purpose: REGISTER_PURPOSE,
+          })
+        : await EmailVerificationCode.latest({
+            userId: null,
+            email: normalizedEmail,
+            purpose: REGISTER_PURPOSE,
+          });
+      const clientContext = getClientContext(request);
       if (
         !verification ||
+        !verificationClientMatches(verification, clientContext) ||
         verification.consumedAt ||
         verification.expiresAt < new Date() ||
         verification.attempts >= EmailVerificationCode.maxAttempts
@@ -767,8 +871,9 @@ function systemEndpoints(app) {
         return genericRegisterFailure(response);
       }
 
-      const bcrypt = require("bcryptjs");
-      if (!bcrypt.compareSync(String(code), verification.code_hash)) {
+      if (
+        !EmailVerificationCode.verifyCode(String(code), verification.code_hash)
+      ) {
         await EmailVerificationCode.incrementAttempts(verification.id);
         await EventLogs.logEvent("register_failed", {
           reason: "code_mismatch",
@@ -845,8 +950,12 @@ function systemEndpoints(app) {
       const authUser = user.authUserId
         ? await AuthIdentity.findById(user.authUserId)
         : null;
-      const sessionToken = await AuthIdentity.canLoginInCurrentEnvAsync(authUser)
-        ? issueUserSessionToken(user)
+      const sessionToken = (await AuthIdentity.canLoginInCurrentEnvAsync(
+        authUser
+      ))
+        ? issueUserSessionToken(user, {
+            ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+          })
         : null;
       response.status(200).json({
         success: true,
@@ -858,15 +967,26 @@ function systemEndpoints(app) {
       });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({ success: false, error: REGISTER_GENERIC_ERROR });
+      response
+        .status(500)
+        .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
 
   app.get("/system/environment", async (_, response) => {
     try {
-      response
-        .status(200)
-        .json({ success: true, environment: diagnosticSummary() });
+      const summary = diagnosticSummary();
+      response.status(200).json({
+        success: true,
+        environment: {
+          appEnv: summary.appEnv,
+          nodeEnv: summary.nodeEnv,
+          vectorStore: {
+            provider: summary.vectorStore.provider,
+            namespacePrefix: summary.vectorStore.namespacePrefix,
+          },
+        },
+      });
     } catch (e) {
       console.error(e.message, e);
       response.status(500).json({ success: false, error: e.message });
@@ -1102,7 +1222,13 @@ function systemEndpoints(app) {
         const nextState = jwtIdleState({ lastUserActionAt });
         const nextToken = throttled
           ? null
-          : issueUserSessionToken(user, lastUserActionAt);
+          : issueUserSessionToken(user, {
+              lastUserActionAt,
+              ...sessionTokenOptionsFromClientContext(
+                getClientContext(request),
+                currentState
+              ),
+            });
 
         response.status(200).json({
           success: true,
@@ -1183,7 +1309,8 @@ function systemEndpoints(app) {
 
         const { identifier, username, password } = reqBody(request);
         const loginIdentifier = String(identifier || username || "").trim();
-        const authUser = await AuthIdentity.findByLoginIdentifier(loginIdentifier);
+        const authUser =
+          await AuthIdentity.findByLoginIdentifier(loginIdentifier);
 
         if (!authUser) {
           await EventLogs.logEvent(
@@ -1203,7 +1330,27 @@ function systemEndpoints(app) {
           return;
         }
 
-        if (!bcrypt.compareSync(String(password), authUser.password)) {
+        let verifiedAuthUser = authUser;
+        if (!bcrypt.compareSync(String(password), verifiedAuthUser.password)) {
+          const repaired = await AuthIdentity.repairPasswordFromLocalShadow(
+            verifiedAuthUser,
+            password
+          );
+          if (repaired?.authUser) {
+            verifiedAuthUser = repaired.authUser;
+            await EventLogs.logEvent(
+              "login_password_hash_repaired",
+              {
+                ip: request.ip || "Unknown IP",
+                username: loginIdentifier || "Unknown user",
+                repairedFromEnv: repaired.repairedFromEnv,
+              },
+              null
+            );
+          }
+        }
+
+        if (!bcrypt.compareSync(String(password), verifiedAuthUser.password)) {
           await EventLogs.logEvent(
             "failed_login_invalid_password",
             {
@@ -1221,7 +1368,10 @@ function systemEndpoints(app) {
           return;
         }
 
-        if (authUser.suspended || authUser.status === "disabled") {
+        if (
+          verifiedAuthUser.suspended ||
+          verifiedAuthUser.status === "disabled"
+        ) {
           await EventLogs.logEvent(
             "failed_login_account_suspended",
             {
@@ -1239,7 +1389,7 @@ function systemEndpoints(app) {
           return;
         }
 
-        if (!(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
+        if (!(await AuthIdentity.canLoginInCurrentEnvAsync(verifiedAuthUser))) {
           await EventLogs.logEvent(
             "failed_login_invalid_environment",
             {
@@ -1257,7 +1407,8 @@ function systemEndpoints(app) {
           return;
         }
 
-        const existingUser = await AuthIdentity.ensureShadowUser(authUser);
+        const existingUser =
+          await AuthIdentity.ensureShadowUser(verifiedAuthUser);
         if (!existingUser) {
           response.status(200).json({
             user: null,
@@ -1285,7 +1436,9 @@ function systemEndpoints(app) {
 
         // Generate a session token for the user then check if they have seen the recovery codes
         // and if not, generate recovery codes and return them to the frontend.
-        const sessionToken = issueUserSessionToken(existingUser);
+        const sessionToken = issueUserSessionToken(existingUser, {
+          ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+        });
         if (!existingUser.seen_recovery_codes) {
           const plainTextCodes = await generateRecoveryCodes(existingUser.id);
           response.status(200).json({
@@ -1351,7 +1504,9 @@ function systemEndpoints(app) {
     async (request, response) => {
       const { token: tempAuthToken } = request.query;
       const { sessionToken, token, error } =
-        await TemporaryAuthToken.validate(tempAuthToken);
+        await TemporaryAuthToken.validate(tempAuthToken, {
+          clientContext: getClientContext(request),
+        });
 
       if (error) {
         await EventLogs.logEvent("failed_login_invalid_temporary_auth_token", {
@@ -1424,6 +1579,7 @@ function systemEndpoints(app) {
           email,
           language: requestLanguage(request),
           ip: request.ip,
+          clientContext: getClientContext(request),
         });
         response.status(200).json(result);
       } catch (error) {
@@ -1431,6 +1587,7 @@ function systemEndpoints(app) {
         response.status(200).json({
           success: true,
           message: EMAIL_RECOVERY_GENERIC_RESPONSE,
+          challengeId: v4(),
         });
       }
     }
@@ -1441,12 +1598,14 @@ function systemEndpoints(app) {
     [isMultiUserSetup],
     async (request, response) => {
       try {
-        const { username, email, code } = reqBody(request);
+        const { username, email, code, challengeId } = reqBody(request);
         const { success, resetToken, error } = await confirmEmailPasswordReset({
           username,
           email,
           code,
+          challengeId,
           ip: request.ip,
+          clientContext: getClientContext(request),
         });
 
         if (success) {
@@ -2970,6 +3129,7 @@ function systemEndpoints(app) {
           email,
           language: requestLanguage(request),
           ip: request.ip,
+          clientContext: getClientContext(request, { user: sessionUser }),
         });
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
@@ -2988,12 +3148,14 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const { email, code } = reqBody(request);
+        const { email, code, challengeId } = reqBody(request);
         const result = await confirmAuthenticatedEmailVerification({
           userId: sessionUser.id,
           email,
           code,
+          challengeId,
           ip: request.ip,
+          clientContext: getClientContext(request, { user: sessionUser }),
         });
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
@@ -3296,19 +3458,6 @@ function systemEndpoints(app) {
 function bearerToken(request) {
   const auth = request.header("Authorization");
   return auth ? auth.split(" ")[1] : null;
-}
-
-async function findUserByLoginIdentifier(identifier = "") {
-  const value = String(identifier || "").trim();
-  if (!value) return null;
-
-  const byUsername = await User._get({ username: value });
-  if (byUsername) return byUsername;
-
-  const byEmail = await User._get({ email: value });
-  if (byEmail) return byEmail;
-
-  return User._get({ phone: value });
 }
 
 module.exports = { systemEndpoints };

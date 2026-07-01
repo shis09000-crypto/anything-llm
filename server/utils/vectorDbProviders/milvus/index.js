@@ -11,6 +11,12 @@ const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 class Milvus extends VectorDatabase {
   constructor() {
@@ -181,7 +187,11 @@ class Milvus extends VectorDatabase {
               const newChunks = chunk.map((chunk) => {
                 const id = uuidv4();
                 documentVectors.push({ docId, vectorId: id });
-                return { id, vector: chunk.values, metadata: chunk.metadata };
+                return {
+                  id,
+                  vector: chunk.values,
+                  metadata: encryptVectorMetadataText(chunk.metadata || {}),
+                };
               });
               const insertResult = await client.insert({
                 collection_name: this.normalize(namespace),
@@ -239,7 +249,7 @@ class Milvus extends VectorDatabase {
             values: vector,
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           vectors.push(vectorRecord);
@@ -380,9 +390,10 @@ class Milvus extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(match.metadata.text);
+      const metadata = decryptVectorMetadataText(match.metadata || {});
+      result.contextTexts.push(metadata.text || "");
       result.sourceDocuments.push({
-        ...match.metadata,
+        ...metadata,
         score: match.score,
       });
       result.scores.push(match.score);
@@ -422,8 +433,8 @@ class Milvus extends VectorDatabase {
       const { metadata = {} } = source;
       if (Object.keys(metadata).length > 0) {
         documents.push({
-          ...metadata,
-          ...(source.text ? { text: source.text } : {}),
+          ...decryptVectorMetadataText(metadata),
+          ...(source.text ? { text: decryptVectorText(source.text) } : {}),
         });
       }
     }

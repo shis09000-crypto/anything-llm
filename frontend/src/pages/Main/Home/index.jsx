@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { isMobile } from "react-device-detect";
 import { SidebarMobileHeader } from "@/components/Sidebar";
 import PromptInput, {
   PROMPT_INPUT_EVENT,
@@ -41,16 +40,52 @@ import {
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
 import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { mobileRuntimeActive } from "@/utils/mobileRuntime";
 import { defaultWorkspacePath } from "@/utils/workspaceThreads";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+
+async function getWorkspaceFromCacheOrNetwork(slug) {
+  if (!slug) return null;
+  const cached = workspaceNavigationCache.getWorkspaceDetail(slug, {
+    allowStale: false,
+  });
+  if (cached) return cached;
+  return workspaceNavigationCache.runInFlight(`workspace:${slug}`, () =>
+    Workspace.bySlug(slug, { communicationScene: "workspace-navigation" })
+  );
+}
+
+async function getThreadsFromCacheOrNetwork(slug) {
+  if (!slug) return [];
+  const cached = workspaceNavigationCache.getThreads(slug, {
+    allowStale: false,
+  });
+  if (Array.isArray(cached)) return cached;
+  const result = await workspaceNavigationCache.runInFlight(
+    `threads:${slug}`,
+    () => Workspace.threads.all(slug)
+  );
+  return Array.isArray(result?.threads) ? result.threads : [];
+}
+
+async function getWorkspacesFromCacheOrNetwork() {
+  const cached = workspaceNavigationCache.getWorkspaces({ allowStale: false });
+  if (Array.isArray(cached)) return cached;
+  const workspaces = await workspaceNavigationCache.runInFlight(
+    "workspaces",
+    () => Workspace.all({ communicationScene: "workspace-navigation" })
+  );
+  return Array.isArray(workspaces) ? workspaces : [];
+}
 
 async function getTargetWorkspace() {
   const lastVisited = getLastVisitedWorkspace();
   if (lastVisited?.slug) {
-    const workspace = await Workspace.bySlug(lastVisited.slug);
+    const workspace = await getWorkspaceFromCacheOrNetwork(lastVisited.slug);
     if (workspace) {
       const threadSlug = getLastVisitedThreadSlug(workspace.slug);
       if (threadSlug) {
-        const { threads } = await Workspace.threads.all(workspace.slug);
+        const threads = await getThreadsFromCacheOrNetwork(workspace.slug);
         const threadExists = threads.some(
           (thread) => thread.slug === threadSlug
         );
@@ -69,7 +104,7 @@ async function getTargetWorkspace() {
     }
   }
 
-  const workspaces = await Workspace.all();
+  const workspaces = await getWorkspacesFromCacheOrNetwork();
   return {
     workspace: workspaces.length > 0 ? workspaces[0] : null,
     redirectPath:
@@ -92,6 +127,7 @@ async function createDefaultWorkspace(workspaceName = "My Workspace") {
 export default function Home() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const mobileLayoutActive = mobileRuntimeActive();
   const [workspace, setWorkspace] = useState(null);
   const [threadSlug, setThreadSlug] = useState(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(true);
@@ -210,7 +246,7 @@ export default function Home() {
   if (workspaceLoading) {
     return (
       <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        style={{ height: mobileLayoutActive ? "100%" : "calc(100% - 32px)" }}
         className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
       />
     );
@@ -260,6 +296,7 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const loginMode = useLoginMode();
+  const mobileLayoutActive = mobileRuntimeActive();
   const [loading, setLoading] = useState(false);
   const { files, parseAttachments } = useContext(DndUploaderContext);
   const { hasWorkspaceActivity, getRunningThread, getThreadPath } =
@@ -377,11 +414,11 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
 
   return (
     <div
-      style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+      style={{ height: mobileLayoutActive ? "100%" : "calc(100% - 32px)" }}
       className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
     >
-      {isMobile && <SidebarMobileHeader />}
-      {!isMobile && workspace?.slug && (
+      {mobileLayoutActive && <SidebarMobileHeader />}
+      {!mobileLayoutActive && workspace?.slug && (
         <div
           className={`absolute top-3 md:top-5 z-30 h-[40px] w-[40px] ${
             hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"
@@ -392,7 +429,10 @@ function HomeContent({ workspace, setWorkspace, threadSlug, setThreadSlug }) {
           </WorkspaceHealthProvider>
         </div>
       )}
-      <WorkspaceModelPicker workspaceSlug={workspace?.slug} />
+      <WorkspaceModelPicker
+        workspaceSlug={workspace?.slug}
+        modelName={workspace?.chatModel}
+      />
       <DnDFileUploaderWrapper>
         <div className="flex flex-col h-full w-full items-center justify-center">
           <div className="flex flex-col items-center w-full max-w-[750px]">
@@ -446,6 +486,7 @@ function NoWorkspacesAssigned() {
   const { t } = useTranslation();
   const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
+  const mobileLayoutActive = mobileRuntimeActive();
 
   async function createFirstWorkspace() {
     if (creating) return;
@@ -459,7 +500,7 @@ function NoWorkspacesAssigned() {
 
   return (
     <div
-      style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+      style={{ height: mobileLayoutActive ? "100%" : "calc(100% - 32px)" }}
       className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden"
     >
       <div className="flex flex-col h-full w-full items-center justify-center">

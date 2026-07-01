@@ -46,6 +46,9 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
   globalThis.__signingTestSecurity = {
     assertSecureHttpUrl: (url) => url,
   };
+  globalThis.__signingTestDeviceKey = {
+    signWithDeviceIdentityKey: async () => null,
+  };
 
   const transformed = source
     .replace(
@@ -69,6 +72,10 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
         getClientIdentity,
         withClientIdentityHeaders,
       } = globalThis.__signingTestIdentity;`
+    )
+    .replace(
+      'import { signWithDeviceIdentityKey } from "./deviceIdentityKey";',
+      "const { signWithDeviceIdentityKey } = globalThis.__signingTestDeviceKey;"
     )
     .replace(
       'import { assertSecureHttpUrl } from "./transportSecurity";',

@@ -1,5 +1,6 @@
 import { defineConfig } from "vite"
 import fs from "fs"
+import https from "https"
 import { fileURLToPath, URL } from "url"
 import postcss from "./postcss.config.js"
 import react from "@vitejs/plugin-react"
@@ -24,7 +25,27 @@ function devHttpsOptions() {
 
 const apiProxyTarget =
   process.env.VITE_DEV_API_PROXY_TARGET ||
-  `http://127.0.0.1:${process.env.SERVER_PORT || "3002"}`
+  `${
+    process.env.VITE_DEV_HTTPS === "true" || process.env.ENABLE_HTTPS === "true"
+      ? "https"
+      : "http"
+  }://localhost:${process.env.SERVER_PORT || "3002"}`
+const apiProxyAgent = apiProxyTarget.startsWith("https:")
+  ? new https.Agent({ rejectUnauthorized: false })
+  : undefined
+const apiProxyChangeOrigin =
+  process.env.VITE_DEV_API_PROXY_CHANGE_ORIGIN === "true" ||
+  (() => {
+    try {
+      return new URL(apiProxyTarget).hostname === "athenallm.online"
+    } catch {
+      return false
+    }
+  })()
+const apiProxyTargetUrl = new URL(apiProxyTarget)
+const apiProxyRewriteOrigin =
+  process.env.VITE_DEV_API_PROXY_REWRITE_ORIGIN !== "false" &&
+  apiProxyTargetUrl.hostname === "athenallm.online"
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -44,9 +65,22 @@ export default defineConfig({
     proxy: {
       "/api": {
         target: apiProxyTarget,
-        changeOrigin: false,
+        changeOrigin: apiProxyChangeOrigin,
         secure: false,
+        agent: apiProxyAgent,
         ws: true,
+        configure: (proxy) => {
+          proxy.on("proxyReq", (proxyReq) => {
+            if (!apiProxyRewriteOrigin) return
+            proxyReq.setHeader("origin", apiProxyTargetUrl.origin)
+            proxyReq.setHeader("referer", `${apiProxyTargetUrl.origin}/`)
+          })
+          proxy.on("error", (error) => {
+            console.error(
+              `[vite:api-proxy] ${apiProxyTarget} failed: ${error?.message || error}`
+            )
+          })
+        },
       },
     },
   },
@@ -86,15 +120,6 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      output: {
-        // These settings ensure the primary JS and CSS file references are always index.{js,css}
-        // so we can SSR the index.html as text response from server/index.js without breaking references each build.
-        entryFileNames: 'index.js',
-        assetFileNames: (assetInfo) => {
-          if (assetInfo.name === 'index.css') return `index.css`;
-          return assetInfo.name;
-        },
-      },
       external: [
         // Reduces transformation time by 50% and we don't even use this variant, so we can ignore.
         /@phosphor-icons\/react\/dist\/ssr/,

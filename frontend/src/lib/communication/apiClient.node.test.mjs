@@ -18,6 +18,10 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
   };
   globalThis.__apiClientTestIdentity = {
     createCommunicationRequestId: () => "req-api-test",
+    resetCalls: [],
+    async resetClientIdentity(options = {}) {
+      globalThis.__apiClientTestIdentity.resetCalls.push(options);
+    },
     withClientIdentityHeaders: (headers = {}, { requestId } = {}) => ({
       ...headers,
       "X-Athena-Client-Id": "client-api-test",
@@ -35,6 +39,24 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
       ["INVALID_SIGNATURE", "SIGNING_SECRET_ROTATED"].includes(code),
     maybeSignedRequestHeaders: async () => ({ headers: {}, signed: false }),
     ...signingOverrides,
+  };
+  globalThis.__apiClientTestSensitiveState = {
+    cleared: [],
+    clearSensitiveClientSession(options = {}) {
+      globalThis.__apiClientTestSensitiveState.cleared.push(options);
+    },
+  };
+  globalThis.__apiClientTestMetrics = {
+    events: [],
+    communicationByteLength(value = "") {
+      return String(value || "").length;
+    },
+    communicationResponseSize(_response, data) {
+      return JSON.stringify(data || "").length;
+    },
+    recordCommunicationEvent(event) {
+      globalThis.__apiClientTestMetrics.events.push(event);
+    },
   };
 
   const transformed = source
@@ -55,12 +77,20 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
       "const { assertSecureHttpUrl } = globalThis.__apiClientTestTransportSecurity;"
     )
     .replace(
-      /import\s+\{\s*createCommunicationRequestId,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
-      "const { createCommunicationRequestId, withClientIdentityHeaders } = globalThis.__apiClientTestIdentity;"
+      /import\s+\{[\s\S]*?\}\s+from\s+"\.\/clientIdentity";/,
+      "const { createCommunicationRequestId, resetClientIdentity, withClientIdentityHeaders } = globalThis.__apiClientTestIdentity;"
     )
     .replace(
       /import\s+\{[\s\S]*?\}\s+from\s+"\.\/requestSigningClient";/,
       "const { clearSigningSecretCache, isRecoverableSigningError, maybeSignedRequestHeaders } = globalThis.__apiClientTestSigning;"
+    )
+    .replace(
+      'import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";',
+      "const { clearSensitiveClientSession } = globalThis.__apiClientTestSensitiveState;"
+    )
+    .replace(
+      /import\s+\{[\s\S]*?\}\s+from\s+"\.\/communicationMetrics";/,
+      "const { communicationByteLength, communicationResponseSize, recordCommunicationEvent } = globalThis.__apiClientTestMetrics;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 
@@ -132,7 +162,7 @@ test("requestJson converts non-ok responses to HTTP_OPEN_ERROR with raw JSON", a
   }
 });
 
-test("requestJson maps CLIENT_REVOKED and clears signing cache", async () => {
+test("requestJson maps CLIENT_REVOKED and clears volatile client session", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ success: false, error: "CLIENT_REVOKED" }), {
@@ -149,7 +179,40 @@ test("requestJson maps CLIENT_REVOKED and clears signing cache", async () => {
       (error) =>
         error.code === apiError.API_ERROR_CODES.CLIENT_REVOKED &&
         error.status === 403 &&
-        globalThis.__apiClientTestSigning.cleared === 1
+        globalThis.__apiClientTestSigning.cleared === 1 &&
+        globalThis.__apiClientTestIdentity.resetCalls.length === 1 &&
+        globalThis.__apiClientTestIdentity.resetCalls[0].rotateDeviceKey ===
+          true &&
+        globalThis.__apiClientTestSensitiveState.cleared.length === 1 &&
+        globalThis.__apiClientTestSensitiveState.cleared[0].reason ===
+          "client_revoked" &&
+        globalThis.__apiClientTestSensitiveState.cleared[0]
+          .includeDurableCaches === false
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestJson clears stale auth on session client mismatch without rotating device identity", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify({ error: "Session client mismatch." }), {
+      status: 401,
+    });
+
+  try {
+    const { requestJson } = await loadApiClient();
+    await assert.rejects(
+      requestJson("/system/user"),
+      (error) =>
+        error.code === apiError.API_ERROR_CODES.HTTP_OPEN_ERROR &&
+        error.status === 401 &&
+        globalThis.__apiClientTestSigning.cleared === 1 &&
+        globalThis.__apiClientTestIdentity.resetCalls.length === 0 &&
+        globalThis.__apiClientTestSensitiveState.cleared.length === 1 &&
+        globalThis.__apiClientTestSensitiveState.cleared[0].reason ===
+          "auth_error"
     );
   } finally {
     globalThis.fetch = originalFetch;

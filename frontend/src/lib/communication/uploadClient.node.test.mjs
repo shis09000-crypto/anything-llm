@@ -29,6 +29,10 @@ async function loadUploadClient({ dev = false } = {}) {
   globalThis.__uploadClientTestIdentity = {
     createCommunicationRequestId: () => "req-upload-test",
   };
+  globalThis.__uploadClientTestMetrics = {
+    communicationResponseSize: () => 0,
+    recordCommunicationEvent: () => {},
+  };
 
   const transformed = source
     .replace(
@@ -42,6 +46,10 @@ async function loadUploadClient({ dev = false } = {}) {
     .replace(
       'import { createCommunicationRequestId } from "./clientIdentity";',
       "const { createCommunicationRequestId } = globalThis.__uploadClientTestIdentity;"
+    )
+    .replace(
+      /import\s+\{\s*communicationResponseSize,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+      "const { communicationResponseSize, recordCommunicationEvent } = globalThis.__uploadClientTestMetrics;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__uploadClientTestDev");
 

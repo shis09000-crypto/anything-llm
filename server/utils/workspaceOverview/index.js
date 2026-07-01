@@ -14,6 +14,9 @@ const {
   buildKnowledgeEngineRecommendations,
 } = require("../knowledgeGraph/recommendationAdapter");
 const { getOrScheduleWorkspaceOverviewNarrative } = require("./narrative");
+const {
+  decryptWorkspaceChatRecords,
+} = require("../security/chatHistoryEncryption");
 
 const FORMULA_VERSION = "overview-rec-v1";
 const DAY_MS = 86_400_000;
@@ -748,7 +751,10 @@ async function getRecentChats(workspaceId, userId = 0, threadSlug = null) {
     ORDER BY "lastUpdatedAt" DESC LIMIT 20`,
     ...params
   );
-  return { chats: rows, activeThread: threadRows?.[0] || null };
+  return {
+    chats: decryptWorkspaceChatRecords(rows),
+    activeThread: threadRows?.[0] || null,
+  };
 }
 
 async function getActivity(workspaceId) {

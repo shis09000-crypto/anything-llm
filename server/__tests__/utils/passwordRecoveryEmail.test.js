@@ -2,28 +2,38 @@ const bcrypt = require("bcryptjs");
 
 const mockUserGet = jest.fn();
 const mockUserUpdate = jest.fn();
+const mockUserPublicUpdate = jest.fn();
 const mockRecoveryCreateMany = jest.fn();
 const mockPasswordResetCreate = jest.fn();
 const mockLatestCode = jest.fn();
+const mockFindChallengeCode = jest.fn();
 const mockLatestPending = jest.fn();
 const mockConsumeCode = jest.fn();
 const mockIncrementAttempts = jest.fn();
 const mockExpireOpenCodes = jest.fn();
 const mockCreateCode = jest.fn();
+const mockVerifyCode = jest.fn();
+const mockCreateGrant = jest.fn();
+const mockFindValidGrant = jest.fn();
+const mockConsumeGrant = jest.fn();
+const mockConsumeManyGrants = jest.fn();
+const mockRateLimitHit = jest.fn();
 const mockLogEvent = jest.fn();
 const mockSendVerificationCode = jest.fn();
 const mockSendSecurityNotification = jest.fn();
 const mockSmtpConfigured = jest.fn();
 const mockAuthFindByLoginIdentifier = jest.fn();
+const mockAuthFindById = jest.fn();
 const mockAuthEnsureShadowUser = jest.fn();
 const mockAuthCanLoginInCurrentEnv = jest.fn();
+const mockAuthCanLoginInCurrentEnvAsync = jest.fn();
 const mockAuthBootstrapFromShadow = jest.fn();
 
 jest.mock("../../models/user", () => ({
   User: {
     _get: mockUserGet,
     _update: mockUserUpdate,
-    update: jest.fn(),
+    update: mockUserPublicUpdate,
   },
 }));
 
@@ -45,19 +55,32 @@ jest.mock("../../models/emailVerification", () => ({
     maxAttempts: 5,
     resendCooldownMs: 60_000,
     latest: mockLatestCode,
+    findByChallenge: mockFindChallengeCode,
     latestPendingForUser: mockLatestPending,
     consume: mockConsumeCode,
     incrementAttempts: mockIncrementAttempts,
     expireOpenCodes: mockExpireOpenCodes,
     create: mockCreateCode,
+    verifyCode: mockVerifyCode,
+  },
+  EmailVerificationGrant: {
+    create: mockCreateGrant,
+    findValid: mockFindValidGrant,
+    consume: mockConsumeGrant,
+    consumeMany: mockConsumeManyGrants,
+  },
+  EmailVerificationRateLimit: {
+    hit: mockRateLimitHit,
   },
 }));
 
 jest.mock("../../models/authIdentity", () => ({
   AuthIdentity: {
     findByLoginIdentifier: mockAuthFindByLoginIdentifier,
+    findById: mockAuthFindById,
     ensureShadowUser: mockAuthEnsureShadowUser,
     canLoginInCurrentEnv: mockAuthCanLoginInCurrentEnv,
+    canLoginInCurrentEnvAsync: mockAuthCanLoginInCurrentEnvAsync,
     bootstrapAuthUserFromShadow: mockAuthBootstrapFromShadow,
   },
 }));
@@ -96,9 +119,16 @@ describe("email password recovery", () => {
     mockSendVerificationCode.mockResolvedValue(true);
     mockSendSecurityNotification.mockResolvedValue(true);
     mockCreateCode.mockResolvedValue({
-      verification: { id: 10, createdAt: new Date() },
+      verification: {
+        id: 10,
+        createdAt: new Date(),
+        challenge_id: "created-challenge",
+      },
       error: null,
     });
+    mockVerifyCode.mockImplementation((code, codeHash) =>
+      bcrypt.compareSync(String(code), codeHash)
+    );
     mockExpireOpenCodes.mockResolvedValue(true);
     mockConsumeCode.mockResolvedValue(true);
     mockIncrementAttempts.mockResolvedValue(true);
@@ -106,14 +136,25 @@ describe("email password recovery", () => {
       passwordResetToken: { token: "reset-token" },
       error: null,
     });
+    mockCreateGrant.mockResolvedValue({
+      grant: { id: 77, token: "evg-reset-token" },
+      error: null,
+    });
+    mockFindValidGrant.mockResolvedValue(null);
+    mockConsumeGrant.mockResolvedValue(true);
+    mockConsumeManyGrants.mockResolvedValue(true);
+    mockRateLimitHit.mockResolvedValue(false);
     mockRecoveryCreateMany.mockResolvedValue({
       recoveryCodes: [],
       error: null,
     });
     mockAuthFindByLoginIdentifier.mockResolvedValue(null);
+    mockAuthFindById.mockResolvedValue(user);
     mockAuthEnsureShadowUser.mockImplementation(async (authUser) => authUser);
     mockAuthCanLoginInCurrentEnv.mockReturnValue(true);
+    mockAuthCanLoginInCurrentEnvAsync.mockResolvedValue(true);
     mockAuthBootstrapFromShadow.mockResolvedValue(null);
+    mockUserPublicUpdate.mockResolvedValue({ error: null });
   });
 
   test("binding email no longer requires current password", async () => {
@@ -130,6 +171,7 @@ describe("email password recovery", () => {
     expect(result).toEqual({
       success: true,
       pendingEmail: "new@example.com",
+      challengeId: "created-challenge",
       resendCooldownSeconds: 60,
     });
     expect(mockSendVerificationCode).toHaveBeenCalledTimes(1);
@@ -178,6 +220,7 @@ describe("email password recovery", () => {
     expect(result).toEqual({
       success: true,
       pendingEmail: "new@example.com",
+      challengeId: "created-challenge",
       resendCooldownSeconds: 60,
     });
     expect(mockExpireOpenCodes).toHaveBeenCalledWith({
@@ -200,30 +243,46 @@ describe("email password recovery", () => {
       success: true,
       message: recovery.EMAIL_RECOVERY_GENERIC_RESPONSE,
       resendCooldownSeconds: 60,
+      challengeId: expect.any(String),
     });
     expect(mockSendVerificationCode).not.toHaveBeenCalled();
   });
 
-  test("valid email reset code is consumed before issuing a reset token", async () => {
+  test("valid email reset code is consumed before issuing a password-reset grant", async () => {
     mockUserGet.mockResolvedValue(user);
-    mockLatestCode.mockResolvedValue({
+    mockFindChallengeCode.mockResolvedValue({
       id: 22,
       code_hash: bcrypt.hashSync("123456", 10),
       consumedAt: null,
       expiresAt: new Date(Date.now() + 60_000),
       attempts: 0,
+      challenge_id: "challenge-1",
+      client_id: "client-1",
+      device_id: "client-1",
+      session_id: "session-1",
     });
 
     const result = await recovery.confirmEmailPasswordReset({
       username: user.username,
       email: user.email,
       code: "123456",
+      challengeId: "challenge-1",
       ip: "127.0.0.1",
     });
 
-    expect(result).toEqual({ success: true, resetToken: "reset-token" });
+    expect(result).toEqual({ success: true, resetToken: "evg-reset-token" });
     expect(mockConsumeCode).toHaveBeenCalledWith(22);
-    expect(mockPasswordResetCreate).toHaveBeenCalledWith(user.id);
+    expect(mockCreateGrant).toHaveBeenCalledWith({
+      userId: user.id,
+      purpose: "password_reset",
+      scope: "password_reset",
+      email: user.email,
+      challengeId: "challenge-1",
+      clientId: "client-1",
+      deviceId: "client-1",
+      sessionId: "session-1",
+    });
+    expect(mockPasswordResetCreate).not.toHaveBeenCalled();
   });
 
   test("consumed email reset code cannot issue another reset token", async () => {
@@ -248,6 +307,7 @@ describe("email password recovery", () => {
       error: "Verification code already used. Please request a new code.",
       errorCode: "verification_code_consumed",
     });
+    expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockPasswordResetCreate).not.toHaveBeenCalled();
   });
 
@@ -273,6 +333,7 @@ describe("email password recovery", () => {
       error: "Verification code expired. Please request a new code.",
       errorCode: "verification_code_expired",
     });
+    expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockPasswordResetCreate).not.toHaveBeenCalled();
   });
 
@@ -297,6 +358,38 @@ describe("email password recovery", () => {
       JSON.stringify(call)
     );
     expect(loggedPayloads.join("\n")).not.toContain("123456");
+  });
+
+  test("password reset consumes a scoped email verification grant", async () => {
+    mockFindValidGrant.mockResolvedValue({
+      id: 77,
+      user_id: user.id,
+      scope: "password_reset",
+      expiresAt: new Date(Date.now() + 60_000),
+      consumedAt: null,
+    });
+    mockAuthFindById.mockResolvedValue(user);
+    mockAuthEnsureShadowUser.mockResolvedValue(user);
+    mockUserGet.mockResolvedValue(user);
+
+    const result = await recovery.resetPassword(
+      "evg-reset-token",
+      "new-password",
+      "new-password"
+    );
+
+    expect(result).toEqual({
+      success: true,
+      message: "Password reset successful",
+    });
+    expect(mockConsumeGrant).toHaveBeenCalledWith(77);
+    expect(mockConsumeManyGrants).toHaveBeenCalledWith({
+      userId: user.id,
+      scope: "password_reset",
+    });
+    expect(mockUserPublicUpdate).toHaveBeenCalledWith(user.id, {
+      password: "new-password",
+    });
   });
 
   test("generated recovery codes are stored against shared authUserId", async () => {

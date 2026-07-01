@@ -8,7 +8,6 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import Sidebar from "@/components/SettingsSidebar";
 import Workspace from "@/models/workspace";
 import System from "@/models/system";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
@@ -60,14 +59,23 @@ import useTimeoutProgress from "@/hooks/useTimeoutProgress";
 import DOMPurify from "@/utils/chat/purify";
 import renderMarkdown from "@/utils/chat/markdown";
 import { displayPrompt } from "@/utils/chat/displayPrompt";
+import {
+  MOBILE_PWA_HISTORY_HYDRATE_MARKER,
+  mergeMobileHydratedHistory,
+  mobileHistoryHydrationTargets,
+  mobileHistoryPayloadSummary,
+  mobileHistoryRequestOptions,
+} from "@/utils/chat/mobileHistoryHydration";
 import { nFormatter } from "@/utils/numbers";
-import { API_BASE, AUTH_USER } from "@/utils/constants";
+import { API_BASE } from "@/utils/constants";
 import { setAuthToken } from "@/utils/authTokenStorage";
 import { setLoginUserActionNow } from "@/utils/userAction";
+import { setStoredAuthUser } from "@/utils/authUserStorage";
 import {
   getPreferredLocalZkDevice,
   listLocalZkDevices,
 } from "@/utils/zkLoginStorage";
+import { postJson } from "@/lib/communication";
 import showToast from "@/utils/toast";
 import {
   USERNAME_MAX_LENGTH,
@@ -80,7 +88,6 @@ import {
 } from "@/utils/authCapability";
 import "@/pages/UserSettings/AccountSettings/styles.css";
 import "./styles.css";
-import { isMobile } from "react-device-detect";
 import { GlassCard } from "@developer-hub/liquid-glass";
 import {
   ArrowUp,
@@ -132,9 +139,9 @@ import { useNavigate } from "react-router-dom";
 
 const DEVICE_WIDTH = 430;
 const DEVICE_HEIGHT = 932;
+const CLOUD_MOBILE_APP_URL = "https://athenallm.online";
 const USER_MESSAGE_COLLAPSE_LENGTH = 120;
 const MOBILE_HISTORY_BOOTSTRAP_LIMIT = 20;
-const MOBILE_HISTORY_PRIORITY_WINDOW = 0;
 const MOBILE_FILE_ACCESS_MODES = [
   FileAccessPolicy.modes.sandbox,
   FileAccessPolicy.modes.authorized,
@@ -169,6 +176,15 @@ const mockThreads = [
     subtitle: "Agent 草稿 · 待确认",
   },
 ];
+
+const emptyProductionThread = {
+  id: "cloud-mobile-loading",
+  workspaceSlug: null,
+  threadSlug: null,
+  workspace: "云端数据",
+  title: "正在加载真实移动端",
+  subtitle: "Cloud mobile runtime",
+};
 
 const initialMessages = [
   {
@@ -466,6 +482,7 @@ function historyToMessages(history = [], { fallbackToInitial = true } = {}) {
         time: formatMessageTime(group.user.sentAt),
         sentAt: group.user.sentAt,
         attachments: arrayPayload(group.user.attachments),
+        hydrationStatus: group.user.hydrationStatus || null,
       });
     }
     if (
@@ -487,6 +504,7 @@ function historyToMessages(history = [], { fallbackToInitial = true } = {}) {
         outputs: arrayPayload(group.assistant.outputs),
         timeline: arrayPayload(group.assistant.agentEvents),
         clarifyingQuestions: arrayPayload(group.assistant.clarifyingQuestions),
+        hydrationStatus: group.assistant.hydrationStatus || null,
       });
     }
   }
@@ -679,7 +697,7 @@ function mobileClientDebugUploadEnabled() {
 }
 
 function mobileClientDebugUploadUrl() {
-  return `${API_BASE}${MOBILE_CLIENT_DEBUG_UPLOAD_PATH}`;
+  return MOBILE_CLIENT_DEBUG_UPLOAD_PATH;
 }
 
 function safeMobileDebugValue(value, depth = 0) {
@@ -737,17 +755,19 @@ function flushMobileClientDebugUpload() {
     0,
     MOBILE_CLIENT_DEBUG_UPLOAD_BATCH_SIZE
   );
-  fetch(mobileClientDebugUploadUrl(), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
+  postJson(
+    mobileClientDebugUploadUrl(),
+    {
       context: mobileDebugClientContext(),
       events,
-    }),
-    keepalive: JSON.stringify(events).length < 60_000,
-  })
+    },
+    {
+      includeBaseHeaders: false,
+      communicationScene: "mobile_client_debug_upload",
+    }
+  )
     .then((response) => {
-      if (!response.ok) {
+      if (!response?.data?.success) {
         mobileClientDebugUploadState.disabledUntil = Date.now() + 10_000;
       }
     })
@@ -1358,7 +1378,77 @@ function useAnimatedPresence(open, duration = 160) {
   return { shouldRender, isVisible };
 }
 
+function mobileExperimentRealRuntimeEnabled() {
+  if (typeof window === "undefined") return false;
+  const value = new URLSearchParams(window.location.search).get("real");
+  return ["1", "true", "yes", "on"].includes(String(value || "").toLowerCase());
+}
+
+function mobileExperimentMockRuntimeEnabled() {
+  if (typeof window === "undefined") return false;
+  const params = new URLSearchParams(window.location.search);
+  const cloudMode = String(params.get("cloudMobile") || "")
+    .trim()
+    .toLowerCase();
+  const mock = String(params.get("mock") || "")
+    .trim()
+    .toLowerCase();
+  return (
+    cloudMode === "mock" ||
+    cloudMode === "experiment" ||
+    ["1", "true", "yes", "on"].includes(mock)
+  );
+}
+
+function localMobileExperimentHost() {
+  if (typeof window === "undefined") return false;
+  return ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+}
+
+function mobileExperimentCloudMode() {
+  if (typeof window === "undefined") return "experiment";
+  const value = new URLSearchParams(window.location.search).get("cloudMobile");
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "proxy" || normalized === "launch") return normalized;
+  if (mobileExperimentMockRuntimeEnabled()) return "experiment";
+  if (mobileExperimentRealRuntimeEnabled() || localMobileExperimentHost()) {
+    return "proxy";
+  }
+  return "experiment";
+}
+
+function cloudMobileUrl({ path = "/", platform = "ios", mobile = true } = {}) {
+  const url = new URL(path, CLOUD_MOBILE_APP_URL);
+  url.searchParams.set("athenaMobile", mobile ? "1" : "0");
+  if (mobile) url.searchParams.set("athenaPlatform", platform);
+  else url.searchParams.delete("athenaPlatform");
+  return url.toString();
+}
+
+function mobileThreadRoute(thread) {
+  if (!thread?.workspaceSlug) return null;
+  return thread.threadSlug
+    ? paths.workspace.thread(thread.workspaceSlug, thread.threadSlug)
+    : paths.workspace.chat(thread.workspaceSlug);
+}
+
 export default function MobilePageExperiment() {
+  const cloudMode = mobileExperimentCloudMode();
+  if (cloudMode === "launch") return <CloudMobileLaunchPanel />;
+  if (cloudMode === "proxy")
+    return (
+      <ChatThreadDraftProviderBoundary>
+        <SyncCenterProvider>
+          <MobilePageExperimentContent
+            mode="production"
+            presentation="framed"
+          />
+        </SyncCenterProvider>
+      </ChatThreadDraftProviderBoundary>
+    );
+
   return (
     <ChatThreadDraftProviderBoundary>
       <SyncCenterProvider>
@@ -1368,15 +1458,96 @@ export default function MobilePageExperiment() {
   );
 }
 
+function CloudMobileLaunchPanel() {
+  const iosLoginUrl = cloudMobileUrl({
+    path: "/login?nt=1",
+    platform: "ios",
+  });
+  const iosHomeUrl = cloudMobileUrl({ path: "/", platform: "ios" });
+  const androidHomeUrl = cloudMobileUrl({ path: "/", platform: "android" });
+  const desktopUrl = cloudMobileUrl({ path: "/", mobile: false });
+  const proxyUrl =
+    "/settings/mobile-page-experiment?cloudMobile=proxy&real=1&athenaMobile=1&athenaPlatform=ios";
+
+  return (
+    <div className="mobile-isolation-zone min-h-screen w-full overflow-y-auto bg-[#f3f6fb] p-5 text-slate-950 md:p-8">
+      <div className="mx-auto max-w-4xl rounded-[28px] border border-white/80 bg-white/82 p-6 shadow-[0_28px_80px_rgba(15,23,42,0.12)] backdrop-blur-2xl">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-500">
+              Cloud Mobile Launch
+            </p>
+            <h1 className="mt-2 text-2xl font-black text-slate-950">
+              真实云端移动端启动台
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm font-semibold leading-6 text-slate-500">
+              这里不会 iframe 嵌入云端页面；生产环境有安全头限制。按钮会打开
+              athenallm.online，并附带移动端强制参数，便于验证真实域名、通行密钥和
+              PWA 行为。
+            </p>
+          </div>
+          <div className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700">
+            API: {CLOUD_MOBILE_APP_URL}
+          </div>
+        </div>
+
+        <div className="mt-7 grid gap-3 md:grid-cols-2">
+          <CloudLaunchButton label="打开 iOS 登录页" href={iosLoginUrl} />
+          <CloudLaunchButton label="打开 iOS 首页" href={iosHomeUrl} />
+          <CloudLaunchButton label="打开 Android 首页" href={androidHomeUrl} />
+          <CloudLaunchButton label="清除强制移动端" href={desktopUrl} />
+        </div>
+
+        <div className="mt-7 rounded-[22px] border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-black text-slate-800">本地 Proxy 模式</p>
+          <p className="mt-2 text-xs font-semibold leading-5 text-slate-500">
+            本地手机壳运行本地最新代码，数据请求经 Vite 代理到云端。
+          </p>
+          <a
+            href={proxyUrl}
+            className="mt-3 inline-flex rounded-full bg-slate-900 px-4 py-2 text-xs font-black text-white transition hover:bg-slate-700"
+          >
+            进入 Proxy 模式
+          </a>
+        </div>
+
+        <div className="mt-4 rounded-[22px] border border-sky-100 bg-sky-50 p-4">
+          <p className="text-sm font-black text-sky-800">常用命令</p>
+          <code className="mt-2 block overflow-x-auto whitespace-pre rounded-2xl bg-white px-3 py-2 text-xs font-bold text-slate-700">
+            yarn dev:mobile-cloud{"\n"}
+            yarn logs:mobile-cloud -- --app --since 10m --grep
+            'mobile|history|hydrate|error'
+          </code>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloudLaunchButton({ label, href }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-black text-slate-800 shadow-[0_10px_30px_rgba(15,23,42,0.08)] transition hover:-translate-y-0.5 hover:border-sky-200 hover:text-sky-700"
+    >
+      {label}
+    </a>
+  );
+}
+
 export function MobileWebPwa({
   initialWorkspaceSlug = null,
   initialThreadSlug = null,
+  presentation = "fullscreen",
 }) {
   return (
     <ChatThreadDraftProviderBoundary>
       <SyncCenterProvider>
         <MobilePageExperimentContent
           mode="production"
+          presentation={presentation}
           initialWorkspaceSlug={initialWorkspaceSlug}
           initialThreadSlug={initialThreadSlug}
         />
@@ -1515,6 +1686,7 @@ export function useMobileViewportFrame(enabled = true) {
 
 export function MobilePageExperimentContent({
   mode = "experiment",
+  presentation = "framed",
   initialWorkspaceSlug = null,
   initialThreadSlug = null,
 }) {
@@ -1581,12 +1753,46 @@ export function MobilePageExperimentContent({
   const pendingOrphanRecoveryKeyRef = useRef(null);
   const draftSettledRefreshKeyRef = useRef(null);
   const memoryStatusRequestRef = useRef({ id: 0, controller: null });
+  const mobileHistoryRequestRef = useRef({ generation: 0, controller: null });
   const drawerPresence = useAnimatedPresence(menuOpen, 220);
   const attachmentPresence = useAnimatedPresence(attachmentSheetOpen, 140);
   const moreMenuPresence = useAnimatedPresence(moreMenuOpen, 140);
   const chatDrafts = useChatThreadDrafts();
   useThreadActivitySnapshot();
-  const mobileViewportFrameStyle = useMobileViewportFrame(productionMode);
+  const fullscreenPresentation = presentation === "fullscreen";
+  const sandboxedPresentation = !fullscreenPresentation;
+  const [sandboxRoutePath, setSandboxRoutePath] = useState(() => {
+    if (initialWorkspaceSlug && initialThreadSlug) {
+      return paths.workspace.thread(initialWorkspaceSlug, initialThreadSlug);
+    }
+    if (initialWorkspaceSlug) return paths.workspace.chat(initialWorkspaceSlug);
+    return "/settings/mobile-page-experiment";
+  });
+  const mobileFrameAddress = useMemo(() => {
+    const path = sandboxRoutePath?.startsWith("/")
+      ? sandboxRoutePath
+      : `/${sandboxRoutePath || ""}`;
+    return productionMode ? `athenallm.online${path}` : `athena.local${path}`;
+  }, [productionMode, sandboxRoutePath]);
+  const navigateMobilePath = useCallback(
+    (path, options) => {
+      if (!path) return;
+      if (fullscreenPresentation) {
+        navigate(path, options);
+        return;
+      }
+      setSandboxRoutePath(path);
+      mobileChatDebug("sandbox:navigate-contained", { path });
+    },
+    [fullscreenPresentation, navigate]
+  );
+  const navigateMobileThread = useCallback(
+    (thread, options) => navigateMobilePath(mobileThreadRoute(thread), options),
+    [navigateMobilePath]
+  );
+  const mobileViewportFrameStyle = useMobileViewportFrame(
+    productionMode && fullscreenPresentation
+  );
 
   const visibleDrawerThreads = useMemo(() => {
     const visibleThreads = drawerThreads.filter(isVisibleThreadItem);
@@ -1618,8 +1824,8 @@ export function MobilePageExperimentContent({
     () =>
       selectableDrawerThreads.find((thread) => thread.id === activeThreadId) ||
       selectableDrawerThreads[0] ||
-      mockThreads[0],
-    [activeThreadId, selectableDrawerThreads]
+      (productionMode ? emptyProductionThread : mockThreads[0]),
+    [activeThreadId, productionMode, selectableDrawerThreads]
   );
   const activeDraft = useChatDraft(
     activeThread?.workspaceSlug,
@@ -1715,10 +1921,12 @@ export function MobilePageExperimentContent({
         )
       );
       if (activeThread?.threadSlug === event.threadSlug && productionMode) {
-        navigate(paths.workspace.chat(event.workspaceSlug));
+        navigateMobilePath(paths.workspace.chat(event.workspaceSlug), {
+          replace: true,
+        });
       }
     },
-    [activeThread?.threadSlug, navigate, productionMode]
+    [activeThread?.threadSlug, navigateMobilePath, productionMode]
   );
 
   useWorkspaceSyncEvents({
@@ -1853,6 +2061,90 @@ export function MobilePageExperimentContent({
         : null;
   const composerDisabled = !!composerDisabledReason;
 
+  function abortActiveMobileHistoryRequest() {
+    mobileHistoryRequestRef.current.controller?.abort();
+    mobileHistoryRequestRef.current = {
+      generation: mobileHistoryRequestRef.current.generation,
+      controller: null,
+    };
+  }
+
+  function beginMobileHistoryRequest(
+    thread = activeThread,
+    externalSignal = null
+  ) {
+    abortActiveMobileHistoryRequest();
+    const controller = new AbortController();
+    const generation = mobileHistoryRequestRef.current.generation + 1;
+    mobileHistoryRequestRef.current = { generation, controller };
+
+    const abortFromExternalSignal = () => controller.abort();
+    if (externalSignal?.aborted) {
+      controller.abort();
+    } else if (externalSignal) {
+      externalSignal.addEventListener("abort", abortFromExternalSignal, {
+        once: true,
+      });
+    }
+
+    mobileChatDebug("history:mobile-load-start", {
+      generation,
+      threadId: thread?.id || null,
+      workspaceSlug: thread?.workspaceSlug || null,
+      threadSlug: thread?.threadSlug || null,
+    });
+
+    return {
+      generation,
+      signal: controller.signal,
+      cleanup: () => {
+        externalSignal?.removeEventListener?.("abort", abortFromExternalSignal);
+        if (mobileHistoryRequestRef.current.controller === controller) {
+          mobileHistoryRequestRef.current = { generation, controller: null };
+        }
+      },
+    };
+  }
+
+  function mobileHistoryRequestIsCurrent(context, thread = activeThread) {
+    return (
+      !!context &&
+      !context.signal?.aborted &&
+      mobileHistoryRequestRef.current.generation === context.generation &&
+      (!thread?.id || activeThreadIdRef.current === thread.id)
+    );
+  }
+
+  function throwIfMobileHistoryAborted(signal = null) {
+    if (!signal?.aborted) return;
+    const error = new Error("Mobile history request aborted");
+    error.name = "AbortError";
+    throw error;
+  }
+
+  async function hydrateMobileHistory(thread, targets, signal = null) {
+    if (!targets?.needsHydration) {
+      return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
+    }
+
+    const options = {
+      signal,
+      publicChatIds: targets.publicChatIds,
+    };
+    return thread.threadSlug
+      ? await Workspace.threads.chatHistoryHydration(
+          thread.workspaceSlug,
+          thread.threadSlug,
+          targets.chatIds,
+          options
+        )
+      : await Workspace.chatHistoryHydration(
+          thread.workspaceSlug,
+          targets.chatIds,
+          options
+        );
+  }
+
   async function fetchThreadHistoryMessages(
     thread = activeThread,
     signal = null,
@@ -1864,19 +2156,61 @@ export function MobilePageExperimentContent({
     )
       return null;
 
-    const historyOptions = {
+    const startedAt = performance.now();
+    const historyOptions = mobileHistoryRequestOptions({
       limit: options.limit || MOBILE_HISTORY_BOOTSTRAP_LIMIT,
-      detail: options.detail || "light",
-      priorityWindow: options.priorityWindow ?? MOBILE_HISTORY_PRIORITY_WINDOW,
       signal,
-    };
-    const { history } = thread.threadSlug
+    });
+    const payload = thread.threadSlug
       ? await Workspace.threads.chatBootstrap(
           thread.workspaceSlug,
           thread.threadSlug,
           historyOptions
         )
       : await Workspace.chatBootstrap(thread.workspaceSlug, historyOptions);
+    throwIfMobileHistoryAborted(signal);
+
+    let history = Array.isArray(payload?.history) ? payload.history : [];
+    const hydrationTargets = mobileHistoryHydrationTargets(history);
+    mobileChatDebug("history:mobile-full-fetch", {
+      marker: "mobile-pwa-history-full-request",
+      threadId: thread.id,
+      workspaceSlug: thread.workspaceSlug,
+      threadSlug: thread.threadSlug,
+      detail: historyOptions.detail,
+      surface: "mobile",
+      priorityWindow: historyOptions.priorityWindow,
+      historyCount: history.length,
+      lightCount: hydrationTargets.lightCount,
+      emptyContentCount: hydrationTargets.emptyContentCount,
+      durationMs: Math.round(performance.now() - startedAt),
+    });
+
+    if (hydrationTargets.needsHydration) {
+      const hydrateStartedAt = performance.now();
+      const hydration = await hydrateMobileHistory(
+        thread,
+        hydrationTargets,
+        signal
+      );
+      throwIfMobileHistoryAborted(signal);
+      if (Array.isArray(hydration?.history) && hydration.history.length > 0) {
+        history = mergeMobileHydratedHistory(history, hydration.history);
+      }
+      mobileChatDebug(MOBILE_PWA_HISTORY_HYDRATE_MARKER, {
+        threadId: thread.id,
+        workspaceSlug: thread.workspaceSlug,
+        threadSlug: thread.threadSlug,
+        requestedChatIds: hydrationTargets.chatIds,
+        requestedPublicChatIds: hydrationTargets.publicChatIds,
+        hydratedChatIds: hydration?.hydratedChatIds || [],
+        hydratedPublicChatIds: hydration?.hydratedPublicChatIds || [],
+        hydratedHistoryCount: hydration?.history?.length || 0,
+        mergedHistoryCount: history.length,
+        durationMs: Math.round(performance.now() - hydrateStartedAt),
+      });
+    }
+
     if (Array.isArray(history) && history.length > 0) {
       const pending = currentPendingSubmittedMessage(thread);
       chatDrafts.mergeServerHistory({
@@ -1887,10 +2221,17 @@ export function MobilePageExperimentContent({
         preserveTurnIds: [pending?.clientTurnId].filter(Boolean),
       });
     }
-    return historyToMessages(history, {
+    const messages = historyToMessages(history, {
       fallbackToInitial: !productionMode,
       ...options,
     });
+    mobileChatDebug("history:mobile-messages-ready", {
+      threadId: thread.id,
+      workspaceSlug: thread.workspaceSlug,
+      threadSlug: thread.threadSlug,
+      ...mobileHistoryPayloadSummary(history, messages),
+    });
+    return messages;
   }
 
   function currentPendingSubmittedMessage(thread = activeThread) {
@@ -2139,11 +2480,16 @@ export function MobilePageExperimentContent({
   }
 
   async function loadThreadHistory(thread = activeThread, signal = null) {
+    const historyContext = beginMobileHistoryRequest(thread, signal);
     if (thread?.id && activeThreadIdRef.current === thread.id) {
       setLoadingThreadHistory(true);
     }
     try {
-      const nextMessages = await fetchThreadHistoryMessages(thread, signal);
+      const nextMessages = await fetchThreadHistoryMessages(
+        thread,
+        historyContext.signal
+      );
+      if (!mobileHistoryRequestIsCurrent(historyContext, thread)) return null;
       const appliedMessages = applyThreadHistoryMessages(thread, nextMessages, {
         reason: "load-thread-history",
       });
@@ -2165,6 +2511,7 @@ export function MobilePageExperimentContent({
       }
       return appliedMessages || nextMessages;
     } finally {
+      historyContext.cleanup();
       if (thread?.id && activeThreadIdRef.current === thread.id) {
         setLoadingThreadHistory(false);
       }
@@ -2283,6 +2630,7 @@ export function MobilePageExperimentContent({
 
     const pending = currentPendingSubmittedMessage(thread);
     const nextMessages = await fetchThreadHistoryMessages(thread);
+    if (thread?.id && activeThreadIdRef.current !== thread.id) return null;
     if (!nextMessages) return null;
     mobileChatDebug("history:refresh-after-runtime", {
       threadId: thread?.id || null,
@@ -3004,6 +3352,7 @@ export function MobilePageExperimentContent({
         setDrawerThreads(visibleThreads);
         activeThreadIdRef.current = nextThread.id;
         setActiveThreadId(nextThread.id);
+        navigateMobileThread(nextThread, { replace: true });
         setMessages([]);
         await loadThreadHistory(nextThread, controller.signal);
         await refreshMemoryStatus(nextThread);
@@ -3026,6 +3375,7 @@ export function MobilePageExperimentContent({
 
     return () => {
       controller.abort();
+      mobileHistoryRequestRef.current.controller?.abort();
       clearTimeout(replyTimerRef.current);
       clearTimeout(pendingHistoryRefreshTimerRef.current);
     };
@@ -3033,6 +3383,7 @@ export function MobilePageExperimentContent({
     initialThreadSlug,
     initialWorkspaceSlug,
     mobileAuthRevision,
+    navigateMobileThread,
     productionMode,
   ]);
 
@@ -3069,15 +3420,14 @@ export function MobilePageExperimentContent({
       );
       if (!activeStillExists && sortedNextWorkspaceThreads.length) {
         const nextThread = sortedNextWorkspaceThreads[0];
+        activeThreadIdRef.current = nextThread.id;
         setActiveThreadId(nextThread.id);
-        navigate(
-          nextThread.threadSlug
-            ? paths.workspace.thread(
-                nextThread.workspaceSlug,
-                nextThread.threadSlug
-              )
-            : paths.workspace.chat(nextThread.workspaceSlug)
-        );
+        navigateMobileThread(nextThread, { replace: true });
+        if (sandboxedPresentation) {
+          setMessages([]);
+          await loadThreadHistory(nextThread).catch(() => {});
+          await refreshMemoryStatus(nextThread).catch(() => {});
+        }
       }
     }
 
@@ -3093,9 +3443,10 @@ export function MobilePageExperimentContent({
   }, [
     activeThread,
     chatDrafts.hasThreadActivity,
-    navigate,
+    navigateMobileThread,
     pinnedThreadIds,
     productionMode,
+    sandboxedPresentation,
   ]);
 
   async function switchThread(threadId) {
@@ -3111,14 +3462,7 @@ export function MobilePageExperimentContent({
       nextThread?.workspaceSlug &&
       nextThread.workspaceSlug !== FALLBACK_WORKSPACE_SLUG
     ) {
-      navigate(
-        nextThread.threadSlug
-          ? paths.workspace.thread(
-              nextThread.workspaceSlug,
-              nextThread.threadSlug
-            )
-          : paths.workspace.chat(nextThread.workspaceSlug)
-      );
+      navigateMobileThread(nextThread);
     }
     setMessages([]);
     setLoadingThreadHistory(true);
@@ -3216,7 +3560,7 @@ export function MobilePageExperimentContent({
   }
 
   function handleMobileSessionSignOut() {
-    if (productionMode) {
+    if (productionMode && fullscreenPresentation) {
       auth?.actions?.unsetUser?.();
       window.location.assign(paths.login());
       return;
@@ -3238,7 +3582,7 @@ export function MobilePageExperimentContent({
     if (auth?.actions?.updateUser) {
       auth.actions.updateUser(user, token);
     } else {
-      window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
+      setStoredAuthUser(user);
       setAuthToken(token);
       setLoginUserActionNow();
     }
@@ -3442,7 +3786,7 @@ export function MobilePageExperimentContent({
       await refreshMemoryStatus(nextThread).catch(() => {});
 
       if (productionMode) {
-        navigate(paths.workspace.thread(workspaceSlug, thread.slug));
+        navigateMobileThread(nextThread);
       }
     } catch (error) {
       setDataError(error?.message || "新建线程失败，请稍后重试。");
@@ -4097,7 +4441,7 @@ export function MobilePageExperimentContent({
     setAttachmentSheetOpen(false);
   }
 
-  if (productionMode) {
+  if (productionMode && fullscreenPresentation) {
     return (
       <div
         className="mobile-experiment-device-screen fixed inset-0 w-screen overflow-hidden bg-[#f6f9ff] text-slate-950"
@@ -4276,221 +4620,215 @@ export function MobilePageExperimentContent({
     );
   }
 
-  return (
-    <div className="flex h-screen w-screen overflow-hidden bg-theme-bg-container">
-      <Sidebar />
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="relative h-full w-full overflow-y-scroll bg-theme-bg-secondary p-4 light:bg-slate-100 md:my-[16px] md:ml-[2px] md:mr-[16px] md:rounded-[16px] md:p-0"
-      >
-        <div className="flex w-full flex-col px-1 py-16 md:px-6 md:py-6 md:pr-[86px]">
-          <div className="w-full border-b-2 border-white border-opacity-10 pb-6 light:border-theme-sidebar-border">
-            <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex h-9 w-9 items-center justify-center rounded-full border border-sky-300/50 bg-sky-400/10 text-sky-300 shadow-[0_10px_28px_rgb(56_189_248_/_0.16)] light:bg-sky-50 light:text-sky-600">
-                  <Sparkle className="h-5 w-5" weight="fill" />
-                </div>
-                <div>
-                  <p className="text-lg font-bold leading-6 text-white light:text-slate-950">
-                    移动端页面试验区
-                  </p>
-                  <p className="mt-1 text-xs leading-[18px] text-white/60 light:text-slate-500">
-                    用于验证 Athena 移动端 Web 布局与组件样式。
-                  </p>
-                </div>
-              </div>
+  const shellTitle = productionMode ? "云端移动端实时预览" : "移动端隔离区";
+  const shellDescription = productionMode
+    ? "本地手机画布运行最新前端代码，数据请求通过代理连接真实云端。"
+    : "以固定手机画布验证移动端布局，不影响桌面端运行状态。";
+  const shellBadge = productionMode
+    ? "Cloud Mobile Runtime"
+    : "Isolated Mobile Prototype";
 
-              <div className="w-fit rounded-full border border-sky-300/25 bg-sky-400/10 px-4 py-2 text-xs font-bold text-sky-200 light:border-sky-200 light:bg-sky-50 light:text-sky-700">
-                Interactive Mobile Prototype
+  return (
+    <div className="mobile-isolation-zone h-full min-h-[calc(100vh-56px)] w-full overflow-y-auto rounded-[28px] bg-[#f3f6fb] p-4 text-slate-950 md:p-6">
+      <div className="mx-auto flex w-full max-w-[1040px] flex-col pb-8">
+        <div className="w-full border-b border-slate-200/80 pb-6">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-full border border-sky-200 bg-sky-50 text-sky-600 shadow-[0_10px_28px_rgb(56_189_248_/_0.16)]">
+                <Sparkle className="h-5 w-5" weight="fill" />
+              </div>
+              <div>
+                <p className="text-lg font-bold leading-6 text-slate-950">
+                  {shellTitle}
+                </p>
+                <p className="mt-1 text-xs leading-[18px] text-slate-500">
+                  {shellDescription}
+                </p>
               </div>
             </div>
+
+            <div className="w-fit rounded-full border border-sky-200 bg-sky-50 px-4 py-2 text-xs font-bold text-sky-700">
+              {shellBadge}
+            </div>
           </div>
+        </div>
 
-          <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(260px,360px)_minmax(430px,1fr)]">
-            <PrototypeControlPanel
-              activeThread={activeThread}
-              recording={recording}
-              loadingData={loadingData}
-              dataError={dataError}
-              onReset={resetConversation}
-              onOpenMenu={() => setMenuOpen(true)}
-            />
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(260px,360px)_minmax(430px,1fr)]">
+          <PrototypeControlPanel
+            activeThread={activeThread}
+            recording={recording}
+            loadingData={loadingData}
+            dataError={dataError}
+            productionMode={productionMode}
+            onReset={resetConversation}
+            onOpenMenu={() => setMenuOpen(true)}
+          />
 
-            <div className="min-w-0 overflow-x-auto pb-6">
-              <div
-                className="relative mx-auto shrink-0 rounded-[48px] border border-slate-300 bg-slate-950 p-[10px] shadow-[0_40px_100px_rgba(15,23,42,0.24)]"
-                style={{ width: DEVICE_WIDTH, height: DEVICE_HEIGHT }}
-              >
-                <div className="absolute left-1/2 top-[14px] z-30 h-[30px] w-[128px] -translate-x-1/2 rounded-full bg-black shadow-[0_10px_24px_rgba(0,0,0,0.32)]" />
-                <div className="mobile-experiment-device-screen relative h-full overflow-hidden rounded-[38px] border border-white/[.36] bg-[#f6f9ff] text-slate-950">
-                  <ChromeMobileShell>
-                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_7%,rgba(125,211,252,0.30),transparent_32%),radial-gradient(circle_at_88%_12%,rgba(250,204,21,0.20),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(239,246,255,0.72)_46%,rgba(226,232,240,0.78))]" />
-                    <div className="relative flex h-full flex-col overflow-hidden">
-                      {mobileSessionSignedOut ? (
-                        <MobileLoginScreen
-                          user={mobileAccountUser}
-                          pfp={mobileAccountPfp}
-                          loginAccountHint={mobileLoginAccountHint}
-                          initialMode={mobileLoginInitialMode}
-                          onQuickLogin={handleMobileQuickLogin}
-                          onPasswordLogin={handleMobilePasswordLogin}
-                          onPasskeyLogin={handleMobilePasskeyLogin}
+          <div className="min-w-0 overflow-x-auto pb-6">
+            <div
+              className="relative mx-auto shrink-0 rounded-[48px] border border-slate-300 bg-slate-950 p-[10px] shadow-[0_40px_100px_rgba(15,23,42,0.24)]"
+              style={{ width: DEVICE_WIDTH, height: DEVICE_HEIGHT }}
+            >
+              <div className="absolute left-1/2 top-[14px] z-30 h-[30px] w-[128px] -translate-x-1/2 rounded-full bg-black shadow-[0_10px_24px_rgba(0,0,0,0.32)]" />
+              <div className="mobile-experiment-device-screen relative h-full overflow-hidden rounded-[38px] border border-white/[.36] bg-[#f6f9ff] text-slate-950">
+                <ChromeMobileShell address={mobileFrameAddress}>
+                  <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_22%_7%,rgba(125,211,252,0.30),transparent_32%),radial-gradient(circle_at_88%_12%,rgba(250,204,21,0.20),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.92),rgba(239,246,255,0.72)_46%,rgba(226,232,240,0.78))]" />
+                  <div className="relative flex h-full flex-col overflow-hidden">
+                    {mobileSessionSignedOut ? (
+                      <MobileLoginScreen
+                        user={mobileAccountUser}
+                        pfp={mobileAccountPfp}
+                        loginAccountHint={mobileLoginAccountHint}
+                        initialMode={mobileLoginInitialMode}
+                        onQuickLogin={handleMobileQuickLogin}
+                        onPasswordLogin={handleMobilePasswordLogin}
+                        onPasskeyLogin={handleMobilePasskeyLogin}
+                      />
+                    ) : (
+                      <>
+                        <MobileAttachmentFileInputs
+                          cameraInputRef={cameraInputRef}
+                          photoInputRef={photoInputRef}
+                          fileInputRef={fileInputRef}
+                          onFilesSelected={handleMobileAttachmentFilesSelected}
                         />
-                      ) : (
-                        <>
-                          <MobileAttachmentFileInputs
-                            cameraInputRef={cameraInputRef}
-                            photoInputRef={photoInputRef}
-                            fileInputRef={fileInputRef}
-                            onFilesSelected={
-                              handleMobileAttachmentFilesSelected
-                            }
-                          />
-                          <PhoneTopBar
-                            activeThread={activeThread}
-                            onOpenMenu={() => setMenuOpen(true)}
-                            onNewConversation={createThreadInCurrentWorkspace}
-                            moreButtonRef={moreButtonRef}
-                            onOpenMore={() =>
-                              setMoreMenuOpen((current) => !current)
-                            }
-                          />
+                        <PhoneTopBar
+                          activeThread={activeThread}
+                          onOpenMenu={() => setMenuOpen(true)}
+                          onNewConversation={createThreadInCurrentWorkspace}
+                          moreButtonRef={moreButtonRef}
+                          onOpenMore={() =>
+                            setMoreMenuOpen((current) => !current)
+                          }
+                        />
 
-                          <div className="min-h-0 flex-1 overflow-hidden px-4 pb-0 pt-0">
-                            <ChatPane
-                              chatPaneRef={chatPaneRef}
-                              messages={displayMessages}
-                              runtimeActivity={runtimeActivity}
-                              workspaceName={activeThread.workspace}
-                              workspaceSlug={activeThread.workspaceSlug}
-                              threadSlug={activeThread.threadSlug}
-                              loadingRecent={
-                                loadingThreadHistory &&
-                                displayMessages.length === 0
-                              }
-                              messagesEndRef={messagesEndRef}
-                              onQuizUpdate={handleQuizMessageUpdate}
-                              copiedMessageId={copiedMessageId}
-                              editingMessageId={editingMessageId}
-                              editingText={editingText}
-                              messageActionBusy={messageActionBusy}
-                              speakingMessageId={speakingMessageId}
-                              onCancelEdit={cancelEditMessage}
-                              onChangeEdit={setEditingText}
-                              onCopyMessage={handleCopyMessage}
-                              onDeleteMessage={handleDeleteMessage}
-                              onForkMessage={handleForkMessage}
-                              onRegenerateMessage={handleRegenerateMessage}
-                              onSaveEdit={saveEditedMessage}
-                              onSpeakMessage={handleSpeakMessage}
-                              onStartEdit={startEditMessage}
-                            />
-                          </div>
+                        <div className="min-h-0 flex-1 overflow-hidden px-4 pb-0 pt-0">
+                          <ChatPane
+                            chatPaneRef={chatPaneRef}
+                            messages={displayMessages}
+                            runtimeActivity={runtimeActivity}
+                            workspaceName={activeThread.workspace}
+                            workspaceSlug={activeThread.workspaceSlug}
+                            threadSlug={activeThread.threadSlug}
+                            loadingRecent={
+                              loadingThreadHistory &&
+                              displayMessages.length === 0
+                            }
+                            messagesEndRef={messagesEndRef}
+                            onQuizUpdate={handleQuizMessageUpdate}
+                            copiedMessageId={copiedMessageId}
+                            editingMessageId={editingMessageId}
+                            editingText={editingText}
+                            messageActionBusy={messageActionBusy}
+                            speakingMessageId={speakingMessageId}
+                            onCancelEdit={cancelEditMessage}
+                            onChangeEdit={setEditingText}
+                            onCopyMessage={handleCopyMessage}
+                            onDeleteMessage={handleDeleteMessage}
+                            onForkMessage={handleForkMessage}
+                            onRegenerateMessage={handleRegenerateMessage}
+                            onSaveEdit={saveEditedMessage}
+                            onSpeakMessage={handleSpeakMessage}
+                            onStartEdit={startEditMessage}
+                          />
+                        </div>
 
-                          <MobileRuntimeSheet
+                        <MobileRuntimeSheet
+                          ref={runtimeSheetRef}
+                          chatKey={activeChatKey}
+                          pendingApproval={pendingRuntimeApproval}
+                          onToolApprovalResponse={chatDrafts.respondToApproval}
+                        />
+
+                        {pendingRuntimeClarification ? (
+                          <MobileClarificationSurveyDock
+                            key={
+                              pendingRuntimeClarification?.requestId ||
+                              "clarification-dock"
+                            }
                             ref={runtimeSheetRef}
                             chatKey={activeChatKey}
-                            pendingApproval={pendingRuntimeApproval}
-                            onToolApprovalResponse={
-                              chatDrafts.respondToApproval
-                            }
+                            clarification={pendingRuntimeClarification}
+                            onResponse={chatDrafts.respondToClarification}
                           />
+                        ) : (
+                          <MobileComposer
+                            value={input}
+                            recording={recording}
+                            quizMode={quizMode}
+                            workspaceSlug={activeThread.workspaceSlug}
+                            threadSlug={activeThread.threadSlug}
+                            onChange={setInput}
+                            onToggleQuizMode={() =>
+                              setQuizMode((current) => !current)
+                            }
+                            onKeyDown={handleInputKeyDown}
+                            attachments={mobileAttachments}
+                            attachmentsProcessing={mobileAttachmentsProcessing}
+                            attachmentButtonRef={attachmentButtonRef}
+                            onAttach={() =>
+                              setAttachmentSheetOpen((current) => !current)
+                            }
+                            onToggleRecording={() =>
+                              setRecording((current) => !current)
+                            }
+                            onSend={sendMessage}
+                            disabled={composerDisabled}
+                            disabledReason={composerDisabledReason}
+                            memoryScopeKey={activeThread.id}
+                            memoryStatus={memoryStatus}
+                            memoryLoading={memoryLoading}
+                            memoryUnavailable={memoryUnavailable}
+                            showExperimentalActions
+                          />
+                        )}
+                      </>
+                    )}
+                  </div>
 
-                          {pendingRuntimeClarification ? (
-                            <MobileClarificationSurveyDock
-                              key={
-                                pendingRuntimeClarification?.requestId ||
-                                "clarification-dock"
-                              }
-                              ref={runtimeSheetRef}
-                              chatKey={activeChatKey}
-                              clarification={pendingRuntimeClarification}
-                              onResponse={chatDrafts.respondToClarification}
-                            />
-                          ) : (
-                            <MobileComposer
-                              value={input}
-                              recording={recording}
-                              quizMode={quizMode}
-                              workspaceSlug={activeThread.workspaceSlug}
-                              threadSlug={activeThread.threadSlug}
-                              onChange={setInput}
-                              onToggleQuizMode={() =>
-                                setQuizMode((current) => !current)
-                              }
-                              onKeyDown={handleInputKeyDown}
-                              attachments={mobileAttachments}
-                              attachmentsProcessing={
-                                mobileAttachmentsProcessing
-                              }
-                              attachmentButtonRef={attachmentButtonRef}
-                              onAttach={() =>
-                                setAttachmentSheetOpen((current) => !current)
-                              }
-                              onToggleRecording={() =>
-                                setRecording((current) => !current)
-                              }
-                              onSend={sendMessage}
-                              disabled={composerDisabled}
-                              disabledReason={composerDisabledReason}
-                              memoryScopeKey={activeThread.id}
-                              memoryStatus={memoryStatus}
-                              memoryLoading={memoryLoading}
-                              memoryUnavailable={memoryUnavailable}
-                              showExperimentalActions
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
+                  {!mobileSessionSignedOut && drawerPresence.shouldRender && (
+                    <WorkspaceDrawer
+                      open={drawerPresence.isVisible}
+                      threads={visibleDrawerThreads}
+                      activeThreadId={activeThreadId}
+                      removingThreadIds={removingThreadIds}
+                      onClose={() => setMenuOpen(false)}
+                      onDeleteThread={deleteDrawerThread}
+                      onPinThread={pinDrawerThread}
+                      onRenameThread={renameDrawerThread}
+                      onSelectThread={switchThread}
+                      onSignOut={handleMobileSessionSignOut}
+                      sessionUser={mobileSessionUser}
+                      sessionPfp={mobileSessionPfp}
+                      onSwitchAccount={handleMobileQuickAccountSwitch}
+                      onAddAccount={handleMobileAddAccount}
+                    />
+                  )}
 
-                    {!mobileSessionSignedOut && drawerPresence.shouldRender && (
-                      <WorkspaceDrawer
-                        open={drawerPresence.isVisible}
-                        threads={visibleDrawerThreads}
-                        activeThreadId={activeThreadId}
-                        removingThreadIds={removingThreadIds}
-                        onClose={() => setMenuOpen(false)}
-                        onDeleteThread={deleteDrawerThread}
-                        onPinThread={pinDrawerThread}
-                        onRenameThread={renameDrawerThread}
-                        onSelectThread={switchThread}
-                        onSignOut={handleMobileSessionSignOut}
-                        sessionUser={mobileSessionUser}
-                        sessionPfp={mobileSessionPfp}
-                        onSwitchAccount={handleMobileQuickAccountSwitch}
-                        onAddAccount={handleMobileAddAccount}
+                  {!mobileSessionSignedOut &&
+                    attachmentPresence.shouldRender && (
+                      <AttachmentPopover
+                        open={attachmentPresence.isVisible}
+                        anchorRef={attachmentButtonRef}
+                        onPickCamera={() =>
+                          requestMobileAttachmentPick("camera")
+                        }
+                        onPickPhotos={() =>
+                          requestMobileAttachmentPick("photos")
+                        }
+                        onPickFiles={() => requestMobileAttachmentPick("files")}
+                        onClose={() => setAttachmentSheetOpen(false)}
                       />
                     )}
 
-                    {!mobileSessionSignedOut &&
-                      attachmentPresence.shouldRender && (
-                        <AttachmentPopover
-                          open={attachmentPresence.isVisible}
-                          anchorRef={attachmentButtonRef}
-                          onPickCamera={() =>
-                            requestMobileAttachmentPick("camera")
-                          }
-                          onPickPhotos={() =>
-                            requestMobileAttachmentPick("photos")
-                          }
-                          onPickFiles={() =>
-                            requestMobileAttachmentPick("files")
-                          }
-                          onClose={() => setAttachmentSheetOpen(false)}
-                        />
-                      )}
-
-                    {!mobileSessionSignedOut &&
-                      moreMenuPresence.shouldRender && (
-                        <MoreActionSheet
-                          open={moreMenuPresence.isVisible}
-                          anchorRef={moreButtonRef}
-                          onClose={() => setMoreMenuOpen(false)}
-                        />
-                      )}
-                  </ChromeMobileShell>
-                </div>
+                  {!mobileSessionSignedOut && moreMenuPresence.shouldRender && (
+                    <MoreActionSheet
+                      open={moreMenuPresence.isVisible}
+                      anchorRef={moreButtonRef}
+                      onClose={() => setMoreMenuOpen(false)}
+                    />
+                  )}
+                </ChromeMobileShell>
               </div>
             </div>
           </div>
@@ -4536,20 +4874,27 @@ function PrototypeControlPanel({
   recording,
   loadingData,
   dataError,
+  productionMode = false,
   onReset,
   onOpenMenu,
 }) {
   return (
     <aside className="h-fit rounded-[22px] border border-white/10 bg-white/[.04] p-5 text-white shadow-[0_18px_44px_rgba(0,0,0,0.16)] backdrop-blur-xl light:border-slate-200 light:bg-white/80 light:text-slate-900">
       <p className="text-sm font-bold text-sky-200 light:text-sky-700">
-        Prototype State
+        {productionMode ? "Cloud Runtime State" : "Prototype State"}
       </p>
       <div className="mt-4 space-y-3 text-sm text-white/70 light:text-slate-600">
         <StateRow
           label="尺寸基准"
           value={`${DEVICE_WIDTH} × ${DEVICE_HEIGHT}`}
         />
-        <StateRow label="数据源" value={loadingData ? "加载中" : "真实账号"} />
+        <StateRow
+          label="数据源"
+          value={
+            loadingData ? "加载中" : productionMode ? "云端实时" : "真实账号"
+          }
+        />
+        <StateRow label="云端目标" value={CLOUD_MOBILE_APP_URL} />
         <StateRow label="Workspace" value={activeThread.workspace} />
         <StateRow label="Thread" value={activeThread.title} />
         <StateRow label="语音状态" value={recording ? "录音中" : "空闲"} />
@@ -4560,19 +4905,20 @@ function PrototypeControlPanel({
           onClick={onOpenMenu}
           className="rounded-2xl border border-white/10 bg-white/[.08] px-4 py-3 text-left text-sm font-bold text-white transition hover:bg-white/[.12] light:border-slate-200 light:bg-slate-50 light:text-slate-800 light:hover:bg-white"
         >
-          打开真实工作区抽屉
+          {productionMode ? "打开云端工作区抽屉" : "打开真实工作区抽屉"}
         </button>
         <button
           type="button"
           onClick={onReset}
           className="rounded-2xl border border-sky-300/20 bg-sky-400/[.12] px-4 py-3 text-left text-sm font-bold text-sky-100 transition hover:bg-sky-400/[.18] light:border-sky-200 light:bg-sky-50 light:text-sky-700"
         >
-          刷新当前真实历史
+          {productionMode ? "刷新云端历史" : "刷新当前真实历史"}
         </button>
       </div>
       <p className="mt-5 text-xs leading-5 text-white/[.45] light:text-slate-500">
-        本页已接入当前登录账号的 workspace、thread
-        与聊天历史。附件和语音仍为移动交互占位。
+        {productionMode
+          ? "当前页面使用本地最新移动端代码，通过 /api 代理读取 athenallm.online 的真实账号、workspace、thread 与聊天历史。"
+          : "本页已接入当前登录账号的 workspace、thread 与聊天历史。云端调试可使用 cloudMobile=proxy 或 cloudMobile=launch。"}
       </p>
       {dataError && (
         <p className="mt-3 rounded-2xl bg-amber-100 px-3 py-2 text-xs font-bold text-amber-700">
@@ -4594,7 +4940,7 @@ function StateRow({ label, value }) {
   );
 }
 
-function ChromeMobileShell({ children }) {
+function ChromeMobileShell({ children, address = "athena.local" }) {
   return (
     <div className="relative flex h-full flex-col overflow-hidden bg-[#f8fbff] text-slate-950">
       <div className="relative z-30 border-b border-slate-200/80 bg-white/80 px-3 pb-2 pt-[52px] shadow-[0_10px_28px_rgba(15,23,42,0.08)] backdrop-blur-2xl">
@@ -4603,7 +4949,7 @@ function ChromeMobileShell({ children }) {
           <div className="flex h-10 min-w-0 flex-1 items-center gap-2 rounded-full border border-slate-200 bg-slate-100/90 px-3 shadow-inner">
             <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-500" />
             <span className="min-w-0 flex-1 truncate text-[12px] font-bold text-slate-700">
-              athena.local/settings/mobile-page-experiment
+              {address}
             </span>
           </div>
           <button
@@ -4953,6 +5299,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
   const [step, setStep] = useState("email");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
+  const [challengeId, setChallengeId] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -4986,6 +5333,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
     }
 
     setEmail(result.email || normalizedEmail);
+    setChallengeId(result.challengeId || "");
     setResendRemaining(Number(result.resendCooldownSeconds) || 60);
     return true;
   }
@@ -5012,6 +5360,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
 
     setEmail(check.email || normalizedEmail);
     setCode("");
+    setChallengeId("");
     setStep("code");
     setResendRemaining(0);
     setTimeout(() => sendRegistrationCode({ clearError: true }), 0);
@@ -5030,6 +5379,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
     const result = await System.verifyRegistrationCode({
       email: normalizedEmail,
       code: code.trim(),
+      challengeId,
     });
     setLoading(false);
 
@@ -5039,6 +5389,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
     }
 
     setEmail(result.email || normalizedEmail);
+    setChallengeId(result.challengeId || challengeId);
     setStep("password");
   }
 
@@ -5059,6 +5410,7 @@ function MobileRegistrationForm({ onBack, onSuccess }) {
     const result = await System.registerAccount({
       email: normalizedEmail,
       code: code.trim(),
+      challengeId,
       password,
       confirmPassword,
     });
@@ -7957,7 +8309,7 @@ function WorkspaceDrawer({
       return;
     }
 
-    window.localStorage.setItem(AUTH_USER, JSON.stringify(nextUser));
+    setStoredAuthUser(nextUser);
   }
 
   function handleAccountSignOut() {

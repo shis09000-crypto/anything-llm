@@ -6,6 +6,12 @@ const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 class QDrant extends VectorDatabase {
   constructor() {
@@ -88,9 +94,13 @@ class QDrant extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(response?.payload?.text || "");
-      result.sourceDocuments.push({
+      const payload = {
         ...(response?.payload || {}),
+        text: decryptVectorText(response?.payload?.text || ""),
+      };
+      result.contextTexts.push(payload.text);
+      result.sourceDocuments.push({
+        ...payload,
         id: response.id,
         score: response.score,
       });
@@ -203,7 +213,7 @@ class QDrant extends VectorDatabase {
                 documentVectors.push({ docId, vectorId: id });
                 submission.ids.push(id);
                 submission.vectors.push(chunk.vector);
-                submission.payloads.push(payload);
+                submission.payloads.push(encryptVectorMetadataText(payload));
               } else {
                 console.error(
                   "The 'id' property is not defined in chunk.payload - it will be omitted from being inserted in QDrant collection."
@@ -264,7 +274,7 @@ class QDrant extends VectorDatabase {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/2def486af734c0ca87285a48f1a04c057ab74bdf/langchain/src/vectorstores/pinecone.ts#L64
-            payload: { ...metadata, text: textChunks[i] },
+            payload: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           submission.ids.push(vectorRecord.id);
@@ -430,7 +440,7 @@ class QDrant extends VectorDatabase {
           ? source.metadata
           : source;
         documents.push({
-          ...metadata,
+          ...decryptVectorMetadataText(metadata),
         });
       }
     }

@@ -3,9 +3,13 @@ import { FullScreenLoader } from "@/components/Preloader";
 import paths from "@/utils/paths";
 import useQuery from "@/hooks/useQuery";
 import System from "@/models/system";
-import { AUTH_TIMESTAMP, AUTH_USER } from "@/utils/constants";
+import { AUTH_TIMESTAMP } from "@/utils/constants";
 import { setLoginUserActionNow } from "@/utils/userAction";
 import { removeAuthToken, setAuthToken } from "@/utils/authTokenStorage";
+import {
+  removeStoredAuthUser,
+  setStoredAuthUser,
+} from "@/utils/authUserStorage";
 
 export default function SimpleSSOPassthrough() {
   const query = useQuery();
@@ -18,7 +22,7 @@ export default function SimpleSSOPassthrough() {
       if (!query.get("token")) throw new Error("No token provided.");
 
       // Clear any existing auth data
-      window.localStorage.removeItem(AUTH_USER);
+      removeStoredAuthUser();
       removeAuthToken();
       window.localStorage.removeItem(AUTH_TIMESTAMP);
 
@@ -26,7 +30,7 @@ export default function SimpleSSOPassthrough() {
         .then((res) => {
           if (!res.valid) throw new Error(res.message);
 
-          window.localStorage.setItem(AUTH_USER, JSON.stringify(res.user));
+          setStoredAuthUser(res.user);
           setAuthToken(res.token);
           window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
           setLoginUserActionNow();

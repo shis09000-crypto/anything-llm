@@ -17,6 +17,7 @@ export async function streamThreadTitleEvents({
     path: `/workspace/${workspaceSlug}/thread-title-events`,
     signal,
     openWhenHidden: true,
+    communicationScene: "workspace-navigation",
     onMessage(event) {
       if (event?.action !== "rename_thread" || !event?.thread) return;
       onThreadRename?.(event.thread);
@@ -45,6 +46,7 @@ export async function streamEmbeddingProgress({
     path: `/workspace/${workspaceSlug}/embed-progress`,
     signal,
     openWhenHidden: true,
+    communicationScene: "workspace-settings",
     onMessage(event, rawMessage) {
       onEvent?.(event, rawMessage);
     },
@@ -68,6 +70,7 @@ export async function streamWorkspaceSyncEvents({
     path: `/workspace/${workspaceSlug}/sync-events`,
     signal,
     openWhenHidden: true,
+    communicationScene: "sync",
     onMessage(event, rawMessage) {
       if (
         event?.type === "heartbeat" ||
@@ -98,6 +101,7 @@ export async function streamSyncCenterEvents({
     path: "/sync/events",
     signal,
     openWhenHidden: true,
+    communicationScene: "sync",
     onMessage(event, rawMessage) {
       if (event?.type === "heartbeat" || event?.type === "sync_center_ready") {
         return;

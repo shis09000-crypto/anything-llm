@@ -2,13 +2,13 @@ import React, { Suspense, useEffect } from "react";
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
-import { AuthProvider } from "@/AuthContext";
+import { AuthContext, AuthProvider } from "@/AuthContext";
 import i18n from "./i18n";
 
 import { PfpProvider } from "./PfpContext";
 import { LogoProvider } from "./LogoContext";
 import { FullScreenLoader } from "./components/Preloader";
-import { ThemeProvider } from "./ThemeContext";
+import { ThemeProvider, useThemeContext } from "./ThemeContext";
 import { PWAModeProvider } from "./PWAContext";
 import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import ImageLightbox from "@/components/ImageLightbox";
@@ -24,10 +24,18 @@ import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm"
 import { loadAppEnvironment } from "@/utils/appEnvironment";
 import CommunicationDebugPanel from "@/components/CommunicationDebugPanel";
 import { SettingsDataProvider } from "@/pages/GeneralSettings/SettingsDataProvider";
+import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
+import { useWorkspaceNavigationSyncInvalidation } from "@/hooks/useWorkspaceSyncEvents";
+import { markLoginBoot } from "@/utils/loginBootPerf";
+import { hydrateAppearancePreferences } from "@/utils/userStateSync";
+import { isPersistentSettingsRoute } from "@/utils/settingsRoutes";
 
 export default function App() {
   const location = useLocation();
   const [environmentReady, setEnvironmentReady] = useState(false);
+  const loaderSurface = isPersistentSettingsRoute(location.pathname)
+    ? "settings"
+    : null;
 
   useEffect(() => {
     installAnythingMemoryDiagnostics();
@@ -35,7 +43,9 @@ export default function App() {
 
   useEffect(() => {
     let mounted = true;
+    markLoginBoot("app_boot_start", { path: window.location.pathname });
     loadAppEnvironment().finally(() => {
+      markLoginBoot("environment_loaded");
       if (mounted) setEnvironmentReady(true);
     });
     return () => {
@@ -43,7 +53,7 @@ export default function App() {
     };
   }, []);
 
-  if (!environmentReady) return <FullScreenLoader />;
+  if (!environmentReady) return <FullScreenLoader surface={loaderSurface} />;
 
   return (
     <ErrorBoundary
@@ -53,7 +63,7 @@ export default function App() {
     >
       <ThemeProvider>
         <PWAModeProvider>
-          <Suspense fallback={<FullScreenLoader />}>
+          <Suspense fallback={<FullScreenLoader surface={loaderSurface} />}>
             <AuthProvider>
               <LogoProvider>
                 <PfpProvider>
@@ -61,15 +71,19 @@ export default function App() {
                     <MotionProvider>
                       <ChatThreadDraftProvider>
                         <WorkspaceLayoutProvider>
-                          <SettingsDataProvider>
-                            <DefaultDocumentTitle />
-                            <MotionRouteOutlet />
-                            <AppConfirmDialogHost />
-                            <AppToastHost />
-                            <KeyboardShortcutsHelp />
-                            <ImageLightbox />
-                            <CommunicationDebugPanel />
-                          </SettingsDataProvider>
+                          <AuthenticatedSyncCenter>
+                            <AuthenticatedAppearanceSyncBridge />
+                            <SettingsDataProvider>
+                              <WorkspaceNavigationSyncBridge />
+                              <DefaultDocumentTitle />
+                              <MotionRouteOutlet />
+                              <AppConfirmDialogHost />
+                              <AppToastHost />
+                              <KeyboardShortcutsHelp />
+                              <ImageLightbox />
+                              <CommunicationDebugPanel />
+                            </SettingsDataProvider>
+                          </AuthenticatedSyncCenter>
                         </WorkspaceLayoutProvider>
                       </ChatThreadDraftProvider>
                     </MotionProvider>
@@ -82,6 +96,41 @@ export default function App() {
       </ThemeProvider>
     </ErrorBoundary>
   );
+}
+
+function AuthenticatedSyncCenter({ children }) {
+  const auth = React.useContext(AuthContext);
+  return (
+    <SyncCenterProvider enabled={!!auth?.store?.authToken}>
+      {children}
+    </SyncCenterProvider>
+  );
+}
+
+function AuthenticatedAppearanceSyncBridge() {
+  const auth = React.useContext(AuthContext);
+  const theme = useThemeContext();
+  const hydratedKeyRef = React.useRef(null);
+  const authToken = auth?.store?.authToken || null;
+  const userId =
+    auth?.store?.user?.authUserId || auth?.store?.user?.id || "single-user";
+
+  React.useEffect(() => {
+    if (!authToken) return;
+    const hydrationKey = `${userId}:${authToken}`;
+    if (hydratedKeyRef.current === hydrationKey) return;
+    hydratedKeyRef.current = hydrationKey;
+    void hydrateAppearancePreferences((value) => {
+      if (value?.theme) theme?.setTheme?.(value.theme);
+    });
+  }, [authToken, theme, userId]);
+
+  return null;
+}
+
+function WorkspaceNavigationSyncBridge() {
+  useWorkspaceNavigationSyncInvalidation();
+  return null;
 }
 
 function DefaultDocumentTitle() {

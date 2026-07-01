@@ -7,6 +7,7 @@ import React, {
   useState,
 } from "react";
 import CryptoHubLoadingOverlay from "@/components/CryptoHubLoadingOverlay";
+import { useSoftSettingsShell } from "@/components/SoftSettings/context";
 import { useMotion } from "@/contexts/MotionProvider";
 import { useCryptoHubInit } from "@/hooks/cryptoHub/useCryptoHubInit";
 import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
@@ -29,6 +30,7 @@ import { useAssetAllocationDonutData } from "@/pages/GeneralSettings/Settings/Cr
 import { useOpenFuturesPositionsData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useOpenFuturesPositionsData";
 import { useTradeRecordsTableController } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradeRecordsTableController";
 import { useTradingPairDetailData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradingPairDetailData";
+import { assetAllocationDonutDefaultVisual } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutVisual";
 import type { AssetAllocationDonutCardProps } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutTypes";
 import type {
   CryptoTotalAssetCardProps,
@@ -1803,6 +1805,7 @@ function AnimatedTopSpotAssetGrid({
 }
 
 export default function CryptoCenter() {
+  const hasPersistentSettingsShell = useSoftSettingsShell();
   const equityMode: GateEquityMode = "api_total";
   const [btcRange, setBtcRange] = useState<TradingPairCandlestickRange>("1h");
   const [ethRange, setEthRange] = useState<TradingPairCandlestickRange>("1h");
@@ -1882,9 +1885,15 @@ export default function CryptoCenter() {
   useEffect(() => {
     let cancelled = false;
     let timer: number | null = null;
+    let inflightController: AbortController | null = null;
     let loadedFullHistory = false;
 
     async function loadHistory() {
+      if (cancelled) return;
+      if (inflightController && !inflightController.signal.aborted) return;
+      const controller = new AbortController();
+      inflightController = controller;
+
       setGateHistoryStatus((current) =>
         current === "connected" ? "connected" : "loading"
       );
@@ -1906,11 +1915,13 @@ export default function CryptoCenter() {
           success: boolean;
           history?: GateEquityHistory;
           error?: string;
-        }>(`/equity-history?${query.toString()}`);
+        }>(`/equity-history?${query.toString()}`, {
+          signal: controller.signal,
+        });
         if (!payload?.history) {
           throw new Error(payload?.error || "Gate 今日历史数据读取失败");
         }
-        if (cancelled) return;
+        if (cancelled || controller.signal.aborted) return;
 
         setGateHistory((current) => {
           const nextHistory = payload.history as GateEquityHistory;
@@ -1931,9 +1942,16 @@ export default function CryptoCenter() {
           };
         });
         setGateHistoryStatus("connected");
-      } catch {
-        if (cancelled) return;
+      } catch (error) {
+        if (
+          cancelled ||
+          controller.signal.aborted ||
+          (error as Error)?.name === "AbortError"
+        )
+          return;
         setGateHistoryStatus("error");
+      } finally {
+        if (inflightController === controller) inflightController = null;
       }
     }
 
@@ -1943,6 +1961,7 @@ export default function CryptoCenter() {
     return () => {
       cancelled = true;
       if (timer) window.clearInterval(timer);
+      inflightController?.abort();
     };
   }, [equityMode]);
 
@@ -2001,16 +2020,10 @@ export default function CryptoCenter() {
       items: assetAllocation.activeItems,
       selectedAsset: selectedAllocationAsset,
       onSelectAsset: setSelectedAllocationAsset,
-      maxVisibleItems: 6,
-      showFooterNote: true,
-      cardWidth: HERO_ASSET_ALLOCATION_CARD_WIDTH,
+      ...assetAllocationDonutDefaultVisual,
       cardHeight: HERO_PORTFOLIO_CARD_HEIGHT,
       borderRadius: 23,
-      donutSize: 210,
-      donutThickness: 44,
-      glowIntensity: 0.45,
-      dimInactiveOnFocus: true,
-      compactMode: true,
+      cardWidth: HERO_ASSET_ALLOCATION_CARD_WIDTH,
     }),
     [
       assetAllocation.activeItems,
@@ -2041,7 +2054,12 @@ export default function CryptoCenter() {
   );
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#08090b] text-slate-100">
+    <div
+      className={[
+        "overflow-hidden bg-[#08090b] text-slate-100",
+        hasPersistentSettingsShell ? "h-full w-full" : "h-screen w-screen",
+      ].join(" ")}
+    >
       <div className="pointer-events-none fixed inset-0 z-0 h-screen w-screen">
         <div
           className="fixed inset-0 h-screen w-screen bg-cover bg-center bg-no-repeat"

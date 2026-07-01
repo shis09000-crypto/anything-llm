@@ -8,7 +8,10 @@ import {
 
 test("readerOpenFailureStatus reads status from thrown api errors", () => {
   assert.equal(readerOpenFailureStatus(null, { status: 404 }), 404);
-  assert.equal(readerOpenFailureStatus(null, { details: { status: 404 } }), 404);
+  assert.equal(
+    readerOpenFailureStatus(null, { details: { status: 404 } }),
+    404
+  );
   assert.equal(readerOpenFailureStatus(null, { raw: { status: 403 } }), 403);
 });
 

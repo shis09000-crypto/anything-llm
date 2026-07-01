@@ -197,6 +197,13 @@ load_state_for_env() {
   COLLECTOR_LOG=""
   FRONTEND_LOG=""
   APP_URL=""
+  API_URL=""
+  HTTPS_ENABLED=""
+  HTTPS_KEY_PATH=""
+  HTTPS_CERT_PATH=""
+  HTTPS_CA_CERT_PATH=""
+  HTTPS_PUBLIC_CA_PATH=""
+  HTTPS_BACKEND_URL=""
   STARTED_AT=""
   SUPERVISOR_PID=""
   SUPERVISOR_LOG=""
@@ -260,6 +267,11 @@ AnythingLLM status [$env_name]
 environment: ${APP_ENV:-$env_name}
 started_at:   ${STARTED_AT:-unknown}
 access_url:   ${APP_URL:-unknown}
+api_url:      ${API_URL:-unknown}
+https:        ${HTTPS_ENABLED:-false}
+https_backend: ${HTTPS_BACKEND_URL:-}
+https_ca:     ${HTTPS_CA_CERT_PATH:-}
+https_cert:   ${HTTPS_CERT_PATH:-}
 state_file:   $([[ "$SOURCE_STATUS" == "0" ]] && printf 'ok (%s)' "$LOADED_STATE_FILE" || ([[ "$SOURCE_STATUS" == "2" ]] && printf 'missing (%s)' "$LOADED_STATE_FILE" || printf 'partially readable (%s)' "$LOADED_STATE_FILE"))
 
 supervisor

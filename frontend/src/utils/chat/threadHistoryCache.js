@@ -3,12 +3,17 @@ import {
   getAppEnvironment,
   storageKeys,
 } from "@/utils/appEnvironment";
+import {
+  decryptLocalCachePayload,
+  encryptLocalCachePayload,
+} from "@/utils/security/localCacheCrypto";
+import { historyCacheScope } from "./historyCacheScope";
 
 const DB_NAME = "anythingllm-workspacechat-cache";
 const STORE_NAME = "history";
 const SESSION_PREFIX = "workspacechat-history:";
 
-export const THREAD_HISTORY_CACHE_VERSION = 1;
+export const THREAD_HISTORY_CACHE_VERSION = 2;
 export const THREAD_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
 export const THREAD_HISTORY_CACHE_MAX_SIZE = 8 * 1024 * 1024;
 export const THREAD_HISTORY_MEMORY_MAX_SIZE = 3 * 1024 * 1024;
@@ -22,8 +27,11 @@ function cacheKey({
   threadSlug = null,
   kind = "page",
   cursor = "latest",
+  detail = "light",
+  surface = "desktop",
 }) {
-  return `${getAppEnvironment()}:${THREAD_HISTORY_CACHE_VERSION}:${workspaceSlug}:${threadSlug || "default"}:${kind}:${cursor || "latest"}`;
+  const scope = historyCacheScope({ detail, surface });
+  return `${getAppEnvironment()}:${THREAD_HISTORY_CACHE_VERSION}:${scope.detail}:${scope.surface}:${workspaceSlug}:${threadSlug || "default"}:${kind}:${cursor || "latest"}`;
 }
 
 function estimateSize(value) {
@@ -65,6 +73,44 @@ function sanitizeForCache(value) {
 
 function isExpired(entry) {
   return !entry || Date.now() - entry.updatedAt > THREAD_HISTORY_CACHE_TTL_MS;
+}
+
+function encryptedEntryNamespace(key) {
+  return `thread-history:${key}`;
+}
+
+async function sealEntry(entry) {
+  try {
+    const encryptedPayload = await encryptLocalCachePayload({
+      namespace: encryptedEntryNamespace(entry.key),
+      payload: entry.payload,
+    });
+    if (!encryptedPayload?.encrypted) return entry;
+    return {
+      ...entry,
+      payload: null,
+      encrypted: true,
+      encryptedPayload,
+    };
+  } catch {
+    return entry;
+  }
+}
+
+async function unsealEntry(entry) {
+  if (!entry?.encryptedPayload?.encrypted) return entry;
+  try {
+    const payload = await decryptLocalCachePayload({
+      namespace: encryptedEntryNamespace(entry.key),
+      encryptedPayload: entry.encryptedPayload,
+    });
+    return {
+      ...entry,
+      payload,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function openDb() {
@@ -138,9 +184,14 @@ function setSession(key, entry) {
   } catch {}
 }
 
-function getSession(key) {
+async function getSession(key) {
   try {
-    return JSON.parse(sessionStorage.getItem(`${SESSION_PREFIX}${key}`));
+    const entry = JSON.parse(sessionStorage.getItem(`${SESSION_PREFIX}${key}`));
+    const unsealed = await unsealEntry(entry);
+    if (!unsealed && entry) {
+      sessionStorage.removeItem(`${SESSION_PREFIX}${key}`);
+    }
+    return unsealed;
   } catch {
     return null;
   }
@@ -221,17 +272,17 @@ export const threadHistoryCache = {
     if (!isExpired(memory)) return memory.payload;
     if (memory) memoryCache.delete(key);
 
-    const session = getSession(key);
+    const session = await getSession(key);
     if (!isExpired(session)) {
       memoryCache.set(key, session);
       pruneMemoryCache();
       return session.payload;
     }
 
-    const indexed = await readIndexedDb(key);
+    const indexed = await unsealEntry(await readIndexedDb(key));
     if (!isExpired(indexed)) {
       memoryCache.set(key, indexed);
-      setSession(key, indexed);
+      setSession(key, await sealEntry(indexed));
       pruneMemoryCache();
       return indexed.payload;
     }
@@ -249,8 +300,9 @@ export const threadHistoryCache = {
     };
     memoryCache.set(key, entry);
     pruneMemoryCache();
-    setSession(key, entry);
-    if (indexed) await writeIndexedDb(entry);
+    const sealedEntry = await sealEntry(entry);
+    setSession(key, sealedEntry);
+    if (indexed) await writeIndexedDb(sealedEntry);
   },
   prune() {
     pruneMemoryCache();
@@ -315,6 +367,19 @@ export const threadHistoryCache = {
           .filter((key) => String(key).includes(needle))
           .forEach((key) => store.delete(key));
       };
+    });
+  },
+  clearAll() {
+    memoryCache.clear();
+    try {
+      storageKeys(sessionStorage)
+        .filter((key) => key.startsWith(SESSION_PREFIX))
+        .forEach((key) => sessionStorage.removeItem(key));
+    } catch {}
+    openDb().then((db) => {
+      if (!db) return;
+      const tx = db.transaction(STORE_NAME, "readwrite");
+      tx.objectStore(STORE_NAME).clear();
     });
   },
 };

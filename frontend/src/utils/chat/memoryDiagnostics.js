@@ -1,7 +1,7 @@
 import { requestPriorityQueue } from "./requestPriorityQueue";
 import { threadHistoryCache } from "./threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "./performanceBudget";
-import { getTrackedTtsBlobStats } from "@/utils/piperTTS";
+import { getTrackedTtsBlobStats } from "@/utils/piperTTS/blobStats";
 import { storageKeys } from "@/utils/appEnvironment";
 
 let draftStatsProvider = null;

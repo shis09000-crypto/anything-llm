@@ -31,6 +31,10 @@ async function loadStreamClient() {
         'import { createCommunicationRequestId } from "./clientIdentity";',
         'const createCommunicationRequestId = () => "req-stream-test";'
       )
+      .replace(
+        /import\s+\{\s*communicationByteLength,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+        "const communicationByteLength = (value = '') => String(value || '').length; const recordCommunicationEvent = () => {};"
+      )
       .replaceAll('from "./apiError"', 'from "./apiError.js"'),
     "utf8"
   );

@@ -23,10 +23,15 @@ function memoryStorage() {
 
 async function loadAuthTokenStorage() {
   const source = await readFile(authStorageUrl, "utf8");
-  const transformed = source.replace(
-    'import { AUTH_TOKEN } from "@/utils/constants";',
-    'const AUTH_TOKEN = "anythingllm_authToken";'
-  );
+  const transformed = source
+    .replace(
+      'import { AUTH_TOKEN } from "@/utils/constants";',
+      'const AUTH_TOKEN = "anythingllm_authToken";'
+    )
+    .replace(
+      'import { clearRouteAuthCache } from "@/utils/routeAuthCache";',
+      "const clearRouteAuthCache = () => {};"
+    );
   return import(
     `data:text/javascript;base64,${Buffer.from(transformed).toString("base64")}#${Date.now()}-${Math.random()}`
   );

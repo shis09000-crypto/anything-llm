@@ -118,6 +118,7 @@ const TRANSLATIONS = {
     "crypto-component-experiment": "加密组件实验",
     "crypto-center": "Crypto Center",
     "event-logs": "事件日志",
+    "system-patrol": "系统巡查中心",
     privacy: "隐私与数据",
     "ai-providers": "人工智能提供商",
     "agent-skills": "代理技能",
@@ -196,30 +197,45 @@ const TRANSLATIONS = {
     eyebrow: "阅读工具",
     title: "字体大小与阅读预览",
     description:
-      "字体大小是本地浏览器阅读偏好，只影响当前设备上的聊天阅读体验，不会写入工作区设置。",
+      "这是全局界面偏好，会实时应用到聊天区、输入框和阅读预览；修改会同步到账户，后台只保存最后一次调整。",
     sizeTitle: "字号选择",
     previewTitle: "实时预览",
     currentSelection: "当前选择：{{label}}",
     customSliderLabel: "自定义字号",
     customRange: "{{min}}px 到 {{max}}px",
+    decrease: "减小字号",
+    increase: "增大字号",
+    customStep: "设置为 {{size}}px",
     userPreview: "用户消息预览：请帮我把这份资料整理成清晰的知识结构。",
     options: {
+      compact: {
+        label: "紧凑",
+        description: "最小字号，适合密集浏览长线程。",
+      },
       small: {
         label: "小号",
-        description: "更紧凑，适合长对话快速浏览。",
+        description: "略小，适合快速浏览。",
       },
       normal: {
         label: "标准",
         description: "Athena 默认阅读大小。",
       },
+      comfortable: {
+        label: "舒适",
+        description: "比标准更宽松，适合日常长时间阅读。",
+      },
       large: {
         label: "大号",
         description: "更舒服，适合长时间阅读和演示。",
       },
+      xlarge: {
+        label: "特大",
+        description: "更醒目，适合演示、投屏或低视力场景。",
+      },
       custom: {
         label: "自定义",
         labelWithSize: "自定义 {{size}}px",
-        description: "拖动滑杆，以 1px 为颗粒度调整。",
+        description: "拖动滑杆，以 1px 为颗粒度调整；后台只保存最后一次停留的设置。",
       },
     },
     previewMarkdown: `### 助手回答预览
@@ -1850,9 +1866,12 @@ const readable = true;
     description: "描述",
     placeholder_description: "描述范例",
     save: "保存",
+    compact: "紧凑",
     small: "小",
     normal: "一般",
+    comfortable: "舒适",
     large: "大",
+    xlarge: "特大",
     custom: "自定义",
     custom_text_size: "自定义字体大小",
     workspace_llm_manager: {

@@ -4,7 +4,6 @@ import System from "@/models/system";
 import Appearance from "@/models/appearance";
 import {
   AUTH_TIMESTAMP,
-  AUTH_USER,
   LAST_USER_ACTION_AT,
   LAST_VISITED_WORKSPACE,
   LAST_VISITED_WORKSPACE_THREADS,
@@ -16,16 +15,16 @@ import { useTheme } from "@/hooks/useTheme";
 import { useTranslation } from "react-i18next";
 import { useState, useEffect, useRef } from "react";
 import { Tooltip } from "react-tooltip";
-import { safeJsonParse } from "@/utils/request";
 import Toggle from "@/components/lib/Toggle";
 import AppButton from "@/components/lib/AppButton";
-import { removeAuthToken } from "@/utils/authTokenStorage";
 import AppIcon from "@/components/lib/AppIcon";
 import EmailVerificationCodeInput from "@/components/EmailVerificationCodeInput";
 import { normalizeEmailInput } from "@/utils/emailInput";
 import { emailVerificationErrorMessage } from "@/utils/emailVerificationErrors";
 import paths from "@/utils/paths";
 import { createPortal } from "react-dom";
+import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import {
   USERNAME_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
@@ -54,6 +53,7 @@ export default function AccountModal({ user, hideModal }) {
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailCodeResetSignal, setEmailCodeResetSignal] = useState(0);
   const [emailResendRemaining, setEmailResendRemaining] = useState(0);
+  const [emailChallengeId, setEmailChallengeId] = useState("");
   const [emailEditMode, setEmailEditMode] = useState(
     !(user.email && user.email_verified_at)
   );
@@ -85,6 +85,7 @@ export default function AccountModal({ user, hideModal }) {
         pendingEmail: result.pendingEmail || "",
       });
       setEmailDraft(result.pendingEmail || result.email || "");
+      setEmailChallengeId(result.pendingChallengeId || "");
       setEmailStep(result.pendingEmail ? "verify" : "request");
       setEmailEditMode(Boolean(result.pendingEmail || !result.verified));
     }
@@ -137,11 +138,11 @@ export default function AccountModal({ user, hideModal }) {
 
     const { success, error } = await System.updateUser(data);
     if (success) {
-      let storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+      let storedUser = getStoredAuthUser();
       if (storedUser) {
         storedUser.username = data.username;
         storedUser.bio = data.bio;
-        localStorage.setItem(AUTH_USER, JSON.stringify(storedUser));
+        setStoredAuthUser(storedUser);
       }
       showToast(t("profile_settings.profile_updated"), "success", {
         clear: true,
@@ -168,8 +169,7 @@ export default function AccountModal({ user, hideModal }) {
     const saved = await saveIfChanged();
     closingRef.current = false;
     if (!saved) return;
-    window.localStorage.removeItem(AUTH_USER);
-    removeAuthToken();
+    clearSensitiveClientSession();
     window.localStorage.removeItem(AUTH_TIMESTAMP);
     window.localStorage.removeItem(LAST_USER_ACTION_AT);
     window.localStorage.removeItem(LAST_VISITED_WORKSPACE);
@@ -207,6 +207,7 @@ export default function AccountModal({ user, hideModal }) {
       ...current,
       pendingEmail: result.pendingEmail || emailDraft,
     }));
+    setEmailChallengeId(result.challengeId || "");
     setEmailStep("verify");
     setEmailResendRemaining(Number(result.resendCooldownSeconds) || 60);
     showToast(t("profile_settings.email-code-sent"), "success", {
@@ -219,6 +220,7 @@ export default function AccountModal({ user, hideModal }) {
     setEmailDraft("");
     setEmailStep("request");
     setEmailResendRemaining(0);
+    setEmailChallengeId("");
     setEmailCodeResetSignal((current) => current + 1);
   }
 
@@ -228,6 +230,7 @@ export default function AccountModal({ user, hideModal }) {
     const result = await System.confirmEmailVerification({
       email: emailStatus.pendingEmail || emailDraft,
       code,
+      challengeId: emailChallengeId,
     });
     setEmailLoading(false);
 
@@ -247,14 +250,15 @@ export default function AccountModal({ user, hideModal }) {
     };
     setEmailStatus(nextStatus);
     setEmailDraft(result.email);
+    setEmailChallengeId("");
     setEmailStep("request");
     setEmailEditMode(false);
 
-    let storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+    let storedUser = getStoredAuthUser();
     if (storedUser) {
       storedUser.email = result.email;
       storedUser.email_verified_at = result.verifiedAt;
-      localStorage.setItem(AUTH_USER, JSON.stringify(storedUser));
+      setStoredAuthUser(storedUser);
     }
     showToast(t("profile_settings.email-verified-success"), "success", {
       clear: true,
@@ -435,6 +439,7 @@ export default function AccountModal({ user, hideModal }) {
                             normalizeEmailInput(event.target.value)
                           );
                           setEmailStep("request");
+                          setEmailChallengeId("");
                         }}
                         className="border border-white/10 bg-theme-settings-input-bg placeholder:text-theme-settings-input-placeholder text-theme-settings-input-text text-sm rounded-2xl focus:border-primary-button focus:outline-none outline-none block w-full p-3 light:border-slate-200 light:bg-white"
                         placeholder="noreply@example.com"

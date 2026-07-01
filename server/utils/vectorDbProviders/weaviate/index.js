@@ -7,6 +7,7 @@ const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { camelCase } = require("../../helpers/camelcase");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const { decryptVectorText, encryptVectorText } = require("../../security");
 
 class Weaviate extends VectorDatabase {
   constructor() {
@@ -127,8 +128,9 @@ class Weaviate extends VectorDatabase {
         );
         return;
       }
-      result.contextTexts.push(rest.text);
-      result.sourceDocuments.push({ ...rest, id, score: certainty });
+      const text = decryptVectorText(rest.text);
+      result.contextTexts.push(text);
+      result.sourceDocuments.push({ ...rest, text, id, score: certainty });
       result.scores.push(certainty);
     });
 
@@ -248,7 +250,12 @@ class Weaviate extends VectorDatabase {
                 id,
                 class: camelCase(namespace),
                 vector: chunk.vector || chunk.values || [],
-                properties: { ...flattenedMetadata },
+                properties: {
+                  ...flattenedMetadata,
+                  ...(flattenedMetadata.text
+                    ? { text: encryptVectorText(flattenedMetadata.text) }
+                    : {}),
+                },
               };
               vectors.push(vectorRecord);
             });
@@ -307,7 +314,10 @@ class Weaviate extends VectorDatabase {
             // [DO NOT REMOVE]
             // LangChain will be unable to find your text if you embed manually and dont include the `text` key.
             // https://github.com/hwchase17/langchainjs/blob/5485c4af50c063e257ad54f4393fa79e0aff6462/langchain/src/vectorstores/weaviate.ts#L133
-            properties: { ...flattenedMetadata, text: textChunks[i] },
+            properties: {
+              ...flattenedMetadata,
+              text: encryptVectorText(textChunks[i]),
+            },
           };
 
           submission.ids.push(vectorRecord.id);
@@ -461,7 +471,10 @@ class Weaviate extends VectorDatabase {
         const metadata = source.hasOwnProperty("metadata")
           ? source.metadata
           : source;
-        documents.push({ ...metadata });
+        documents.push({
+          ...metadata,
+          ...(metadata.text ? { text: decryptVectorText(metadata.text) } : {}),
+        });
       }
     }
 

@@ -23,13 +23,25 @@ function readRecentNavigationState() {
 }
 
 function writeRecentNavigationState(value = {}) {
+  const current = readRecentNavigationState();
   if (value.workspace) {
     localStorage.setItem(
       LAST_VISITED_WORKSPACE,
       JSON.stringify(value.workspace)
     );
   }
-  if (value.threadsByWorkspace) writeThreadMap(value.threadsByWorkspace);
+  if (value.threadsByWorkspace) {
+    const incomingThreads = value.threadsByWorkspace || {};
+    const mergedThreads = { ...incomingThreads };
+    for (const [workspaceSlug, threadSlug] of Object.entries(
+      current.threadsByWorkspace || {}
+    )) {
+      if (threadSlug && !incomingThreads[workspaceSlug]) {
+        mergedThreads[workspaceSlug] = threadSlug;
+      }
+    }
+    writeThreadMap(mergedThreads);
+  }
 }
 
 function syncRecentNavigation() {

@@ -6,24 +6,35 @@
   --athena-font-apple:
     -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
     "Hiragino Sans GB", sans-serif;
-  --athena-font-cjk:
-    "Athena Noto Sans SC", "Noto Sans SC", "Microsoft YaHei UI",
-    "Microsoft YaHei", sans-serif;
-  --athena-font-sans: var(--athena-font-cjk);
+  --athena-font-cjk-system:
+    "Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Noto Sans SC", "Source Han Sans SC", "PingFang SC",
+    "Hiragino Sans GB", "WenQuanYi Micro Hei", sans-serif;
+  --athena-font-cjk-webfont:
+    "Athena Noto Sans SC", var(--athena-font-cjk-system);
+  --athena-font-serif-cjk:
+    "Noto Serif SC", "Noto Serif CJK SC", "Source Han Serif SC", SimSun,
+    "Songti SC", STSong, serif;
+  --athena-font-sans: var(--athena-font-cjk-system);
 }
 
 html[data-font-platform="apple"] {
   --athena-font-sans: var(--athena-font-apple);
 }
 
+html[data-font-platform="windows"],
+html[data-font-platform="windows-firefox"] {
+  --athena-font-sans: var(--athena-font-cjk-system);
+}
+
 html[data-font-platform="cjk-webfont"] {
-  --athena-font-sans: var(--athena-font-cjk);
+  --athena-font-sans: var(--athena-font-cjk-webfont);
 }
 
 @font-face {
   font-family: "Athena Noto Sans SC";
   src: url("/fonts/NotoSansSC-VF.ttf") format("truetype");
-  font-display: swap;
+  font-display: optional;
   font-style: normal;
   font-weight: 100 900;
 }

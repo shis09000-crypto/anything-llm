@@ -1,7 +1,7 @@
 import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { castToType } from "@/utils/types";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import VectorDBIdentifier from "./VectorDBIdentifier";
 import MaxContextSnippets from "./MaxContextSnippets";
 import DocumentSimilarityThreshold from "./DocumentSimilarityThreshold";
@@ -9,11 +9,30 @@ import ResetDatabase from "./ResetDatabase";
 import VectorCount from "./VectorCount";
 import VectorSearchMode from "./VectorSearchMode";
 import CTAButton from "@/components/lib/CTAButton";
+import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
 
 export default function VectorDatabase({ workspace }) {
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [vectorDB, setVectorDB] = useState(workspace?.vectorDB || null);
   const formEl = useRef(null);
+  const loadVectorSettings = useSettingsSection("vector");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    async function loadVectorDB() {
+      const settings = await loadVectorSettings({
+        priority: "P2",
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setVectorDB(settings?.VectorDB || workspace?.vectorDB || null);
+    }
+    loadVectorDB().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+    });
+    return () => controller.abort();
+  }, [loadVectorSettings, workspace?.vectorDB]);
 
   const handleUpdate = async (e) => {
     setSaving(true);
@@ -35,6 +54,7 @@ export default function VectorDatabase({ workspace }) {
   };
 
   if (!workspace) return null;
+  const effectiveWorkspace = { ...workspace, vectorDB };
   return (
     <div className="w-full relative">
       <form
@@ -50,10 +70,13 @@ export default function VectorDatabase({ workspace }) {
           </div>
         )}
         <div className="flex items-start gap-x-5">
-          <VectorDBIdentifier workspace={workspace} />
+          <VectorDBIdentifier workspace={effectiveWorkspace} />
           <VectorCount reload={true} workspace={workspace} />
         </div>
-        <VectorSearchMode workspace={workspace} setHasChanges={setHasChanges} />
+        <VectorSearchMode
+          workspace={effectiveWorkspace}
+          setHasChanges={setHasChanges}
+        />
         <MaxContextSnippets
           workspace={workspace}
           setHasChanges={setHasChanges}

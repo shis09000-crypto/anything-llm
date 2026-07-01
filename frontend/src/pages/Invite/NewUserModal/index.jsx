@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import Invite from "@/models/invite";
 import paths from "@/utils/paths";
-import { AUTH_USER } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import {
   USERNAME_MIN_LENGTH,
@@ -10,6 +9,7 @@ import {
 } from "@/utils/username";
 import { setLoginUserActionNow } from "@/utils/userAction";
 import { setAuthToken } from "@/utils/authTokenStorage";
+import { setStoredAuthUser } from "@/utils/authUserStorage";
 import {
   ACCOUNT_ROLES,
   normalizeRole,
@@ -23,6 +23,7 @@ export default function NewUserModal({ invite, inviteToken }) {
   const [error, setError] = useState(null);
   const [email, setEmail] = useState("");
   const [emailCode, setEmailCode] = useState("");
+  const [emailChallengeId, setEmailChallengeId] = useState("");
   const [codeResetSignal, setCodeResetSignal] = useState(0);
   const [resendRemaining, setResendRemaining] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -51,6 +52,7 @@ export default function NewUserModal({ invite, inviteToken }) {
     showToast(result.message || "验证码已发送，请检查邮箱。", "success", {
       clear: true,
     });
+    setEmailChallengeId(result.challengeId || "");
     setResendRemaining(Number(result.resendCooldownSeconds) || 60);
   };
 
@@ -67,6 +69,7 @@ export default function NewUserModal({ invite, inviteToken }) {
     for (var [key, value] of form.entries()) data[key] = value;
     data.email = email;
     data.emailCode = emailCode;
+    data.emailChallengeId = emailChallengeId;
     setLoading(true);
     const { success, valid, user, token, error } = await Invite.acceptInvite(
       inviteToken,
@@ -74,7 +77,7 @@ export default function NewUserModal({ invite, inviteToken }) {
     );
     setLoading(false);
     if (success && valid && !!token && !!user) {
-      window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
+      setStoredAuthUser(user);
       setAuthToken(token);
       setLoginUserActionNow();
       window.location = paths.home();
@@ -114,9 +117,10 @@ export default function NewUserModal({ invite, inviteToken }) {
                     name="email"
                     type="email"
                     value={email}
-                    onChange={(event) =>
-                      setEmail(normalizeEmailInput(event.target.value))
-                    }
+                    onChange={(event) => {
+                      setEmail(normalizeEmailInput(event.target.value));
+                      setEmailChallengeId("");
+                    }}
                     className="border-none bg-theme-settings-input-bg text-theme-text-primary placeholder:text-theme-settings-input-placeholder text-sm rounded-lg focus:outline-primary-button active:outline-primary-button outline-none block w-full p-2.5"
                     placeholder="name@example.com"
                     required={true}

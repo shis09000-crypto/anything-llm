@@ -127,6 +127,7 @@ const TRANSLATIONS = {
     "crypto-component-experiment": "Crypto Component Experiment",
     "crypto-center": "Crypto Center",
     "event-logs": "Event Logs",
+    "system-patrol": "System Patrol",
     "scheduled-jobs": "Scheduled Jobs",
     privacy: "Privacy & Data",
     "ai-providers": "AI Providers",
@@ -209,31 +210,47 @@ const TRANSLATIONS = {
     eyebrow: "Reading tools",
     title: "Font size and reading preview",
     description:
-      "Font size is a local browser reading preference. It only affects chat reading on this device and is not saved to workspace settings.",
+      "This is a global interface preference. It applies instantly to chat, the composer, and reading previews, then syncs to your account with only the final adjustment saved in the background.",
     sizeTitle: "Font size",
     previewTitle: "Live preview",
     currentSelection: "Current selection: {{label}}",
     customSliderLabel: "Custom font size",
     customRange: "{{min}}px to {{max}}px",
+    decrease: "Decrease font size",
+    increase: "Increase font size",
+    customStep: "Set to {{size}}px",
     userPreview:
       "User message preview: Please organize this material into a clear knowledge structure.",
     options: {
+      compact: {
+        label: "Compact",
+        description: "The smallest size for dense long-thread scanning.",
+      },
       small: {
         label: "Small",
-        description: "More compact, useful for scanning long conversations.",
+        description: "Slightly smaller for quick scanning.",
       },
       normal: {
         label: "Standard",
         description: "The default Athena reading size.",
       },
+      comfortable: {
+        label: "Comfortable",
+        description: "Roomier than standard for long everyday reading.",
+      },
       large: {
         label: "Large",
         description: "More comfortable for long reading sessions and demos.",
       },
+      xlarge: {
+        label: "Extra large",
+        description: "More prominent for demos, projection, or low-vision reading.",
+      },
       custom: {
         label: "Custom",
         labelWithSize: "Custom {{size}}px",
-        description: "Drag the slider in 1px steps.",
+        description:
+          "Drag the slider in 1px steps. The background sync saves only the final resting value.",
       },
     },
     previewMarkdown: `### Assistant response preview
@@ -2174,9 +2191,12 @@ const readable = true;
     description: "Description",
     placeholder_description: "Responds with a poem about LLMs.",
     save: "Save",
+    compact: "Compact",
     small: "Small",
     normal: "Normal",
+    comfortable: "Comfortable",
     large: "Large",
+    xlarge: "Extra large",
     custom: "Custom",
     custom_text_size: "Custom text size",
     tools: "Tools",

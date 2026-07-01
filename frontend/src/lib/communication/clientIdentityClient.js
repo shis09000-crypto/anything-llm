@@ -1,9 +1,10 @@
 import { getJson, postJson } from "./apiClient";
-import { getClientIdentity } from "./clientIdentity";
+import { getClientIdentity, resetClientIdentity } from "./clientIdentity";
 import {
   clearSigningSecretCache,
   setSigningSecretCache,
 } from "./requestSigningClient";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 
 export async function listClients(options = {}) {
   const { data } = await getJson("/client-identity/clients", options);
@@ -22,6 +23,11 @@ export async function revokeClient(clientId, options = {}) {
   );
   if (data?.success && clientId === getClientIdentity().clientId) {
     clearSigningSecretCache(clientId);
+    await resetClientIdentity({ rotateDeviceKey: true });
+    clearSensitiveClientSession({
+      reason: "current_client_revoked",
+      includeDurableCaches: false,
+    });
   }
   return data || { success: false, error: "empty_response" };
 }

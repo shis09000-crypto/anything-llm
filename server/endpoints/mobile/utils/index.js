@@ -9,6 +9,9 @@ const { MobileDevice } = require("../../../models/mobileDevice");
 const {
   setSseTransportHeaders,
 } = require("../../../utils/security/transportSecurity");
+const {
+  decryptWorkspaceChatRecords,
+} = require("../../../utils/security/chatHistoryEncryption");
 
 /**
  *
@@ -71,7 +74,7 @@ async function handleMobileCommand(request, response) {
         },
       })),
     ];
-    const chats = (
+    const chats = decryptWorkspaceChatRecords(
       await prisma.workspace_chats.findMany({
         where: {
           workspaceId: workspace.id,

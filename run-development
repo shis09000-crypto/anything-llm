@@ -12,9 +12,21 @@ STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
 ENV_STORAGE_ROOT="$STORAGE_BASE/development"
 OPEN_BROWSER=1
 LAN_MODE=0
+HTTPS_MODE="${HTTPS_MODE:-1}"
 DEV_PUBLIC_HOST="${PUBLIC_DEV_HOST:-localhost}"
 FRONTEND_URL=""
 API_URL=""
+DEV_SSL_DIR="$ROOT_DIR/.dev-ssl"
+HTTPS_CA_KEY_PATH="$DEV_SSL_DIR/athena-dev-ca.key"
+HTTPS_CA_CERT_PATH="$DEV_SSL_DIR/athena-dev-ca.crt"
+HTTPS_KEY_PATH="$DEV_SSL_DIR/athena-dev.key"
+HTTPS_CSR_PATH="$DEV_SSL_DIR/athena-dev.csr"
+HTTPS_CERT_PATH="$DEV_SSL_DIR/athena-dev.crt"
+HTTPS_OPENSSL_CONF="$DEV_SSL_DIR/athena-dev.openssl.cnf"
+HTTPS_PUBLIC_CA_PATH="$ROOT_DIR/frontend/public/athena-mobile-dev-ca.crt"
+HTTPS_BACKEND_URL="https://localhost:${SERVER_PORT}"
+DEV_LOCAL_HOST=""
+DEV_LAN_HOST=""
 
 mkdir -p "$LOG_DIR"
 
@@ -24,15 +36,27 @@ log() {
 
 usage() {
   cat <<EOF
-Usage: bash ./run-development [--no-open] [--lan]
+Usage: bash ./run-development [--no-open] [--lan] [--http]
 
 Options:
   --no-open   Start services without opening or refreshing a browser tab.
-  --lan       Use this Mac's LAN IP for the frontend URL and VITE_API_BASE.
+  --lan       Use this Mac's LAN IP for the frontend URL.
+  --http      Use the legacy HTTP dev transport instead of default HTTPS.
 
 Environment:
   PUBLIC_DEV_HOST  Override the host advertised to browser clients.
 EOF
+}
+
+truthy() {
+  case "${1:-}" in
+    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+https_enabled() {
+  truthy "$HTTPS_MODE"
 }
 
 detect_lan_host() {
@@ -61,6 +85,112 @@ detect_lan_host() {
   return 1
 }
 
+detect_local_host() {
+  local candidate
+  candidate="$(scutil --get LocalHostName 2>/dev/null || true)"
+  if [[ -z "$candidate" ]]; then
+    candidate="$(hostname -s 2>/dev/null || true)"
+  fi
+  candidate="${candidate%%.*}"
+  if [[ -n "$candidate" && "$candidate" != "localhost" ]]; then
+    printf '%s.local\n' "$candidate"
+    return 0
+  fi
+  printf 'localhost\n'
+}
+
+write_https_openssl_config() {
+  local local_host="$1"
+  local lan_host="$2"
+  local dns_index=1
+  local ip_index=1
+
+  {
+    cat <<EOF
+[req]
+default_bits = 2048
+prompt = no
+default_md = sha256
+distinguished_name = dn
+req_extensions = v3_req
+
+[dn]
+CN = ${local_host}
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @alt_names
+
+[alt_names]
+EOF
+    printf 'DNS.%s = localhost\n' "$dns_index"
+    dns_index=$((dns_index + 1))
+    if [[ -n "$local_host" && "$local_host" != "localhost" ]]; then
+      printf 'DNS.%s = %s\n' "$dns_index" "$local_host"
+      dns_index=$((dns_index + 1))
+    fi
+    if [[ -n "$DEV_PUBLIC_HOST" && "$DEV_PUBLIC_HOST" != "localhost" && ! "$DEV_PUBLIC_HOST" =~ ^[0-9.]+$ ]]; then
+      printf 'DNS.%s = %s\n' "$dns_index" "$DEV_PUBLIC_HOST"
+      dns_index=$((dns_index + 1))
+    fi
+    printf 'IP.%s = 127.0.0.1\n' "$ip_index"
+    ip_index=$((ip_index + 1))
+    if [[ -n "$lan_host" ]]; then
+      printf 'IP.%s = %s\n' "$ip_index" "$lan_host"
+    fi
+  } >"$HTTPS_OPENSSL_CONF"
+}
+
+ensure_https_certs() {
+  if ! command -v openssl >/dev/null 2>&1; then
+    log "error: openssl is required to start the HTTPS development server."
+    exit 1
+  fi
+
+  mkdir -p "$DEV_SSL_DIR" "$(dirname "$HTTPS_PUBLIC_CA_PATH")"
+
+  DEV_LOCAL_HOST="$(detect_local_host)"
+  DEV_LAN_HOST="$(detect_lan_host 2>/dev/null || true)"
+
+  if [[ ! -f "$HTTPS_CA_KEY_PATH" || ! -f "$HTTPS_CA_CERT_PATH" ]]; then
+    log "creating local Athena development CA in $DEV_SSL_DIR"
+    openssl genrsa -out "$HTTPS_CA_KEY_PATH" 4096 >/dev/null 2>&1
+    openssl req \
+      -x509 \
+      -new \
+      -nodes \
+      -key "$HTTPS_CA_KEY_PATH" \
+      -sha256 \
+      -days 3650 \
+      -subj "/CN=Athena Dev CA" \
+      -out "$HTTPS_CA_CERT_PATH" >/dev/null 2>&1
+  fi
+
+  write_https_openssl_config "$DEV_LOCAL_HOST" "$DEV_LAN_HOST"
+
+  openssl genrsa -out "$HTTPS_KEY_PATH" 2048 >/dev/null 2>&1
+  openssl req \
+    -new \
+    -key "$HTTPS_KEY_PATH" \
+    -out "$HTTPS_CSR_PATH" \
+    -config "$HTTPS_OPENSSL_CONF" >/dev/null 2>&1
+  openssl x509 \
+    -req \
+    -in "$HTTPS_CSR_PATH" \
+    -CA "$HTTPS_CA_CERT_PATH" \
+    -CAkey "$HTTPS_CA_KEY_PATH" \
+    -CAcreateserial \
+    -out "$HTTPS_CERT_PATH" \
+    -days 825 \
+    -sha256 \
+    -extensions v3_req \
+    -extfile "$HTTPS_OPENSSL_CONF" >/dev/null 2>&1
+
+  cp "$HTTPS_CA_CERT_PATH" "$HTTPS_PUBLIC_CA_PATH"
+}
+
 configure_public_urls() {
   if [[ -n "${PUBLIC_DEV_HOST:-}" ]]; then
     DEV_PUBLIC_HOST="$PUBLIC_DEV_HOST"
@@ -73,8 +203,15 @@ configure_public_urls() {
     DEV_PUBLIC_HOST="localhost"
   fi
 
-  FRONTEND_URL="http://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}"
-  API_URL="http://${DEV_PUBLIC_HOST}:${SERVER_PORT}/api"
+  if https_enabled; then
+    FRONTEND_URL="https://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}"
+    API_URL="/api"
+    HTTPS_BACKEND_URL="https://localhost:${SERVER_PORT}"
+  else
+    FRONTEND_URL="http://${DEV_PUBLIC_HOST}:${FRONTEND_PORT}"
+    API_URL="http://${DEV_PUBLIC_HOST}:${SERVER_PORT}/api"
+    HTTPS_BACKEND_URL=""
+  fi
 }
 
 while [[ $# -gt 0 ]]; do
@@ -84,6 +221,9 @@ while [[ $# -gt 0 ]]; do
       ;;
     --lan)
       LAN_MODE=1
+      ;;
+    --http)
+      HTTPS_MODE=0
       ;;
     -h|--help)
       usage
@@ -98,6 +238,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 configure_public_urls
+if https_enabled; then
+  ensure_https_certs
+fi
 
 is_port_open() {
   nc -z localhost "$1" >/dev/null 2>&1
@@ -520,13 +663,26 @@ supervisor_urls_match() {
   local state_output
   local state_frontend_url
   local state_api_url
+  local state_https_enabled
+  local state_https_key_path
+  local state_https_cert_path
+  local desired_https_enabled
 
   [[ -f "$STATE_FILE" ]] || return 1
-  state_output="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 1; printf "%s\n%s\n" "${APP_URL:-}" "${API_URL:-}"' _ "$STATE_FILE" 2>/dev/null || true)"
+  state_output="$(bash -c 'source "$1" >/dev/null 2>&1 || exit 1; printf "%s\n%s\n%s\n%s\n%s\n" "${APP_URL:-}" "${API_URL:-}" "${HTTPS_ENABLED:-false}" "${HTTPS_KEY_PATH:-}" "${HTTPS_CERT_PATH:-}"' _ "$STATE_FILE" 2>/dev/null || true)"
   state_frontend_url="$(printf '%s\n' "$state_output" | sed -n '1p')"
   state_api_url="$(printf '%s\n' "$state_output" | sed -n '2p')"
+  state_https_enabled="$(printf '%s\n' "$state_output" | sed -n '3p')"
+  state_https_key_path="$(printf '%s\n' "$state_output" | sed -n '4p')"
+  state_https_cert_path="$(printf '%s\n' "$state_output" | sed -n '5p')"
+  desired_https_enabled="false"
+  if https_enabled; then desired_https_enabled="true"; fi
 
-  [[ "$state_frontend_url" == "$FRONTEND_URL" && "$state_api_url" == "$API_URL" ]]
+  [[ "$state_frontend_url" == "$FRONTEND_URL" &&
+    "$state_api_url" == "$API_URL" &&
+    "$state_https_enabled" == "$desired_https_enabled" &&
+    "$state_https_key_path" == "$HTTPS_KEY_PATH" &&
+    "$state_https_cert_path" == "$HTTPS_CERT_PATH" ]]
 }
 
 cleanup_stale_supervisor_lock() {
@@ -539,6 +695,14 @@ cleanup_stale_supervisor_lock() {
 launch_supervisor() {
   log "starting development supervisor..."
   : >"$SUPERVISOR_LOG"
+  local https_enabled_value="false"
+  local enable_https_value=""
+  local vite_dev_https_value="false"
+  if https_enabled; then
+    https_enabled_value="true"
+    enable_https_value="true"
+    vite_dev_https_value="true"
+  fi
   if command -v setsid >/dev/null 2>&1; then
     nohup setsid env \
       APP_ENV=development \
@@ -548,6 +712,18 @@ launch_supervisor() {
       PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
       APP_URL="$FRONTEND_URL" \
       API_URL="$API_URL" \
+      MOBILE_HTTPS="$https_enabled_value" \
+      ENABLE_HTTPS="$enable_https_value" \
+      HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      HTTPS_CA_CERT_PATH="$HTTPS_CA_CERT_PATH" \
+      HTTPS_PUBLIC_CA_PATH="$HTTPS_PUBLIC_CA_PATH" \
+      HTTPS_BACKEND_URL="$HTTPS_BACKEND_URL" \
+      VITE_DEV_HTTPS="$vite_dev_https_value" \
+      VITE_HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      VITE_HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      VITE_DEV_API_PROXY_TARGET="$HTTPS_BACKEND_URL" \
+      MOBILE_HTTPS_API_BASE="/api" \
       STORAGE_DIR="$STORAGE_BASE" \
       bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
       >/dev/null 2>&1 &
@@ -561,6 +737,18 @@ launch_supervisor() {
       PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
       APP_URL="$FRONTEND_URL" \
       API_URL="$API_URL" \
+      MOBILE_HTTPS="$https_enabled_value" \
+      ENABLE_HTTPS="$enable_https_value" \
+      HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      HTTPS_CA_CERT_PATH="$HTTPS_CA_CERT_PATH" \
+      HTTPS_PUBLIC_CA_PATH="$HTTPS_PUBLIC_CA_PATH" \
+      HTTPS_BACKEND_URL="$HTTPS_BACKEND_URL" \
+      VITE_DEV_HTTPS="$vite_dev_https_value" \
+      VITE_HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      VITE_HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      VITE_DEV_API_PROXY_TARGET="$HTTPS_BACKEND_URL" \
+      MOBILE_HTTPS_API_BASE="/api" \
       STORAGE_DIR="$STORAGE_BASE" \
       bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
       >/dev/null 2>&1 &
@@ -573,6 +761,18 @@ launch_supervisor() {
       PUBLIC_DEV_HOST="$DEV_PUBLIC_HOST" \
       APP_URL="$FRONTEND_URL" \
       API_URL="$API_URL" \
+      MOBILE_HTTPS="$https_enabled_value" \
+      ENABLE_HTTPS="$enable_https_value" \
+      HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      HTTPS_CA_CERT_PATH="$HTTPS_CA_CERT_PATH" \
+      HTTPS_PUBLIC_CA_PATH="$HTTPS_PUBLIC_CA_PATH" \
+      HTTPS_BACKEND_URL="$HTTPS_BACKEND_URL" \
+      VITE_DEV_HTTPS="$vite_dev_https_value" \
+      VITE_HTTPS_KEY_PATH="$HTTPS_KEY_PATH" \
+      VITE_HTTPS_CERT_PATH="$HTTPS_CERT_PATH" \
+      VITE_DEV_API_PROXY_TARGET="$HTTPS_BACKEND_URL" \
+      MOBILE_HTTPS_API_BASE="/api" \
       STORAGE_DIR="$STORAGE_BASE" \
       bash "$ROOT_DIR/scripts/runtime-supervisor.sh" --env development \
       >/dev/null 2>&1 &
@@ -675,12 +875,26 @@ warn_degraded_components
 
 open_or_refresh_frontend "development" "$FRONTEND_URL"
 
+HTTPS_LABEL="disabled"
+HTTPS_EXTRA=""
+if https_enabled; then
+  HTTPS_LABEL="enabled"
+  HTTPS_EXTRA="$(cat <<EOF
+Backend: $HTTPS_BACKEND_URL
+CA:      $HTTPS_CA_CERT_PATH
+Public CA copy: $HTTPS_PUBLIC_CA_PATH
+EOF
+)"
+fi
+
 cat <<EOF
 
 Development environment is running.
 APP_ENV: development
 URL:     $FRONTEND_URL
 API:     $API_URL
+HTTPS:   $HTTPS_LABEL
+$HTTPS_EXTRA
 
 Logs:
 supervisor: $SUPERVISOR_LOG

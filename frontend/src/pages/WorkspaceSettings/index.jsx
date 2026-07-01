@@ -2,7 +2,10 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import Sidebar from "@/components/Sidebar";
 import Workspace from "@/models/workspace";
-import PasswordModal, { usePasswordModal } from "@/components/Modals/Password";
+import PasswordModal, {
+  AuthBootstrapError,
+  usePasswordModal,
+} from "@/components/Modals/Password";
 import { isMobile } from "react-device-detect";
 import { FullScreenLoader } from "@/components/Preloader";
 import {
@@ -11,7 +14,6 @@ import {
   Database,
   Heartbeat,
   Robot,
-  TextAa,
   Wrench,
 } from "@phosphor-icons/react";
 import paths from "@/utils/paths";
@@ -21,24 +23,26 @@ import ChatSettings from "./ChatSettings";
 import VectorDatabase from "./VectorDatabase";
 import WorkspaceAgentConfiguration from "./AgentConfig";
 import HealthCenter from "./HealthCenter";
-import ReadingTools from "./ReadingTools";
 import { useTranslation } from "react-i18next";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
-import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { pathForLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 
 const TABS = {
   "general-appearance": GeneralAppearance,
   "chat-settings": ChatSettings,
   "vector-database": VectorDatabase,
   "health-center": HealthCenter,
-  "reading-tools": ReadingTools,
+  "reading-tools": ReadingToolsRedirect,
   "agent-config": WorkspaceAgentConfiguration,
 };
 
 export default function WorkspaceSettings() {
-  const { loading, requiresAuth, mode } = usePasswordModal();
+  const { loading, requiresAuth, mode, error } = usePasswordModal();
 
   if (loading) return <FullScreenLoader />;
+  if (error) return <AuthBootstrapError message={error} />;
   if (requiresAuth !== false) {
     return <>{requiresAuth !== null && <PasswordModal mode={mode} />}</>;
   }
@@ -51,34 +55,54 @@ function ShowWorkspaceChat() {
   const { slug, tab } = useParams();
   const [workspace, setWorkspace] = useState(null);
   const [loading, setLoading] = useState(true);
-  const loadVectorSettings = useSettingsSection("vector");
 
   useEffect(() => {
     const controller = new AbortController();
     async function getWorkspace() {
       if (!slug) return;
-      setLoading(true);
-      const [_workspace, _settings, suggestedMessages] = await Promise.all([
-        Workspace.bySlug(slug),
-        loadVectorSettings({ priority: "P0" }),
-        Workspace.getSuggestedMessages(slug),
-      ]);
+      const cached = workspaceNavigationCache.getWorkspaceDetail(slug);
+      if (cached) {
+        setWorkspace(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+
+      let _workspace = null;
+      try {
+        _workspace = await workspaceNavigationCache.runInFlight(
+          `workspace:${slug}`,
+          () =>
+            requestPriorityQueue.schedule(
+              () =>
+                Workspace.bySlug(slug, {
+                  signal: controller.signal,
+                  communicationScene: "workspace-settings",
+                }),
+              {
+                priority: cached ? "P2" : "P0",
+                label: "workspace-settings:workspace-detail",
+                signal: controller.signal,
+                dedupeKey: `workspace-settings:workspace:${slug}`,
+              }
+            )
+        );
+      } catch (error) {
+        if (error?.name === "AbortError" || controller.signal.aborted) return;
+        console.error(error);
+      }
       if (controller.signal.aborted) return;
       if (!_workspace) {
         setLoading(false);
         return;
       }
 
-      setWorkspace({
-        ..._workspace,
-        vectorDB: _settings?.VectorDB,
-        suggestedMessages,
-      });
+      setWorkspace(_workspace);
       setLoading(false);
     }
     getWorkspace();
     return () => controller.abort();
-  }, [loadVectorSettings, slug]);
+  }, [slug]);
 
   if (loading) return <WorkspaceSettingsSkeleton />;
 
@@ -90,7 +114,11 @@ function ShowWorkspaceChat() {
   }
 
   return (
-    <WorkspaceHealthProvider workspaceSlug={slug}>
+    <WorkspaceHealthProvider
+      workspaceSlug={slug}
+      autoLoad={tab === "health-center"}
+      communicationScene="settings-tab"
+    >
       <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
         {!isMobile && <Sidebar />}
         <div
@@ -99,7 +127,7 @@ function ShowWorkspaceChat() {
         >
           <div className="flex flex-wrap gap-x-8 gap-y-3 pt-6 pb-4 ml-16 mr-8 border-b-2 border-white light:border-theme-chat-input-border border-opacity-10">
             <Link
-              to={paths.workspace.chat(slug)}
+              to={pathForLastVisitedThread(slug)}
               className="absolute top-2 left-2 md:top-4 md:left-4 motion-hover p-2 rounded-full text-white bg-theme-sidebar-footer-icon hover:bg-theme-sidebar-footer-icon-hover z-10"
             >
               <ArrowUUpLeft className="h-5 w-5" weight="fill" />
@@ -125,11 +153,6 @@ function ShowWorkspaceChat() {
               to={paths.workspace.settings.healthCenter(slug)}
             />
             <TabItem
-              title={t("workspaces—settings.reading")}
-              icon={<TextAa className="h-6 w-6" />}
-              to={paths.workspace.settings.readingTools(slug)}
-            />
-            <TabItem
               title={t("workspaces—settings.agent")}
               icon={<Robot className="h-6 w-6" />}
               to={paths.workspace.settings.agentConfig(slug)}
@@ -141,6 +164,15 @@ function ShowWorkspaceChat() {
         </div>
       </div>
     </WorkspaceHealthProvider>
+  );
+}
+
+function ReadingToolsRedirect() {
+  return (
+    <Navigate
+      to={paths.settings.interface({ hash: "reading-tools" })}
+      replace
+    />
   );
 }
 

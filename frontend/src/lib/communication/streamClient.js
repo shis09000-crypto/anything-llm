@@ -41,6 +41,7 @@ async function jsonSse({
   onClose,
   onError,
   retryOnError = false,
+  communicationScene = null,
 } = {}) {
   const normalizedMethod = method.toUpperCase();
   const requestId = createCommunicationRequestId();
@@ -64,6 +65,7 @@ async function jsonSse({
           durationMs: Math.round(nowMs() - startedAt),
           requestBytes: communicationByteLength(bodyString),
           responseBytes: 0,
+          communicationScene,
           serverTiming: response.headers?.get?.("Server-Timing") || null,
           ok: true,
         });
@@ -101,6 +103,7 @@ async function jsonSse({
         requestBytes: communicationByteLength(bodyString),
         responseBytes: 0,
         eventCount,
+        communicationScene,
         ok: true,
       });
       onClose?.();
@@ -132,6 +135,7 @@ async function jsonSse({
         requestBytes: communicationByteLength(bodyString),
         responseBytes: 0,
         eventCount,
+        communicationScene,
         ok: false,
         error: apiError.message,
       });

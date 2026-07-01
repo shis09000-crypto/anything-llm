@@ -21,12 +21,17 @@ async function publishAgentChatFinalized(aibitat, chatId = null) {
     ));
   if (!workspace?.slug) return;
 
+  const threadClause = invocation.thread_id
+    ? {
+        id: Number(invocation.thread_id),
+        workspace_id: Number(invocation.workspace_id),
+        user_id: invocation.user_id ? Number(invocation.user_id) : null,
+      }
+    : null;
   const thread =
     invocation.thread ||
-    (invocation.thread_id
-      ? await WorkspaceThread.get({ id: Number(invocation.thread_id) }).catch(
-          () => null
-        )
+    (threadClause
+      ? await WorkspaceThread.get(threadClause).catch(() => null)
       : null);
 
   publishWorkspaceSyncEvent({

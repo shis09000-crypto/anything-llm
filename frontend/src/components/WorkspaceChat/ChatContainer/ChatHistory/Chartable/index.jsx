@@ -41,6 +41,9 @@ const dataFormatter = (number) => {
   return Intl.NumberFormat("us").format(number).toString();
 };
 
+const CHART_FONT_FAMILY =
+  "Microsoft YaHei UI, Microsoft YaHei, Noto Sans SC, Segoe UI, sans-serif";
+
 export function Chartable({ props }) {
   const [getDivJpeg, { ref }] = useGenerateImage({
     quality: 1,
@@ -153,7 +156,7 @@ export function Chartable({ props }) {
                 tick={{ transform: "translate(0, 6)", fill: "white" }}
                 style={{
                   fontSize: "12px",
-                  fontFamily: "Inter; Helvetica",
+                  fontFamily: CHART_FONT_FAMILY,
                 }}
                 padding={{ left: 10, right: 10 }}
               />
@@ -164,7 +167,7 @@ export function Chartable({ props }) {
                 tick={{ transform: "translate(-3, 0)", fill: "white" }}
                 style={{
                   fontSize: "12px",
-                  fontFamily: "Inter; Helvetica",
+                  fontFamily: CHART_FONT_FAMILY,
                 }}
               />
               <Tooltip legendColor={getTremorColor(color || "blue")} />
@@ -213,7 +216,7 @@ export function Chartable({ props }) {
                 tick={{ transform: "translate(0, 6)", fill: "white" }}
                 style={{
                   fontSize: "12px",
-                  fontFamily: "Inter; Helvetica",
+                  fontFamily: CHART_FONT_FAMILY,
                 }}
                 padding={{ left: 10, right: 10 }}
               />
@@ -224,7 +227,7 @@ export function Chartable({ props }) {
                 tick={{ transform: "translate(-3, 0)", fill: "white" }}
                 style={{
                   fontSize: "12px",
-                  fontFamily: "Inter; Helvetica",
+                  fontFamily: CHART_FONT_FAMILY,
                 }}
               />
               <Tooltip legendColor={getTremorColor(color || "blue")} />

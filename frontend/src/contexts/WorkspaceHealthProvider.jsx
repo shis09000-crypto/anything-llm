@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import WorkspaceHealth from "@/models/workspaceHealth";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 
 const HEALTH_POLL_INTERVAL_MS = 45_000;
 const SCORE_DEBOUNCE_MS = 220;
@@ -15,7 +16,13 @@ const healthCache = new Map();
 
 const WorkspaceHealthContext = createContext(null);
 
-export function WorkspaceHealthProvider({ workspaceSlug, children }) {
+export function WorkspaceHealthProvider({
+  workspaceSlug,
+  children,
+  autoLoad = false,
+  idleDelayMs = 0,
+  communicationScene = "health-idle",
+}) {
   const [beacon, setBeacon] = useState(() => {
     return workspaceSlug ? healthCache.get(workspaceSlug) || null : null;
   });
@@ -26,6 +33,7 @@ export function WorkspaceHealthProvider({ workspaceSlug, children }) {
   const [loading, setLoading] = useState(false);
   const [cooldownRemainingMs, setCooldownRemainingMs] = useState(0);
   const scoreTimer = useRef(null);
+  const loadAbortRef = useRef(null);
 
   const applyBeacon = useCallback(
     (nextBeacon) => {
@@ -45,33 +53,71 @@ export function WorkspaceHealthProvider({ workspaceSlug, children }) {
     [workspaceSlug]
   );
 
-  const loadBeacon = useCallback(async () => {
-    if (!workspaceSlug) return null;
-    setLoading(true);
-    const nextBeacon = await WorkspaceHealth.beacon(workspaceSlug);
-    applyBeacon(nextBeacon);
-    setLoading(false);
-    return nextBeacon;
-  }, [applyBeacon, workspaceSlug]);
+  const loadBeacon = useCallback(
+    async (options = {}) => {
+      if (!workspaceSlug) return null;
+      loadAbortRef.current?.abort();
+      const controller = new AbortController();
+      loadAbortRef.current = controller;
+      const priority = options.priority || (autoLoad ? "P1" : "P4");
+      const scene = options.communicationScene || communicationScene;
+      setLoading(true);
+      try {
+        const nextBeacon = await requestPriorityQueue.schedule(
+          () =>
+            WorkspaceHealth.beacon(workspaceSlug, {
+              signal: controller.signal,
+              communicationScene: scene,
+            }),
+          {
+            priority,
+            signal: controller.signal,
+            label: "workspace-health:beacon",
+            dedupeKey: `workspace-health:${workspaceSlug}`,
+          }
+        );
+        if (!controller.signal.aborted && nextBeacon) applyBeacon(nextBeacon);
+        return nextBeacon;
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    },
+    [applyBeacon, autoLoad, communicationScene, workspaceSlug]
+  );
 
   const refreshBeacon = useCallback(async () => {
     if (!workspaceSlug || cooldownRemainingMs > 0) return beacon;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
     setLoading(true);
-    const nextBeacon = await WorkspaceHealth.refresh(workspaceSlug);
-    applyBeacon(nextBeacon);
-    setLoading(false);
-    return nextBeacon;
+    try {
+      const nextBeacon = await WorkspaceHealth.refresh(workspaceSlug, {
+        signal: controller.signal,
+        communicationScene: "settings-tab",
+      });
+      if (!controller.signal.aborted) applyBeacon(nextBeacon);
+      return nextBeacon;
+    } finally {
+      if (!controller.signal.aborted) setLoading(false);
+    }
   }, [applyBeacon, beacon, cooldownRemainingMs, workspaceSlug]);
 
   useEffect(() => {
     if (!workspaceSlug) return;
-    loadBeacon();
+    if (!autoLoad && !idleDelayMs) return;
+    const startLoad = () => loadBeacon({ priority: autoLoad ? "P1" : "P4" });
+    const timeout = autoLoad
+      ? setTimeout(startLoad, 0)
+      : setTimeout(startLoad, idleDelayMs);
     const interval = setInterval(loadBeacon, HEALTH_POLL_INTERVAL_MS);
     return () => {
+      clearTimeout(timeout);
       clearInterval(interval);
       clearTimeout(scoreTimer.current);
+      loadAbortRef.current?.abort();
     };
-  }, [loadBeacon, workspaceSlug]);
+  }, [autoLoad, idleDelayMs, loadBeacon, workspaceSlug]);
 
   useEffect(() => {
     if (cooldownRemainingMs <= 0) return;

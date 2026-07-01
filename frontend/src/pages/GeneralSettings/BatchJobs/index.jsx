@@ -1,12 +1,11 @@
-import Sidebar from "@/components/SettingsSidebar";
 import System from "@/models/system";
 import showToast from "@/utils/toast";
 import { formatDateTime24 } from "@/utils/dates";
 import { ArrowClockwise, CaretDown, CaretUp } from "@phosphor-icons/react";
 import { useCallback, useEffect, useState } from "react";
-import { isMobile } from "react-device-detect";
 import * as Skeleton from "react-loading-skeleton";
 import { useTranslation } from "react-i18next";
+import { SoftCard, SoftSettingsLayout } from "@/components/SoftSettings";
 
 export default function BatchJobs() {
   const [loading, setLoading] = useState(true);
@@ -60,50 +59,39 @@ export default function BatchJobs() {
   }
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
-      <div
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-        className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-      >
-        <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:py-6 py-16">
-          <div className="w-full flex flex-col gap-y-1 pb-6 border-white/10 border-b-2">
-            <p className="text-lg leading-6 font-bold text-theme-text-primary">
-              {t("batch-jobs.title")}
-            </p>
-            <p className="text-xs leading-[18px] font-base text-theme-text-secondary mt-2">
-              {t("batch-jobs.description")}
-            </p>
-          </div>
-          <div className="overflow-x-auto mt-6">
-            {loading ? (
-              <Skeleton.default
-                height="60vh"
-                width="100%"
-                highlightColor="var(--theme-bg-primary)"
-                baseColor="var(--theme-bg-secondary)"
-                count={1}
-              />
-            ) : jobs.length === 0 ? (
-              <div className="w-full min-h-[260px] flex flex-col items-center justify-center text-center">
-                <p className="text-base font-semibold text-theme-text-primary">
-                  当前无任务
-                </p>
-                <p className="text-sm text-theme-text-secondary mt-2">
-                  No batch jobs currently running.
-                </p>
-              </div>
-            ) : (
-              <JobsTable
-                jobs={jobs}
-                onRetry={handleRetry}
-                retryingJobId={retryingJobId}
-              />
-            )}
-          </div>
+    <SoftSettingsLayout
+      title={t("batch-jobs.title")}
+      description={t("batch-jobs.description")}
+    >
+      <SoftCard>
+        <div className="overflow-x-auto">
+          {loading ? (
+            <Skeleton.default
+              height="60vh"
+              width="100%"
+              highlightColor="var(--theme-bg-primary)"
+              baseColor="var(--theme-bg-secondary)"
+              count={1}
+            />
+          ) : jobs.length === 0 ? (
+            <div className="w-full min-h-[260px] flex flex-col items-center justify-center text-center">
+              <p className="text-base font-semibold text-theme-text-primary">
+                当前无任务
+              </p>
+              <p className="text-sm text-theme-text-secondary mt-2">
+                No batch jobs currently running.
+              </p>
+            </div>
+          ) : (
+            <JobsTable
+              jobs={jobs}
+              onRetry={handleRetry}
+              retryingJobId={retryingJobId}
+            />
+          )}
         </div>
-      </div>
-    </div>
+      </SoftCard>
+    </SoftSettingsLayout>
   );
 }
 

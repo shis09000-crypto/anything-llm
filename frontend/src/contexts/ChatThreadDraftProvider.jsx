@@ -48,10 +48,15 @@ import {
   persistedHydratedChatHistory,
 } from "@/utils/chat/persistedTurn";
 import { storageKeys } from "@/utils/appEnvironment";
+import {
+  decryptLocalCachePayload,
+  encryptLocalCachePayload,
+} from "@/utils/security/localCacheCrypto";
 
 const ChatThreadDraftContext = createContext(null);
 const STORAGE_PREFIX = "chat-thread-draft";
 const ACTIVE_RUNNING_STORAGE_KEY = "chat-thread-active-running";
+const SEALED_SESSION_STORAGE_VERSION = "athena-chat-thread-runtime:v1";
 const RUNNING_STALE_TIMEOUT_MS = 6 * 60 * 1000;
 const MAX_DRAFT_STORAGE_CHARS = 450_000;
 const MAX_FINAL_CONTENT_STORAGE_CHARS = 5_000;
@@ -82,6 +87,7 @@ const AGENT_RECONNECT_TURN_FIELDS = [
   "lastEventSeq",
   "interruptedContext",
 ];
+const encryptedSessionWriteVersions = new Map();
 
 function agentReconnectKey(chatKey, turnId) {
   return `${chatKey}:${turnId}`;
@@ -126,6 +132,108 @@ export function getChatThreadKey(workspaceSlug, threadSlug = null) {
 
 function getStorageKey(workspaceSlug, threadSlug = null) {
   return `${STORAGE_PREFIX}:${workspaceSlug}:${threadSlug || "default"}`;
+}
+
+function storageCryptoNamespace(key) {
+  return `chat-runtime:${String(key || "").slice(0, 512)}`;
+}
+
+function isSealedSessionStorageValue(value) {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      value.sealed === true &&
+      value.cryptoVersion === SEALED_SESSION_STORAGE_VERSION &&
+      value.encryptedPayload?.encrypted
+  );
+}
+
+function readSessionJson(key, fallback = null) {
+  if (typeof window === "undefined" || !key) return fallback;
+  try {
+    return safeJsonParse(sessionStorage.getItem(key), fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+async function readSealedSessionValue(key, fallback = null) {
+  const value = readSessionJson(key, fallback);
+  if (!isSealedSessionStorageValue(value)) return value;
+  try {
+    return await decryptLocalCachePayload({
+      namespace: storageCryptoNamespace(key),
+      encryptedPayload: value.encryptedPayload,
+    });
+  } catch (error) {
+    debugChatTurn("secureStorage:decryptFailed", {
+      key,
+      error: error?.message || String(error),
+    });
+    return fallback;
+  }
+}
+
+function persistSealedSessionValue(key, payload, { maxLength = null } = {}) {
+  if (typeof window === "undefined" || !key) return;
+
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(payload);
+  } catch (error) {
+    debugChatTurn("secureStorage:serializeFailed", {
+      key,
+      error: error?.message || String(error),
+    });
+    sessionStorage.removeItem(key);
+    return;
+  }
+
+  if (maxLength && serialized.length > maxLength) {
+    const sizeError = new Error("Secure storage payload exceeded limit.");
+    sizeError.name = "QuotaExceededError";
+    sizeError.serializedLength = serialized.length;
+    throw sizeError;
+  }
+
+  const version = (encryptedSessionWriteVersions.get(key) || 0) + 1;
+  encryptedSessionWriteVersions.set(key, version);
+  sessionStorage.removeItem(key);
+  encryptLocalCachePayload({
+    namespace: storageCryptoNamespace(key),
+    payload,
+  })
+    .then((encryptedPayload) => {
+      if (encryptedSessionWriteVersions.get(key) !== version) return;
+      if (!encryptedPayload?.encrypted) {
+        throw new Error("secure_storage_encryption_unavailable");
+      }
+      sessionStorage.setItem(
+        key,
+        JSON.stringify({
+          sealed: true,
+          cryptoVersion: SEALED_SESSION_STORAGE_VERSION,
+          encryptedPayload,
+        })
+      );
+    })
+    .catch((error) => {
+      if (encryptedSessionWriteVersions.get(key) !== version) return;
+      debugChatTurn("secureStorage:writeFailed", {
+        key,
+        error: error?.message || String(error),
+      });
+      sessionStorage.removeItem(key);
+    });
+}
+
+function removeSealedSessionValue(key) {
+  if (typeof window === "undefined" || !key) return;
+  encryptedSessionWriteVersions.set(
+    key,
+    (encryptedSessionWriteVersions.get(key) || 0) + 1
+  );
+  sessionStorage.removeItem(key);
 }
 
 function parseChatKey(chatKey) {
@@ -699,12 +807,13 @@ function persistDraft(draft) {
     draft.items.length > 0;
 
   if (!hasDraft) {
-    sessionStorage.removeItem(key);
+    removeSealedSessionValue(key);
     return;
   }
 
   try {
-    const serialized = JSON.stringify(serializeDraftForStorage(draft));
+    const payload = serializeDraftForStorage(draft);
+    const serialized = JSON.stringify(payload);
     debugChatTurn("persistDraft:storageSize", {
       key,
       serializedLength: serialized.length,
@@ -712,13 +821,9 @@ function persistDraft(draft) {
       minimal: false,
       ...draftHistoryIntegrity(draft),
     });
-    if (serialized.length > MAX_DRAFT_STORAGE_CHARS) {
-      const sizeError = new Error("Draft exceeded storage limit.");
-      sizeError.name = "QuotaExceededError";
-      sizeError.serializedLength = serialized.length;
-      throw sizeError;
-    }
-    sessionStorage.setItem(key, serialized);
+    persistSealedSessionValue(key, payload, {
+      maxLength: MAX_DRAFT_STORAGE_CHARS,
+    });
   } catch (error) {
     debugChatTurn("persistDraft:storageFallback", {
       key,
@@ -729,9 +834,8 @@ function persistDraft(draft) {
       ...draftHistoryIntegrity(draft),
     });
     try {
-      const minimalSerialized = JSON.stringify(
-        serializeDraftForStorage(draft, { minimal: true })
-      );
+      const minimalPayload = serializeDraftForStorage(draft, { minimal: true });
+      const minimalSerialized = JSON.stringify(minimalPayload);
       debugChatTurn("persistDraft:storageSize", {
         key,
         serializedLength: minimalSerialized.length,
@@ -739,20 +843,22 @@ function persistDraft(draft) {
         minimal: true,
         ...draftHistoryIntegrity(draft),
       });
-      sessionStorage.setItem(key, minimalSerialized);
+      persistSealedSessionValue(key, minimalPayload, {
+        maxLength: MAX_DRAFT_STORAGE_CHARS,
+      });
     } catch (minimalError) {
       debugChatTurn("persistDraft:storageDropped", {
         key,
         error: minimalError?.message || String(minimalError),
       });
-      sessionStorage.removeItem(key);
+      removeSealedSessionValue(key);
     }
   }
 }
 
 function removeStoredDraft(workspaceSlug, threadSlug = null) {
   if (typeof window === "undefined" || !workspaceSlug) return;
-  sessionStorage.removeItem(getStorageKey(workspaceSlug, threadSlug));
+  removeSealedSessionValue(getStorageKey(workspaceSlug, threadSlug));
 }
 
 function restoreStoredDrafts() {
@@ -760,9 +866,24 @@ function restoreStoredDrafts() {
   const drafts = {};
   for (const key of storageKeys(sessionStorage)) {
     if (!key?.startsWith(`${STORAGE_PREFIX}:`)) continue;
-    const draft = draftFromStorageValue(
-      safeJsonParse(sessionStorage.getItem(key))
-    );
+    const value = safeJsonParse(sessionStorage.getItem(key));
+    if (isSealedSessionStorageValue(value)) continue;
+    const draft = draftFromStorageValue(value);
+    if (!draft) continue;
+    const chatKey = getChatThreadKey(draft.workspaceSlug, draft.threadSlug);
+    drafts[chatKey] = draft;
+  }
+  return drafts;
+}
+
+async function restoreEncryptedStoredDrafts() {
+  if (typeof window === "undefined") return {};
+  const drafts = {};
+  for (const key of storageKeys(sessionStorage)) {
+    if (!key?.startsWith(`${STORAGE_PREFIX}:`)) continue;
+    const value = readSessionJson(key);
+    if (!isSealedSessionStorageValue(value)) continue;
+    const draft = draftFromStorageValue(await readSealedSessionValue(key));
     if (!draft) continue;
     const chatKey = getChatThreadKey(draft.workspaceSlug, draft.threadSlug);
     drafts[chatKey] = draft;
@@ -846,20 +967,18 @@ function restoreActiveRunningState() {
   if (typeof window === "undefined") {
     return { activeRunningThread: null, threadActivityByKey: {} };
   }
-  const stored = safeJsonParse(
-    sessionStorage.getItem(ACTIVE_RUNNING_STORAGE_KEY),
-    {}
-  );
+  const stored = readSessionJson(ACTIVE_RUNNING_STORAGE_KEY, {});
+  if (isSealedSessionStorageValue(stored)) {
+    return { activeRunningThread: null, threadActivityByKey: {} };
+  }
   const restored = normalizeRunningState(stored);
   const threadActivityByKey = {};
 
   Object.entries(restored.threadActivityByKey || {}).forEach(
     ([chatKey, activity]) => {
       const draft = draftFromStorageValue(
-        safeJsonParse(
-          sessionStorage.getItem(
-            getStorageKey(activity.workspaceSlug, activity.threadSlug)
-          )
+        readSessionJson(
+          getStorageKey(activity.workspaceSlug, activity.threadSlug)
         )
       );
       const turn = findAssistantTurn(draft?.items || [], activity.turnId);
@@ -881,6 +1000,43 @@ function restoreActiveRunningState() {
   return { activeRunningThread, threadActivityByKey };
 }
 
+async function restoreEncryptedActiveRunningState() {
+  if (typeof window === "undefined") {
+    return { activeRunningThread: null, threadActivityByKey: {} };
+  }
+  const stored = readSessionJson(ACTIVE_RUNNING_STORAGE_KEY, {});
+  if (!isSealedSessionStorageValue(stored)) return restoreActiveRunningState();
+  const restored = normalizeRunningState(
+    await readSealedSessionValue(ACTIVE_RUNNING_STORAGE_KEY, {})
+  );
+  const threadActivityByKey = {};
+
+  for (const [chatKey, activity] of Object.entries(
+    restored.threadActivityByKey || {}
+  )) {
+    const draft = draftFromStorageValue(
+      await readSealedSessionValue(
+        getStorageKey(activity.workspaceSlug, activity.threadSlug)
+      )
+    );
+    const turn = findAssistantTurn(draft?.items || [], activity.turnId);
+    if (
+      turn?.status === TURN_STATUSES.running ||
+      activityHasRecoverableTurn(activity)
+    ) {
+      threadActivityByKey[chatKey] = activity;
+    }
+  }
+
+  const activeRunningThread =
+    restored.activeRunningThread &&
+    threadActivityByKey[restored.activeRunningThread.chatKey]
+      ? restored.activeRunningThread
+      : null;
+
+  return { activeRunningThread, threadActivityByKey };
+}
+
 function persistActiveRunningState(activeRunningThread, threadActivityByKey) {
   if (typeof window === "undefined") return;
   const normalized = normalizeRunningState({
@@ -891,13 +1047,12 @@ function persistActiveRunningState(activeRunningThread, threadActivityByKey) {
     normalized.activeRunningThread ||
     Object.keys(normalized.threadActivityByKey || {}).length > 0;
   if (!hasActivity) {
-    sessionStorage.removeItem(ACTIVE_RUNNING_STORAGE_KEY);
+    removeSealedSessionValue(ACTIVE_RUNNING_STORAGE_KEY);
     return;
   }
-  sessionStorage.setItem(
-    ACTIVE_RUNNING_STORAGE_KEY,
-    JSON.stringify(normalized)
-  );
+  persistSealedSessionValue(ACTIVE_RUNNING_STORAGE_KEY, normalized, {
+    maxLength: MAX_DRAFT_STORAGE_CHARS,
+  });
 }
 
 function failTurnItems(items = [], turnId, reason) {
@@ -1189,6 +1344,75 @@ export function ChatThreadDraftProvider({ children }) {
     },
     []
   );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restoreEncryptedRuntimeState() {
+      const [encryptedDrafts, encryptedRunningState] = await Promise.all([
+        restoreEncryptedStoredDrafts(),
+        restoreEncryptedActiveRunningState(),
+      ]);
+      if (cancelled) return;
+
+      const restoredDraftEntries = Object.entries(encryptedDrafts || {});
+      if (restoredDraftEntries.length) {
+        setDrafts((prev) => {
+          const next = { ...prev };
+          const changedKeys = [];
+          for (const [chatKey, draft] of restoredDraftEntries) {
+            const current = next[chatKey];
+            if (
+              !current ||
+              Number(draft.updatedAt || 0) > Number(current.updatedAt || 0)
+            ) {
+              next[chatKey] = draft;
+              changedKeys.push(chatKey);
+            }
+          }
+          if (!changedKeys.length) return prev;
+          draftsRef.current = next;
+          queueMicrotask(() => {
+            changedKeys.forEach((chatKey) =>
+              emitListeners(draftListenersRef, chatKey)
+            );
+          });
+          return next;
+        });
+      }
+
+      if (
+        encryptedRunningState?.activeRunningThread ||
+        Object.keys(encryptedRunningState?.threadActivityByKey || {}).length
+      ) {
+        setRunningState((prev) => {
+          const next = normalizeRunningState({
+            activeRunningThread:
+              prev.activeRunningThread ||
+              encryptedRunningState.activeRunningThread,
+            threadActivityByKey: {
+              ...(encryptedRunningState.threadActivityByKey || {}),
+              ...(prev.threadActivityByKey || {}),
+            },
+          });
+          runningStateRef.current = next;
+          activityVersionRef.current += 1;
+          queueMicrotask(() => emitListeners(activityListenersRef, "*"));
+          return next;
+        });
+      }
+    }
+
+    restoreEncryptedRuntimeState().catch((error) => {
+      debugChatTurn("secureStorage:restoreFailed", {
+        error: error?.message || String(error),
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [emitListeners]);
 
   useEffect(() => {
     draftsRef.current = drafts;
@@ -1601,11 +1825,12 @@ export function ChatThreadDraftProvider({ children }) {
       const chatKey = getChatThreadKey(workspaceSlug, threadSlug);
       activeChatKeyRef.current = chatKey;
       setDrafts((prev) => {
-        const restored = draftFromStorageValue(
-          safeJsonParse(
-            sessionStorage.getItem(getStorageKey(workspaceSlug, threadSlug))
-          )
+        const storedValue = readSessionJson(
+          getStorageKey(workspaceSlug, threadSlug)
         );
+        const restored = isSealedSessionStorageValue(storedValue)
+          ? null
+          : draftFromStorageValue(storedValue);
         const existing = prev[chatKey] || restored;
         const runningActivity =
           runningStateRef.current.threadActivityByKey?.[chatKey] || null;

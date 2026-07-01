@@ -19,11 +19,19 @@ export default function ChatSettings({ workspace }) {
 
   const formEl = useRef(null);
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchSettings() {
-      const _settings = await loadLlmSettings({ priority: "P0" });
+      const _settings = await loadLlmSettings({
+        priority: "P1",
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       setSettings(_settings ?? {});
     }
-    fetchSettings();
+    fetchSettings().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+    });
+    return () => controller.abort();
   }, [loadLlmSettings]);
 
   const handleUpdate = async (e) => {

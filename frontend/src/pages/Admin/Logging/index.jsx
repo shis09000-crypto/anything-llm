@@ -19,13 +19,18 @@ export default function AdminLogs() {
   const { t } = useTranslation();
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchLogs() {
       const { logs: _logs, hasPages = false } = await System.eventLogs(offset);
+      if (cancelled) return;
       setLogs(_logs);
       setCanNext(hasPages);
       setLoading(false);
     }
     fetchLogs();
+    return () => {
+      cancelled = true;
+    };
   }, [offset]);
 
   const handleResetLogs = async () => {

@@ -122,7 +122,9 @@ export function scopedStorageKeyPrefix() {
 
 export async function loadAppEnvironment() {
   try {
-    const { data: payload } = await fetchSystemEnvironment();
+    const { data: payload } = await fetchSystemEnvironment({
+      timeoutMs: 1_500,
+    });
     return setAppEnvironment(payload?.environment?.appEnv, {
       environment: payload?.environment || null,
     });

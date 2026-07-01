@@ -105,6 +105,17 @@ class CryptoDataHub {
     };
   }
 
+  stopBackgroundRefresh() {
+    this.services.equity.stopPolling();
+    this.adapter.stopPrivateWs();
+    this.privateWsStarted = false;
+    return {
+      success: true,
+      stoppedPrivateWs: true,
+      ws: this.adapter.wsStatus(),
+    };
+  }
+
   async init() {
     if (this.initInFlight) return this.initInFlight;
     this.initInFlight = this.runInit().finally(() => {

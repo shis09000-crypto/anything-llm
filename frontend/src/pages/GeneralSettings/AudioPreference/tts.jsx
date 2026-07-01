@@ -16,6 +16,10 @@ import ElevenLabsTTSOptions from "@/components/TextToSpeech/ElevenLabsOptions";
 import PiperTTSOptions from "@/components/TextToSpeech/PiperTTSOptions";
 import OpenAiGenericTTSOptions from "@/components/TextToSpeech/OpenAiGenericOptions";
 import { useTranslation } from "react-i18next";
+import {
+  SoftProviderDropdown,
+  SoftProviderTrigger,
+} from "@/components/SoftSettings";
 
 export default function TextToSpeechProvider({ settings }) {
   const [saving, setSaving] = useState(false);
@@ -135,80 +139,58 @@ export default function TextToSpeechProvider({ settings }) {
         <div className="text-base font-bold text-white mt-6 mb-4">
           {t("audio-preference.provider")}
         </div>
-        <div className="relative">
-          {searchMenuOpen && (
-            <div
-              className="fixed top-0 left-0 w-full h-full bg-black bg-opacity-70 backdrop-blur-sm z-10"
-              onClick={() => setSearchMenuOpen(false)}
+        <div className="settings-soft-provider-picker">
+          <SoftProviderTrigger
+            logo={selectedProviderObject.logo}
+            name={selectedProviderObject.name}
+            description={selectedProviderObject.description}
+            onClick={() => setSearchMenuOpen((open) => !open)}
+          >
+            <CaretUpDown
+              size={24}
+              weight="bold"
+              className="text-[var(--soft-text-muted)]"
             />
-          )}
-          {searchMenuOpen ? (
-            <div className="absolute top-0 left-0 w-full max-w-[640px] max-h-[310px] min-h-[64px] bg-theme-settings-input-bg rounded-lg flex flex-col justify-between cursor-pointer border-2 border-primary-button z-20">
-              <div className="w-full flex flex-col gap-y-1">
-                <div className="flex items-center sticky top-0 z-10 border-b border-[#9CA3AF] mx-4 bg-theme-settings-input-bg">
-                  <MagnifyingGlass
-                    size={20}
-                    weight="bold"
-                    className="absolute left-4 z-30 text-theme-text-primary -ml-4 my-2"
-                  />
-                  <input
-                    type="text"
-                    name="tts-provider-search"
-                    autoComplete="off"
-                    placeholder={t("audio-preference.tts.searchPlaceholder")}
-                    className="border-none -ml-4 my-2 bg-transparent z-20 pl-12 h-[38px] w-full px-4 py-1 text-sm outline-none text-theme-text-primary placeholder:text-theme-text-primary placeholder:font-medium"
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    ref={searchInputRef}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") e.preventDefault();
-                    }}
-                  />
-                  <X
-                    size={20}
-                    weight="bold"
-                    className="cursor-pointer text-white hover:text-x-button"
-                    onClick={handleXButton}
-                  />
-                </div>
-                <div className="flex-1 pl-4 pr-2 flex flex-col gap-y-1 overflow-y-auto white-scrollbar pb-4 max-h-[245px]">
-                  {filteredProviders.map((provider) => (
-                    <LLMItem
-                      key={provider.name}
-                      name={provider.name}
-                      value={provider.value}
-                      image={provider.logo}
-                      description={provider.description}
-                      checked={selectedProvider === provider.value}
-                      onClick={() => updateProviderChoice(provider.value)}
-                    />
-                  ))}
-                </div>
-              </div>
+          </SoftProviderTrigger>
+          <SoftProviderDropdown open={searchMenuOpen}>
+            <div className="settings-soft-provider-searchbar">
+              <MagnifyingGlass
+                size={20}
+                weight="bold"
+                className="text-[var(--soft-text-muted)]"
+              />
+              <input
+                type="text"
+                name="tts-provider-search"
+                autoComplete="off"
+                placeholder={t("audio-preference.tts.searchPlaceholder")}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                ref={searchInputRef}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.preventDefault();
+                }}
+              />
+              <X
+                size={20}
+                weight="bold"
+                className="cursor-pointer text-[var(--soft-text-muted)] hover:text-[var(--soft-text-primary)]"
+                onClick={handleXButton}
+              />
             </div>
-          ) : (
-            <button
-              className="w-full max-w-[640px] h-[64px] bg-theme-settings-input-bg rounded-lg flex items-center p-[14px] justify-between cursor-pointer border-2 border-transparent hover:border-primary-button motion-hover"
-              type="button"
-              onClick={() => setSearchMenuOpen(true)}
-            >
-              <div className="flex gap-x-4 items-center">
-                <img
-                  src={selectedProviderObject.logo}
-                  alt={`${selectedProviderObject.name} logo`}
-                  className="w-10 h-10 rounded-md"
+            <div className="settings-soft-provider-list white-scrollbar">
+              {filteredProviders.map((provider) => (
+                <LLMItem
+                  key={provider.name}
+                  name={provider.name}
+                  value={provider.value}
+                  image={provider.logo}
+                  description={provider.description}
+                  checked={selectedProvider === provider.value}
+                  onClick={() => updateProviderChoice(provider.value)}
                 />
-                <div className="flex flex-col text-left">
-                  <div className="text-sm font-semibold text-white">
-                    {selectedProviderObject.name}
-                  </div>
-                  <div className="mt-1 text-xs text-description">
-                    {selectedProviderObject.description}
-                  </div>
-                </div>
-              </div>
-              <CaretUpDown size={24} weight="bold" className="text-white" />
-            </button>
-          )}
+              ))}
+            </div>
+          </SoftProviderDropdown>
         </div>
         <div
           onChange={() => setHasChanges(true)}

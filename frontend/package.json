@@ -6,9 +6,12 @@
   "scripts": {
     "start": "vite --open",
     "dev": "cross-env NODE_ENV=development vite --debug --host=0.0.0.0",
-    "build": "vite build && node scripts/postbuild.js",
+    "build": "vite build && node scripts/postbuild.js && node scripts/check-crypto-build-output.mjs",
     "lint:check": "eslint src && node scripts/check-motion-system.mjs",
+    "security:client-audit": "node scripts/audit-client-encryption-coverage.mjs",
+    "security:runtime-storage-audit": "node scripts/audit-runtime-client-storage.mjs",
     "perf:workspacechat": "node scripts/workspacechat-stress-report.mjs",
+    "perf:local-production": "node scripts/local-production-perf-check.mjs",
     "lint": "eslint --fix src",
     "preview": "vite preview"
   },

@@ -539,10 +539,27 @@ function workspaceThreadEndpoints(app) {
           (slug) => !protectedSlugs.has(slug)
         );
         if (deletableSlugs.length === 0) return response.sendStatus(200).end();
+        const deletableThreads = await WorkspaceThread.where({
+          slug: { in: deletableSlugs },
+          user_id: user?.id ?? null,
+          workspace_id: workspace.id,
+        });
         await WorkspaceThread.delete({
           slug: { in: deletableSlugs },
           user_id: user?.id ?? null,
           workspace_id: workspace.id,
+        });
+        const clientContext = getClientContext(request, { user });
+        deletableThreads.forEach((thread) => {
+          publishWorkspaceSyncEvent({
+            type: "thread_deleted",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: thread.id,
+            threadSlug: thread.slug,
+            senderClientId: clientContext.clientId,
+          });
         });
         response.sendStatus(200).end();
       } catch (e) {
@@ -740,12 +757,26 @@ function workspaceThreadEndpoints(app) {
     ],
     async (request, response) => {
       try {
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
         const data = reqBody(request);
         const currentThread = response.locals.thread;
         const { thread, message } = await WorkspaceThread.update(
           currentThread,
           data
         );
+        if (thread) {
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "thread_updated",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: thread.id,
+            threadSlug: thread.slug,
+            senderClientId: clientContext.clientId,
+          });
+        }
         response.status(200).json({ thread, message });
       } catch (e) {
         console.error(e.message, e);
@@ -849,6 +880,26 @@ function workspaceThreadEndpoints(app) {
           },
           user?.id
         );
+
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "thread_deleted",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread.id,
+          threadSlug: thread.slug,
+          senderClientId: clientContext.clientId,
+        });
+        publishWorkspaceSyncEvent({
+          type: "thread_created",
+          workspaceId: targetWorkspace.id,
+          workspaceSlug: targetWorkspace.slug,
+          userId: user?.id ?? null,
+          threadId: movedThread.id,
+          threadSlug: movedThread.slug,
+          senderClientId: clientContext.clientId,
+        });
 
         response.status(200).json({
           success: true,

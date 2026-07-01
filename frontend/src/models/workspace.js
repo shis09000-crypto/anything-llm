@@ -21,6 +21,8 @@ import {
 import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
 
 function historyPageQuery({
   limit = 20,
@@ -76,6 +78,12 @@ const Workspace = {
         return rawOrFallback(e, { workspace: null, message: e.message });
       });
 
+    if (workspace?.slug) {
+      workspaceNavigationCache.invalidateWorkspaceDetail(workspace.slug);
+      workspaceNavigationCache.upsertWorkspace(workspace);
+      dispatchWorkspacesRefresh(workspace);
+    }
+
     return { workspace, message };
   },
   modifyEmbeddings: async function (slug, changes = {}) {
@@ -104,6 +112,7 @@ const Workspace = {
   chatHistory: async function (slug, options = {}) {
     const history = await getJson(`/workspace/${slug}/chats`, {
       signal: options.signal,
+      communicationScene: "workspace-chat",
     })
       .then(({ data }) => data.history || [])
       .catch((error) => {
@@ -116,6 +125,7 @@ const Workspace = {
     const query = historyPageQuery(options);
     const payload = await getJson(`/workspace/${slug}/chats?${query}`, {
       signal: options.signal,
+      communicationScene: "workspace-chat",
     })
       .then(({ data }) => data)
       .catch((error) => {
@@ -131,6 +141,7 @@ const Workspace = {
     const query = historyPageQuery(options);
     const payload = await getJson(`/workspace/${slug}/bootstrap?${query}`, {
       signal: options.signal,
+      communicationScene: "workspace-chat",
     })
       .then(({ data }) => data)
       .catch((error) => {
@@ -146,12 +157,13 @@ const Workspace = {
     };
   },
   chatHistoryHydration: async function (slug, chatIds = [], options = {}) {
-    if (!chatIds.length)
+    const publicChatIds = options.publicChatIds || [];
+    if (!chatIds.length && !publicChatIds.length)
       return { history: [], hydratedChatIds: [], hydratedPublicChatIds: [] };
     const payload = await postJson(
       `/workspace/${slug}/chats/hydrate`,
-      { chatIds },
-      { signal: options.signal }
+      { chatIds, publicChatIds },
+      { signal: options.signal, communicationScene: "workspace-chat" }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -207,17 +219,29 @@ const Workspace = {
     if (result) threadHistoryCache.invalidateThread(slug, null);
     return result;
   },
-  all: async function () {
-    const workspaces = await getJson("/workspaces")
+  all: async function (options = {}) {
+    const workspaces = await getJson("/workspaces", {
+      communicationScene: options.communicationScene || "workspace-navigation",
+    })
       .then(({ data }) => data.workspaces || [])
       .catch(() => []);
+    if (Array.isArray(workspaces) && workspaces.length)
+      workspaceNavigationCache.setWorkspaces(workspaces);
 
     return workspaces;
   },
-  bySlug: async function (slug = "") {
-    const workspace = await getJson(`/workspace/${slug}`)
+  bySlug: async function (slug = "", options = {}) {
+    const workspace = await getJson(`/workspace/${slug}`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+    })
       .then(({ data }) => data.workspace)
-      .catch(() => null);
+      .catch((error) => {
+        if (error?.name === "AbortError") throw error;
+        return null;
+      });
+    if (workspace?.slug)
+      workspaceNavigationCache.setWorkspaceDetail(workspace.slug, workspace);
     return workspace;
   },
   delete: async function (slug) {
@@ -275,12 +299,15 @@ const Workspace = {
     return { response, data };
   },
 
-  getSuggestedMessages: async function (slug) {
+  getSuggestedMessages: async function (slug, options = {}) {
     return await getJson(`/workspace/${slug}/suggested-messages`, {
       cache: "no-cache",
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
     })
       .then(({ data }) => data.suggestedMessages)
       .catch((e) => {
+        if (e?.name === "AbortError") throw e;
         console.error(e);
         return null;
       });
@@ -620,11 +647,15 @@ const Workspace = {
    * @param {string} slug - workspace slug
    * @returns {Promise<{showAgentCommand: boolean}>}
    */
-  agentCommandAvailable: async function (slug = null) {
+  agentCommandAvailable: async function (slug = null, options = {}) {
     if (!slug) return { showAgentCommand: true };
-    return await getJson(`/workspace/${slug}/is-agent-command-available`)
+    return await getJson(`/workspace/${slug}/is-agent-command-available`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+    })
       .then(({ data }) => data)
       .catch((e) => {
+        if (e?.name === "AbortError") throw e;
         console.error(e);
         return { showAgentCommand: true };
       });

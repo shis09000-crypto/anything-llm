@@ -4,6 +4,10 @@ const { v5: uuidv5 } = require("uuid");
 const { Document } = require("../../models/documents");
 const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
 const { storagePath } = require("../environment");
+const {
+  parseDocumentStoreJson,
+  stringifyDocumentStoreJson,
+} = require("../security/documentStoreEncryption");
 const documentsPath = storagePath("documents");
 const directUploadsPath = storagePath("direct-uploads");
 const vectorCachePath = storagePath("vector-cache");
@@ -20,8 +24,7 @@ async function fileData(filePath = null) {
   if (!fs.existsSync(fullFilePath) || !isWithin(documentsPath, fullFilePath))
     return null;
 
-  const data = fs.readFileSync(fullFilePath, "utf8");
-  return JSON.parse(data);
+  return readDocumentJsonFile(fullFilePath);
 }
 
 async function viewLocalFiles() {
@@ -129,9 +132,9 @@ async function getDocumentsByFolder(folderName = "") {
   for (const file of files) {
     if (path.extname(file) !== ".json") continue;
     const filePath = path.join(folderPath, file);
-    const rawData = fs.readFileSync(filePath, "utf8");
     const cachefilename = `${folderName}/${file}`;
-    const { pageContent: _pageContent, ...metadata } = JSON.parse(rawData);
+    const { pageContent: _pageContent, ...metadata } =
+      readDocumentJsonFile(filePath);
     documents.push({
       name: file,
       type: "file",
@@ -180,8 +183,7 @@ async function cachedVectorInformation(filename = null, checkOnly = false) {
   console.log(
     `Cached vectorized results of ${filename} found! Using cached data to save on embed costs.`
   );
-  const rawData = fs.readFileSync(file, "utf8");
-  return { exists: true, chunks: JSON.parse(rawData) };
+  return { exists: true, chunks: readVectorCacheJsonFile(file) };
 }
 
 // vectorData: pre-chunked vectorized data for a given file that includes the proper metadata and chunk-size limit so it can be iterated and dumped into Pinecone, etc
@@ -195,7 +197,7 @@ async function storeVectorResult(vectorData = [], filename = null) {
 
   const digest = uuidv5(filename, uuidv5.URL);
   const writeTo = path.resolve(vectorCachePath, `${digest}.json`);
-  fs.writeFileSync(writeTo, JSON.stringify(vectorData), "utf8");
+  writeVectorCacheJsonFile(writeTo, vectorData);
   return;
 }
 
@@ -247,9 +249,9 @@ async function findDocumentInDocuments(documentName = null) {
     )
       continue;
 
-    const fileData = fs.readFileSync(targetFileLocation, "utf8");
     const cachefilename = `${folder}/${targetFilename}`;
-    const { pageContent: _pageContent, ...metadata } = JSON.parse(fileData);
+    const { pageContent: _pageContent, ...metadata } =
+      readDocumentJsonFile(targetFileLocation);
     return {
       name: targetFilename,
       type: "file",
@@ -280,6 +282,34 @@ function normalizePath(filepath = "") {
     .trim();
   if (["..", ".", "/"].includes(result)) throw new Error("Invalid path.");
   return result;
+}
+
+function readDocumentJsonFile(filePath) {
+  return parseDocumentStoreJson(fs.readFileSync(filePath, "utf8"), {
+    domain: "source-document",
+  });
+}
+
+function writeDocumentJsonFile(filePath, payload) {
+  fs.writeFileSync(
+    filePath,
+    stringifyDocumentStoreJson(payload, { domain: "source-document" }),
+    "utf8"
+  );
+}
+
+function readVectorCacheJsonFile(filePath) {
+  return parseDocumentStoreJson(fs.readFileSync(filePath, "utf8"), {
+    domain: "vector-cache",
+  });
+}
+
+function writeVectorCacheJsonFile(filePath, payload) {
+  fs.writeFileSync(
+    filePath,
+    stringifyDocumentStoreJson(payload, { domain: "vector-cache" }),
+    "utf8"
+  );
 }
 
 /**
@@ -461,9 +491,8 @@ async function fileToPickerData({
   const cachedStatus = await cachedVectorInformation(cachefilename, true);
 
   if (fileStats.size < FILE_READ_SIZE_THRESHOLD) {
-    const rawData = fs.readFileSync(pathToFile, "utf8");
     try {
-      metadata = JSON.parse(rawData);
+      metadata = readDocumentJsonFile(pathToFile);
       // Remove the pageContent field from the metadata - it is large and not needed for the picker
       delete metadata.pageContent;
     } catch (err) {
@@ -487,32 +516,12 @@ async function fileToPickerData({
   console.log(
     `Stream-parsing ${path.basename(pathToFile)} because it exceeds the ${FILE_READ_SIZE_THRESHOLD} byte limit.`
   );
-  const stream = fs.createReadStream(pathToFile, { encoding: "utf8" });
   try {
-    let fileContent = "";
-    metadata = await new Promise((resolve, reject) => {
-      stream
-        .on("data", (chunk) => {
-          fileContent += chunk;
-        })
-        .on("end", () => {
-          metadata = JSON.parse(fileContent);
-          // Remove the pageContent field from the metadata - it is large and not needed for the picker
-          delete metadata.pageContent;
-          resolve(metadata);
-        })
-        .on("error", (err) => {
-          console.error("Error parsing file", err);
-          reject(null);
-        });
-    }).catch((err) => {
-      console.error("Error parsing file", err);
-    });
+    metadata = readDocumentJsonFile(pathToFile);
+    delete metadata.pageContent;
   } catch (err) {
     console.error("Error parsing file", err);
     metadata = null;
-  } finally {
-    stream.destroy();
   }
 
   // If the metadata is empty or something went wrong, return null
@@ -572,4 +581,8 @@ module.exports = {
   getDocumentsByFolder,
   hotdirPath,
   sanitizeFileName,
+  readDocumentJsonFile,
+  writeDocumentJsonFile,
+  readVectorCacheJsonFile,
+  writeVectorCacheJsonFile,
 };

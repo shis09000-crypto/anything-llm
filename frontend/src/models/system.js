@@ -10,6 +10,7 @@ import {
   apiErrorMessage as responseError,
   apiErrorRaw as rawBody,
 } from "@/lib/communication/apiError";
+import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
 import {
   BLOB_KINDS,
   requestBlob,
@@ -80,6 +81,46 @@ const System = {
       .then(({ data }) => data.vectorCount)
       .catch(() => 0);
   },
+  patrolStatus: async function () {
+    return await getJson("/system/patrol/status")
+      .then(({ data }) => data)
+      .catch((e) =>
+        rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e, "无法读取系统巡查状态。"),
+        })
+      );
+  },
+  runPatrol: async function ({ mode = "light" } = {}) {
+    return await postJson("/system/patrol/run", { mode })
+      .then(({ data }) => data)
+      .catch((e) =>
+        rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e, "系统巡查执行失败。"),
+        })
+      );
+  },
+  patrolRepairPreview: async function (repairId) {
+    return await postJson(`/system/patrol/repairs/${repairId}/preview`, {})
+      .then(({ data }) => data)
+      .catch((e) =>
+        rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e, "无法生成修复预案。"),
+        })
+      );
+  },
+  patrolRepairConfirm: async function (repairId) {
+    return await postJson(`/system/patrol/repairs/${repairId}/confirm`, {})
+      .then(({ data }) => data)
+      .catch((e) =>
+        rawOrFallback(e, {
+          success: false,
+          error: localizedApiError(e, "修复执行失败。"),
+        })
+      );
+  },
 
   /**
    * Checks if the onboarding is complete.
@@ -105,7 +146,10 @@ const System = {
       return systemKeysCache;
     }
     if (systemKeysInflight) return systemKeysInflight;
-    systemKeysInflight = getJson("/setup-complete", { timeoutMs: 8_000 })
+    systemKeysInflight = getJson("/setup-complete", {
+      timeoutMs: 8_000,
+      communicationScene: "model-settings",
+    })
       .then(({ data }) => data.results)
       .then((results) => {
         systemKeysCache = results;
@@ -123,6 +167,7 @@ const System = {
     query.set("sections", sections.join(","));
     return await getJson(`/system/settings/bootstrap?${query.toString()}`, {
       signal,
+      communicationScene: "model-settings",
     })
       .then(({ data }) => {
         const isFullSettingsPayload =
@@ -163,7 +208,10 @@ const System = {
       timeoutMs: 8_000,
     })
       .then(() => true)
-      .catch(() => false);
+      .catch((e) => {
+        if (shouldPreserveLocalAuthOnFailure(e)) return true;
+        return false;
+      });
 
     window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
     return valid;
@@ -208,8 +256,12 @@ const System = {
         });
       });
   },
-  verifyRegistrationCode: async function ({ email, code }) {
-    return await postJson("/auth/register/verify-code", { email, code })
+  verifyRegistrationCode: async function ({ email, code, challengeId = "" }) {
+    return await postJson("/auth/register/verify-code", {
+      email,
+      code,
+      challengeId,
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -242,6 +294,9 @@ const System = {
           success: false,
           user: null,
           message: responseError(e, "Could not refresh user."),
+          status: e?.status || 0,
+          code: e?.code || null,
+          raw: rawBody(e),
         };
       });
   },
@@ -276,11 +331,17 @@ const System = {
         };
       });
   },
-  confirmEmailPasswordReset: async function (username, email, code) {
+  confirmEmailPasswordReset: async function (
+    username,
+    email,
+    code,
+    challengeId = ""
+  ) {
     return await postJson("/system/recover-account/email/confirm", {
       username,
       email,
       code,
+      challengeId,
     })
       .then(({ data }) => data)
       .catch((e) => {
@@ -329,10 +390,11 @@ const System = {
         };
       });
   },
-  confirmEmailVerification: async function ({ email, code }) {
+  confirmEmailVerification: async function ({ email, code, challengeId = "" }) {
     return await postJson("/system/user/email-verification/confirm", {
       email,
       code,
+      challengeId,
     })
       .then(({ data }) => data)
       .catch((e) => {

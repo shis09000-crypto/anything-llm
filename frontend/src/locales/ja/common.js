@@ -109,6 +109,7 @@ const TRANSLATIONS = {
     "crypto-component-experiment": "暗号コンポーネント実験",
     "crypto-center": "Crypto Center",
     "event-logs": "イベントログ",
+    "system-patrol": "システム巡回",
     privacy: "プライバシーとデータ",
     "ai-providers": "AIプロバイダー",
     "agent-skills": "エージェントスキル",
@@ -171,32 +172,47 @@ const TRANSLATIONS = {
     eyebrow: "読書ツール",
     title: "文字サイズと読書プレビュー",
     description:
-      "文字サイズはこのブラウザのローカルな読書設定です。現在の端末でのチャット読書体験にのみ影響し、ワークスペース設定には保存されません。",
+      "これはグローバルな画面設定です。チャット、入力欄、読書プレビューに即時反映され、バックグラウンドでは最後に止まった設定だけをアカウントへ同期します。",
     sizeTitle: "文字サイズ",
     previewTitle: "ライブプレビュー",
     currentSelection: "現在の選択：{{label}}",
     customSliderLabel: "カスタム文字サイズ",
     customRange: "{{min}}px から {{max}}px",
+    decrease: "文字サイズを小さくする",
+    increase: "文字サイズを大きくする",
+    customStep: "{{size}}px に設定",
     userPreview:
       "ユーザーメッセージのプレビュー：この資料をわかりやすい知識構造に整理してください。",
     options: {
+      compact: {
+        label: "コンパクト",
+        description: "長い会話を密に確認するための最小サイズです。",
+      },
       small: {
         label: "小",
-        description:
-          "よりコンパクトで、長い会話を素早く確認するのに適しています。",
+        description: "すばやく確認しやすいやや小さめの表示です。",
       },
       normal: {
         label: "標準",
         description: "Athena の標準的な読書サイズです。",
       },
+      comfortable: {
+        label: "快適",
+        description: "標準より少しゆったりした長時間読書向けです。",
+      },
       large: {
         label: "大",
         description: "長時間の読書やデモに適した、より快適なサイズです。",
       },
+      xlarge: {
+        label: "特大",
+        description: "発表、投影、視認性を優先する場面向けです。",
+      },
       custom: {
         label: "カスタム",
         labelWithSize: "カスタム {{size}}px",
-        description: "スライダーを 1px 単位で調整します。",
+        description:
+          "スライダーを 1px 単位で調整します。バックグラウンド同期では最後の値だけを保存します。",
       },
     },
     previewMarkdown: `### アシスタント回答プレビュー
@@ -1686,9 +1702,12 @@ const readable = true;
     description: "説明",
     placeholder_description: "大規模言語モデルに関する詩を提示します。",
     save: "保存",
+    compact: "コンパクト",
     small: "小さい",
     normal: "通常",
+    comfortable: "快適",
     large: "大規模",
+    xlarge: "特大",
     custom: "カスタム",
     custom_text_size: "カスタム文字サイズ",
     workspace_llm_manager: {

@@ -1,6 +1,19 @@
-const { v4 } = require("uuid");
+const crypto = require("crypto");
 const authPrisma = require("../utils/authPrisma");
 const bcrypt = require("bcryptjs");
+
+const RESET_TOKEN_HASH_PREFIX = "sha256:v1:";
+
+function plainResetToken() {
+  return `prt_${crypto.randomBytes(32).toString("base64url")}`;
+}
+
+function hashResetToken(token = "") {
+  return `${RESET_TOKEN_HASH_PREFIX}${crypto
+    .createHash("sha256")
+    .update(String(token))
+    .digest("base64url")}`;
+}
 
 const RecoveryCode = {
   tablename: "recovery_codes",
@@ -78,10 +91,18 @@ const PasswordResetToken = {
   },
   create: async function (userId) {
     try {
+      const token = plainResetToken();
       const passwordResetToken = await authPrisma.password_reset_tokens.create({
-        data: { user_id: userId, token: v4(), expiresAt: this.calcExpiry() },
+        data: {
+          user_id: userId,
+          token: hashResetToken(token),
+          expiresAt: this.calcExpiry(),
+        },
       });
-      return { passwordResetToken, error: null };
+      return {
+        passwordResetToken: { ...passwordResetToken, token },
+        error: null,
+      };
     } catch (error) {
       console.error("FAILED TO CREATE PASSWORD RESET TOKEN.", error.message);
       return { passwordResetToken: null, error: error.message };
@@ -89,10 +110,18 @@ const PasswordResetToken = {
   },
   findUnique: async function (clause = {}) {
     try {
-      const passwordResetToken = await authPrisma.password_reset_tokens.findUnique({
+      if (typeof clause?.token === "string") {
+        const passwordResetToken =
+          await authPrisma.password_reset_tokens.findUnique({
+            where: { token: hashResetToken(clause.token) },
+          });
+        if (passwordResetToken) return passwordResetToken;
+      }
+
+      // Backward compatibility for unexpired legacy plaintext reset tokens.
+      return await authPrisma.password_reset_tokens.findUnique({
         where: clause,
       });
-      return passwordResetToken;
     } catch (error) {
       console.error("FAILED TO FIND PASSWORD RESET TOKEN.", error.message);
       return null;
@@ -112,4 +141,5 @@ const PasswordResetToken = {
 module.exports = {
   RecoveryCode,
   PasswordResetToken,
+  _private: { hashResetToken, plainResetToken },
 };

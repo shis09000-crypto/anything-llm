@@ -8,6 +8,12 @@ const { sourceIdentifier } = require("../../chats");
 const { getEmbeddingReranker } = require("../../EmbeddingRerankers");
 const { VectorDatabase } = require("../base");
 const { storagePath } = require("../../environment");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 /**
  * LancedDB Client connection object
@@ -156,11 +162,16 @@ class LanceDb extends VectorDatabase {
       10,
       Math.min(50, Math.ceil(totalEmbeddings * 0.1))
     );
-    const vectorSearchResults = await collection
-      .vectorSearch(queryVector)
-      .distanceType("cosine")
-      .limit(searchLimit)
-      .toArray();
+    const vectorSearchResults = (
+      await collection
+        .vectorSearch(queryVector)
+        .distanceType("cosine")
+        .limit(searchLimit)
+        .toArray()
+    ).map(({ text, ...rest }) => ({
+      ...rest,
+      ...(text ? { text: decryptVectorText(text) } : {}),
+    }));
 
     await reranker
       .rerank(query, vectorSearchResults, { topK: topN })
@@ -178,9 +189,11 @@ class LanceDb extends VectorDatabase {
           const score =
             item?.rerank_score || this.distanceToSimilarity(item._distance);
 
-          result.contextTexts.push(rest.text);
+          const text = decryptVectorText(rest.text);
+          result.contextTexts.push(text);
           result.sourceDocuments.push({
             ...rest,
+            text,
             score,
           });
           result.scores.push(score);
@@ -237,9 +250,11 @@ class LanceDb extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(rest.text);
+      const text = decryptVectorText(rest.text);
+      result.contextTexts.push(text);
       result.sourceDocuments.push({
         ...rest,
+        text,
         score: this.distanceToSimilarity(item._distance),
       });
       result.scores.push(this.distanceToSimilarity(item._distance));
@@ -371,7 +386,9 @@ class LanceDb extends VectorDatabase {
             chunk.forEach((chunk) => {
               const chunkIndex = submissions.length;
               const id = uuidv4();
-              const { id: _id, ...metadata } = chunk.metadata;
+              const { id: _id, ...metadata } = encryptVectorMetadataText(
+                chunk.metadata || {}
+              );
               documentVectors.push({ docId, vectorId: id });
               submissions.push({
                 id,
@@ -430,7 +447,7 @@ class LanceDb extends VectorDatabase {
               docId,
               docpath,
               chunkIndex: i,
-              text: textChunks[i],
+              text: encryptVectorText(textChunks[i]),
             },
           };
 
@@ -553,11 +570,13 @@ class LanceDb extends VectorDatabase {
     const documents = [];
     for (const source of sources) {
       const { text, vector: _v, _distance: _d, ...rest } = source;
-      const metadata = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      const metadata = decryptVectorMetadataText(
+        rest.hasOwnProperty("metadata") ? rest.metadata : rest
+      );
       if (Object.keys(metadata).length > 0) {
         documents.push({
           ...metadata,
-          ...(text ? { text } : {}),
+          ...(text ? { text: decryptVectorText(text) } : {}),
         });
       }
     }

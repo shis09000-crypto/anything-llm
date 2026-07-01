@@ -40,7 +40,8 @@ echarts.registerTheme("athenaCryptoDark", {
   ],
   textStyle: {
     color: cryptoColors.text,
-    fontFamily: "plus-jakarta-sans, ui-sans-serif, system-ui",
+    fontFamily:
+      "Microsoft YaHei UI, Microsoft YaHei, Noto Sans SC, Segoe UI, ui-sans-serif, system-ui",
   },
   legend: {
     textStyle: { color: cryptoColors.muted },

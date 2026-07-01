@@ -6,6 +6,11 @@ const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
+const {
+  decryptVectorMetadataText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 const sanitizeNamespace = (namespace) => {
   // If namespace already starts with ns_, don't add it again
@@ -194,7 +199,7 @@ class AstraDB extends VectorDatabase {
               return {
                 _id: _id,
                 $vector: chunk.values,
-                metadata: chunk.metadata || {},
+                metadata: encryptVectorMetadataText(chunk.metadata || {}),
               };
             });
 
@@ -236,7 +241,7 @@ class AstraDB extends VectorDatabase {
           const vectorRecord = {
             _id: uuidv4(),
             $vector: vector,
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           vectors.push(vectorRecord);
@@ -390,9 +395,10 @@ class AstraDB extends VectorDatabase {
         );
         return;
       }
-      result.contextTexts.push(response.metadata.text);
+      const metadata = decryptVectorMetadataText(response.metadata || {});
+      result.contextTexts.push(metadata.text || "");
       result.sourceDocuments.push({
-        ...response.metadata,
+        ...metadata,
         score: response.$similarity,
       });
       result.scores.push(response.$similarity);
@@ -462,7 +468,7 @@ class AstraDB extends VectorDatabase {
           ? source.metadata
           : source;
         documents.push({
-          ...metadata,
+          ...decryptVectorMetadataText(metadata),
         });
       }
     }

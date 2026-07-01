@@ -59,6 +59,7 @@ function effectiveAgentSkills(agentSkills = [], settings = {}) {
 export default function AdminAgents() {
   const { t } = useTranslation();
   const formEl = useRef(null);
+  const mountedRef = useRef(true);
   const [hasChanges, setHasChanges] = useState(false);
   const [settings, setSettings] = useState({});
   const [selectedSkill, setSelectedSkill] = useState("");
@@ -143,6 +144,7 @@ export default function AdminAgents() {
         System.isFileSystemAgentAvailable(),
         System.isCreateFilesAgentAvailable(),
       ]);
+      if (!mountedRef.current) return;
 
       const { flows = [] } = flowsRes;
       setSettings({ ..._settings, preferences: _preferences.settings } ?? {});
@@ -158,6 +160,10 @@ export default function AdminAgents() {
       setLoading(false);
     }
     fetchSettings();
+
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   const toggleDefaultSkill = (skillName) => {

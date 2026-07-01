@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sparkle } from "@phosphor-icons/react";
-import { AUTH_USER } from "@/utils/constants";
-import { safeJsonParse } from "@/utils/request";
+import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
 import AppButton from "@/components/lib/AppButton";
 import showToast from "@/utils/toast";
 import AccountSettingsApi from "./accountSettingsApi";
@@ -87,12 +86,12 @@ export default function PersonalizationCard({ user, onUserUpdated }) {
       return;
     }
 
-    const storedUser = safeJsonParse(localStorage.getItem(AUTH_USER), null);
+    const storedUser = getStoredAuthUser();
     const nextUser = {
       ...(storedUser || user),
       bio: serializedBio,
     };
-    localStorage.setItem(AUTH_USER, JSON.stringify(nextUser));
+    setStoredAuthUser(nextUser);
     onUserUpdated?.(nextUser);
     showToast("个性化设置已保存。", "success", { clear: true });
   }

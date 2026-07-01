@@ -55,7 +55,7 @@ export function DnDFileUploaderProvider({
   children,
 }) {
   const [files, setFiles] = useState([]);
-  const [ready, setReady] = useState(false);
+  const [ready, setReady] = useState(null);
   const [dragging, setDragging] = useState(false);
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [isEmbedding, setIsEmbedding] = useState(false);
@@ -64,10 +64,23 @@ export function DnDFileUploaderProvider({
   const [tokenCount, setTokenCount] = useState(0);
   const [maxTokens, setMaxTokens] = useState(Number.POSITIVE_INFINITY);
   const filesRef = useRef([]);
+  const processorCheckRef = useRef(null);
 
-  useEffect(() => {
-    System.checkDocumentProcessorOnline().then((status) => setReady(status));
-  }, []);
+  async function ensureDocumentProcessorReady() {
+    if (ready === true) return true;
+    if (ready === false) return false;
+    if (!processorCheckRef.current) {
+      processorCheckRef.current = System.checkDocumentProcessorOnline()
+        .then((status) => {
+          setReady(status);
+          return status;
+        })
+        .finally(() => {
+          processorCheckRef.current = null;
+        });
+    }
+    return processorCheckRef.current;
+  }
 
   useEffect(() => {
     filesRef.current = files;
@@ -199,13 +212,21 @@ export function DnDFileUploaderProvider({
    * @param {File[]} acceptedFiles
    * @param {string} source
    */
-  function handleIncomingFiles(acceptedFiles = [], source = "upload") {
+  async function handleIncomingFiles(acceptedFiles = [], source = "upload") {
     emitAttachmentDebug("attachment-incoming", {
       source,
       count: acceptedFiles.length,
       items: acceptedFiles.map(fileDebugPayload),
     });
     if (!acceptedFiles.length) return;
+    const processorReady = await ensureDocumentProcessorReady();
+    if (!processorReady) {
+      showToast(
+        "Document processor is offline. Please try again later.",
+        "error"
+      );
+      return;
+    }
     /** @type {Attachment[]} */
     const newAccepted = acceptedFiles.map((file) =>
       createAttachmentRecord(file, source)
@@ -497,7 +518,15 @@ export function DnDFileUploaderProvider({
 
   return (
     <DndUploaderContext.Provider
-      value={{ files, ready, dragging, setDragging, onDrop, parseAttachments }}
+      value={{
+        files,
+        ready,
+        dragging,
+        setDragging,
+        onDrop,
+        parseAttachments,
+        ensureDocumentProcessorReady,
+      }}
     >
       <FileUploadWarningModal
         show={showWarningModal}
@@ -516,14 +545,17 @@ export function DnDFileUploaderProvider({
 }
 
 export default function DnDFileUploaderWrapper({ children }) {
-  const { onDrop, ready, dragging, setDragging } =
+  const { onDrop, ready, dragging, setDragging, ensureDocumentProcessorReady } =
     useContext(DndUploaderContext);
   const { getRootProps, getInputProps } = useDropzone({
     onDrop,
-    disabled: !ready,
+    disabled: ready === false,
     noClick: true,
     noKeyboard: true,
-    onDragEnter: () => setDragging(true),
+    onDragEnter: () => {
+      setDragging(true);
+      ensureDocumentProcessorReady();
+    },
     onDragLeave: () => setDragging(false),
   });
 

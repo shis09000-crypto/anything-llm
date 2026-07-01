@@ -42,15 +42,17 @@ const ReaderDocument = {
     );
     return { response, data };
   },
-  originalBlob: async function (originalUrl) {
+  originalBlob: async function (originalUrl, options = {}) {
     const { response, blob } = await requestBlob(originalUrl, {
+      signal: options.signal,
       blobKind: BLOB_KINDS.readerOriginal,
       communicationScene: "reader-open",
     });
     return { response, blob };
   },
-  previewBlob: async function (previewUrl) {
+  previewBlob: async function (previewUrl, options = {}) {
     const { response, blob } = await requestBlob(previewUrl, {
+      signal: options.signal,
       blobKind: BLOB_KINDS.readerPreview,
       communicationScene: "reader-open",
     });
@@ -63,27 +65,27 @@ const ReaderDocument = {
     });
     return { response, blob };
   },
-  fromWorkspace: async function (slug, docPath) {
+  fromWorkspace: async function (slug, docPath, options = {}) {
     const params = new URLSearchParams({ docPath });
     const { response, data } = await getJson(
       `${readerDocumentsPath(slug)}/from-workspace?${params.toString()}`,
-      { communicationScene: "reader-open" }
+      { signal: options.signal, communicationScene: "reader-open" }
     );
     return { response, data };
   },
-  fromLocalPath: async function (slug, absolutePath) {
+  fromLocalPath: async function (slug, absolutePath, options = {}) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/from-local-path`,
       { absolutePath },
-      { communicationScene: "reader-open" }
+      { signal: options.signal, communicationScene: "reader-open" }
     );
     return { response, data };
   },
-  reopenLocalPath: async function (slug, readerDocumentId) {
+  reopenLocalPath: async function (slug, readerDocumentId, options = {}) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/reopen-local-path`,
       undefined,
-      { communicationScene: "reader-open" }
+      { signal: options.signal, communicationScene: "reader-open" }
     );
     return { response, data };
   },

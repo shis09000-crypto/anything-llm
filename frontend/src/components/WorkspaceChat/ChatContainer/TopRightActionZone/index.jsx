@@ -89,7 +89,11 @@ export default function TopRightActionZone({
         scheduleHide();
       }}
     >
-      <WorkspaceHealthProvider workspaceSlug={workspaceSlug}>
+      <WorkspaceHealthProvider
+        workspaceSlug={workspaceSlug}
+        idleDelayMs={8_000}
+        communicationScene="health-idle"
+      >
         <WorkspaceHealthBeacon workspaceSlug={workspaceSlug} />
       </WorkspaceHealthProvider>
       <div

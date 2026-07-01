@@ -1,8 +1,4 @@
 import React, { useEffect, useState } from "react";
-import Sidebar from "@/components/SettingsSidebar";
-import { isMobile } from "react-device-detect";
-import PreLoader from "@/components/Preloader";
-import CTAButton from "@/components/lib/CTAButton";
 import Admin from "@/models/admin";
 import showToast from "@/utils/toast";
 import { numberWithCommas } from "@/utils/numbers";
@@ -10,6 +6,11 @@ import { useTranslation } from "react-i18next";
 import { useModal } from "@/hooks/useModal";
 import ModalWrapper from "@/components/ModalWrapper";
 import ChangeWarningModal from "@/components/ChangeWarning";
+import {
+  SoftButton,
+  SoftCard,
+  SoftSettingsLayout,
+} from "@/components/SoftSettings";
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -86,48 +87,39 @@ export default function EmbeddingTextSplitterPreference() {
   }, []);
 
   return (
-    <div className="w-screen h-screen overflow-hidden bg-theme-bg-container flex">
-      <Sidebar />
+    <SoftSettingsLayout
+      title={t("text.title")}
+      description={
+        <>
+          {t("text.desc-start")} <br />
+          {t("text.desc-end")}
+        </>
+      }
+      actions={
+        hasChanges && (
+          <SoftButton type="submit" form="text-splitter-chunking-form">
+            {saving ? t("common.saving") : t("common.save")}
+          </SoftButton>
+        )
+      }
+    >
       {loading ? (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
-          <div className="w-full h-full flex justify-center items-center">
-            <PreLoader />
+        <SoftCard>
+          <div className="flex w-full max-w-[720px] flex-col gap-y-4">
+            <div className="motion-skeleton h-16 rounded-2xl" />
+            <div className="motion-skeleton h-28 rounded-2xl" />
+            <div className="motion-skeleton h-10 w-2/3 rounded-2xl" />
           </div>
-        </div>
+        </SoftCard>
       ) : (
-        <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll p-4 md:p-0"
-        >
+        <SoftCard>
           <form
             onSubmit={handleSubmit}
             onChange={() => setHasChanges(true)}
-            className="flex w-full"
+            className="settings-soft-form"
             id="text-splitter-chunking-form"
           >
-            <div className="flex flex-col w-full px-1 md:pl-6 md:pr-[50px] md:py-6 py-16">
-              <div className="w-full flex flex-col gap-y-1 pb-4 border-white light:border-theme-sidebar-border border-b-2 border-opacity-10">
-                <div className="flex gap-x-4 items-center">
-                  <p className="text-lg leading-6 font-bold text-white">
-                    {t("text.title")}
-                  </p>
-                </div>
-                <p className="text-xs leading-[18px] font-base text-white text-opacity-60">
-                  {t("text.desc-start")} <br />
-                  {t("text.desc-end")}
-                </p>
-              </div>
-              <div className="w-full justify-end flex">
-                {hasChanges && (
-                  <CTAButton className="mt-3 mr-0 -mb-14 z-10">
-                    {saving ? t("common.saving") : t("common.save")}
-                  </CTAButton>
-                )}
-              </div>
-
+            <div className="flex flex-col w-full">
               <div className="flex flex-col gap-y-4 mt-8">
                 <div className="flex flex-col max-w-[300px]">
                   <div className="flex flex-col gap-y-2 mb-4">
@@ -190,7 +182,7 @@ export default function EmbeddingTextSplitterPreference() {
               </div>
             </div>
           </form>
-        </div>
+        </SoftCard>
       )}
 
       <ModalWrapper isOpen={isOpen}>
@@ -200,6 +192,6 @@ export default function EmbeddingTextSplitterPreference() {
           onConfirm={handleSaveSettings}
         />
       </ModalWrapper>
-    </div>
+    </SoftSettingsLayout>
   );
 }

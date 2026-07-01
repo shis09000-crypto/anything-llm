@@ -27,9 +27,14 @@ import {
   visibleThreadRows,
 } from "@/utils/workspaceThreadRows";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { Draggable, Droppable } from "react-beautiful-dnd";
+import { markLoginBoot } from "@/utils/loginBootPerf";
+import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
+const THREAD_DUPLICATE_REUSE_MS = 1_500;
+const titleEventStreamsByWorkspace = new Map();
 
 export default function ThreadContainer({
   workspace,
@@ -45,6 +50,11 @@ export default function ThreadContainer({
   const [showAllThreads, setShowAllThreads] = useState(false);
   const titleAnimationTimers = useRef(new Map());
   const lastAnimatedTitle = useRef(new Map());
+  const threadFetchInFlightRef = useRef(null);
+  const pendingThreadRefreshRef = useRef(null);
+  const pendingReplayAttachedRef = useRef(false);
+  const threadFetchSeqRef = useRef(0);
+  const threadFetchAbortRef = useRef(null);
   const threadsRef = useRef([]);
   const { t, i18n } = useTranslation();
   const { hasThreadActivity, clearThreadActivity } = useChatThreadDrafts();
@@ -129,7 +139,48 @@ export default function ThreadContainer({
 
   useEffect(() => {
     if (!workspace.slug) return;
+    const existing = titleEventStreamsByWorkspace.get(workspace.slug);
+    if (existing) {
+      existing.refCount += 1;
+      recordCommunicationEvent({
+        type: "thread-title-events-reuse",
+        method: "EVENT",
+        path: `/workspace/${workspace.slug}/thread-title-events`,
+        communicationScene: "workspace-navigation",
+        durationMs: 0,
+        requestBytes: 0,
+        responseBytes: 0,
+        ok: true,
+        workspaceSlug: workspace.slug,
+        refCount: existing.refCount,
+      });
+      return () => {
+        const entry = titleEventStreamsByWorkspace.get(workspace.slug);
+        if (!entry) return;
+        entry.refCount -= 1;
+        if (entry.refCount <= 0) {
+          entry.controller.abort();
+          titleEventStreamsByWorkspace.delete(workspace.slug);
+        }
+      };
+    }
+
     const ctrl = new AbortController();
+    titleEventStreamsByWorkspace.set(workspace.slug, {
+      controller: ctrl,
+      refCount: 1,
+    });
+    recordCommunicationEvent({
+      type: "thread-title-events-subscribe",
+      method: "EVENT",
+      path: `/workspace/${workspace.slug}/thread-title-events`,
+      communicationScene: "workspace-navigation",
+      durationMs: 0,
+      requestBytes: 0,
+      responseBytes: 0,
+      ok: true,
+      workspaceSlug: workspace.slug,
+    });
 
     Workspace.threads
       .titleEvents(workspace.slug, {
@@ -153,34 +204,197 @@ export default function ThreadContainer({
         console.warn("[ThreadTitle] event stream closed", error.message);
       });
 
-    return () => ctrl.abort();
+    return () => {
+      const entry = titleEventStreamsByWorkspace.get(workspace.slug);
+      if (!entry) return;
+      entry.refCount -= 1;
+      if (entry.refCount <= 0) {
+        ctrl.abort();
+        titleEventStreamsByWorkspace.delete(workspace.slug);
+      }
+    };
   }, [workspace.slug]);
 
   useEffect(() => {
+    let mounted = true;
+    const seq = threadFetchSeqRef.current + 1;
+    threadFetchSeqRef.current = seq;
+    threadFetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    threadFetchAbortRef.current = controller;
+    const isCurrent = () =>
+      mounted &&
+      !controller.signal.aborted &&
+      threadFetchSeqRef.current === seq &&
+      workspace.slug;
+
     async function fetchThreads() {
       if (!workspace.slug) return;
       setShowAllThreads(false);
-      const cachedThreads = workspaceNavigationCache.getThreads(workspace.slug);
-      if (Array.isArray(cachedThreads)) {
-        setThreads(cachedThreads);
+      const freshThreads = workspaceNavigationCache.getThreads(workspace.slug, {
+        allowStale: false,
+      });
+      if (Array.isArray(freshThreads)) {
+        workspaceNavigationCache.debug("threads:hit", {
+          workspaceSlug: workspace.slug,
+          ...workspaceNavigationCache.getThreadsMeta(workspace.slug),
+        });
+        setThreads(freshThreads);
+        setLoading(false);
+        markLoginBoot("threads_loaded", {
+          source: "cache",
+          workspaceSlug: workspace.slug,
+          count: freshThreads.length,
+        });
+        return;
+      }
+
+      const staleThreads = workspaceNavigationCache.getThreads(workspace.slug);
+      if (Array.isArray(staleThreads)) {
+        workspaceNavigationCache.debug("threads:stale", {
+          workspaceSlug: workspace.slug,
+          ...workspaceNavigationCache.getThreadsMeta(workspace.slug),
+        });
+        setThreads(staleThreads);
         setLoading(false);
       } else {
+        workspaceNavigationCache.debug("threads:miss", {
+          workspaceSlug: workspace.slug,
+        });
         setLoading(true);
       }
-      const { threads } = await Workspace.threads.all(workspace.slug);
+
+      const request = workspaceNavigationCache.runInFlight(
+        `threads:${workspace.slug}`,
+        () =>
+          requestPriorityQueue.schedule(
+            () =>
+              Workspace.threads.all(workspace.slug, {
+                signal: controller.signal,
+              }),
+            {
+              priority: Array.isArray(staleThreads) ? "P4" : "P2",
+              label: "navigation:threads",
+              signal: controller.signal,
+              dedupeKey: `navigation:threads:${workspace.slug}`,
+            }
+          ),
+        { reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS }
+      );
+      threadFetchInFlightRef.current = request;
+      let result = null;
+      try {
+        result = await request;
+      } catch (error) {
+        if (error?.name !== "AbortError" && isCurrent()) console.error(error);
+        return;
+      } finally {
+        if (threadFetchInFlightRef.current === request) {
+          threadFetchInFlightRef.current = null;
+        }
+      }
+      const { threads } = result || {};
+      if (!Array.isArray(threads)) return;
+      if (!isCurrent()) return;
       workspaceNavigationCache.setThreads(workspace.slug, threads);
       setLoading(false);
       setThreads(threads);
+      markLoginBoot("threads_loaded", {
+        source: "network",
+        workspaceSlug: workspace.slug,
+        count: threads.length,
+      });
     }
     fetchThreads();
+    return () => {
+      mounted = false;
+      controller.abort();
+    };
   }, [workspace.slug]);
 
   useEffect(() => {
     async function refreshThreads(event) {
       if (event?.detail?.workspaceSlug !== workspace.slug) return;
-      const { threads: refreshedThreads } = await Workspace.threads.all(
-        workspace.slug
-      );
+      recordCommunicationEvent({
+        type: "workspace-threads-refresh-handled",
+        method: "EVENT",
+        path: WORKSPACE_THREADS_REFRESH_EVENT,
+        communicationScene: "workspace-navigation",
+        durationMs: 0,
+        requestBytes: 0,
+        responseBytes: 0,
+        ok: true,
+        workspaceSlug: workspace.slug,
+        reason: event?.detail?.reason || "refresh",
+        source: event?.detail?.source || null,
+        replayed: !!event?.detail?.replayed,
+      });
+      if (threadFetchInFlightRef.current) {
+        pendingThreadRefreshRef.current = {
+          workspaceSlug: workspace.slug,
+          ...(event?.detail || {}),
+        };
+        if (!pendingReplayAttachedRef.current) {
+          pendingReplayAttachedRef.current = true;
+          threadFetchInFlightRef.current.finally(() => {
+            pendingReplayAttachedRef.current = false;
+            if (!pendingThreadRefreshRef.current) return;
+            const pendingDetail = pendingThreadRefreshRef.current;
+            pendingThreadRefreshRef.current = null;
+            window.dispatchEvent(
+              new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
+                detail: {
+                  ...pendingDetail,
+                  workspaceSlug: workspace.slug,
+                  force: false,
+                  replayed: true,
+                },
+              })
+            );
+          });
+        }
+        return;
+      }
+      const seq = threadFetchSeqRef.current + 1;
+      threadFetchSeqRef.current = seq;
+      threadFetchAbortRef.current?.abort();
+      const controller = new AbortController();
+      threadFetchAbortRef.current = controller;
+      const isCurrent = () =>
+        !controller.signal.aborted &&
+        threadFetchSeqRef.current === seq &&
+        workspace.slug === event?.detail?.workspaceSlug;
+      let result = null;
+      try {
+        result = await workspaceNavigationCache.runInFlight(
+          `threads:${workspace.slug}`,
+          () =>
+            requestPriorityQueue.schedule(
+              () =>
+                Workspace.threads.all(workspace.slug, {
+                  signal: controller.signal,
+                }),
+              {
+                priority: "P2",
+                label: "navigation:threads-refresh",
+                signal: controller.signal,
+                dedupeKey: `navigation:threads:${workspace.slug}`,
+              }
+            ),
+          {
+            reuseResolvedWithinMs:
+              event?.detail?.force && !event?.detail?.replayed
+                ? 0
+                : THREAD_DUPLICATE_REUSE_MS,
+          }
+        );
+      } catch (error) {
+        if (error?.name !== "AbortError" && isCurrent()) console.error(error);
+        return;
+      }
+      const { threads: refreshedThreads } = result || {};
+      if (!Array.isArray(refreshedThreads)) return;
+      if (!isCurrent()) return;
       workspaceNavigationCache.setThreads(workspace.slug, refreshedThreads);
       const currentBySlug = new Map(
         threadsRef.current.map((thread) => [thread.slug, thread])

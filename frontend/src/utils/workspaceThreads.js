@@ -1,4 +1,4 @@
-import paths from "@/utils/paths";
+import paths from "./paths.js";
 
 export const THREAD_TYPES = {
   chat: "chat",
@@ -79,11 +79,8 @@ export function sortThreadsForDisplay(
     });
 }
 
-export function defaultWorkspacePath(workspaceSlug, threads = []) {
-  const overviewThread = findOverviewThread(threads);
-  return overviewThread?.slug
-    ? paths.workspace.thread(workspaceSlug, overviewThread.slug)
-    : paths.workspace.chat(workspaceSlug);
+export function defaultWorkspacePath(workspaceSlug, _threads = []) {
+  return paths.workspace.chat(workspaceSlug);
 }
 
 function activitySortRank(activity) {

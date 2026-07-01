@@ -29,6 +29,10 @@ function storageRemove() {
 }
 
 export function isCodexDevAuthBypassEnabled() {
+  if (import.meta.env.PROD) {
+    storageRemove();
+    return false;
+  }
   if (!import.meta.env.DEV || typeof window === "undefined") return false;
   if (!CODEX_DEV_AUTH_BYPASS_KEY) return false;
 

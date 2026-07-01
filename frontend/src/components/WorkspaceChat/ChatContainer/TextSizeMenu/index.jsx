@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { isMobile } from "react-device-detect";
 import {
   CUSTOM_TEXT_SIZE,
+  TEXT_SIZE_CHANGE_EVENT,
   TEXT_SIZE_PRESETS,
   TEXT_SIZE_RANGE,
   clampCustomTextSize,
@@ -12,10 +13,21 @@ import {
   saveTextSizePreference,
 } from "@/utils/textSize";
 
+const TEXT_SIZE_LABEL_FALLBACKS = {
+  compact: "Compact",
+  small: "Small",
+  normal: "Normal",
+  comfortable: "Comfortable",
+  large: "Large",
+  xlarge: "Extra large",
+};
+
 function getTextSizes(t) {
   return TEXT_SIZE_PRESETS.map(({ value, textClass }) => ({
     key: value,
-    label: t(`chat_window.${value}`),
+    label: t(`chat_window.${value}`, {
+      defaultValue: TEXT_SIZE_LABEL_FALLBACKS[value] || value,
+    }),
     textClass,
   }));
 }
@@ -51,6 +63,19 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   useEffect(() => {
     onOpenChange?.(showMenu);
   }, [showMenu, onOpenChange]);
+
+  useEffect(() => {
+    const handleTextSizeEvent = (event) => {
+      const nextPreference = event.detail?.px
+        ? event.detail
+        : getTextSizePreference();
+      setSelectedSize(nextPreference);
+      setCustomPx(nextPreference.customPx);
+    };
+    window.addEventListener(TEXT_SIZE_CHANGE_EVENT, handleTextSizeEvent);
+    return () =>
+      window.removeEventListener(TEXT_SIZE_CHANGE_EVENT, handleTextSizeEvent);
+  }, []);
 
   function handleTextSizeChange(size) {
     setSelectedSize(saveTextSizePreference(size));

@@ -4,6 +4,7 @@ import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
 import { assertSecureHttpUrl } from "./transportSecurity";
 import {
   createCommunicationRequestId,
+  resetClientIdentity,
   withClientIdentityHeaders,
 } from "./clientIdentity";
 import {
@@ -11,6 +12,7 @@ import {
   isRecoverableSigningError,
   maybeSignedRequestHeaders,
 } from "./requestSigningClient";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import {
   communicationByteLength,
   communicationResponseSize,
@@ -62,6 +64,38 @@ function requestSignal({ signal, timeoutMs }) {
     },
     didTimeout: () => timedOut,
   };
+}
+
+function shouldClearAuthToken(response, data) {
+  if (!response || ![401, 403].includes(response.status)) return false;
+  if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) return true;
+
+  const message = String(data?.error || data?.message || "").toLowerCase();
+  return [
+    "session expired",
+    "invalid auth token",
+    "invalid auth for user",
+    "no auth token",
+    "client revoked",
+    "session client mismatch",
+  ].some((needle) => message.includes(needle));
+}
+
+function clearSensitiveAuthState(response, data) {
+  if (!response || ![401, 403].includes(response.status)) return;
+  clearSigningSecretCache();
+  if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) {
+    void resetClientIdentity({ rotateDeviceKey: true });
+  }
+  if (shouldClearAuthToken(response, data)) {
+    clearSensitiveClientSession({
+      reason:
+        data?.error === API_ERROR_CODES.CLIENT_REVOKED
+          ? "client_revoked"
+          : "auth_error",
+      includeDurableCaches: false,
+    });
+  }
 }
 
 export function apiUrl(path = "") {
@@ -123,6 +157,7 @@ export async function requestJson(path, options = {}) {
     retryAttempt = 0,
     rawBody = false,
     signing = "auto",
+    communicationScene = null,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -202,9 +237,7 @@ export async function requestJson(path, options = {}) {
           ...rest,
         });
       }
-      if (data?.error === API_ERROR_CODES.CLIENT_REVOKED) {
-        clearSigningSecretCache();
-      }
+      clearSensitiveAuthState(response, data);
       const apiError = normalizeApiError(null, response, {
         code:
           data?.error === API_ERROR_CODES.CLIENT_REVOKED
@@ -232,6 +265,7 @@ export async function requestJson(path, options = {}) {
         durationMs,
         requestBytes,
         responseBytes,
+        communicationScene,
         serverTiming: response.headers?.get?.("Server-Timing") || null,
         ok: false,
       });
@@ -255,6 +289,7 @@ export async function requestJson(path, options = {}) {
       durationMs,
       requestBytes,
       responseBytes,
+      communicationScene,
       serverTiming: response.headers?.get?.("Server-Timing") || null,
       ok: true,
     });
@@ -304,6 +339,7 @@ export async function requestJson(path, options = {}) {
       durationMs: durationSince(startedAt),
       requestBytes: communicationByteLength(bodyString),
       responseBytes: 0,
+      communicationScene,
       ok: false,
       error: apiError.message,
     });

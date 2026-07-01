@@ -4,12 +4,16 @@ import React, { useState, useEffect, useRef } from "react";
 import debounce from "lodash.debounce";
 import paths from "@/utils/paths";
 import { useNavigate } from "react-router-dom";
-import { AUTH_TIMESTAMP, AUTH_USER } from "@/utils/constants";
+import { AUTH_TIMESTAMP } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import { USERNAME_MIN_LENGTH, USERNAME_MAX_LENGTH } from "@/utils/username";
 import { PW_REGEX } from "@/pages/GeneralSettings/Security";
 import { setLoginUserActionNow } from "@/utils/userAction";
 import { setAuthToken } from "@/utils/authTokenStorage";
+import {
+  removeStoredAuthUser,
+  setStoredAuthUser,
+} from "@/utils/authUserStorage";
 
 export default function UserSetup({ setHeader, setForwardBtn, setBackBtn }) {
   const { t } = useTranslation();
@@ -149,7 +153,7 @@ const JustMe = ({
     const { token } = await System.requestToken({
       password: formData.get("password"),
     });
-    window.localStorage.removeItem(AUTH_USER);
+    removeStoredAuthUser();
     window.localStorage.removeItem(AUTH_TIMESTAMP);
     setAuthToken(token);
     setLoginUserActionNow();
@@ -270,7 +274,7 @@ const MyTeam = ({ setMultiUserLoginValid, myTeamSubmitRef, navigate }) => {
     // Auto-request token with credentials that was just set so they
     // are not redirected to login after completion.
     const { user, token } = await System.requestToken(data);
-    window.localStorage.setItem(AUTH_USER, JSON.stringify(user));
+    setStoredAuthUser(user);
     setAuthToken(token);
     window.localStorage.removeItem(AUTH_TIMESTAMP);
     setLoginUserActionNow();

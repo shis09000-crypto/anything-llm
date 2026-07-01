@@ -1,7 +1,14 @@
 import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
 import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
+import {
+  listClients,
+  revokeAllOtherClients,
+  revokeClient,
+} from "@/lib/communication/clientIdentityClient";
+import { getClientIdentity } from "@/lib/communication/clientIdentity";
 import { apiErrorRaw } from "@/lib/communication/apiError";
 import System from "@/models/system";
+import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import {
   startAuthentication,
   startRegistration,
@@ -63,8 +70,8 @@ const AccountSettingsApi = {
   emailStatus: () => System.emailVerificationStatus(),
   requestEmailVerification: ({ email }) =>
     System.requestEmailVerification({ email }),
-  confirmEmailVerification: ({ email, code }) =>
-    System.confirmEmailVerification({ email, code }),
+  confirmEmailVerification: ({ email, code, challengeId = "" }) =>
+    System.confirmEmailVerification({ email, code, challengeId }),
   updateProfile: ({ displayName, bio }) =>
     System.updateUser({ displayName, bio }),
   updatePassword: ({ currentPassword, password }) =>
@@ -388,9 +395,27 @@ const AccountSettingsApi = {
       "Could not verify passkey login."
     );
   },
-  fetchSessions: async () => mockSessions,
-  signOutOtherSessions: async () => ({ success: true }),
-  signOutAllSessions: async () => ({ success: true }),
+  fetchSessions: async () => {
+    const clients = await listClients().catch(() => []);
+    if (!Array.isArray(clients) || !clients.length) return mockSessions;
+    return clients.map(sessionFromClient);
+  },
+  signOutOtherSessions: async () => revokeAllOtherClients(),
+  signOutSession: async (clientId) => revokeClient(clientId),
+  signOutAllSessions: async () => {
+    const currentClientId = getClientIdentity().clientId;
+    await revokeAllOtherClients();
+    const result = currentClientId
+      ? await revokeClient(currentClientId)
+      : { success: true };
+    if (result?.success) {
+      clearSensitiveClientSession({
+        reason: "all_sessions_revoked",
+        includeDurableCaches: false,
+      });
+    }
+    return result;
+  },
   exportAccountData: async () => ({ success: true }),
   exportChatRecords: async () => ({ success: true }),
   fetchAccountDeletePreview: () => System.accountDeletePreview(),
@@ -460,6 +485,56 @@ function deviceDescriptor() {
   if (isIPhone) return { ...base, deviceType: "iphone" };
   if (isMac) return { ...base, deviceType: "mac" };
   return { ...base, deviceType: "browser" };
+}
+
+function sessionFromClient(client = {}) {
+  const platform = client.platform || "web";
+  const capabilities = client.capabilities || {};
+  const profile = capabilities.profile || {};
+  const device = profile.device || {};
+  let browser = "Web Browser";
+  if (device.family === "ipad" || platform === "ipad") {
+    browser = "iPad";
+  } else if (profile.surface === "desktopApp") {
+    browser = "Desktop App";
+  } else if (platform === "ios") {
+    browser = "iOS / PWA";
+  } else if (platform === "android") {
+    browser = "Android / PWA";
+  } else if (platform === "desktop") {
+    browser = "Desktop";
+  }
+
+  return {
+    id: client.clientId,
+    clientId: client.clientId,
+    deviceName: client.deviceName || clientLabel(client),
+    browser,
+    ip: client.revokedAt ? "已撤销" : trustLabel(client.trustLevel),
+    lastActiveAt: client.lastSeenAt || client.createdAt,
+    current: !!client.isCurrentClient,
+    trustLevel: client.trustLevel,
+    revokedAt: client.revokedAt || null,
+    hasDevicePublicKey: !!client.hasDevicePublicKey,
+  };
+}
+
+function clientLabel(client = {}) {
+  const platform = client.platform || "web";
+  const device = client.capabilities?.profile?.device || {};
+  if (client.isCurrentClient) return "当前设备";
+  if (device.family === "ipad" || platform === "ipad") return "iPad";
+  if (platform === "ios") return "iPhone / iPad";
+  if (platform === "android") return "Android 设备";
+  if (platform === "desktop") return "桌面端设备";
+  return "浏览器设备";
+}
+
+function trustLabel(value) {
+  if (value === "high") return "高信任";
+  if (value === "medium") return "中等信任";
+  if (value === "low") return "低信任";
+  return "待确认";
 }
 
 function browserLabel(ua) {

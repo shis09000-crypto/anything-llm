@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { useTranslation } from "react-i18next";
@@ -28,11 +28,15 @@ import {
 } from "@/utils/lastVisitedWorkspace";
 import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { markLoginBoot } from "@/utils/loginBootPerf";
 
 const WORKSPACE_DND_TYPE = "WORKSPACE";
 const THREAD_DND_TYPE = "THREAD";
 const WORKSPACE_DROP_PREFIX = "workspace-drop:";
 const THREAD_DRAG_PREFIX = "thread:";
+const NAV_BOOT_REFRESH_COALESCE_MS = 1_500;
+const NAV_DUPLICATE_REUSE_MS = 1_500;
 
 function threadDraggableId(workspaceSlug, threadSlug) {
   return `${THREAD_DRAG_PREFIX}${workspaceSlug}:${threadSlug}`;
@@ -72,23 +76,117 @@ export default function ActiveWorkspaces() {
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
   const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/:tab");
   const isHomePage = !!useMatch("/");
+  const refreshInFlightRef = useRef(null);
+  const pendingForceRefreshRef = useRef(false);
+  const pendingRefreshTimerRef = useRef(null);
+  const bootCoalesceUntilRef = useRef(
+    typeof window === "undefined"
+      ? 0
+      : window.performance.now() + NAV_BOOT_REFRESH_COALESCE_MS
+  );
 
-  const refreshWorkspaces = useCallback(async () => {
-    const cached = workspaceNavigationCache.getWorkspaces();
-    if (cached?.length) {
-      setLoading(false);
-      setWorkspaces(Workspace.orderWorkspaces(cached));
+  const refreshWorkspaces = useCallback(async ({ force = false } = {}) => {
+    if (refreshInFlightRef.current) {
+      if (force) pendingForceRefreshRef.current = true;
+      return refreshInFlightRef.current;
     }
-    const workspaces = await Workspace.all();
-    workspaceNavigationCache.setWorkspaces(workspaces);
-    setLoading(false);
-    setWorkspaces(Workspace.orderWorkspaces(workspaces));
+
+    const inBootCoalesceWindow =
+      typeof window !== "undefined" &&
+      window.performance.now() < bootCoalesceUntilRef.current;
+    if (force && inBootCoalesceWindow) {
+      const freshDuringBoot = workspaceNavigationCache.getWorkspaces({
+        allowStale: false,
+      });
+      if (Array.isArray(freshDuringBoot)) {
+        pendingForceRefreshRef.current = true;
+        setWorkspaces(Workspace.orderWorkspaces(freshDuringBoot));
+        setLoading(false);
+        return freshDuringBoot;
+      }
+    }
+
+    const run = (async () => {
+      const fresh = workspaceNavigationCache.getWorkspaces({
+        allowStale: false,
+      });
+      if (!force && Array.isArray(fresh)) {
+        workspaceNavigationCache.debug("workspaces:hit", {
+          ...workspaceNavigationCache.getWorkspacesMeta(),
+        });
+        setLoading(false);
+        setWorkspaces(Workspace.orderWorkspaces(fresh));
+        markLoginBoot("workspaces_loaded", {
+          source: "cache",
+          count: fresh.length,
+        });
+        return fresh;
+      }
+
+      const stale = workspaceNavigationCache.getWorkspaces();
+      if (Array.isArray(stale)) {
+        workspaceNavigationCache.debug("workspaces:stale", {
+          force,
+          ...workspaceNavigationCache.getWorkspacesMeta(),
+        });
+        setLoading(false);
+        setWorkspaces(Workspace.orderWorkspaces(stale));
+      } else {
+        workspaceNavigationCache.debug("workspaces:miss", { force });
+        setLoading(true);
+      }
+
+      const workspaces = await workspaceNavigationCache.runInFlight(
+        "workspaces:all",
+        () =>
+          requestPriorityQueue.schedule(() => Workspace.all(), {
+            priority: force ? "P1" : Array.isArray(stale) ? "P3" : "P0",
+            label: "navigation:workspaces",
+            dedupeKey: "navigation:workspaces",
+          }),
+        { reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS }
+      );
+      if (!workspaces) return null;
+      workspaceNavigationCache.setWorkspaces(workspaces);
+      setLoading(false);
+      setWorkspaces(Workspace.orderWorkspaces(workspaces));
+      markLoginBoot("workspaces_loaded", {
+        source: "network",
+        count: workspaces.length,
+        force,
+      });
+      return workspaces;
+    })();
+
+    refreshInFlightRef.current = run.finally(() => {
+      refreshInFlightRef.current = null;
+      if (!pendingForceRefreshRef.current) return;
+      pendingForceRefreshRef.current = false;
+      const delayMs =
+        typeof window === "undefined"
+          ? 0
+          : Math.max(
+              0,
+              bootCoalesceUntilRef.current - window.performance.now()
+            );
+      if (pendingRefreshTimerRef.current) {
+        window.clearTimeout(pendingRefreshTimerRef.current);
+      }
+      pendingRefreshTimerRef.current = window.setTimeout(() => {
+        pendingRefreshTimerRef.current = null;
+        refreshWorkspaces({ force: true });
+      }, delayMs);
+    });
+
+    return refreshInFlightRef.current;
   }, []);
 
   useEffect(() => {
     const handleWorkspacesRefresh = (event) => {
       const workspace = event.detail?.workspace;
       if (workspace?.id) {
+        if (workspace.slug)
+          workspaceNavigationCache.invalidateWorkspaceDetail(workspace.slug);
         setWorkspaces((prevWorkspaces) => {
           const workspaceExists = prevWorkspaces.some(
             (existingWorkspace) => existingWorkspace.id === workspace.id
@@ -107,16 +205,21 @@ export default function ActiveWorkspaces() {
           return nextWorkspaces;
         });
       }
-      refreshWorkspaces();
+      refreshWorkspaces({ force: !!event.detail?.force });
     };
 
     refreshWorkspaces();
     window.addEventListener(WORKSPACES_REFRESH_EVENT, handleWorkspacesRefresh);
-    return () =>
+    return () => {
+      if (pendingRefreshTimerRef.current) {
+        window.clearTimeout(pendingRefreshTimerRef.current);
+        pendingRefreshTimerRef.current = null;
+      }
       window.removeEventListener(
         WORKSPACES_REFRESH_EVENT,
         handleWorkspacesRefresh
       );
+    };
   }, [refreshWorkspaces]);
 
   if (loading) {

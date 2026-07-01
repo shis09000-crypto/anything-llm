@@ -159,7 +159,7 @@ const quizCardAtmosphereSvg = encodeURIComponent(`
       <path d="M34 43L60 137M86 43L112 137M138 137L164 43M190 137L216 43" stroke-width="1"/>
     </g>
   </g>
-  <g font-family="-apple-system,BlinkMacSystemFont,'SF Pro Display','Inter','Segoe UI',sans-serif" font-weight="500" fill="#0369A1">
+  <g font-family="Microsoft YaHei UI,Microsoft YaHei,Noto Sans SC,Segoe UI,sans-serif" font-weight="500" fill="#0369A1">
     <text x="132" y="142" font-size="42" opacity="0.105" transform="rotate(-10 132 142)">∑</text>
     <text x="402" y="256" font-size="34" opacity="0.092" transform="rotate(7 402 256)">∫</text>
     <text x="704" y="128" font-size="36" opacity="0.096" transform="rotate(-5 704 128)">π</text>
@@ -170,7 +170,7 @@ const quizCardAtmosphereSvg = encodeURIComponent(`
     <text x="1278" y="756" font-size="32" opacity="0.076" transform="rotate(6 1278 756)">∂</text>
     <text x="958" y="340" font-size="30" opacity="0.070" transform="rotate(-12 958 340)">∞</text>
   </g>
-  <g font-family="-apple-system,BlinkMacSystemFont,'SF Pro Text','Inter','Segoe UI',sans-serif" fill="#0369A1" font-size="20" font-weight="500">
+  <g font-family="Microsoft YaHei UI,Microsoft YaHei,Noto Sans SC,Segoe UI,sans-serif" fill="#0369A1" font-size="20" font-weight="500">
     <text x="188" y="226" opacity="0.115" transform="rotate(-7 188 226)">E = mc²</text>
     <text x="520" y="170" opacity="0.098" transform="rotate(5 520 170)">PV = nRT</text>
     <text x="806" y="254" opacity="0.090" transform="rotate(-6 806 254)">∇·E = ρ/ε₀</text>

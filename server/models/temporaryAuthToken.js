@@ -1,4 +1,7 @@
-const { issueUserSessionToken } = require("../utils/sessionIdle");
+const {
+  issueUserSessionToken,
+  sessionTokenOptionsFromClientContext,
+} = require("../utils/sessionIdle");
 const prisma = require("../utils/prisma");
 
 /**
@@ -66,7 +69,7 @@ const TemporaryAuthToken = {
    * @param {string} publicToken - the token to validate against
    * @returns {Promise<{sessionToken: string|null, token: import("@prisma/client").temporary_auth_tokens & {user: import("@prisma/client").users} | null, error: string | null}>}
    */
-  validate: async function (publicToken = "") {
+  validate: async function (publicToken = "", { clientContext = null } = {}) {
     /** @type {import("@prisma/client").temporary_auth_tokens & {user: import("@prisma/client").users} | undefined | null} **/
     let token;
 
@@ -84,7 +87,9 @@ const TemporaryAuthToken = {
       if (token.user.suspended) throw new Error("User account suspended.");
 
       // Create a new session token for the user valid for 30 days
-      const sessionToken = issueUserSessionToken(token.user);
+      const sessionToken = issueUserSessionToken(token.user, {
+        ...sessionTokenOptionsFromClientContext(clientContext),
+      });
 
       return { sessionToken, token, error: null };
     } catch (error) {

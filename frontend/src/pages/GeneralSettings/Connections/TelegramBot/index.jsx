@@ -16,18 +16,23 @@ export default function TelegramBotSettings() {
   const [config, setConfig] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchData() {
       const [isMultiUserMode, configRes] = await Promise.all([
         System.isMultiUserMode(),
         Telegram.getConfig(),
       ]);
 
+      if (cancelled) return;
       if (isMultiUserMode) navigate(paths.home());
       setConfig(configRes?.config || null);
       setLoading(false);
     }
     fetchData();
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   const handleConnected = (newConfig) => setConfig(newConfig);
   const handleDisconnected = () => setConfig(null);

@@ -1,5 +1,5 @@
-import { AUTH_USER } from "./constants";
 import { getAuthToken } from "./authTokenStorage";
+import { getStoredAuthUser } from "./authUserStorage";
 import {
   CODEX_DEV_AUTH_BYPASS_HEADER,
   CODEX_DEV_AUTH_BYPASS_KEY,
@@ -13,9 +13,7 @@ import {
 // Sets up the base headers for all authenticated requests so that we are able to prevent
 // basic spoofing since a valid token is required and that cannot be spoofed
 export function userFromStorage() {
-  const userString = window.localStorage.getItem(AUTH_USER);
-  if (!userString) return null;
-  return safeJsonParse(userString, null);
+  return getStoredAuthUser();
 }
 
 export function baseHeaders(providedToken = null) {

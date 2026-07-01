@@ -11,19 +11,10 @@ import {
 } from "@/utils/userStateSync";
 
 /**
- * Synchronizes prompt input value with localStorage, scoped to the current thread.
+ * Synchronizes prompt input value with encrypted user-state storage, scoped to the current thread.
  *
- * Persists unsent prompt text across page refreshes and navigation. Each thread/workspace maintains
- * its own draft state independently. Storage key is determined by thread slug (if in a thread) or
- * workspace slug (if in default chat).
- *
- * Storage format (stored under USER_PROMPT_INPUT_MAP key):
- * ```json
- * {
- *   "thread-slug": "user's draft message...",
- *   "workspace-slug": "another draft message..."
- * }
- * ```
+ * Legacy localStorage drafts are read once for migration and then removed so new drafts do not
+ * keep long-lived plaintext in browser storage.
  *
  * @param {Object} props
  * @param {string} props.promptInput - Current prompt input value to sync
@@ -39,8 +30,12 @@ import {
 export function clearPromptInputDraft(storageKey, options = {}) {
   try {
     const map = safeJsonParse(localStorage.getItem(USER_PROMPT_INPUT_MAP), {});
-    map[storageKey] = "";
-    localStorage.setItem(USER_PROMPT_INPUT_MAP, JSON.stringify(map));
+    delete map[storageKey];
+    if (Object.keys(map).length) {
+      localStorage.setItem(USER_PROMPT_INPUT_MAP, JSON.stringify(map));
+    } else {
+      localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+    }
     clearPromptDraft(
       promptDraftScope({
         workspaceSlug: options.workspaceSlug || storageKey,
@@ -67,15 +62,19 @@ export default function usePromptInputStorage({
     const userPromptInputValue = promptInputMap[scopedStorageKey];
     if (userPromptInputValue) {
       setPromptInput(userPromptInputValue);
-    }
-    void hydratePromptDraft(syncedDraftScope, userPromptInputValue || "").then(
-      (remoteValue) => {
-        if (!remoteValue || remoteValue === userPromptInputValue) return;
-        promptInputMap[scopedStorageKey] = remoteValue;
+      delete promptInputMap[scopedStorageKey];
+      if (Object.keys(promptInputMap).length) {
         localStorage.setItem(
           USER_PROMPT_INPUT_MAP,
           JSON.stringify(promptInputMap)
         );
+      } else {
+        localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+      }
+    }
+    void hydratePromptDraft(syncedDraftScope, userPromptInputValue || "").then(
+      (remoteValue) => {
+        if (!remoteValue || remoteValue === userPromptInputValue) return;
         setPromptInput(remoteValue);
       }
     );
@@ -87,11 +86,19 @@ export default function usePromptInputStorage({
         const serializedPromptInputMap =
           localStorage.getItem(USER_PROMPT_INPUT_MAP) || "{}";
         const promptInputMap = safeJsonParse(serializedPromptInputMap, {});
-        promptInputMap[slug] = value;
-        localStorage.setItem(
-          USER_PROMPT_INPUT_MAP,
-          JSON.stringify(promptInputMap)
-        );
+        delete promptInputMap[slug];
+        if (Object.keys(promptInputMap).length) {
+          localStorage.setItem(
+            USER_PROMPT_INPUT_MAP,
+            JSON.stringify(promptInputMap)
+          );
+        } else {
+          localStorage.removeItem(USER_PROMPT_INPUT_MAP);
+        }
+        if (!String(value || "").trim()) {
+          clearPromptDraft(syncedDraftScope);
+          return;
+        }
         persistPromptDraft(syncedDraftScope, value, {
           workspaceSlug,
           threadSlug,

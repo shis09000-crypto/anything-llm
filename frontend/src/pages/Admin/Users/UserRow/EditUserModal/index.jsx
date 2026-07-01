@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { X } from "@phosphor-icons/react";
 import Admin from "@/models/admin";
 import { MessageLimitInput, RoleHintDisplay } from "../..";
-import { AUTH_USER } from "@/utils/constants";
+import { setStoredAuthUser } from "@/utils/authUserStorage";
 import { useTranslation } from "react-i18next";
 import AppButton from "@/components/lib/AppButton";
 import {
@@ -48,7 +48,7 @@ export default function EditUserModal({ currentUser, user, closeModal }) {
         currentUser.username = data.username;
         currentUser.bio = data.bio;
         currentUser.role = data.role;
-        localStorage.setItem(AUTH_USER, JSON.stringify(currentUser));
+        setStoredAuthUser(currentUser);
       }
 
       window.location.reload();

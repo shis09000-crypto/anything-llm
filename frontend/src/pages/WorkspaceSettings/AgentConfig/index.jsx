@@ -23,12 +23,21 @@ export default function WorkspaceAgentConfiguration({ workspace }) {
   const loadLlmSettings = useSettingsSection("llm");
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchSettings() {
-      const _settings = await loadLlmSettings({ priority: "P0" });
+      const _settings = await loadLlmSettings({
+        priority: "P1",
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
       setSettings(_settings ?? {});
       setLoading(false);
     }
-    fetchSettings();
+    fetchSettings().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
   }, [loadLlmSettings]);
 
   const handleUpdate = async (e) => {

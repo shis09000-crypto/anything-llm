@@ -32,6 +32,7 @@ storage/lancedb
 storage/embedding-batches/*
 storage/tool-runs/*
 storage/agent-sessions/*
+storage/shared/*
 __tests__/utils/agents/models/context-windows/*
 public/
 

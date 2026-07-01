@@ -27,6 +27,7 @@ const apiBase = argValue("api-base", "http://localhost:3002/api").replace(
   /\/$/,
   ""
 );
+const includeDebugSmoke = argValue("debug-smoke", "true") !== "false";
 const includeRealSmoke = argValue("real-smoke", "true") !== "false";
 const concurrency = Number(argValue("concurrency", "12"));
 const email = process.env.ATHENA_TEST_EMAIL || process.env.EMAIL || "";
@@ -35,6 +36,7 @@ const password = process.env.ATHENA_TEST_PASSWORD || process.env.PASSWORD || "";
 const summary = {
   startedAt: new Date().toISOString(),
   apiBase,
+  includeDebugSmoke,
   includeRealSmoke,
   concurrency,
   results: [],
@@ -130,6 +132,87 @@ function transformSource(file, source) {
     .replace(
       /import\s+\{\s*baseHeaders\s*\}\s+from\s+"@\/utils\/request";/,
       "const baseHeaders = () => globalThis.__ATHENA_TEST_BASE_HEADERS__ || {};"
+    )
+    .replace(
+      /import\s+\{\s*CODEX_DEV_AUTH_BYPASS_KEY,\s*CODEX_DEV_AUTH_BYPASS_QUERY,\s*isCodexDevAuthBypassEnabled,\s*\}\s+from\s+"@\/utils\/codexDevAuthBypass";/,
+      `const CODEX_DEV_AUTH_BYPASS_KEY = "codexDevAuthBypass";
+const CODEX_DEV_AUTH_BYPASS_QUERY = "codexDevAuthBypass";
+const isCodexDevAuthBypassEnabled = () => false;`
+    )
+    .replace(
+      /import\s+\{\s*getAuthToken\s*\}\s+from\s+"@\/utils\/authTokenStorage";/,
+      `const getAuthToken = () => {
+  const authorization = globalThis.__ATHENA_TEST_BASE_HEADERS__?.Authorization || "";
+  return authorization.replace(/^Bearer\\s+/i, "") || null;
+};`
+    )
+    .replace(
+      /import\s+\{\s*clearSensitiveClientSession\s*\}\s+from\s+"@\/utils\/security\/clearSensitiveClientState";/,
+      "const clearSensitiveClientSession = () => {};"
+    )
+    .replace(
+      /import\s+\{\s*assertSecureHttpUrl\s*\}\s+from\s+"\.\/transportSecurity";/,
+      "const assertSecureHttpUrl = (url) => url;"
+    )
+    .replace(
+      /import\s+\{\s*assertSecureWebSocketUrl\s*\}\s+from\s+"\.\/transportSecurity";/,
+      "const assertSecureWebSocketUrl = (url) => url;"
+    )
+    .replace(
+      /import\s+\{\s*webSocketOriginForHttpBase\s*\}\s+from\s+"\.\/transportSecurity";/,
+      `const webSocketOriginForHttpBase = (base) =>
+  String(base || "").replace(/^https:/, "wss:").replace(/^http:/, "ws:");`
+    )
+    .replace(
+      /import\s+\{\s*createCommunicationRequestId,\s*resetClientIdentity,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
+      `const createCommunicationRequestId = () => \`runtime-req-\${Date.now()}-\${Math.random().toString(16).slice(2)}\`;
+const resetClientIdentity = () => {};
+const withClientIdentityHeaders = (headers = {}) => ({ ...headers, "X-Athena-Client-Id": "runtime-client" });`
+    )
+    .replace(
+      /import\s+\{\s*createCommunicationRequestId,\s*shouldAttachClientIdentityToUrl,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
+      `const createCommunicationRequestId = () => \`runtime-req-\${Date.now()}-\${Math.random().toString(16).slice(2)}\`;
+const shouldAttachClientIdentityToUrl = () => true;
+const withClientIdentityHeaders = (headers = {}) => ({ ...headers, "X-Athena-Client-Id": "runtime-client" });`
+    )
+    .replace(
+      /import\s+\{\s*createCommunicationRequestId\s*\}\s+from\s+"\.\/clientIdentity";/,
+      `const createCommunicationRequestId = () => \`runtime-req-\${Date.now()}-\${Math.random().toString(16).slice(2)}\`;`
+    )
+    .replace(
+      /import\s+\{\s*appendClientIdentityQueryParams\s*\}\s+from\s+"\.\/clientIdentity";/,
+      "const appendClientIdentityQueryParams = (url) => ({ url });"
+    )
+    .replace(
+      /import\s+\{\s*clearSigningSecretCache,\s*isRecoverableSigningError,\s*maybeSignedRequestHeaders,\s*\}\s+from\s+"\.\/requestSigningClient";/,
+      `const clearSigningSecretCache = () => {};
+const isRecoverableSigningError = () => false;
+const maybeSignedRequestHeaders = async ({ headers = {} } = {}) => headers;`
+    )
+    .replace(
+      /import\s+\{\s*signedWebSocketEnvelope\s*\}\s+from\s+"\.\/requestSigningClient";/,
+      "const signedWebSocketEnvelope = async ({ payload }) => ({ payload, signature: null });"
+    )
+    .replace(
+      /import\s+\{\s*clearSigningSecretCache,\s*isRecoverableSigningError,\s*\}\s+from\s+"\.\/requestSigningClient";/,
+      `const clearSigningSecretCache = () => {};
+const isRecoverableSigningError = () => false;`
+    )
+    .replace(
+      /import\s+\{\s*communicationByteLength,\s*communicationResponseSize,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+      `const communicationByteLength = (value = "") => String(value || "").length;
+const communicationResponseSize = () => 0;
+const recordCommunicationEvent = () => {};`
+    )
+    .replace(
+      /import\s+\{\s*communicationByteLength,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+      `const communicationByteLength = (value = "") => String(value || "").length;
+const recordCommunicationEvent = () => {};`
+    )
+    .replace(
+      /import\s+\{\s*communicationResponseSize,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+      `const communicationResponseSize = () => 0;
+const recordCommunicationEvent = () => {};`
     )
     .replaceAll("import.meta.env.DEV", "true")
     .replaceAll("import.meta.env.VITE_API_BASE", JSON.stringify(apiBase));
@@ -782,8 +865,14 @@ async function main() {
     ? { Authorization: `Bearer ${auth.token}` }
     : {};
 
-  await runClientChecks(modules);
-  await runAgentWebSocketChecks(modules);
+  if (includeDebugSmoke) {
+    await runClientChecks(modules);
+    await runAgentWebSocketChecks(modules);
+  } else {
+    record("debug_smoke_skipped", true, {
+      reason: "disabled",
+    });
+  }
   await runRealSmoke(modules, auth);
 
   summary.completedAt = new Date().toISOString();

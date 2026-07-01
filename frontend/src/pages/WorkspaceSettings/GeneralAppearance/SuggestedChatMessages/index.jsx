@@ -13,13 +13,22 @@ export default function SuggestedChatMessages({ slug }) {
   const [loading, setLoading] = useState(true);
   const { t } = useTranslation();
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchWorkspace() {
       if (!slug) return;
-      const suggestedMessages = await Workspace.getSuggestedMessages(slug);
+      const suggestedMessages = await Workspace.getSuggestedMessages(slug, {
+        signal: controller.signal,
+        communicationScene: "settings-tab",
+      });
+      if (controller.signal.aborted) return;
       setSuggestedMessages(suggestedMessages);
       setLoading(false);
     }
-    fetchWorkspace();
+    fetchWorkspace().catch((error) => {
+      if (error?.name !== "AbortError") console.error(error);
+      if (!controller.signal.aborted) setLoading(false);
+    });
+    return () => controller.abort();
   }, [slug]);
 
   const handleSaveSuggestedMessages = async () => {

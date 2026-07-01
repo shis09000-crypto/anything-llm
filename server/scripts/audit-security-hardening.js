@@ -95,6 +95,7 @@ function routeLooksSecuritySensitive({ method, path }) {
   if (/^\/v1\//.test(routePath)) return true;
   if (/^\/admin(\/|$)/.test(routePath)) return true;
   if (/^\/client-identity\/(revoke|rotate)/.test(routePath)) return true;
+  if (/^\/vault\/items(\/|$)/.test(routePath)) return true;
   if (/^\/auth\/(passkeys|trusted-devices|zk-login\/devices)/.test(routePath)) {
     return true;
   }

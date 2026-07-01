@@ -1,7 +1,10 @@
 const bcrypt = require("bcryptjs");
+const fs = require("fs");
+const path = require("path");
+const { PrismaClient } = require("@prisma/client");
 const prisma = require("../utils/prisma");
 const authPrisma = require("../utils/authPrisma");
-const { appEnvironment } = require("../utils/environment");
+const { appEnvironment, storageBaseDir } = require("../utils/environment");
 const {
   ROLES,
   assertValidRole,
@@ -19,6 +22,10 @@ const ORIGIN_ENVS = Object.freeze({
   production: "production",
   development: "development",
 });
+const LOCAL_SHADOW_PASSWORD_REPAIR_ENVS = Object.freeze([
+  ORIGIN_ENVS.development,
+  ORIGIN_ENVS.production,
+]);
 
 const SYNC_FIELDS = [
   "username",
@@ -65,6 +72,22 @@ function normalizeOriginEnv(value = appEnvironment()) {
   return Object.values(ORIGIN_ENVS).includes(origin)
     ? origin
     : ORIGIN_ENVS.development;
+}
+
+function sqliteUrl(dbPath) {
+  const url = new URL(`file:${dbPath}`);
+  url.searchParams.set("connection_limit", "1");
+  url.searchParams.set("pool_timeout", "10");
+  return url.toString();
+}
+
+function localShadowIdentityClauses(authUser = {}) {
+  const clauses = [];
+  if (authUser.id) clauses.push({ authUserId: Number(authUser.id) });
+  if (authUser.username) clauses.push({ username: authUser.username });
+  if (authUser.email) clauses.push({ email: normalizeEmail(authUser.email) });
+  if (authUser.phone) clauses.push({ phone: normalizePhone(authUser.phone) });
+  return clauses;
 }
 
 function canLoginInCurrentEnv(authUser = null) {
@@ -299,6 +322,58 @@ async function updateAuthUser(authUserId = null, updates = {}) {
   return authPrisma.users.update({ where: { id }, data });
 }
 
+async function matchingLocalShadowPassword(authUser = null, password = "") {
+  if (appEnvironment() !== ORIGIN_ENVS.development) return null;
+  if (!authUser || !String(password || "")) return null;
+
+  const clauses = localShadowIdentityClauses(authUser);
+  if (clauses.length === 0) return null;
+
+  for (const envName of LOCAL_SHADOW_PASSWORD_REPAIR_ENVS) {
+    const dbPath = path.join(storageBaseDir(), envName, "anythingllm.db");
+    if (!fs.existsSync(dbPath)) continue;
+
+    const envPrisma = new PrismaClient({
+      datasources: { db: { url: sqliteUrl(dbPath) } },
+      log: ["error"],
+    });
+    try {
+      const shadow = await envPrisma.users.findFirst({
+        where: { OR: clauses },
+        select: {
+          id: true,
+          authUserId: true,
+          username: true,
+          email: true,
+          password: true,
+        },
+      });
+
+      if (
+        shadow?.password &&
+        bcrypt.compareSync(String(password), shadow.password)
+      ) {
+        return { envName, shadow };
+      }
+    } finally {
+      await envPrisma.$disconnect().catch(() => {});
+    }
+  }
+
+  return null;
+}
+
+async function repairPasswordFromLocalShadow(authUser = null, password = "") {
+  const match = await matchingLocalShadowPassword(authUser, password);
+  if (!match) return null;
+
+  const repairedAuthUser = await authPrisma.users.update({
+    where: { id: Number(authUser.id) },
+    data: { password: match.shadow.password },
+  });
+  return { authUser: repairedAuthUser, repairedFromEnv: match.envName };
+}
+
 async function bootstrapAuthUserFromShadow(shadowUser = null) {
   if (!shadowUser) return null;
   if (shadowUser.authUserId) return findById(shadowUser.authUserId);
@@ -337,9 +412,11 @@ module.exports = {
     findByLoginIdentifier,
     identityExists,
     isDeletedInCurrentEnv,
+    matchingLocalShadowPassword,
     normalizeEmail,
     normalizeOriginEnv,
     normalizePhone,
+    repairPasswordFromLocalShadow,
     updateAuthUser,
   },
 };

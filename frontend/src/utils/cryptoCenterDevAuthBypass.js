@@ -5,6 +5,12 @@ export const CRYPTO_CENTER_DEV_AUTH_BYPASS_STORAGE_KEY =
   "anythingllm_crypto_center_dev_auth_bypass";
 
 export function isCryptoCenterDevAuthBypassEnabled() {
+  if (import.meta.env.PROD) {
+    try {
+      window.localStorage.removeItem(CRYPTO_CENTER_DEV_AUTH_BYPASS_STORAGE_KEY);
+    } catch {}
+    return false;
+  }
   if (!import.meta.env.DEV || typeof window === "undefined") return false;
 
   const params = new URLSearchParams(window.location.search);

@@ -5,6 +5,12 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { appEnvironment } = require("../../environment");
+const {
+  decryptVectorMetadataText,
+  decryptVectorText,
+  encryptVectorMetadataText,
+  encryptVectorText,
+} = require("../../security");
 
 /*
  Embedding Table Schema (table name defined by user)
@@ -405,9 +411,13 @@ class PGVector extends VectorDatabase {
         return;
       }
 
-      result.contextTexts.push(item.metadata.text);
+      const metadata = {
+        ...(item.metadata || {}),
+        text: decryptVectorText(item.metadata?.text),
+      };
+      result.contextTexts.push(metadata.text);
       result.sourceDocuments.push({
-        ...item.metadata,
+        ...metadata,
         score: this.distanceToSimilarity(item._distance),
       });
       result.scores.push(this.distanceToSimilarity(item._distance));
@@ -571,9 +581,13 @@ class PGVector extends VectorDatabase {
           for (const chunk of chunks.flat()) {
             if (!vectorDimensions) vectorDimensions = chunk.values.length;
             const id = uuidv4();
-            const { id: _id, ...metadata } = chunk.metadata;
+            const { id: _id, ...metadata } = chunk.metadata || {};
             documentVectors.push({ docId, vectorId: id });
-            submissions.push({ id: id, vector: chunk.values, metadata });
+            submissions.push({
+              id: id,
+              vector: chunk.values,
+              metadata: encryptVectorMetadataText(metadata),
+            });
           }
 
           await this.updateOrCreateCollection({
@@ -622,7 +636,7 @@ class PGVector extends VectorDatabase {
           const vectorRecord = {
             id: uuidv4(),
             values: vector,
-            metadata: { ...metadata, text: textChunks[i] },
+            metadata: { ...metadata, text: encryptVectorText(textChunks[i]) },
           };
 
           vectors.push(vectorRecord);
@@ -838,11 +852,13 @@ class PGVector extends VectorDatabase {
     const documents = [];
     for (const source of sources) {
       const { text, vector: _v, _distance: _d, ...rest } = source;
-      const metadata = rest.hasOwnProperty("metadata") ? rest.metadata : rest;
+      const metadata = decryptVectorMetadataText(
+        rest.hasOwnProperty("metadata") ? rest.metadata : rest
+      );
       if (Object.keys(metadata).length > 0) {
         documents.push({
           ...metadata,
-          ...(text ? { text } : {}),
+          ...(text ? { text: decryptVectorText(text) } : {}),
         });
       }
     }

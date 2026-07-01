@@ -1,4 +1,5 @@
 const prisma = require("../utils/prisma");
+const { decryptWorkspaceChatRecords } = require("../utils/security");
 
 const SUMMARY_FORMAT = "thread-compact-markdown-v1";
 const CAPSULE_FORMAT = "conversation-state-capsule-json-v1";
@@ -224,7 +225,7 @@ const WorkspaceChatCompaction = {
       ${limit !== null ? "LIMIT ?" : ""}`,
       ...params
     );
-    return rows || [];
+    return decryptWorkspaceChatRecords(rows || []);
   },
 
   async deleteForScope(scope = {}) {

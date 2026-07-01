@@ -50,7 +50,11 @@ export default function ReaderTextSourceCards({
   if (!textSources.length) return null;
 
   function jump(source) {
-    window.dispatchEvent(new CustomEvent(READER_EVENT_OPEN_DRAWER));
+    window.dispatchEvent(
+      new CustomEvent(READER_EVENT_OPEN_DRAWER, {
+        detail: { force: true, source: "reader-source-card" },
+      })
+    );
     window.dispatchEvent(
       new CustomEvent("anythingllm-document-reader-jump", { detail: source })
     );

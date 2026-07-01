@@ -14,6 +14,7 @@ export async function streamQuizSubmit({
     path: `/workspace/${workspaceSlug}/quiz/${quizId}/submit-stream`,
     body: { answers },
     openWhenHidden: true,
+    communicationScene: "workspace-chat",
     onMessage(event, rawMessage) {
       onEvent?.(event, rawMessage);
     },

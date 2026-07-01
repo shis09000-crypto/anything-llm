@@ -8,11 +8,14 @@ import {
   getClientIdentity,
   withClientIdentityHeaders,
 } from "./clientIdentity";
+import { signWithDeviceIdentityKey } from "./deviceIdentityKey";
 import { assertSecureHttpUrl } from "./transportSecurity";
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 
 export const SIGNATURE_VERSION = "v1";
 export const SIGNATURE_PREFIX = "ATHENA-SIGN-V1";
+export const DEVICE_SIGNATURE_VERSION = "v2-device-p256";
+export const DEVICE_SIGNATURE_PREFIX = "ATHENA-DEVICE-SIGN-V1";
 export const SIGNING_SECRET_SESSION_PREFIX = "athena_signing_secret_v1:";
 
 export const SIGNING_HEADERS = {
@@ -21,6 +24,8 @@ export const SIGNING_HEADERS = {
   bodySha256: "X-Athena-Body-SHA256",
   signature: "X-Athena-Signature",
   signatureVersion: "X-Athena-Signature-Version",
+  devicePublicKey: "X-Athena-Device-Public-Key",
+  deviceKeyAlgorithm: "X-Athena-Device-Key-Algorithm",
 };
 
 const secretCache = new Map();
@@ -114,8 +119,14 @@ function comparablePath(pathOrUrl = "") {
 
 export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
   const normalizedMethod = String(method || "GET").toUpperCase();
-  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
   const normalizedPath = comparablePath(path);
+  if (
+    normalizedMethod === "GET" &&
+    /^\/vault\/items\/[^/]+$/.test(normalizedPath)
+  ) {
+    return true;
+  }
+  if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
 
   const highRiskRoutes = [
     {
@@ -149,6 +160,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/system\/user$/,
+    },
+    {
+      methods: ["PATCH", "DELETE"],
+      pattern: /^\/system\/user\/state$/,
     },
     {
       methods: ["DELETE"],
@@ -193,6 +208,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     {
       methods: ["PUT", "DELETE"],
       pattern: /^\/system\/prompt-variables\/[^/]+$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/patrol\/repairs\/[^/]+\/confirm$/,
     },
   ];
   if (
@@ -261,6 +280,12 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
   ) {
     return true;
   }
+  if (
+    ["POST", "DELETE"].includes(normalizedMethod) &&
+    /^\/vault\/items(?:\/[^/]+)?$/.test(normalizedPath)
+  ) {
+    return true;
+  }
 
   return false;
 }
@@ -273,9 +298,10 @@ function canonicalSigningString({
   requestId,
   clientId,
   bodySha256,
+  prefix = SIGNATURE_PREFIX,
 }) {
   return [
-    SIGNATURE_PREFIX,
+    prefix,
     String(method || "").toUpperCase(),
     canonicalPath,
     timestamp,
@@ -284,6 +310,80 @@ function canonicalSigningString({
     clientId,
     bodySha256,
   ].join("\n");
+}
+
+async function signedDeviceRequestHeaders({
+  method,
+  canonicalPath,
+  timestamp,
+  nonce: nextNonce,
+  requestId,
+  clientId,
+  bodySha256,
+} = {}) {
+  const signingString = canonicalSigningString({
+    method,
+    canonicalPath,
+    timestamp,
+    nonce: nextNonce,
+    requestId,
+    clientId,
+    bodySha256,
+    prefix: DEVICE_SIGNATURE_PREFIX,
+  });
+  const deviceSignature = await signWithDeviceIdentityKey(signingString);
+  if (
+    !deviceSignature?.signature ||
+    !deviceSignature?.publicKey ||
+    !deviceSignature?.algorithm
+  ) {
+    return null;
+  }
+
+  return {
+    [ATHENA_CLIENT_ID_HEADER]: clientId,
+    [ATHENA_REQUEST_ID_HEADER]: requestId,
+    [SIGNING_HEADERS.timestamp]: timestamp,
+    [SIGNING_HEADERS.nonce]: nextNonce,
+    [SIGNING_HEADERS.bodySha256]: bodySha256,
+    [SIGNING_HEADERS.signature]: deviceSignature.signature,
+    [SIGNING_HEADERS.signatureVersion]: DEVICE_SIGNATURE_VERSION,
+    [SIGNING_HEADERS.devicePublicKey]: deviceSignature.publicKey,
+    [SIGNING_HEADERS.deviceKeyAlgorithm]: deviceSignature.algorithm,
+  };
+}
+
+async function signedHmacRequestHeaders({
+  method,
+  canonicalPath,
+  timestamp,
+  nonce: nextNonce,
+  requestId,
+  clientId,
+  bodySha256,
+  signal,
+} = {}) {
+  const signingString = canonicalSigningString({
+    method,
+    canonicalPath,
+    timestamp,
+    nonce: nextNonce,
+    requestId,
+    clientId,
+    bodySha256,
+  });
+  const secret = await getSigningSecret({ signal });
+  const signature = await hmacBase64Url(secret, signingString);
+
+  return {
+    [ATHENA_CLIENT_ID_HEADER]: clientId,
+    [ATHENA_REQUEST_ID_HEADER]: requestId,
+    [SIGNING_HEADERS.timestamp]: timestamp,
+    [SIGNING_HEADERS.nonce]: nextNonce,
+    [SIGNING_HEADERS.bodySha256]: bodySha256,
+    [SIGNING_HEADERS.signature]: signature,
+    [SIGNING_HEADERS.signatureVersion]: SIGNATURE_VERSION,
+  };
 }
 
 async function fetchSigningSecret({ clientId, signal } = {}) {
@@ -401,7 +501,8 @@ export async function signedRequestHeaders({
   const nextNonce = nonce();
   const bodySha256 = await sha256Base64Url(bodyString);
   const canonicalPath = canonicalPathFromUrl(url);
-  const signingString = canonicalSigningString({
+
+  const deviceHeaders = await signedDeviceRequestHeaders({
     method,
     canonicalPath,
     timestamp,
@@ -410,18 +511,18 @@ export async function signedRequestHeaders({
     clientId,
     bodySha256,
   });
-  const secret = await getSigningSecret({ signal });
-  const signature = await hmacBase64Url(secret, signingString);
+  if (deviceHeaders) return deviceHeaders;
 
-  return {
-    [ATHENA_CLIENT_ID_HEADER]: clientId,
-    [ATHENA_REQUEST_ID_HEADER]: requestId,
-    [SIGNING_HEADERS.timestamp]: timestamp,
-    [SIGNING_HEADERS.nonce]: nextNonce,
-    [SIGNING_HEADERS.bodySha256]: bodySha256,
-    [SIGNING_HEADERS.signature]: signature,
-    [SIGNING_HEADERS.signatureVersion]: SIGNATURE_VERSION,
-  };
+  return signedHmacRequestHeaders({
+    method,
+    canonicalPath,
+    timestamp,
+    nonce: nextNonce,
+    requestId,
+    clientId,
+    bodySha256,
+    signal,
+  });
 }
 
 export async function maybeSignedRequestHeaders({
@@ -484,7 +585,7 @@ export async function signedWebSocketEnvelope({
   });
   return {
     type: "athenaSignedMessage",
-    signatureVersion: SIGNATURE_VERSION,
+    signatureVersion: headers[SIGNING_HEADERS.signatureVersion],
     signed: {
       clientId: headers[ATHENA_CLIENT_ID_HEADER],
       requestId,
@@ -492,6 +593,8 @@ export async function signedWebSocketEnvelope({
       nonce: headers[SIGNING_HEADERS.nonce],
       bodySha256: headers[SIGNING_HEADERS.bodySha256],
       signature: headers[SIGNING_HEADERS.signature],
+      devicePublicKey: headers[SIGNING_HEADERS.devicePublicKey],
+      deviceKeyAlgorithm: headers[SIGNING_HEADERS.deviceKeyAlgorithm],
     },
     payload,
   };

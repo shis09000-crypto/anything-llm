@@ -6,6 +6,11 @@ import {
   encodeCapabilityProfile,
   getClientCapabilityProfile,
 } from "./clientCapabilityProfile";
+import {
+  detectIPadLikeNavigator,
+  forcedMobilePlatform,
+} from "@/utils/mobileRuntime";
+import { deleteDeviceIdentityKeyRecord } from "./deviceIdentityKey";
 
 export const ATHENA_CLIENT_ID_STORAGE_KEY = "athena_client_id_v1";
 export const ATHENA_CLIENT_ID_HEADER = "X-Athena-Client-Id";
@@ -31,6 +36,7 @@ export const CLIENT_CAPABILITY_SOURCE = {
 export const CLIENT_PLATFORMS = {
   web: "web",
   desktop: "desktop",
+  ipad: "ipad",
   ios: "ios",
   android: "android",
   api: "api",
@@ -66,13 +72,22 @@ export function getOrCreateClientId() {
   return next;
 }
 
+export async function resetClientIdentity({ rotateDeviceKey = false } = {}) {
+  safeLocalStorage()?.removeItem(ATHENA_CLIENT_ID_STORAGE_KEY);
+  if (rotateDeviceKey) await deleteDeviceIdentityKeyRecord();
+}
+
 export function detectClientPlatform() {
+  if (typeof window !== "undefined") {
+    const forcedPlatform = forcedMobilePlatform(window);
+    if (forcedPlatform) return normalizePlatform(forcedPlatform);
+  }
+
   const envPlatform = import.meta.env.VITE_ATHENA_PLATFORM;
   if (envPlatform) return normalizePlatform(envPlatform);
   if (typeof window === "undefined") return CLIENT_PLATFORMS.web;
 
   const userAgent = window.navigator?.userAgent || "";
-  const platform = window.navigator?.platform || "";
   const isDesktopBridge =
     !!window.__TAURI__ ||
     !!window.__ATHENA_DESKTOP__ ||
@@ -80,10 +95,8 @@ export function detectClientPlatform() {
     typeof window.require === "function";
   if (isDesktopBridge) return CLIENT_PLATFORMS.desktop;
   if (/android/i.test(userAgent)) return CLIENT_PLATFORMS.android;
-  if (
-    /iphone|ipad|ipod/i.test(userAgent) ||
-    (platform === "MacIntel" && window.navigator?.maxTouchPoints > 1)
-  ) {
+  if (detectIPadLikeNavigator(window)) return CLIENT_PLATFORMS.ipad;
+  if (/iphone|ipod/i.test(userAgent)) {
     return CLIENT_PLATFORMS.ios;
   }
   return CLIENT_PLATFORMS.web;
@@ -107,6 +120,7 @@ export function defaultClientCapabilities(platform = detectClientPlatform()) {
         screenshot: true,
         clipboard: true,
       };
+    case CLIENT_PLATFORMS.ipad:
     case CLIENT_PLATFORMS.ios:
     case CLIENT_PLATFORMS.android:
       return {
