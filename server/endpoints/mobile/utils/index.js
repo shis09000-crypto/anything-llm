@@ -178,7 +178,7 @@ async function handleMobileCommand(request, response) {
       workspace,
       thread,
       message,
-      mode: "chat",
+      mode: workspace?.chatMode || "automatic",
       user: user,
       sessionId: null,
       attachments: [],

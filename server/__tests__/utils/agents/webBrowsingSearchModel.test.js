@@ -20,7 +20,10 @@ describe("web-browsing Search Model integration", () => {
     return { fn, fakeAibitat };
   }
 
-  async function loadAgentSkillsFromSystemSettings(defaultSkills = []) {
+  async function loadAgentSkillsFromSystemSettings(
+    defaultSkills = [],
+    disabledDefaultSkills = []
+  ) {
     jest.resetModules();
     jest.doMock("../../../utils/AiProviders/modelMap", () => ({
       MODEL_MAP: {
@@ -32,7 +35,8 @@ describe("web-browsing Search Model integration", () => {
         getValueOrFallback: jest.fn(async ({ label }, fallback) => {
           if (label === "default_agent_skills")
             return JSON.stringify(defaultSkills);
-          if (label === "disabled_agent_skills") return JSON.stringify([]);
+          if (label === "disabled_agent_skills")
+            return JSON.stringify(disabledDefaultSkills);
           return fallback;
         }),
       },
@@ -72,6 +76,30 @@ describe("web-browsing Search Model integration", () => {
     await expect(
       loadAgentSkillsFromSystemSettings(["web-browsing"])
     ).resolves.toContain("web-browsing");
+  });
+
+  it("exposes web-browsing by default when Search Model is configured", async () => {
+    process.env.SEARCH_MODEL_PROVIDER = "alibaba";
+    process.env.SEARCH_MODEL_API_KEY = "sk-search";
+    process.env.SEARCH_MODEL_BASE_URL =
+      "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    process.env.SEARCH_MODEL_PREF = "qwen3.7-plus";
+
+    await expect(loadAgentSkillsFromSystemSettings()).resolves.toContain(
+      "web-browsing"
+    );
+  });
+
+  it("does not expose default web-browsing when admin disables it", async () => {
+    process.env.SEARCH_MODEL_PROVIDER = "alibaba";
+    process.env.SEARCH_MODEL_API_KEY = "sk-search";
+    process.env.SEARCH_MODEL_BASE_URL =
+      "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    process.env.SEARCH_MODEL_PREF = "qwen3.7-plus";
+
+    await expect(
+      loadAgentSkillsFromSystemSettings(["web-browsing"], ["web-browsing"])
+    ).resolves.not.toContain("web-browsing");
   });
 
   it("returns a disabled message when handler runs without Search Model config", async () => {
@@ -123,5 +151,34 @@ describe("web-browsing Search Model integration", () => {
         chunkSource: "link://https://example.com/result",
       }),
     ]);
+  });
+
+  it("decrypts an encrypted Search Model API key before provider requests", async () => {
+    process.env.ENCRYPTION_MASTER_KEY = "0".repeat(64);
+    const { saveSecret } = require("../../../utils/security/secretStore");
+    process.env.SEARCH_MODEL_PROVIDER = "alibaba";
+    process.env.SEARCH_MODEL_API_KEY = saveSecret("sk-search");
+    process.env.SEARCH_MODEL_BASE_URL =
+      "https://dashscope.aliyuncs.com/compatible-mode/v1";
+    process.env.SEARCH_MODEL_PREF = "qwen3.7-plus";
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: "Search answer" } }],
+        search_info: { search_results: [] },
+      }),
+    });
+    const { fn } = loadWebBrowsingFunction();
+
+    await fn.handler.call(fn, { query: "latest AI news" });
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer sk-search",
+        }),
+      })
+    );
   });
 });

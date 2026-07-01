@@ -37,6 +37,61 @@ export function findOverviewThread(threads = []) {
   return threads.find((thread) => isOverviewThread(thread)) || null;
 }
 
+export function isNavigableWorkspaceThread(thread = null) {
+  return !!thread?.slug && thread?.deleted !== true;
+}
+
+export function isWorkspaceEntryChatThread(thread = null) {
+  return isNavigableWorkspaceThread(thread) && !isOverviewThread(thread);
+}
+
+export function findWorkspaceEntryThread(threads = []) {
+  const sortedThreads = threads
+    .map((thread, index) => ({ thread, index }))
+    .filter(({ thread }) => isNavigableWorkspaceThread(thread))
+    .sort((a, b) => {
+      const rank = (thread) => (isOverviewThread(thread) ? 1 : 0);
+      const rankDiff = rank(a.thread) - rank(b.thread);
+      if (rankDiff !== 0) return rankDiff;
+      const latestDiff =
+        threadLatestTime(b.thread) - threadLatestTime(a.thread);
+      if (latestDiff !== 0) return latestDiff;
+      const latestIdDiff =
+        Number(b.thread?.lastChatId || 0) - Number(a.thread?.lastChatId || 0);
+      if (latestIdDiff !== 0) return latestIdDiff;
+      return a.index - b.index;
+    });
+
+  return sortedThreads[0]?.thread || null;
+}
+
+export function resolveWorkspaceEntryThread(
+  threads = [],
+  preferredThreadSlug = null
+) {
+  const preferredThread = preferredThreadSlug
+    ? threads.find(
+        (thread) =>
+          thread?.slug === preferredThreadSlug &&
+          isNavigableWorkspaceThread(thread)
+      )
+    : null;
+
+  return preferredThread || findWorkspaceEntryThread(threads);
+}
+
+export function resolveWorkspaceEntryPath(
+  workspaceSlug,
+  threads = [],
+  preferredThreadSlug = null
+) {
+  if (!workspaceSlug) return paths.home();
+  const thread = resolveWorkspaceEntryThread(threads, preferredThreadSlug);
+  return thread?.slug
+    ? paths.workspace.thread(workspaceSlug, thread.slug)
+    : paths.workspace.chat(workspaceSlug);
+}
+
 export function displayThreadName(thread = null, t = null) {
   if (!thread) return "";
   if (isOverviewThread(thread)) return t?.("common.overviewPage") || "Overview";
@@ -79,8 +134,8 @@ export function sortThreadsForDisplay(
     });
 }
 
-export function defaultWorkspacePath(workspaceSlug, _threads = []) {
-  return paths.workspace.chat(workspaceSlug);
+export function defaultWorkspacePath(workspaceSlug, threads = []) {
+  return resolveWorkspaceEntryPath(workspaceSlug, threads);
 }
 
 function activitySortRank(activity) {

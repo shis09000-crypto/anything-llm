@@ -28,6 +28,35 @@ import GMailIcon from "./GMailSkillPanel/gmail.png";
 import OutlookIcon from "./OutlookSkillPanel/outlook.png";
 import GoogleCalendarIcon from "./GoogleCalendarSkillPanel/google-calendar.png";
 
+export const WEB_BROWSING_SKILL = "web-browsing";
+
+export function isSearchModelConfigured(settings = {}) {
+  return (
+    settings?.SearchModelProvider === "alibaba" &&
+    settings?.SearchModelApiKey === true &&
+    Boolean(settings?.SearchModelBaseUrl) &&
+    Boolean(settings?.SearchModelPref)
+  );
+}
+
+export function configurableAgentSkillsFromSettings(agentSkills = []) {
+  return (agentSkills || []).filter((skill) => skill !== WEB_BROWSING_SKILL);
+}
+
+export function isDefaultAgentSkillEnabled(
+  skill,
+  disabledAgentSkills = [],
+  settings = {}
+) {
+  if (skill === WEB_BROWSING_SKILL)
+    return (
+      isSearchModelConfigured(settings) &&
+      !disabledAgentSkills.includes(WEB_BROWSING_SKILL)
+    );
+
+  return !disabledAgentSkills.includes(skill);
+}
+
 export const getDefaultSkills = (t) => ({
   "rag-memory": {
     title: `Search: ${t("agent.skill.rag.title")}`,
@@ -70,6 +99,14 @@ export const getDefaultSkills = (t) => ({
     image: ScrapeWebsitesImage,
     skill: "web-scraping",
   },
+  [WEB_BROWSING_SKILL]: {
+    title: t("agent.skill.web.title"),
+    description: t("agent.skill.web.description"),
+    component: AgentWebSearchSelection,
+    icon: Browser,
+    image: ScrapeWebsitesImage,
+    skill: WEB_BROWSING_SKILL,
+  },
   "request-user-input": {
     title: `Intelligence: ${t("agent.skill.surveys.title")}`,
     description: t("agent.skill.surveys.description"),
@@ -111,12 +148,6 @@ export const getConfigurableSkills = (
     skill: "create-chart",
     icon: ChartBar,
     image: GenerateChartsImage,
-  },
-  "web-browsing": {
-    title: t("agent.skill.web.title"),
-    description: t("agent.skill.web.description"),
-    component: AgentWebSearchSelection,
-    skill: "web-browsing",
   },
   "sql-agent": {
     title: t("agent.skill.sql.title"),

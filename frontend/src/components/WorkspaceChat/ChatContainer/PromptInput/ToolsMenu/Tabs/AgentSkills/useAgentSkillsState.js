@@ -4,6 +4,12 @@ import System from "@/models/system";
 import AgentPlugins from "@/models/experimental/agentPlugins";
 import AgentFlows from "@/models/agentFlows";
 import MCPServers from "@/models/mcpServers";
+import {
+  configurableAgentSkillsFromSettings,
+  isDefaultAgentSkillEnabled,
+  isSearchModelConfigured,
+  WEB_BROWSING_SKILL,
+} from "@/pages/Admin/Agents/skills";
 import { getSubSkillPreferenceKeys } from "./skillRegistry";
 import useSubSkillPreferences from "./useSubSkillPreferences";
 
@@ -17,6 +23,7 @@ export default function useAgentSkillsState(defaultSkills) {
     useState(false);
   const [disabledDefaults, setDisabledDefaults] = useState([]);
   const [enabledConfigurable, setEnabledConfigurable] = useState([]);
+  const [settings, setSettings] = useState({});
   const [importedSkills, setImportedSkills] = useState([]);
   const [flows, setFlows] = useState([]);
   const [mcpServers, setMcpServers] = useState([]);
@@ -35,23 +42,30 @@ export default function useAgentSkillsState(defaultSkills) {
   async function fetchSkillSettings() {
     try {
       const subSkillPrefKeys = getSubSkillPreferenceKeys();
-      const [prefs, flowsRes, fsAgentAvailable] = await Promise.all([
-        Admin.systemPreferencesByFields([
-          "disabled_agent_skills",
-          "default_agent_skills",
-          "imported_agent_skills",
-          ...subSkillPrefKeys,
-        ]),
-        AgentFlows.listFlows(),
-        System.isFileSystemAgentAvailable(),
-      ]);
+      const [prefs, flowsRes, fsAgentAvailable, systemSettings] =
+        await Promise.all([
+          Admin.systemPreferencesByFields([
+            "disabled_agent_skills",
+            "default_agent_skills",
+            "imported_agent_skills",
+            ...subSkillPrefKeys,
+          ]),
+          AgentFlows.listFlows(),
+          System.isFileSystemAgentAvailable(),
+          System.keys(),
+        ]);
 
       if (prefs?.settings) {
         setDisabledDefaults(prefs.settings.disabled_agent_skills ?? []);
-        setEnabledConfigurable(prefs.settings.default_agent_skills ?? []);
+        setEnabledConfigurable(
+          configurableAgentSkillsFromSettings(
+            prefs.settings.default_agent_skills ?? []
+          )
+        );
         setImportedSkills(prefs.settings.imported_agent_skills ?? []);
         subSkillPrefs.loadFromSettings(prefs.settings);
       }
+      setSettings(systemSettings || {});
       if (flowsRes?.flows) setFlows(flowsRes.flows);
       setFileSystemAgentAvailable(fsAgentAvailable);
     } catch (e) {
@@ -76,15 +90,25 @@ export default function useAgentSkillsState(defaultSkills) {
   const isSkillEnabled = useCallback(
     (key) => {
       return key in defaultSkills
-        ? !disabledDefaults.includes(key)
+        ? isDefaultAgentSkillEnabled(key, disabledDefaults, settings)
         : enabledConfigurable.includes(key);
     },
-    [defaultSkills, disabledDefaults, enabledConfigurable]
+    [defaultSkills, disabledDefaults, enabledConfigurable, settings]
+  );
+
+  const isSkillToggleDisabled = useCallback(
+    (key) =>
+      key === WEB_BROWSING_SKILL &&
+      key in defaultSkills &&
+      !isSearchModelConfigured(settings),
+    [defaultSkills, settings]
   );
 
   // Toggle functions
   const toggleSkill = useCallback(
     async (key) => {
+      if (isSkillToggleDisabled(key)) return;
+
       const toggleItem = (arr, item) =>
         arr.includes(item) ? arr.filter((s) => s !== item) : [...arr, item];
 
@@ -105,7 +129,12 @@ export default function useAgentSkillsState(defaultSkills) {
         default_agent_skills: updated.join(","),
       });
     },
-    [defaultSkills, disabledDefaults, enabledConfigurable]
+    [
+      defaultSkills,
+      disabledDefaults,
+      enabledConfigurable,
+      isSkillToggleDisabled,
+    ]
   );
 
   const toggleImportedSkill = useCallback(async (skill) => {
@@ -167,6 +196,7 @@ export default function useAgentSkillsState(defaultSkills) {
 
     // Skill checks
     isSkillEnabled,
+    isSkillToggleDisabled,
 
     // Toggle functions
     toggleSkill,

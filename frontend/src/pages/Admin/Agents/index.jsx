@@ -19,9 +19,11 @@ import ContextualSaveBar from "@/components/ContextualSaveBar";
 import { castToType } from "@/utils/types";
 import { FullScreenLoader } from "@/components/Preloader";
 import {
+  configurableAgentSkillsFromSettings,
   getDefaultSkills,
   getConfigurableSkills,
   getAppIntegrationSkills,
+  isDefaultAgentSkillEnabled,
 } from "./skills.jsx";
 import { DefaultBadge } from "./Badges/default";
 import ImportedSkillList from "./Imported/SkillList";
@@ -41,20 +43,6 @@ const IGNORE_CHANGE_SETTINGS = [
   "agentSkillRerankerTopN",
   "agentSkillMaxToolCalls",
 ];
-
-function isSearchModelConfigured(settings = {}) {
-  return (
-    settings?.SearchModelProvider === "alibaba" &&
-    settings?.SearchModelApiKey === true &&
-    Boolean(settings?.SearchModelBaseUrl) &&
-    Boolean(settings?.SearchModelPref)
-  );
-}
-
-function effectiveAgentSkills(agentSkills = [], settings = {}) {
-  if (isSearchModelConfigured(settings)) return agentSkills;
-  return agentSkills.filter((skill) => skill !== "web-browsing");
-}
 
 export default function AdminAgents() {
   const { t } = useTranslation();
@@ -84,7 +72,10 @@ export default function AdminAgents() {
     useState(false);
 
   const defaultSkills = getDefaultSkills(t);
-  const enabledAgentSkills = effectiveAgentSkills(agentSkills, settings);
+  const enabledAgentSkills = configurableAgentSkillsFromSettings(agentSkills);
+  const enabledDefaultSkills = Object.keys(defaultSkills).filter((skill) =>
+    isDefaultAgentSkillEnabled(skill, disabledAgentSkills, settings)
+  );
   const allConfigurableSkills = getConfigurableSkills(t, {
     fileSystemAgentAvailable,
     createFilesAgentAvailable,
@@ -148,7 +139,11 @@ export default function AdminAgents() {
 
       const { flows = [] } = flowsRes;
       setSettings({ ..._settings, preferences: _preferences.settings } ?? {});
-      setAgentSkills(_preferences.settings?.default_agent_skills ?? []);
+      setAgentSkills(
+        configurableAgentSkillsFromSettings(
+          _preferences.settings?.default_agent_skills ?? []
+        )
+      );
       setDisabledAgentSkills(
         _preferences.settings?.disabled_agent_skills ?? []
       );
@@ -239,7 +234,11 @@ export default function AdminAgents() {
         "imported_agent_skills",
       ]);
       setSettings({ ..._settings, preferences: _preferences.settings } ?? {});
-      setAgentSkills(_preferences.settings?.default_agent_skills ?? []);
+      setAgentSkills(
+        configurableAgentSkillsFromSettings(
+          _preferences.settings?.default_agent_skills ?? []
+        )
+      );
       setDisabledAgentSkills(
         _preferences.settings?.disabled_agent_skills ?? []
       );
@@ -403,9 +402,7 @@ export default function AdminAgents() {
               skills={defaultSkills}
               selectedSkill={selectedSkill}
               handleClick={handleDefaultSkillClick}
-              activeSkills={Object.keys(defaultSkills).filter(
-                (skill) => !disabledAgentSkills.includes(skill)
-              )}
+              activeSkills={enabledDefaultSkills}
             />
             {/* Configurable skills */}
             <SkillList
@@ -520,11 +517,11 @@ export default function AdminAgents() {
                                 skill={defaultSkills[selectedSkill]?.skill}
                                 settings={settings}
                                 toggleSkill={toggleDefaultSkill}
-                                enabled={
-                                  !disabledAgentSkills.includes(
-                                    defaultSkills[selectedSkill]?.skill
-                                  )
-                                }
+                                enabled={isDefaultAgentSkillEnabled(
+                                  defaultSkills[selectedSkill]?.skill,
+                                  disabledAgentSkills,
+                                  settings
+                                )}
                                 setHasChanges={setHasChanges}
                                 {...defaultSkills[selectedSkill]}
                               />
@@ -627,9 +624,7 @@ export default function AdminAgents() {
                 skills={defaultSkills}
                 selectedSkill={selectedSkill}
                 handleClick={handleSkillClick}
-                activeSkills={Object.keys(defaultSkills).filter(
-                  (skill) => !disabledAgentSkills.includes(skill)
-                )}
+                activeSkills={enabledDefaultSkills}
               />
               {/* Configurable skills */}
               <SkillList
@@ -742,11 +737,11 @@ export default function AdminAgents() {
                         skill={defaultSkills[selectedSkill]?.skill}
                         settings={settings}
                         toggleSkill={toggleDefaultSkill}
-                        enabled={
-                          !disabledAgentSkills.includes(
-                            defaultSkills[selectedSkill]?.skill
-                          )
-                        }
+                        enabled={isDefaultAgentSkillEnabled(
+                          defaultSkills[selectedSkill]?.skill,
+                          disabledAgentSkills,
+                          settings
+                        )}
                         setHasChanges={setHasChanges}
                         {...defaultSkills[selectedSkill]}
                       />

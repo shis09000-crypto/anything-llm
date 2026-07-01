@@ -39,6 +39,7 @@ export default function AgentSkillsTab({
     loading,
     mcpLoading,
     isSkillEnabled,
+    isSkillToggleDisabled,
     toggleSkill,
     toggleImportedSkill,
     toggleFlow,
@@ -69,6 +70,7 @@ export default function AgentSkillsTab({
     flows,
     mcpServers,
     isSkillEnabled,
+    isSkillToggleDisabled,
     toggleSkill,
     isSubSkillEnabled,
     toggleSubSkill,
@@ -168,7 +170,7 @@ export default function AgentSkillsTab({
     highlightedIndex,
     onSelect: (item) => {
       if (item.type === "header") return item.onToggle();
-      if (!agentSessionActive) item.onToggle();
+      if (!agentSessionActive && !item.disabled) item.onToggle();
     },
     registerItemCount,
   });
@@ -207,7 +209,7 @@ export default function AgentSkillsTab({
                 enabled={item.enabled}
                 onToggle={item.onToggle}
                 highlighted={highlightedIndex === flatIndexMap[item.id]}
-                disabled={agentSessionActive}
+                disabled={agentSessionActive || item.disabled}
               />
               {item.hasSubSkills && item.subSkills && item.enabled && (
                 <SkillSection

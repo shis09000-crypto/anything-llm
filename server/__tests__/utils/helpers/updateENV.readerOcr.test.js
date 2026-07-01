@@ -161,4 +161,50 @@ describe("Reader OCR updateENV settings", () => {
     expect(invalidVision.error).toContain("Invalid vision provider.");
     expect(process.env.VISION_PROVIDER).toBe("alibaba");
   });
+
+  it("does not persist or import the encryption master key through provider backups", () => {
+    const {
+      exportProviderSettingsBackup,
+      importProviderSettingsBackup,
+      persistProviderSettingsBackup,
+      PROVIDER_ENV_KEYS,
+    } = loadUpdateENV();
+    const originalMasterKey =
+      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const importedMasterKey =
+      "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    process.env.ENCRYPTION_MASTER_KEY = originalMasterKey;
+    process.env.LLM_PROVIDER = "deepseek";
+    process.env.VECTOR_DB = "lancedb";
+
+    expect(PROVIDER_ENV_KEYS).not.toContain("ENCRYPTION_MASTER_KEY");
+
+    const persisted = persistProviderSettingsBackup();
+    expect(persisted.success).toBe(true);
+    const backup = JSON.parse(
+      fs.readFileSync(
+        path.join(
+          storageDir,
+          "production",
+          "system",
+          "provider-settings.backup.json"
+        ),
+        "utf8"
+      )
+    );
+    expect(backup.values.ENCRYPTION_MASTER_KEY).toBeUndefined();
+
+    const exported = exportProviderSettingsBackup();
+    expect(exported.values.ENCRYPTION_MASTER_KEY).toBeUndefined();
+
+    const imported = importProviderSettingsBackup({
+      values: {
+        ENCRYPTION_MASTER_KEY: importedMasterKey,
+        LLM_PROVIDER: "deepseek",
+      },
+    });
+    expect(imported.success).toBe(true);
+    expect(process.env.ENCRYPTION_MASTER_KEY).toBe(originalMasterKey);
+  });
 });

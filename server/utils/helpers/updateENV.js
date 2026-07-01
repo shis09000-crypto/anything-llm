@@ -1161,7 +1161,6 @@ const EXTRA_PROVIDER_ENV_KEYS = [
 ];
 
 const CRYPTO_GATE_ENV_KEYS = [
-  "ENCRYPTION_MASTER_KEY",
   "GATE_CRYPTO_ENABLED",
   "GATE_API_ENV",
   "GATE_API_READONLY",
@@ -1169,6 +1168,8 @@ const CRYPTO_GATE_ENV_KEYS = [
   "GATE_API_SECRET_ENCRYPTED",
   "GATE_PROBE_SPOT_PAIR",
 ];
+const INFRASTRUCTURE_SECRET_ENV_KEYS = ["ENCRYPTION_MASTER_KEY"];
+const PROVIDER_BACKUP_IGNORED_ENV_KEYS = ["ENCRYPTION_MASTER_KEY"];
 
 const PROVIDER_ENV_KEYS = [
   ...new Set([
@@ -1605,7 +1606,10 @@ function providerSelectionMissing() {
 }
 
 function hydrateProviderSettingsBackup() {
-  const result = hydrateFromBackup(PROVIDER_ENV_KEYS, { overwrite: true });
+  const result = hydrateFromBackup(PROVIDER_ENV_KEYS, {
+    overwrite: true,
+    ignoredEnvKeys: PROVIDER_BACKUP_IGNORED_ENV_KEYS,
+  });
   if (!result.success) {
     if (providerSelectionMissing()) {
       console.warn(
@@ -1658,7 +1662,10 @@ function exportProviderSettingsBackup(options = {}) {
 }
 
 function importProviderSettingsBackup(payload = {}, options = {}) {
-  const result = importBackupValues(payload, PROVIDER_ENV_KEYS, options);
+  const result = importBackupValues(payload, PROVIDER_ENV_KEYS, {
+    ...options,
+    ignoredEnvKeys: PROVIDER_BACKUP_IGNORED_ENV_KEYS,
+  });
   if (result.success) dumpENV();
   if (result.applied) result.applied = maskValues(result.applied);
   return result;
@@ -1705,6 +1712,7 @@ function dumpENV() {
     "DESKTOP_LOG_DIR",
     "DESKTOP_ENV_PATH",
     // For persistent data encryption
+    ...INFRASTRUCTURE_SECRET_ENV_KEYS,
     ...CRYPTO_GATE_ENV_KEYS,
     "SIG_KEY",
     "SIG_SALT",

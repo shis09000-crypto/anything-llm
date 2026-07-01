@@ -133,9 +133,16 @@ function readBackup() {
   }
 }
 
-function rejectUnknownKeys(values = {}, allowedEnvKeys = []) {
+function rejectUnknownKeys(
+  values = {},
+  allowedEnvKeys = [],
+  ignoredEnvKeys = []
+) {
   const whitelist = new Set(allowedEnvKeys);
-  return Object.keys(values).filter((key) => !whitelist.has(key));
+  const ignored = new Set(ignoredEnvKeys);
+  return Object.keys(values).filter(
+    (key) => !whitelist.has(key) && !ignored.has(key)
+  );
 }
 
 function applyValuesToEnv(values = {}, { overwrite = false } = {}) {
@@ -154,7 +161,8 @@ function applyValuesToEnv(values = {}, { overwrite = false } = {}) {
   return { applied, skipped };
 }
 
-function hydrateFromBackup(allowedEnvKeys = [], { overwrite = false } = {}) {
+function hydrateFromBackup(allowedEnvKeys = [], options = {}) {
+  const { overwrite = false, ignoredEnvKeys = [] } = options;
   const backup = readBackup();
   if (!backup.exists) {
     return { success: true, exists: false, applied: {}, skipped: {} };
@@ -169,7 +177,11 @@ function hydrateFromBackup(allowedEnvKeys = [], { overwrite = false } = {}) {
     };
   }
 
-  const unknownKeys = rejectUnknownKeys(backup.values, allowedEnvKeys);
+  const unknownKeys = rejectUnknownKeys(
+    backup.values,
+    allowedEnvKeys,
+    ignoredEnvKeys
+  );
   if (unknownKeys.length > 0) {
     return {
       success: false,
@@ -181,7 +193,8 @@ function hydrateFromBackup(allowedEnvKeys = [], { overwrite = false } = {}) {
     };
   }
 
-  const { applied, skipped } = applyValuesToEnv(backup.values, { overwrite });
+  const safeValues = sanitizeValuesForBackup(backup.values, allowedEnvKeys);
+  const { applied, skipped } = applyValuesToEnv(safeValues, { overwrite });
   return {
     success: true,
     exists: true,
@@ -199,12 +212,13 @@ function normalizeImportPayload(payload = {}) {
 }
 
 function importBackupValues(payload = {}, allowedEnvKeys = [], options = {}) {
+  const { ignoredEnvKeys = [], ...applyOptions } = options;
   const values = normalizeImportPayload(payload);
   if (!values || typeof values !== "object" || Array.isArray(values)) {
     return { success: false, error: "invalid_backup_format" };
   }
 
-  const unknownKeys = rejectUnknownKeys(values, allowedEnvKeys);
+  const unknownKeys = rejectUnknownKeys(values, allowedEnvKeys, ignoredEnvKeys);
   if (unknownKeys.length > 0) {
     return {
       success: false,
@@ -214,7 +228,7 @@ function importBackupValues(payload = {}, allowedEnvKeys = [], options = {}) {
   }
 
   const safeValues = sanitizeValuesForBackup(values, allowedEnvKeys);
-  const { applied, skipped } = applyValuesToEnv(safeValues, options);
+  const { applied, skipped } = applyValuesToEnv(safeValues, applyOptions);
   writeBackupValues(valuesFromEnv(allowedEnvKeys), allowedEnvKeys);
   return { success: true, applied, skipped };
 }

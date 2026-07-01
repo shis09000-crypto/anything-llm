@@ -1,8 +1,13 @@
 const DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DEFAULT_MODEL = "qwen3.7-plus";
+const { readSecret } = require("../security/secretStore");
 
 function cleanBaseUrl(baseUrl = DEFAULT_BASE_URL) {
   return String(baseUrl || DEFAULT_BASE_URL).replace(/\/+$/, "");
+}
+
+function readApiKey(value) {
+  return String(readSecret(value || "") || "").trim();
 }
 
 function searchModelConfigStatus(env = process.env) {
@@ -75,7 +80,7 @@ function searchModelProviderOptions(env = process.env) {
   return {
     provider: status.provider,
     model: String(env.SEARCH_MODEL_PREF || DEFAULT_MODEL).trim(),
-    apiKey: String(env.SEARCH_MODEL_API_KEY || "").trim(),
+    apiKey: readApiKey(env.SEARCH_MODEL_API_KEY),
     baseUrl: cleanBaseUrl(env.SEARCH_MODEL_BASE_URL || DEFAULT_BASE_URL),
   };
 }
@@ -185,6 +190,7 @@ module.exports = {
   extractSearchResults,
   extractTextFromCompletion,
   isSearchModelConfigured,
+  readApiKey,
   searchModelConfigStatus,
   searchModelProviderOptions,
   searchWithAlibabaModel,

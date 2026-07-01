@@ -15,6 +15,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.documentIngestAgent.name,
   AgentPlugins.docSummarizer.name,
   AgentPlugins.webScraping.name,
+  AgentPlugins.webBrowsing.name,
   AgentPlugins.requestUserInput.name,
 ];
 
@@ -200,6 +201,11 @@ async function agentSkillsFromSystemSettings() {
 
   for (const skillName of _setting) {
     if (!AgentPlugins.hasOwnProperty(skillName)) continue;
+    if (
+      DEFAULT_SKILLS.includes(skillName) &&
+      _disabledDefaultSkills.includes(skillName)
+    )
+      continue;
     pushSkillFunctions(systemFunctions, skillName, skillFilterState[skillName]);
   }
   return uniqueFunctions(systemFunctions);

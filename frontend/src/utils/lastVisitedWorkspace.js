@@ -93,7 +93,7 @@ export function rememberLastVisitedWorkspace(workspace, threadSlug = null) {
       name: workspace.name,
     })
   );
-  setLastVisitedThread(workspace.slug, threadSlug);
+  if (threadSlug) setLastVisitedThread(workspace.slug, threadSlug);
   persistRecentNavigation();
 }
 

@@ -29,7 +29,6 @@ import { PENDING_HOME_MESSAGE } from "@/utils/constants";
 import { clearPromptInputDraft } from "@/hooks/usePromptInputStorage";
 import { safeJsonParse } from "@/utils/request";
 import paths from "@/utils/paths";
-import QuickActions from "@/components/lib/QuickActions";
 import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import WorkspaceModelPicker from "./WorkspaceModelPicker";
 import { SourcesSidebarProvider } from "./SourcesSidebar/context";
@@ -2063,24 +2062,6 @@ export default function ChatContainer({
                         prompt={quizIntentPrompt}
                         onConfirm={() => resolveQuizIntentPrompt(true)}
                         onCancel={() => resolveQuizIntentPrompt(false)}
-                      />
-                      <QuickActions
-                        hasAvailableWorkspace={!!workspace}
-                        onCreateAgent={() =>
-                          navigateIfChanged(paths.settings.agentSkills())
-                        }
-                        onEditWorkspace={() =>
-                          navigateIfChanged(
-                            paths.workspace.settings.generalAppearance(
-                              workspace.slug
-                            )
-                          )
-                        }
-                        onUploadDocument={() =>
-                          document
-                            .getElementById("dnd-chat-file-uploader")
-                            ?.click()
-                        }
                       />
                     </div>
                   </div>

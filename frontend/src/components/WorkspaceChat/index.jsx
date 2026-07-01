@@ -31,7 +31,12 @@ import {
   historyContainsChatId,
   readChatScrollMemory,
 } from "@/utils/chat/chatScrollMemory";
-import { isOverviewThread } from "@/utils/workspaceThreads";
+import {
+  defaultWorkspacePath,
+  isOverviewThread,
+  resolveWorkspaceEntryPath,
+} from "@/utils/workspaceThreads";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import {
   historyDetailForDevice,
   historyRequestOptionsForDevice,
@@ -273,7 +278,13 @@ export default function WorkspaceChat({ loading, workspace }) {
       }
 
       const fallbackToWorkspaceEntry = (reason) => {
-        const target = paths.workspace.chat(workspace.slug);
+        const cachedThreads =
+          workspaceNavigationCache.getThreads(workspace.slug, {
+            allowStale: false,
+          }) ||
+          workspaceNavigationCache.getThreads(workspace.slug) ||
+          [];
+        const target = defaultWorkspacePath(workspace.slug, cachedThreads);
         const fallbackKey = `${workspace.slug}:${threadSlug || "__workspace__"}:${reason}:${target}`;
         if (lastRouteFallbackRef.current === fallbackKey) return false;
         lastRouteFallbackRef.current = fallbackKey;
@@ -287,22 +298,110 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       };
 
-      if (!threadSlug) {
+      const loadThreadsForWorkspaceEntry = async () => {
+        const freshThreads = workspaceNavigationCache.getThreads(
+          workspace.slug,
+          { allowStale: false }
+        );
+        if (Array.isArray(freshThreads)) {
+          return { threads: freshThreads, trusted: true };
+        }
+
+        const staleThreads = workspaceNavigationCache.getThreads(
+          workspace.slug
+        );
+
+        try {
+          const result = await workspaceNavigationCache.runInFlight(
+            `threads:${workspace.slug}`,
+            () =>
+              requestPriorityQueue.schedule(
+                () =>
+                  Workspace.threads.all(workspace.slug, {
+                    signal: historySignal,
+                  }),
+                {
+                  priority: "P0",
+                  label: "workspacechat:resolve-entry-threads",
+                  signal: historySignal,
+                  dedupeKey: `navigation:threads:${workspace.slug}`,
+                }
+              ),
+            { reuseResolvedWithinMs: 1_500 }
+          );
+          return {
+            threads: Array.isArray(result?.threads) ? result.threads : [],
+            trusted: true,
+          };
+        } catch (error) {
+          if (error?.name === "AbortError") throw error;
+          console.error(error);
+          return {
+            threads: Array.isArray(staleThreads) ? staleThreads : [],
+            trusted: false,
+          };
+        }
+      };
+
+      const resolveWorkspaceRootEntry = async () => {
+        setHistoryState({
+          page: null,
+          loadingRecent: true,
+          loadingOlder: false,
+        });
+        setLoaded((prev) => {
+          if (prev?.workspace?.slug === workspace.slug && prev?.threadSlug)
+            return prev;
+          return null;
+        });
+
         const lastThreadSlug = getLastVisitedThreadSlug(workspace.slug);
-        if (lastThreadSlug) {
-          debugChatTurn("WorkspaceChat:lastThreadEntry", {
+        const { threads, trusted } = await loadThreadsForWorkspaceEntry();
+        if (historySignal.aborted || historySeqRef.current !== seq)
+          return false;
+
+        const hasValidLastThread =
+          !!lastThreadSlug &&
+          threads.some((thread) => thread?.slug === lastThreadSlug);
+        if (lastThreadSlug && trusted && !hasValidLastThread) {
+          clearLastVisitedThread(workspace.slug, lastThreadSlug);
+        }
+
+        const target = resolveWorkspaceEntryPath(
+          workspace.slug,
+          threads,
+          lastThreadSlug
+        );
+        const rootPath = paths.workspace.chat(workspace.slug);
+        if (target !== rootPath) {
+          debugChatTurn("WorkspaceChat:workspaceRootEntry", {
             workspaceSlug: workspace.slug,
             lastThreadSlug,
+            hasValidLastThread,
+            target,
           });
-          navigateIfChanged(
-            paths.workspace.thread(workspace.slug, lastThreadSlug),
-            {
-              replace: true,
-              state: { workspaceEntry: "last-thread" },
-            }
-          );
+          navigateIfChanged(target, {
+            replace: true,
+            state: {
+              workspaceEntry: hasValidLastThread
+                ? "last-thread"
+                : "workspace-entry",
+            },
+          });
           return false;
         }
+
+        setHistoryState({
+          page: null,
+          loadingRecent: false,
+          loadingOlder: false,
+        });
+        return true;
+      };
+
+      if (!threadSlug) {
+        const shouldLoadRootHistory = await resolveWorkspaceRootEntry();
+        if (!shouldLoadRootHistory) return false;
       }
 
       const key = `${workspace.slug}:${threadSlug ?? "default"}`;
@@ -457,12 +556,6 @@ export default function WorkspaceChat({ loading, workspace }) {
         return fallbackToWorkspaceEntry("invalid-thread");
       }
       if (isOverviewThread(activeThread)) {
-        if (threadSlug === getLastVisitedThreadSlug(workspace.slug)) {
-          clearLastVisitedThread(workspace.slug, threadSlug);
-        }
-        if (location.state?.workspaceEntry === "last-thread") {
-          return fallbackToWorkspaceEntry("last-thread-overview");
-        }
         setHistoryState({
           page: null,
           loadingRecent: false,
