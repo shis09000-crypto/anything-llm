@@ -35,6 +35,10 @@ async function loadStreamClient() {
         /import\s+\{\s*communicationByteLength,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
         "const communicationByteLength = (value = '') => String(value || '').length; const recordCommunicationEvent = () => {};"
       )
+      .replace(
+        'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+        "const runScheduledTaskRequest = (operation, request = {}) => operation({ signal: request.signal, handle: null });"
+      )
       .replaceAll('from "./apiError"', 'from "./apiError.js"'),
     "utf8"
   );

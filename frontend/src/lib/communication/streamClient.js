@@ -6,6 +6,7 @@ import {
   communicationByteLength,
   recordCommunicationEvent,
 } from "./communicationMetrics";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -28,7 +29,7 @@ function isAbort(signal, error) {
   return signal?.aborted || error?.name === "AbortError";
 }
 
-async function jsonSse({
+async function jsonSseCore({
   method = "GET",
   path,
   body = {},
@@ -42,6 +43,8 @@ async function jsonSse({
   onError,
   retryOnError = false,
   communicationScene = null,
+  task: _task,
+  schedulerInternal: _schedulerInternal,
 } = {}) {
   const normalizedMethod = method.toUpperCase();
   const requestId = createCommunicationRequestId();
@@ -143,6 +146,36 @@ async function jsonSse({
       throw apiError;
     },
   });
+}
+
+async function jsonSse(options = {}) {
+  const {
+    method = "GET",
+    path,
+    signal,
+    task,
+    schedulerInternal = false,
+    communicationScene = null,
+  } = options;
+  if (schedulerInternal || task === false) return jsonSseCore(options);
+
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      jsonSseCore({
+        ...options,
+        signal: scheduledSignal,
+        task: false,
+        schedulerInternal: true,
+      }),
+    {
+      method,
+      path,
+      signal,
+      task,
+      communicationScene,
+      transport: "stream",
+    }
+  );
 }
 
 export async function getJsonSse(options = {}) {

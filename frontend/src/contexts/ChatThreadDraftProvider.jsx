@@ -47,6 +47,7 @@ import {
   fetchPersistedChatHydration,
   persistedHydratedChatHistory,
 } from "@/utils/chat/persistedTurn";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { storageKeys } from "@/utils/appEnvironment";
 import {
   decryptLocalCachePayload,
@@ -2136,17 +2137,37 @@ export function ChatThreadDraftProvider({ children }) {
       });
 
       try {
-        const result = threadSlug
-          ? await Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, {
-              limit,
-              detail: "full",
-              priorityWindow: limit,
-            })
-          : await Workspace.chatHistoryPage(workspaceSlug, {
-              limit,
-              detail: "full",
-              priorityWindow: limit,
-            });
+        const result = await requestPriorityQueue.schedule(
+          ({ signal }) =>
+            threadSlug
+              ? Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, {
+                  limit,
+                  detail: "full",
+                  priorityWindow: limit,
+                  signal,
+                })
+              : Workspace.chatHistoryPage(workspaceSlug, {
+                  limit,
+                  detail: "full",
+                  priorityWindow: limit,
+                  signal,
+                }),
+          {
+            priority: "P3",
+            label: "chat:stream-refresh-fallback",
+            kind: "chat",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug,
+              threadSlug: threadSlug || null,
+              turnId,
+              reason,
+            },
+            policy: "prefetch",
+            dedupeKey: `chat:stream-refresh:${chatKey}:${reason}`,
+          }
+        );
+        if (!result) return false;
         const history = Array.isArray(result?.history) ? result.history : [];
         if (history.length === 0) {
           debugRuntime("mergeLatestPersistedHistory:empty", {
@@ -3496,62 +3517,89 @@ export function ChatThreadDraftProvider({ children }) {
         const streamChat = threadSlug
           ? streamWorkspaceThreadChat
           : streamWorkspaceChat;
-        await streamChat({
-          workspaceSlug,
-          threadSlug,
-          body: buildChatStreamBody({
-            message: prompt,
-            displayPrompt: displayPrompt || prompt,
-            attachments: preparedAttachments,
-            fileAccessMode,
-            nodeContext,
-            clientTurnId: turnId,
-          }),
-          onOpen: () => {
-            markThreadRunning(chatKey, turnId, {
-              ...runningSnapshot,
-              acceptedByServer: true,
-            });
-            debugRuntime("pending:server-accepted", {
-              chatKey,
-              turnId,
-            });
-          },
-          onEvent: (event, protocolEvent, rawEvent) => {
-            debugChatTurn("sse:event", {
-              chatKey,
-              turnId,
-              rawType: protocolEvent?.rawType || rawEvent?.type || null,
-              protocolType: protocolEvent?.type || null,
-              eventType: event?.type || null,
-              close: !!rawEvent?.close,
-            });
-            const applied = applyTurnEvent(chatKey, turnId, event);
-            if (applied?.type === "timeline_event") {
-              const timelineEvent = normalizeTimelineEvent(applied.event || {});
-              if (timelineEvent.type === "approval_request") {
-                scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
-              }
-              if (timelineEvent.type === "clarification_request") {
-                scheduleClarificationTimeout(chatKey, turnId, timelineEvent);
-              }
-            }
-            if (applied?.type === "agent_socket_start") {
-              openAgentSocket(chatKey, turnId, applied.websocketUUID, {
-                workspaceSlug,
-                threadSlug,
-                prompt,
+        let streamTask = null;
+        streamTask = requestPriorityQueue.handle(
+          () =>
+            streamChat({
+              workspaceSlug,
+              threadSlug,
+              body: buildChatStreamBody({
+                message: prompt,
                 displayPrompt: displayPrompt || prompt,
                 attachments: preparedAttachments,
                 fileAccessMode,
                 nodeContext,
-              });
-            }
-            if (applied?.type === "assistant_final") {
-              completedChatId = applied.chatId || completedChatId;
-            }
-          },
-        });
+                clientTurnId: turnId,
+              }),
+              onOpen: () => {
+                streamTask?.completeExclusive?.("chat-stream-open");
+                markThreadRunning(chatKey, turnId, {
+                  ...runningSnapshot,
+                  acceptedByServer: true,
+                });
+                debugRuntime("pending:server-accepted", {
+                  chatKey,
+                  turnId,
+                });
+              },
+              onEvent: (event, protocolEvent, rawEvent) => {
+                debugChatTurn("sse:event", {
+                  chatKey,
+                  turnId,
+                  rawType: protocolEvent?.rawType || rawEvent?.type || null,
+                  protocolType: protocolEvent?.type || null,
+                  eventType: event?.type || null,
+                  close: !!rawEvent?.close,
+                });
+                const applied = applyTurnEvent(chatKey, turnId, event);
+                if (applied?.type === "timeline_event") {
+                  const timelineEvent = normalizeTimelineEvent(
+                    applied.event || {}
+                  );
+                  if (timelineEvent.type === "approval_request") {
+                    scheduleApprovalTimeout(chatKey, turnId, timelineEvent);
+                  }
+                  if (timelineEvent.type === "clarification_request") {
+                    scheduleClarificationTimeout(
+                      chatKey,
+                      turnId,
+                      timelineEvent
+                    );
+                  }
+                }
+                if (applied?.type === "agent_socket_start") {
+                  openAgentSocket(chatKey, turnId, applied.websocketUUID, {
+                    workspaceSlug,
+                    threadSlug,
+                    prompt,
+                    displayPrompt: displayPrompt || prompt,
+                    attachments: preparedAttachments,
+                    fileAccessMode,
+                    nodeContext,
+                  });
+                }
+                if (applied?.type === "assistant_final") {
+                  completedChatId = applied.chatId || completedChatId;
+                }
+              },
+            }),
+          {
+            priority: "P0",
+            label: "chat:stream",
+            kind: "chat",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug,
+              threadSlug: threadSlug || null,
+              turnId,
+            },
+            policy: "foreground",
+            emergency: true,
+            protected: true,
+            dedupeKey: `chat:stream:${chatKey}:${turnId}`,
+          }
+        );
+        await streamTask.promise;
         setTimeout(() => {
           void (async () => {
             if (completedChatId) {

@@ -11,10 +11,12 @@ export function useTradingPairDetailData({
   mode,
   pair,
   market,
+  enabled = true,
 }: {
   mode: TradingPairDataMode;
   pair: string;
   market: TradingPairMarketType;
+  enabled?: boolean;
 }) {
   const [response, setResponse] = useState<TradingPairDetailResponse | null>(
     null
@@ -39,7 +41,7 @@ export function useTradingPairDetailData({
 
   useCryptoHubWatchedConnection({
     key: `tradingPairDetail.rest.${market}.${pair}`,
-    active: mode === "gate-api" && market === "spot",
+    active: enabled && mode === "gate-api" && market === "spot",
     status: error
       ? response
         ? "degraded"
@@ -50,6 +52,11 @@ export function useTradingPairDetailData({
   });
 
   useEffect(() => {
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
+
     if (mode !== "gate-api" || market !== "spot") {
       setError(null);
       return;
@@ -121,7 +128,7 @@ export function useTradingPairDetailData({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [mode, market, pair, watchdogRefreshNonce]);
+  }, [enabled, mode, market, pair, watchdogRefreshNonce]);
 
   return {
     response,

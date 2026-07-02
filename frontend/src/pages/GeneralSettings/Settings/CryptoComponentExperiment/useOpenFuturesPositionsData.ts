@@ -38,10 +38,12 @@ export function useOpenFuturesPositionsData({
   mode,
   mockPositions,
   mockSummary,
+  enabled = true,
 }: {
   mode: DataMode;
   mockPositions: OpenFuturesPositionItem[];
   mockSummary: OpenFuturesPositionsSummary;
+  enabled?: boolean;
 }) {
   const [positions, setPositions] = useState(mockPositions);
   const [summary, setSummary] = useState(mockSummary);
@@ -148,6 +150,7 @@ export function useOpenFuturesPositionsData({
   }
 
   async function loadSnapshot() {
+    if (!enabled) return null;
     if (mode !== "gate-api") return null;
     setLoading(true);
     try {
@@ -173,6 +176,7 @@ export function useOpenFuturesPositionsData({
   }
 
   function startStream() {
+    if (!enabled) return;
     if (mode !== "gate-api") return;
     if (document.visibilityState === "hidden") return;
     if (streamAbortRef.current) return;
@@ -211,6 +215,7 @@ export function useOpenFuturesPositionsData({
   }
 
   async function refresh() {
+    if (!enabled) return;
     if (mode === "mock") {
       setPositions(mockPositions);
       setSummary(mockSummary);
@@ -226,6 +231,7 @@ export function useOpenFuturesPositionsData({
   }
 
   function forceHubWatchdogReconnect() {
+    if (!enabled) return;
     if (mode !== "gate-api") return;
     stopStream({ keepIntent: true });
     loadSnapshot().then(() => startStream());
@@ -233,7 +239,7 @@ export function useOpenFuturesPositionsData({
 
   useCryptoHubWatchedConnection({
     key: "openFuturesPositions.stream",
-    active: mode === "gate-api",
+    active: enabled && mode === "gate-api",
     status,
     lastConnectedAt: lastUpdatedAt,
     reconnect: forceHubWatchdogReconnect,
@@ -242,6 +248,11 @@ export function useOpenFuturesPositionsData({
   useEffect(() => {
     stopStream();
     setError(null);
+
+    if (!enabled) {
+      setLoading(false);
+      return;
+    }
 
     if (mode === "mock") {
       setLoading(false);
@@ -260,13 +271,14 @@ export function useOpenFuturesPositionsData({
     setPositions([]);
     setSummary(emptySummary);
     loadSnapshot().then(() => startStream());
-  }, [mode, mockPositions, mockSummary]);
+  }, [enabled, mode, mockPositions, mockSummary]);
 
   useEffect(() => {
     return () => stopStream();
   }, []);
 
   useEffect(() => {
+    if (!enabled) return;
     if (mode !== "gate-api") return;
 
     function handleVisibilityChange() {
@@ -280,7 +292,7 @@ export function useOpenFuturesPositionsData({
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [mode]);
+  }, [enabled, mode]);
 
   return {
     positions,

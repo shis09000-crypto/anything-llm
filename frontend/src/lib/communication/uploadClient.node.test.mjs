@@ -33,6 +33,10 @@ async function loadUploadClient({ dev = false } = {}) {
     communicationResponseSize: () => 0,
     recordCommunicationEvent: () => {},
   };
+  globalThis.__uploadClientTestTaskRequestMetadata = {
+    runScheduledTaskRequest: (operation, request = {}) =>
+      operation({ signal: request.signal, handle: null }),
+  };
 
   const transformed = source
     .replace(
@@ -50,6 +54,10 @@ async function loadUploadClient({ dev = false } = {}) {
     .replace(
       /import\s+\{\s*communicationResponseSize,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
       "const { communicationResponseSize, recordCommunicationEvent } = globalThis.__uploadClientTestMetrics;"
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const { runScheduledTaskRequest } = globalThis.__uploadClientTestTaskRequestMetadata;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__uploadClientTestDev");
 

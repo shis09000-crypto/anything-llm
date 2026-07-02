@@ -49,6 +49,10 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
   globalThis.__signingTestDeviceKey = {
     signWithDeviceIdentityKey: async () => null,
   };
+  globalThis.__signingTestTaskRequestMetadata = {
+    runScheduledTaskRequest: (operation, request = {}) =>
+      operation({ signal: request.signal, handle: null }),
+  };
 
   const transformed = source
     .replace(
@@ -84,6 +88,10 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
     .replace(
       'import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";',
       'const AUTH_SESSION_CLEARED_EVENT = "athena-auth-session-cleared";'
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const { runScheduledTaskRequest } = globalThis.__signingTestTaskRequestMetadata;"
     )
     .replaceAll("import.meta.env.PROD", JSON.stringify(prod))
     .replaceAll("import.meta.env.DEV", JSON.stringify(dev));

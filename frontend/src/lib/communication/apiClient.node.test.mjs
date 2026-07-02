@@ -58,6 +58,10 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
       globalThis.__apiClientTestMetrics.events.push(event);
     },
   };
+  globalThis.__apiClientTestTaskRequestMetadata = {
+    runScheduledTaskRequest: (operation, request = {}) =>
+      operation({ signal: request.signal, handle: null }),
+  };
 
   const transformed = source
     .replace(
@@ -91,6 +95,10 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
     .replace(
       /import\s+\{[\s\S]*?\}\s+from\s+"\.\/communicationMetrics";/,
       "const { communicationByteLength, communicationResponseSize, recordCommunicationEvent } = globalThis.__apiClientTestMetrics;"
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const { runScheduledTaskRequest } = globalThis.__apiClientTestTaskRequestMetadata;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 

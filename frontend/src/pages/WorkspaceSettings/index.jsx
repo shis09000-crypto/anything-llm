@@ -86,6 +86,13 @@ function WorkspaceSettingsOutletLayout() {
               {
                 priority: cached ? "P2" : "P0",
                 label: "workspace-settings:workspace-detail",
+                kind: "settings",
+                scope: {
+                  route: "workspace-settings",
+                  workspaceSlug: slug,
+                },
+                policy: cached ? "background" : "foreground",
+                emergency: !cached,
                 signal: controller.signal,
                 dedupeKey: `workspace-settings:workspace:${slug}`,
               }

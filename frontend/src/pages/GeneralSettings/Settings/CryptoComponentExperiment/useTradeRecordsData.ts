@@ -238,11 +238,13 @@ export function useTradeRecordsData({
   fromSec,
   toSec,
   previewState = "normal",
+  enabled = true,
 }: {
   mode: TradeRecordsDataMode;
   fromSec: number;
   toSec: number;
   previewState?: "normal" | "loading" | "error" | "empty";
+  enabled?: boolean;
 }) {
   const [records, setRecords] = useState<TradeRecordItem[]>(mockTradeRecords);
   const [summary, setSummary] = useState<TradeRecordsSummary>(
@@ -394,6 +396,7 @@ export function useTradeRecordsData({
   }, [loadFeeSummary]);
 
   const refresh = useCallback(() => {
+    if (!enabled) return;
     if (mode === "mock") {
       clearReconnectTimer();
       setRecords(mockRecords);
@@ -418,6 +421,7 @@ export function useTradeRecordsData({
     loadFeeSummary();
   }, [
     clearReconnectTimer,
+    enabled,
     loadFeeSummary,
     loadSnapshot,
     mockRecords,
@@ -426,12 +430,27 @@ export function useTradeRecordsData({
   ]);
 
   const loadMore = useCallback(async () => {
-    if (mode !== "gate-api" || loading || loadingMore || !hasMoreHistory)
+    if (
+      !enabled ||
+      mode !== "gate-api" ||
+      loading ||
+      loadingMore ||
+      !hasMoreHistory
+    )
       return;
     await loadSnapshot({ cursorTs: nextCursorTs, append: true });
-  }, [hasMoreHistory, loadSnapshot, loading, loadingMore, mode, nextCursorTs]);
+  }, [
+    enabled,
+    hasMoreHistory,
+    loadSnapshot,
+    loading,
+    loadingMore,
+    mode,
+    nextCursorTs,
+  ]);
 
   const forceHubWatchdogReconnect = useCallback(() => {
+    if (!enabled) return;
     if (mode !== "gate-api") return;
     clearReconnectTimer();
     abortRef.current?.abort();
@@ -439,17 +458,26 @@ export function useTradeRecordsData({
     loadSnapshot({ append: false });
     loadFeeSummary();
     setStreamReconnectNonce((current) => current + 1);
-  }, [clearReconnectTimer, loadFeeSummary, loadSnapshot, mode]);
+  }, [clearReconnectTimer, enabled, loadFeeSummary, loadSnapshot, mode]);
 
   useCryptoHubWatchedConnection({
     key: `tradeRecords.stream.${fromSec}.${toSec}`,
-    active: mode === "gate-api",
+    active: enabled && mode === "gate-api",
     status: connectionStatus,
     lastConnectedAt: lastUpdatedAt,
     reconnect: forceHubWatchdogReconnect,
   });
 
   useEffect(() => {
+    if (!enabled) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+      clearReconnectTimer();
+      setLoading(false);
+      setLoadingMore(false);
+      return;
+    }
+
     if (mode === "mock") {
       clearReconnectTimer();
       setRecords(mockRecords);
@@ -476,6 +504,7 @@ export function useTradeRecordsData({
     loadFeeSummary();
   }, [
     clearReconnectTimer,
+    enabled,
     fromSec,
     loadFeeSummary,
     loadSnapshot,
@@ -486,7 +515,7 @@ export function useTradeRecordsData({
   ]);
 
   useEffect(() => {
-    if (mode !== "gate-api") {
+    if (!enabled || mode !== "gate-api") {
       abortRef.current?.abort();
       abortRef.current = null;
       clearReconnectTimer();
@@ -540,6 +569,7 @@ export function useTradeRecordsData({
   }, [
     applyPayload,
     clearReconnectTimer,
+    enabled,
     fromSec,
     mode,
     scheduleReconnect,

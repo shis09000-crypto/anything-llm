@@ -54,6 +54,12 @@ export function createCryptoCenterSocket(range, options = {}) {
   return createWebSocket({
     ...options,
     url: options.url || cryptoCenterStreamUrl(range),
+    task: options.task || {
+      kind: "crypto-websocket",
+      priority: "P2",
+      scope: { route: "crypto-center", surface: "crypto-center" },
+      abortable: true,
+    },
   });
 }
 

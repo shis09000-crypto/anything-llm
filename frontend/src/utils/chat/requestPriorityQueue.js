@@ -1,148 +1,119 @@
-const PRIORITY_ORDER = {
-  P0: 0,
-  P1: 1,
-  P2: 2,
-  P3: 3,
-  P4: 4,
-};
+import {
+  PRIORITY_ORDER,
+  TaskScheduler,
+  taskScheduler,
+} from "@/utils/tasks/taskScheduler";
 
 class RequestPriorityQueue {
-  constructor({ concurrency = 3, maxPending = 48, staleMs = 45_000 } = {}) {
-    this.concurrency = concurrency;
-    this.maxPending = maxPending;
-    this.staleMs = staleMs;
-    this.active = 0;
-    this.queue = [];
-    this.pausedPriorities = new Set();
+  constructor(options = {}) {
+    this.scheduler = options.scheduler || new TaskScheduler(options);
   }
 
   schedule(
     task,
-    { priority = "P2", label = "request", signal = null, dedupeKey = null } = {}
+    {
+      priority = "P2",
+      label = "request",
+      signal = null,
+      dedupeKey = null,
+      kind = "request",
+      scope = {},
+      policy = null,
+      emergency = false,
+      protected: protectedTask = false,
+      resumable = false,
+      abortable = true,
+      deadlineMs = null,
+      onAbort = null,
+      onResume = null,
+    } = {}
   ) {
-    if (typeof task !== "function") return Promise.resolve(null);
-    if (dedupeKey) {
-      const existing = this.queue.find(
-        (entry) => entry.dedupeKey === dedupeKey
-      );
-      if (existing) return existing.promise;
-    }
+    const handle = emergency
+      ? this.scheduler.scheduleEmergency(task, {
+          priority,
+          label,
+          signal,
+          dedupeKey,
+          kind,
+          scope,
+          policy,
+          protected: protectedTask,
+          resumable,
+          abortable,
+          deadlineMs,
+          onAbort,
+          onResume,
+        })
+      : this.scheduler.schedule(task, {
+          priority,
+          label,
+          signal,
+          dedupeKey,
+          kind,
+          scope,
+          policy,
+          protected: protectedTask,
+          resumable,
+          abortable,
+          deadlineMs,
+          onAbort,
+          onResume,
+        });
+    return handle.promise;
+  }
 
-    this.prune();
-    let entry = null;
-    const promise = new Promise((resolve, reject) => {
-      entry = {
-        task,
-        priority,
-        label,
-        signal,
-        dedupeKey,
-        resolve,
-        reject,
-        createdAt: performance.now(),
-      };
-    });
-    entry.promise = promise;
-    this.queue.push(entry);
-    this.queue.sort((a, b) => {
-      const rank = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
-      return rank !== 0 ? rank : a.createdAt - b.createdAt;
-    });
-    this.enforcePendingBudget();
-    this.flush();
-    return promise;
+  handle(task, options = {}) {
+    return options?.emergency
+      ? this.scheduler.scheduleEmergency(task, options)
+      : this.scheduler.schedule(task, options);
   }
 
   setPaused(priority, paused) {
-    if (paused) this.pausedPriorities.add(priority);
-    else this.pausedPriorities.delete(priority);
-    this.flush();
+    this.scheduler.setPaused(priority, paused);
+  }
+
+  cancelScope(scope, reason = "request-priority-cancel-scope") {
+    return this.scheduler.cancelScope(scope, reason);
+  }
+
+  demoteScope(
+    scope,
+    priority = "P2",
+    reason = "request-priority-demote-scope"
+  ) {
+    return this.scheduler.demoteScope(scope, priority, reason);
+  }
+
+  markScopeStale(scope, reason = "request-priority-mark-scope-stale") {
+    return this.scheduler.markScopeStale(scope, reason);
   }
 
   clear(predicate = () => true) {
-    const pending = [];
-    for (const entry of this.queue) {
-      if (predicate(entry)) {
-        entry.resolve(null);
-      } else {
-        pending.push(entry);
-      }
-    }
-    this.queue = pending;
+    this.scheduler.cancelWhere((entry) => predicate(entry), {
+      reason: "request-priority-clear",
+      includeRunning: false,
+    });
   }
 
   prune() {
-    const now = performance.now();
-    this.clear(
-      (entry) =>
-        entry.signal?.aborted ||
-        (["P3", "P4"].includes(entry.priority) &&
-          now - entry.createdAt > this.staleMs)
-    );
+    this.scheduler.prune();
   }
 
   enforcePendingBudget() {
-    if (this.queue.length <= this.maxPending) return;
-    const sorted = [...this.queue].sort((a, b) => {
-      const rank = PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority];
-      return rank !== 0 ? rank : a.createdAt - b.createdAt;
-    });
-    const toDrop = new Set(
-      sorted.slice(0, this.queue.length - this.maxPending)
-    );
-    this.queue = this.queue.filter((entry) => {
-      if (!toDrop.has(entry)) return true;
-      entry.resolve(null);
-      return false;
-    });
+    this.scheduler.flush();
   }
 
   stats() {
-    const byPriority = this.queue.reduce((acc, entry) => {
-      acc[entry.priority] = (acc[entry.priority] || 0) + 1;
-      return acc;
-    }, {});
-    return {
-      active: this.active,
-      pending: this.queue.length,
-      byPriority,
-      pausedPriorities: [...this.pausedPriorities],
-      maxPending: this.maxPending,
-      staleMs: this.staleMs,
-    };
+    return this.scheduler.stats();
   }
 
-  flush() {
-    this.prune();
-    while (this.active < this.concurrency) {
-      const index = this.queue.findIndex(
-        (entry) => !this.pausedPriorities.has(entry.priority)
-      );
-      if (index === -1) return;
-      const [entry] = this.queue.splice(index, 1);
-      if (entry.signal?.aborted) {
-        entry.resolve(null);
-        continue;
-      }
-
-      this.active += 1;
-      Promise.resolve()
-        .then(() => entry.task())
-        .then(entry.resolve)
-        .catch((error) => {
-          if (entry.signal?.aborted || error?.name === "AbortError") {
-            entry.resolve(null);
-            return;
-          }
-          entry.reject(error);
-        })
-        .finally(() => {
-          this.active -= 1;
-          this.flush();
-        });
-    }
+  snapshot() {
+    return this.scheduler.snapshot();
   }
 }
 
-export const requestPriorityQueue = new RequestPriorityQueue();
-export { PRIORITY_ORDER, RequestPriorityQueue };
+const requestPriorityQueue = new RequestPriorityQueue({
+  scheduler: taskScheduler,
+});
+
+export { PRIORITY_ORDER, RequestPriorityQueue, requestPriorityQueue };

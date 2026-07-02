@@ -46,11 +46,8 @@ export default function Sidebar() {
   const showTextBrand = Boolean(productName);
   const sidebarRef = useRef(null);
   const brandMenuRef = useRef(null);
-  const cryptoEntryTimerRef = useRef(null);
   const { showSidebar, setShowSidebar, canToggleSidebar } = useSidebarToggle();
   const [brandMenuOpen, setBrandMenuOpen] = useState(false);
-  const [cryptoEntering, setCryptoEntering] = useState(false);
-  const [cryptoEntryProgress, setCryptoEntryProgress] = useState(0);
   const {
     showing: showingNewWsModal,
     showModal: showNewWsModal,
@@ -78,60 +75,19 @@ export default function Sidebar() {
     };
   }, [brandMenuOpen]);
 
-  useEffect(() => {
-    return () => {
-      if (cryptoEntryTimerRef.current)
-        window.clearTimeout(cryptoEntryTimerRef.current);
-    };
-  }, []);
-
   function goHome() {
     setBrandMenuOpen(false);
     navigate(homeLinkPath());
   }
 
   function enterCryptoCenter() {
-    if (cryptoEntering || !canEnterCryptoCenter) return;
+    if (!canEnterCryptoCenter) return;
     setBrandMenuOpen(false);
-    setCryptoEntering(true);
-    setCryptoEntryProgress(8);
-    window.requestAnimationFrame(() => setCryptoEntryProgress(100));
-    cryptoEntryTimerRef.current = window.setTimeout(() => {
-      navigate(paths.settings.cryptoCenter());
-    }, 260);
+    navigate(paths.settings.cryptoCenter());
   }
 
   return (
     <>
-      {cryptoEntering ? (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#050505]/95 px-6 text-white backdrop-blur-md">
-          <div className="w-full max-w-[520px] rounded-[28px] border border-[#D6A84F]/20 bg-black/70 p-7 shadow-[0_28px_120px_rgba(214,168,79,.18)]">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[#D6A84F]/35 bg-[#D6A84F]/10 text-[#D6A84F]">
-                <CurrencyBtc className="h-6 w-6" />
-              </div>
-              <div>
-                <div className="text-lg font-black text-white">
-                  正在进入加密货币专区
-                </div>
-                <div className="mt-1 text-xs font-semibold text-white/45">
-                  正在打开页面，真实数据将在专区内同步...
-                </div>
-              </div>
-            </div>
-            <div className="h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full rounded-full bg-[#D6A84F] shadow-[0_0_24px_rgba(214,168,79,.55)]"
-                style={{
-                  width: `${cryptoEntryProgress}%`,
-                  transition: "width 240ms cubic-bezier(.22,1,.36,1)",
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div
         style={{
           width: showSidebar ? "292px" : "0px",
@@ -188,9 +144,8 @@ export default function Sidebar() {
                   {canEnterCryptoCenter ? (
                     <button
                       type="button"
-                      disabled={cryptoEntering}
                       onClick={enterCryptoCenter}
-                      className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs font-bold text-[#D6A84F] hover:bg-[#D6A84F]/10 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="mt-1 flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-xs font-bold text-[#D6A84F] hover:bg-[#D6A84F]/10"
                     >
                       <CurrencyBtc className="h-4 w-4 shrink-0" />
                       加密货币专区

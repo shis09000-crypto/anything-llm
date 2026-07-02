@@ -73,6 +73,12 @@ export function WorkspaceHealthProvider({
             priority,
             signal: controller.signal,
             label: "workspace-health:beacon",
+            kind: "workspace",
+            scope: {
+              route: "workspace-health",
+              workspaceSlug,
+            },
+            policy: priority === "P1" ? "visible" : "maintenance",
             dedupeKey: `workspace-health:${workspaceSlug}`,
           }
         );

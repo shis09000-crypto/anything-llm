@@ -28,6 +28,10 @@ async function loadWebSocketClient() {
       payload,
     }),
   };
+  globalThis.__webSocketClientTestTaskRequestMetadata = {
+    runScheduledTaskRequest: (operation, request = {}) =>
+      operation({ signal: request.signal || new AbortController().signal }),
+  };
 
   const transformed = source
     .replace(
@@ -41,6 +45,10 @@ async function loadWebSocketClient() {
     .replace(
       'import { signedWebSocketEnvelope } from "./requestSigningClient";',
       "const { signedWebSocketEnvelope } = globalThis.__webSocketClientTestSigning;"
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const { runScheduledTaskRequest } = globalThis.__webSocketClientTestTaskRequestMetadata;"
     );
 
   return import(

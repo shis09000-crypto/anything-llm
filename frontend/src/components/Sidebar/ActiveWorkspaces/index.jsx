@@ -142,6 +142,14 @@ export default function ActiveWorkspaces() {
           requestPriorityQueue.schedule(() => Workspace.all(), {
             priority: force ? "P1" : Array.isArray(stale) ? "P3" : "P0",
             label: "navigation:workspaces",
+            kind: "navigation",
+            scope: { route: "workspace-sidebar", surface: "workspaces" },
+            policy: force
+              ? "visible"
+              : Array.isArray(stale)
+                ? "prefetch"
+                : "foreground",
+            emergency: !force && !Array.isArray(stale),
             dedupeKey: "navigation:workspaces",
           }),
         { reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS }

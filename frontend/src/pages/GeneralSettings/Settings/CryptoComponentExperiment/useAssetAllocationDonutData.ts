@@ -30,12 +30,14 @@ type UseAssetAllocationDonutDataOptions = {
   initialMode?: AssetAllocationDataMode;
   mockItems?: AssetAllocationItem[];
   mockTotalValueUsd?: string;
+  enabled?: boolean;
 };
 
 export function useAssetAllocationDonutData({
   initialMode = "mock",
   mockItems = mockAssetAllocationItems,
   mockTotalValueUsd = "52314.68",
+  enabled = true,
 }: UseAssetAllocationDonutDataOptions = {}) {
   const [useRealGateData, setUseRealGateData] = useState(
     initialMode === "gate"
@@ -127,7 +129,7 @@ export function useAssetAllocationDonutData({
 
   useCryptoHubWatchedConnection({
     key: "allocation.rest",
-    active: useRealGateData,
+    active: enabled && useRealGateData,
     status:
       gateStatus === "error" || gateStatus === "degraded"
         ? gateStatus
@@ -136,6 +138,7 @@ export function useAssetAllocationDonutData({
   });
 
   useEffect(() => {
+    if (!enabled) return;
     if (!useRealGateData) return;
 
     let cancelled = false;
@@ -175,7 +178,7 @@ export function useAssetAllocationDonutData({
       clearTimer();
       abortController?.abort();
     };
-  }, [gateRefreshNonce, loadGateAllocation, useRealGateData]);
+  }, [enabled, gateRefreshNonce, loadGateAllocation, useRealGateData]);
 
   return useMemo(
     () => ({

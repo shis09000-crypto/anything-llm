@@ -29,6 +29,10 @@ import { useWorkspaceNavigationSyncInvalidation } from "@/hooks/useWorkspaceSync
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { hydrateAppearancePreferences } from "@/utils/userStateSync";
 import { isPersistentSettingsRoute } from "@/utils/settingsRoutes";
+import {
+  activateRouteScope,
+  routeScopeFromPathname,
+} from "@/utils/tasks/routeScopeManager";
 
 export default function App() {
   const location = useLocation();
@@ -75,6 +79,9 @@ export default function App() {
                             <AuthenticatedAppearanceSyncBridge />
                             <SettingsDataProvider>
                               <WorkspaceNavigationSyncBridge />
+                              <RouteTaskScopeBridge
+                                pathname={location.pathname}
+                              />
                               <DefaultDocumentTitle />
                               <MotionRouteOutlet />
                               <AppConfirmDialogHost />
@@ -96,6 +103,14 @@ export default function App() {
       </ThemeProvider>
     </ErrorBoundary>
   );
+}
+
+function RouteTaskScopeBridge({ pathname }) {
+  useEffect(() => {
+    activateRouteScope(routeScopeFromPathname(pathname));
+  }, [pathname]);
+
+  return null;
 }
 
 function AuthenticatedSyncCenter({ children }) {

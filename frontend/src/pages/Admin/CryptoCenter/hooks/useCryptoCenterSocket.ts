@@ -4,6 +4,7 @@ import {
   fetchCryptoCenterSnapshot,
 } from "@/lib/communication/crypto/cryptoCenterClient";
 import { safeJsonParse } from "@/utils/request";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import type { CryptoCenterEvent, TimeRange } from "../types";
 
 export function useCryptoCenterSocket(
@@ -23,7 +24,24 @@ export function useCryptoCenterSocket(
     async function loadSnapshot() {
       onStatus("connecting");
       try {
-        const { data: payload } = await fetchCryptoCenterSnapshot(range);
+        const result = await requestPriorityQueue.schedule(
+          ({ signal }: { signal: AbortSignal }) =>
+            fetchCryptoCenterSnapshot(range, { signal }),
+          {
+            priority: "P1",
+            label: "crypto:snapshot",
+            kind: "crypto",
+            scope: {
+              route: "crypto-center",
+              range,
+              surface: "snapshot",
+            },
+            policy: "visible",
+            dedupeKey: `crypto:center:snapshot:${range}`,
+          }
+        );
+        if (!result || cancelled) return;
+        const { data: payload } = result;
         if (payload?.snapshot)
           onEvent({ type: "snapshot", data: payload.snapshot });
       } catch (error) {
@@ -66,6 +84,10 @@ export function useCryptoCenterSocket(
 
     return () => {
       cancelled = true;
+      requestPriorityQueue.cancelScope(
+        { route: "crypto-center", surface: "snapshot" },
+        "crypto-socket-unmount"
+      );
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (socket) socket.close();
     };

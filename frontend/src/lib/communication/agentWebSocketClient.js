@@ -677,6 +677,17 @@ export function createAgentWebSocketSession({
         resume: session.lastEventSeq > 0 || session.retryCount > 0,
         lastEventSeq: session.lastEventSeq,
       }),
+      task: {
+        kind: "agent-websocket",
+        priority: "P0",
+        protected: true,
+        abortable: false,
+        scope: {
+          route: "workspace-chat",
+          surface: "agent",
+          websocketUUID,
+        },
+      },
     });
 
     socket.addEventListener("open", () => {

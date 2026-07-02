@@ -113,6 +113,7 @@ const Workspace = {
     const history = await getJson(`/workspace/${slug}/chats`, {
       signal: options.signal,
       communicationScene: "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data.history || [])
       .catch((error) => {
@@ -126,6 +127,7 @@ const Workspace = {
     const payload = await getJson(`/workspace/${slug}/chats?${query}`, {
       signal: options.signal,
       communicationScene: "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data)
       .catch((error) => {
@@ -142,6 +144,7 @@ const Workspace = {
     const payload = await getJson(`/workspace/${slug}/bootstrap?${query}`, {
       signal: options.signal,
       communicationScene: "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data)
       .catch((error) => {
@@ -163,7 +166,11 @@ const Workspace = {
     const payload = await postJson(
       `/workspace/${slug}/chats/hydrate`,
       { chatIds, publicChatIds },
-      { signal: options.signal, communicationScene: "workspace-chat" }
+      {
+        signal: options.signal,
+        communicationScene: "workspace-chat",
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -234,6 +241,7 @@ const Workspace = {
     const workspace = await getJson(`/workspace/${slug}`, {
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data.workspace)
       .catch((error) => {
@@ -304,6 +312,7 @@ const Workspace = {
       cache: "no-cache",
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data.suggestedMessages)
       .catch((e) => {
@@ -652,6 +661,7 @@ const Workspace = {
     return await getJson(`/workspace/${slug}/is-agent-command-available`, {
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-chat",
+      task: options.task,
     })
       .then(({ data }) => data)
       .catch((e) => {

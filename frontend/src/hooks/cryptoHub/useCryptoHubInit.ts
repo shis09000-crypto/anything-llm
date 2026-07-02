@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cryptoHubFetch } from "./useCryptoHubQuery";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 
 export type CryptoHubLoadingItem = {
   key: string;
@@ -35,6 +36,7 @@ export function useCryptoHubInit({ enabled = true } = {}) {
   const [running, setRunning] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const retryNonceRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const run = useCallback(async () => {
     if (!enabled) {
@@ -48,20 +50,59 @@ export function useCryptoHubInit({ enabled = true } = {}) {
     setReady(false);
     setError(null);
 
-    cryptoHubFetch("/init", { method: "POST" }).catch((requestError) => {
-      if (retryNonceRef.current !== runId) return;
-      setError(
-        requestError instanceof Error
-          ? requestError.message
-          : "Crypto Hub 初始化失败"
-      );
-    });
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    requestPriorityQueue
+      .schedule(
+        ({ signal }: { signal: AbortSignal }) =>
+          cryptoHubFetch("/init", {
+            method: "POST",
+            signal,
+            task: false,
+          }),
+        {
+          priority: "P0",
+          label: "crypto:init",
+          kind: "crypto",
+          scope: { route: "crypto-center", surface: "hub-init" },
+          policy: "foreground",
+          protected: true,
+          signal: controller.signal,
+          dedupeKey: "crypto:hub:init",
+        }
+      )
+      .catch((requestError: unknown) => {
+        if (retryNonceRef.current !== runId) return;
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Crypto Hub 初始化失败"
+        );
+      });
 
     let stopped = false;
     while (!stopped && retryNonceRef.current === runId) {
       try {
-        const next =
-          await cryptoHubFetch<CryptoHubLoadingProgress>("/loading-progress");
+        const next = await requestPriorityQueue.schedule(
+          ({ signal }: { signal: AbortSignal }) =>
+            cryptoHubFetch<CryptoHubLoadingProgress>("/loading-progress", {
+              signal,
+              task: false,
+            }),
+          {
+            priority: "P1",
+            label: "crypto:loading-progress",
+            kind: "crypto",
+            scope: { route: "crypto-center", surface: "hub-loading-progress" },
+            policy: "visible",
+            protected: true,
+            signal: controller.signal,
+            dedupeKey: `crypto:hub:loading-progress:${runId}`,
+          }
+        );
+        if (!next) return;
         if (retryNonceRef.current !== runId) return;
         setProgress(next);
         const elapsed = Date.now() - (startedAtRef.current || Date.now());
@@ -91,6 +132,7 @@ export function useCryptoHubInit({ enabled = true } = {}) {
     run();
     return () => {
       retryNonceRef.current += 1;
+      abortRef.current?.abort();
     };
   }, [run]);
 

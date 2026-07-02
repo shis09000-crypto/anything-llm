@@ -129,11 +129,11 @@ function routeElement(RouteComponent, Component, props = {}) {
   return <RouteComponent Component={Component} {...props} />;
 }
 
-function cryptoBypassElement(RouteComponent, Component) {
+function cryptoBypassElement(RouteComponent, Component, props = {}) {
   return isCryptoCenterDevAuthBypassEnabled() ? (
     <Component />
   ) : (
-    <RouteComponent Component={Component} />
+    <RouteComponent Component={Component} {...props} />
   );
 }
 
@@ -392,7 +392,9 @@ const router = createBrowserRouter([
       },
       {
         path: "/settings/crypto-center",
-        element: cryptoBypassElement(AdminRoute, CryptoCenter),
+        element: cryptoBypassElement(AdminRoute, CryptoCenter, {
+          hideUserMenu: true,
+        }),
       },
       {
         path: "/settings/agents/builder",

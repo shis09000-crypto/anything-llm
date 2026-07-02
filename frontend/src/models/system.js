@@ -27,6 +27,36 @@ let systemKeysCache = null;
 let systemKeysCacheAt = 0;
 let systemKeysInflight = null;
 const SYSTEM_KEYS_CACHE_TTL_MS = 30_000;
+const SYSTEM_KEYS_TIMEOUT_MS = 20_000;
+const SYSTEM_KEYS_RETRY_DELAYS_MS = [0, 750, 1_500];
+
+function sleep(ms = 0) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchSystemKeysOnce() {
+  return await getJson("/setup-complete", {
+    timeoutMs: SYSTEM_KEYS_TIMEOUT_MS,
+    communicationScene: "model-settings",
+  }).then(({ data }) => data.results);
+}
+
+async function fetchSystemKeysWithRetry() {
+  let lastError = null;
+  for (const delay of SYSTEM_KEYS_RETRY_DELAYS_MS) {
+    if (delay > 0) await sleep(delay);
+    try {
+      const results = await fetchSystemKeysOnce();
+      if (results) return results;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (import.meta.env.DEV && lastError) {
+    console.warn("[System.keys] setup bootstrap failed", lastError);
+  }
+  return null;
+}
 
 function withQuery(path, params = {}) {
   const search = new URLSearchParams();
@@ -146,17 +176,14 @@ const System = {
       return systemKeysCache;
     }
     if (systemKeysInflight) return systemKeysInflight;
-    systemKeysInflight = getJson("/setup-complete", {
-      timeoutMs: 8_000,
-      communicationScene: "model-settings",
-    })
-      .then(({ data }) => data.results)
+    systemKeysInflight = fetchSystemKeysWithRetry()
       .then((results) => {
-        systemKeysCache = results;
-        systemKeysCacheAt = Date.now();
+        if (results) {
+          systemKeysCache = results;
+          systemKeysCacheAt = Date.now();
+        }
         return results;
       })
-      .catch(() => null)
       .finally(() => {
         systemKeysInflight = null;
       });

@@ -165,10 +165,18 @@ function ShowWorkspaceChat() {
           `workspace-detail:${slug}`,
           () =>
             requestPriorityQueue.schedule(
-              () => Workspace.bySlug(slug, { signal: controller.signal }),
+              () =>
+                Workspace.bySlug(slug, {
+                  signal: controller.signal,
+                  task: false,
+                }),
               {
                 priority: staleCachedWorkspace ? "P3" : "P0",
                 label: "workspacechat:workspace-detail",
+                kind: "navigation",
+                scope: { route: "workspace-chat", workspaceSlug: slug },
+                policy: staleCachedWorkspace ? "prefetch" : "foreground",
+                emergency: !staleCachedWorkspace,
                 signal: controller.signal,
                 dedupeKey: `workspace-detail:${slug}`,
               }
@@ -279,9 +287,11 @@ function ShowWorkspaceChat() {
                 Promise.all([
                   Workspace.getSuggestedMessages(slug, {
                     signal: controller.signal,
+                    task: false,
                   }),
                   Workspace.agentCommandAvailable(slug, {
                     signal: controller.signal,
+                    task: false,
                   }),
                 ])
             );
@@ -289,6 +299,9 @@ function ShowWorkspaceChat() {
           {
             priority: "P4",
             label: "workspacechat:workspace-extras",
+            kind: "prefetch",
+            scope: { route: "workspace-chat", workspaceSlug: slug },
+            policy: "maintenance",
             signal: controller.signal,
             dedupeKey: `workspace-detail-extras:${slug}`,
           }

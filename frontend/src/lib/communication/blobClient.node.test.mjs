@@ -27,6 +27,14 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
       "X-Athena-Request-Id": requestId,
     }),
   };
+  globalThis.__blobClientTestMetrics = {
+    communicationByteLength: (value = "") => String(value || "").length,
+    recordCommunicationEvent: () => {},
+  };
+  globalThis.__blobClientTestTaskRequestMetadata = {
+    runScheduledTaskRequest: (operation, request = {}) =>
+      operation({ signal: request.signal, handle: null }),
+  };
 
   const transformed = source
     .replace(
@@ -48,6 +56,14 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
     .replace(
       /import\s+\{\s*createCommunicationRequestId,\s*shouldAttachClientIdentityToUrl,\s*withClientIdentityHeaders,\s*\}\s+from\s+"\.\/clientIdentity";/,
       "const { createCommunicationRequestId, shouldAttachClientIdentityToUrl, withClientIdentityHeaders } = globalThis.__blobClientTestIdentity;"
+    )
+    .replace(
+      /import\s+\{\s*communicationByteLength,\s*recordCommunicationEvent,\s*\}\s+from\s+"\.\/communicationMetrics";/,
+      "const { communicationByteLength, recordCommunicationEvent } = globalThis.__blobClientTestMetrics;"
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const { runScheduledTaskRequest } = globalThis.__blobClientTestTaskRequestMetadata;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__blobClientTestDev");
 

@@ -319,10 +319,19 @@ export default function WorkspaceChat({ loading, workspace }) {
                 () =>
                   Workspace.threads.all(workspace.slug, {
                     signal: historySignal,
+                    task: false,
                   }),
                 {
                   priority: "P0",
                   label: "workspacechat:resolve-entry-threads",
+                  kind: "navigation",
+                  scope: {
+                    route: "workspace-chat",
+                    workspaceSlug: workspace.slug,
+                    threadSlug: threadSlug || null,
+                  },
+                  policy: "foreground",
+                  emergency: true,
                   signal: historySignal,
                   dedupeKey: `navigation:threads:${workspace.slug}`,
                 }
@@ -523,17 +532,27 @@ export default function WorkspaceChat({ loading, workspace }) {
             priorityWindow: ANCHOR_PRIORITY_FULL_WINDOW,
             anchorChatId: restoreChatId,
             signal: historySignal,
+            task: false,
           }
         : historyOptionsForSurface({
             limit: FIRST_PAGE_LIMIT,
             priorityWindow: PRIORITY_FULL_WINDOW,
             signal: historySignal,
+            task: false,
           });
       let payload = await requestPriorityQueue.schedule(
         () => client.bootstrap(workspace.slug, firstPageOptions),
         {
           priority: "P0",
           label: "workspacechat:first-page",
+          kind: "chat",
+          scope: {
+            route: "workspace-chat",
+            workspaceSlug: workspace.slug,
+            threadSlug: threadSlug || null,
+          },
+          policy: "foreground",
+          emergency: true,
           signal: historySignal,
           dedupeKey: `history:first:${key}:${initialHistoryCursor}`,
         }
@@ -585,10 +604,19 @@ export default function WorkspaceChat({ loading, workspace }) {
             client.bootstrap(workspace.slug, {
               ...fallbackOptions,
               signal: historySignal,
+              task: false,
             }),
           {
             priority: "P0",
             label: "workspacechat:first-page-fallback",
+            kind: "chat",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace.slug,
+              threadSlug: threadSlug || null,
+            },
+            policy: "foreground",
+            emergency: true,
             signal: historySignal,
             dedupeKey: `history:first-fallback:${key}`,
           }
@@ -606,10 +634,18 @@ export default function WorkspaceChat({ loading, workspace }) {
           () =>
             client.hydrate(workspace.slug, mobileLightChatIds, {
               signal: historySignal,
+              task: false,
             }),
           {
             priority: "P1",
             label: "workspacechat:mobile-light-hydrate",
+            kind: "chat",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace.slug,
+              threadSlug: threadSlug || null,
+            },
+            policy: "visible",
             signal: historySignal,
             dedupeKey: `history:mobile-hydrate:${key}:${mobileLightChatIds.join(",")}`,
           }
@@ -703,6 +739,7 @@ export default function WorkspaceChat({ loading, workspace }) {
               const newerPayload = await client.page(workspace.slug, {
                 ...newerOptions,
                 signal: historySignal,
+                task: false,
               });
               if (
                 !newerPayload?.history?.length ||
@@ -739,6 +776,13 @@ export default function WorkspaceChat({ loading, workspace }) {
             {
               priority: "P4",
               label: "workspacechat:newer-page",
+              kind: "prefetch",
+              scope: {
+                route: "workspace-chat",
+                workspaceSlug: workspace.slug,
+                threadSlug: threadSlug || null,
+              },
+              policy: "maintenance",
               signal: historySignal,
               dedupeKey: `history:newer:${key}:${newerAfterChatId}`,
             }
@@ -757,7 +801,7 @@ export default function WorkspaceChat({ loading, workspace }) {
             const memoryHydration = await client.hydrate(
               workspace.slug,
               [effectiveRestoreChatId],
-              { signal: hydrationSignal }
+              { signal: hydrationSignal, task: false }
             );
             if (
               memoryHydration?.history?.length &&
@@ -789,6 +833,13 @@ export default function WorkspaceChat({ loading, workspace }) {
           {
             priority: "P4",
             label: "workspacechat:scroll-memory-hydrate",
+            kind: "prefetch",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace.slug,
+              threadSlug: threadSlug || null,
+            },
+            policy: "maintenance",
             signal: hydrationSignal,
             dedupeKey: `history:scroll-memory-hydrate:${key}:${effectiveRestoreChatId}`,
           }
@@ -817,6 +868,7 @@ export default function WorkspaceChat({ loading, workspace }) {
               lightChatIds,
               {
                 signal: hydrationSignal,
+                task: false,
               }
             );
             if (
@@ -851,6 +903,13 @@ export default function WorkspaceChat({ loading, workspace }) {
           {
             priority: isMobileHistorySurface ? "P1" : "P4",
             label: "workspacechat:hydrate-background-batch",
+            kind: "prefetch",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace.slug,
+              threadSlug: threadSlug || null,
+            },
+            policy: isMobileHistorySurface ? "visible" : "maintenance",
             signal: hydrationSignal,
             dedupeKey: `history:hydrate:${key}:${lightChatIds.join(",")}`,
           }
@@ -907,10 +966,18 @@ export default function WorkspaceChat({ loading, workspace }) {
         client.page(loaded.workspace.slug, {
           ...olderOptions,
           signal: olderSignal,
+          task: false,
         }),
       {
         priority: "P3",
         label: "workspacechat:older-page",
+        kind: "prefetch",
+        scope: {
+          route: "workspace-chat",
+          workspaceSlug: loaded.workspace.slug,
+          threadSlug: loaded.threadSlug || null,
+        },
+        policy: "prefetch",
         signal: olderSignal,
         dedupeKey: `history:older:${loaded.key}:${beforeChatId}`,
       }

@@ -7,6 +7,7 @@ import {
 } from "./blobClient";
 import { API_ERROR_CODES, createApiError, normalizeApiError } from "./apiError";
 import { createCommunicationRequestId } from "./clientIdentity";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 export const FILE_KINDS = {
   generatedFile: BLOB_KINDS.generatedFile,
@@ -159,11 +160,7 @@ function parseSseEvent(block) {
   return JSON.parse(data);
 }
 
-export async function postJsonDownloadEventStream(
-  path,
-  body = {},
-  options = {}
-) {
+async function postJsonDownloadEventStreamCore(path, body = {}, options = {}) {
   const {
     signal,
     timeoutMs,
@@ -172,6 +169,8 @@ export async function postJsonDownloadEventStream(
     blobKind = FILE_KINDS.modelDownloadStream,
     onEvent = () => {},
     onChunk = null,
+    task: _task,
+    schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
   const requestId = createCommunicationRequestId();
@@ -412,4 +411,43 @@ export async function postJsonDownloadEventStream(
   } finally {
     signalState.cleanup();
   }
+}
+
+export async function postJsonDownloadEventStream(
+  path,
+  body = {},
+  options = {}
+) {
+  const {
+    signal,
+    task,
+    schedulerInternal = false,
+    blobKind = FILE_KINDS.modelDownloadStream,
+  } = options;
+  if (schedulerInternal || task === false) {
+    return postJsonDownloadEventStreamCore(path, body, options);
+  }
+
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      postJsonDownloadEventStreamCore(path, body, {
+        ...options,
+        signal: scheduledSignal,
+        task: false,
+        schedulerInternal: true,
+      }),
+    {
+      method: "POST",
+      path,
+      signal,
+      task: task || {
+        kind: `download-stream:${blobKind}`,
+        priority: "P1",
+        protected: true,
+        abortable: false,
+      },
+      communicationScene: "download-stream",
+      transport: "stream",
+    }
+  );
 }

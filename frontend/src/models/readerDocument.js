@@ -122,18 +122,18 @@ const ReaderDocument = {
     );
     return { response, data };
   },
-  postprocess: async function (slug, readerDocumentId, payload = {}) {
+  postprocess: async function (slug, readerDocumentId, payload = {}, options = {}) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`,
       payload,
-      { communicationScene: "reader-open" }
+      { signal: options.signal, communicationScene: "reader-open" }
     );
     return { response, data };
   },
-  postprocessStatus: async function (slug, readerDocumentId) {
+  postprocessStatus: async function (slug, readerDocumentId, options = {}) {
     const { response, data } = await getJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`,
-      { communicationScene: "reader-open" }
+      { signal: options.signal, communicationScene: "reader-open" }
     );
     return { response, data };
   },

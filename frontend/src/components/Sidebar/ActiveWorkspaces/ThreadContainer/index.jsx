@@ -272,12 +272,21 @@ export default function ThreadContainer({
               Workspace.threads.all(workspace.slug, {
                 signal: controller.signal,
               }),
-            {
-              priority: Array.isArray(staleThreads) ? "P4" : "P2",
-              label: "navigation:threads",
-              signal: controller.signal,
-              dedupeKey: `navigation:threads:${workspace.slug}`,
-            }
+              {
+                priority: Array.isArray(staleThreads) ? "P4" : "P2",
+                label: "navigation:threads",
+                kind: "navigation",
+                scope: {
+                  route: "workspace-sidebar",
+                  workspaceSlug: workspace.slug,
+                  surface: "threads",
+                },
+                policy: Array.isArray(staleThreads)
+                  ? "maintenance"
+                  : "background",
+                signal: controller.signal,
+                dedupeKey: `navigation:threads:${workspace.slug}`,
+              }
           ),
         { reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS }
       );
@@ -377,6 +386,13 @@ export default function ThreadContainer({
               {
                 priority: "P2",
                 label: "navigation:threads-refresh",
+                kind: "navigation",
+                scope: {
+                  route: "workspace-sidebar",
+                  workspaceSlug: workspace.slug,
+                  surface: "threads",
+                },
+                policy: "background",
                 signal: controller.signal,
                 dedupeKey: `navigation:threads:${workspace.slug}`,
               }

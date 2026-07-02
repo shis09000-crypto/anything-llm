@@ -246,15 +246,24 @@ export function SettingsDataProvider({ children }) {
       const label = `${prewarm ? SETTINGS_PREWARM_LABEL_PREFIX : "settings:"}${
         key || "bootstrap"
       }`;
-      const promise =
-        priority === "P0"
-          ? task()
-          : requestPriorityQueue.schedule(task, {
-              priority,
-              signal: requestSignal,
-              label,
-              dedupeKey: label,
-            });
+      const promise = requestPriorityQueue.schedule(task, {
+        priority,
+        signal: requestSignal,
+        label,
+        dedupeKey: label,
+        kind: "settings",
+        scope: {
+          route: "settings",
+          pathname: routeState.pathname,
+          sections: key,
+        },
+        policy: prewarm
+          ? "maintenance"
+          : priority === "P0"
+            ? "foreground"
+            : "background",
+        emergency: isCurrentRouteRequest,
+      });
 
       inflightRequests.set(key, promise);
       const cleanupInflight = () => {

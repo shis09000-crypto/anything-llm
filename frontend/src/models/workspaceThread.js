@@ -30,6 +30,7 @@ const WorkspaceThread = {
         signal: options.signal,
         communicationScene:
           options.communicationScene || "workspace-navigation",
+        task: options.task,
       }
     )
       .then(({ data }) => data)
@@ -135,7 +136,11 @@ const WorkspaceThread = {
   chatHistory: async function (workspaceSlug, threadSlug, options = {}) {
     const history = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats`,
-      { signal: options.signal, communicationScene: "workspace-chat" }
+      {
+        signal: options.signal,
+        communicationScene: "workspace-chat",
+        task: options.task,
+      }
     )
       .then(({ data }) => data.history || [])
       .catch((error) => {
@@ -148,7 +153,11 @@ const WorkspaceThread = {
     const query = historyPageQuery(options);
     const payload = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
-      { signal: options.signal, communicationScene: "workspace-chat" }
+      {
+        signal: options.signal,
+        communicationScene: "workspace-chat",
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -164,7 +173,11 @@ const WorkspaceThread = {
     const query = historyPageQuery(options);
     const payload = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/bootstrap?${query}`,
-      { signal: options.signal, communicationScene: "workspace-chat" }
+      {
+        signal: options.signal,
+        communicationScene: "workspace-chat",
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -192,7 +205,11 @@ const WorkspaceThread = {
     const payload = await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats/hydrate`,
       { chatIds, publicChatIds },
-      { signal: options.signal, communicationScene: "workspace-chat" }
+      {
+        signal: options.signal,
+        communicationScene: "workspace-chat",
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {

@@ -214,11 +214,13 @@ export function useTradeRecordsTableController({
   previewState = "normal",
   initialRangePreset = "30d",
   initialPageSize = 10,
+  enabled = true,
 }: {
   mode: TradeRecordsDataMode;
   previewState?: PreviewState;
   initialRangePreset?: RangePreset;
   initialPageSize?: number;
+  enabled?: boolean;
 }) {
   const [rangePreset, setRangePresetState] =
     useState<RangePreset>(initialRangePreset);
@@ -249,6 +251,7 @@ export function useTradeRecordsTableController({
     fromSec: range.fromSec,
     toSec: range.toSec,
     previewState,
+    enabled,
   });
   const {
     loading,
@@ -511,6 +514,7 @@ export function useTradeRecordsTableController({
 
   useEffect(() => {
     if (
+      enabled &&
       mode === "gate-api" &&
       !loading &&
       !loadingMore &&
@@ -525,6 +529,7 @@ export function useTradeRecordsTableController({
     loadMore,
     loading,
     loadingMore,
+    enabled,
     mode,
     pageEnd,
   ]);

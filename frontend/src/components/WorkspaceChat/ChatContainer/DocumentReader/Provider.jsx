@@ -93,6 +93,7 @@ import {
   openReaderLocalSource,
 } from "@/utils/chat/readerLocalSources";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
+import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
@@ -606,19 +607,35 @@ export function DocumentReaderProvider({
 
   const refreshReaderLibraryFromPersistentSources = useCallback(
     async (_reason = "refresh", signal = null) => {
-      void _reason;
-      refreshLocalReaderLibraryState();
-      try {
-        await hydrateReaderLibraryNow();
-      } catch {}
-      if (signal?.aborted) return readReaderBookshelf();
-      refreshLocalReaderLibraryState();
-      const bookshelf = await syncAllServerBookshelves(signal);
-      if (signal?.aborted) return bookshelf;
-      refreshLocalReaderLibraryState();
-      return bookshelf;
+      return await requestPriorityQueue.schedule(
+        async () => {
+          refreshLocalReaderLibraryState();
+          try {
+            await hydrateReaderLibraryNow();
+          } catch {}
+          if (signal?.aborted) return readReaderBookshelf();
+          refreshLocalReaderLibraryState();
+          const bookshelf = await syncAllServerBookshelves(signal);
+          if (signal?.aborted) return bookshelf;
+          refreshLocalReaderLibraryState();
+          return bookshelf;
+        },
+        {
+          priority: "P4",
+          label: "reader:library-refresh",
+          kind: "reader",
+          scope: {
+            route: "workspace-chat",
+            workspaceSlug: workspace?.slug || null,
+            surface: "reader-library",
+          },
+          policy: "maintenance",
+          signal,
+          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}:${_reason}`,
+        }
+      );
     },
-    [refreshLocalReaderLibraryState, syncAllServerBookshelves]
+    [refreshLocalReaderLibraryState, syncAllServerBookshelves, workspace?.slug]
   );
 
   const patchStoredCategoryForItem = useCallback((item, patch = {}) => {
@@ -764,93 +781,129 @@ export function DocumentReaderProvider({
           speedBps: 0,
         });
       }
-      try {
-        const bookshelfKey = item.key || `${item.bookKey}:main`;
-        const failClassification = (reason) => {
-          const latest = readReaderBookshelf().find(
-            (book) => book.key === bookshelfKey
-          );
-          if (!latest || latest.category?.source === "manual") return;
-          patchStoredCategoryForItem(latest, fallbackReaderCategory(reason));
-        };
-        const current = readReaderBookshelf().find(
-          (book) => book.key === bookshelfKey
-        );
-        if (!current) return;
-        const categoryTasks = tasks.includes("classification");
-        if (categoryTasks && current.category?.source !== "manual")
-          markItemCategoryPending(current, "extracting", "等待后台自动分类");
-
-        const categories = readReaderBookshelfCategories().map((category) => ({
-          id: category.id,
-          name: category.name,
-        }));
-        const { response } = await ReaderDocument.postprocess(
-          readerDocumentWorkspaceSlug,
-          readerDocumentId,
-          { tasks: requestedTasks, categories }
-        );
-        if (!response.ok) {
-          if (categoryTasks) failClassification("后台分类启动失败。");
-          return;
-        }
-
-        const startedAt = Date.now();
-        let delayMs = 700;
-        let completed = false;
-        while (Date.now() - startedAt < 120_000) {
-          await new Promise((resolve) => window.setTimeout(resolve, delayMs));
-          const { response: statusResponse, data } =
-            await ReaderDocument.postprocessStatus(
-              readerDocumentWorkspaceSlug,
-              readerDocumentId
+      return await requestPriorityQueue.schedule(
+        async ({ signal }) => {
+          try {
+            const bookshelfKey = item.key || `${item.bookKey}:main`;
+            const failClassification = (reason) => {
+              const latest = readReaderBookshelf().find(
+                (book) => book.key === bookshelfKey
+              );
+              if (!latest || latest.category?.source === "manual") return;
+              patchStoredCategoryForItem(
+                latest,
+                fallbackReaderCategory(reason)
+              );
+            };
+            const current = readReaderBookshelf().find(
+              (book) => book.key === bookshelfKey
             );
-          if (!statusResponse.ok || !data?.success) {
-            if (categoryTasks) failClassification("后台分类状态读取失败。");
-            break;
+            if (!current) return;
+            const categoryTasks = tasks.includes("classification");
+            if (categoryTasks && current.category?.source !== "manual")
+              markItemCategoryPending(
+                current,
+                "extracting",
+                "等待后台自动分类"
+              );
+
+            const categories = readReaderBookshelfCategories().map(
+              (category) => ({
+                id: category.id,
+                name: category.name,
+              })
+            );
+            const { response } = await ReaderDocument.postprocess(
+              readerDocumentWorkspaceSlug,
+              readerDocumentId,
+              { tasks: requestedTasks, categories },
+              { signal }
+            );
+            if (signal.aborted) return;
+            if (!response.ok) {
+              if (categoryTasks) failClassification("后台分类启动失败。");
+              return;
+            }
+
+            const startedAt = Date.now();
+            let delayMs = 700;
+            let completed = false;
+            while (!signal.aborted && Date.now() - startedAt < 120_000) {
+              await new Promise((resolve) =>
+                window.setTimeout(resolve, delayMs)
+              );
+              if (signal.aborted) break;
+              const { response: statusResponse, data } =
+                await ReaderDocument.postprocessStatus(
+                  readerDocumentWorkspaceSlug,
+                  readerDocumentId,
+                  { signal }
+                );
+              if (signal.aborted) break;
+              if (!statusResponse.ok || !data?.success) {
+                if (categoryTasks) failClassification("后台分类状态读取失败。");
+                break;
+              }
+              const stillExists = await applyPostprocessResult(current, data, {
+                trackClassification: categoryTasks,
+              });
+              if (uploadEntryId) {
+                const postprocessComplete = data.status === "complete";
+                patchBookshelfUpload(uploadEntryId, {
+                  status: postprocessComplete ? "complete" : "postprocessing",
+                  stage: postprocessComplete ? "complete" : "postprocessing",
+                  postprocessPercent: data.progress?.percent ?? null,
+                  error: data.progress?.error || null,
+                });
+              }
+              if (!stillExists) break;
+              const pendingTasks = requestedTasks.some((task) =>
+                ["queued", "processing", "extracting", "classifying"].includes(
+                  data.tasks?.[task]?.status
+                )
+              );
+              if (data.status === "complete" || !pendingTasks) {
+                completed = true;
+                break;
+              }
+              delayMs = Math.min(2_500, Math.floor(delayMs * 1.35));
+            }
+            if (!completed && categoryTasks)
+              failClassification("后台分类等待超时。");
+            if (uploadEntryId && !completed) {
+              patchBookshelfUpload(uploadEntryId, {
+                status: "failed",
+                stage: "failed",
+                error: "后台处理等待超时。",
+              });
+            }
+          } finally {
+            postprocessQueueRef.current.delete(key);
           }
-          const stillExists = await applyPostprocessResult(current, data, {
-            trackClassification: categoryTasks,
-          });
-          if (uploadEntryId) {
-            const postprocessComplete = data.status === "complete";
-            patchBookshelfUpload(uploadEntryId, {
-              status: postprocessComplete ? "complete" : "postprocessing",
-              stage: postprocessComplete ? "complete" : "postprocessing",
-              postprocessPercent: data.progress?.percent ?? null,
-              error: data.progress?.error || null,
-            });
-          }
-          if (!stillExists) break;
-          const pendingTasks = requestedTasks.some((task) =>
-            ["queued", "processing", "extracting", "classifying"].includes(
-              data.tasks?.[task]?.status
-            )
-          );
-          if (data.status === "complete" || !pendingTasks) {
-            completed = true;
-            break;
-          }
-          delayMs = Math.min(2_500, Math.floor(delayMs * 1.35));
+        },
+        {
+          priority: "P4",
+          label: "reader:postprocess-poll",
+          kind: "reader",
+          scope: {
+            route: "workspace-chat",
+            workspaceSlug:
+              readerDocumentWorkspaceSlug || workspace?.slug || null,
+            readerDocumentId,
+            surface: "reader-postprocess",
+          },
+          policy: "maintenance",
+          dedupeKey: `reader:postprocess:${key}`,
+          onAbort: () => postprocessQueueRef.current.delete(key),
         }
-        if (!completed && categoryTasks)
-          failClassification("后台分类等待超时。");
-        if (uploadEntryId && !completed) {
-          patchBookshelfUpload(uploadEntryId, {
-            status: "failed",
-            stage: "failed",
-            error: "后台处理等待超时。",
-          });
-        }
-      } finally {
-        postprocessQueueRef.current.delete(key);
-      }
+      );
     },
     [
       applyPostprocessResult,
       markItemCategoryPending,
       patchBookshelfUpload,
       patchStoredCategoryForItem,
+      workspace?.slug,
     ]
   );
 
@@ -994,11 +1047,35 @@ export function DocumentReaderProvider({
           historyItem?.readerDocumentWorkspaceSlug ||
           historyItem?.workspaceSlug ||
           null;
-        const result = await ReaderDocument.get(
-          readerDocumentWorkspaceSlug,
-          data.readerDocumentId,
-          { detail: "content", signal: openContext.signal }
+        const result = await requestPriorityQueue.schedule(
+          () =>
+            ReaderDocument.get(
+              readerDocumentWorkspaceSlug,
+              data.readerDocumentId,
+              {
+                detail: "content",
+                signal: openContext.signal,
+              }
+            ),
+          {
+            priority: "P1",
+            label: "reader:content-fallback",
+            kind: "reader",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug:
+                readerDocumentWorkspaceSlug || workspace?.slug || null,
+              readerDocumentId: data.readerDocumentId,
+              surface: "reader-open",
+            },
+            policy: "visible",
+            signal: openContext.signal,
+            dedupeKey: `reader:content:${
+              readerDocumentWorkspaceSlug || workspace?.slug || "global"
+            }:${data.readerDocumentId}`,
+          }
         );
+        if (!result) return null;
         if (!isCurrentOpen()) return null;
         if (result?.response?.ok && result?.data?.success) {
           return openServerDocumentData(result.data, historyItem, {
@@ -1136,6 +1213,7 @@ export function DocumentReaderProvider({
       readerOpenIsCurrent,
       setDrawerOpenPersisted,
       setReaderObjectUrl,
+      workspace?.slug,
     ]
   );
 
@@ -1262,11 +1340,32 @@ export function DocumentReaderProvider({
           ? "metadata"
           : "content";
       try {
-        const result = await ReaderDocument.get(
-          readerDocumentWorkspaceSlug,
-          readerDocumentId,
-          { detail, signal: openContext.signal }
+        const result = await requestPriorityQueue.schedule(
+          () =>
+            ReaderDocument.get(readerDocumentWorkspaceSlug, readerDocumentId, {
+              detail,
+              signal: openContext.signal,
+            }),
+          {
+            priority: "P0",
+            label: "reader:open-document",
+            kind: "reader",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug:
+                readerDocumentWorkspaceSlug || workspace?.slug || null,
+              readerDocumentId,
+              surface: "reader-open",
+            },
+            policy: "foreground",
+            emergency: true,
+            signal: openContext.signal,
+            dedupeKey: `reader:open:${
+              readerDocumentWorkspaceSlug || workspace?.slug || "global"
+            }:${readerDocumentId}`,
+          }
         );
+        if (!result) return null;
         response = result.response;
         data = result.data;
       } catch (error) {
@@ -1334,6 +1433,7 @@ export function DocumentReaderProvider({
       openServerDocumentData,
       queuePendingReaderOpen,
       readerOpenIsCurrent,
+      workspace?.slug,
     ]
   );
 
@@ -2088,9 +2188,29 @@ export function DocumentReaderProvider({
         message: loadingMessageForDocumentType(validation.documentType),
       });
       try {
-        const { response, data } = await ReaderDocument.upload(null, formData, {
-          signal: openContext.signal,
-        });
+        const uploadResult = await requestPriorityQueue.schedule(
+          () =>
+            ReaderDocument.upload(null, formData, {
+              signal: openContext.signal,
+            }),
+          {
+            priority: "P1",
+            label: "reader:quick-upload",
+            kind: "upload",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace?.slug || null,
+              surface: "reader-upload",
+            },
+            policy: "visible",
+            signal: openContext.signal,
+            dedupeKey: `reader:quick-upload:${bookKey}:${
+              options.branch ? "branch" : "main"
+            }`,
+          }
+        );
+        if (!uploadResult) return;
+        const { response, data } = uploadResult;
         if (!isCurrentOpen()) return;
         if (!response.ok || !data?.success)
           throw new Error(data?.error || "自动上传失败");
@@ -2195,6 +2315,7 @@ export function DocumentReaderProvider({
       setDrawerSectionPersisted,
       setDrawerOpenPersisted,
       setReaderObjectUrl,
+      workspace?.slug,
     ]
   );
 
@@ -2279,21 +2400,45 @@ export function DocumentReaderProvider({
             if (duplicateAction)
               formData.append("duplicateAction", duplicateAction);
             try {
-              uploadResult = await ReaderDocument.upload(null, formData, {
-                signal: controller.signal,
-                onUploadProgress: (progress) => {
-                  const uploadComplete = progress.percent >= 100;
-                  patchBookshelfUpload(entryId, {
-                    status: "uploading",
-                    stage: uploadComplete ? "server_processing" : "uploading",
-                    percent: progress.percent,
-                    speedBps:
-                      progress.speedBps || progress.averageSpeedBps || 0,
-                    loaded: progress.loaded,
-                    total: progress.total,
-                  });
-                },
-              });
+              uploadResult = await requestPriorityQueue.schedule(
+                () =>
+                  ReaderDocument.upload(null, formData, {
+                    signal: controller.signal,
+                    onUploadProgress: (progress) => {
+                      const uploadComplete = progress.percent >= 100;
+                      patchBookshelfUpload(entryId, {
+                        status: "uploading",
+                        stage: uploadComplete
+                          ? "server_processing"
+                          : "uploading",
+                        percent: progress.percent,
+                        speedBps:
+                          progress.speedBps || progress.averageSpeedBps || 0,
+                        loaded: progress.loaded,
+                        total: progress.total,
+                      });
+                    },
+                  }),
+                {
+                  priority: "P1",
+                  label: "reader:bookshelf-upload",
+                  kind: "upload",
+                  scope: {
+                    route: "workspace-chat",
+                    workspaceSlug: workspace?.slug || null,
+                    surface: "reader-upload",
+                    uploadEntryId: entryId,
+                  },
+                  policy: "visible",
+                  signal: controller.signal,
+                  dedupeKey: `reader:upload:${entryId}`,
+                }
+              );
+              if (!uploadResult) {
+                const error = new Error("Upload aborted");
+                error.name = "AbortError";
+                throw error;
+              }
             } catch (error) {
               const duplicate = duplicateUploadPayload(error);
               if (!duplicate || duplicateAction === "continue") throw error;
@@ -2420,7 +2565,30 @@ export function DocumentReaderProvider({
     let response;
     let data;
     try {
-      const result = await ReaderDocument.upload(null, formData);
+      const result = await requestPriorityQueue.schedule(
+        ({ signal }) =>
+          ReaderDocument.upload(null, formData, {
+            signal,
+          }),
+        {
+          priority: "P1",
+          label: "reader:current-document-upload",
+          kind: "upload",
+          scope: {
+            route: "workspace-chat",
+            workspaceSlug: workspace?.slug || null,
+            surface: "reader-upload",
+            localDocumentId: currentDocument.localDocumentId || null,
+          },
+          policy: "visible",
+          dedupeKey: `reader:current-upload:${
+            currentDocument.localDocumentId ||
+            currentDocument.bookKey ||
+            currentDocument.title
+          }`,
+        }
+      );
+      if (!result) return;
       response = result.response;
       data = result.data;
     } finally {
@@ -2439,7 +2607,7 @@ export function DocumentReaderProvider({
       thumbnailDataUrl: currentDocument.thumbnailDataUrl,
     });
     showToast("已上传到服务器备份", "success");
-  }, [currentDocument, openServerDocumentData]);
+  }, [currentDocument, openServerDocumentData, workspace?.slug]);
 
   const bindCurrentDocumentLocalPath = useCallback(
     async (absolutePath) => {

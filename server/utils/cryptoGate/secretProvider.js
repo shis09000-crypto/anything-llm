@@ -1,8 +1,18 @@
 const { readSecret } = require("../security");
 const { maskSecret } = require("./maskSecret");
+const { safeErrorMessage } = require("./sanitizer");
 
 function boolEnv(value) {
   return String(value || "").toLowerCase() === "true";
+}
+
+function safeReadConfiguredSecret(value) {
+  if (!value) return { value: null, error: null };
+  try {
+    return { value: readSecret(value), error: null };
+  } catch (error) {
+    return { value: null, error };
+  }
 }
 
 function getGateConfigStatus() {
@@ -10,16 +20,22 @@ function getGateConfigStatus() {
   const encryptedSecret = process.env.GATE_API_SECRET_ENCRYPTED;
   const rawKey = process.env.GATE_API_KEY;
   const rawSecret = process.env.GATE_API_SECRET;
-  const apiKey = encryptedKey ? readSecret(encryptedKey) : rawKey;
-  const apiSecret = encryptedSecret ? readSecret(encryptedSecret) : rawSecret;
+  const keyResult = encryptedKey
+    ? safeReadConfiguredSecret(encryptedKey)
+    : { value: rawKey || null, error: null };
+  const secretResult = encryptedSecret
+    ? safeReadConfiguredSecret(encryptedSecret)
+    : { value: rawSecret || null, error: null };
+  const configError = keyResult.error || secretResult.error;
 
   return {
     enabled: boolEnv(process.env.GATE_CRYPTO_ENABLED),
     env: process.env.GATE_API_ENV || "production",
-    hasApiKey: Boolean(apiKey),
-    hasApiSecret: Boolean(apiSecret),
-    maskedApiKey: maskSecret(apiKey),
+    hasApiKey: Boolean(keyResult.value),
+    hasApiSecret: Boolean(secretResult.value),
+    maskedApiKey: maskSecret(keyResult.value),
     readOnly: boolEnv(process.env.GATE_API_READONLY),
+    configError: configError ? safeErrorMessage(configError) : null,
   };
 }
 

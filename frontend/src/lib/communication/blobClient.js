@@ -11,6 +11,7 @@ import {
   communicationByteLength,
   recordCommunicationEvent,
 } from "./communicationMetrics";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 export const BLOB_KINDS = {
   ttsAudio: "tts_audio",
@@ -172,7 +173,7 @@ function blobDetails({
   };
 }
 
-async function requestBody(kind, path, options = {}, reader) {
+async function requestBodyCore(kind, path, options = {}, reader) {
   const {
     signal,
     timeoutMs,
@@ -183,6 +184,8 @@ async function requestBody(kind, path, options = {}, reader) {
     body,
     rawBody = false,
     communicationScene = null,
+    task: _task,
+    schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -362,6 +365,50 @@ async function requestBody(kind, path, options = {}, reader) {
   } finally {
     signalState.cleanup();
   }
+}
+
+async function requestBody(kind, path, options = {}, reader) {
+  const {
+    method = "GET",
+    signal,
+    task,
+    schedulerInternal = false,
+    communicationScene = null,
+    blobKind = "unknown",
+  } = options;
+  if (schedulerInternal || task === false) {
+    return requestBodyCore(kind, path, options, reader);
+  }
+
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      requestBodyCore(
+        kind,
+        path,
+        {
+          ...options,
+          signal: scheduledSignal,
+          task: false,
+          schedulerInternal: true,
+        },
+        reader
+      ),
+    {
+      method,
+      path,
+      signal,
+      task: task || {
+        kind: `blob:${blobKind}`,
+        priority:
+          blobKind === BLOB_KINDS.readerThumbnail ||
+          String(path || "").includes("thumbnail")
+            ? "P4"
+            : undefined,
+      },
+      communicationScene,
+      transport: "blob",
+    }
+  );
 }
 
 export function requestBlob(path, options = {}) {

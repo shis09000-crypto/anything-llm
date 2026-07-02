@@ -205,6 +205,13 @@ export function prefetchThreadHistory(workspaceSlug, threadSlug = null) {
     {
       priority: "P3",
       label: "workspacechat:hover-prefetch",
+      kind: "prefetch",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug,
+        threadSlug,
+      },
+      policy: "prefetch",
       dedupeKey: `prefetch:${workspaceSlug}:${threadSlug || "default"}`,
     }
   );
@@ -249,6 +256,12 @@ export function warmWorkspaceChat(workspaceSlug) {
     {
       priority: "P3",
       label: "workspacechat:background-warmup",
+      kind: "prefetch",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug,
+      },
+      policy: "prefetch",
       dedupeKey: `warmup:${workspaceSlug}`,
     }
   );

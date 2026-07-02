@@ -5,6 +5,7 @@ import {
   communicationResponseSize,
   recordCommunicationEvent,
 } from "./communicationMetrics";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 export const UPLOAD_KINDS = {
   workspaceFile: "workspace_file",
@@ -245,7 +246,7 @@ function uploadWithProgress({
   });
 }
 
-export async function uploadFormData(path, formData, options = {}) {
+async function uploadFormDataCore(path, formData, options = {}) {
   const {
     signal,
     timeoutMs,
@@ -255,6 +256,8 @@ export async function uploadFormData(path, formData, options = {}) {
     method = "POST",
     onUploadProgress,
     communicationScene = null,
+    task: _task,
+    schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -471,4 +474,41 @@ export async function uploadFormData(path, formData, options = {}) {
   } finally {
     signalState.cleanup();
   }
+}
+
+export async function uploadFormData(path, formData, options = {}) {
+  const {
+    method = "POST",
+    signal,
+    task,
+    schedulerInternal = false,
+    communicationScene = null,
+    uploadKind = "unknown",
+  } = options;
+  if (schedulerInternal || task === false) {
+    return uploadFormDataCore(path, formData, options);
+  }
+
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      uploadFormDataCore(path, formData, {
+        ...options,
+        signal: scheduledSignal,
+        task: false,
+        schedulerInternal: true,
+      }),
+    {
+      method,
+      path,
+      signal,
+      task: task || {
+        kind: `upload:${uploadKind}`,
+        priority: "P1",
+        protected: true,
+        abortable: false,
+      },
+      communicationScene,
+      transport: "upload",
+    }
+  );
 }

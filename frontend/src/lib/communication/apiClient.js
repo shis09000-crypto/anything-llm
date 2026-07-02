@@ -18,6 +18,7 @@ import {
   communicationResponseSize,
   recordCommunicationEvent,
 } from "./communicationMetrics";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -146,7 +147,7 @@ export async function parseJsonResponse(response) {
   }
 }
 
-export async function requestJson(path, options = {}) {
+async function requestJsonCore(path, options = {}) {
   const {
     method = "GET",
     body,
@@ -158,6 +159,8 @@ export async function requestJson(path, options = {}) {
     rawBody = false,
     signing = "auto",
     communicationScene = null,
+    task: _task,
+    schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
   const normalizedMethod = method.toUpperCase();
@@ -224,7 +227,7 @@ export async function requestJson(path, options = {}) {
           reason: data?.error,
           retryAttempt: retryAttempt + 1,
         });
-        return requestJson(path, {
+        return requestJsonCore(path, {
           method,
           body,
           headers,
@@ -234,6 +237,7 @@ export async function requestJson(path, options = {}) {
           retryAttempt: retryAttempt + 1,
           rawBody,
           signing,
+          communicationScene,
           ...rest,
         });
       }
@@ -347,6 +351,37 @@ export async function requestJson(path, options = {}) {
   } finally {
     signalState.cleanup();
   }
+}
+
+export async function requestJson(path, options = {}) {
+  const {
+    method = "GET",
+    signal,
+    task,
+    schedulerInternal = false,
+    communicationScene = null,
+  } = options;
+  if (schedulerInternal || task === false) {
+    return requestJsonCore(path, options);
+  }
+
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      requestJsonCore(path, {
+        ...options,
+        signal: scheduledSignal,
+        task: false,
+        schedulerInternal: true,
+      }),
+    {
+      method,
+      path,
+      signal,
+      task,
+      communicationScene,
+      transport: "json",
+    }
+  );
 }
 
 export function getJson(path, options = {}) {

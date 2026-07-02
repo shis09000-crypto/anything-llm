@@ -11,6 +11,7 @@ import {
 import { signWithDeviceIdentityKey } from "./deviceIdentityKey";
 import { assertSecureHttpUrl } from "./transportSecurity";
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
+import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 
 export const SIGNATURE_VERSION = "v1";
 export const SIGNATURE_PREFIX = "ATHENA-SIGN-V1";
@@ -394,7 +395,7 @@ async function signedHmacRequestHeaders({
   };
 }
 
-async function fetchSigningSecret({ clientId, signal } = {}) {
+async function fetchSigningSecretCore({ clientId, signal } = {}) {
   const requestId = createCommunicationRequestId();
   const response = await fetch(
     absoluteApiUrl("/client-identity/signing-secret"),
@@ -427,6 +428,27 @@ async function fetchSigningSecret({ clientId, signal } = {}) {
     });
   }
   return data.signingSecret;
+}
+
+async function fetchSigningSecret({ clientId, signal } = {}) {
+  return runScheduledTaskRequest(
+    ({ signal: scheduledSignal }) =>
+      fetchSigningSecretCore({ clientId, signal: scheduledSignal }),
+    {
+      method: "POST",
+      path: "/client-identity/signing-secret",
+      signal,
+      transport: "json",
+      communicationScene: "security-signing",
+      task: {
+        kind: "security-signing-secret",
+        priority: "P0",
+        protected: true,
+        abortable: false,
+        scope: { route: "auth", surface: "security" },
+      },
+    }
+  );
 }
 
 export async function getSigningSecret({ signal } = {}) {

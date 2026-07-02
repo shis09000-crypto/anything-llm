@@ -135,6 +135,7 @@ export function useTradingPairCandlestickData({
   market,
   currentPriceFallback,
   change24hPctFallback,
+  enabled = true,
 }: {
   mode: TradingPairDataMode;
   pair: string;
@@ -142,6 +143,7 @@ export function useTradingPairCandlestickData({
   market: TradingPairMarketType;
   currentPriceFallback: string;
   change24hPctFallback: string;
+  enabled?: boolean;
 }) {
   const [cache, setCache] = useState<CandleCache>({});
   const [mockCache, setMockCache] = useState<CandleCache>({});
@@ -285,6 +287,7 @@ export function useTradingPairCandlestickData({
   }
 
   function startGateStream() {
+    if (!enabled) return;
     if (mode !== "gate-api" || market !== "spot") return;
     if (document.visibilityState === "hidden") return;
     if (streamAbortRef.current) return;
@@ -320,6 +323,7 @@ export function useTradingPairCandlestickData({
   function scheduleGateStreamReconnect() {
     if (
       !streamShouldRunRef.current ||
+      !enabled ||
       mode !== "gate-api" ||
       market !== "spot"
     ) {
@@ -335,7 +339,7 @@ export function useTradingPairCandlestickData({
 
   useCryptoHubWatchedConnection({
     key: `marketCandles.stream.${market}.${pair}.${range}`,
-    active: mode === "gate-api" && market === "spot",
+    active: enabled && mode === "gate-api" && market === "spot",
     status,
     lastConnectedAt: apiMeta?.asOf || null,
     reconnect: () => restartGateRealtime("snapshot"),
@@ -400,6 +404,7 @@ export function useTradingPairCandlestickData({
       visibleWindow?: TradingPairVisibleWindow;
     } = {}
   ) {
+    if (!enabled) return null;
     if (mode !== "gate-api") return null;
     const requestKey = activeKey;
     const requestViewKey = activeViewKey;
@@ -489,6 +494,7 @@ export function useTradingPairCandlestickData({
   }
 
   async function restartGateRealtime(direction: "initial" | "snapshot") {
+    if (!enabled) return;
     if (mode !== "gate-api" || market !== "spot") return;
     if (document.visibilityState === "hidden") return;
 
@@ -503,6 +509,7 @@ export function useTradingPairCandlestickData({
     beforeTs: number,
     visibleWindow: TradingPairVisibleWindow
   ) {
+    if (!enabled) return;
     if (mode === "mock") {
       await loadMockHistory(beforeTs, visibleWindow);
       return;
@@ -520,6 +527,12 @@ export function useTradingPairCandlestickData({
     setInitialLoadingViewKey(activeViewKey);
     historyLoadingRef.current = false;
     setHistoryLoading(false);
+
+    if (!enabled) {
+      setLoading(false);
+      setInitialLoadingViewKey(null);
+      return;
+    }
 
     if (mode === "mock") {
       setLoading(false);
@@ -551,6 +564,7 @@ export function useTradingPairCandlestickData({
     activeKey,
     activeViewKey,
     currentPriceFallback,
+    enabled,
   ]);
 
   useEffect(() => {
@@ -558,7 +572,7 @@ export function useTradingPairCandlestickData({
   }, []);
 
   useEffect(() => {
-    if (mode !== "gate-api" || market !== "spot") return;
+    if (!enabled || mode !== "gate-api" || market !== "spot") return;
 
     function handleVisibilityChange() {
       if (document.visibilityState === "hidden") {
@@ -571,7 +585,7 @@ export function useTradingPairCandlestickData({
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [mode, pair, range, market, activeKey, activeViewKey]);
+  }, [enabled, mode, pair, range, market, activeKey, activeViewKey]);
 
   return {
     activeCandles,
