@@ -32,6 +32,18 @@ function makeJWT(info = {}, expiry = "30d") {
   return JWT.sign(info, process.env.JWT_SECRET, { expiresIn: expiry });
 }
 
+function jwtVerificationSecrets() {
+  const secrets = [
+    process.env.JWT_SECRET,
+    process.env.JWT_SECRET_PREVIOUS,
+    ...(process.env.JWT_SECRET_FALLBACKS || "").split(","),
+  ]
+    .map((secret) => String(secret || "").trim())
+    .filter(Boolean);
+
+  return [...new Set(secrets)];
+}
+
 /**
  * Gets the user from the session
  * Note: Only valid for multi-user mode
@@ -65,9 +77,11 @@ async function userFromSession(request, response = null) {
 }
 
 function decodeJWT(jwtToken) {
-  try {
-    return JWT.verify(jwtToken, process.env.JWT_SECRET);
-  } catch {}
+  for (const secret of jwtVerificationSecrets()) {
+    try {
+      return JWT.verify(jwtToken, secret);
+    } catch {}
+  }
   return { p: null, id: null, username: null };
 }
 
@@ -139,6 +153,7 @@ module.exports = {
   queryParams,
   makeJWT,
   decodeJWT,
+  jwtVerificationSecrets,
   userFromSession,
   parseAuthHeader,
   safeJsonParse,

@@ -6,6 +6,8 @@ import {
 export const WORKSPACE_CHAT_ROUTE_PATTERN =
   /^\/workspace\/([^/]+)(?:\/t\/[^/]+)?\/?$/;
 export const WORKSPACE_CHAT_SURFACE_KEY = "/workspace-chat-surface";
+export const WORKSPACE_SETTINGS_ROUTE_PATTERN =
+  /^\/workspace\/([^/]+)\/settings(?:\/[^/]+)?\/?$/;
 
 const HEAVY_FULLSCREEN_ROUTE_PATTERNS = [
   /^\/settings\/crypto-center\/?$/,
@@ -18,8 +20,12 @@ export function rawRouteKey(location = {}) {
 
 export function motionRouteKey(location = {}) {
   const pathname = location.pathname || "/";
-  if (WORKSPACE_CHAT_ROUTE_PATTERN.test(pathname))
+  if (
+    WORKSPACE_CHAT_ROUTE_PATTERN.test(pathname) ||
+    WORKSPACE_SETTINGS_ROUTE_PATTERN.test(pathname)
+  ) {
     return WORKSPACE_CHAT_SURFACE_KEY;
+  }
   if (isPersistentSettingsRoute(pathname)) return SETTINGS_SOFT_SURFACE_KEY;
   return rawRouteKey(location);
 }

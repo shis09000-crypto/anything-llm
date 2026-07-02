@@ -166,23 +166,56 @@ const router = createBrowserRouter([
         },
       },
       {
-        path: "/workspace/:slug/settings/:tab",
-        lazy: async () => {
-          const { default: WorkspaceSettings } = await import(
-            "@/pages/WorkspaceSettings"
-          );
-          return { element: <PrivateRoute Component={WorkspaceSettings} /> };
-        },
-      },
-      {
         path: "/workspace/:slug",
         lazy: async () => {
-          const { default: WorkspaceChat } = await import(
-            "@/pages/WorkspaceChat"
+          const { default: WorkspaceShell } = await import(
+            "@/pages/WorkspaceShell"
           );
-          return { element: <PrivateRoute Component={WorkspaceChat} /> };
+          return { element: <PrivateRoute Component={WorkspaceShell} /> };
         },
-        children: [{ path: "t/:threadSlug" }],
+        children: [
+          {
+            index: true,
+            lazy: async () => {
+              const { default: WorkspaceChat } = await import(
+                "@/pages/WorkspaceChat"
+              );
+              return { element: <WorkspaceChat /> };
+            },
+          },
+          {
+            path: "t/:threadSlug",
+            lazy: async () => {
+              const { default: WorkspaceChat } = await import(
+                "@/pages/WorkspaceChat"
+              );
+              return { element: <WorkspaceChat /> };
+            },
+          },
+          {
+            path: "settings",
+            lazy: async () => {
+              const { default: WorkspaceSettings } = await import(
+                "@/pages/WorkspaceSettings"
+              );
+              return { element: <WorkspaceSettings /> };
+            },
+            children: [
+              {
+                index: true,
+                lazy: async () => {
+                  const { WorkspaceSettingsDefaultRedirect } = await import(
+                    "@/pages/WorkspaceSettings"
+                  );
+                  return { element: <WorkspaceSettingsDefaultRedirect /> };
+                },
+              },
+              {
+                path: ":tab",
+              },
+            ],
+          },
+        ],
       },
       {
         path: "/accept-invite/:code",

@@ -74,7 +74,7 @@ export default function ActiveWorkspaces() {
   const [selectedWs, setSelectedWs] = useState(null);
   const [draggingThread, setDraggingThread] = useState(null);
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
-  const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/:tab");
+  const isInWorkspaceSettings = !!useMatch("/workspace/:slug/settings/*");
   const isHomePage = !!useMatch("/");
   const refreshInFlightRef = useRef(null);
   const pendingForceRefreshRef = useRef(false);
@@ -493,7 +493,9 @@ export default function ActiveWorkspaces() {
                                       e.stopPropagation();
                                       navigate(
                                         isInWorkspaceSettings
-                                          ? paths.workspace.chat(workspace.slug)
+                                          ? pathForLastVisitedThread(
+                                              workspace.slug
+                                            )
                                           : paths.workspace.settings.generalAppearance(
                                               workspace.slug
                                             )

@@ -13,7 +13,23 @@ function withReaderQuery(path, options = {}) {
   return query ? `${path}?${query}` : path;
 }
 
+function pagePreviewUrlForOriginal(originalUrl, pageNumber = 1) {
+  const url = String(originalUrl || "");
+  if (!url) return null;
+  const base = url.replace(/\/original(?:\?.*)?$/i, "/page-preview");
+  if (base === url) return null;
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}page=${Math.max(1, Math.round(Number(pageNumber) || 1))}`;
+}
+
 const ReaderDocument = {
+  list: async function (slug = null, options = {}) {
+    const { response, data } = await getJson(readerDocumentsPath(slug), {
+      signal: options.signal,
+      communicationScene: "reader-open",
+    });
+    return { response, data };
+  },
   upload: async function (slug, formData, options = {}) {
     const { response, data } = await uploadFormData(
       `${readerDocumentsPath(slug)}/upload`,
@@ -49,6 +65,16 @@ const ReaderDocument = {
       communicationScene: "reader-open",
     });
     return { response, blob };
+  },
+  pagePreviewBlob: async function (originalUrl, pageNumber = 1, options = {}) {
+    const previewUrl = pagePreviewUrlForOriginal(originalUrl, pageNumber);
+    if (!previewUrl) throw new Error("Reader page preview URL unavailable.");
+    const { response, blob } = await requestBlob(previewUrl, {
+      signal: options.signal,
+      blobKind: BLOB_KINDS.readerPreview,
+      communicationScene: "reader-open",
+    });
+    return { response, blob, previewUrl };
   },
   previewBlob: async function (previewUrl, options = {}) {
     const { response, blob } = await requestBlob(previewUrl, {

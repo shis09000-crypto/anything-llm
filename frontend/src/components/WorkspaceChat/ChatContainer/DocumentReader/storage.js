@@ -20,6 +20,7 @@ import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
 } from "@/utils/security/localCacheCrypto";
+import { mergeReaderLibraryBookshelfItems } from "@/utils/chat/readerLibraryPersistence";
 export { READER_DRAWER_OPEN_STORAGE_KEY };
 
 export const READER_SCHEMA_VERSION = 1;
@@ -41,6 +42,8 @@ export const READER_SOURCES_STORAGE_KEY =
   "anythingllm_document_reader_sources:v1:global";
 export const READER_HISTORY_STORAGE_KEY =
   "anythingllm_document_reader_history:v1:global";
+export const READER_DELETED_DOCUMENT_IDS_STORAGE_KEY =
+  "anythingllm_document_reader_deleted_ids:v1";
 export const READER_PROGRESS_BACKUP_STORAGE_KEY =
   "anythingllm_document_reader_progress_backup:v1";
 export const READER_BOOK_MEMORY_STORAGE_KEY =
@@ -218,7 +221,13 @@ function applyReaderLibraryState(value = {}) {
     writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, value.history);
   }
   if (Array.isArray(value.bookshelf)) {
-    writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, value.bookshelf);
+    writeReaderLocalJson(
+      READER_BOOKSHELF_STORAGE_KEY,
+      mergeReaderLibraryBookshelfItems(
+        readReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, []),
+        value.bookshelf
+      )
+    );
   }
   if (Array.isArray(value.categories)) {
     writeReaderLocalJson(
@@ -234,17 +243,23 @@ function applyReaderLibraryState(value = {}) {
   }
 }
 
+export async function hydrateReaderLibraryNow() {
+  clearTimeout(readerLibraryHydrateTimer);
+  readerLibraryHydrated = true;
+  return await hydrateUserStateValue({
+    namespace: USER_STATE_NAMESPACES.readerLibrary,
+    fallback: sanitizeReaderState(rawReaderLibraryState()),
+    sanitize: sanitizeReaderState,
+    apply: applyReaderLibraryState,
+  });
+}
+
 function hydrateReaderLibraryOnce() {
   if (readerLibraryHydrated) return;
   readerLibraryHydrated = true;
   clearTimeout(readerLibraryHydrateTimer);
   readerLibraryHydrateTimer = setTimeout(() => {
-    void hydrateUserStateValue({
-      namespace: USER_STATE_NAMESPACES.readerLibrary,
-      fallback: sanitizeReaderState(rawReaderLibraryState()),
-      sanitize: sanitizeReaderState,
-      apply: applyReaderLibraryState,
-    });
+    void hydrateReaderLibraryNow();
   }, READER_HYDRATE_IDLE_DELAY_MS);
 }
 
@@ -705,16 +720,20 @@ export function normalizeReaderCategoryPatch(result = {}) {
   const now = isoNow();
   const rawCategory = result.category || result;
   const selected = categoryById(rawCategory.primaryCategoryId, categories);
-  const source = ["llm", "manual", "fallback", "pending"].includes(
-    rawCategory.source
-  )
+  const source = [
+    "llm",
+    "manual",
+    "fallback",
+    "fallback-rule",
+    "pending",
+  ].includes(rawCategory.source)
     ? rawCategory.source
     : "fallback";
   const status =
     result.categoryStatus ||
     (source === "manual"
       ? "manual"
-      : source === "llm"
+      : source === "llm" || source === "fallback-rule"
         ? "classified"
         : "unknown");
   return {
@@ -786,6 +805,54 @@ function isUploadedHistoryItem(item = {}) {
     item.readerDocumentId ||
     item.backupReaderDocumentId ||
     item.uploaded
+  );
+}
+
+function normalizedDeletedReaderDocumentEntries(entries = []) {
+  const byId = new Map();
+  const now = isoNow();
+  for (const rawEntry of Array.isArray(entries) ? entries : []) {
+    const id =
+      typeof rawEntry === "string" ? rawEntry : String(rawEntry?.id || "");
+    if (!id) continue;
+    byId.set(id, {
+      id,
+      deletedAt:
+        typeof rawEntry === "object" && rawEntry.deletedAt
+          ? rawEntry.deletedAt
+          : now,
+    });
+  }
+  return [...byId.values()]
+    .filter((entry) => timestampValue(entry.deletedAt) > Date.now() - 7 * 864e5)
+    .sort((a, b) => timestampValue(b.deletedAt) - timestampValue(a.deletedAt));
+}
+
+export function readDeletedReaderDocumentIds() {
+  return normalizedDeletedReaderDocumentEntries(
+    readReaderLocalJson(READER_DELETED_DOCUMENT_IDS_STORAGE_KEY, [])
+  );
+}
+
+export function deletedReaderDocumentIdSet() {
+  return new Set(readDeletedReaderDocumentIds().map((entry) => entry.id));
+}
+
+export function rememberDeletedReaderDocumentIds(ids = []) {
+  const selectedIds = (Array.isArray(ids) ? ids : [ids]).filter(Boolean);
+  if (!selectedIds.length) return readDeletedReaderDocumentIds();
+  const next = normalizedDeletedReaderDocumentEntries([
+    ...readDeletedReaderDocumentIds(),
+    ...selectedIds.map((id) => ({ id, deletedAt: isoNow() })),
+  ]);
+  writeReaderLocalJson(READER_DELETED_DOCUMENT_IDS_STORAGE_KEY, next);
+  return next;
+}
+
+export function readerItemHasDeletedServerId(item = {}) {
+  const deletedIds = deletedReaderDocumentIdSet();
+  return [item.readerDocumentId, item.backupReaderDocumentId].some((id) =>
+    deletedIds.has(id)
   );
 }
 
@@ -889,7 +956,15 @@ function normalizeHistory(history = []) {
 export function readReaderHistory() {
   hydrateReaderLibraryOnce();
   const parsed = readReaderLocalJson(READER_HISTORY_STORAGE_KEY, []);
-  return readerItemsWithLatestBookMemory(normalizeHistory(parsed));
+  const deletedIds = deletedReaderDocumentIdSet();
+  return readerItemsWithLatestBookMemory(
+    normalizeHistory(parsed).filter(
+      (item) =>
+        ![item.readerDocumentId, item.backupReaderDocumentId].some((id) =>
+          deletedIds.has(id)
+        )
+    )
+  );
 }
 
 export function writeReaderHistory(
@@ -900,9 +975,16 @@ export function writeReaderHistory(
   void workspaceSlug;
   void threadSlug;
   const next = normalizeHistory(history).slice(0, 20);
-  writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, next);
+  const deletedIds = deletedReaderDocumentIdSet();
+  const filtered = next.filter(
+    (item) =>
+      ![item.readerDocumentId, item.backupReaderDocumentId].some((id) =>
+        deletedIds.has(id)
+      )
+  );
+  writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, filtered);
   persistReaderLibraryState();
-  return next;
+  return filtered;
 }
 
 export function clearReaderHistory(workspaceSlug, threadSlug = null) {
@@ -916,9 +998,16 @@ export function clearReaderHistory(workspaceSlug, threadSlug = null) {
 export function readReaderBookshelf() {
   hydrateReaderLibraryOnce();
   const parsed = readReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, []);
+  const deletedIds = deletedReaderDocumentIdSet();
   const byKey = new Map();
   for (const rawItem of Array.isArray(parsed) ? parsed : []) {
     if (!rawItem?.title) continue;
+    if (
+      [rawItem.readerDocumentId, rawItem.backupReaderDocumentId].some((id) =>
+        deletedIds.has(id)
+      )
+    )
+      continue;
     const item = normalizeBookshelfItem(rawItem);
     const previous = byKey.get(item.key);
     if (!previous) {
@@ -948,8 +1037,15 @@ export function readReaderBookshelf() {
 export function writeReaderBookshelf(items = []) {
   const next = [];
   const byKey = new Map();
+  const deletedIds = deletedReaderDocumentIdSet();
   for (const rawItem of Array.isArray(items) ? items : []) {
     if (!rawItem?.title) continue;
+    if (
+      [rawItem.readerDocumentId, rawItem.backupReaderDocumentId].some((id) =>
+        deletedIds.has(id)
+      )
+    )
+      continue;
     const item = normalizeBookshelfItem(rawItem);
     const previous = byKey.get(item.key);
     byKey.set(
@@ -976,6 +1072,7 @@ export function upsertReaderBookshelfItems(items = []) {
   const byKey = new Map(current.map((item) => [item.key, item]));
   for (const rawItem of Array.isArray(items) ? items : [items]) {
     if (!rawItem?.title) continue;
+    if (readerItemHasDeletedServerId(rawItem)) continue;
     const item = normalizeBookshelfItem({
       ...rawItem,
       updatedAt: rawItem.updatedAt || now,

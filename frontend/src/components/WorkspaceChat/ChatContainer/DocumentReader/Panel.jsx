@@ -428,6 +428,11 @@ function BookshelfCard({
     ) ||
     categories.find((candidate) => candidate.id === UNKNOWN_READER_CATEGORY_ID);
   const isPending = item.categoryStatus === "pending";
+  const categoryLabel = isPending
+    ? item.categoryReason || "正在分类"
+    : item.categoryStatus === "unknown" && item.categoryReason
+      ? item.categoryReason
+      : category?.name || "未知分类";
 
   return (
     <div
@@ -544,9 +549,7 @@ function BookshelfCard({
         {item.title}
       </p>
       <p className="m-0 mt-1 truncate text-[11px] font-semibold text-slate-500">
-        {isPending
-          ? item.categoryReason || "正在分类"
-          : category?.name || "未知分类"}
+        {categoryLabel}
       </p>
       <div className="mt-2 flex items-center gap-2">
         <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-200/80">

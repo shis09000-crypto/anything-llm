@@ -9,6 +9,9 @@ import {
 } from "react";
 import ReaderDocument from "@/models/readerDocument";
 import showToast from "@/utils/toast";
+import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { AuthContext } from "@/AuthContext";
+import { getAuthToken } from "@/utils/authTokenStorage";
 import {
   clearDeletedReaderDocumentIdsFromAllStorage,
   compactDocumentForStorage,
@@ -19,7 +22,9 @@ import {
   deleteReaderBookshelfCategory,
   deleteReaderProgressBackup,
   fallbackReaderCategory,
+  readDeletedReaderDocumentIds,
   hasSignificantProgressChange,
+  hydrateReaderLibraryNow,
   manualReaderCategory,
   migrateReaderStorage,
   normalizeBookTitle,
@@ -32,7 +37,12 @@ import {
   readReaderCurrentDocument,
   readReaderHistory,
   readReaderSources,
+  READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
+  READER_BOOKSHELF_STORAGE_KEY,
+  READER_HISTORY_STORAGE_KEY,
+  READER_SOURCES_STORAGE_KEY,
   readerItemWithLatestBookMemory,
+  rememberDeletedReaderDocumentIds,
   registerReaderBookMemoryAlias,
   readerStorageKey,
   renameReaderBookshelfCategory,
@@ -62,6 +72,11 @@ import {
   dedupeReaderTextSources,
   readerTextSourceIdentity,
 } from "@/utils/chat/readerTextSources";
+import { readerProgressFromPdfTargetSource } from "@/utils/chat/readerPdfTarget";
+import {
+  readerLibraryItemKey,
+  removableBookshelfKeysAfterReaderDelete,
+} from "@/utils/chat/readerLibraryPersistence";
 import {
   clearReaderCurrentDocumentClearMarker,
   clearReaderCurrentDocumentStorage,
@@ -95,12 +110,74 @@ async function parseFileByType(file, readerDocumentId, documentType) {
   return null;
 }
 
+function duplicateUploadPayload(error = {}) {
+  const raw = error?.raw || null;
+  if (raw?.code !== "READER_DUPLICATE") return null;
+  return raw.duplicate || {};
+}
+
+async function confirmDuplicateReaderUpload(fileName = "", duplicate = {}) {
+  return await showAppConfirm({
+    tone: "warning",
+    title: "检测到重复书籍",
+    description: "这本书的名称和开头内容与书架中的已有书籍一致。",
+    body: `已有书籍：${duplicate.title || "未命名书籍"}\n本次上传：${fileName}\n\n继续上传会创建一个带“重复”后缀的新副本。`,
+    confirmText: "继续上传",
+    cancelText: "取消上传",
+  });
+}
+
+function readerDocumentTypeFromMetadata(metadata = {}) {
+  const explicit =
+    metadata?.documentType ||
+    metadata?.stream?.documentType ||
+    metadata?.contentSummary?.documentType;
+  if (explicit) return explicit;
+
+  const mimeType = String(
+    metadata?.mimeType || metadata?.stream?.mimeType || ""
+  )
+    .trim()
+    .toLowerCase();
+  const filename = String(
+    metadata?.storedName ||
+      metadata?.originalName ||
+      metadata?.localPath ||
+      metadata?.previewPdfName ||
+      ""
+  ).toLowerCase();
+
+  if (mimeType === "application/pdf" || filename.endsWith(".pdf")) return "pdf";
+  if (
+    mimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    filename.endsWith(".docx")
+  )
+    return "docx";
+  if (
+    mimeType ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    filename.endsWith(".xlsx")
+  )
+    return "xlsx";
+  if (mimeType === "application/epub+zip" || filename.endsWith(".epub"))
+    return "epub";
+  if (
+    mimeType === "text/markdown" ||
+    filename.endsWith(".md") ||
+    filename.endsWith(".markdown")
+  )
+    return "markdown";
+  return null;
+}
+
 function readerDocumentTypeFromData(data = {}, historyItem = null) {
   return (
     data?.content?.documentType ||
     data?.contentSummary?.documentType ||
-    data?.metadata?.documentType ||
+    readerDocumentTypeFromMetadata(data?.metadata) ||
     historyItem?.documentType ||
+    readerDocumentTypeFromMetadata(historyItem?.metadata) ||
     null
   );
 }
@@ -153,11 +230,23 @@ function blobToDataUrl(blob) {
   });
 }
 
+async function thumbnailDataUrlFromUrl(thumbnailUrl) {
+  if (!thumbnailUrl || /^(data:|blob:)/i.test(thumbnailUrl))
+    return thumbnailUrl || null;
+  try {
+    const { response, blob } = await ReaderDocument.thumbnailBlob(thumbnailUrl);
+    if (response.ok && blob?.size > 0) return await blobToDataUrl(blob);
+  } catch {}
+  return null;
+}
+
 export function DocumentReaderProvider({
   workspace,
   threadSlug = null,
   children,
 }) {
+  const auth = useContext(AuthContext);
+  const authToken = auth?.store?.authToken || null;
   const storageKey = readerStorageKey(workspace?.slug, threadSlug);
   const initialDrawerState = readReaderDrawerState();
   const initialStoredDocument = readerItemWithLatestBookMemory(
@@ -199,6 +288,7 @@ export function DocumentReaderProvider({
   const pendingReaderOpenRef = useRef(null);
   const readerOpenSeqRef = useRef(0);
   const readerOpenAbortRef = useRef(null);
+  const readerBookshelfServerSyncSeqRef = useRef(0);
   const readerRouteKeyRef = useRef(
     `${workspace?.slug || ""}:${threadSlug || ""}`
   );
@@ -400,7 +490,9 @@ export function DocumentReaderProvider({
     if (!data?.metadata) return null;
     const title = data.metadata.originalName;
     const documentType =
-      data.content?.documentType || data.metadata.documentType;
+      data.content?.documentType ||
+      data.contentSummary?.documentType ||
+      readerDocumentTypeFromMetadata(data.metadata);
     if (!documentType) return null;
     return {
       source: data.metadata.source || "reader_upload",
@@ -410,11 +502,25 @@ export function DocumentReaderProvider({
       branchLabel: null,
       documentType,
       size: data.metadata.size ?? null,
+      metadata: {
+        ...data.metadata,
+        documentType,
+      },
+      pdfManifest: data.metadata.pdfManifest || null,
       readerDocumentId: data.metadata.readerDocumentId,
       backupReaderDocumentId: data.metadata.readerDocumentId,
       readerDocumentWorkspaceSlug:
         data.metadata.readerDocumentWorkspaceSlug || null,
+      thumbnailUrl: data.metadata.thumbnailUrl || null,
+      thumbnailDataUrl: data.metadata.thumbnailDataUrl || null,
       uploaded: true,
+      category:
+        data.postprocess?.tasks?.classification?.result?.category ||
+        data.classification?.category ||
+        null,
+      postprocess: data.postprocess || null,
+      addedAt: data.metadata.createdAt || data.metadata.updatedAt || null,
+      updatedAt: data.metadata.updatedAt || data.metadata.createdAt || null,
       progress: { label: "阅读进度", percent: 0, updatedAt: null },
     };
   }, []);
@@ -434,6 +540,86 @@ export function DocumentReaderProvider({
     setReaderBookshelf(next);
     return next;
   }, []);
+
+  const refreshLocalReaderLibraryState = useCallback(() => {
+    setSourcesByTurn(readReaderSources({}) || {});
+    setReaderHistory(readReaderHistory());
+    setReaderBookshelf(readReaderBookshelf());
+    setReaderCategories(readReaderBookshelfCategories());
+  }, []);
+
+  const syncAllServerBookshelves = useCallback(
+    async (signal = null) => {
+      if (!(authToken || getAuthToken())) return readReaderBookshelf();
+      const syncSeq = ++readerBookshelfServerSyncSeqRef.current;
+      const scopes = workspace?.slug ? [null, workspace.slug] : [null];
+      const results = await Promise.all(
+        scopes.map(async (scope) => {
+          try {
+            const { response, data } = await ReaderDocument.list(scope, {
+              signal,
+            });
+            if (!response.ok || !data?.success) return [];
+            return data.documents || [];
+          } catch (error) {
+            if (error?.name !== "AbortError") {
+              console.warn("[DocumentReader] bookshelf scope sync failed", {
+                scope: scope || "standalone",
+                error: error.message,
+              });
+            }
+            return [];
+          }
+        })
+      );
+      if (
+        signal?.aborted ||
+        syncSeq !== readerBookshelfServerSyncSeqRef.current
+      )
+        return readReaderBookshelf();
+
+      const items = results
+        .flat()
+        .map((documentData) => bookshelfItemFromServerData(documentData))
+        .filter(Boolean);
+      if (!items.length) return readReaderBookshelf();
+      const nextBookshelf = addItemsToBookshelf(items);
+      items
+        .filter((item) => item.thumbnailUrl && !item.thumbnailDataUrl)
+        .forEach((item) => {
+          void thumbnailDataUrlFromUrl(item.thumbnailUrl).then((dataUrl) => {
+            if (!dataUrl) return;
+            setReaderBookshelf(
+              updateReaderBookshelfItem(item, { thumbnailDataUrl: dataUrl })
+            );
+          });
+        });
+      return nextBookshelf;
+    },
+    [
+      addItemsToBookshelf,
+      authToken,
+      bookshelfItemFromServerData,
+      workspace?.slug,
+    ]
+  );
+
+  const refreshReaderLibraryFromPersistentSources = useCallback(
+    async (_reason = "refresh", signal = null) => {
+      void _reason;
+      refreshLocalReaderLibraryState();
+      try {
+        await hydrateReaderLibraryNow();
+      } catch {}
+      if (signal?.aborted) return readReaderBookshelf();
+      refreshLocalReaderLibraryState();
+      const bookshelf = await syncAllServerBookshelves(signal);
+      if (signal?.aborted) return bookshelf;
+      refreshLocalReaderLibraryState();
+      return bookshelf;
+    },
+    [refreshLocalReaderLibraryState, syncAllServerBookshelves]
+  );
 
   const patchStoredCategoryForItem = useCallback((item, patch = {}) => {
     if (!item) return;
@@ -491,14 +677,7 @@ export function DocumentReaderProvider({
   }, []);
 
   const thumbnailSrcForStorage = useCallback(async (thumbnailSrc) => {
-    if (!thumbnailSrc || /^(data:|blob:)/i.test(thumbnailSrc))
-      return thumbnailSrc || null;
-    try {
-      const { response, blob } =
-        await ReaderDocument.thumbnailBlob(thumbnailSrc);
-      if (response.ok && blob?.size > 0) return await blobToDataUrl(blob);
-    } catch {}
-    return null;
+    return await thumbnailDataUrlFromUrl(thumbnailSrc);
   }, []);
 
   const applyPostprocessResult = useCallback(
@@ -565,9 +744,16 @@ export function DocumentReaderProvider({
       const readerDocumentId =
         item.readerDocumentId || item.backupReaderDocumentId || null;
       if (!readerDocumentId) return;
+      const requestedTasks =
+        item.documentType === "pdf"
+          ? [...new Set([...(tasks || []), "pdfManifest"])]
+          : tasks;
       const readerDocumentWorkspaceSlug =
         item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
-      const key = `${readerDocumentId}:${tasks.slice().sort().join(",")}`;
+      const key = `${readerDocumentId}:${requestedTasks
+        .slice()
+        .sort()
+        .join(",")}`;
       if (postprocessQueueRef.current.has(key)) return;
       postprocessQueueRef.current.add(key);
       if (uploadEntryId) {
@@ -602,7 +788,7 @@ export function DocumentReaderProvider({
         const { response } = await ReaderDocument.postprocess(
           readerDocumentWorkspaceSlug,
           readerDocumentId,
-          { tasks, categories }
+          { tasks: requestedTasks, categories }
         );
         if (!response.ok) {
           if (categoryTasks) failClassification("后台分类启动失败。");
@@ -636,7 +822,7 @@ export function DocumentReaderProvider({
             });
           }
           if (!stillExists) break;
-          const pendingTasks = tasks.some((task) =>
+          const pendingTasks = requestedTasks.some((task) =>
             ["queued", "processing", "extracting", "classifying"].includes(
               data.tasks?.[task]?.status
             )
@@ -839,6 +1025,7 @@ export function DocumentReaderProvider({
         branchId: historyItem?.branchId || null,
         branchLabel: historyItem?.branchLabel || null,
         documentType: content.documentType,
+        initialTargetSource: historyItem?.initialTargetSource || null,
         readerDocumentId:
           historyItem?.readerDocumentId || readerDocumentId || null,
         backupReaderDocumentId:
@@ -921,6 +1108,7 @@ export function DocumentReaderProvider({
         metadata: data.metadata,
         content: parsedContent,
         objectUrl,
+        initialTargetSource: historyItem?.initialTargetSource || null,
         localPath: data.metadata.localPath || progressItem?.localPath || null,
         progress: normalizedReaderProgress(progressItem?.progress),
         thumbnailDataUrl: progressItem?.thumbnailDataUrl || null,
@@ -1440,6 +1628,8 @@ export function DocumentReaderProvider({
         documentType: source.documentType,
         readerDocumentId: source.readerDocumentId,
         backupReaderDocumentId: source.backupReaderDocumentId,
+        initialTargetSource: source,
+        progress: readerProgressFromPdfTargetSource(source),
       });
       if (!opened) return;
       window.setTimeout(() => {
@@ -1468,11 +1658,8 @@ export function DocumentReaderProvider({
 
   useEffect(() => {
     migrateReaderStorage(workspace?.slug, threadSlug);
-    const storedSources = readReaderSources({});
-    setSourcesByTurn(storedSources || {});
-    setReaderHistory(readReaderHistory());
-    setReaderBookshelf(readReaderBookshelf());
-    setReaderCategories(readReaderBookshelfCategories());
+    refreshLocalReaderLibraryState();
+    void refreshReaderLibraryFromPersistentSources("route-open");
 
     const stored = readerItemWithLatestBookMemory(
       readReaderCurrentDocument(null)
@@ -1528,6 +1715,8 @@ export function DocumentReaderProvider({
     openReaderDocument,
     openWorkspaceParsedDocument,
     readerCloseSuppressed,
+    refreshLocalReaderLibraryState,
+    refreshReaderLibraryFromPersistentSources,
     setDrawerOpenPersisted,
     storageKey,
     migrateReaderStorage,
@@ -1536,14 +1725,56 @@ export function DocumentReaderProvider({
   ]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    refreshReaderLibraryFromPersistentSources(
+      "token-or-route",
+      controller.signal
+    );
+    return () => controller.abort();
+  }, [authToken, storageKey, refreshReaderLibraryFromPersistentSources]);
+
+  useEffect(() => {
+    if (!drawerOpen || readerBookshelf.length > 0) return;
+    const controller = new AbortController();
+    let stopped = false;
+    const refreshEmptyBookshelf = (reason) => {
+      if (stopped || controller.signal.aborted) return;
+      refreshReaderLibraryFromPersistentSources(reason, controller.signal);
+    };
+    refreshEmptyBookshelf("drawer-open");
+    const retry = window.setInterval(() => {
+      refreshEmptyBookshelf("drawer-open-empty-retry");
+    }, 5_000);
+    return () => {
+      stopped = true;
+      window.clearInterval(retry);
+      controller.abort();
+    };
+  }, [
+    drawerOpen,
+    readerBookshelf.length,
+    refreshReaderLibraryFromPersistentSources,
+  ]);
+
+  useEffect(() => {
     const onReaderLocalCacheHydrated = (event) => {
       const hydratedKey = event?.detail?.key;
+      const shouldRefreshLocalState =
+        !hydratedKey ||
+        hydratedKey === storageKey ||
+        hydratedKey === READER_SOURCES_STORAGE_KEY ||
+        hydratedKey === READER_HISTORY_STORAGE_KEY ||
+        hydratedKey === READER_BOOKSHELF_STORAGE_KEY ||
+        hydratedKey === READER_BOOKSHELF_CATEGORIES_STORAGE_KEY;
+
+      if (shouldRefreshLocalState) {
+        refreshLocalReaderLibraryState();
+      }
+
       if (hydratedKey && hydratedKey !== storageKey) {
-        setSourcesByTurn(readReaderSources({}) || {});
         return;
       }
 
-      setSourcesByTurn(readReaderSources({}) || {});
       const stored = readerItemWithLatestBookMemory(
         readReaderCurrentDocument(null)
       );
@@ -1597,6 +1828,7 @@ export function DocumentReaderProvider({
     openReaderDocument,
     openWorkspaceParsedDocument,
     readerCloseSuppressed,
+    refreshLocalReaderLibraryState,
     storageKey,
     workspace?.slug,
   ]);
@@ -2026,69 +2258,70 @@ export function DocumentReaderProvider({
           stage: "uploading",
         });
 
-        const bookKey = normalizeBookTitle(file.name);
-        const existingItem = readReaderBookshelf().find(
-          (item) => item.bookKey === bookKey && !item.branchId
-        );
-        if (
-          existingItem?.readerDocumentId ||
-          existingItem?.backupReaderDocumentId
-        ) {
-          const itemForAdd =
-            existingItem.category?.source === "manual"
-              ? existingItem
-              : {
-                  ...existingItem,
-                  ...pendingReaderCategory("extracting", "等待自动分类"),
-                };
-          const itemWithLocalSource = {
-            ...itemForAdd,
-            localPath: null,
-            localSourceId: null,
-          };
-          itemsToAdd.push(itemWithLocalSource);
-          const tasks = [];
-          if (!existingItem.thumbnailDataUrl) tasks.push("thumbnail");
-          if (existingItem.category?.source !== "manual")
-            tasks.push("classification");
-          if (tasks.length)
-            void queueBookshelfPostprocess({
-              item: itemWithLocalSource,
-              tasks,
-              uploadEntryId: entryId,
-            });
-          patchBookshelfUpload(entryId, {
-            status: tasks.length ? "postprocessing" : "complete",
-            stage: tasks.length ? "postprocessing" : "complete",
-            percent: 100,
-            speedBps: 0,
-          });
-          continue;
-        }
-
-        const formData = new FormData();
-        formData.append("file", file, file.name);
         const controller = new AbortController();
         uploadAbortControllersRef.current.set(entryId, controller);
         try {
-          const { response, data } = await ReaderDocument.upload(
-            null,
-            formData,
-            {
-              signal: controller.signal,
-              onUploadProgress: (progress) => {
-                const uploadComplete = progress.percent >= 100;
+          let duplicateAction = null;
+          let uploadResult = null;
+          while (!uploadResult) {
+            const formData = new FormData();
+            formData.append("file", file, file.name);
+            if (workspace?.slug)
+              formData.append("workspaceSlug", workspace.slug);
+            const ignoredIds = readDeletedReaderDocumentIds().map(
+              (entry) => entry.id
+            );
+            if (ignoredIds.length)
+              formData.append(
+                "ignoredReaderDocumentIds",
+                JSON.stringify(ignoredIds)
+              );
+            if (duplicateAction)
+              formData.append("duplicateAction", duplicateAction);
+            try {
+              uploadResult = await ReaderDocument.upload(null, formData, {
+                signal: controller.signal,
+                onUploadProgress: (progress) => {
+                  const uploadComplete = progress.percent >= 100;
+                  patchBookshelfUpload(entryId, {
+                    status: "uploading",
+                    stage: uploadComplete ? "server_processing" : "uploading",
+                    percent: progress.percent,
+                    speedBps:
+                      progress.speedBps || progress.averageSpeedBps || 0,
+                    loaded: progress.loaded,
+                    total: progress.total,
+                  });
+                },
+              });
+            } catch (error) {
+              const duplicate = duplicateUploadPayload(error);
+              if (!duplicate || duplicateAction === "continue") throw error;
+              const confirmed = await confirmDuplicateReaderUpload(
+                file.name,
+                duplicate
+              );
+              if (!confirmed) {
                 patchBookshelfUpload(entryId, {
-                  status: "uploading",
-                  stage: uploadComplete ? "server_processing" : "uploading",
-                  percent: progress.percent,
-                  speedBps: progress.speedBps || progress.averageSpeedBps || 0,
-                  loaded: progress.loaded,
-                  total: progress.total,
+                  status: "failed",
+                  stage: "failed",
+                  error: "已取消重复上传。",
                 });
-              },
+                uploadResult = { cancelled: true };
+                break;
+              }
+              duplicateAction = "continue";
+              patchBookshelfUpload(entryId, {
+                status: "uploading",
+                stage: "uploading",
+                percent: 0,
+                speedBps: 0,
+                error: null,
+              });
             }
-          );
+          }
+          if (uploadResult?.cancelled) continue;
+          const { response, data } = uploadResult;
           patchBookshelfUpload(entryId, {
             status: "server_processing",
             stage: "server_processing",
@@ -2156,6 +2389,7 @@ export function DocumentReaderProvider({
       bookshelfItemFromServerData,
       patchBookshelfUpload,
       queueBookshelfPostprocess,
+      workspace?.slug,
     ]
   );
 
@@ -2475,6 +2709,64 @@ export function DocumentReaderProvider({
             readerDocumentId,
           }))
       );
+      const optimisticDeletedIds = deleteTargets.map(
+        (target) => target.readerDocumentId
+      );
+      rememberDeletedReaderDocumentIds(optimisticDeletedIds);
+      const removableKeys = removableBookshelfKeysAfterReaderDelete(
+        selectedItems,
+        optimisticDeletedIds
+      );
+      const removableKeySet = new Set(removableKeys);
+      const removableItems = selectedItems.filter((item) =>
+        removableKeySet.has(readerLibraryItemKey(item))
+      );
+
+      if (removableKeys.length) {
+        const nextBookshelf = deleteStoredReaderBookshelfItems(removableKeys);
+        deleteReaderProgressBackup(removableItems);
+        setReaderBookshelf(nextBookshelf);
+      }
+
+      if (optimisticDeletedIds.length) {
+        const { bookshelf } =
+          clearDeletedReaderDocumentIdsFromAllStorage(optimisticDeletedIds);
+        setReaderBookshelf(bookshelf);
+
+        if (
+          currentDocument &&
+          (optimisticDeletedIds.includes(currentDocument.readerDocumentId) ||
+            optimisticDeletedIds.includes(
+              currentDocument.backupReaderDocumentId
+            ))
+        ) {
+          const readerDocumentId = optimisticDeletedIds.includes(
+            currentDocument.readerDocumentId
+          )
+            ? null
+            : currentDocument.readerDocumentId || null;
+          const backupReaderDocumentId = optimisticDeletedIds.includes(
+            currentDocument.backupReaderDocumentId
+          )
+            ? null
+            : currentDocument.backupReaderDocumentId || null;
+          const nextDocument = {
+            ...currentDocument,
+            readerDocumentId,
+            backupReaderDocumentId,
+            uploaded: !!(readerDocumentId || backupReaderDocumentId),
+          };
+          setCurrentDocument(nextDocument);
+          persistDocument(nextDocument);
+        }
+      }
+
+      for (const item of removableItems) {
+        deleteStoredReaderHistoryItem(null, null, item);
+      }
+      await deleteReaderLocalSources(removableItems);
+      setReaderHistory(readReaderHistory());
+
       const deleteResults = await Promise.all(
         deleteTargets.map(async ({ targetWorkspaceSlug, readerDocumentId }) => {
           try {
@@ -2504,61 +2796,15 @@ export function DocumentReaderProvider({
           }
         })
       );
-      const deletedIds = deleteResults
-        .filter((result) => result.ok)
-        .map((result) => result.readerDocumentId);
       const failedDeletes = deleteResults.filter((result) => !result.ok);
-
-      const nextBookshelf = deleteStoredReaderBookshelfItems(
-        selectedItems.map((item) => item.key)
-      );
-      deleteReaderProgressBackup(selectedItems);
-      setReaderBookshelf(nextBookshelf);
-
-      if (deletedIds.length) {
-        const { bookshelf } =
-          clearDeletedReaderDocumentIdsFromAllStorage(deletedIds);
-        setReaderBookshelf(bookshelf);
-
-        if (
-          currentDocument &&
-          (deletedIds.includes(currentDocument.readerDocumentId) ||
-            deletedIds.includes(currentDocument.backupReaderDocumentId))
-        ) {
-          const readerDocumentId = deletedIds.includes(
-            currentDocument.readerDocumentId
-          )
-            ? null
-            : currentDocument.readerDocumentId || null;
-          const backupReaderDocumentId = deletedIds.includes(
-            currentDocument.backupReaderDocumentId
-          )
-            ? null
-            : currentDocument.backupReaderDocumentId || null;
-          const nextDocument = {
-            ...currentDocument,
-            readerDocumentId,
-            backupReaderDocumentId,
-            uploaded: !!(readerDocumentId || backupReaderDocumentId),
-          };
-          setCurrentDocument(nextDocument);
-          persistDocument(nextDocument);
-        }
-      }
-
-      for (const item of selectedItems) {
-        deleteStoredReaderHistoryItem(null, null, item);
-      }
-      await deleteReaderLocalSources(selectedItems);
-      setReaderHistory(readReaderHistory());
 
       if (failedDeletes.length) {
         showToast(
-          `已从书架移除，${failedDeletes.length} 个服务器备份删除失败。`,
+          `部分服务器备份删除失败，已先从本机书架隐藏 ${failedDeletes.length} 本书，后台稍后可重试。`,
           "warning"
         );
       } else {
-        showToast(`已删除 ${selectedItems.length} 本书`, "success");
+        showToast(`已删除 ${removableItems.length} 本书`, "success");
       }
     },
     [currentDocument, persistDocument]

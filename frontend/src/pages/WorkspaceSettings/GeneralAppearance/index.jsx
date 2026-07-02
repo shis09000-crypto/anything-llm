@@ -7,14 +7,24 @@ import SuggestedChatMessages from "./SuggestedChatMessages";
 import DeleteWorkspace from "./DeleteWorkspace";
 import CTAButton from "@/components/lib/CTAButton";
 
-export default function GeneralInfo({ slug }) {
-  const [workspace, setWorkspace] = useState(null);
+export default function GeneralInfo({
+  slug,
+  workspace: initialWorkspace = null,
+}) {
+  const [workspace, setWorkspace] = useState(initialWorkspace);
   const [hasChanges, setHasChanges] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialWorkspace);
   const formEl = useRef(null);
 
   useEffect(() => {
+    if (!initialWorkspace?.slug || initialWorkspace.slug !== slug) return;
+    setWorkspace(initialWorkspace);
+    setLoading(false);
+  }, [initialWorkspace, slug]);
+
+  useEffect(() => {
+    if (initialWorkspace?.slug === slug) return;
     const controller = new AbortController();
     async function fetchWorkspace() {
       const workspace = await Workspace.bySlug(slug, {
@@ -30,7 +40,7 @@ export default function GeneralInfo({ slug }) {
       if (!controller.signal.aborted) setLoading(false);
     });
     return () => controller.abort();
-  }, [slug]);
+  }, [initialWorkspace, slug]);
 
   const handleUpdate = async (e) => {
     setSaving(true);
@@ -51,7 +61,15 @@ export default function GeneralInfo({ slug }) {
     setHasChanges(false);
   };
 
-  if (!workspace || loading) return null;
+  if (!workspace || loading) {
+    return (
+      <div className="w-full max-w-3xl space-y-4">
+        <div className="motion-skeleton h-8 w-64 rounded-md" />
+        <div className="motion-skeleton h-28 w-full rounded-md" />
+        <div className="motion-skeleton h-40 w-full rounded-md" />
+      </div>
+    );
+  }
   return (
     <div className="w-full relative">
       <form

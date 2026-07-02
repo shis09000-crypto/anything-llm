@@ -1704,6 +1704,8 @@ function dumpENV() {
     // Manually Add Keys here which are not already defined in KEY_MAPPING
     // and are either managed or manually set ENV key:values.
     "JWT_EXPIRY",
+    "JWT_SECRET_PREVIOUS",
+    "JWT_SECRET_FALLBACKS",
 
     "SERVER_PORT",
     "COLLECTOR_PORT",

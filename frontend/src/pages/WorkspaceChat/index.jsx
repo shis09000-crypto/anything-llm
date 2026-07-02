@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
 import { default as WorkspaceChatContainer } from "@/components/WorkspaceChat";
-import Sidebar from "@/components/Sidebar";
 import { useParams } from "react-router-dom";
 import Workspace from "@/models/workspace";
 import PasswordModal, {
@@ -11,7 +10,6 @@ import { FullScreenLoader } from "@/components/Preloader";
 import { warmWorkspaceChat } from "@/utils/chat/workspaceChatPrefetch";
 import { rememberLastVisitedWorkspace } from "@/utils/lastVisitedWorkspace";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
-import { ChatThreadDraftProviderBoundary } from "@/contexts/ChatThreadDraftProvider";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { mobileRuntimeActive } from "@/utils/mobileRuntime";
@@ -76,14 +74,7 @@ export default function WorkspaceChat() {
     );
   }
 
-  return (
-    <ChatThreadDraftProviderBoundary>
-      <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
-        <Sidebar />
-        <ShowWorkspaceChat />
-      </div>
-    </ChatThreadDraftProviderBoundary>
-  );
+  return <ShowWorkspaceChat />;
 }
 
 function ShowWorkspaceChat() {

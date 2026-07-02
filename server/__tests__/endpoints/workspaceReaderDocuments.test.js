@@ -199,12 +199,158 @@ describe("workspace reader documents", () => {
         supportsRange: true,
         cacheControl: "private, max-age=604800, no-transform",
         mimeType: "application/pdf",
-        documentType: null,
+        documentType: "pdf",
       },
     });
     expect(metadata).not.toHaveProperty("ownerScopeVersion");
     expect(metadata).not.toHaveProperty("ownerUserId");
     expect(metadata).not.toHaveProperty("ownerAuthUserId");
+  });
+
+  it("lists PDF reader documents when a legacy manifest is missing", async () => {
+    const {
+      listReaderDocumentsForWorkspace,
+      readerDocumentRoot,
+      readOptionalReaderPdfManifest,
+    } = loadEndpoint(storageDir);
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    const workspace = { id: 1, slug: "workspace-a" };
+    const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+    fs.mkdirSync(documentRoot, { recursive: true });
+    fs.writeFileSync(
+      path.join(documentRoot, "metadata.json"),
+      JSON.stringify({
+        originalName: "legacy-book.pdf",
+        mimeType: "application/pdf",
+        documentType: "pdf",
+        size: 1024,
+        originalFingerprint: "legacy-fingerprint",
+        createdAt: "2026-07-01T00:00:00.000Z",
+      })
+    );
+
+    expect(
+      readOptionalReaderPdfManifest(documentRoot, readerDocumentId)
+    ).toBeNull();
+
+    const documents = await listReaderDocumentsForWorkspace({
+      request: {},
+      response: {},
+      workspace,
+    });
+
+    expect(documents).toHaveLength(1);
+    expect(documents[0].readerDocumentId).toBe(readerDocumentId);
+    expect(documents[0].metadata).toMatchObject({
+      originalName: "legacy-book.pdf",
+      pagePreviewUrl:
+        "/api/workspace/workspace-a/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/page-preview",
+      pdfManifest: null,
+    });
+  });
+
+  it("hides tombstoned reader documents from list responses", async () => {
+    const {
+      listReaderDocumentsForWorkspace,
+      markReaderDocumentDeleted,
+      readerDocumentIsDeleted,
+      readerDocumentRoot,
+    } = loadEndpoint(storageDir);
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    const workspace = { id: 1, slug: "workspace-a" };
+    const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+    fs.mkdirSync(documentRoot, { recursive: true });
+    const metadata = {
+      readerDocumentId,
+      originalName: "deleted-book.md",
+      storedName: "original.md",
+      mimeType: "text/markdown",
+      documentType: "markdown",
+      size: 128,
+      createdAt: "2026-07-01T00:00:00.000Z",
+    };
+    fs.writeFileSync(
+      path.join(documentRoot, "metadata.json"),
+      JSON.stringify(metadata)
+    );
+    fs.writeFileSync(
+      path.join(documentRoot, "content.json"),
+      JSON.stringify({ documentType: "markdown", blocks: [] })
+    );
+
+    markReaderDocumentDeleted({ workspace, readerDocumentId, metadata });
+
+    expect(readerDocumentIsDeleted(documentRoot)).toBe(true);
+    const documents = await listReaderDocumentsForWorkspace({
+      request: {},
+      response: {},
+      workspace,
+    });
+    expect(documents).toEqual([]);
+  });
+
+  it("detects visible duplicate uploads and ignores tombstoned matches", async () => {
+    const {
+      duplicateSignatureFor,
+      findReaderDuplicateCandidate,
+      markReaderDocumentDeleted,
+      readerDocumentRoot,
+    } = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+    const leadText =
+      "这是一段用于重复检测的开头文字，长度需要超过一百个字符，确保哈希可以稳定生成并且后端能够识别同一本书籍的重复上传。继续补足字符。".repeat(
+        3
+      );
+    const signature = duplicateSignatureFor({
+      originalName: "重复测试.md",
+      leadText,
+    });
+    fs.mkdirSync(documentRoot, { recursive: true });
+    const metadata = {
+      readerDocumentId,
+      originalName: "重复测试.md",
+      storedName: "original.md",
+      mimeType: "text/markdown",
+      documentType: "markdown",
+      size: 256,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      readerDuplicate: signature,
+    };
+    fs.writeFileSync(
+      path.join(documentRoot, "metadata.json"),
+      JSON.stringify(metadata)
+    );
+    fs.writeFileSync(
+      path.join(documentRoot, "content.json"),
+      JSON.stringify({ documentType: "markdown", blocks: [] })
+    );
+
+    const request = { body: {} };
+    const response = {};
+    const visibleResult = await findReaderDuplicateCandidate({
+      request,
+      response,
+      uploadWorkspace: workspace,
+      originalName: "重复测试.md",
+      leadText,
+    });
+    expect(visibleResult.duplicate).toMatchObject({
+      readerDocumentId,
+      title: "重复测试.md",
+      workspaceSlug: "workspace-a",
+    });
+
+    markReaderDocumentDeleted({ workspace, readerDocumentId, metadata });
+    const deletedResult = await findReaderDuplicateCandidate({
+      request: { body: { ignoredReaderDocumentIds: readerDocumentId } },
+      response,
+      uploadWorkspace: workspace,
+      originalName: "重复测试.md",
+      leadText,
+    });
+    expect(deletedResult.duplicate).toBeNull();
   });
 
   it("sets cacheable byte-range headers for reader originals", () => {
@@ -345,7 +491,41 @@ describe("workspace reader documents", () => {
     expect(sanitizedPostprocessTasks([])).toEqual([
       "thumbnail",
       "classification",
+      "pdfManifest",
     ]);
+  });
+
+  it("prioritizes target and nearby pages for PDF preview windows", () => {
+    const { orderedPdfPreviewWindowPages } = loadEndpoint(storageDir);
+    expect(
+      orderedPdfPreviewWindowPages({
+        centerPage: 20,
+        manifest: { pageCount: 24 },
+        before: 2,
+        after: 3,
+      })
+    ).toEqual([20, 21, 19, 22, 18, 23]);
+    expect(
+      orderedPdfPreviewWindowPages({
+        centerPage: 2,
+        manifest: { pageCount: 3 },
+        before: 4,
+        after: 4,
+      })
+    ).toEqual([2, 3, 1]);
+  });
+
+  it("starts large PDF preview prebuild with target pages before full sweep", () => {
+    const { orderedPdfPreviewPrebuildPages } = loadEndpoint(storageDir);
+    const pages = orderedPdfPreviewPrebuildPages({
+      manifest: { pageCount: 40 },
+      focusPage: 20,
+      includeAll: true,
+    });
+    expect(pages.slice(0, 6)).toEqual([20, 21, 19, 22, 18, 23]);
+    expect(pages).toContain(1);
+    expect(pages).toContain(40);
+    expect(new Set(pages).size).toBe(pages.length);
   });
 
   it("parses classification JSON from thinking and wrapped responses", () => {
@@ -456,6 +636,28 @@ describe("workspace reader documents", () => {
     });
   });
 
+  it("matches classification categories by localized name", () => {
+    const { validateClassificationResult } = loadEndpoint(storageDir);
+    const result = validateClassificationResult({
+      result: {
+        primaryCategoryId: "金融经济",
+        primaryCategoryName: "金融经济",
+        confidence: 0.88,
+        reason: "文本讨论金融与投资。",
+      },
+      categories: [
+        { id: "unknown", name: "未知分类" },
+        { id: "finance", name: "金融经济" },
+      ],
+      sampleStrategy: "balanced-2x200",
+    });
+
+    expect(result.categoryStatus).toBe("classified");
+    expect(result.category.primaryCategoryId).toBe("finance");
+    expect(result.category.primaryCategoryName).toBe("金融经济");
+    expect(result.category.source).toBe("llm");
+  });
+
   it("falls back on invalid classification JSON", async () => {
     process.env.DEEPSEEK_API_KEY = "test-key";
     const getLLMProvider = jest.fn(() => ({
@@ -497,5 +699,29 @@ describe("workspace reader documents", () => {
     });
     expect(result.categoryStatus).toBe("unknown");
     expect(result.reason).toBe("分类置信度较低，已归入未知分类。");
+  });
+
+  it("uses title keyword fallback for low-confidence finance books", () => {
+    const { validateClassificationResult } = loadEndpoint(storageDir);
+    const result = validateClassificationResult({
+      title: "涛动周期论超高清版本_可搜索.pdf",
+      result: {
+        primaryCategoryId: "finance",
+        confidence: 0.35,
+      },
+      categories: [
+        { id: "unknown", name: "未知分类" },
+        { id: "finance", name: "金融经济" },
+      ],
+      sampleStrategy: "balanced-2x200",
+    });
+
+    expect(result.categoryStatus).toBe("classified");
+    expect(result.categoryStage).toBe("fallback-rule");
+    expect(result.category.primaryCategoryId).toBe("finance");
+    expect(result.category.source).toBe("fallback-rule");
+    expect(result.reason).toContain("金融经济");
+    expect(result.reason).not.toContain("未知分类");
+    expect(result.category.confidence).toBeLessThan(0.55);
   });
 });

@@ -34,6 +34,7 @@ const {
 const { storagePath } = require("../utils/environment");
 const {
   fileBackedOwnerMetadata,
+  getAuthorizedWorkspace,
   getAuthorizedFileBackedResource,
   requestAuthContext,
   stripFileBackedOwnerMetadata,
@@ -75,21 +76,62 @@ const DOCX_PREVIEW_NAME = "preview.pdf";
 const DOCX_PREVIEW_TIMEOUT_MS = 45_000;
 const docxPreviewJobs = new Map();
 const READER_THUMBNAIL_NAME = "thumbnail.jpg";
+const READER_DELETE_MARKER_NAME = "delete-marker.json";
 const READER_POSTPROCESS_STATUS_NAME = "postprocess.json";
+const READER_PDF_MANIFEST_NAME = "pdf-manifest.json";
 const READER_POSTPROCESS_TEXT_LIMIT = 100_000;
+const READER_DUPLICATE_LEAD_TEXT_CHARS = 100;
+const READER_THUMBNAIL_MAINTENANCE_INTERVAL_MS = Math.max(
+  60_000,
+  Number(process.env.READER_THUMBNAIL_MAINTENANCE_INTERVAL_MS) ||
+    30 * 60 * 1_000
+);
+const READER_THUMBNAIL_MAINTENANCE_BATCH_SIZE = Math.max(
+  1,
+  Number(process.env.READER_THUMBNAIL_MAINTENANCE_BATCH_SIZE) || 24
+);
 const READER_THUMBNAIL_WIDTH = 360;
 const READER_THUMBNAIL_HEIGHT = 520;
 const READER_THUMBNAIL_QUALITY = 88;
 const READER_PDF_THUMBNAIL_TIMEOUT_MS = 30_000;
+const READER_PDF_PAGE_PREVIEW_TIMEOUT_MS = 18_000;
+const READER_PDF_PAGE_PREVIEW_DPI = 96;
+const READER_PDF_PAGE_PREVIEW_QUALITY = 74;
+const READER_PDF_PREWARM_MIN_BYTES = 10 * 1024 * 1024;
+const READER_PDF_PREVIEW_PREBUILD_MAX_PAGES = Math.max(
+  24,
+  Number(process.env.READER_PDF_PREVIEW_PREBUILD_MAX_PAGES) || 800
+);
+const READER_PDF_PREVIEW_PREBUILD_INITIAL_PAGES = Math.max(
+  4,
+  Number(process.env.READER_PDF_PREVIEW_PREBUILD_INITIAL_PAGES) || 18
+);
+const READER_PDF_PREVIEW_NEARBY_BEFORE = Math.max(
+  1,
+  Number(process.env.READER_PDF_PREVIEW_NEARBY_BEFORE) || 4
+);
+const READER_PDF_PREVIEW_NEARBY_AFTER = Math.max(
+  1,
+  Number(process.env.READER_PDF_PREVIEW_NEARBY_AFTER) || 8
+);
+const READER_PDF_PREVIEW_PREBUILD_PAUSE_MS = Math.max(
+  0,
+  Number(process.env.READER_PDF_PREVIEW_PREBUILD_PAUSE_MS) || 35
+);
 const READER_POSTPROCESS_QUEUE_CONCURRENCY = Math.max(
   1,
   Number(process.env.READER_POSTPROCESS_QUEUE_CONCURRENCY) || 1
 );
 const READER_STREAM_CACHE_CONTROL = "private, max-age=604800, no-transform";
 const readerPostprocessJobs = new Map();
+const readerDeleteJobs = new Map();
+const readerPdfManifestJobs = new Map();
+const readerPdfPagePreviewJobs = new Map();
+const readerPdfPreviewPrebuildJobs = new Map();
 const readerPostprocessQueue = new PQueue({
   concurrency: READER_POSTPROCESS_QUEUE_CONCURRENCY,
 });
+let readerThumbnailMaintenanceStarted = false;
 const CLASSIFICATION_TIMEOUT_MS = 20_000;
 const CLASSIFICATION_LLM_TEXT_LIMIT = 3_000;
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.55;
@@ -362,6 +404,86 @@ function validNonEmptyFile(filePath) {
   }
 }
 
+function readerDeleteMarkerPath(documentRoot) {
+  return safeResolve(documentRoot, READER_DELETE_MARKER_NAME);
+}
+
+function readReaderDeleteMarker(documentRoot) {
+  const markerPath = readerDeleteMarkerPath(documentRoot);
+  if (!fs.existsSync(markerPath)) return null;
+  const result = safeReadJsonFile(markerPath, null, {
+    context: { file: READER_DELETE_MARKER_NAME },
+  });
+  return result.ok ? result.value : { deleteStatus: "pending" };
+}
+
+function readerDocumentIsDeleted(documentRoot, metadata = null) {
+  if (readReaderDeleteMarker(documentRoot)) return true;
+  const status = String(metadata?.deleteStatus || "").toLowerCase();
+  return !!(
+    metadata?.deletedAt ||
+    status === "pending" ||
+    status === "deleted"
+  );
+}
+
+function assertReaderDocumentVisible(documentRoot, metadata = null) {
+  if (!readerDocumentIsDeleted(documentRoot, metadata)) return;
+  throw readerDocumentNotFoundError();
+}
+
+function markReaderDocumentDeleted({
+  workspace,
+  readerDocumentId,
+  metadata = {},
+  request,
+}) {
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const now = isoNow();
+  const existingMarker = readReaderDeleteMarker(documentRoot);
+  const marker = {
+    schemaVersion: 1,
+    readerDocumentId,
+    deleteStatus: "pending",
+    deletedAt: existingMarker?.deletedAt || now,
+    deleteRequestId:
+      existingMarker?.deleteRequestId ||
+      request?.headers?.["x-request-id"] ||
+      crypto.randomUUID(),
+  };
+  writeReaderJsonFile(documentRoot, READER_DELETE_MARKER_NAME, marker);
+  try {
+    writeReaderJsonFile(documentRoot, "metadata.json", {
+      ...metadata,
+      deletedAt: metadata.deletedAt || marker.deletedAt,
+      deleteStatus: "pending",
+      deleteRequestId: marker.deleteRequestId,
+    });
+  } catch {}
+  return marker;
+}
+
+function enqueueReaderDocumentDelete({ workspace, readerDocumentId }) {
+  const key = readerPostprocessKey(workspace, readerDocumentId);
+  if (readerDeleteJobs.has(key)) return;
+  const job = Promise.resolve()
+    .then(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+      if (!fs.existsSync(documentRoot)) return;
+      fs.rmSync(documentRoot, { recursive: true, force: true });
+    })
+    .catch((error) => {
+      console.warn("[ReaderDocumentDelete] async delete failed", {
+        readerDocumentId,
+        workspace: workspace?.slug || workspace?.readerStorageSegment || null,
+        error: error.message,
+      });
+    })
+    .finally(() => readerDeleteJobs.delete(key));
+  readerDeleteJobs.set(key, job);
+}
+
 function readerApiPrefix(workspace) {
   if (workspace?.readerApiPrefix) return workspace.readerApiPrefix;
   return `/api/workspace/${workspace.slug}/reader-documents`;
@@ -377,6 +499,7 @@ function thumbnailUrlForDocument(workspace, readerDocumentId) {
 
 function existingThumbnailUrlForDocument(workspace, readerDocumentId) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  if (readerDocumentIsDeleted(documentRoot)) return null;
   const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
   if (!validNonEmptyFile(thumbnailPath)) return null;
   return thumbnailUrlForDocument(workspace, readerDocumentId);
@@ -384,7 +507,10 @@ function existingThumbnailUrlForDocument(workspace, readerDocumentId) {
 
 function metadataIsDocx(metadata = {}) {
   try {
+    const mimeType = String(metadata.mimeType || "").toLowerCase();
     return (
+      mimeType ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       normalizedExtension(
         metadata.localPath || metadata.storedName || metadata.originalName || ""
       ) === ".docx"
@@ -392,6 +518,57 @@ function metadataIsDocx(metadata = {}) {
   } catch {
     return false;
   }
+}
+
+function metadataIsPdf(metadata = {}) {
+  try {
+    const mimeType = String(metadata.mimeType || "").toLowerCase();
+    return (
+      mimeType === "application/pdf" ||
+      normalizedExtension(
+        metadata.localPath || metadata.storedName || metadata.originalName || ""
+      ) === ".pdf"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function documentTypeFromMetadata(metadata = {}) {
+  const explicit =
+    metadata.documentType ||
+    metadata.stream?.documentType ||
+    metadata.contentSummary?.documentType;
+  if (explicit) return explicit;
+
+  const mimeType = String(metadata.mimeType || metadata.stream?.mimeType || "")
+    .trim()
+    .toLowerCase();
+  const ext = normalizedExtension(
+    metadata.localPath ||
+      metadata.storedName ||
+      metadata.originalName ||
+      metadata.previewPdfName ||
+      ""
+  );
+
+  if (mimeType === "application/pdf" || ext === ".pdf") return "pdf";
+  if (
+    mimeType ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    ext === ".docx"
+  )
+    return "docx";
+  if (
+    mimeType ===
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
+    ext === ".xlsx"
+  )
+    return "xlsx";
+  if (mimeType === "application/epub+zip" || ext === ".epub") return "epub";
+  if (mimeType === "text/markdown" || ext === ".md" || ext === ".markdown")
+    return "markdown";
+  return null;
 }
 
 function markdownBlocks(text = "") {
@@ -798,15 +975,23 @@ async function ensureDocxPreview({
 
 function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
   const publicMetadata = stripFileBackedOwnerMetadata(metadata);
+  const documentType = documentTypeFromMetadata(publicMetadata);
   const originalUrl = `${readerApiPrefix(workspace)}/${readerDocumentId}/original`;
+  const pagePreviewUrl = `${readerApiPrefix(workspace)}/${readerDocumentId}/page-preview`;
+  const thumbnailUrl = existingThumbnailUrlForDocument(
+    workspace,
+    readerDocumentId
+  );
   const size = Number(publicMetadata.size || 0);
   const etag =
     publicMetadata.originalFingerprint ||
     publicMetadata.fingerprint ||
     publicMetadata.previewFingerprint ||
     null;
+  const pdfManifest = publicMetadata.pdfManifest || null;
   return {
     ...publicMetadata,
+    documentType,
     originalName: decodeMaybeMojibakeFilename(publicMetadata.originalName),
     readerDocumentWorkspaceSlug: workspace?.readerStandalone
       ? null
@@ -820,17 +1005,23 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
       supportsRange: true,
       cacheControl: READER_STREAM_CACHE_CONTROL,
       mimeType: publicMetadata.mimeType || "application/octet-stream",
-      documentType: publicMetadata.documentType || null,
+      documentType,
     },
+    ...(metadataIsPdf(publicMetadata)
+      ? {
+          pagePreviewUrl,
+          pdfManifest,
+        }
+      : {}),
     ...(publicMetadata.previewPdfName
       ? {
           previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
           previewMimeType: "application/pdf",
         }
       : {}),
-    ...(publicMetadata.thumbnailName
+    ...(thumbnailUrl
       ? {
-          thumbnailUrl: thumbnailUrlForDocument(workspace, readerDocumentId),
+          thumbnailUrl,
           thumbnailMimeType: "image/jpeg",
         }
       : {}),
@@ -870,7 +1061,8 @@ async function readAuthorizedStandaloneReaderMetadata(
   response,
   documentRoot,
   readerDocumentId,
-  endpoint
+  endpoint,
+  options = {}
 ) {
   const metadata = readReaderJsonFile(documentRoot, "metadata.json", null, {
     readerDocumentId,
@@ -882,6 +1074,8 @@ async function readAuthorizedStandaloneReaderMetadata(
     readerDocumentId,
     metadata,
   });
+  if (!options.allowDeleted)
+    assertReaderDocumentVisible(documentRoot, metadata);
   return metadata;
 }
 
@@ -1417,6 +1611,297 @@ async function extractReaderClassificationText({ documentType, originalPath }) {
   return "";
 }
 
+function normalizeDuplicateTitle(value = "") {
+  return String(value || "")
+    .normalize("NFKC")
+    .replace(/\.(pdf|docx|xlsx|epub|md|markdown|txt)$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function normalizeDuplicateLeadText(value = "") {
+  return compactClassificationText(value)
+    .normalize("NFKC")
+    .replace(/\s+/g, "")
+    .slice(0, READER_DUPLICATE_LEAD_TEXT_CHARS);
+}
+
+function hashDuplicateLeadText(value = "") {
+  const normalized = normalizeDuplicateLeadText(value);
+  if (!normalized || normalized.length < READER_DUPLICATE_LEAD_TEXT_CHARS)
+    return null;
+  return crypto.createHash("sha256").update(normalized).digest("hex");
+}
+
+function duplicateSignatureFor({ originalName = "", leadText = "" }) {
+  return {
+    titleKey: normalizeDuplicateTitle(originalName),
+    leadTextHash: hashDuplicateLeadText(leadText),
+  };
+}
+
+async function textFromPdfFirstPages(originalPath, pageLimit = 3) {
+  const pdfjs = optionalRequire("pdfjs-dist/legacy/build/pdf");
+  if (!pdfjs?.getDocument) {
+    const pdfParse = optionalRequire("pdf-parse");
+    if (typeof pdfParse !== "function") return "";
+    const data = await pdfParse(fs.readFileSync(originalPath), {
+      max: Math.max(1, pageLimit),
+    });
+    return compactClassificationText(data?.text || "");
+  }
+
+  const loadingTask = pdfjs.getDocument({
+    data: new Uint8Array(fs.readFileSync(originalPath)),
+  });
+  const pdfDocument = await loadingTask.promise;
+  const accumulator = createClassificationAccumulator(
+    READER_DUPLICATE_LEAD_TEXT_CHARS * 4
+  );
+  try {
+    const limit = Math.min(pdfDocument.numPages || 0, Math.max(1, pageLimit));
+    for (let pageNo = 1; pageNo <= limit; pageNo += 1) {
+      const page = await pdfDocument.getPage(pageNo);
+      const content = await page.getTextContent();
+      accumulator.append(content.items.map((item) => item.str || "").join(" "));
+      page.cleanup?.();
+      if (
+        normalizeDuplicateLeadText(accumulator.text()).length >=
+        READER_DUPLICATE_LEAD_TEXT_CHARS
+      )
+        break;
+    }
+  } finally {
+    await pdfDocument.destroy?.();
+  }
+  return accumulator.text();
+}
+
+async function extractReaderDuplicateLeadText({
+  documentType,
+  originalPath,
+  buffer = null,
+}) {
+  if (documentType === "markdown" && buffer)
+    return buffer
+      .toString("utf8")
+      .slice(0, READER_DUPLICATE_LEAD_TEXT_CHARS * 8);
+  if (!originalPath || !validNonEmptyFile(originalPath)) return "";
+  if (documentType === "pdf")
+    return await textFromPdfFirstPages(originalPath, 3);
+  return await extractReaderClassificationText({ documentType, originalPath });
+}
+
+function duplicateUploadAction(request) {
+  return String(request.body?.duplicateAction || "")
+    .trim()
+    .toLowerCase();
+}
+
+function ignoredReaderDocumentIdsFromRequest(request) {
+  const raw =
+    request.body?.ignoredReaderDocumentIds ||
+    request.body?.ignoredReaderDocumentId ||
+    "";
+  const values = Array.isArray(raw)
+    ? raw
+    : (() => {
+        try {
+          const parsed = JSON.parse(String(raw || "[]"));
+          return Array.isArray(parsed) ? parsed : [raw];
+        } catch {
+          return String(raw || "")
+            .split(",")
+            .map((id) => id.trim());
+        }
+      })();
+  return new Set(
+    values
+      .map((id) => {
+        try {
+          return assertReaderDocumentId(id);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean)
+  );
+}
+
+function duplicateDisplayName(originalName = "", index = 2) {
+  const ext = path.extname(originalName);
+  const base = ext ? originalName.slice(0, -ext.length) : originalName;
+  return `${base || "书籍"}（重复 ${Math.max(2, index)}）${ext}`;
+}
+
+function duplicateCandidateMetadata(metadata = {}) {
+  return {
+    titleKey:
+      metadata.readerDuplicate?.titleKey ||
+      metadata.duplicateTitleKey ||
+      normalizeDuplicateTitle(metadata.originalName),
+    leadTextHash:
+      metadata.readerDuplicate?.leadTextHash ||
+      metadata.duplicateLeadTextHash ||
+      null,
+  };
+}
+
+async function ensureDuplicateSignatureForCandidate({
+  documentRoot,
+  metadata,
+}) {
+  const current = duplicateCandidateMetadata(metadata);
+  if (current.titleKey && current.leadTextHash) return current;
+  try {
+    const originalPath = await originalPathForReaderDocument({
+      documentRoot,
+      metadata,
+    });
+    const leadText = await extractReaderDuplicateLeadText({
+      documentType: documentTypeFromMetadata(metadata),
+      originalPath,
+    });
+    const signature = duplicateSignatureFor({
+      originalName: metadata.originalName,
+      leadText,
+    });
+    if (signature.titleKey && signature.leadTextHash) {
+      writeReaderJsonFile(documentRoot, "metadata.json", {
+        ...metadata,
+        readerDuplicate: {
+          ...(metadata.readerDuplicate || {}),
+          ...signature,
+          calculatedAt: isoNow(),
+        },
+      });
+    }
+    return signature;
+  } catch {
+    return current;
+  }
+}
+
+async function duplicateScanWorkspaces(request, response, uploadWorkspace) {
+  const workspaces = [STANDALONE_READER_SCOPE];
+  const requestedWorkspaceSlug = String(
+    request.body?.workspaceSlug || ""
+  ).trim();
+  if (requestedWorkspaceSlug && uploadWorkspace?.readerStandalone) {
+    try {
+      const workspaceSlug = safeSegment(
+        requestedWorkspaceSlug,
+        "workspace slug"
+      );
+      const authorizedWorkspace = await getAuthorizedWorkspace({
+        request,
+        response,
+        workspaceSlug,
+      });
+      if (authorizedWorkspace) workspaces.push(authorizedWorkspace);
+    } catch {}
+  } else if (!uploadWorkspace?.readerStandalone) {
+    workspaces.push(uploadWorkspace);
+  }
+  return workspaces.filter(
+    (workspace, index, list) =>
+      workspace &&
+      list.findIndex(
+        (item) =>
+          (item.readerStorageSegment || item.slug) ===
+          (workspace.readerStorageSegment || workspace.slug)
+      ) === index
+  );
+}
+
+async function findReaderDuplicateCandidate({
+  request,
+  response,
+  uploadWorkspace,
+  originalName,
+  leadText,
+}) {
+  const uploadSignature = duplicateSignatureFor({ originalName, leadText });
+  if (!uploadSignature.titleKey || !uploadSignature.leadTextHash) {
+    return { duplicate: null, signature: uploadSignature, duplicateIndex: 2 };
+  }
+  const ignoredIds = ignoredReaderDocumentIdsFromRequest(request);
+  let visibleSameTitleCount = 0;
+  for (const workspace of await duplicateScanWorkspaces(
+    request,
+    response,
+    uploadWorkspace
+  )) {
+    const workspaceRoot = readerWorkspaceRoot(workspace);
+    if (!fs.existsSync(workspaceRoot)) continue;
+    const entries = fs.readdirSync(workspaceRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      let readerDocumentId = null;
+      try {
+        readerDocumentId = assertReaderDocumentId(entry.name);
+      } catch {
+        continue;
+      }
+      const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+      let metadata = null;
+      try {
+        metadata = readReaderMetadata(documentRoot, {
+          readerDocumentId,
+          endpoint: "duplicate-scan",
+        });
+      } catch {
+        continue;
+      }
+      if (readerDocumentIsDeleted(documentRoot, metadata)) continue;
+      if (ignoredIds.has(readerDocumentId)) {
+        console.warn("[ReaderDuplicate] ignored id is not deleted; scanning", {
+          readerDocumentId,
+        });
+      }
+      if (workspace.readerStandalone) {
+        try {
+          await assertAuthorizedStandaloneReaderDocument({
+            request,
+            response,
+            readerDocumentId,
+            metadata,
+          });
+        } catch {
+          continue;
+        }
+      }
+      const candidate = duplicateCandidateMetadata(metadata);
+      if (candidate.titleKey !== uploadSignature.titleKey) continue;
+      visibleSameTitleCount += 1;
+      const signature = candidate.leadTextHash
+        ? candidate
+        : await ensureDuplicateSignatureForCandidate({
+            documentRoot,
+            metadata,
+          });
+      if (signature.leadTextHash !== uploadSignature.leadTextHash) continue;
+      return {
+        duplicate: {
+          readerDocumentId,
+          title: decodeMaybeMojibakeFilename(metadata.originalName),
+          createdAt: metadata.createdAt || null,
+          workspaceSlug: workspace.readerStandalone ? null : workspace.slug,
+        },
+        signature: uploadSignature,
+        duplicateIndex: Math.max(2, visibleSameTitleCount + 1),
+      };
+    }
+  }
+  return {
+    duplicate: null,
+    signature: uploadSignature,
+    duplicateIndex: Math.max(2, visibleSameTitleCount + 1),
+  };
+}
+
 function strategyForClassificationLength(totalChars) {
   if (totalChars < 300) return null;
   if (totalChars < 1_200)
@@ -1505,6 +1990,12 @@ function findPdfToPpmBinary() {
     : findOnPath("pdftoppm");
 }
 
+function findPdfInfoBinary() {
+  return fileExists("/usr/bin/pdfinfo")
+    ? "/usr/bin/pdfinfo"
+    : findOnPath("pdfinfo");
+}
+
 async function quickLookThumbnailBuffer(originalPath) {
   const qlmanage = findQuickLookBinary();
   if (!qlmanage) return null;
@@ -1568,6 +2059,515 @@ async function pdfThumbnailBuffer(originalPath) {
   }
 }
 
+function parsePdfInfoManifest(stdout = "") {
+  const pageMatch = String(stdout || "").match(/^Pages:\s*(\d+)/im);
+  const titleMatch = String(stdout || "").match(/^Title:\s*(.+)$/im);
+  return {
+    pageCount: pageMatch ? Number(pageMatch[1]) || null : null,
+    title: titleMatch ? titleMatch[1].trim() : null,
+  };
+}
+
+function pdfManifestMatchesMetadata(manifest = null, metadata = {}) {
+  if (!manifest) return false;
+  const size = Number(metadata?.size || 0) || null;
+  const fingerprint =
+    metadata?.originalFingerprint || metadata?.fingerprint || null;
+  return (
+    manifest.schemaVersion === SCHEMA_VERSION &&
+    (!size || manifest.size === size) &&
+    (!fingerprint || manifest.fingerprint === fingerprint)
+  );
+}
+
+function readReaderPdfManifest(documentRoot, readerDocumentId) {
+  return readReaderJsonFile(documentRoot, READER_PDF_MANIFEST_NAME, null, {
+    readerDocumentId,
+    endpoint: "pdf-manifest",
+  });
+}
+
+function readOptionalReaderPdfManifest(documentRoot, readerDocumentId) {
+  try {
+    return readReaderPdfManifest(documentRoot, readerDocumentId);
+  } catch (error) {
+    if (error?.code !== "READER_DOCUMENT_JSON_UNAVAILABLE") throw error;
+    return null;
+  }
+}
+
+function writeReaderPdfManifest({
+  documentRoot,
+  readerDocumentId,
+  metadata,
+  manifest,
+}) {
+  const nextManifest = {
+    schemaVersion: SCHEMA_VERSION,
+    readerDocumentId,
+    size: Number(metadata?.size || 0) || null,
+    fingerprint: metadata?.originalFingerprint || metadata?.fingerprint || null,
+    generatedAt: isoNow(),
+    ...manifest,
+  };
+  writeReaderJsonFile(documentRoot, READER_PDF_MANIFEST_NAME, nextManifest);
+  return nextManifest;
+}
+
+async function ensureReaderPdfManifest({
+  documentRoot,
+  readerDocumentId,
+  metadata,
+  originalPath,
+}) {
+  if (!metadataIsPdf(metadata) || !validNonEmptyFile(originalPath)) return null;
+  const existing = readOptionalReaderPdfManifest(
+    documentRoot,
+    readerDocumentId
+  );
+  if (pdfManifestMatchesMetadata(existing, metadata)) return existing;
+
+  const key = `${documentRoot}:manifest`;
+  if (readerPdfManifestJobs.has(key))
+    return await readerPdfManifestJobs.get(key);
+
+  const job = (async () => {
+    const pdfinfo = findPdfInfoBinary();
+    let manifest = {
+      pageCount: null,
+      title: null,
+      source: pdfinfo ? "pdfinfo" : "unavailable",
+    };
+    if (pdfinfo) {
+      try {
+        const { stdout } = await execFileWithTimeout(pdfinfo, [originalPath], {
+          timeout: READER_PDF_PAGE_PREVIEW_TIMEOUT_MS,
+        });
+        manifest = {
+          ...manifest,
+          ...parsePdfInfoManifest(stdout),
+        };
+      } catch (error) {
+        manifest.error = String(error?.message || error).slice(0, 240);
+      }
+    }
+    return writeReaderPdfManifest({
+      documentRoot,
+      readerDocumentId,
+      metadata,
+      manifest,
+    });
+  })();
+
+  readerPdfManifestJobs.set(key, job);
+  try {
+    return await job;
+  } finally {
+    readerPdfManifestJobs.delete(key);
+  }
+}
+
+function normalizedPdfPageNumber(value, manifest = null) {
+  const page = Math.max(1, Math.round(Number(value) || 1));
+  const pageCount = Number(manifest?.pageCount || 0);
+  return pageCount > 0 ? Math.min(page, pageCount) : page;
+}
+
+function pdfPagePreviewName(pageNumber) {
+  return `page-preview-${normalizedPdfPageNumber(pageNumber)}.jpg`;
+}
+
+function sleep(ms = 0) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function existingPdfPreviewPageSet(documentRoot) {
+  try {
+    return new Set(
+      fs
+        .readdirSync(documentRoot)
+        .map((name) => {
+          const match = /^page-preview-(\d+)\.jpg$/i.exec(name);
+          return match ? Number(match[1]) : null;
+        })
+        .filter((page) => Number.isFinite(page) && page > 0)
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+function orderedPdfPreviewWindowPages({
+  centerPage = 1,
+  manifest = null,
+  before = READER_PDF_PREVIEW_NEARBY_BEFORE,
+  after = READER_PDF_PREVIEW_NEARBY_AFTER,
+} = {}) {
+  const pageCount = Number(manifest?.pageCount || 0);
+  const center = normalizedPdfPageNumber(centerPage, manifest);
+  const pages = [];
+  const pushPage = (page) => {
+    if (!Number.isFinite(page) || page < 1) return;
+    if (pageCount > 0 && page > pageCount) return;
+    if (!pages.includes(page)) pages.push(page);
+  };
+  pushPage(center);
+  for (let offset = 1; offset <= Math.max(before, after); offset++) {
+    if (offset <= after) pushPage(center + offset);
+    if (offset <= before) pushPage(center - offset);
+  }
+  return pages;
+}
+
+function orderedPdfPreviewPrebuildPages({
+  manifest = null,
+  focusPage = 1,
+  includeAll = false,
+} = {}) {
+  const pageCount = Number(manifest?.pageCount || 0);
+  const maxPage = pageCount
+    ? Math.min(pageCount, READER_PDF_PREVIEW_PREBUILD_MAX_PAGES)
+    : READER_PDF_PREVIEW_PREBUILD_INITIAL_PAGES;
+  const pages = [];
+  const pushPage = (page) => {
+    if (!Number.isFinite(page) || page < 1 || page > maxPage) return;
+    if (!pages.includes(page)) pages.push(page);
+  };
+
+  orderedPdfPreviewWindowPages({ centerPage: focusPage, manifest }).forEach(
+    pushPage
+  );
+  for (
+    let page = 1;
+    page <= Math.min(maxPage, READER_PDF_PREVIEW_PREBUILD_INITIAL_PAGES);
+    page++
+  ) {
+    pushPage(page);
+  }
+  if (includeAll) {
+    for (let page = 1; page <= maxPage; page++) pushPage(page);
+  }
+  return pages;
+}
+
+async function renderReaderPdfPagePreview({
+  documentRoot,
+  originalPath,
+  pageNumber,
+}) {
+  const pdftoppm = findPdfToPpmBinary();
+  if (!pdftoppm) throw new Error("PDF page preview renderer unavailable.");
+  if (!validNonEmptyFile(originalPath))
+    throw new Error("PDF original file unavailable.");
+
+  const previewPath = safeResolve(documentRoot, pdfPagePreviewName(pageNumber));
+  if (validNonEmptyFile(previewPath)) return { previewPath, cached: true };
+
+  const key = `${documentRoot}:page:${pageNumber}`;
+  if (readerPdfPagePreviewJobs.has(key))
+    return await readerPdfPagePreviewJobs.get(key);
+
+  const job = (async () => {
+    const tempDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "anythingllm-reader-pdf-page-")
+    );
+    try {
+      const outputBase = path.join(tempDir, "page");
+      await execFileWithTimeout(
+        pdftoppm,
+        [
+          "-f",
+          String(pageNumber),
+          "-l",
+          String(pageNumber),
+          "-singlefile",
+          "-jpeg",
+          "-jpegopt",
+          `quality=${READER_PDF_PAGE_PREVIEW_QUALITY}`,
+          "-r",
+          String(READER_PDF_PAGE_PREVIEW_DPI),
+          originalPath,
+          outputBase,
+        ],
+        { timeout: READER_PDF_PAGE_PREVIEW_TIMEOUT_MS }
+      );
+      const renderedPath = `${outputBase}.jpg`;
+      if (!validNonEmptyFile(renderedPath))
+        throw new Error("PDF page preview render returned an empty file.");
+      fs.copyFileSync(renderedPath, previewPath);
+      return { previewPath, cached: false };
+    } finally {
+      cleanupTempDir(tempDir);
+    }
+  })();
+
+  readerPdfPagePreviewJobs.set(key, job);
+  try {
+    return await job;
+  } finally {
+    readerPdfPagePreviewJobs.delete(key);
+  }
+}
+
+function scheduleReaderPdfPreviewPrebuild({
+  documentRoot,
+  readerDocumentId,
+  metadata,
+  originalPath,
+  manifest = null,
+  focusPage = 1,
+  includeAll = false,
+  reason = "background",
+}) {
+  if (!metadataIsPdf(metadata) || !validNonEmptyFile(originalPath)) return;
+  const pageCount = Number(manifest?.pageCount || 0);
+  const jobKey = `${documentRoot}:prebuild:${includeAll ? "all" : focusPage}`;
+  if (readerPdfPreviewPrebuildJobs.has(jobKey)) return;
+
+  const job = (async () => {
+    const startedAt = Date.now();
+    const existingPages = existingPdfPreviewPageSet(documentRoot);
+    const pages = orderedPdfPreviewPrebuildPages({
+      manifest,
+      focusPage,
+      includeAll,
+    }).filter((page) => !existingPages.has(page));
+    if (!pages.length) return;
+
+    console.info("[reader:page-preview-prebuild:start]", {
+      readerDocumentId: hashLogValue(readerDocumentId),
+      reason,
+      pages: pages.length,
+      pageCount: pageCount || null,
+      includeAll,
+      size: Number(metadata?.size || 0) || null,
+    });
+
+    let rendered = 0;
+    for (const pageNumber of pages) {
+      try {
+        await renderReaderPdfPagePreview({
+          documentRoot,
+          originalPath,
+          pageNumber,
+        });
+        rendered += 1;
+      } catch (error) {
+        console.warn("[ReaderPdfPreview] background prebuild page failed", {
+          readerDocumentId: hashLogValue(readerDocumentId),
+          pageNumber,
+          error: error.message,
+        });
+      }
+      if (READER_PDF_PREVIEW_PREBUILD_PAUSE_MS > 0)
+        await sleep(READER_PDF_PREVIEW_PREBUILD_PAUSE_MS);
+    }
+
+    console.info("[reader:page-preview-prebuild:done]", {
+      readerDocumentId: hashLogValue(readerDocumentId),
+      reason,
+      rendered,
+      pages: pages.length,
+      durationMs: Date.now() - startedAt,
+    });
+  })()
+    .catch((error) => {
+      console.warn("[ReaderPdfPreview] background prebuild failed", {
+        readerDocumentId: hashLogValue(readerDocumentId),
+        reason,
+        error: error.message,
+      });
+    })
+    .finally(() => readerPdfPreviewPrebuildJobs.delete(jobKey));
+
+  readerPdfPreviewPrebuildJobs.set(jobKey, job);
+}
+
+function scheduleReaderPdfPreviewBackfillFromList({
+  workspace,
+  readerDocumentId,
+  documentRoot,
+  metadata,
+  manifest,
+}) {
+  if (!metadataIsPdf(metadata)) return;
+  if (Number(metadata?.size || 0) < READER_PDF_PREWARM_MIN_BYTES) return;
+  if (!manifest?.pageCount) return;
+
+  originalPathForReaderDocument({ documentRoot, metadata })
+    .then((originalPath) => {
+      scheduleReaderPdfPreviewPrebuild({
+        documentRoot,
+        readerDocumentId,
+        metadata,
+        originalPath,
+        manifest,
+        focusPage: 1,
+        includeAll: true,
+        reason: workspace.readerStandalone
+          ? "standalone-list-large-pdf-backfill"
+          : "workspace-list-large-pdf-backfill",
+      });
+    })
+    .catch((error) => {
+      console.warn("[ReaderPdfPreview] list backfill schedule failed", {
+        readerDocumentId: hashLogValue(readerDocumentId),
+        error: error.message,
+      });
+    });
+}
+
+async function prepareReaderPdfForFastOpen({
+  workspace,
+  readerDocumentId,
+  metadata,
+  originalPath,
+  prewarmPage = 1,
+}) {
+  if (!metadataIsPdf(metadata)) return null;
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const manifest = await ensureReaderPdfManifest({
+    documentRoot,
+    readerDocumentId,
+    metadata,
+    originalPath,
+  });
+  const pageNumber = normalizedPdfPageNumber(prewarmPage, manifest);
+  try {
+    await renderReaderPdfPagePreview({
+      documentRoot,
+      originalPath,
+      pageNumber,
+    });
+  } catch (error) {
+    console.warn("[ReaderPdfPreview] prewarm failed", {
+      readerDocumentId: hashLogValue(readerDocumentId),
+      pageNumber,
+      error: error.message,
+    });
+  }
+  if (Number(metadata?.size || 0) >= READER_PDF_PREWARM_MIN_BYTES) {
+    scheduleReaderPdfPreviewPrebuild({
+      documentRoot,
+      readerDocumentId,
+      metadata,
+      originalPath,
+      manifest,
+      focusPage: pageNumber,
+      includeAll: true,
+      reason: "postprocess-large-pdf",
+    });
+  }
+  return manifest;
+}
+
+async function maybePrewarmLargeReaderPdf({
+  workspace,
+  readerDocumentId,
+  metadata,
+  originalPath,
+}) {
+  if (
+    !metadataIsPdf(metadata) ||
+    Number(metadata?.size || 0) < READER_PDF_PREWARM_MIN_BYTES
+  ) {
+    return null;
+  }
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const manifest = await ensureReaderPdfManifest({
+    documentRoot,
+    readerDocumentId,
+    metadata,
+    originalPath,
+  });
+  const pageNumber = normalizedPdfPageNumber(1, manifest);
+  renderReaderPdfPagePreview({
+    documentRoot,
+    originalPath,
+    pageNumber,
+  }).catch((error) => {
+    console.warn("[ReaderPdfPreview] large PDF page prewarm failed", {
+      readerDocumentId: hashLogValue(readerDocumentId),
+      pageNumber,
+      error: error.message,
+    });
+  });
+  scheduleReaderPdfPreviewPrebuild({
+    documentRoot,
+    readerDocumentId,
+    metadata,
+    originalPath,
+    manifest,
+    focusPage: pageNumber,
+    includeAll: true,
+    reason: "upload-large-pdf",
+  });
+  return manifest;
+}
+
+async function sendReaderPdfPagePreview({
+  request,
+  response,
+  workspace,
+  readerDocumentId,
+  documentRoot,
+  metadata,
+  originalPath,
+}) {
+  const startedAt = Date.now();
+  const requestedPage = Math.max(
+    1,
+    Math.round(Number(request.query?.page) || 1)
+  );
+  const manifest = await ensureReaderPdfManifest({
+    documentRoot,
+    readerDocumentId,
+    metadata,
+    originalPath,
+  });
+  const pageNumber = normalizedPdfPageNumber(requestedPage, manifest);
+  const { previewPath, cached } = await renderReaderPdfPagePreview({
+    documentRoot,
+    originalPath,
+    pageNumber,
+  });
+  response.setHeader("Content-Type", "image/jpeg");
+  response.setHeader("Cache-Control", READER_STREAM_CACHE_CONTROL);
+  response.setHeader("X-Reader-Page", String(pageNumber));
+  response.setHeader("X-Reader-Page-Preview-Cache", cached ? "hit" : "miss");
+  response.setHeader(
+    "Server-Timing",
+    `reader-page-preview;dur=${Date.now() - startedAt}`
+  );
+  response.setHeader(
+    "Content-Disposition",
+    `inline; filename="${path.basename(previewPath)}"`
+  );
+  response.on("finish", () => {
+    scheduleReaderPdfPreviewPrebuild({
+      documentRoot,
+      readerDocumentId,
+      metadata,
+      originalPath,
+      manifest,
+      focusPage: pageNumber,
+      includeAll: false,
+      reason: "open-nearby-pages",
+    });
+    console.info("[reader:page-preview]", {
+      requestId: request.communicationRequestId || null,
+      status: response.statusCode,
+      readerDocumentId: hashLogValue(readerDocumentId),
+      pageNumber,
+      cached,
+      originalSize: Number(metadata?.size || 0) || null,
+      durationMs: Date.now() - startedAt,
+      route: readerApiPrefix(workspace),
+    });
+  });
+  return response.sendFile(previewPath);
+}
+
 function escapeSvgText(value = "") {
   return String(value || "")
     .replace(/&/g, "&amp;")
@@ -1585,7 +2585,7 @@ function wrapThumbnailTitle(title = "", maxChars = 13, maxLines = 5) {
   if (!text) return ["Untitled"];
   const chars = Array.from(text);
   const lines = [];
-  for (let index = 0; index < chars.length && lines.length < maxLines;) {
+  for (let index = 0; index < chars.length && lines.length < maxLines; ) {
     lines.push(chars.slice(index, index + maxChars).join(""));
     index += maxChars;
   }
@@ -1737,7 +2737,7 @@ async function generateReaderDocumentThumbnail({
 }
 
 function sanitizedPostprocessTasks(tasks = []) {
-  const allowed = new Set(["thumbnail", "classification"]);
+  const allowed = new Set(["thumbnail", "classification", "pdfManifest"]);
   const source = Array.isArray(tasks) && tasks.length ? tasks : [...allowed];
   return [...new Set(source.filter((task) => allowed.has(task)))];
 }
@@ -1750,6 +2750,7 @@ async function runReaderPostprocessJob({
 }) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   if (!fs.existsSync(documentRoot)) return;
+  if (readerDocumentIsDeleted(documentRoot)) return;
   updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) => ({
     ...status,
     status: "processing",
@@ -1765,6 +2766,40 @@ async function runReaderPostprocessJob({
     documentRoot,
     metadata,
   });
+
+  if (tasks.includes("pdfManifest")) {
+    updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+      postprocessTaskPatch(status, "pdfManifest", {
+        status: "processing",
+        reason: "正在建立 PDF 页面索引",
+      })
+    );
+    try {
+      const manifest = originalPath
+        ? await prepareReaderPdfForFastOpen({
+            workspace,
+            readerDocumentId,
+            metadata,
+            originalPath,
+            prewarmPage: 1,
+          })
+        : null;
+      updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+        postprocessTaskPatch(status, "pdfManifest", {
+          status: manifest ? "complete" : "skipped",
+          reason: manifest ? "" : "非 PDF 或原文件不可用。",
+          result: manifest,
+        })
+      );
+    } catch (error) {
+      updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+        postprocessTaskPatch(status, "pdfManifest", {
+          status: "failed",
+          reason: error.message || "PDF 页面索引建立失败。",
+        })
+      );
+    }
+  }
 
   if (tasks.includes("thumbnail")) {
     updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
@@ -1943,6 +2978,187 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
   };
 }
 
+function shouldQueueThumbnailMaintenance({ workspace, readerDocumentId }) {
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  if (readerDocumentIsDeleted(documentRoot)) return false;
+  if (existingThumbnailUrlForDocument(workspace, readerDocumentId))
+    return false;
+  const status = readReaderPostprocessStatus(documentRoot, readerDocumentId);
+  const task = status.tasks?.thumbnail || null;
+  if (["queued", "processing"].includes(task?.status)) return false;
+  if (task?.status === "failed") {
+    const lastUpdated = new Date(
+      task.updatedAt || task.queuedAt || 0
+    ).getTime();
+    if (
+      Number.isFinite(lastUpdated) &&
+      Date.now() - lastUpdated < 30 * 60 * 1000
+    )
+      return false;
+  }
+  return true;
+}
+
+function queueThumbnailMaintenance({
+  workspace,
+  readerDocumentId,
+  reason = "missing-thumbnail",
+}) {
+  if (!shouldQueueThumbnailMaintenance({ workspace, readerDocumentId })) return;
+  console.log("[ReaderThumbnailMaintenance] queued", {
+    readerDocumentId,
+    workspace: workspace?.slug || workspace?.readerStorageSegment || null,
+    reason,
+  });
+  enqueueReaderPostprocessJob({
+    workspace,
+    readerDocumentId,
+    tasks: ["thumbnail"],
+    categories: [],
+  });
+}
+
+function workspaceFromReaderStorageSegment(segment = "") {
+  if (segment === STANDALONE_READER_SCOPE.readerStorageSegment)
+    return STANDALONE_READER_SCOPE;
+  return {
+    slug: segment,
+    readerStorageSegment: segment,
+  };
+}
+
+function runReaderThumbnailMaintenancePass(reason = "interval") {
+  if (!fs.existsSync(readerDocumentsPath)) return;
+  let queued = 0;
+  for (const workspaceEntry of fs.readdirSync(readerDocumentsPath, {
+    withFileTypes: true,
+  })) {
+    if (!workspaceEntry.isDirectory()) continue;
+    const workspace = workspaceFromReaderStorageSegment(workspaceEntry.name);
+    const workspaceRoot = readerWorkspaceRoot(workspace);
+    for (const documentEntry of fs.readdirSync(workspaceRoot, {
+      withFileTypes: true,
+    })) {
+      if (!documentEntry.isDirectory()) continue;
+      let readerDocumentId = null;
+      try {
+        readerDocumentId = assertReaderDocumentId(documentEntry.name);
+      } catch {
+        continue;
+      }
+      const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+      let metadata = null;
+      try {
+        metadata = readReaderMetadata(documentRoot, {
+          readerDocumentId,
+          endpoint: "thumbnail-maintenance",
+        });
+      } catch {
+        continue;
+      }
+      if (readerDocumentIsDeleted(documentRoot, metadata)) continue;
+      if (!shouldQueueThumbnailMaintenance({ workspace, readerDocumentId }))
+        continue;
+      queueThumbnailMaintenance({ workspace, readerDocumentId, reason });
+      queued += 1;
+      if (queued >= READER_THUMBNAIL_MAINTENANCE_BATCH_SIZE) return;
+    }
+  }
+}
+
+function startReaderThumbnailMaintenancePatrol() {
+  if (readerThumbnailMaintenanceStarted) return;
+  readerThumbnailMaintenanceStarted = true;
+  const startupTimer = setTimeout(
+    () => runReaderThumbnailMaintenancePass("startup"),
+    Math.min(30_000, READER_THUMBNAIL_MAINTENANCE_INTERVAL_MS)
+  );
+  startupTimer.unref?.();
+  const intervalTimer = setInterval(
+    () => runReaderThumbnailMaintenancePass("interval"),
+    READER_THUMBNAIL_MAINTENANCE_INTERVAL_MS
+  );
+  intervalTimer.unref?.();
+}
+
+async function listReaderDocumentsForWorkspace({
+  request,
+  response,
+  workspace,
+}) {
+  const workspaceRoot = readerWorkspaceRoot(workspace);
+  if (!fs.existsSync(workspaceRoot)) return [];
+  const documents = [];
+  const entries = fs.readdirSync(workspaceRoot, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    let readerDocumentId = null;
+    try {
+      readerDocumentId = assertReaderDocumentId(entry.name);
+    } catch {
+      continue;
+    }
+    const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+    let metadata = null;
+    try {
+      metadata = readReaderMetadata(documentRoot, {
+        readerDocumentId,
+        endpoint: "list",
+      });
+      if (readerDocumentIsDeleted(documentRoot, metadata)) continue;
+      if (workspace.readerStandalone) {
+        await assertAuthorizedStandaloneReaderDocument({
+          request,
+          response,
+          readerDocumentId,
+          metadata,
+        });
+      }
+    } catch {
+      continue;
+    }
+    const pdfManifest = readOptionalReaderPdfManifest(
+      documentRoot,
+      readerDocumentId
+    );
+    scheduleReaderPdfPreviewBackfillFromList({
+      workspace,
+      readerDocumentId,
+      documentRoot,
+      metadata,
+      manifest: pdfManifest,
+    });
+    const enrichedMetadata = pdfManifest
+      ? { ...metadata, pdfManifest }
+      : metadata;
+    queueThumbnailMaintenance({
+      workspace,
+      readerDocumentId,
+      reason: "list",
+    });
+    documents.push({
+      readerDocumentId,
+      warning: metadata.previewWarning || null,
+      contentSummary: readerContentSummary({
+        content: null,
+        metadata: enrichedMetadata,
+      }),
+      metadata: metadataWithOriginalUrl(
+        workspace,
+        readerDocumentId,
+        enrichedMetadata
+      ),
+      postprocess: readerPostprocessResponse(workspace, readerDocumentId)
+        .postprocess,
+    });
+  }
+  return documents.sort(
+    (a, b) =>
+      new Date(b.metadata?.createdAt || 0).getTime() -
+      new Date(a.metadata?.createdAt || 0).getTime()
+  );
+}
+
 function safeClassificationReason(type = "failed") {
   const reasons = {
     missing_key: "分类模型未配置，已归入未知分类。",
@@ -2004,6 +3220,147 @@ function unknownClassificationCategory(categories = [], reason = "") {
       updatedAt: now,
     },
   };
+}
+
+function classificationLookupKey(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "")
+    .replace(/[《》<>【】[\]（）(){}，,。.:：·・"'“”‘’/\\|]+/g, "");
+}
+
+function resolveClassificationCategory(result = {}, categories = []) {
+  const candidates = [
+    result.primaryCategoryId,
+    result.primaryCategoryName,
+    result.categoryId,
+    result.categoryName,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  for (const candidate of candidates) {
+    const exact = categories.find((category) => category.id === candidate);
+    if (exact) return exact;
+  }
+
+  const normalizedCandidates = candidates.map(classificationLookupKey);
+  for (const candidate of normalizedCandidates) {
+    const matched = categories.find(
+      (category) =>
+        classificationLookupKey(category.id) === candidate ||
+        classificationLookupKey(category.name) === candidate
+    );
+    if (matched) return matched;
+  }
+
+  return null;
+}
+
+const FINANCE_TITLE_KEYWORDS = [
+  "经济",
+  "金融",
+  "资本",
+  "投资",
+  "周期",
+  "财富",
+  "货币",
+  "银行",
+  "证券",
+  "股票",
+  "基金",
+  "债券",
+  "交易",
+  "宏观",
+  "产业",
+  "财务",
+  "商业",
+  "market",
+  "finance",
+  "capital",
+  "investment",
+  "investing",
+  "wealth",
+  "cycle",
+  "money",
+  "bank",
+];
+
+function titleHasFinanceSignal(title = "") {
+  const normalizedTitle = classificationLookupKey(title);
+  if (!normalizedTitle) return false;
+  return FINANCE_TITLE_KEYWORDS.some((keyword) =>
+    normalizedTitle.includes(classificationLookupKey(keyword))
+  );
+}
+
+function financeCategory(categories = []) {
+  return (
+    categories.find((category) => category.id === "finance") ||
+    categories.find(
+      (category) =>
+        classificationLookupKey(category.name) ===
+        classificationLookupKey("金融经济")
+    ) ||
+    categories.find((category) =>
+      classificationLookupKey(category.name).includes(
+        classificationLookupKey("金融")
+      )
+    )
+  );
+}
+
+function titleFallbackClassification({
+  title = "",
+  categories = [],
+  reason = "",
+  sampleStrategy = "",
+}) {
+  const category = financeCategory(categories);
+  if (!category || !titleHasFinanceSignal(title)) return null;
+  const now = new Date().toISOString();
+  const titleSnippet = String(title || "").slice(0, 80);
+  const fallbackReason =
+    String(reason || "")
+      .replace("已归入未知分类", `已按书名关键词归入${category.name}`)
+      .trim() || `自动分类未能可靠判断，已按书名关键词归入${category.name}。`;
+  return {
+    success: true,
+    categoryStatus: "classified",
+    categoryStage: "fallback-rule",
+    categoryReason: fallbackReason,
+    reason: fallbackReason,
+    category: {
+      primaryCategoryId: category.id,
+      primaryCategoryName: category.name,
+      secondaryCategory: "",
+      tags: ["金融经济"],
+      confidence: 0.49,
+      source: "fallback-rule",
+      reason: fallbackReason,
+      evidence: titleSnippet ? [`书名关键词命中：${titleSnippet}`] : [],
+      sampleStrategy,
+      classifiedAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+function classificationFallback({
+  title = "",
+  categories = [],
+  reason = "",
+  sampleStrategy = "",
+}) {
+  return (
+    titleFallbackClassification({
+      title,
+      categories,
+      reason,
+      sampleStrategy,
+    }) || unknownClassificationCategory(categories, reason)
+  );
 }
 
 function cappedClassificationSamples(samples = []) {
@@ -2125,7 +3482,7 @@ function buildReaderClassificationPrompt({
 - 只能从给定分类列表中选择 primaryCategoryId，不得创造新分类。
 - primaryCategoryName 必须与 primaryCategoryId 对应。
 - 如果文本不可用、无法判断或置信度不足，选择 unknown。
-- 如果文本可用但不属于任何现有分类，选择 other。
+- 如果文本可用但不属于任何现有分类，优先选择 other（如果分类列表存在 other），否则选择 unknown。
 - evidence 只能引用抽样片段中出现的信息，不要编造书名、作者、章节或不存在的概念。
 - 只输出严格 JSON，不要 Markdown，不要解释。
 
@@ -2148,21 +3505,28 @@ ${JSON.stringify({
 ${JSON.stringify(samples)}`;
 }
 
-function validateClassificationResult({ result, categories, sampleStrategy }) {
-  const category = categories.find(
-    (item) => item.id === String(result?.primaryCategoryId || "")
-  );
+function validateClassificationResult({
+  result,
+  categories,
+  sampleStrategy,
+  title = "",
+}) {
+  const category = resolveClassificationCategory(result, categories);
   if (!category)
-    return unknownClassificationCategory(
+    return classificationFallback({
+      title,
       categories,
-      safeClassificationReason("invalid_category")
-    );
+      reason: safeClassificationReason("invalid_category"),
+      sampleStrategy,
+    });
   const confidence = Math.max(0, Math.min(1, Number(result.confidence) || 0));
   if (confidence < CLASSIFICATION_CONFIDENCE_THRESHOLD)
-    return unknownClassificationCategory(
+    return classificationFallback({
+      title,
       categories,
-      safeClassificationReason("low_confidence")
-    );
+      reason: safeClassificationReason("low_confidence"),
+      sampleStrategy,
+    });
   const now = new Date().toISOString();
   return {
     success: true,
@@ -2214,10 +3578,11 @@ function withClassificationTimeout(promise) {
 async function classifyReaderDocumentWithDeepSeek(body = {}) {
   const categories = sanitizedClassificationCategories(body.categories);
   if (!categories.length)
-    return unknownClassificationCategory(
+    return classificationFallback({
+      title: body.title,
       categories,
-      safeClassificationReason("empty_categories")
-    );
+      reason: safeClassificationReason("empty_categories"),
+    });
   const samples = cappedClassificationSamples(body.samples);
   const sampleStrategy =
     String(body.sampleStrategy || "").slice(0, 80) +
@@ -2226,19 +3591,23 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
       : "");
   const sampleChars = classificationSampleCharCount(samples);
   if (!samples.length)
-    return unknownClassificationCategory(
+    return classificationFallback({
+      title: body.title,
       categories,
-      safeClassificationReason("failed")
-    );
+      reason: safeClassificationReason("failed"),
+      sampleStrategy,
+    });
 
   const taskProvider = resolveTaskProviderModel(
     "reader_document_classification"
   );
   if (taskProvider.provider === "deepseek" && !process.env.DEEPSEEK_API_KEY)
-    return unknownClassificationCategory(
+    return classificationFallback({
+      title: body.title,
       categories,
-      safeClassificationReason("missing_key")
-    );
+      reason: safeClassificationReason("missing_key"),
+      sampleStrategy,
+    });
 
   try {
     readerClassificationLog("start", {
@@ -2299,10 +3668,12 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
     try {
       parsed = parseClassificationJson(textResponse);
     } catch {
-      const fallback = unknownClassificationCategory(
+      const fallback = classificationFallback({
+        title: body.title,
         categories,
-        safeClassificationReason("invalid_json")
-      );
+        reason: safeClassificationReason("invalid_json"),
+        sampleStrategy,
+      });
       readerClassificationLog("fallback", {
         title: String(body.title || "").slice(0, 80),
         reason: fallback.reason,
@@ -2313,6 +3684,7 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
       result: parsed,
       categories,
       sampleStrategy,
+      title: body.title,
     });
     readerClassificationLog(
       result.categoryStatus === "classified" ? "classified" : "fallback",
@@ -2331,10 +3703,12 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
         : error?.code === "LLM_TASK_PROVIDER_MISSING_KEY"
           ? "missing_key"
           : "unavailable";
-    const fallback = unknownClassificationCategory(
+    const fallback = classificationFallback({
+      title: body.title,
       categories,
-      safeClassificationReason(type)
-    );
+      reason: safeClassificationReason(type),
+      sampleStrategy,
+    });
     readerClassificationLog("fallback", {
       title: String(body.title || "").slice(0, 80),
       reason: fallback.reason,
@@ -2345,11 +3719,31 @@ async function classifyReaderDocumentWithDeepSeek(body = {}) {
 
 function workspaceReaderDocumentsEndpoints(app) {
   if (!app) return;
+  startReaderThumbnailMaintenancePatrol();
 
   const standaloneReaderScope = (_request, response, next) => {
     response.locals.workspace = STANDALONE_READER_SCOPE;
     next();
   };
+
+  app.get(
+    "/reader-documents",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const documents = await listReaderDocumentsForWorkspace({
+          request,
+          response,
+          workspace: response.locals.workspace,
+        });
+        return response.status(200).json({ success: true, documents });
+      } catch (error) {
+        return response
+          .status(400)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
 
   app.post(
     "/reader-documents/upload",
@@ -2377,20 +3771,59 @@ function workspaceReaderDocumentsEndpoints(app) {
             documentType,
             buffer: request.file.buffer,
           });
+          const leadText = await extractReaderDuplicateLeadText({
+            documentType,
+            originalPath,
+            buffer: request.file.buffer,
+          });
+          const duplicateResult = await findReaderDuplicateCandidate({
+            request,
+            response,
+            uploadWorkspace: workspace,
+            originalName,
+            leadText,
+          });
+          const continuingDuplicate =
+            duplicateUploadAction(request) === "continue" &&
+            duplicateResult.duplicate;
+          if (duplicateResult.duplicate && !continuingDuplicate) {
+            fs.rmSync(documentRoot, { recursive: true, force: true });
+            return response.status(409).json({
+              success: false,
+              code: "READER_DUPLICATE",
+              error: "检测到重复书籍。",
+              duplicate: duplicateResult.duplicate,
+            });
+          }
           const ownerMetadata = await readerOwnerMetadataForRequest(
             request,
             response
           );
+          const effectiveOriginalName = continuingDuplicate
+            ? duplicateDisplayName(originalName, duplicateResult.duplicateIndex)
+            : originalName;
           const metadata = {
             schemaVersion: SCHEMA_VERSION,
             readerDocumentId,
             source: "reader_upload",
-            originalName,
+            originalName: effectiveOriginalName,
+            uploadedOriginalName:
+              effectiveOriginalName === originalName ? null : originalName,
             storedName,
             documentType,
             mimeType: mime,
             size: request.file.size,
             originalFingerprint: fingerprintForBuffer(request.file.buffer),
+            readerDuplicate: {
+              titleKey: duplicateResult.signature.titleKey,
+              leadTextHash: duplicateResult.signature.leadTextHash,
+              duplicateOfReaderDocumentId:
+                duplicateResult.duplicate?.readerDocumentId || null,
+              duplicateIndex: continuingDuplicate
+                ? duplicateResult.duplicateIndex
+                : null,
+              calculatedAt: isoNow(),
+            },
             createdAt: new Date().toISOString(),
             ...ownerMetadata,
           };
@@ -2406,6 +3839,15 @@ function workspaceReaderDocumentsEndpoints(app) {
             waitForDocxPreview: false,
           });
           writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+          const pdfManifest = await maybePrewarmLargeReaderPdf({
+            workspace,
+            readerDocumentId,
+            metadata: finalMetadata,
+            originalPath,
+          });
+          const responseMetadata = pdfManifest
+            ? { ...finalMetadata, pdfManifest }
+            : finalMetadata;
 
           return response.status(200).json({
             success: true,
@@ -2415,7 +3857,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             metadata: metadataWithOriginalUrl(
               workspace,
               readerDocumentId,
-              finalMetadata
+              responseMetadata
             ),
             postprocess: readerPostprocessResponse(workspace, readerDocumentId)
               .postprocess,
@@ -2739,6 +4181,49 @@ function workspaceReaderDocumentsEndpoints(app) {
   );
 
   app.get(
+    "/reader-documents/:readerDocumentId/page-preview",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        const metadata = await readAuthorizedStandaloneReaderMetadata(
+          request,
+          response,
+          documentRoot,
+          readerDocumentId,
+          "page-preview"
+        );
+        if (!metadataIsPdf(metadata))
+          return response.status(400).json({
+            success: false,
+            error: "Reader page preview is only available for PDFs.",
+          });
+        const originalPath = await originalPathForReaderDocument({
+          documentRoot,
+          metadata,
+        });
+        return await sendReaderPdfPagePreview({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+          documentRoot,
+          metadata,
+          originalPath,
+        });
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
     "/reader-documents/:readerDocumentId/original",
     [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
     async (request, response) => {
@@ -2800,16 +4285,26 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           metadata,
         });
+        const pdfManifest = readOptionalReaderPdfManifest(
+          documentRoot,
+          readerDocumentId
+        );
+        const responseMetadata = pdfManifest
+          ? { ...metadata, pdfManifest }
+          : metadata;
 
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
           ...(includeContent ? { content } : {}),
-          contentSummary: readerContentSummary({ content, metadata }),
+          contentSummary: readerContentSummary({
+            content,
+            metadata: responseMetadata,
+          }),
           metadata: metadataWithOriginalUrl(
             workspace,
             readerDocumentId,
-            metadata
+            responseMetadata
           ),
           postprocess: readerPostprocessResponse(workspace, readerDocumentId)
             .postprocess,
@@ -2837,12 +4332,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           throw new Error("Invalid reader document path.");
         if (!fs.existsSync(documentRoot))
           return response.status(200).json({ success: true, missing: true });
-        await readAuthorizedStandaloneReaderMetadata(
+        const metadata = await readAuthorizedStandaloneReaderMetadata(
           request,
           response,
           documentRoot,
           readerDocumentId,
-          "delete"
+          "delete",
+          { allowDeleted: true }
         );
         void recordClientTrustCheckpoint(request, {
           action: "reader_delete",
@@ -2850,11 +4346,40 @@ function workspaceReaderDocumentsEndpoints(app) {
           resourceId: readerDocumentId,
           outcome: "received",
         });
-        fs.rmSync(documentRoot, { recursive: true, force: true });
-        return response.status(200).json({ success: true });
+        const marker = markReaderDocumentDeleted({
+          workspace,
+          readerDocumentId,
+          metadata,
+          request,
+        });
+        enqueueReaderDocumentDelete({ workspace, readerDocumentId });
+        return response.status(200).json({
+          success: true,
+          deletionStatus: marker.deleteStatus,
+          deletedAt: marker.deletedAt,
+        });
       } catch (error) {
         return response
           .status(error.status || 400)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/reader-documents",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const documents = await listReaderDocumentsForWorkspace({
+          request,
+          response,
+          workspace: response.locals.workspace,
+        });
+        return response.status(200).json({ success: true, documents });
+      } catch (error) {
+        return response
+          .status(400)
           .json({ success: false, error: error.message });
       }
     }
@@ -2886,16 +4411,55 @@ function workspaceReaderDocumentsEndpoints(app) {
             documentType,
             buffer: request.file.buffer,
           });
+          const leadText = await extractReaderDuplicateLeadText({
+            documentType,
+            originalPath,
+            buffer: request.file.buffer,
+          });
+          const duplicateResult = await findReaderDuplicateCandidate({
+            request,
+            response,
+            uploadWorkspace: workspace,
+            originalName,
+            leadText,
+          });
+          const continuingDuplicate =
+            duplicateUploadAction(request) === "continue" &&
+            duplicateResult.duplicate;
+          if (duplicateResult.duplicate && !continuingDuplicate) {
+            fs.rmSync(documentRoot, { recursive: true, force: true });
+            return response.status(409).json({
+              success: false,
+              code: "READER_DUPLICATE",
+              error: "检测到重复书籍。",
+              duplicate: duplicateResult.duplicate,
+            });
+          }
+          const effectiveOriginalName = continuingDuplicate
+            ? duplicateDisplayName(originalName, duplicateResult.duplicateIndex)
+            : originalName;
           const metadata = {
             schemaVersion: SCHEMA_VERSION,
             readerDocumentId,
             source: "reader_upload",
-            originalName,
+            originalName: effectiveOriginalName,
+            uploadedOriginalName:
+              effectiveOriginalName === originalName ? null : originalName,
             storedName,
             documentType,
             mimeType: mime,
             size: request.file.size,
             originalFingerprint: fingerprintForBuffer(request.file.buffer),
+            readerDuplicate: {
+              titleKey: duplicateResult.signature.titleKey,
+              leadTextHash: duplicateResult.signature.leadTextHash,
+              duplicateOfReaderDocumentId:
+                duplicateResult.duplicate?.readerDocumentId || null,
+              duplicateIndex: continuingDuplicate
+                ? duplicateResult.duplicateIndex
+                : null,
+              calculatedAt: isoNow(),
+            },
             createdAt: new Date().toISOString(),
           };
 
@@ -2910,6 +4474,15 @@ function workspaceReaderDocumentsEndpoints(app) {
             waitForDocxPreview: false,
           });
           writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+          const pdfManifest = await maybePrewarmLargeReaderPdf({
+            workspace,
+            readerDocumentId,
+            metadata: finalMetadata,
+            originalPath,
+          });
+          const responseMetadata = pdfManifest
+            ? { ...finalMetadata, pdfManifest }
+            : finalMetadata;
 
           return response.status(200).json({
             success: true,
@@ -2919,7 +4492,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             metadata: metadataWithOriginalUrl(
               workspace,
               readerDocumentId,
-              finalMetadata
+              responseMetadata
             ),
             postprocess: readerPostprocessResponse(workspace, readerDocumentId)
               .postprocess,
@@ -3224,10 +4797,16 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
-          readerDocumentId,
-          endpoint: "preview",
-        });
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "preview",
+          }
+        );
+        assertReaderDocumentVisible(documentRoot, metadata);
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
@@ -3258,10 +4837,16 @@ function workspaceReaderDocumentsEndpoints(app) {
           request.params.readerDocumentId
         );
         const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-        readReaderJsonFile(documentRoot, "metadata.json", null, {
-          readerDocumentId,
-          endpoint: "thumbnail",
-        });
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "thumbnail",
+          }
+        );
+        assertReaderDocumentVisible(documentRoot, metadata);
         const thumbnailPath = safeResolve(documentRoot, READER_THUMBNAIL_NAME);
         if (!validNonEmptyFile(thumbnailPath))
           return response.status(404).json({
@@ -3274,6 +4859,52 @@ function workspaceReaderDocumentsEndpoints(app) {
           `inline; filename="${READER_THUMBNAIL_NAME}"`
         );
         return response.sendFile(thumbnailPath);
+      } catch (error) {
+        return response
+          .status(404)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/reader-documents/:readerDocumentId/page-preview",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const workspace = response.locals.workspace;
+        const readerDocumentId = assertReaderDocumentId(
+          request.params.readerDocumentId
+        );
+        const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "page-preview",
+          }
+        );
+        assertReaderDocumentVisible(documentRoot, metadata);
+        if (!metadataIsPdf(metadata))
+          return response.status(400).json({
+            success: false,
+            error: "Reader page preview is only available for PDFs.",
+          });
+        const originalPath = await originalPathForReaderDocument({
+          documentRoot,
+          metadata,
+        });
+        return await sendReaderPdfPagePreview({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+          documentRoot,
+          metadata,
+          originalPath,
+        });
       } catch (error) {
         return response
           .status(404)
@@ -3301,6 +4932,7 @@ function workspaceReaderDocumentsEndpoints(app) {
             endpoint: "original",
           }
         );
+        assertReaderDocumentVisible(documentRoot, metadata);
         const originalPath = await originalPathForReaderDocument({
           documentRoot,
           metadata,
@@ -3334,22 +4966,33 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           endpoint: "get",
         });
+        assertReaderDocumentVisible(documentRoot, metadata);
         const content = includeContent
           ? readReaderJsonFile(documentRoot, "content.json", null, {
               readerDocumentId,
               endpoint: "get",
             })
           : null;
+        const pdfManifest = readOptionalReaderPdfManifest(
+          documentRoot,
+          readerDocumentId
+        );
+        const responseMetadata = pdfManifest
+          ? { ...metadata, pdfManifest }
+          : metadata;
 
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
           ...(includeContent ? { content } : {}),
-          contentSummary: readerContentSummary({ content, metadata }),
+          contentSummary: readerContentSummary({
+            content,
+            metadata: responseMetadata,
+          }),
           metadata: metadataWithOriginalUrl(
             workspace,
             readerDocumentId,
-            metadata
+            responseMetadata
           ),
           postprocess: readerPostprocessResponse(workspace, readerDocumentId)
             .postprocess,
@@ -3377,14 +5020,33 @@ function workspaceReaderDocumentsEndpoints(app) {
           throw new Error("Invalid reader document path.");
         if (!fs.existsSync(documentRoot))
           return response.status(200).json({ success: true, missing: true });
+        const metadata = readReaderJsonFile(
+          documentRoot,
+          "metadata.json",
+          null,
+          {
+            readerDocumentId,
+            endpoint: "delete",
+          }
+        );
         void recordClientTrustCheckpoint(request, {
           action: "reader_delete",
           resourceType: "reader_document",
           resourceId: readerDocumentId,
           outcome: "received",
         });
-        fs.rmSync(documentRoot, { recursive: true, force: true });
-        return response.status(200).json({ success: true });
+        const marker = markReaderDocumentDeleted({
+          workspace,
+          readerDocumentId,
+          metadata,
+          request,
+        });
+        enqueueReaderDocumentDelete({ workspace, readerDocumentId });
+        return response.status(200).json({
+          success: true,
+          deletionStatus: marker.deleteStatus,
+          deletedAt: marker.deletedAt,
+        });
       } catch (error) {
         return response
           .status(400)
@@ -3405,16 +5067,26 @@ module.exports = {
     classifyReaderDocumentWithDeepSeek,
     classificationSampleCharCount,
     compactClassificationText,
+    duplicateSignatureFor,
+    extractReaderDuplicateLeadText,
     createClassificationAccumulator,
     extractReaderClassificationText,
+    findReaderDuplicateCandidate,
     findLibreOfficeBinary,
     generateReaderDocumentThumbnail,
+    markReaderDocumentDeleted,
+    listReaderDocumentsForWorkspace,
     metadataWithOriginalUrl,
+    orderedPdfPreviewPrebuildPages,
+    orderedPdfPreviewWindowPages,
     readEpubPackage,
+    readOptionalReaderPdfManifest,
     parseClassificationJson,
     readerDocumentRoot,
+    readerDocumentIsDeleted,
     readerOriginalEtag,
     readerWorkspaceRoot,
+    runReaderThumbnailMaintenancePass,
     readerOcrConfigStatus,
     readerOcrProviderOptions,
     readerPostprocessResponse,
