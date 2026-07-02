@@ -22,6 +22,7 @@ import {
 } from "react";
 import { readerTextSourceKey, textHash } from "./storage";
 import { thumbnailFromEpubBook } from "./thumbnails";
+import { scheduledFetch } from "@/utils/tasks/scheduledFetch";
 
 function clampFontSize(value) {
   return Math.max(80, Math.min(180, Number(value) || 100));
@@ -4612,7 +4613,23 @@ const EpubReader = forwardRef(function EpubReader(
 
     async function prepareEpub() {
       try {
-        const response = await fetch(url);
+        const response = await scheduledFetch(url, undefined, {
+          communicationScene: "reader-open",
+          task: {
+            kind: "reader-epub-source",
+            label: "reader:epub-source",
+            priority: "P0",
+            policy: "foreground",
+            resource: "network",
+            protected: true,
+            abortable: false,
+            scope: {
+              route: "reader",
+              surface: "reader-open",
+              readerDocumentId: document?.id || document?.readerDocumentId,
+            },
+          },
+        });
         if (!response.ok) throw new Error("EPUB 文件读取失败。");
         const arrayBuffer = await response.arrayBuffer();
         if (cancelled) return;
@@ -4762,7 +4779,16 @@ const EpubReader = forwardRef(function EpubReader(
           !document.thumbnailDataUrl
         ) {
           thumbnailDocumentIdRef.current = thumbnailKey;
-          thumbnailFromEpubBook(book)
+          thumbnailFromEpubBook(book, {
+            profile: "display",
+            scope: {
+              readerDocumentId:
+                document.readerDocumentId ||
+                document.backupReaderDocumentId ||
+                document.localDocumentId ||
+                undefined,
+            },
+          })
             .then((thumbnail) => thumbnail && onThumbnailReady(thumbnail))
             .catch(() => null);
         }

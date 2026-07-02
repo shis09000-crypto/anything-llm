@@ -26,6 +26,10 @@
   --soft-sidebar-bg: #f5f5f7;
   --soft-sidebar-active: #ffffff;
   --soft-table-header: #f8fafc;
+  --settings-soft-sidebar-width: 282px;
+  --settings-soft-main-padding: 32px;
+  --settings-soft-content-max: 1080px;
+  --settings-soft-card-radius: var(--soft-radius-2xl);
 }
 
 [data-theme="dark"] {
@@ -56,7 +60,7 @@
 .settings-soft-page {
   display: flex;
   width: 100vw;
-  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   color: var(--soft-text-primary);
   background: linear-gradient(
@@ -81,7 +85,7 @@
   width: 100%;
   overflow-y: auto;
   background: transparent;
-  padding: 32px;
+  padding: var(--settings-soft-main-padding);
 }
 
 .settings-soft-main .w-screen.h-screen,
@@ -111,7 +115,7 @@
 .settings-soft-content {
   display: flex;
   width: 100%;
-  max-width: 1080px;
+  max-width: var(--settings-soft-content-max);
   flex-direction: column;
   gap: 20px;
   padding: 8px 0 48px;
@@ -154,7 +158,7 @@
 .settings-soft-card {
   overflow: visible;
   border: 1px solid var(--soft-card-border);
-  border-radius: var(--soft-radius-2xl);
+  border-radius: var(--settings-soft-card-radius);
   background: var(--soft-card);
   box-shadow: var(--soft-shadow-xl);
 }
@@ -688,8 +692,8 @@
 }
 
 .settings-soft-sidebar-shell {
-  min-width: 282px;
-  height: 100vh;
+  min-width: var(--settings-soft-sidebar-width);
+  height: 100dvh;
   flex-shrink: 0;
   overflow: hidden;
   background: var(--soft-sidebar-bg);
@@ -815,7 +819,7 @@
   left: 0;
   width: 82%;
   max-width: 340px;
-  height: 100vh;
+  height: 100dvh;
   border-right: 1px solid var(--soft-card-border);
   border-radius: 0 28px 28px 0;
   background: var(--soft-sidebar-bg);
@@ -877,6 +881,46 @@
 
 .settings-soft-page .motion-density-preview-step {
   background: rgba(15, 23, 42, 0.2) !important;
+}
+
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) {
+  :root {
+    --settings-soft-sidebar-width: clamp(230px, 24.8vw, 270px);
+    --settings-soft-main-padding: clamp(16px, 2.2vw, 26px);
+    --settings-soft-content-max: min(1040px, calc(100vw - var(--settings-soft-sidebar-width) - clamp(40px, 5vw, 68px)));
+    --settings-soft-card-radius: clamp(20px, 2.8vw, 26px);
+  }
+
+  .settings-soft-content {
+    gap: clamp(14px, 1.8vw, 20px);
+    padding-bottom: clamp(28px, 5vh, 44px);
+  }
+
+  .settings-soft-header {
+    gap: 14px;
+  }
+
+  .settings-soft-title {
+    font-size: clamp(23px, 2.6vw, 28px);
+  }
+
+  .settings-soft-card-header {
+    padding: clamp(18px, 2.3vw, 24px) clamp(18px, 2.3vw, 24px) 12px;
+  }
+
+  .settings-soft-card > :not(.settings-soft-card-header) {
+    padding-left: clamp(18px, 2.3vw, 24px);
+    padding-right: clamp(18px, 2.3vw, 24px);
+  }
+
+  .settings-soft-sidebar-card {
+    padding-inline: clamp(10px, 1.35vw, 14px);
+  }
+
+  .settings-soft-nav-link {
+    height: clamp(36px, 4.2vw, 40px);
+    padding-inline: clamp(9px, 1.2vw, 12px);
+  }
 }
 
 .settings-soft-page #reading-tools .rounded-xl,

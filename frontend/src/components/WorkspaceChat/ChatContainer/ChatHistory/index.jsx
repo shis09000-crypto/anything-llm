@@ -15,7 +15,6 @@ import AssistantTurn from "./AssistantTurn";
 import { useManageWorkspaceModal } from "../../../Modals/ManageWorkspace";
 import ManageWorkspace from "../../../Modals/ManageWorkspace";
 import { ArrowDown } from "@phosphor-icons/react";
-import { isMobile } from "react-device-detect";
 import debounce from "lodash.debounce";
 import Workspace from "@/models/workspace";
 import { useNavigate, useParams } from "react-router-dom";
@@ -66,6 +65,7 @@ import {
   chatScrollReducer,
   initialChatScrollState,
 } from "@/utils/chat/chatScrollCoordinator";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 const CHAT_LAYOUT_OVERLAP_TOLERANCE_PX = -2;
 const CHAT_LAYOUT_MIN_ROW_HEIGHT_PX = 4;
@@ -195,14 +195,15 @@ export default forwardRef(function (
   );
   const { showScrollbar } = Appearance.getSettings();
   const { textSize, textSizeClass, textSizeStyle } = useTextSize();
-  const mobileSystemFontStyle = isMobile
+  const isMobileShell = mobileShellRuntimeActive();
+  const mobileSystemFontStyle = isMobileShell
     ? {
         fontFamily: "var(--athena-font-sans)",
       }
     : {};
   const textSizePx = Number.parseFloat(textSizeStyle?.fontSize);
   const chatTextSizeStyle =
-    isMobile && Number.isFinite(textSizePx)
+    isMobileShell && Number.isFinite(textSizePx)
       ? {
           ...textSizeStyle,
           fontSize: `${Math.min(24, Math.max(17, textSizePx + 1))}px`,
@@ -2235,7 +2236,9 @@ export default forwardRef(function (
             ...scrollContainerStyle,
           }}
         >
-          <div className={`w-full max-w-[920px] ${contentClassName}`}>
+          <div
+            className={`athena-chat-history-width w-full max-w-[920px] ${contentClassName}`}
+          >
             {isLoadingOlderHistory && (
               <div className="motion-skeleton h-12 rounded-md mb-2" />
             )}
@@ -2276,7 +2279,7 @@ export default forwardRef(function (
           )}
         </div>
         {(!isNearBottom || scrollCoordinatorState.hasNewMessagesBelow) && (
-          <div className="absolute bottom-40 right-10 z-50 cursor-pointer animate-pulse">
+          <div className="athena-chat-scroll-bottom-button absolute bottom-40 right-10 z-50 cursor-pointer animate-pulse">
             <div className="flex flex-col items-center">
               {scrollCoordinatorState.hasNewMessagesBelow && (
                 <div className="mb-2 rounded-full border border-sky-300/30 bg-sky-500/15 px-3 py-1 text-xs font-medium text-sky-100 shadow-lg backdrop-blur light:border-sky-500/30 light:bg-sky-100 light:text-sky-700">

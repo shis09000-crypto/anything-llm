@@ -90,10 +90,14 @@ export default function Sidebar() {
     <>
       <div
         style={{
-          width: showSidebar ? "292px" : "0px",
-          paddingLeft: showSidebar ? "0px" : "16px",
+          width: showSidebar
+            ? "var(--athena-desktop-sidebar-width, 292px)"
+            : "0px",
+          paddingLeft: showSidebar
+            ? "0px"
+            : "var(--athena-desktop-sidebar-collapsed-pad, 16px)",
         }}
-        className="relative motion-hover"
+        className="athena-workspace-sidebar relative motion-hover"
       >
         {canToggleSidebar && (
           <ToggleSidebarButton
@@ -105,7 +109,7 @@ export default function Sidebar() {
           <div className="flex shrink-0 w-full justify-center my-[18px]">
             <div
               ref={brandMenuRef}
-              className="relative flex w-[250px] min-w-[250px] items-center gap-x-2 pr-9"
+              className="athena-workspace-sidebar-brand relative flex w-[250px] min-w-[250px] items-center gap-x-2 pr-9"
             >
               <button
                 type="button"
@@ -161,7 +165,7 @@ export default function Sidebar() {
           </div>
           <div
             ref={sidebarRef}
-            className="relative m-[16px] rounded-[16px] bg-theme-bg-sidebar light:bg-slate-200 border-[2px] border-theme-sidebar-border light:border-none min-w-[250px] p-[10px] h-[calc(100%-76px)]"
+            className="athena-workspace-sidebar-card relative m-[16px] rounded-[16px] bg-theme-bg-sidebar light:bg-slate-200 border-[2px] border-theme-sidebar-border light:border-none min-w-[250px] p-[10px] h-[calc(100%-76px)]"
           >
             <div className="flex flex-col h-full overflow-hidden">
               <div className="flex-grow flex flex-col min-w-[235px] min-h-0">

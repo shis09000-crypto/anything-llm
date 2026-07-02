@@ -1,3 +1,6 @@
+import { scheduledFetch } from "@/utils/tasks/scheduledFetch";
+import { taskScheduler } from "@/utils/tasks/taskScheduler";
+
 const PDFJS_PUBLIC_BASE = `${import.meta.env.BASE_URL || "/"}`.replace(
   /\/?$/,
   "/"
@@ -7,6 +10,27 @@ const THUMBNAIL_TIMEOUT_MS = 4_000;
 const THUMBNAIL_MAX_WIDTH = 360;
 const THUMBNAIL_MAX_HEIGHT = 520;
 const THUMBNAIL_JPEG_QUALITY = 0.88;
+
+const THUMBNAIL_TASK_PROFILES = {
+  display: {
+    priority: "P1",
+    policy: "visible",
+    resource: "render",
+    labelSuffix: "display",
+  },
+  maintenance: {
+    priority: "P4",
+    policy: "maintenance",
+    resource: "render",
+    labelSuffix: "maintenance",
+  },
+};
+
+function thumbnailTaskProfile(profile = "maintenance") {
+  return (
+    THUMBNAIL_TASK_PROFILES[profile] || THUMBNAIL_TASK_PROFILES.maintenance
+  );
+}
 
 function withTimeout(
   promise,
@@ -22,7 +46,20 @@ function withTimeout(
   ]).finally(() => window.clearTimeout(timer));
 }
 
-export async function thumbnailFromPdfBlob(blob) {
+export async function thumbnailFromPdfBlob(blob, options = {}) {
+  const profile = thumbnailTaskProfile(options.profile);
+  return taskScheduler.schedule(() => thumbnailFromPdfBlobCore(blob), {
+    kind: "reader-thumbnail-render",
+    label: `reader:pdf-thumbnail-render:${profile.labelSuffix}`,
+    priority: profile.priority,
+    policy: profile.policy,
+    resource: profile.resource,
+    abortable: true,
+    scope: { route: "reader", surface: "reader-thumbnail", ...options.scope },
+  }).promise;
+}
+
+async function thumbnailFromPdfBlobCore(blob) {
   if (!blob?.size) return null;
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf");
   pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_ASSET_BASE}pdf.worker.min.js`;
@@ -104,7 +141,23 @@ export function imageBlobToThumbnailDataUrl(blob) {
   );
 }
 
-export async function thumbnailFromEpubBlob(blob) {
+export async function thumbnailFromEpubBlob(blob, options = {}) {
+  const profile = thumbnailTaskProfile(options.profile);
+  return taskScheduler.schedule(
+    () => thumbnailFromEpubBlobCore(blob, options),
+    {
+      kind: "reader-thumbnail-render",
+      label: `reader:epub-thumbnail-render:${profile.labelSuffix}`,
+      priority: profile.priority,
+      policy: profile.policy,
+      resource: profile.resource,
+      abortable: true,
+      scope: { route: "reader", surface: "reader-thumbnail", ...options.scope },
+    }
+  ).promise;
+}
+
+async function thumbnailFromEpubBlobCore(blob, options = {}) {
   if (!blob?.size) return null;
   const { default: ePub } = await import("epubjs");
   const book = ePub(await blob.arrayBuffer(), {
@@ -112,30 +165,37 @@ export async function thumbnailFromEpubBlob(blob) {
     replacements: "blobUrl",
   });
   try {
-    return await thumbnailFromEpubBook(book);
+    return await thumbnailFromEpubBook(book, options);
   } finally {
     book.destroy?.();
   }
 }
 
-export async function thumbnailFromEpubBook(book) {
+export async function thumbnailFromEpubBook(book, options = {}) {
   if (!book) return null;
-  const coverThumbnail = await thumbnailFromEpubCover(book);
+  const coverThumbnail = await thumbnailFromEpubCover(book, options);
   if (coverThumbnail) return coverThumbnail;
-  return await thumbnailFromEpubFirstSpine(book);
+  return await thumbnailFromEpubFirstSpine(book, options);
 }
 
-async function thumbnailFromEpubCover(book) {
+async function thumbnailFromEpubCover(book, options = {}) {
   const coverUrl = await withTimeout(book.coverUrl(), THUMBNAIL_TIMEOUT_MS);
   if (!coverUrl) return null;
-  const response = await withTimeout(fetch(coverUrl), THUMBNAIL_TIMEOUT_MS);
+  const response = await withTimeout(
+    scheduledFetch(coverUrl, undefined, {
+      communicationScene:
+        options.profile === "display" ? "reader-visible" : "reader-maintenance",
+      task: thumbnailFetchTask("reader:epub-cover-thumbnail", options.profile),
+    }),
+    THUMBNAIL_TIMEOUT_MS
+  );
   if (!response?.ok) return null;
   const blob = await response.blob();
   if (!blob?.size) return null;
   return await imageBlobToThumbnailDataUrl(blob);
 }
 
-async function thumbnailFromEpubFirstSpine(book) {
+async function thumbnailFromEpubFirstSpine(book, options = {}) {
   await withTimeout(book.ready || book.opened, THUMBNAIL_TIMEOUT_MS);
   const section = firstLinearSpineSection(book);
   if (!section) return null;
@@ -154,7 +214,19 @@ async function thumbnailFromEpubFirstSpine(book) {
   const document = new DOMParser().parseFromString(html, "text/html");
   const imageUrl = await firstImageUrlFromEpubSection(document, section, book);
   if (imageUrl) {
-    const response = await withTimeout(fetch(imageUrl), THUMBNAIL_TIMEOUT_MS);
+    const response = await withTimeout(
+      scheduledFetch(imageUrl, undefined, {
+        communicationScene:
+          options.profile === "display"
+            ? "reader-visible"
+            : "reader-maintenance",
+        task: thumbnailFetchTask(
+          "reader:epub-image-thumbnail",
+          options.profile
+        ),
+      }),
+      THUMBNAIL_TIMEOUT_MS
+    );
     if (response?.ok) {
       const blob = await response.blob();
       const thumbnail = await imageBlobToThumbnailDataUrl(blob);
@@ -163,6 +235,22 @@ async function thumbnailFromEpubFirstSpine(book) {
   }
 
   return textThumbnailFromEpubSection(document, book);
+}
+
+function thumbnailFetchTask(label, profileName = "maintenance") {
+  const profile = thumbnailTaskProfile(profileName);
+  return {
+    kind: "reader-thumbnail-fetch",
+    label: `${label}:${profile.labelSuffix}`,
+    priority: profile.priority,
+    policy: profile.policy,
+    resource: profileName === "display" ? "network" : "idle",
+    abortable: true,
+    scope: {
+      route: "reader",
+      surface: "reader-thumbnail",
+    },
+  };
 }
 
 function firstLinearSpineSection(book) {

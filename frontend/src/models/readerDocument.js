@@ -27,6 +27,7 @@ const ReaderDocument = {
     const { response, data } = await getJson(readerDocumentsPath(slug), {
       signal: options.signal,
       communicationScene: "reader-open",
+      task: options.task,
     });
     return { response, data };
   },
@@ -47,7 +48,11 @@ const ReaderDocument = {
       withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
         detail: options.detail,
       }),
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
@@ -63,6 +68,7 @@ const ReaderDocument = {
       signal: options.signal,
       blobKind: BLOB_KINDS.readerOriginal,
       communicationScene: "reader-open",
+      task: options.task,
     });
     return { response, blob };
   },
@@ -73,6 +79,7 @@ const ReaderDocument = {
       signal: options.signal,
       blobKind: BLOB_KINDS.readerPreview,
       communicationScene: "reader-open",
+      task: options.task,
     });
     return { response, blob, previewUrl };
   },
@@ -81,13 +88,16 @@ const ReaderDocument = {
       signal: options.signal,
       blobKind: BLOB_KINDS.readerPreview,
       communicationScene: "reader-open",
+      task: options.task,
     });
     return { response, blob };
   },
-  thumbnailBlob: async function (thumbnailUrl) {
+  thumbnailBlob: async function (thumbnailUrl, options = {}) {
     const { response, blob } = await requestBlob(thumbnailUrl, {
+      signal: options.signal,
       blobKind: BLOB_KINDS.readerThumbnail,
-      communicationScene: "reader-open",
+      communicationScene: options.communicationScene || "reader-open",
+      task: options.task,
     });
     return { response, blob };
   },
@@ -95,7 +105,11 @@ const ReaderDocument = {
     const params = new URLSearchParams({ docPath });
     const { response, data } = await getJson(
       `${readerDocumentsPath(slug)}/from-workspace?${params.toString()}`,
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
@@ -103,7 +117,11 @@ const ReaderDocument = {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/from-local-path`,
       { absolutePath },
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
@@ -111,42 +129,74 @@ const ReaderDocument = {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/reopen-local-path`,
       undefined,
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
-  classify: async function (slug, payload = {}) {
+  classify: async function (slug, payload = {}, options = {}) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/classify`,
-      payload
+      payload,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "reader-maintenance",
+        task: options.task,
+      }
     );
     return { response, data };
   },
-  postprocess: async function (slug, readerDocumentId, payload = {}, options = {}) {
+  postprocess: async function (
+    slug,
+    readerDocumentId,
+    payload = {},
+    options = {}
+  ) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`,
       payload,
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
   postprocessStatus: async function (slug, readerDocumentId, options = {}) {
     const { response, data } = await getJson(
       `${readerDocumentsPath(slug)}/${readerDocumentId}/postprocess`,
-      { signal: options.signal, communicationScene: "reader-open" }
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "reader-open",
+        task: options.task,
+      }
     );
     return { response, data };
   },
-  ocrConfig: async function (slug) {
+  ocrConfig: async function (slug, options = {}) {
     const { response, data } = await getJson(
-      `${readerDocumentsPath(slug)}/ocr-config`
+      `${readerDocumentsPath(slug)}/ocr-config`,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "reader-visible",
+        task: options.task,
+      }
     );
     return { response, data };
   },
-  ocrScreenshot: async function (slug, payload = {}) {
+  ocrScreenshot: async function (slug, payload = {}, options = {}) {
     const { response, data } = await postJson(
       `${readerDocumentsPath(slug)}/ocr-screenshot`,
-      payload
+      payload,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "reader-visible",
+        task: options.task,
+      }
     );
     return { response, data };
   },

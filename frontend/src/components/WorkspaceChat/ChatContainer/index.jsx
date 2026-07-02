@@ -15,7 +15,6 @@ import PromptInput, {
   PROMPT_INPUT_ID,
 } from "./PromptInput";
 import Workspace from "@/models/workspace";
-import { isMobile } from "react-device-detect";
 import { SidebarMobileHeader } from "../../Sidebar";
 import { useLocation, useNavigate } from "react-router-dom";
 import DnDFileUploaderWrapper from "./DnDWrapper";
@@ -62,6 +61,7 @@ import {
   clampReaderSplitPercent,
   readReaderSplitPercent,
 } from "@/utils/layout/workspaceLayoutState";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -112,6 +112,10 @@ export default function ChatContainer({
 }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobileShell = mobileShellRuntimeActive();
+  const desktopPanelHeight = isMobileShell
+    ? "100%"
+    : "calc(100% - var(--athena-shell-panel-vertical, 32px))";
   const navigateIfChanged = useCallback(
     (to, options) => {
       const currentPath = `${location.pathname}${location.search}${location.hash}`;
@@ -1044,7 +1048,23 @@ export default function ChatContainer({
 
     try {
       setMobileNewThreadLoading(true);
-      const { thread, error } = await Workspace.threads.new(workspace.slug);
+      const { thread, error } = await Workspace.threads.new(workspace.slug, {
+        communicationScene: "workspace-navigation",
+        task: {
+          label: "navigation:thread-new-real-create",
+          kind: "navigation",
+          priority: "P0",
+          policy: "foreground",
+          protected: true,
+          abortable: false,
+          intentRank: 2,
+          scope: {
+            route: "workspace-chat",
+            surface: "thread-create",
+            workspaceSlug: workspace.slug,
+          },
+        },
+      });
       if (error || !thread?.slug) {
         showToast(
           `新建线程失败 - ${error || "Invalid thread response"}`,
@@ -1715,10 +1735,10 @@ export default function ChatContainer({
           }
         >
           <div
-            style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-            className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+            style={{ height: desktopPanelHeight }}
+            className="athena-chat-panel motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
           >
-            {isMobile && renderMobileHeader()}
+            {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
               modelName={workspace.chatModel}
@@ -1767,11 +1787,11 @@ export default function ChatContainer({
     return (
       <SourcesSidebarProvider>
         <div
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className="relative flex gap-4 md:gap-5 md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3"
+          style={{ height: desktopPanelHeight }}
+          className="athena-chat-layout relative flex gap-4 md:gap-5 md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3"
         >
           <div className="flex-[1.08] min-w-0 motion-hover relative md:rounded-[18px] bg-zinc-900 light:bg-white text-white light:text-slate-900 h-full overflow-hidden border border-white/10 light:border-white/70 shadow-[0_18px_45px_rgba(0,0,0,0.28)] light:shadow-[0_18px_42px_rgba(15,23,42,0.14)] ring-1 ring-white/5 light:ring-slate-200/70">
-            {isMobile && renderMobileHeader()}
+            {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
               modelName={workspace.chatModel}
@@ -1907,8 +1927,8 @@ export default function ChatContainer({
           {emptyThreadShellActive ? (
             <div
               ref={readerLayoutRef}
-              style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-              className={`relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
+              style={{ height: desktopPanelHeight }}
+              className={`athena-chat-layout relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
                 readerActive ? "gap-0" : "gap-4 md:gap-5"
               }`}
             >
@@ -1920,7 +1940,7 @@ export default function ChatContainer({
                     : "1 1 0%",
                 }}
               >
-                {isMobile && renderMobileHeader()}
+                {isMobileShell && renderMobileHeader()}
                 {!readerActive && (
                   <TopRightActionZone
                     isMindMapOpen={mindMapOpen}
@@ -2020,10 +2040,10 @@ export default function ChatContainer({
             </div>
           ) : (
             <div
-              style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-              className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
+              style={{ height: desktopPanelHeight }}
+              className="athena-chat-panel motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-zinc-900 light:bg-white w-full h-full overflow-hidden border-none light:border-solid light:border light:border-theme-modal-border"
             >
-              {isMobile && renderMobileHeader()}
+              {isMobileShell && renderMobileHeader()}
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}
                 onMindMap={openMindMap}
@@ -2040,7 +2060,7 @@ export default function ChatContainer({
                 <div className="flex flex-col h-full w-full">
                   <div className="flex-1 min-h-0 overflow-hidden" />
                   <div className="overview-input-fade">
-                    <div className="pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
+                    <div className="athena-empty-prompt-wrap pointer-events-auto mx-auto flex w-full max-w-[850px] flex-col items-center">
                       <PromptInput
                         workspace={workspace}
                         submit={handleSubmit}
@@ -2102,8 +2122,8 @@ export default function ChatContainer({
       >
         <div
           ref={readerLayoutRef}
-          style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
-          className={`relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
+          style={{ height: desktopPanelHeight }}
+          className={`athena-chat-layout relative flex md:ml-[2px] md:mr-[16px] md:my-[16px] w-full h-full z-[2] overflow-hidden px-2 py-2 md:px-4 md:py-3 ${
             readerActive ? "gap-0" : "gap-4 md:gap-5"
           }`}
         >
@@ -2115,7 +2135,7 @@ export default function ChatContainer({
                 : "1 1 0%",
             }}
           >
-            {isMobile && renderMobileHeader()}
+            {isMobileShell && renderMobileHeader()}
             {!readerActive && (
               <TopRightActionZone
                 isMindMapOpen={mindMapOpen}

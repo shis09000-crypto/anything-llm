@@ -51,7 +51,25 @@ function FileUploadProgressComponent({
       const { response, data } = await Workspace.uploadFile(
         slug,
         formData,
-        uploadTargetFolder
+        uploadTargetFolder,
+        {
+          communicationScene: "workspace-upload-visible",
+          task: {
+            label: "workspace-upload:manage-workspace-file",
+            kind: "upload",
+            priority: "P0",
+            policy: "foreground",
+            protected: true,
+            abortable: false,
+            intentRank: 0,
+            scope: {
+              route: "workspace-settings",
+              surface: "workspace-upload",
+              workspaceSlug: slug,
+              fileName: file?.name,
+            },
+          },
+        }
       );
       if (!response.ok) {
         setStatus("failed");

@@ -45,6 +45,7 @@ import {
   readerPdfSourceMatchesDocument,
   resolvePdfInitialTarget,
 } from "@/utils/chat/readerPdfTarget";
+import { taskScheduler } from "@/utils/tasks/taskScheduler";
 import { detectPdfTextLayer } from "./pdfOcrDetection";
 import { textHash } from "./storage";
 
@@ -157,14 +158,27 @@ const PDF_PROGRESS_RESTORE_DELAY_MS = 150;
 const PDF_PROGRESS_RESTORE_DONE_GUARD_MS = 900;
 
 async function thumbnailFromPdfDocument(pdfDocument) {
-  const page = await pdfDocument.getPage(1);
-  const viewport = page.getViewport({ scale: 0.22 });
-  const canvas = window.document.createElement("canvas");
-  const context = canvas.getContext("2d", { alpha: false });
-  canvas.width = Math.max(1, Math.floor(viewport.width));
-  canvas.height = Math.max(1, Math.floor(viewport.height));
-  await page.render({ canvasContext: context, viewport }).promise;
-  return canvas.toDataURL("image/jpeg", 0.72);
+  return taskScheduler.schedule(
+    async () => {
+      const page = await pdfDocument.getPage(1);
+      const viewport = page.getViewport({ scale: 0.22 });
+      const canvas = window.document.createElement("canvas");
+      const context = canvas.getContext("2d", { alpha: false });
+      canvas.width = Math.max(1, Math.floor(viewport.width));
+      canvas.height = Math.max(1, Math.floor(viewport.height));
+      await page.render({ canvasContext: context, viewport }).promise;
+      return canvas.toDataURL("image/jpeg", 0.72);
+    },
+    {
+      kind: "reader-thumbnail-render",
+      label: "reader:pdf-thumbnail-display",
+      priority: "P1",
+      policy: "visible",
+      resource: "render",
+      abortable: true,
+      scope: { route: "reader", surface: "reader-thumbnail-display" },
+    }
+  ).promise;
 }
 
 function clampScale(value) {

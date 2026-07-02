@@ -71,3 +71,86 @@ test("navigator mobile hints are treated as mobile history surfaces", () => {
   assert.equal(options.detail, "full");
   assert.equal(options.priorityWindow, Number.MAX_SAFE_INTEGER);
 });
+
+test("iPad and Android tablets keep desktop history surface by default", () => {
+  const ipadWindow = {
+    innerWidth: 820,
+    matchMedia: (query) => ({
+      matches:
+        query.includes("pointer: coarse") ||
+        query.includes("any-pointer: coarse") ||
+        query.includes("max-width"),
+    }),
+    navigator: {
+      userAgent:
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+      platform: "MacIntel",
+      maxTouchPoints: 5,
+    },
+  };
+  const ipadOptions = historyRequestOptionsForDevice({
+    mobile: false,
+    windowLike: ipadWindow,
+    navigatorLike: ipadWindow.navigator,
+    limit: 20,
+    priorityWindow: 10,
+  });
+
+  assert.equal(
+    historySurfaceForDevice({
+      windowLike: ipadWindow,
+      navigatorLike: ipadWindow.navigator,
+    }),
+    "desktop"
+  );
+  assert.equal(ipadOptions.detail, "light");
+  assert.equal(ipadOptions.priorityWindow, 10);
+
+  const androidTabletWindow = {
+    innerWidth: 900,
+    matchMedia: (query) => ({
+      matches:
+        query.includes("pointer: coarse") ||
+        query.includes("any-pointer: coarse"),
+    }),
+    navigator: {
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+      platform: "Linux armv8l",
+      maxTouchPoints: 10,
+    },
+  };
+
+  assert.equal(
+    historySurfaceForDevice({
+      windowLike: androidTabletWindow,
+      navigatorLike: androidTabletWindow.navigator,
+    }),
+    "desktop"
+  );
+});
+
+test("Android phone history surface remains mobile even on a wide viewport", () => {
+  const androidPhoneWindow = {
+    innerWidth: 820,
+    matchMedia: (query) => ({
+      matches:
+        query.includes("pointer: coarse") ||
+        query.includes("any-pointer: coarse"),
+    }),
+    navigator: {
+      userAgent:
+        "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/AP1A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+      platform: "Linux armv8l",
+      maxTouchPoints: 5,
+    },
+  };
+
+  assert.equal(
+    historySurfaceForDevice({
+      windowLike: androidPhoneWindow,
+      navigatorLike: androidPhoneWindow.navigator,
+    }),
+    "mobile"
+  );
+});

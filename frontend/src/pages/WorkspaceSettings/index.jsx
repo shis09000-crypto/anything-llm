@@ -82,17 +82,19 @@ function WorkspaceSettingsOutletLayout() {
                 Workspace.bySlug(slug, {
                   signal: controller.signal,
                   communicationScene: "workspace-settings",
+                  task: false,
                 }),
               {
-                priority: cached ? "P2" : "P0",
+                priority: cached ? "P1" : "P0",
                 label: "workspace-settings:workspace-detail",
                 kind: "settings",
                 scope: {
                   route: "workspace-settings",
                   workspaceSlug: slug,
                 },
-                policy: cached ? "background" : "foreground",
+                policy: cached ? "visible" : "foreground",
                 emergency: !cached,
+                intentRank: 0,
                 signal: controller.signal,
                 dedupeKey: `workspace-settings:workspace:${slug}`,
               }

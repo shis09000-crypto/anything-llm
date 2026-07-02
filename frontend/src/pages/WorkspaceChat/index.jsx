@@ -13,6 +13,7 @@ import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { mobileRuntimeActive } from "@/utils/mobileRuntime";
+import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 
 const MobileWebPwa = React.lazy(() =>
   import("@/components/MobileWeb").then((module) => ({
@@ -131,6 +132,10 @@ function ShowWorkspaceChat() {
       });
       setWorkspace(freshCachedWorkspace);
       setLoadedSlug(slug);
+      markTaskPerformance("chat_ready", {
+        workspaceSlug: slug,
+        source: "cache",
+      });
       warmWorkspaceChat(slug);
       return () => {
         controller.abort();
@@ -146,6 +151,10 @@ function ShowWorkspaceChat() {
       });
       setWorkspace(staleCachedWorkspace);
       setLoadedSlug(slug);
+      markTaskPerformance("chat_ready", {
+        workspaceSlug: slug,
+        source: "stale-cache",
+      });
     }
 
     debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchStart", {
@@ -177,6 +186,7 @@ function ShowWorkspaceChat() {
                 scope: { route: "workspace-chat", workspaceSlug: slug },
                 policy: staleCachedWorkspace ? "prefetch" : "foreground",
                 emergency: !staleCachedWorkspace,
+                intentRank: 2,
                 signal: controller.signal,
                 dedupeKey: `workspace-detail:${slug}`,
               }
@@ -262,6 +272,10 @@ function ShowWorkspaceChat() {
 
       setWorkspace(nextWorkspace);
       setLoadedSlug(slug);
+      markTaskPerformance("chat_ready", {
+        workspaceSlug: nextWorkspace.slug,
+        source: "network",
+      });
       workspaceNavigationCache.setWorkspaceDetail(slug, nextWorkspace);
       warmWorkspaceChat(_workspace.slug);
       debugWorkspaceSwitchFlicker("WorkspaceChatPage:workspaceFetchLoaded", {

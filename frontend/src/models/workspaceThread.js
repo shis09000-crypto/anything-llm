@@ -53,10 +53,16 @@ const WorkspaceThread = {
       onThreadRename,
     });
   },
-  new: async function (workspaceSlug) {
+  new: async function (workspaceSlug, options = {}) {
     try {
       const { data: payload } = await postJson(
-        `/workspace/${workspaceSlug}/thread/new`
+        `/workspace/${workspaceSlug}/thread/new`,
+        {},
+        {
+          signal: options.signal,
+          communicationScene: options.communicationScene,
+          task: options.task,
+        }
       );
       const error = payload?.error || payload?.message || null;
       if (error) return { thread: null, error };
@@ -68,10 +74,15 @@ const WorkspaceThread = {
       return { thread: null, error: failureMessage(e) };
     }
   },
-  update: async function (workspaceSlug, threadSlug, data = {}) {
+  update: async function (workspaceSlug, threadSlug, data = {}, options = {}) {
     const { thread, message } = await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/update`,
-      data
+      data,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene,
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => {
@@ -82,11 +93,21 @@ const WorkspaceThread = {
       workspaceNavigationCache.updateThread(workspaceSlug, thread);
     return { thread, message };
   },
-  move: async function (workspaceSlug, threadSlug, targetWorkspaceSlug) {
+  move: async function (
+    workspaceSlug,
+    threadSlug,
+    targetWorkspaceSlug,
+    options = {}
+  ) {
     try {
       const { data: payload } = await postJson(
         `/workspace/${workspaceSlug}/thread/${threadSlug}/move`,
-        { targetWorkspaceSlug }
+        { targetWorkspaceSlug },
+        {
+          signal: options.signal,
+          communicationScene: options.communicationScene,
+          task: options.task,
+        }
       );
       const error = payload?.error || payload?.message || null;
       if (error) return { success: false, error, thread: null };
@@ -111,8 +132,12 @@ const WorkspaceThread = {
       return { success: false, error: failureMessage(e), thread: null };
     }
   },
-  delete: async function (workspaceSlug, threadSlug) {
-    return await deleteJson(`/workspace/${workspaceSlug}/thread/${threadSlug}`)
+  delete: async function (workspaceSlug, threadSlug, options = {}) {
+    return await deleteJson(`/workspace/${workspaceSlug}/thread/${threadSlug}`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene,
+      task: options.task,
+    })
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
         workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
@@ -120,9 +145,12 @@ const WorkspaceThread = {
       })
       .catch(() => false);
   },
-  deleteBulk: async function (workspaceSlug, threadSlugs = []) {
+  deleteBulk: async function (workspaceSlug, threadSlugs = [], options = {}) {
     return await deleteJson(`/workspace/${workspaceSlug}/thread-bulk-delete`, {
       body: { slugs: threadSlugs },
+      signal: options.signal,
+      communicationScene: options.communicationScene,
+      task: options.task,
     })
       .then(() => {
         threadSlugs.forEach((threadSlug) =>

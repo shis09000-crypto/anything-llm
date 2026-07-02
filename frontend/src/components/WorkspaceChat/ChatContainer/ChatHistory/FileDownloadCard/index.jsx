@@ -30,7 +30,7 @@ function FileDownloadCard({ props }) {
 
   return (
     <div className="flex justify-center w-full my-2">
-      <div className="w-full max-w-[750px] mr-4">
+      <div className="athena-prompt-form w-full max-w-[750px] mr-4">
         <div className="flex items-center justify-between bg-zinc-800 light:bg-slate-100 light:border light:border-slate-200/50 rounded-xl px-2 py-1">
           <div className="flex items-center gap-x-3 min-w-0">
             <div

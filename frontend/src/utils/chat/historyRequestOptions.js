@@ -1,3 +1,8 @@
+import {
+  detectPhoneRuntimeFromNavigator,
+  detectTabletRuntimeFromNavigator,
+} from "../mobileRuntime.js";
+
 export const MOBILE_HISTORY_MAX_WIDTH = 768;
 
 function safeNavigator(navigatorLike) {
@@ -38,24 +43,27 @@ export function isNarrowHistoryViewport(windowLike = null) {
   return widths.some((width) => width <= MOBILE_HISTORY_MAX_WIDTH);
 }
 
-export function navigatorReportsMobile(navigatorLike = null) {
+function detectionWindow(windowLike = null, navigatorLike = null) {
+  const targetWindow = safeWindow(windowLike);
+  const targetNavigator = safeNavigator(navigatorLike);
+  return {
+    ...(targetWindow || {}),
+    navigator: targetNavigator || undefined,
+  };
+}
+
+export function navigatorReportsMobile(navigatorLike = null, windowLike = null) {
   const targetNavigator = safeNavigator(navigatorLike);
   if (!targetNavigator) return false;
-  if (targetNavigator.userAgentData?.mobile === true) return true;
+  const win = detectionWindow(windowLike, targetNavigator);
+  if (detectTabletRuntimeFromNavigator(win)) return false;
+  if (detectPhoneRuntimeFromNavigator(win)) return true;
 
   const userAgent = String(targetNavigator.userAgent || "");
-  if (
-    /Android|iPhone|iPad|iPod|Mobile|Mobi|Windows Phone|webOS|BlackBerry/i.test(
-      userAgent
-    )
-  ) {
-    return true;
-  }
-
   return (
     Number(targetNavigator.maxTouchPoints || 0) > 1 &&
     /Macintosh/i.test(userAgent) &&
-    isNarrowHistoryViewport()
+    isNarrowHistoryViewport(windowLike)
   );
 }
 
@@ -66,8 +74,14 @@ export function historySurfaceForDevice({
   surface = null,
 } = {}) {
   if (surface === "mobile" || surface === "desktop") return surface;
+  if (
+    !mobile &&
+    detectTabletRuntimeFromNavigator(detectionWindow(windowLike, navigatorLike))
+  ) {
+    return "desktop";
+  }
   return mobile ||
-    navigatorReportsMobile(navigatorLike) ||
+    navigatorReportsMobile(navigatorLike, windowLike) ||
     isNarrowHistoryViewport(windowLike)
     ? "mobile"
     : "desktop";

@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { BookOpenText, GitBranch, GitFork } from "@phosphor-icons/react";
-import { isMobile } from "react-device-detect";
 import useLoginMode from "@/hooks/useLoginMode";
 import WorkspaceHealthBeacon from "@/components/WorkspaceHealthBeacon";
 import { WorkspaceHealthProvider } from "@/contexts/WorkspaceHealthProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 const MIND_MAP_REVEAL_DELAY_MS = 125;
 const HIDE_DELAY_MS = 2000;
@@ -25,6 +25,7 @@ export default function TopRightActionZone({
   const interactionTimer = useRef(null);
   const [isRevealed, setIsRevealed] = useState(false);
   const [isInteractive, setIsInteractive] = useState(!isMindMapOpen);
+  const isMobileShell = mobileShellRuntimeActive();
 
   useEffect(() => {
     return () => {
@@ -74,7 +75,7 @@ export default function TopRightActionZone({
     }, HIDE_DELAY_MS);
   }
 
-  if (isMobile || dualThreadMode) return null;
+  if (isMobileShell || dualThreadMode) return null;
 
   const hiddenOpacity = isMindMapOpen ? "opacity-0" : "opacity-25";
 

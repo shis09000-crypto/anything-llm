@@ -1,6 +1,6 @@
-import { isMobile } from "react-device-detect";
 import { useTranslation } from "react-i18next";
 import { X } from "@phosphor-icons/react";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import {
   combineLikeSources,
   CitationDetailModal,
@@ -20,10 +20,11 @@ export default function SourcesSidebar() {
     setSelectedSource,
   } = useSourcesSidebar();
   const { t } = useTranslation();
+  const isMobileShell = mobileShellRuntimeActive();
 
   const combined = combineLikeSources(sources);
 
-  if (isMobile) {
+  if (isMobileShell) {
     return (
       <MobileCitationModal
         sources={sources}

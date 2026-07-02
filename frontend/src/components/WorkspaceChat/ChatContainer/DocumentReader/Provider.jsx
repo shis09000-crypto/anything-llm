@@ -94,9 +94,28 @@ import {
 } from "@/utils/chat/readerLocalSources";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
+
+function readerOpenTask(label, workspaceSlug = null, scope = {}) {
+  return {
+    label,
+    kind: "reader",
+    priority: "P0",
+    policy: "foreground",
+    resource: "network",
+    emergency: true,
+    intentRank: 0,
+    scope: {
+      route: "workspace-chat",
+      surface: "reader-open",
+      workspaceSlug: workspaceSlug || null,
+      ...scope,
+    },
+  };
+}
 
 async function parseFileByType(file, readerDocumentId, documentType) {
   if (documentType === "markdown")
@@ -231,11 +250,35 @@ function blobToDataUrl(blob) {
   });
 }
 
-async function thumbnailDataUrlFromUrl(thumbnailUrl) {
+async function thumbnailDataUrlFromUrl(thumbnailUrl, options = {}) {
   if (!thumbnailUrl || /^(data:|blob:)/i.test(thumbnailUrl))
     return thumbnailUrl || null;
   try {
-    const { response, blob } = await ReaderDocument.thumbnailBlob(thumbnailUrl);
+    const displayTask = options.profile === "display";
+    const { response, blob } = await ReaderDocument.thumbnailBlob(
+      thumbnailUrl,
+      {
+        communicationScene: displayTask
+          ? "reader-visible"
+          : "reader-maintenance",
+        task: {
+          label: displayTask
+            ? "reader:thumbnail-display"
+            : "reader:thumbnail-maintenance",
+          kind: "reader-thumbnail",
+          priority: displayTask ? "P1" : "P4",
+          policy: displayTask ? "visible" : "maintenance",
+          resource: displayTask ? "network" : "idle",
+          abortable: true,
+          scope: {
+            route: "reader",
+            surface: displayTask
+              ? "reader-thumbnail-display"
+              : "reader-thumbnail-maintenance",
+          },
+        },
+      }
+    );
     if (response.ok && blob?.size > 0) return await blobToDataUrl(blob);
   } catch {}
   return null;
@@ -559,6 +602,7 @@ export function DocumentReaderProvider({
           try {
             const { response, data } = await ReaderDocument.list(scope, {
               signal,
+              task: false,
             });
             if (!response.ok || !data?.success) return [];
             return data.documents || [];
@@ -588,7 +632,9 @@ export function DocumentReaderProvider({
       items
         .filter((item) => item.thumbnailUrl && !item.thumbnailDataUrl)
         .forEach((item) => {
-          void thumbnailDataUrlFromUrl(item.thumbnailUrl).then((dataUrl) => {
+          void thumbnailDataUrlFromUrl(item.thumbnailUrl, {
+            profile: "display",
+          }).then((dataUrl) => {
             if (!dataUrl) return;
             setReaderBookshelf(
               updateReaderBookshelfItem(item, { thumbnailDataUrl: dataUrl })
@@ -694,7 +740,9 @@ export function DocumentReaderProvider({
   }, []);
 
   const thumbnailSrcForStorage = useCallback(async (thumbnailSrc) => {
-    return await thumbnailDataUrlFromUrl(thumbnailSrc);
+    return await thumbnailDataUrlFromUrl(thumbnailSrc, {
+      profile: "maintenance",
+    });
   }, []);
 
   const applyPostprocessResult = useCallback(
@@ -756,6 +804,7 @@ export function DocumentReaderProvider({
       item,
       tasks = ["thumbnail", "classification"],
       uploadEntryId = null,
+      intent = "maintenance",
     }) => {
       if (!item) return;
       const readerDocumentId =
@@ -767,7 +816,7 @@ export function DocumentReaderProvider({
           : tasks;
       const readerDocumentWorkspaceSlug =
         item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
-      const key = `${readerDocumentId}:${requestedTasks
+      const key = `${readerDocumentId}:${intent}:${requestedTasks
         .slice()
         .sort()
         .join(",")}`;
@@ -813,11 +862,18 @@ export function DocumentReaderProvider({
                 name: category.name,
               })
             );
+            const foreground = intent === "manual" || intent === "open";
             const { response } = await ReaderDocument.postprocess(
               readerDocumentWorkspaceSlug,
               readerDocumentId,
               { tasks: requestedTasks, categories },
-              { signal }
+              {
+                signal,
+                communicationScene: foreground
+                  ? "reader-visible"
+                  : "reader-maintenance",
+                task: false,
+              }
             );
             if (signal.aborted) return;
             if (!response.ok) {
@@ -837,7 +893,13 @@ export function DocumentReaderProvider({
                 await ReaderDocument.postprocessStatus(
                   readerDocumentWorkspaceSlug,
                   readerDocumentId,
-                  { signal }
+                  {
+                    signal,
+                    communicationScene: foreground
+                      ? "reader-visible"
+                      : "reader-maintenance",
+                    task: false,
+                  }
                 );
               if (signal.aborted) break;
               if (!statusResponse.ok || !data?.success) {
@@ -882,8 +944,11 @@ export function DocumentReaderProvider({
           }
         },
         {
-          priority: "P4",
-          label: "reader:postprocess-poll",
+          priority: intent === "manual" || intent === "open" ? "P0" : "P4",
+          label:
+            intent === "manual"
+              ? "reader:manual-postprocess"
+              : "reader:postprocess-poll",
           kind: "reader",
           scope: {
             route: "workspace-chat",
@@ -892,8 +957,13 @@ export function DocumentReaderProvider({
             readerDocumentId,
             surface: "reader-postprocess",
           },
-          policy: "maintenance",
-          dedupeKey: `reader:postprocess:${key}`,
+          policy:
+            intent === "manual" || intent === "open"
+              ? "foreground"
+              : "maintenance",
+          emergency: intent === "manual" || intent === "open",
+          intentRank: 0,
+          dedupeKey: `reader:postprocess:${intent}:${key}`,
           onAbort: () => postprocessQueueRef.current.delete(key),
         }
       );
@@ -1055,10 +1125,11 @@ export function DocumentReaderProvider({
               {
                 detail: "content",
                 signal: openContext.signal,
+                task: false,
               }
             ),
           {
-            priority: "P1",
+            priority: "P0",
             label: "reader:content-fallback",
             kind: "reader",
             scope: {
@@ -1068,7 +1139,9 @@ export function DocumentReaderProvider({
               readerDocumentId: data.readerDocumentId,
               surface: "reader-open",
             },
-            policy: "visible",
+            policy: "foreground",
+            emergency: true,
+            intentRank: 0,
             signal: openContext.signal,
             dedupeKey: `reader:content:${
               readerDocumentWorkspaceSlug || workspace?.slug || "global"
@@ -1128,6 +1201,13 @@ export function DocumentReaderProvider({
         const { response: previewResponse, blob: previewBlob } =
           await ReaderDocument.previewBlob(data.metadata.previewPdfUrl, {
             signal: openContext.signal,
+            task: readerOpenTask(
+              "reader:preview-blob",
+              progressItem?.readerDocumentWorkspaceSlug ||
+                workspace?.slug ||
+                null,
+              { readerDocumentId }
+            ),
           });
         if (!isCurrentOpen()) return null;
         if (previewResponse.ok && previewBlob.size > 0) {
@@ -1149,6 +1229,13 @@ export function DocumentReaderProvider({
           const { response: blobResponse, blob } =
             await ReaderDocument.originalBlob(data.metadata.originalUrl, {
               signal: openContext.signal,
+              task: readerOpenTask(
+                "reader:original-blob",
+                progressItem?.readerDocumentWorkspaceSlug ||
+                  workspace?.slug ||
+                  null,
+                { readerDocumentId }
+              ),
             });
           if (!isCurrentOpen()) return null;
           if (blobResponse.ok) {
@@ -1345,6 +1432,7 @@ export function DocumentReaderProvider({
             ReaderDocument.get(readerDocumentWorkspaceSlug, readerDocumentId, {
               detail,
               signal: openContext.signal,
+              task: false,
             }),
           {
             priority: "P0",
@@ -1359,6 +1447,7 @@ export function DocumentReaderProvider({
             },
             policy: "foreground",
             emergency: true,
+            intentRank: 0,
             signal: openContext.signal,
             dedupeKey: `reader:open:${
               readerDocumentWorkspaceSlug || workspace?.slug || "global"
@@ -1400,7 +1489,13 @@ export function DocumentReaderProvider({
           openContext,
         });
         if (!isCurrentOpen()) return null;
-        if (opened) clearPendingReaderOpen("server", readerDocumentId);
+        if (opened) {
+          markTaskPerformance("reader_target_ready", {
+            readerDocumentId,
+            workspaceSlug: readerDocumentWorkspaceSlug || workspace?.slug,
+          });
+          clearPendingReaderOpen("server", readerDocumentId);
+        }
         return opened;
       } catch (error) {
         if (error?.name === "AbortError") return null;
@@ -1453,7 +1548,14 @@ export function DocumentReaderProvider({
         const result = await ReaderDocument.reopenLocalPath(
           readerDocumentWorkspaceSlug,
           readerDocumentId,
-          { signal: openContext.signal }
+          {
+            signal: openContext.signal,
+            task: readerOpenTask(
+              "reader:reopen-local-path",
+              readerDocumentWorkspaceSlug || workspace?.slug || null,
+              { readerDocumentId }
+            ),
+          }
         );
         response = result.response;
         data = result.data;
@@ -1565,7 +1667,16 @@ export function DocumentReaderProvider({
         const result = await ReaderDocument.fromWorkspace(
           sourceWorkspaceSlug,
           docPath,
-          { signal: openContext.signal }
+          {
+            signal: openContext.signal,
+            task: readerOpenTask(
+              "reader:open-workspace-document",
+              sourceWorkspaceSlug,
+              {
+                workspaceDocPath: docPath,
+              }
+            ),
+          }
         );
         response = result.response;
         data = result.data;
@@ -2192,9 +2303,10 @@ export function DocumentReaderProvider({
           () =>
             ReaderDocument.upload(null, formData, {
               signal: openContext.signal,
+              task: false,
             }),
           {
-            priority: "P1",
+            priority: "P0",
             label: "reader:quick-upload",
             kind: "upload",
             scope: {
@@ -2202,7 +2314,9 @@ export function DocumentReaderProvider({
               workspaceSlug: workspace?.slug || null,
               surface: "reader-upload",
             },
-            policy: "visible",
+            policy: "foreground",
+            emergency: true,
+            intentRank: 0,
             signal: openContext.signal,
             dedupeKey: `reader:quick-upload:${bookKey}:${
               options.branch ? "branch" : "main"
@@ -2404,6 +2518,7 @@ export function DocumentReaderProvider({
                 () =>
                   ReaderDocument.upload(null, formData, {
                     signal: controller.signal,
+                    task: false,
                     onUploadProgress: (progress) => {
                       const uploadComplete = progress.percent >= 100;
                       patchBookshelfUpload(entryId, {
@@ -2569,6 +2684,7 @@ export function DocumentReaderProvider({
         ({ signal }) =>
           ReaderDocument.upload(null, formData, {
             signal,
+            task: false,
           }),
         {
           priority: "P1",
@@ -3015,6 +3131,7 @@ export function DocumentReaderProvider({
       void queueBookshelfPostprocess({
         item: { ...item, ...patch },
         tasks: ["classification"],
+        intent: "manual",
       });
     },
     [patchStoredCategoryForItem, queueBookshelfPostprocess]

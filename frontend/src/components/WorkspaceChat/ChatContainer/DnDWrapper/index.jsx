@@ -66,11 +66,33 @@ export function DnDFileUploaderProvider({
   const filesRef = useRef([]);
   const processorCheckRef = useRef(null);
 
-  async function ensureDocumentProcessorReady() {
+  function uploadTask(label, priority = "P0", scope = {}) {
+    return {
+      label,
+      kind: "upload",
+      priority,
+      policy: priority === "P0" ? "foreground" : "visible",
+      protected: true,
+      abortable: false,
+      intentRank: 0,
+      scope: {
+        route: "workspace-chat",
+        surface: "workspace-upload",
+        workspaceSlug: workspace?.slug,
+        threadSlug: threadSlug || null,
+        ...scope,
+      },
+    };
+  }
+
+  async function ensureDocumentProcessorReady(priority = "P0") {
     if (ready === true) return true;
     if (ready === false) return false;
     if (!processorCheckRef.current) {
-      processorCheckRef.current = System.checkDocumentProcessorOnline()
+      processorCheckRef.current = System.checkDocumentProcessorOnline({
+        communicationScene: "workspace-upload-visible",
+        task: uploadTask("workspace-upload:processor-ready", priority),
+      })
         .then((status) => {
           setReady(status);
           return status;
@@ -219,7 +241,7 @@ export function DnDFileUploaderProvider({
       items: acceptedFiles.map(fileDebugPayload),
     });
     if (!acceptedFiles.length) return;
-    const processorReady = await ensureDocumentProcessorReady();
+    const processorReady = await ensureDocumentProcessorReady("P0");
     if (!processorReady) {
       showToast(
         "Document processor is offline. Please try again later.",
@@ -331,7 +353,10 @@ export function DnDFileUploaderProvider({
     const promises = [];
 
     const { currentContextTokenCount, contextWindow } =
-      await Workspace.getParsedFiles(workspace.slug, threadSlug);
+      await Workspace.getParsedFiles(workspace.slug, threadSlug, {
+        communicationScene: "workspace-upload-visible",
+        task: uploadTask("workspace-upload:parsed-files", "P0"),
+      });
     const workspaceContextWindow = contextWindow
       ? Math.floor(contextWindow * Workspace.maxContextWindowLimit)
       : Number.POSITIVE_INFINITY;
@@ -345,54 +370,17 @@ export function DnDFileUploaderProvider({
       formData.append("file", attachment.file, attachment.file.name);
       formData.append("threadSlug", threadSlug || null);
       promises.push(
-        Workspace.parseFile(workspace.slug, formData).then(
-          async ({ response, data }) => {
-            if (!response.ok) {
-              const updates = {
-                status: "failed",
-                error: data?.error ?? null,
-              };
-              setFiles((prev) =>
-                prev.map(
-                  (
-                    /** @type {Attachment} */
-                    prevFile
-                  ) =>
-                    prevFile.uid !== attachment.uid
-                      ? prevFile
-                      : { ...prevFile, ...updates }
-                )
-              );
-              return;
-            }
-            // Will always be one file in the array
-            /** @type {ParsedFile} */
-            const file = data.files[0];
-
-            // Add token count for this file
-            // and add it to the batch pending files
-            totalTokenCount += file.tokenCountEstimate;
-            batchPendingFiles.push({
-              attachment,
-              parsedFileId: file.id,
-              tokenCount: file.tokenCountEstimate,
-            });
-
-            if (totalTokenCount > workspaceContextWindow) {
-              setTokenCount(totalTokenCount);
-              setPendingFiles(batchPendingFiles);
-              setShowWarningModal(true);
-              return;
-            }
-
-            // File is within limits, keep in parsed files
-            const result = { success: true, document: file };
+        Workspace.parseFile(workspace.slug, formData, {
+          communicationScene: "workspace-upload-visible",
+          task: uploadTask("workspace-upload:parse-file", "P0", {
+            fileName: attachment.file?.name,
+          }),
+        }).then(async ({ response, data }) => {
+          if (!response.ok) {
             const updates = {
-              status: result.success ? "added_context" : "failed",
-              error: result.error ?? null,
-              document: result.document,
+              status: "failed",
+              error: data?.error ?? null,
             };
-
             setFiles((prev) =>
               prev.map(
                 (
@@ -404,8 +392,48 @@ export function DnDFileUploaderProvider({
                     : { ...prevFile, ...updates }
               )
             );
+            return;
           }
-        )
+          // Will always be one file in the array
+          /** @type {ParsedFile} */
+          const file = data.files[0];
+
+          // Add token count for this file
+          // and add it to the batch pending files
+          totalTokenCount += file.tokenCountEstimate;
+          batchPendingFiles.push({
+            attachment,
+            parsedFileId: file.id,
+            tokenCount: file.tokenCountEstimate,
+          });
+
+          if (totalTokenCount > workspaceContextWindow) {
+            setTokenCount(totalTokenCount);
+            setPendingFiles(batchPendingFiles);
+            setShowWarningModal(true);
+            return;
+          }
+
+          // File is within limits, keep in parsed files
+          const result = { success: true, document: file };
+          const updates = {
+            status: result.success ? "added_context" : "failed",
+            error: result.error ?? null,
+            document: result.document,
+          };
+
+          setFiles((prev) =>
+            prev.map(
+              (
+                /** @type {Attachment} */
+                prevFile
+              ) =>
+                prevFile.uid !== attachment.uid
+                  ? prevFile
+                  : { ...prevFile, ...updates }
+            )
+          );
+        })
       );
     }
 
@@ -479,13 +507,16 @@ export function DnDFileUploaderProvider({
     let completed = 0;
     const results = await Promise.all(
       pendingFiles.map((file) =>
-        Workspace.embedParsedFile(workspace.slug, file.parsedFileId).then(
-          (result) => {
-            completed++;
-            setEmbedProgress(completed);
-            return result;
-          }
-        )
+        Workspace.embedParsedFile(workspace.slug, file.parsedFileId, {
+          communicationScene: "workspace-upload-visible",
+          task: uploadTask("workspace-upload:embed-parsed-file", "P0", {
+            parsedFileId: file.parsedFileId,
+          }),
+        }).then((result) => {
+          completed++;
+          setEmbedProgress(completed);
+          return result;
+        })
       )
     );
 
@@ -554,7 +585,7 @@ export default function DnDFileUploaderWrapper({ children }) {
     noKeyboard: true,
     onDragEnter: () => {
       setDragging(true);
-      ensureDocumentProcessorReady();
+      ensureDocumentProcessorReady("P1");
     },
     onDragLeave: () => setDragging(false),
   });

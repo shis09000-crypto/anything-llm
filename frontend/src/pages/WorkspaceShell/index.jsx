@@ -9,7 +9,7 @@ export default function WorkspaceShell() {
 
   return (
     <ChatThreadDraftProviderBoundary>
-      <div className="w-screen h-screen overflow-hidden bg-zinc-950 light:bg-slate-50 flex">
+      <div className="athena-desktop-shell bg-zinc-950 light:bg-slate-50 flex">
         <Sidebar />
         <Outlet />
       </div>

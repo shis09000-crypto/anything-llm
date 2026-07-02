@@ -43,6 +43,32 @@ test("P0 tasks run before lower priority pending tasks", async () => {
   assert.deepEqual(order, ["high", "low"]);
 });
 
+test("P0 intentRank orders current navigation before chat history", async () => {
+  const scheduler = new TaskScheduler({ maxConcurrent: 1 });
+  scheduler.setPaused("P0", true);
+
+  const order = [];
+  const chat = scheduler.schedule(async () => order.push("chat"), {
+    priority: "P0",
+    intentRank: 2,
+    label: "chat-first-page",
+    kind: "chat",
+  });
+  const sidebar = scheduler.schedule(async () => order.push("sidebar"), {
+    priority: "P0",
+    intentRank: 0,
+    label: "sidebar-navigation",
+    kind: "navigation",
+  });
+
+  await wait();
+  scheduler.setPaused("P0", false);
+  await Promise.all([chat.promise, sidebar.promise]);
+
+  assert.deepEqual(order, ["sidebar", "chat"]);
+  assert.equal(scheduler.snapshot().activeIntent, null);
+});
+
 test("emergency pauses pending low priority tasks until complete", async () => {
   const scheduler = new TaskScheduler({
     maxConcurrent: 1,
@@ -278,6 +304,41 @@ test("higher priority background task preempts lower priority lane occupant", as
   assert.equal(await maintenance.promise, null);
   assert.equal(maintenanceAborted, true);
   assert.equal(scheduler.snapshot().lanes.background, 0);
+});
+
+test("render resource tasks do not occupy network lanes", async () => {
+  const scheduler = new TaskScheduler({
+    maxConcurrent: 1,
+    backgroundMaxConcurrent: 1,
+    prefetchMaxConcurrent: 1,
+    resourceBudgets: { render: 1 },
+  });
+  const events = [];
+  const networkStarted = deferred();
+  const renderStarted = deferred();
+  const never = deferred();
+
+  scheduler.schedule(
+    async () => {
+      events.push("network:start");
+      networkStarted.resolve();
+      await never.promise;
+    },
+    { priority: "P0", resource: "network", kind: "network" }
+  );
+  await networkStarted.promise;
+
+  const render = scheduler.schedule(
+    async () => {
+      events.push("render:start");
+      renderStarted.resolve();
+      return "render";
+    },
+    { priority: "P1", resource: "render", kind: "render" }
+  );
+  await renderStarted.promise;
+  assert.equal(await render.promise, "render");
+  assert.deepEqual(events, ["network:start", "render:start"]);
 });
 
 test("realtime tasks stay cancellable without occupying finite lanes", async () => {

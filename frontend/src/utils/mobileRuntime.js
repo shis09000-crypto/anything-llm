@@ -125,9 +125,26 @@ function mediaMatches(win, query) {
   }
 }
 
+function safeNavigator(win = safeWindow()) {
+  return (
+    win?.navigator || (typeof navigator === "undefined" ? null : navigator)
+  );
+}
+
+function viewportWidth(win = safeWindow()) {
+  const widths = [
+    win?.innerWidth,
+    win?.visualViewport?.width,
+    win?.document?.documentElement?.clientWidth,
+    win?.screen?.width,
+  ]
+    .map(Number)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  return widths.length ? Math.min(...widths) : 0;
+}
+
 export function detectIPadLikeNavigator(win = safeWindow()) {
-  const nav =
-    win?.navigator || (typeof navigator === "undefined" ? null : navigator);
+  const nav = safeNavigator(win);
   if (!nav) return false;
 
   const userAgent = nav.userAgent || "";
@@ -138,25 +155,61 @@ export function detectIPadLikeNavigator(win = safeWindow()) {
   );
 }
 
-export function detectMobileRuntimeFromNavigator(win = safeWindow()) {
-  const nav =
-    win?.navigator || (typeof navigator === "undefined" ? null : navigator);
+export function detectTabletRuntimeFromNavigator(win = safeWindow()) {
+  const nav = safeNavigator(win);
   if (!nav) return false;
 
   const userAgent = nav.userAgent || "";
-  if (/android/i.test(userAgent)) return true;
+  if (detectIPadLikeNavigator(win)) return true;
+
+  const width = viewportWidth(win);
+  const maxTouchPoints = Number(nav.maxTouchPoints || 0);
+  const coarsePointer =
+    mediaMatches(win, "(pointer: coarse)") ||
+    mediaMatches(win, "(any-pointer: coarse)");
+  if (/android/i.test(userAgent)) {
+    return !/mobile|mobi/i.test(userAgent);
+  }
+
+  return (
+    nav.userAgentData?.mobile === false &&
+    maxTouchPoints > 0 &&
+    coarsePointer &&
+    width >= 768
+  );
+}
+
+export function detectPhoneRuntimeFromNavigator(win = safeWindow()) {
+  const nav = safeNavigator(win);
+  if (!nav) return false;
+  if (detectTabletRuntimeFromNavigator(win)) return false;
+
+  const userAgent = nav.userAgent || "";
+  if (nav.userAgentData?.mobile === true) return true;
   if (/iphone|ipod/i.test(userAgent)) return true;
-  if (detectIPadLikeNavigator(win)) return false;
+  if (/android/i.test(userAgent) && /mobile|mobi/i.test(userAgent)) return true;
 
   const coarsePointer =
     mediaMatches(win, "(pointer: coarse)") ||
     mediaMatches(win, "(any-pointer: coarse)");
-  const width = Number(win?.innerWidth || 0);
+  const width = viewportWidth(win);
   return Number(nav.maxTouchPoints || 0) > 0 && coarsePointer && width <= 900;
 }
 
+export function detectMobileRuntimeFromNavigator(win = safeWindow()) {
+  return detectPhoneRuntimeFromNavigator(win);
+}
+
+export function tabletDesktopRuntimeActive(win = safeWindow()) {
+  return !mobileRuntimeForced(win) && detectTabletRuntimeFromNavigator(win);
+}
+
+export function mobileShellRuntimeActive(win = safeWindow()) {
+  return mobileRuntimeForced(win) || detectPhoneRuntimeFromNavigator(win);
+}
+
 export function mobileRuntimeActive(win = safeWindow()) {
-  return mobileRuntimeForced(win) || detectMobileRuntimeFromNavigator(win);
+  return mobileShellRuntimeActive(win);
 }
 
 export const isMobileRuntime = mobileRuntimeActive;

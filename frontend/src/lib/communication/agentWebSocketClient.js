@@ -210,6 +210,21 @@ export async function respondToClarificationViaHttp(
           answers: Array.isArray(payload.answers) ? payload.answers : [],
         },
         timeoutMs: 10_000,
+        communicationScene: "workspace-chat-current",
+        task: {
+          kind: "agent-clarification-response",
+          label: "agent:clarification-response",
+          priority: "P0",
+          policy: "foreground",
+          resource: "network",
+          protected: true,
+          abortable: false,
+          scope: {
+            route: "workspace-chat",
+            surface: "agent-clarification",
+            websocketUUID,
+          },
+        },
       }
     );
     if (data?.success) {

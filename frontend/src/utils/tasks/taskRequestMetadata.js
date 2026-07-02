@@ -1,4 +1,4 @@
-import { taskScheduler } from "./taskScheduler.js";
+import { currentTaskContext, taskScheduler } from "./taskScheduler.js";
 
 export const TASK_PRIORITIES = {
   activeIntent: "P0",
@@ -123,9 +123,15 @@ function defaultPriority({ method, path, transport, communicationScene }) {
   const normalizedPath = normalizePath(path).toLowerCase();
   const scene = String(communicationScene || "").toLowerCase();
   if (isHighRiskPath(path)) return "P0";
-  if (WRITE_METHODS.has(method)) return "P1";
   if (transport === "upload") return "P1";
-  if (transport === "stream") return scene.includes("chat") ? "P1" : "P2";
+  if (transport === "stream") return scene.includes("chat") ? "P0" : "P2";
+  if (WRITE_METHODS.has(method)) return "P1";
+  if (
+    (normalizedPath.includes("thumbnail") &&
+      (scene.includes("visible") || scene.includes("current"))) ||
+    (scene.includes("visible") && scene.includes("thumbnail"))
+  )
+    return "P1";
   if (
     normalizedPath.includes("thumbnail") ||
     normalizedPath.includes("classification") ||
@@ -136,6 +142,69 @@ function defaultPriority({ method, path, transport, communicationScene }) {
   if (scene.includes("prefetch")) return "P3";
   if (scene.includes("current") || scene.includes("visible")) return "P1";
   return "P2";
+}
+
+function defaultResource({
+  transport,
+  path,
+  communicationScene,
+  kind,
+  priority,
+}) {
+  const normalizedPath = normalizePath(path).toLowerCase();
+  const scene = String(communicationScene || "").toLowerCase();
+  const taskKind = String(kind || "").toLowerCase();
+  if (transport === "stream") return "realtime";
+  if (transport === "upload") return "upload";
+  if (
+    taskKind.includes("render") ||
+    scene.includes("render") ||
+    normalizedPath.includes("page-preview")
+  )
+    return "render";
+  if (taskKind.includes("thumbnail") || taskKind.includes("classification")) {
+    if (
+      priority === "P4" ||
+      scene.includes("maintenance") ||
+      scene.includes("patrol")
+    )
+      return "idle";
+    return "network";
+  }
+  if (
+    priority === "P4" ||
+    scene.includes("maintenance") ||
+    normalizedPath.includes("thumbnail") ||
+    normalizedPath.includes("classification") ||
+    normalizedPath.includes("postprocess")
+  )
+    return "idle";
+  return "network";
+}
+
+function inheritedTaskDefaults(parentTask) {
+  if (!parentTask) return {};
+  return {
+    priority: parentTask.priority,
+    policy:
+      parentTask.policy === "realtime"
+        ? "realtime"
+        : policyForPriority(parentTask.priority),
+    protected:
+      parentTask.protected || ["P0", "P1"].includes(parentTask.priority),
+    abortable:
+      parentTask.protected || ["P0", "P1"].includes(parentTask.priority)
+        ? false
+        : parentTask.abortable,
+    emergency: false,
+    intentRank: parentTask.intentRank,
+    resource: parentTask.resource,
+    scope: {
+      ...(parentTask.scope || {}),
+      parentTaskId: parentTask.id,
+      parentKind: parentTask.kind,
+    },
+  };
 }
 
 function defaultDedupeKey({
@@ -162,9 +231,26 @@ export function inferTaskMetadata({
 } = {}) {
   if (task === false || task?.enabled === false) return { enabled: false };
 
-  const explicitTask = task && typeof task === "object" ? task : {};
+  const parentTask = task === undefined ? currentTaskContext() : null;
+  const inheritedTask = inheritedTaskDefaults(parentTask);
+  const explicitTask =
+    task && typeof task === "object"
+      ? {
+          ...inheritedTask,
+          ...task,
+          scope: {
+            ...(inheritedTask.scope || {}),
+            ...(task.scope || {}),
+          },
+        }
+      : inheritedTask;
   const normalizedMethod = normalizeMethod(explicitTask.method || method);
   const highRisk = isHighRiskPath(path);
+  const chatRealtime =
+    transport === "stream" &&
+    String(communicationScene || "")
+      .toLowerCase()
+      .includes("chat");
   const priority =
     explicitTask.priority ||
     defaultPriority({
@@ -175,7 +261,9 @@ export function inferTaskMetadata({
     });
   const protectedTask =
     explicitTask.protected ??
-    (highRisk || (WRITE_METHODS.has(normalizedMethod) && priority !== "P4"));
+    (chatRealtime ||
+      highRisk ||
+      (WRITE_METHODS.has(normalizedMethod) && priority !== "P4"));
   const kind =
     explicitTask.kind ||
     defaultKind({
@@ -194,6 +282,15 @@ export function inferTaskMetadata({
     ...readPathIdentity(path),
     ...(explicitTask.scope || {}),
   };
+  const resource =
+    explicitTask.resource ||
+    defaultResource({
+      transport,
+      path,
+      communicationScene,
+      kind,
+      priority,
+    });
 
   return {
     enabled: true,
@@ -217,12 +314,16 @@ export function inferTaskMetadata({
     }),
     emergency: explicitTask.emergency === true,
     protected: protectedTask,
-    abortable: explicitTask.abortable ?? !protectedTask,
+    abortable:
+      explicitTask.abortable ?? (chatRealtime ? false : !protectedTask),
+    resource,
     resumable: explicitTask.resumable ?? false,
     deadlineMs: explicitTask.deadlineMs,
+    intentRank: explicitTask.intentRank,
     onAbort: explicitTask.onAbort,
     onResume: explicitTask.onResume,
-    inferred: !task,
+    inherited: Boolean(parentTask && task === undefined),
+    inferred: !task && !parentTask,
   };
 }
 

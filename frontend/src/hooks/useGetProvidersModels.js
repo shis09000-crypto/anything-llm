@@ -55,16 +55,48 @@ const groupedProviders = [
   "docker-model-runner",
   "sambanova",
 ];
-export default function useGetProviderModels(provider = null) {
+export default function useGetProviderModels(provider = null, options = {}) {
   const [defaultModels, setDefaultModels] = useState([]);
   const [customModels, setCustomModels] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const controller = new AbortController();
+    let stale = false;
     async function fetchProviderModels() {
-      if (!provider) return;
+      if (!provider) {
+        setDefaultModels([]);
+        setCustomModels([]);
+        setLoading(false);
+        return;
+      }
       setLoading(true);
-      const { models = [] } = await System.customModels(provider);
+      let models = [];
+      try {
+        const response = await System.customModels(provider, null, null, null, {
+          signal: controller.signal,
+          communicationScene:
+            options.communicationScene || "llm-model-selector-visible",
+          task: options.task || {
+            label: `llm-selector:models:${provider}`,
+            kind: "settings",
+            priority: "P1",
+            policy: "visible",
+            intentRank: 1,
+            scope: {
+              route: "workspace-chat",
+              surface: "llm-selector",
+              provider,
+              ...(options.scope || {}),
+            },
+          },
+        });
+        models = response?.models || [];
+      } catch (error) {
+        if (error?.name === "AbortError" || stale) return;
+        console.error(error);
+      }
+      if (stale || controller.signal.aborted) return;
       if (
         PROVIDER_DEFAULT_MODELS.hasOwnProperty(provider) &&
         !groupedProviders.includes(provider)
@@ -80,7 +112,11 @@ export default function useGetProviderModels(provider = null) {
       setLoading(false);
     }
     fetchProviderModels();
-  }, [provider]);
+    return () => {
+      stale = true;
+      controller.abort();
+    };
+  }, [provider, options.communicationScene, options.task, options.scope]);
 
   return { defaultModels, customModels, loading };
 }

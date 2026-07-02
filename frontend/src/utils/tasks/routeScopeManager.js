@@ -1,6 +1,4 @@
 import { taskScheduler, scopeMatches } from "./taskScheduler.js";
-
-const LOW_PRIORITY = new Set(["P2", "P3", "P4"]);
 let activeScope = null;
 
 export function routeScopeFromPathname(pathname = "") {
@@ -44,12 +42,9 @@ export function activateRouteScope(nextScope, reason = "route-change") {
 
   const previousRoute = previous.route;
   if (previousRoute && previousRoute !== activeScope.route) {
-    taskScheduler.markWhereStale(
-      (task) =>
-        task.scope?.route === previousRoute &&
-        !task.protected &&
-        task.priority !== "P0",
-      reason
+    taskScheduler.cancelWhere(
+      (task) => task.scope?.route === previousRoute && !task.protected,
+      { reason, includeRunning: true }
     );
   }
 
@@ -82,10 +77,7 @@ function sameScope(left = {}, right = {}) {
 
 function preemptLowPriority(scope, reason) {
   taskScheduler.cancelWhere(
-    (task) =>
-      scopeMatches(task.scope, scope) &&
-      LOW_PRIORITY.has(task.priority) &&
-      !task.protected,
+    (task) => scopeMatches(task.scope, scope) && !task.protected,
     { reason, includeRunning: true }
   );
 }

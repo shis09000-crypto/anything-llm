@@ -504,14 +504,14 @@ export default function PromptInput({
         className={
           centered
             ? "flex flex-col gap-y-1 rounded-t-lg w-full items-center"
-            : "flex flex-col gap-y-1 rounded-t-lg md:w-full w-full mx-auto max-w-[750px] items-center"
+            : "athena-prompt-form flex flex-col gap-y-1 rounded-t-lg md:w-full w-full mx-auto max-w-[750px] items-center"
         }
       >
         <div
           className={`flex items-center rounded-lg md:w-full ${centered ? "mb-0" : "mb-2"}`}
         >
           <div
-            className={`chat-prompt-feather relative w-[95vw] md:w-[750px] ${
+            className={`athena-prompt-feather chat-prompt-feather relative w-[95vw] md:w-[750px] ${
               glass ? "liquid-glass-composer-host" : ""
             }`}
           >

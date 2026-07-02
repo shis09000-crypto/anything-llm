@@ -20,6 +20,21 @@ export async function respondToChatToolApproval({
         method: "POST",
         body: { requestId, approved: !!approved },
         signal,
+        communicationScene: "workspace-chat-current",
+        task: {
+          kind: "chat-tool-approval",
+          label: "chat:tool-approval",
+          priority: "P0",
+          policy: "foreground",
+          resource: "network",
+          protected: true,
+          abortable: false,
+          scope: {
+            route: "workspace-chat",
+            surface: "chat-approval",
+            workspaceSlug,
+          },
+        },
       }
     );
     return data || { success: false, error: "Empty approval response." };

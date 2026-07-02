@@ -12,7 +12,7 @@ import {
 } from "@phosphor-icons/react";
 import React, { useEffect, useState } from "react";
 import SettingsButton from "../SettingsButton";
-import { isMobile } from "react-device-detect";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import { Tooltip } from "react-tooltip";
 import { Link } from "react-router-dom";
 import FeedbackModal from "../FeedbackModal";
@@ -31,6 +31,7 @@ export const ICON_COMPONENTS = {
 export default function Footer() {
   const [footerData, setFooterData] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const isMobileShell = mobileShellRuntimeActive();
 
   useEffect(() => {
     async function fetchFooterData() {
@@ -94,7 +95,7 @@ export default function Footer() {
               />
             </button>
           </div>
-          {!isMobile && <SettingsButton />}
+          {!isMobileShell && <SettingsButton />}
         </div>
         {feedbackOpen && (
           <FeedbackModal onClose={() => setFeedbackOpen(false)} />
@@ -130,7 +131,7 @@ export default function Footer() {
             )}
           </a>
         ))}
-        {!isMobile && <SettingsButton />}
+        {!isMobileShell && <SettingsButton />}
       </div>
       <Tooltip
         id="footer-item"

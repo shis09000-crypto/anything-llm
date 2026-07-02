@@ -30,6 +30,7 @@ import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markLoginBoot } from "@/utils/loginBootPerf";
+import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 
 const WORKSPACE_DND_TYPE = "WORKSPACE";
 const THREAD_DND_TYPE = "THREAD";
@@ -62,6 +63,24 @@ function refreshWorkspaceThreads(workspaceSlug) {
       detail: { workspaceSlug },
     })
   );
+}
+
+function navigationWriteTask(label, workspaceSlug, scope = {}) {
+  return {
+    label,
+    kind: "navigation",
+    priority: "P0",
+    policy: "foreground",
+    protected: true,
+    abortable: false,
+    intentRank: 1,
+    scope: {
+      route: "workspace-sidebar",
+      surface: "threads",
+      workspaceSlug,
+      ...scope,
+    },
+  };
 }
 
 export default function ActiveWorkspaces() {
@@ -116,6 +135,7 @@ export default function ActiveWorkspaces() {
         });
         setLoading(false);
         setWorkspaces(Workspace.orderWorkspaces(fresh));
+        performance?.mark?.("athena:workspace-switch:sidebar_ready");
         markLoginBoot("workspaces_loaded", {
           source: "cache",
           count: fresh.length,
@@ -131,6 +151,11 @@ export default function ActiveWorkspaces() {
         });
         setLoading(false);
         setWorkspaces(Workspace.orderWorkspaces(stale));
+        performance?.mark?.("athena:workspace-switch:sidebar_ready");
+        markTaskPerformance("sidebar_ready", {
+          source: "cache",
+          count: stale.length,
+        });
       } else {
         workspaceNavigationCache.debug("workspaces:miss", { force });
         setLoading(true);
@@ -139,25 +164,34 @@ export default function ActiveWorkspaces() {
       const workspaces = await workspaceNavigationCache.runInFlight(
         "workspaces:all",
         () =>
-          requestPriorityQueue.schedule(() => Workspace.all(), {
-            priority: force ? "P1" : Array.isArray(stale) ? "P3" : "P0",
-            label: "navigation:workspaces",
-            kind: "navigation",
-            scope: { route: "workspace-sidebar", surface: "workspaces" },
-            policy: force
-              ? "visible"
-              : Array.isArray(stale)
-                ? "prefetch"
-                : "foreground",
-            emergency: !force && !Array.isArray(stale),
-            dedupeKey: "navigation:workspaces",
-          }),
+          requestPriorityQueue.schedule(
+            ({ signal }) =>
+              Workspace.all({
+                signal,
+                task: false,
+              }),
+            {
+              priority: "P0",
+              label: "navigation:workspaces",
+              kind: "navigation",
+              scope: { route: "workspace-sidebar", surface: "workspaces" },
+              policy: "foreground",
+              emergency: true,
+              intentRank: 0,
+              dedupeKey: "navigation:workspaces",
+            }
+          ),
         { reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS }
       );
       if (!workspaces) return null;
       workspaceNavigationCache.setWorkspaces(workspaces);
       setLoading(false);
       setWorkspaces(Workspace.orderWorkspaces(workspaces));
+      performance?.mark?.("athena:workspace-switch:sidebar_ready");
+      markTaskPerformance("sidebar_ready", {
+        source: "network",
+        count: workspaces.length,
+      });
       markLoginBoot("workspaces_loaded", {
         source: "network",
         count: workspaces.length,
@@ -302,7 +336,18 @@ export default function ActiveWorkspaces() {
     const resultPayload = await Workspace.threads.move(
       draggedThread.sourceWorkspaceSlug,
       draggedThread.threadSlug,
-      targetWorkspaceSlug
+      targetWorkspaceSlug,
+      {
+        communicationScene: "workspace-navigation",
+        task: navigationWriteTask(
+          "navigation:thread-move",
+          draggedThread.sourceWorkspaceSlug,
+          {
+            threadSlug: draggedThread.threadSlug,
+            targetWorkspaceSlug,
+          }
+        ),
+      }
     );
     if (!resultPayload.success) {
       showToast(

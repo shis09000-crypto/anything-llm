@@ -2,6 +2,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import { useSoftSettingsShell } from "@/components/SoftSettings/context";
 import { useCryptoHubInit } from "@/hooks/cryptoHub/useCryptoHubInit";
 import { markCryptoCenterPerf } from "./perf";
+import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 
 const CryptoCenterContent = React.lazy(() => import("./CryptoCenterContent"));
 
@@ -93,23 +94,26 @@ function CryptoCenterShellFrame() {
 
   useEffect(() => {
     markCryptoCenterPerf("shell_painted");
+    markTaskPerformance("crypto_shell_ready", {
+      route: "crypto-center",
+    });
   }, []);
 
   return (
     <div
       className={[
         "overflow-hidden bg-[#08090b] text-slate-100",
-        hasPersistentSettingsShell ? "h-full w-full" : "h-screen w-screen",
+        hasPersistentSettingsShell ? "h-full w-full" : "h-[100dvh] w-screen",
       ].join(" ")}
     >
-      <div className="pointer-events-none fixed inset-0 z-0 h-screen w-screen bg-[#050505]">
+      <div className="pointer-events-none fixed inset-0 z-0 h-[100dvh] w-screen bg-[#050505]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_16%_0%,rgba(214,168,79,.18),transparent_34%),radial-gradient(circle_at_82%_12%,rgba(69,105,255,.12),transparent_32%),linear-gradient(180deg,rgba(12,12,13,.84),rgba(4,4,5,.98))]" />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(214,168,79,.08)_1px,transparent_1px),linear-gradient(180deg,rgba(214,168,79,.06)_1px,transparent_1px)] bg-[size:58px_58px] opacity-20" />
       </div>
 
-      <main className="relative z-10 h-full w-full overflow-y-auto bg-transparent">
+      <main className="relative z-10 h-full w-full overflow-y-auto overscroll-contain bg-transparent">
         <div className="relative min-h-full overflow-hidden px-4 py-6 md:px-6 md:py-8">
-          <div className="relative z-10 mx-auto grid min-h-[calc(100vh-48px)] w-full max-w-[1224px] content-start gap-6">
+          <div className="relative z-10 mx-auto grid min-h-[calc(100dvh-48px)] w-full max-w-[1224px] content-start gap-6">
             <header className="w-full pt-1">
               <h1 className="text-3xl font-black tracking-normal text-[#D6A84F] drop-shadow-[0_0_22px_rgba(214,168,79,.22)] md:text-5xl">
                 加密货币专区
@@ -150,6 +154,7 @@ function CryptoCenterShellFrame() {
 export default function CryptoCenter() {
   const hub = useCryptoHubInit();
   const [loadContent, setLoadContent] = useState(false);
+  const [showHubStatus, setShowHubStatus] = useState(true);
 
   useEffect(() => {
     let timeout: number | null = null;
@@ -177,6 +182,20 @@ export default function CryptoCenter() {
     if (hub.ready) markCryptoCenterPerf("hub_ready");
   }, [hub.ready]);
 
+  useEffect(() => {
+    const degraded = hub.progress?.phase === "degraded";
+    if (!hub.ready || hub.error || degraded || hub.running) {
+      setShowHubStatus(true);
+      return;
+    }
+
+    setShowHubStatus(true);
+    const timeout = window.setTimeout(() => {
+      setShowHubStatus(false);
+    }, 1_800);
+    return () => window.clearTimeout(timeout);
+  }, [hub.error, hub.progress?.phase, hub.ready, hub.running]);
+
   return (
     <>
       {loadContent ? (
@@ -186,7 +205,9 @@ export default function CryptoCenter() {
       ) : (
         <CryptoCenterShellFrame />
       )}
-      <CryptoHubStatusPill {...hub} onRetry={hub.retry} />
+      {showHubStatus ? (
+        <CryptoHubStatusPill {...hub} onRetry={hub.retry} />
+      ) : null}
     </>
   );
 }

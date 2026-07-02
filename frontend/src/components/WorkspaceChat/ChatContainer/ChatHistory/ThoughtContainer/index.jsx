@@ -11,7 +11,6 @@ import {
 import renderMarkdown from "@/utils/chat/markdown";
 import { CaretDown } from "@phosphor-icons/react";
 import DOMPurify from "dompurify";
-import { isMobile } from "react-device-detect";
 import ThinkingAnimation from "@/media/animations/thinking-animation.webm";
 import ThinkingStatic from "@/media/animations/thinking-static.png";
 import {
@@ -19,6 +18,7 @@ import {
   writeChatFoldState,
 } from "@/utils/chat/chatScrollMemory";
 import { debugChatTurn } from "@/utils/chat/debug";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 /**
  * Context to persist thought expansion state across component transitions
@@ -91,7 +91,7 @@ export const THOUGHT_REGEX_COMPLETE = new RegExp(
       `<${keyword}\\s*(?:[^>]*?)?\\s*>[\\s\\S]*?<\\/${keyword}\\s*(?:[^>]*?)?>`
   ).join("|")
 );
-const THOUGHT_PREVIEW_LENGTH = isMobile ? 25 : 50;
+const THOUGHT_PREVIEW_LENGTH = mobileShellRuntimeActive() ? 25 : 50;
 
 /**
  * Checks if the content has readable content.

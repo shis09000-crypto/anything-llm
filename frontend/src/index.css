@@ -141,6 +141,146 @@
   --motion-skeleton-duration: 3.2s;
   --motion-skeleton-base: rgb(255 255 255 / 0.08);
   --motion-skeleton-highlight: rgb(255 255 255 / 0.13);
+
+  --athena-desktop-sidebar-width: 292px;
+  --athena-desktop-sidebar-collapsed-pad: 16px;
+  --athena-desktop-sidebar-card-margin: 16px;
+  --athena-desktop-sidebar-card-padding: 10px;
+  --athena-desktop-sidebar-brand-width: 250px;
+  --athena-shell-panel-y: 16px;
+  --athena-shell-panel-right: 16px;
+  --athena-shell-panel-vertical: 32px;
+  --athena-shell-panel-gap: 20px;
+  --athena-shell-panel-padding-x: 16px;
+  --athena-shell-panel-padding-y: 12px;
+  --athena-chat-content-max: 920px;
+  --athena-chat-composer-width: 750px;
+  --athena-empty-chat-composer-width: 850px;
+  --athena-chat-scroll-bottom-button-right: 40px;
+  --athena-chat-scroll-bottom-button-bottom: 160px;
+}
+
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) {
+  :root {
+    --athena-tablet-inline-scale: clamp(0.84, calc(0.84 + (100vw - 768px) * 0.00044), 1);
+    --athena-desktop-sidebar-width: clamp(226px, 24.5vw, 276px);
+    --athena-desktop-sidebar-collapsed-pad: clamp(8px, 1.4vw, 14px);
+    --athena-desktop-sidebar-card-margin: clamp(9px, 1.35vw, 14px);
+    --athena-desktop-sidebar-card-padding: clamp(7px, 1vw, 10px);
+    --athena-desktop-sidebar-brand-width: calc(var(--athena-desktop-sidebar-width) - 42px);
+    --athena-shell-panel-y: clamp(8px, 1.2vw, 14px);
+    --athena-shell-panel-right: clamp(8px, 1.35vw, 14px);
+    --athena-shell-panel-vertical: calc(var(--athena-shell-panel-y) * 2);
+    --athena-shell-panel-gap: clamp(10px, 1.6vw, 18px);
+    --athena-shell-panel-padding-x: clamp(8px, 1.45vw, 14px);
+    --athena-shell-panel-padding-y: clamp(7px, 1.1vw, 12px);
+    --athena-chat-content-max: min(920px, calc(100vw - var(--athena-desktop-sidebar-width) - clamp(92px, 10vw, 150px)));
+    --athena-chat-composer-width: min(750px, calc(100vw - var(--athena-desktop-sidebar-width) - clamp(120px, 13vw, 190px)));
+    --athena-empty-chat-composer-width: min(850px, calc(100vw - var(--athena-desktop-sidebar-width) - clamp(104px, 11vw, 170px)));
+    --athena-chat-scroll-bottom-button-right: clamp(18px, 3vw, 32px);
+    --athena-chat-scroll-bottom-button-bottom: clamp(128px, 17vh, 152px);
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) and (max-height: 820px) {
+  :root {
+    --athena-shell-panel-y: clamp(6px, 1vh, 10px);
+    --athena-shell-panel-vertical: calc(var(--athena-shell-panel-y) * 2);
+    --athena-shell-panel-padding-y: clamp(6px, 0.8vh, 10px);
+  }
+}
+
+.athena-desktop-shell {
+  width: 100vw;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.athena-workspace-sidebar {
+  width: var(--athena-desktop-sidebar-width, 292px);
+}
+
+.athena-workspace-sidebar-brand {
+  width: var(--athena-desktop-sidebar-brand-width, 250px) !important;
+  min-width: var(--athena-desktop-sidebar-brand-width, 250px) !important;
+}
+
+.athena-workspace-sidebar-card {
+  min-width: calc(
+    var(--athena-desktop-sidebar-width, 292px) -
+      (var(--athena-desktop-sidebar-card-margin, 16px) * 2)
+  ) !important;
+  margin: var(--athena-desktop-sidebar-card-margin, 16px) !important;
+  padding: var(--athena-desktop-sidebar-card-padding, 10px) !important;
+  height: calc(
+    100% - 44px - (var(--athena-desktop-sidebar-card-margin, 16px) * 2)
+  ) !important;
+}
+
+.athena-chat-layout {
+  margin-top: var(--athena-shell-panel-y, 16px) !important;
+  margin-right: var(--athena-shell-panel-right, 16px) !important;
+  margin-bottom: var(--athena-shell-panel-y, 16px) !important;
+  margin-left: 2px !important;
+  gap: var(--athena-shell-panel-gap, 20px) !important;
+  padding: var(--athena-shell-panel-padding-y, 12px)
+    var(--athena-shell-panel-padding-x, 16px) !important;
+}
+
+.athena-chat-panel {
+  margin-top: var(--athena-shell-panel-y, 16px) !important;
+  margin-right: var(--athena-shell-panel-right, 16px) !important;
+  margin-bottom: var(--athena-shell-panel-y, 16px) !important;
+  margin-left: 2px !important;
+}
+
+.athena-chat-history-width {
+  max-width: var(--athena-chat-content-max, 920px) !important;
+}
+
+.athena-prompt-form {
+  max-width: var(--athena-chat-composer-width, 750px) !important;
+}
+
+.athena-prompt-feather {
+  width: min(95vw, var(--athena-chat-composer-width, 750px)) !important;
+}
+
+.athena-empty-prompt-wrap {
+  max-width: var(--athena-empty-chat-composer-width, 850px) !important;
+}
+
+.athena-chat-scroll-bottom-button {
+  right: var(--athena-chat-scroll-bottom-button-right, 40px) !important;
+  bottom: var(--athena-chat-scroll-bottom-button-bottom, 160px) !important;
+}
+
+@media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) {
+  .athena-workspace-sidebar .text-sm {
+    font-size: calc(0.875rem * var(--athena-tablet-inline-scale, 1));
+  }
+
+  .athena-workspace-sidebar .text-xs {
+    font-size: calc(0.75rem * var(--athena-tablet-inline-scale, 1));
+  }
+
+  .athena-workspace-sidebar-card .gap-y-\[14px\] {
+    row-gap: clamp(8px, 1.1vw, 12px) !important;
+  }
+
+  .athena-chat-layout.md\:gap-5 {
+    gap: var(--athena-shell-panel-gap, 20px) !important;
+  }
+
+  .athena-prompt-feather::before {
+    inset: -72px -82px -58px;
+  }
+
+  .athena-prompt-feather::after {
+    inset: -34px -40px -30px;
+  }
 }
 
 [data-motion-density="minimal"] {

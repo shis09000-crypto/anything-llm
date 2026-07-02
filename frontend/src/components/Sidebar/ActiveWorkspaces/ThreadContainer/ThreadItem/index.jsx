@@ -321,7 +321,25 @@ function OptionsMenu({
     const { message } = await Workspace.threads.update(
       workspace.slug,
       thread.slug,
-      { name }
+      { name },
+      {
+        communicationScene: "workspace-navigation",
+        task: {
+          label: "navigation:thread-rename",
+          kind: "navigation",
+          priority: "P0",
+          policy: "foreground",
+          protected: true,
+          abortable: false,
+          intentRank: 1,
+          scope: {
+            route: "workspace-sidebar",
+            surface: "threads",
+            workspaceSlug: workspace.slug,
+            threadSlug: thread.slug,
+          },
+        },
+      }
     );
     if (!!message) {
       showToast(`线程更新失败！${message}`, "error", {
@@ -345,7 +363,28 @@ function OptionsMenu({
       }))
     )
       return;
-    const success = await Workspace.threads.delete(workspace.slug, thread.slug);
+    const success = await Workspace.threads.delete(
+      workspace.slug,
+      thread.slug,
+      {
+        communicationScene: "workspace-navigation",
+        task: {
+          label: "navigation:thread-delete",
+          kind: "navigation",
+          priority: "P0",
+          policy: "foreground",
+          protected: true,
+          abortable: false,
+          intentRank: 1,
+          scope: {
+            route: "workspace-sidebar",
+            surface: "threads",
+            workspaceSlug: workspace.slug,
+            threadSlug: thread.slug,
+          },
+        },
+      }
+    );
     if (!success) {
       showToast("线程删除失败！", "error", { clear: true });
       return;

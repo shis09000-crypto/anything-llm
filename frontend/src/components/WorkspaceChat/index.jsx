@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { isMobile } from "react-device-detect";
 import Workspace from "@/models/workspace";
 import LoadingChat from "./LoadingChat";
 import ChatContainer from "./ChatContainer";
@@ -46,6 +45,7 @@ import {
   clearLastVisitedThread,
   getLastVisitedThreadSlug,
 } from "@/utils/lastVisitedWorkspace";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 const FIRST_PAGE_LIMIT = 20;
 const ANCHOR_PAGE_LIMIT = 21;
@@ -158,11 +158,31 @@ function historyClient(threadSlug = null) {
       };
 }
 
+function optimisticThreadFromLocationState(workspaceSlug, threadSlug, state) {
+  const optimistic = state?.optimisticNewThread;
+  if (!workspaceSlug || !threadSlug) return null;
+  if (
+    optimistic?.slug !== threadSlug ||
+    optimistic?.workspaceSlug !== workspaceSlug
+  )
+    return null;
+  return {
+    id: `optimistic:${workspaceSlug}:${threadSlug}`,
+    slug: threadSlug,
+    name: "New Thread",
+    title: "",
+    thread_type: "chat",
+    optimistic: true,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 export default function WorkspaceChat({ loading, workspace }) {
   useWatchForAutoPlayAssistantTTSResponse();
   const { threadSlug = null } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
+  const isMobileShell = mobileShellRuntimeActive();
   const {
     getDraft,
     mergeServerHistory,
@@ -277,6 +297,29 @@ export default function WorkspaceChat({ loading, workspace }) {
         return false;
       }
 
+      const optimisticThread = optimisticThreadFromLocationState(
+        workspace.slug,
+        threadSlug,
+        location.state
+      );
+      if (optimisticThread) {
+        const key = `${workspace.slug}:${threadSlug}`;
+        setHistoryState({
+          page: null,
+          loadingRecent: false,
+          loadingOlder: false,
+        });
+        setChatScrollMemory(null);
+        setLoadedIfChanged({
+          key,
+          workspace,
+          threadSlug,
+          activeThread: optimisticThread,
+          history: [],
+        });
+        return true;
+      }
+
       const fallbackToWorkspaceEntry = (reason) => {
         const cachedThreads =
           workspaceNavigationCache.getThreads(workspace.slug, {
@@ -332,6 +375,7 @@ export default function WorkspaceChat({ loading, workspace }) {
                   },
                   policy: "foreground",
                   emergency: true,
+                  intentRank: 1,
                   signal: historySignal,
                   dedupeKey: `navigation:threads:${workspace.slug}`,
                 }
@@ -420,14 +464,16 @@ export default function WorkspaceChat({ loading, workspace }) {
       setChatScrollMemory(scrollMemory);
       const draft = getDraft(workspace.slug, threadSlug);
       const needsServerHistoryRefresh = draftNeedsServerHistoryRefresh(draft);
-      const historySurface = historySurfaceForDevice({ mobile: isMobile });
+      const historySurface = historySurfaceForDevice({
+        mobile: isMobileShell,
+      });
       const isMobileHistorySurface = historySurface === "mobile";
       const initialHistoryDetail = restoreChatId
         ? "full"
         : historyDetailForDevice({ surface: historySurface });
       const historyOptionsForSurface = (options = {}) =>
         historyRequestOptionsForDevice({
-          mobile: isMobile,
+          mobile: isMobileShell,
           surface: historySurface,
           ...options,
         });
@@ -553,6 +599,7 @@ export default function WorkspaceChat({ loading, workspace }) {
           },
           policy: "foreground",
           emergency: true,
+          intentRank: 2,
           signal: historySignal,
           dedupeKey: `history:first:${key}:${initialHistoryCursor}`,
         }
@@ -617,6 +664,7 @@ export default function WorkspaceChat({ loading, workspace }) {
             },
             policy: "foreground",
             emergency: true,
+            intentRank: 2,
             signal: historySignal,
             dedupeKey: `history:first-fallback:${key}`,
           }
@@ -680,6 +728,7 @@ export default function WorkspaceChat({ loading, workspace }) {
         anchorFound: currentPage?.anchorFound ?? null,
         scrollMemoryPrefetchAttempt: 0,
       });
+      performance?.mark?.("athena:workspace-switch:chat_first_page_ready");
       const latestDraft = getDraft(workspace.slug, threadSlug);
       const latestDraftNeedsRefresh =
         draftNeedsServerHistoryRefresh(latestDraft);
@@ -928,6 +977,8 @@ export default function WorkspaceChat({ loading, workspace }) {
     loading,
     threadSlug,
     getDraft,
+    isMobileShell,
+    location.state,
     mergeAndRenderHistory,
     navigateIfChanged,
     setLoadedIfChanged,
@@ -953,9 +1004,9 @@ export default function WorkspaceChat({ loading, workspace }) {
     setHistoryState((prev) => ({ ...prev, loadingOlder: true }));
 
     const client = historyClient(loaded.threadSlug);
-    const historySurface = historySurfaceForDevice({ mobile: isMobile });
+    const historySurface = historySurfaceForDevice({ mobile: isMobileShell });
     const olderOptions = historyRequestOptionsForDevice({
-      mobile: isMobile,
+      mobile: isMobileShell,
       surface: historySurface,
       limit: FIRST_PAGE_LIMIT,
       beforeChatId,
@@ -1000,6 +1051,7 @@ export default function WorkspaceChat({ loading, workspace }) {
   }, [
     historyState.loadingOlder,
     historyState.page,
+    isMobileShell,
     loaded,
     mergeAndRenderHistory,
   ]);

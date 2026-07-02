@@ -24,6 +24,8 @@ class RequestPriorityQueue {
       resumable = false,
       abortable = true,
       deadlineMs = null,
+      intentRank = null,
+      resource = null,
       onAbort = null,
       onResume = null,
     } = {}
@@ -41,6 +43,8 @@ class RequestPriorityQueue {
           resumable,
           abortable,
           deadlineMs,
+          intentRank,
+          resource,
           onAbort,
           onResume,
         })
@@ -56,6 +60,8 @@ class RequestPriorityQueue {
           resumable,
           abortable,
           deadlineMs,
+          intentRank,
+          resource,
           onAbort,
           onResume,
         });

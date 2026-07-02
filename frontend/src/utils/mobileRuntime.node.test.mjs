@@ -4,10 +4,14 @@ import {
   ATHENA_FORCE_MOBILE_PLATFORM_STORAGE_KEY,
   ATHENA_FORCE_MOBILE_STORAGE_KEY,
   detectMobileRuntimeFromNavigator,
+  detectPhoneRuntimeFromNavigator,
+  detectTabletRuntimeFromNavigator,
   forcedMobilePlatform,
   isMobileRuntime,
   isMobileRuntimeForced,
+  mobileShellRuntimeActive,
   syncMobileRuntimeOverrideFromUrl,
+  tabletDesktopRuntimeActive,
 } from "./mobileRuntime.js";
 
 function memoryStorage() {
@@ -90,18 +94,17 @@ test("forced mobile defaults to iOS PWA semantics when platform is omitted", () 
 });
 
 test("navigator detection still handles real mobile devices", () => {
-  assert.equal(
-    detectMobileRuntimeFromNavigator(
-      testWindow({
-        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
-        platform: "iPhone",
-        maxTouchPoints: 5,
-        innerWidth: 390,
-        coarsePointer: true,
-      })
-    ),
-    true
-  );
+  const iphone = testWindow({
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)",
+    platform: "iPhone",
+    maxTouchPoints: 5,
+    innerWidth: 390,
+    coarsePointer: true,
+  });
+  assert.equal(detectPhoneRuntimeFromNavigator(iphone), true);
+  assert.equal(detectTabletRuntimeFromNavigator(iphone), false);
+  assert.equal(detectMobileRuntimeFromNavigator(iphone), true);
+  assert.equal(mobileShellRuntimeActive(iphone), true);
 
   assert.equal(
     detectMobileRuntimeFromNavigator(
@@ -126,8 +129,12 @@ test("iPad is detected as tablet but does not enter mobile runtime by default", 
     innerWidth: 820,
     coarsePointer: true,
   });
+  assert.equal(detectTabletRuntimeFromNavigator(modernIPad), true);
+  assert.equal(detectPhoneRuntimeFromNavigator(modernIPad), false);
   assert.equal(detectMobileRuntimeFromNavigator(modernIPad), false);
   assert.equal(isMobileRuntime(modernIPad), false);
+  assert.equal(mobileShellRuntimeActive(modernIPad), false);
+  assert.equal(tabletDesktopRuntimeActive(modernIPad), true);
 
   const legacyIPad = testWindow({
     userAgent:
@@ -137,8 +144,12 @@ test("iPad is detected as tablet but does not enter mobile runtime by default", 
     innerWidth: 820,
     coarsePointer: true,
   });
+  assert.equal(detectTabletRuntimeFromNavigator(legacyIPad), true);
+  assert.equal(detectPhoneRuntimeFromNavigator(legacyIPad), false);
   assert.equal(detectMobileRuntimeFromNavigator(legacyIPad), false);
   assert.equal(isMobileRuntime(legacyIPad), false);
+  assert.equal(mobileShellRuntimeActive(legacyIPad), false);
+  assert.equal(tabletDesktopRuntimeActive(legacyIPad), true);
 });
 
 test("iPad can still enter mobile runtime through explicit force-mobile URL", () => {
@@ -154,5 +165,35 @@ test("iPad can still enter mobile runtime through explicit force-mobile URL", ()
 
   assert.equal(isMobileRuntimeForced(win), true);
   assert.equal(isMobileRuntime(win), true);
+  assert.equal(mobileShellRuntimeActive(win), true);
+  assert.equal(tabletDesktopRuntimeActive(win), false);
   assert.equal(forcedMobilePlatform(win), "ios");
+});
+
+test("Android tablets default to desktop shell while Android phones remain mobile", () => {
+  const androidTablet = testWindow({
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 14; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    platform: "Linux armv8l",
+    maxTouchPoints: 10,
+    innerWidth: 900,
+    coarsePointer: true,
+  });
+  assert.equal(detectTabletRuntimeFromNavigator(androidTablet), true);
+  assert.equal(detectPhoneRuntimeFromNavigator(androidTablet), false);
+  assert.equal(isMobileRuntime(androidTablet), false);
+  assert.equal(tabletDesktopRuntimeActive(androidTablet), true);
+
+  const androidPhone = testWindow({
+    userAgent:
+      "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro Build/AP1A) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+    platform: "Linux armv8l",
+    maxTouchPoints: 5,
+    innerWidth: 820,
+    coarsePointer: true,
+  });
+  assert.equal(detectTabletRuntimeFromNavigator(androidPhone), false);
+  assert.equal(detectPhoneRuntimeFromNavigator(androidPhone), true);
+  assert.equal(isMobileRuntime(androidPhone), true);
+  assert.equal(tabletDesktopRuntimeActive(androidPhone), false);
 });

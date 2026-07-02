@@ -68,10 +68,15 @@ const Workspace = {
       defaultThreads,
     };
   },
-  update: async function (slug, data = {}) {
+  update: async function (slug, data = {}, options = {}) {
     const { workspace, message } = await postJson(
       `/workspace/${slug}/update`,
-      data
+      data,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene,
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => {
@@ -228,7 +233,9 @@ const Workspace = {
   },
   all: async function (options = {}) {
     const workspaces = await getJson("/workspaces", {
+      signal: options.signal,
       communicationScene: options.communicationScene || "workspace-navigation",
+      task: options.task,
     })
       .then(({ data }) => data.workspaces || [])
       .catch(() => []);
@@ -264,7 +271,12 @@ const Workspace = {
       .then(() => true)
       .catch(() => false);
   },
-  uploadFile: async function (slug, formData, folderName = "custom-documents") {
+  uploadFile: async function (
+    slug,
+    formData,
+    folderName = "custom-documents",
+    options = {}
+  ) {
     if (folderName && !formData.has("folderName")) {
       formData.append("folderName", folderName);
     }
@@ -273,35 +285,59 @@ const Workspace = {
       formData,
       {
         uploadKind: UPLOAD_KINDS.workspaceFile,
+        communicationScene:
+          options.communicationScene || "workspace-upload-visible",
+        task: options.task,
+        signal: options.signal,
       }
     );
 
     return { response, data };
   },
-  parseFile: async function (slug, formData) {
+  parseFile: async function (slug, formData, options = {}) {
     const { response, data } = await uploadFormData(
       `/workspace/${slug}/parse`,
       formData,
       {
         uploadKind: UPLOAD_KINDS.workspaceFile,
+        communicationScene:
+          options.communicationScene || "workspace-upload-visible",
+        task: options.task,
+        signal: options.signal,
       }
     );
 
     return { response, data };
   },
 
-  getParsedFiles: async function (slug, threadSlug = null) {
+  getParsedFiles: async function (slug, threadSlug = null, options = {}) {
     const basePath = new URL(`${fullApiUrl()}/workspace/${slug}/parsed-files`);
     if (threadSlug) basePath.searchParams.set("threadSlug", threadSlug);
-    const { data } = await getJson(basePath.toString());
+    const { data } = await getJson(basePath.toString(), {
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-upload-visible",
+      task: options.task,
+    });
     return data;
   },
-  uploadLink: async function (slug, link, folderName = "custom-documents") {
+  uploadLink: async function (
+    slug,
+    link,
+    folderName = "custom-documents",
+    options = {}
+  ) {
     const { response, data } = await postJson(
       `/workspace/${slug}/upload-link`,
       {
         link,
         folderName,
+      },
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-upload-visible",
+        task: options.task,
       }
     );
     return { response, data };
@@ -463,9 +499,16 @@ const Workspace = {
       .catch(() => false);
   },
 
-  embedParsedFile: async function (slug, fileId) {
+  embedParsedFile: async function (slug, fileId, options = {}) {
     const { response, data } = await postJson(
-      `/workspace/${slug}/embed-parsed-file/${fileId}`
+      `/workspace/${slug}/embed-parsed-file/${fileId}`,
+      {},
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-upload-visible",
+        task: options.task,
+      }
     );
     return { response, data };
   },

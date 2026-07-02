@@ -217,6 +217,8 @@ export async function classifyReaderBook({
   title,
   documentType,
   file,
+  task = null,
+  communicationScene = "reader-visible",
 }) {
   try {
     const text = await extractReaderClassificationText(file, documentType);
@@ -227,12 +229,31 @@ export async function classifyReaderBook({
       id: category.id,
       name: category.name,
     }));
-    const { response, data } = await ReaderDocument.classify(workspaceSlug, {
-      title,
-      documentType,
-      categories,
-      ...samplePayload,
-    });
+    const { response, data } = await ReaderDocument.classify(
+      workspaceSlug,
+      {
+        title,
+        documentType,
+        categories,
+        ...samplePayload,
+      },
+      {
+        communicationScene,
+        task: task || {
+          label: "reader:classify-visible",
+          kind: "reader",
+          priority: "P0",
+          policy: "foreground",
+          emergency: true,
+          intentRank: 0,
+          scope: {
+            route: "workspace-chat",
+            surface: "reader-classification",
+            workspaceSlug,
+          },
+        },
+      }
+    );
     if (!response.ok || !data?.success) {
       return fallbackReaderCategory(data?.reason || "自动分类请求失败。");
     }

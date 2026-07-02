@@ -5,7 +5,7 @@ import {
   activateRouteScope,
   routeScopeFromPathname,
 } from "./routeScopeManager.js";
-import { taskScheduler } from "./taskScheduler.js";
+import { TaskScheduler, taskScheduler } from "./taskScheduler.js";
 
 const wait = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -74,6 +74,26 @@ test("infers maintenance lane for thumbnail and classification requests", () => 
   assert.equal(classification.priority, TASK_PRIORITIES.maintenance);
 });
 
+test("infers visible thumbnail display as P1 while keeping maintenance P4", () => {
+  const displayThumbnail = inferTaskMetadata({
+    method: "GET",
+    path: "/reader-documents/doc-1/thumbnail",
+    transport: "blob",
+    communicationScene: "reader-visible",
+  });
+  const maintenanceThumbnail = inferTaskMetadata({
+    method: "GET",
+    path: "/reader-documents/doc-1/thumbnail",
+    transport: "blob",
+    communicationScene: "reader-maintenance",
+  });
+
+  assert.equal(displayThumbnail.priority, TASK_PRIORITIES.visibleSupport);
+  assert.equal(displayThumbnail.resource, "network");
+  assert.equal(maintenanceThumbnail.priority, TASK_PRIORITIES.maintenance);
+  assert.equal(maintenanceThumbnail.resource, "idle");
+});
+
 test("stream requests use realtime policy without becoming exclusive", () => {
   const stream = inferTaskMetadata({
     method: "GET",
@@ -88,11 +108,59 @@ test("stream requests use realtime policy without becoming exclusive", () => {
   assert.equal(stream.protected, false);
 });
 
-test("route scope switch preempts old low-priority workspace tasks only", async () => {
+test("chat streams default to protected P0 realtime", () => {
+  const stream = inferTaskMetadata({
+    method: "POST",
+    path: "/workspace/demo/thread/thread-a/stream-chat",
+    transport: "stream",
+    communicationScene: "workspace-chat",
+  });
+
+  assert.equal(stream.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(stream.policy, "realtime");
+  assert.equal(stream.protected, true);
+  assert.equal(stream.abortable, false);
+  assert.equal(stream.resource, "realtime");
+});
+
+test("nested requests inherit active parent task intent by default", async () => {
+  const scheduler = new TaskScheduler();
+  const handle = scheduler.schedule(
+    async () =>
+      inferTaskMetadata({
+        method: "GET",
+        path: "/reader-documents/doc-1",
+        communicationScene: "reader-open",
+      }),
+    {
+      kind: "reader-open",
+      priority: "P0",
+      policy: "foreground",
+      resource: "network",
+      protected: true,
+      abortable: false,
+      intentRank: 0,
+      scope: { route: "reader", surface: "reader-open" },
+    }
+  );
+
+  const metadata = await handle.promise;
+  assert.equal(metadata.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(metadata.protected, true);
+  assert.equal(metadata.abortable, false);
+  assert.equal(metadata.intentRank, 0);
+  assert.equal(metadata.resource, "network");
+  assert.equal(metadata.scope.parentKind, "reader-open");
+  assert.equal(metadata.inherited, true);
+  assert.equal(metadata.inferred, false);
+});
+
+test("route scope switch preempts old non-protected workspace tasks", async () => {
   const oldScope = routeScopeFromPathname("/workspace/old/t/thread-a");
   activateRouteScope(oldScope, "test-start");
 
   let oldAborted = false;
+  let oldP0Aborted = false;
   const oldTask = taskScheduler.schedule(
     async ({ signal }) => {
       await new Promise((resolve) => {
@@ -113,6 +181,26 @@ test("route scope switch preempts old low-priority workspace tasks only", async 
       label: "old-prefetch",
     }
   );
+  const oldP0Task = taskScheduler.schedule(
+    async ({ signal }) => {
+      await new Promise((resolve) => {
+        signal.addEventListener(
+          "abort",
+          () => {
+            oldP0Aborted = true;
+            resolve();
+          },
+          { once: true }
+        );
+      });
+    },
+    {
+      kind: "test-old-p0",
+      priority: "P0",
+      scope: oldScope,
+      label: "old-visible-intent",
+    }
+  );
 
   const protectedTask = taskScheduler.schedule(async () => "saved", {
     kind: "test-write",
@@ -128,7 +216,9 @@ test("route scope switch preempts old low-priority workspace tasks only", async 
     "test-switch"
   );
   await oldTask.promise;
+  await oldP0Task.promise;
   assert.equal(oldAborted, true);
+  assert.equal(oldP0Aborted, true);
   assert.equal(await protectedTask.promise, "saved");
 
   const snapshot = taskScheduler.snapshot();
@@ -136,4 +226,5 @@ test("route scope switch preempts old low-priority workspace tasks only", async 
   assert.ok(snapshot.byScope);
   assert.ok(Array.isArray(snapshot.recentPreemptions));
   assert.equal(typeof snapshot.oldestPendingMs, "number");
+  assert.equal(typeof snapshot.oldP0StaleCount, "number");
 });

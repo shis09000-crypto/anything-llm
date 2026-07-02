@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { isMobile } from "react-device-detect";
 import useUser from "@/hooks/useUser";
 import { useModal } from "@/hooks/useModal";
 import LLMSelectorModal from "../PromptInput/LLMSelector/index";
@@ -13,6 +12,7 @@ import {
 import Workspace from "@/models/workspace";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
 import { canSeeAdmin } from "@/utils/authz";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 
 function fetchModelName(slug, setModelName) {
   if (!slug) return;
@@ -41,6 +41,7 @@ export default function WorkspaceModelPicker({
   const [sidebarOpen, setSidebarOpen] = useState(
     () => window.localStorage.getItem("anythingllm_sidebar_toggle") !== "closed"
   );
+  const isMobileShell = mobileShellRuntimeActive();
 
   useEffect(() => {
     const handleToggle = (e) => setSidebarOpen(e.detail.open);
@@ -83,7 +84,7 @@ export default function WorkspaceModelPicker({
 
   // This feature is disabled for multi-user instances where the user is not an admin
   if (!!user && !canSeeAdmin(user)) return null;
-  if (!slug || isMobile) return null;
+  if (!slug || isMobileShell) return null;
 
   return (
     <>

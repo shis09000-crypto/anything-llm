@@ -1,10 +1,11 @@
-import { isMobile } from "react-device-detect";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import * as Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 
 export default function LoadingChat() {
   const highlightColor = "var(--theme-bg-primary)";
   const baseColor = "var(--theme-bg-secondary)";
+  const isMobileShell = mobileShellRuntimeActive();
   return (
     <div
       className="motion-hover relative md:ml-[2px] md:mr-[16px] md:my-[16px] md:rounded-[16px] bg-theme-bg-secondary w-full h-full overflow-y-scroll no-scroll p-4"
@@ -21,7 +22,7 @@ export default function LoadingChat() {
       />
       <Skeleton.default
         height="100px"
-        width={isMobile ? "70%" : "45%"}
+        width={isMobileShell ? "70%" : "45%"}
         baseColor={baseColor}
         highlightColor={highlightColor}
         count={1}
@@ -30,7 +31,7 @@ export default function LoadingChat() {
       />
       <Skeleton.default
         height="100px"
-        width={isMobile ? "55%" : "30%"}
+        width={isMobileShell ? "55%" : "30%"}
         baseColor={baseColor}
         highlightColor={highlightColor}
         count={1}
@@ -39,7 +40,7 @@ export default function LoadingChat() {
       />
       <Skeleton.default
         height="100px"
-        width={isMobile ? "88%" : "25%"}
+        width={isMobileShell ? "88%" : "25%"}
         baseColor={baseColor}
         highlightColor={highlightColor}
         count={1}

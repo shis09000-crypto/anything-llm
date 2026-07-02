@@ -7,6 +7,16 @@ const PRIORITY_ORDER = {
 };
 
 const TERMINAL_STATUSES = new Set(["completed", "failed", "aborted", "stale"]);
+const TASK_CONTEXT_STACK = [];
+
+const RESOURCE_DEFAULT_LIMITS = {
+  network: 4,
+  realtime: Number.POSITIVE_INFINITY,
+  upload: 2,
+  render: 2,
+  cpu: 2,
+  idle: 1,
+};
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -36,6 +46,12 @@ function priorityRank(priority) {
   return PRIORITY_ORDER[normalizePriority(priority)];
 }
 
+function normalizeIntentRank(intentRank = 50) {
+  const value = Number(intentRank);
+  if (!Number.isFinite(value)) return 50;
+  return Math.max(0, Math.min(999, value));
+}
+
 function normalizeScope(scope = {}) {
   if (!scope || typeof scope !== "object") return {};
   return { ...scope };
@@ -54,6 +70,12 @@ function taskLane(priority) {
   if (normalized === "P0" || normalized === "P1") return "main";
   if (normalized === "P3") return "prefetch";
   return "background";
+}
+
+function normalizeResource(resource = "network") {
+  return Object.prototype.hasOwnProperty.call(RESOURCE_DEFAULT_LIMITS, resource)
+    ? resource
+    : "network";
 }
 
 function createTaskId(kind = "task") {
@@ -82,6 +104,10 @@ class ScheduledTaskHandle {
   completeExclusive(reason = "manual") {
     this.task.scheduler.completeExclusive(this.task.id, reason);
   }
+
+  context() {
+    return serializeTaskContext(this.task);
+  }
 }
 
 class TaskScheduler {
@@ -89,19 +115,28 @@ class TaskScheduler {
     maxConcurrent = 4,
     backgroundMaxConcurrent = 2,
     prefetchMaxConcurrent = 1,
+    resourceBudgets = {},
     maxPending = 96,
     staleMs = 45_000,
+    maintenanceAgingMs = 20_000,
     exclusiveMaxMs = 3_500,
   } = {}) {
     this.maxConcurrent = maxConcurrent;
     this.backgroundMaxConcurrent = backgroundMaxConcurrent;
     this.prefetchMaxConcurrent = prefetchMaxConcurrent;
+    this.resourceBudgets = {
+      ...RESOURCE_DEFAULT_LIMITS,
+      network: maxConcurrent + backgroundMaxConcurrent + prefetchMaxConcurrent,
+      ...resourceBudgets,
+    };
     this.maxPending = maxPending;
     this.staleMs = staleMs;
+    this.maintenanceAgingMs = maintenanceAgingMs;
     this.exclusiveMaxMs = exclusiveMaxMs;
     this.pending = [];
     this.running = new Map();
     this.completed = [];
+    this.timeline = [];
     this.pausedPriorities = new Set();
     this.exclusive = null;
     this.recentPreemptions = [];
@@ -113,6 +148,7 @@ class TaskScheduler {
       demoted: 0,
       stale: 0,
       preempted: 0,
+      oldP0StaleCount: 0,
     };
   }
 
@@ -172,6 +208,8 @@ class TaskScheduler {
       kind: options.kind || "request",
       scope: normalizeScope(options.scope),
       priority,
+      intentRank: normalizeIntentRank(options.intentRank),
+      resource: normalizeResource(options.resource),
       originalPriority: priority,
       policy: options.policy || policyForPriority(priority),
       dedupeKey,
@@ -200,6 +238,7 @@ class TaskScheduler {
 
     this.pending.push(task);
     this.counters.scheduled += 1;
+    this.#recordTimeline("scheduled", task);
     if (task.emergency) this.#enterExclusive(task);
     this.#sortPending();
     this.#enforcePendingBudget();
@@ -366,6 +405,17 @@ class TaskScheduler {
       dedupeKey: task.dedupeKey,
       scope: task.scope,
       ageMs: Math.round(nowMs() - task.createdAt),
+      intentRank: task.intentRank,
+      resource: task.resource,
+      createdAt: Math.round(task.createdAt),
+      startedAt: task.startedAt ? Math.round(task.startedAt) : null,
+      durationMs:
+        task.finishedAt && task.startedAt
+          ? Math.round(task.finishedAt - task.startedAt)
+          : null,
+      staleReason: task.staleReason || null,
+      abortReason: task.abortReason || null,
+      demoteReason: task.demoteReason || null,
     });
     const pending = this.pending.map(serialize);
     const running = [...this.running.values()].map(serialize);
@@ -384,6 +434,11 @@ class TaskScheduler {
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
+    const byResource = activeTasks.reduce((acc, task) => {
+      const key = task.resource || "network";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
     return {
       active: running.length,
       pending,
@@ -391,10 +446,13 @@ class TaskScheduler {
       background,
       byKind,
       byScope,
+      byResource,
       oldestPendingMs: pending.length
         ? Math.max(...pending.map((task) => task.ageMs || 0))
         : 0,
       exclusiveReason: this.exclusive?.reason || null,
+      activeIntent: activeIntentForSnapshot(activeTasks),
+      oldP0StaleCount: this.counters.oldP0StaleCount,
       recentPreemptions: [...this.recentPreemptions],
       aborted: recent.filter((task) => task.status === "aborted"),
       demoted: recent.filter((task) => task.status === "demoted"),
@@ -412,10 +470,18 @@ class TaskScheduler {
           }
         : { active: false },
       counters: { ...this.counters },
+      timeline: [...this.timeline],
+      latency: latencySummary(recent),
       lanes: {
         main: this.#activeCountForLane("main"),
         background: this.#activeCountForLane("background"),
         prefetch: this.#activeCountForLane("prefetch"),
+        resources: Object.fromEntries(
+          Object.keys(this.resourceBudgets).map((resource) => [
+            resource,
+            this.#activeCountForResource(resource),
+          ])
+        ),
       },
     };
   }
@@ -426,7 +492,16 @@ class TaskScheduler {
     task.status = "stale";
     task.staleReason = reason;
     this.counters.stale += 1;
+    if (
+      task.priority === "P0" &&
+      /(route|scope|workspace|thread|intent|switch|stale)/i.test(
+        String(reason || "")
+      )
+    ) {
+      this.counters.oldP0StaleCount += 1;
+    }
     this.#recordPreemption(task, "stale", reason);
+    this.#recordTimeline("stale", task, { reason });
     if (!this.running.has(task.id)) {
       this.pending = this.pending.filter((pendingTask) => pendingTask !== task);
       this.#finishTask(task, null);
@@ -441,6 +516,7 @@ class TaskScheduler {
     if (this.exclusive.timer) clearTimeout(this.exclusive.timer);
     const resumable = this.exclusive.resumable.splice(0);
     this.exclusive = null;
+    this.#recordTimeline("exclusive-end", null, { reason, taskId });
     for (const task of this.pending) {
       if (task.status === "paused")
         task.status = ["P2", "P3", "P4"].includes(task.priority)
@@ -514,6 +590,9 @@ class TaskScheduler {
             }, exclusiveMaxMs)
           : null,
     };
+    this.#recordTimeline("exclusive-start", emergencyTask, {
+      reason: emergencyTask.label,
+    });
 
     for (const task of this.pending) {
       if (task.id === emergencyTask.id || task.priority === "P0") continue;
@@ -548,6 +627,7 @@ class TaskScheduler {
     task.demoteReason = reason;
     this.counters.demoted += 1;
     this.#recordPreemption(task, "demote", reason);
+    this.#recordTimeline("demote", task, { reason });
     if (!this.running.has(task.id)) task.status = "background";
   }
 
@@ -557,7 +637,16 @@ class TaskScheduler {
     task.status = "aborted";
     task.stale = true;
     this.counters.aborted += 1;
+    if (
+      task.priority === "P0" &&
+      /(route|scope|workspace|thread|intent|switch|stale|abort)/i.test(
+        String(reason || "")
+      )
+    ) {
+      this.counters.oldP0StaleCount += 1;
+    }
     this.#recordPreemption(task, "abort", reason);
+    this.#recordTimeline("abort", task, { reason });
     task.onAbort?.({ task, reason });
     task.abortController.abort(abortError());
     if (fromPending || this.running.has(task.id)) this.#finishTask(task, null);
@@ -568,7 +657,11 @@ class TaskScheduler {
     if (this.pausedPriorities.has(task.priority)) return false;
     if (this.exclusive?.active && !task.emergency && !task.protected)
       return false;
+    if (this.#hasForegroundPressure() && this.#isYoungMaintenance(task))
+      return false;
+    if (!this.#hasResourceCapacity(task)) return false;
     if (task.policy === "realtime") return true;
+    if (task.resource !== "network") return true;
 
     const lane = taskLane(task.priority);
     if (lane === "main")
@@ -592,14 +685,26 @@ class TaskScheduler {
   #preemptLowerPriorityForLane(nextTask, lane) {
     const candidate = [...this.running.values()]
       .filter((task) => {
+        if (task.resource !== "network") return false;
         if (taskLane(task.priority) !== lane) return false;
         if (task.policy === "realtime") return false;
         if (task.protected || !task.abortable) return false;
-        return priorityRank(task.priority) > priorityRank(nextTask.priority);
+        const rankDelta =
+          priorityRank(task.priority) - priorityRank(nextTask.priority);
+        if (rankDelta > 0) return true;
+        if (rankDelta < 0) return false;
+        if (!["P0", "P1"].includes(nextTask.priority)) return false;
+        return (
+          normalizeIntentRank(task.intentRank) >
+          normalizeIntentRank(nextTask.intentRank)
+        );
       })
       .sort((a, b) => {
         const rank = priorityRank(b.priority) - priorityRank(a.priority);
-        return rank !== 0 ? rank : a.createdAt - b.createdAt;
+        if (rank !== 0) return rank;
+        const intentRank =
+          normalizeIntentRank(b.intentRank) - normalizeIntentRank(a.intentRank);
+        return intentRank !== 0 ? intentRank : a.createdAt - b.createdAt;
       })[0];
 
     if (!candidate) return false;
@@ -615,14 +720,24 @@ class TaskScheduler {
     task.status = "running";
     task.startedAt = nowMs();
     this.running.set(task.id, task);
+    this.#recordTimeline("started", task);
+    let taskResult;
+    try {
+      TASK_CONTEXT_STACK.push(task);
+      taskResult = task.taskFn({
+        signal: task.abortController.signal,
+        task,
+        handle: task.handle,
+      });
+    } catch (error) {
+      taskResult = Promise.reject(error);
+    } finally {
+      if (TASK_CONTEXT_STACK[TASK_CONTEXT_STACK.length - 1] === task) {
+        TASK_CONTEXT_STACK.pop();
+      }
+    }
     Promise.resolve()
-      .then(() =>
-        task.taskFn({
-          signal: task.abortController.signal,
-          task,
-          handle: task.handle,
-        })
-      )
+      .then(() => taskResult)
       .then((result) => {
         if (task.stale || task.abortController.signal.aborted) {
           this.#finishTask(task, null);
@@ -630,6 +745,7 @@ class TaskScheduler {
         }
         task.status = "completed";
         this.counters.completed += 1;
+        this.#recordTimeline("completed", task);
         this.#finishTask(task, result);
       })
       .catch((error) => {
@@ -645,6 +761,7 @@ class TaskScheduler {
         task.status = "failed";
         task.error = error;
         this.counters.failed += 1;
+        this.#recordTimeline("failed", task, { error: error?.message });
         this.#finishTask(task, undefined, error);
       })
       .finally(() => {
@@ -657,6 +774,7 @@ class TaskScheduler {
   #finishTask(task, value, error = null) {
     if (task.finished) return;
     task.finished = true;
+    task.finishedAt = nowMs();
     this.running.delete(task.id);
     task.externalSignal?.removeEventListener?.("abort", task.externalAbort);
     if (task.emergency) this.completeExclusive(task.id, "emergency-settled");
@@ -678,7 +796,10 @@ class TaskScheduler {
     this.pending.sort((a, b) => {
       if (a.emergency !== b.emergency) return a.emergency ? -1 : 1;
       const rank = priorityRank(a.priority) - priorityRank(b.priority);
-      return rank !== 0 ? rank : a.createdAt - b.createdAt;
+      if (rank !== 0) return rank;
+      const intentRank =
+        normalizeIntentRank(a.intentRank) - normalizeIntentRank(b.intentRank);
+      return intentRank !== 0 ? intentRank : a.createdAt - b.createdAt;
     });
   }
 
@@ -686,7 +807,10 @@ class TaskScheduler {
     if (this.pending.length <= this.maxPending) return;
     const sorted = [...this.pending].sort((a, b) => {
       const rank = priorityRank(b.priority) - priorityRank(a.priority);
-      return rank !== 0 ? rank : a.createdAt - b.createdAt;
+      if (rank !== 0) return rank;
+      const intentRank =
+        normalizeIntentRank(b.intentRank) - normalizeIntentRank(a.intentRank);
+      return intentRank !== 0 ? intentRank : a.createdAt - b.createdAt;
     });
     const toDrop = new Set(
       sorted.slice(0, this.pending.length - this.maxPending)
@@ -702,11 +826,69 @@ class TaskScheduler {
     return [...this.running.values()].filter(
       (task) =>
         task.policy !== "realtime" &&
+        task.resource === "network" &&
         taskLane(task.priority) === lane &&
         !task.stale &&
         !task.abortController.signal.aborted &&
         !TERMINAL_STATUSES.has(task.status)
     ).length;
+  }
+
+  #activeCountForResource(resource) {
+    const normalized = normalizeResource(resource);
+    return [...this.running.values()].filter(
+      (task) =>
+        normalizeResource(task.resource) === normalized &&
+        !task.stale &&
+        !task.abortController.signal.aborted &&
+        !TERMINAL_STATUSES.has(task.status)
+    ).length;
+  }
+
+  #hasResourceCapacity(task) {
+    const resource = normalizeResource(task.resource);
+    const limit = this.#resourceLimit(task);
+    if (!Number.isFinite(limit)) return true;
+    if (limit <= 0) return false;
+    return this.#activeCountForResource(resource) < limit;
+  }
+
+  #resourceLimit(task) {
+    const resource = normalizeResource(task.resource);
+    const base = this.resourceBudgets[resource] ?? 1;
+    if (!Number.isFinite(base)) return base;
+    const priority = normalizePriority(task.priority);
+    if (typeof document !== "undefined" && document.hidden) {
+      if (["P3", "P4"].includes(priority)) return resource === "idle" ? 1 : 0;
+      if (["render", "cpu", "idle"].includes(resource))
+        return Math.max(1, Math.floor(base / 2));
+    }
+    const connection =
+      typeof navigator !== "undefined" ? navigator.connection : null;
+    if (
+      connection?.saveData ||
+      ["slow-2g", "2g"].includes(connection?.effectiveType)
+    ) {
+      if (["P3", "P4"].includes(priority)) return 0;
+      if (resource === "idle") return 0;
+    }
+    return base;
+  }
+
+  #hasForegroundPressure() {
+    return [...this.pending, ...this.running.values()].some(
+      (task) =>
+        ["P0", "P1"].includes(task.priority) &&
+        !task.stale &&
+        !task.abortController.signal.aborted
+    );
+  }
+
+  #isYoungMaintenance(task) {
+    return (
+      task?.priority === "P4" &&
+      nowMs() - task.createdAt < this.maintenanceAgingMs
+    );
   }
 
   #recordPreemption(task, action, reason) {
@@ -723,6 +905,7 @@ class TaskScheduler {
       kind: task.kind,
       label: task.label,
       priority: task.priority,
+      intentRank: task.intentRank,
       action,
       reason,
       scope: task.scope,
@@ -730,6 +913,27 @@ class TaskScheduler {
     });
     if (this.recentPreemptions.length > 60)
       this.recentPreemptions.splice(0, this.recentPreemptions.length - 60);
+  }
+
+  #recordTimeline(event, task = null, detail = {}) {
+    this.timeline.push({
+      event,
+      at: Date.now(),
+      ...(task
+        ? {
+            id: task.id,
+            kind: task.kind,
+            label: task.label,
+            priority: task.priority,
+            resource: task.resource,
+            intentRank: task.intentRank,
+            scope: task.scope,
+          }
+        : {}),
+      ...detail,
+    });
+    if (this.timeline.length > 160)
+      this.timeline.splice(0, this.timeline.length - 160);
   }
 }
 
@@ -765,6 +969,112 @@ function scopeSummaryKey(scope = {}) {
   return parts.length ? parts.join("|") : "global";
 }
 
+function activeIntentForSnapshot(tasks = []) {
+  const task = [...tasks]
+    .filter((item) => item.priority === "P0" && !item.stale)
+    .sort((a, b) => {
+      const intentRank =
+        normalizeIntentRank(a.intentRank) - normalizeIntentRank(b.intentRank);
+      return intentRank !== 0 ? intentRank : a.createdAt - b.createdAt;
+    })[0];
+  if (!task) return null;
+  return {
+    id: task.id,
+    label: task.label,
+    kind: task.kind,
+    scope: task.scope,
+    intentRank: task.intentRank,
+    emergency: task.emergency,
+  };
+}
+
+function serializeTaskContext(task) {
+  if (!task) return null;
+  return {
+    id: task.id,
+    kind: task.kind,
+    label: task.label,
+    priority: task.priority,
+    policy: task.policy,
+    resource: task.resource,
+    protected: task.protected,
+    abortable: task.abortable,
+    emergency: task.emergency,
+    intentRank: task.intentRank,
+    scope: { ...(task.scope || {}) },
+  };
+}
+
+function currentTaskContext() {
+  return serializeTaskContext(
+    TASK_CONTEXT_STACK[TASK_CONTEXT_STACK.length - 1]
+  );
+}
+
+function latencySummary(tasks = []) {
+  const buckets = {};
+  for (const task of tasks) {
+    if (!task?.startedAt || !task?.finishedAt) continue;
+    const key = task.priority || "unknown";
+    const duration = Math.round(task.finishedAt - task.startedAt);
+    const bucket = buckets[key] || { count: 0, totalMs: 0, maxMs: 0 };
+    bucket.count += 1;
+    bucket.totalMs += duration;
+    bucket.maxMs = Math.max(bucket.maxMs, duration);
+    buckets[key] = bucket;
+  }
+  return Object.fromEntries(
+    Object.entries(buckets).map(([key, value]) => [
+      key,
+      {
+        count: value.count,
+        avgMs: Math.round(value.totalMs / Math.max(1, value.count)),
+        maxMs: value.maxMs,
+      },
+    ])
+  );
+}
+
+function createTaskResultGuard(handle, identity = {}) {
+  const stableIdentity = JSON.stringify(identity || {});
+  return {
+    isCurrent(nextIdentity = identity) {
+      return (
+        handle?.isCurrent?.() !== false &&
+        JSON.stringify(nextIdentity || {}) === stableIdentity
+      );
+    },
+    assertCurrent(nextIdentity = identity) {
+      if (this.isCurrent(nextIdentity)) return true;
+      throw abortError();
+    },
+  };
+}
+
+function isCurrentIntent(scope = {}) {
+  const active = taskScheduler.snapshot().activeIntent;
+  if (!active) return false;
+  return scopeMatches(active.scope, scope);
+}
+
+function markTaskPerformance(name, detail = {}) {
+  const markName = `athena:${name}`;
+  try {
+    globalThis.performance?.mark?.(markName, { detail });
+  } catch {
+    try {
+      globalThis.performance?.mark?.(markName);
+    } catch {}
+  }
+  if (typeof window !== "undefined" && import.meta.env?.DEV) {
+    window.dispatchEvent?.(
+      new CustomEvent("athena-task-performance-mark", {
+        detail: { name, markName, ...detail },
+      })
+    );
+  }
+}
+
 const taskScheduler = new TaskScheduler();
 
 function exposeDevSnapshot() {
@@ -786,6 +1096,11 @@ export {
   TaskScheduler,
   ScheduledTaskHandle,
   normalizePriority,
+  normalizeResource,
+  currentTaskContext,
+  createTaskResultGuard,
+  isCurrentIntent,
+  markTaskPerformance,
   scopeMatches,
   taskScheduler,
 };

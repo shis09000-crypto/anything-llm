@@ -189,12 +189,18 @@ const System = {
       });
     return await systemKeysInflight;
   },
-  settingsBootstrap: async function ({ sections = ["system"], signal } = {}) {
+  settingsBootstrap: async function ({
+    sections = ["system"],
+    signal,
+    task,
+    communicationScene = "model-settings",
+  } = {}) {
     const query = new URLSearchParams();
     query.set("sections", sections.join(","));
     return await getJson(`/system/settings/bootstrap?${query.toString()}`, {
       signal,
-      communicationScene: "model-settings",
+      communicationScene,
+      task,
     })
       .then(({ data }) => {
         const isFullSettingsPayload =
@@ -435,8 +441,13 @@ const System = {
       });
   },
 
-  checkDocumentProcessorOnline: async () => {
-    return await getJson("/system/document-processing-status")
+  checkDocumentProcessorOnline: async (options = {}) => {
+    return await getJson("/system/document-processing-status", {
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-upload-visible",
+      task: options.task,
+    })
       .then(() => true)
       .catch(() => false);
   },
@@ -760,7 +771,8 @@ const System = {
     provider,
     apiKey = null,
     basePath = null,
-    timeout = null
+    timeout = null,
+    options = {}
   ) {
     return postJson(
       "/system/custom-models",
@@ -769,10 +781,16 @@ const System = {
         apiKey,
         basePath,
       },
-      { timeoutMs: timeout || undefined }
+      {
+        timeoutMs: timeout || undefined,
+        signal: options.signal,
+        communicationScene: options.communicationScene || "llm-model-selector",
+        task: options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => {
+        if (e?.name === "AbortError") throw e;
         console.error(e);
         return {
           models: [],

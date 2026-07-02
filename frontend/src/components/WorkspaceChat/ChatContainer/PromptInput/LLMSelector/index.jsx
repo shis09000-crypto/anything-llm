@@ -36,14 +36,45 @@ export default function LLMSelectorModal({
 
   useEffect(() => {
     if (!slug) return;
+    const controller = new AbortController();
+    let stale = false;
+    const taskScope = {
+      route: "workspace-chat",
+      surface: "llm-selector",
+      workspaceSlug: slug,
+    };
     setLoading(true);
     Promise.all([
-      Workspace.bySlug(slug),
-      System.settingsBootstrap({ sections: ["llm"] }).then(
+      Workspace.bySlug(slug, {
+        signal: controller.signal,
+        communicationScene: "llm-model-selector-visible",
+        task: {
+          label: "llm-selector:workspace",
+          kind: "settings",
+          priority: "P0",
+          policy: "foreground",
+          intentRank: 1,
+          scope: taskScope,
+        },
+      }),
+      System.settingsBootstrap({
+        sections: ["llm"],
+        signal: controller.signal,
+        communicationScene: "llm-model-selector-visible",
+        task: {
+          label: "llm-selector:settings",
+          kind: "settings",
+          priority: "P0",
+          policy: "foreground",
+          intentRank: 1,
+          scope: taskScope,
+        },
+      }).then(
         async (response) => response?.settings || (await System.keys()) || {}
       ),
     ])
       .then(([workspace, systemSettings]) => {
+        if (stale || controller.signal.aborted) return;
         const savedProvider =
           workspace.chatProvider ?? systemSettings.LLMProvider;
         const savedModel = workspace.chatModel ?? systemSettings.LLMModel;
@@ -61,7 +92,16 @@ export default function LLMSelectorModal({
           );
         }
       })
-      .finally(() => setLoading(false));
+      .catch((error) => {
+        if (error?.name !== "AbortError" && !stale) console.error(error);
+      })
+      .finally(() => {
+        if (!stale) setLoading(false);
+      });
+    return () => {
+      stale = true;
+      controller.abort();
+    };
   }, [slug]);
 
   function handleSearch(e) {
@@ -88,10 +128,30 @@ export default function LLMSelectorModal({
       const validatedModel = validatedModelSelection(selectedLLMModel);
       if (!validatedModel) throw new Error("Invalid model selection");
 
-      const { message } = await Workspace.update(slug, {
-        chatProvider: selectedLLMProvider,
-        chatModel: validatedModel,
-      });
+      const { message } = await Workspace.update(
+        slug,
+        {
+          chatProvider: selectedLLMProvider,
+          chatModel: validatedModel,
+        },
+        {
+          communicationScene: "llm-model-selector-visible",
+          task: {
+            label: "llm-selector:save",
+            kind: "settings",
+            priority: "P0",
+            policy: "foreground",
+            protected: true,
+            abortable: false,
+            intentRank: 1,
+            scope: {
+              route: "workspace-chat",
+              surface: "llm-selector",
+              workspaceSlug: slug,
+            },
+          },
+        }
+      );
 
       if (!!message) throw new Error(message);
       window.dispatchEvent(new Event(SAVE_LLM_SELECTOR_EVENT));
@@ -146,6 +206,8 @@ export default function LLMSelectorModal({
           {!missingCredentials && (
             <ChatModelSelection
               provider={selectedLLMProvider}
+              workspaceSlug={slug}
+              priority="P0"
               setHasChanges={setHasChanges}
               selectedLLMModel={selectedLLMModel}
               setSelectedLLMModel={setSelectedLLMModel}

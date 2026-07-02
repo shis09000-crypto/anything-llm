@@ -1,17 +1,19 @@
 import React, { useContext, useEffect, useRef, useState } from "react";
 import Sidebar from "@/components/SettingsSidebar";
-import { isMobile } from "react-device-detect";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import { Outlet } from "react-router-dom";
 import { SoftSettingsShellContext } from "./context";
 import { FullScreenLoader } from "@/components/Preloader";
 import "./styles.css";
 
 export function SoftSettingsOutletLayout() {
+  const isMobileShell = mobileShellRuntimeActive();
+
   return (
     <div className="settings-soft-page">
       <Sidebar />
       <main
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        style={{ height: isMobileShell ? "100%" : "calc(100% - 32px)" }}
         className="settings-soft-main"
       >
         <SoftSettingsShellContext.Provider value={true}>
@@ -33,6 +35,7 @@ export function SoftSettingsLayout({
   contentClassName = "",
 }) {
   const hasPersistentShell = useContext(SoftSettingsShellContext);
+  const isMobileShell = mobileShellRuntimeActive();
   const pageContent = (
     <div className={`settings-soft-content ${contentClassName}`}>
       {(title || description || actions) && (
@@ -52,7 +55,7 @@ export function SoftSettingsLayout({
     <div className={`settings-soft-page ${className}`}>
       <Sidebar />
       <main
-        style={{ height: isMobile ? "100%" : "calc(100% - 32px)" }}
+        style={{ height: isMobileShell ? "100%" : "calc(100% - 32px)" }}
         className="settings-soft-main"
       >
         {pageContent}

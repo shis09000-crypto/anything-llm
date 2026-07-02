@@ -31,10 +31,83 @@ import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { Draggable, Droppable } from "react-beautiful-dnd";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
+import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const THREAD_DUPLICATE_REUSE_MS = 1_500;
 const titleEventStreamsByWorkspace = new Map();
+
+function navigationWriteTask(label, workspaceSlug, scope = {}) {
+  return {
+    label,
+    kind: "navigation",
+    priority: "P0",
+    policy: "foreground",
+    protected: true,
+    abortable: false,
+    intentRank: 1,
+    scope: {
+      route: "workspace-sidebar",
+      surface: "threads",
+      workspaceSlug,
+      ...scope,
+    },
+  };
+}
+
+function optimisticThreadCreateTask(label, workspaceSlug, scope = {}) {
+  return {
+    label,
+    kind: "navigation",
+    priority: "P0",
+    policy: "foreground",
+    protected: true,
+    abortable: false,
+    intentRank: 2,
+    scope: {
+      route: "workspace-sidebar",
+      surface: "thread-create",
+      workspaceSlug,
+      ...scope,
+    },
+  };
+}
+
+function createOptimisticThread(workspaceSlug, label) {
+  const now = new Date().toISOString();
+  const random =
+    globalThis.crypto?.randomUUID?.() ||
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const slug = `athena-new-thread-${random}`;
+  return {
+    id: `optimistic:${workspaceSlug}:${slug}`,
+    slug,
+    name: label,
+    title: "",
+    thread_type: "chat",
+    createdAt: now,
+    lastChatAt: now,
+    lastUpdatedAt: now,
+    optimistic: true,
+  };
+}
+
+function mergeOptimisticThreads(serverThreads = [], currentThreads = []) {
+  const serverSlugs = new Set(serverThreads.map((thread) => thread?.slug));
+  const optimisticThreads = currentThreads.filter(
+    (thread) => thread?.optimistic && !serverSlugs.has(thread.slug)
+  );
+  return optimisticThreads.length
+    ? [...optimisticThreads, ...serverThreads]
+    : serverThreads;
+}
+
+function cacheWorkspaceThreads(workspaceSlug, threads = []) {
+  workspaceNavigationCache.setThreads(
+    workspaceSlug,
+    threads.filter((thread) => !thread?.optimistic)
+  );
+}
 
 export default function ThreadContainer({
   workspace,
@@ -77,7 +150,7 @@ export default function ThreadContainer({
           if (thread.slug !== threadSlug) return thread;
           return { ...thread, name: title, title };
         });
-        workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+        cacheWorkspaceThreads(workspace.slug, nextThreads);
         return nextThreads;
       });
     },
@@ -241,6 +314,7 @@ export default function ThreadContainer({
         });
         setThreads(freshThreads);
         setLoading(false);
+        performance?.mark?.("athena:workspace-switch:threads_ready");
         markLoginBoot("threads_loaded", {
           source: "cache",
           workspaceSlug: workspace.slug,
@@ -257,6 +331,7 @@ export default function ThreadContainer({
         });
         setThreads(staleThreads);
         setLoading(false);
+        performance?.mark?.("athena:workspace-switch:threads_ready");
       } else {
         workspaceNavigationCache.debug("threads:miss", {
           workspaceSlug: workspace.slug,
@@ -271,22 +346,23 @@ export default function ThreadContainer({
             () =>
               Workspace.threads.all(workspace.slug, {
                 signal: controller.signal,
+                task: false,
               }),
-              {
-                priority: Array.isArray(staleThreads) ? "P4" : "P2",
-                label: "navigation:threads",
-                kind: "navigation",
-                scope: {
-                  route: "workspace-sidebar",
-                  workspaceSlug: workspace.slug,
-                  surface: "threads",
-                },
-                policy: Array.isArray(staleThreads)
-                  ? "maintenance"
-                  : "background",
-                signal: controller.signal,
-                dedupeKey: `navigation:threads:${workspace.slug}`,
-              }
+            {
+              priority: "P0",
+              label: "navigation:threads",
+              kind: "navigation",
+              scope: {
+                route: "workspace-sidebar",
+                workspaceSlug: workspace.slug,
+                surface: "threads",
+              },
+              policy: "foreground",
+              emergency: true,
+              intentRank: 1,
+              signal: controller.signal,
+              dedupeKey: `navigation:threads:${workspace.slug}`,
+            }
           ),
         { reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS }
       );
@@ -305,9 +381,15 @@ export default function ThreadContainer({
       const { threads } = result || {};
       if (!Array.isArray(threads)) return;
       if (!isCurrent()) return;
-      workspaceNavigationCache.setThreads(workspace.slug, threads);
+      const nextThreads = mergeOptimisticThreads(threads, threadsRef.current);
+      cacheWorkspaceThreads(workspace.slug, nextThreads);
       setLoading(false);
-      setThreads(threads);
+      setThreads(nextThreads);
+      performance?.mark?.("athena:workspace-switch:threads_ready");
+      markTaskPerformance("thread_ready", {
+        workspaceSlug: workspace.slug,
+        count: threads.length,
+      });
       markLoginBoot("threads_loaded", {
         source: "network",
         workspaceSlug: workspace.slug,
@@ -382,9 +464,10 @@ export default function ThreadContainer({
               () =>
                 Workspace.threads.all(workspace.slug, {
                   signal: controller.signal,
+                  task: false,
                 }),
               {
-                priority: "P2",
+                priority: "P0",
                 label: "navigation:threads-refresh",
                 kind: "navigation",
                 scope: {
@@ -392,7 +475,9 @@ export default function ThreadContainer({
                   workspaceSlug: workspace.slug,
                   surface: "threads",
                 },
-                policy: "background",
+                policy: "foreground",
+                emergency: true,
+                intentRank: 1,
                 signal: controller.signal,
                 dedupeKey: `navigation:threads:${workspace.slug}`,
               }
@@ -411,12 +496,15 @@ export default function ThreadContainer({
       const { threads: refreshedThreads } = result || {};
       if (!Array.isArray(refreshedThreads)) return;
       if (!isCurrent()) return;
-      workspaceNavigationCache.setThreads(workspace.slug, refreshedThreads);
+      performance?.mark?.("athena:workspace-switch:threads_ready");
       const currentBySlug = new Map(
         threadsRef.current.map((thread) => [thread.slug, thread])
       );
       const animations = [];
-      const nextThreads = refreshedThreads.map((thread) => {
+      const nextThreads = mergeOptimisticThreads(
+        refreshedThreads,
+        threadsRef.current
+      ).map((thread) => {
         const currentThread = currentBySlug.get(thread.slug);
         const currentTitle = currentThread?.title || currentThread?.name || "";
         const nextTitle = thread.title || thread.name || "";
@@ -433,6 +521,7 @@ export default function ThreadContainer({
         animations.push({ slug: thread.slug, title: nextTitle });
         return { ...thread, name: "", title: "" };
       });
+      cacheWorkspaceThreads(workspace.slug, nextThreads);
       setThreads(nextThreads);
       animations.forEach(({ slug, title }) => animateThreadTitle(slug, title));
     }
@@ -490,13 +579,19 @@ export default function ThreadContainer({
     const slugs = threads
       .filter((t) => t.deleted === true && !isOverviewThread(t))
       .map((t) => t.slug);
-    const success = await Workspace.threads.deleteBulk(workspace.slug, slugs);
+    const success = await Workspace.threads.deleteBulk(workspace.slug, slugs, {
+      communicationScene: "workspace-navigation",
+      task: navigationWriteTask(
+        "navigation:thread-delete-bulk",
+        workspace.slug
+      ),
+    });
     if (success) {
       slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
     }
     setThreads((prev) => {
       const nextThreads = prev.filter((t) => !t.deleted);
-      workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+      cacheWorkspaceThreads(workspace.slug, nextThreads);
       return nextThreads;
     });
 
@@ -519,22 +614,66 @@ export default function ThreadContainer({
     setTimeout(() => {
       setThreads((prev) => {
         const nextThreads = prev.filter((t) => !t.deleted);
-        workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+        cacheWorkspaceThreads(workspace.slug, nextThreads);
         return nextThreads;
       });
     }, 500);
   }
 
-  function handleThreadCreated(thread) {
+  function handleThreadCreated(thread, options = {}) {
     if (!thread?.slug) return;
     setThreads((prev) => {
       const nextThreads = [
-        ...prev.filter((existing) => existing.slug !== thread.slug),
         thread,
+        ...prev.filter(
+          (existing) =>
+            existing.slug !== thread.slug &&
+            existing.slug !== options.replaceSlug
+        ),
       ];
-      workspaceNavigationCache.setThreads(workspace.slug, nextThreads);
+      cacheWorkspaceThreads(workspace.slug, nextThreads);
       return nextThreads;
     });
+  }
+
+  function handleThreadRemoved(threadSlugToRemove) {
+    if (!threadSlugToRemove) return;
+    setThreads((prev) => {
+      const nextThreads = prev.filter(
+        (existing) => existing.slug !== threadSlugToRemove
+      );
+      cacheWorkspaceThreads(workspace.slug, nextThreads);
+      return nextThreads;
+    });
+  }
+
+  function handleThreadCreateFailed(threadSlugToRemove) {
+    handleThreadRemoved(threadSlugToRemove);
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname ===
+        paths.workspace.thread(workspace.slug, threadSlugToRemove)
+    ) {
+      navigate(paths.workspace.chat(workspace.slug), {
+        replace: true,
+        state: { threadCreateFailed: true },
+      });
+    }
+  }
+
+  function handleThreadCreateResolved(optimisticSlug, thread) {
+    if (!thread?.slug) return;
+    handleThreadCreated(thread, { replaceSlug: optimisticSlug });
+    if (
+      typeof window !== "undefined" &&
+      window.location.pathname ===
+        paths.workspace.thread(workspace.slug, optimisticSlug)
+    ) {
+      navigate(paths.workspace.thread(workspace.slug, thread.slug), {
+        replace: true,
+        state: { userSelectedThread: true, createdFromOptimistic: true },
+      });
+    }
   }
 
   useEffect(() => {
@@ -667,6 +806,8 @@ export default function ThreadContainer({
           <NewThreadButton
             workspace={workspace}
             onThreadCreated={handleThreadCreated}
+            onThreadCreateResolved={handleThreadCreateResolved}
+            onThreadCreateFailed={handleThreadCreateFailed}
           />
         </div>
       )}
@@ -722,32 +863,58 @@ function ThreadListToggleButton({
   );
 }
 
-function NewThreadButton({ workspace, onThreadCreated }) {
+function NewThreadButton({
+  workspace,
+  onThreadCreated,
+  onThreadCreateResolved,
+  onThreadCreateFailed,
+}) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const onClick = async () => {
     if (loading || !workspace?.slug) return;
+    const optimisticThread = createOptimisticThread(
+      workspace.slug,
+      t("common.newThread")
+    );
+    onThreadCreated?.(optimisticThread);
+    navigate(paths.workspace.thread(workspace.slug, optimisticThread.slug), {
+      state: {
+        userSelectedThread: true,
+        optimisticNewThread: {
+          slug: optimisticThread.slug,
+          workspaceSlug: workspace.slug,
+        },
+      },
+    });
+
     try {
       setLoading(true);
-      const { thread, error } = await Workspace.threads.new(workspace.slug);
+      const { thread, error } = await Workspace.threads.new(workspace.slug, {
+        communicationScene: "workspace-navigation",
+        task: optimisticThreadCreateTask(
+          "navigation:thread-new-real-create",
+          workspace.slug,
+          { optimisticThreadSlug: optimisticThread.slug }
+        ),
+      });
       if (!!error || !thread?.slug) {
         showToast(
           `Could not create thread - ${error || "Invalid thread response"}`,
           "error",
           { clear: true }
         );
+        onThreadCreateFailed?.(optimisticThread.slug);
         return;
       }
 
-      onThreadCreated?.(thread);
-      navigate(paths.workspace.thread(workspace.slug, thread.slug), {
-        state: { userSelectedThread: true },
-      });
+      onThreadCreateResolved?.(optimisticThread.slug, thread);
     } catch (error) {
       showToast(`Could not create thread - ${error.message}`, "error", {
         clear: true,
       });
+      onThreadCreateFailed?.(optimisticThread.slug);
     } finally {
       setLoading(false);
     }

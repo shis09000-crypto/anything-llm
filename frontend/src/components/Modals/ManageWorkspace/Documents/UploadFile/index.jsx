@@ -29,10 +29,29 @@ export default function UploadFile({
     const formEl = e.target;
     const form = new FormData(formEl);
     const targetFolder = uploadTargetFolder || "custom-documents";
+    const controller = new AbortController();
     const { response, data } = await Workspace.uploadLink(
       workspace.slug,
       form.get("link"),
-      targetFolder
+      targetFolder,
+      {
+        signal: controller.signal,
+        communicationScene: "workspace-upload-visible",
+        task: {
+          label: "workspace-upload:link",
+          kind: "upload",
+          priority: "P0",
+          policy: "foreground",
+          protected: true,
+          abortable: false,
+          intentRank: 0,
+          scope: {
+            route: "workspace-settings",
+            surface: "workspace-upload",
+            workspaceSlug: workspace.slug,
+          },
+        },
+      }
     );
     if (!response.ok) {
       showToast(`Error uploading link: ${data.error}`, "error");
@@ -74,12 +93,30 @@ export default function UploadFile({
   };
 
   useEffect(() => {
+    const controller = new AbortController();
     async function checkProcessorOnline() {
-      const online = await System.checkDocumentProcessorOnline();
+      const online = await System.checkDocumentProcessorOnline({
+        signal: controller.signal,
+        communicationScene: "workspace-upload-visible",
+        task: {
+          label: "workspace-upload:processor-ready",
+          kind: "upload",
+          priority: "P0",
+          policy: "foreground",
+          intentRank: 0,
+          scope: {
+            route: "workspace-settings",
+            surface: "workspace-upload",
+            workspaceSlug: workspace.slug,
+          },
+        },
+      });
+      if (controller.signal.aborted) return;
       setReady(online);
     }
     checkProcessorOnline();
-  }, []);
+    return () => controller.abort();
+  }, [workspace.slug]);
 
   const { getRootProps, getInputProps } = useDropzone({
     onDrop,

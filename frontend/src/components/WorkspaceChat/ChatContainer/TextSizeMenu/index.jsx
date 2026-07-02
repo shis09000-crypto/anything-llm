@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { SlidersHorizontal } from "@phosphor-icons/react";
 import useLoginMode from "@/hooks/useLoginMode";
 import { useTranslation } from "react-i18next";
-import { isMobile } from "react-device-detect";
+import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import {
   CUSTOM_TEXT_SIZE,
   TEXT_SIZE_CHANGE_EVENT,
@@ -43,6 +43,7 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   const [customPx, setCustomPx] = useState(() => selectedSize.customPx);
   const menuRef = useRef(null);
   const buttonRef = useRef(null);
+  const isMobileShell = mobileShellRuntimeActive();
 
   useEffect(() => {
     if (!showMenu) return;
@@ -90,7 +91,7 @@ export default function TextSizeMenu({ inline = false, onOpenChange = null }) {
   // User icon is visible when login mode is active (single with password or multi-user)
   const hasUserIcon = mode !== null;
 
-  if (isMobile && !inline) return null;
+  if (isMobileShell && !inline) return null;
   const wrapperClass = inline
     ? "relative"
     : `absolute top-3 md:top-5 z-30 ${hasUserIcon ? "right-[55px] md:right-[67px]" : "right-4 md:right-6"}`;

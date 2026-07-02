@@ -126,3 +126,50 @@ test("stress: protected chat stream survives emergency and background work pause
   assert.equal(events.includes("maintenance"), true);
   assert.equal(scheduler.snapshot().exclusiveMode.active, false);
 });
+
+test("stress: reader open can become the newest intent while chat first page is loading", async () => {
+  const scheduler = new TaskScheduler({
+    maxConcurrent: 2,
+    backgroundMaxConcurrent: 1,
+    prefetchMaxConcurrent: 1,
+  });
+  const events = [];
+  let releaseChat = null;
+
+  const chatFirstPage = scheduler.scheduleEmergency(
+    async () => {
+      events.push("chat:first-page:start");
+      await new Promise((resolve) => {
+        releaseChat = resolve;
+      });
+      events.push("chat:first-page:done");
+      return "chat";
+    },
+    {
+      kind: "workspace-first-page",
+      label: "chat first page",
+      intentRank: 2,
+      scope: { route: "workspace-chat", workspaceSlug: "w1", threadSlug: "t1" },
+    }
+  );
+  await wait();
+
+  const readerOpen = scheduler.scheduleEmergency(
+    async () => {
+      events.push("reader:open:start");
+      return "reader";
+    },
+    {
+      kind: "reader",
+      label: "reader open document",
+      intentRank: 0,
+      scope: { route: "workspace-chat", surface: "reader-open" },
+    }
+  );
+
+  assert.equal(await readerOpen.promise, "reader");
+  assert.equal(events.includes("reader:open:start"), true);
+  assert.equal(events.includes("chat:first-page:done"), false);
+  releaseChat();
+  assert.equal(await chatFirstPage.promise, "chat");
+});

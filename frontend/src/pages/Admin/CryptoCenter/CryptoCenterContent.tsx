@@ -10,6 +10,7 @@ import { useSoftSettingsShell } from "@/components/SoftSettings/context";
 import { useMotion } from "@/contexts/MotionProvider";
 import { cryptoHubFetch } from "@/hooks/cryptoHub/useCryptoHubQuery";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { tabletDesktopRuntimeActive } from "@/utils/mobileRuntime";
 import CryptoTotalAssetCard from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/CryptoTotalAssetCard";
 import {
   presetById,
@@ -32,6 +33,7 @@ import type {
   TradingPairPreset,
 } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/tradingPairDetailTypes";
 import { markCryptoCenterPerf } from "./perf";
+import { cryptoSectionScrollEnabled } from "./sectionScrollRuntime";
 
 const AssetAllocationDonutCard = React.lazy(
   () =>
@@ -84,6 +86,7 @@ const TRADE_RECORDS_CARD_HEIGHT = 680;
 const EQUITY_HISTORY_REFRESH_MS = 3_000;
 const SECTION_SCROLL_TUNING = {
   minWidth: 900,
+  tabletMinWidth: 768,
   boundaryPx: 24,
   gatePreviewPx: 24,
   minDeltaPx: 4,
@@ -122,6 +125,7 @@ const CRYPTO_CENTER_SECTION_IDS = [
 type CryptoCenterSectionId = (typeof CRYPTO_CENTER_SECTION_IDS)[number];
 type SectionScrollTuning = {
   minWidth: number;
+  tabletMinWidth: number;
   boundaryPx: number;
   gatePreviewPx: number;
   minDeltaPx: number;
@@ -265,6 +269,7 @@ function createSectionScrollTuning(): SectionScrollTuning {
   const defaults = SECTION_SCROLL_TUNING;
   const baseTuning: SectionScrollTuning = {
     minWidth: defaults.minWidth,
+    tabletMinWidth: defaults.tabletMinWidth,
     boundaryPx: defaults.boundaryPx,
     gatePreviewPx: defaults.gatePreviewPx,
     minDeltaPx: defaults.minDeltaPx,
@@ -409,15 +414,38 @@ function useCryptoCenterSectionScroll(
   });
 
   useEffect(() => {
-    const query = window.matchMedia(
-      `(min-width: ${tuning.minWidth}px) and (pointer: fine)`
+    const desktopWidthQuery = window.matchMedia(
+      `(min-width: ${tuning.minWidth}px)`
     );
-    const update = () => setSupportsSectionScroll(query.matches);
+    const tabletWidthQuery = window.matchMedia(
+      `(min-width: ${tuning.tabletMinWidth}px)`
+    );
+    const pointerQuery = window.matchMedia("(pointer: fine)");
+    const update = () =>
+      setSupportsSectionScroll(
+        cryptoSectionScrollEnabled({
+          desktopWidthMatches: desktopWidthQuery.matches,
+          tabletWidthMatches: tabletWidthQuery.matches,
+          finePointer: pointerQuery.matches,
+          tabletDesktop: tabletDesktopRuntimeActive(),
+          reducedMotion,
+        })
+      );
 
     update();
-    query.addEventListener?.("change", update);
-    return () => query.removeEventListener?.("change", update);
-  }, [tuning.minWidth]);
+    desktopWidthQuery.addEventListener?.("change", update);
+    tabletWidthQuery.addEventListener?.("change", update);
+    pointerQuery.addEventListener?.("change", update);
+    window.addEventListener("resize", update);
+    window.addEventListener("orientationchange", update);
+    return () => {
+      desktopWidthQuery.removeEventListener?.("change", update);
+      tabletWidthQuery.removeEventListener?.("change", update);
+      pointerQuery.removeEventListener?.("change", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener("orientationchange", update);
+    };
+  }, [reducedMotion, tuning.minWidth, tuning.tabletMinWidth]);
 
   useEffect(() => {
     return () => {
@@ -1309,6 +1337,42 @@ function useCryptoCenterSectionScroll(
   };
 }
 
+function useMeasuredElementWidth(ref: React.RefObject<HTMLElement | null>) {
+  const [width, setWidth] = useState(0);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+
+    let frame: number | null = null;
+    const measure = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        setWidth(Math.round(node.getBoundingClientRect().width));
+      });
+    };
+
+    measure();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(measure);
+    observer?.observe(node);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, [ref]);
+
+  return width;
+}
+
 const btcDetailVisual = {
   cardWidth: BTC_SPOT_DETAIL_CARD_WIDTH,
   cardHeight: BTC_SPOT_CARD_HEIGHT,
@@ -1715,11 +1779,13 @@ function presetForTopSpotAsset(asset: TopSpotAsset): TradingPairPreset {
 function TopSpotAssetDetailCard({
   asset,
   cardWidth,
+  cardHeight,
   currentTime,
   enabled,
 }: {
   asset: TopSpotAsset;
   cardWidth: number;
+  cardHeight: number;
   currentTime: string;
   enabled: boolean;
 }) {
@@ -1734,9 +1800,9 @@ function TopSpotAssetDetailCard({
     () => ({
       ...btcDetailVisual,
       cardWidth,
-      cardHeight: TOP_SPOT_CARD_HEIGHT,
+      cardHeight,
     }),
-    [cardWidth]
+    [cardHeight, cardWidth]
   );
   const params = useMemo<TradingPairDetailCardProps>(() => {
     return buildSpotDetailParams({
@@ -1753,7 +1819,7 @@ function TopSpotAssetDetailCard({
     <React.Suspense
       fallback={
         <CryptoComponentFallback
-          height={TOP_SPOT_CARD_HEIGHT}
+          height={cardHeight}
           label={`${asset.symbol} 行情组件加载中`}
         />
       }
@@ -1765,10 +1831,12 @@ function TopSpotAssetDetailCard({
 
 function AnimatedTopSpotAssetGrid({
   assets,
+  cardHeight = TOP_SPOT_CARD_HEIGHT,
   currentTime,
   enabled,
 }: {
   assets: TopSpotAsset[];
+  cardHeight?: number;
   currentTime: string;
   enabled: boolean;
 }) {
@@ -1897,13 +1965,14 @@ function AnimatedTopSpotAssetGrid({
             {
               "--motion-list-index": index,
               width: cardWidth,
-              height: TOP_SPOT_CARD_HEIGHT,
+              height: cardHeight,
             } as React.CSSProperties
           }
         >
           <TopSpotAssetDetailCard
             asset={asset}
             cardWidth={cardWidth}
+            cardHeight={cardHeight}
             currentTime={currentTime}
             enabled={enabled}
           />
@@ -1946,6 +2015,48 @@ export default function CryptoCenterContent() {
   }, []);
 
   const sectionScroll = useCryptoCenterSectionScroll(CRYPTO_CENTER_SECTION_IDS);
+  const measuredViewportWidth = useMeasuredElementWidth(
+    sectionScroll.containerRef
+  );
+  const tabletDesktopLayout =
+    typeof window !== "undefined" && tabletDesktopRuntimeActive();
+  const responsiveLayout = useMemo(() => {
+    const fallbackWidth =
+      typeof window === "undefined"
+        ? BTC_SPOT_CONTENT_MAX_WIDTH
+        : window.innerWidth;
+    const viewportWidth = measuredViewportWidth || fallbackWidth;
+    const contentChromePx = viewportWidth <= 900 ? 32 : 48;
+    const availableWidth = Math.max(360, viewportWidth - contentChromePx);
+    const scale = tabletDesktopLayout
+      ? Math.min(1, Math.max(0.78, availableWidth / BTC_SPOT_CONTENT_MAX_WIDTH))
+      : 1;
+    const cardScale = Math.max(scale, 0.84);
+    const heroScale = Math.max(scale, 0.88);
+
+    return {
+      contentMaxWidth: tabletDesktopLayout
+        ? Math.min(BTC_SPOT_CONTENT_MAX_WIDTH, availableWidth)
+        : BTC_SPOT_CONTENT_MAX_WIDTH,
+      heroPortfolioHeight: Math.round(HERO_PORTFOLIO_CARD_HEIGHT * heroScale),
+      heroAssetCardWidth: Math.round(
+        HERO_ASSET_ALLOCATION_CARD_WIDTH * Math.max(scale, 0.82)
+      ),
+      spotDetailWidth: Math.round(BTC_SPOT_DETAIL_CARD_WIDTH * cardScale),
+      spotCardHeight: Math.round(BTC_SPOT_CARD_HEIGHT * cardScale),
+      spotChartMaxWidth: Math.round(BTC_SPOT_CHART_MAX_WIDTH * cardScale),
+      spotBorderRadius: Math.round(24 * Math.max(scale, 0.9)),
+      detailBorderRadius: Math.round(28 * Math.max(scale, 0.9)),
+      iconSize: Math.round(62 * Math.max(scale, 0.86)),
+      topSpotCardHeight: Math.round(TOP_SPOT_CARD_HEIGHT * cardScale),
+      futuresPositionsHeight: Math.round(
+        OPEN_FUTURES_POSITIONS_CARD_HEIGHT * Math.max(scale, 0.86)
+      ),
+      tradeRecordsHeight: Math.round(
+        TRADE_RECORDS_CARD_HEIGHT * Math.max(scale, 0.86)
+      ),
+    };
+  }, [measuredViewportWidth, tabletDesktopLayout]);
   const [topAssetsEnabled, setTopAssetsNearRef] = useEnableWhenNearViewport({
     rootRef: sectionScroll.containerRef,
     rootMargin: "960px",
@@ -2200,6 +2311,15 @@ export default function CryptoCenterContent() {
   const totalAssetParams = useMemo<CryptoTotalAssetCardProps>(() => {
     const timeStampedParams = {
       ...defaultTotalAssetParams,
+      cardHeight: responsiveLayout.heroPortfolioHeight,
+      borderRadius: responsiveLayout.spotBorderRadius,
+      numberSize: Math.round(
+        42 *
+          Math.max(
+            0.88,
+            responsiveLayout.heroPortfolioHeight / HERO_PORTFOLIO_CARD_HEIGHT
+          )
+      ),
       lastUpdatedAt: currentDateTime.time,
       lastUpdatedDate: currentDateTime.date,
       connectionStatus:
@@ -2221,7 +2341,43 @@ export default function CryptoCenterContent() {
       yesterdayChangePct: gateHistory.yesterdayChangePct,
       trendPoints: gateHistory.points,
     };
-  }, [currentDateTime, gateHistory, gateHistoryStatus]);
+  }, [
+    currentDateTime,
+    gateHistory,
+    gateHistoryStatus,
+    responsiveLayout.heroPortfolioHeight,
+    responsiveLayout.spotBorderRadius,
+  ]);
+
+  const responsiveDetailVisual = useMemo(
+    () => ({
+      ...btcDetailVisual,
+      cardWidth: responsiveLayout.spotDetailWidth,
+      cardHeight: responsiveLayout.spotCardHeight,
+      borderRadius: responsiveLayout.detailBorderRadius,
+      iconSize: responsiveLayout.iconSize,
+    }),
+    [
+      responsiveLayout.detailBorderRadius,
+      responsiveLayout.iconSize,
+      responsiveLayout.spotCardHeight,
+      responsiveLayout.spotDetailWidth,
+    ]
+  );
+
+  const responsiveCandlestickVisual = useMemo(
+    () => ({
+      ...btcCandlestickVisual,
+      cardHeight: responsiveLayout.spotCardHeight,
+      borderRadius: responsiveLayout.spotBorderRadius,
+      iconSize: responsiveLayout.iconSize,
+    }),
+    [
+      responsiveLayout.iconSize,
+      responsiveLayout.spotBorderRadius,
+      responsiveLayout.spotCardHeight,
+    ]
+  );
 
   const btcDetailParams = useMemo<TradingPairDetailCardProps>(() => {
     return buildSpotDetailParams({
@@ -2230,9 +2386,14 @@ export default function CryptoCenterContent() {
       preset: btcPreset,
       market: BTC_MARKET,
       currentTime: currentDateTime.time,
-      visual: btcDetailVisual,
+      visual: responsiveDetailVisual,
     });
-  }, [btcDetail.error, btcDetail.response, currentDateTime.time]);
+  }, [
+    btcDetail.error,
+    btcDetail.response,
+    currentDateTime.time,
+    responsiveDetailVisual,
+  ]);
 
   const ethDetailParams = useMemo<TradingPairDetailCardProps>(() => {
     return buildSpotDetailParams({
@@ -2241,9 +2402,14 @@ export default function CryptoCenterContent() {
       preset: ethPreset,
       market: ETH_MARKET,
       currentTime: currentDateTime.time,
-      visual: btcDetailVisual,
+      visual: responsiveDetailVisual,
     });
-  }, [ethDetail.error, ethDetail.response, currentDateTime.time]);
+  }, [
+    currentDateTime.time,
+    ethDetail.error,
+    ethDetail.response,
+    responsiveDetailVisual,
+  ]);
 
   const assetAllocationParams = useMemo<AssetAllocationDonutCardProps>(
     () => ({
@@ -2253,13 +2419,16 @@ export default function CryptoCenterContent() {
       selectedAsset: selectedAllocationAsset,
       onSelectAsset: setSelectedAllocationAsset,
       ...assetAllocationDonutDefaultVisual,
-      cardHeight: HERO_PORTFOLIO_CARD_HEIGHT,
-      borderRadius: 23,
-      cardWidth: HERO_ASSET_ALLOCATION_CARD_WIDTH,
+      cardHeight: responsiveLayout.heroPortfolioHeight,
+      borderRadius: responsiveLayout.spotBorderRadius,
+      cardWidth: responsiveLayout.heroAssetCardWidth,
     }),
     [
       assetAllocation.activeItems,
       assetAllocation.activeTotalValueUsd,
+      responsiveLayout.heroAssetCardWidth,
+      responsiveLayout.heroPortfolioHeight,
+      responsiveLayout.spotBorderRadius,
       selectedAllocationAsset,
     ]
   );
@@ -2268,12 +2437,12 @@ export default function CryptoCenterContent() {
     <div
       className={[
         "overflow-hidden bg-[#08090b] text-slate-100",
-        hasPersistentSettingsShell ? "h-full w-full" : "h-screen w-screen",
+        hasPersistentSettingsShell ? "h-full w-full" : "h-[100dvh] w-screen",
       ].join(" ")}
     >
-      <div className="pointer-events-none fixed inset-0 z-0 h-screen w-screen">
+      <div className="pointer-events-none fixed inset-0 z-0 h-[100dvh] w-screen">
         <div
-          className="fixed inset-0 h-screen w-screen bg-cover bg-center bg-no-repeat transition-opacity duration-500"
+          className="fixed inset-0 h-[100dvh] w-screen bg-cover bg-center bg-no-repeat transition-opacity duration-500"
           style={{
             backgroundImage: fullBackgroundEnabled
               ? `url("${CRYPTO_CENTER_BACKGROUND_URL}")`
@@ -2281,17 +2450,17 @@ export default function CryptoCenterContent() {
             opacity: fullBackgroundEnabled ? 1 : 0,
           }}
         />
-        <div className="fixed inset-0 h-screen w-screen bg-[linear-gradient(180deg,rgba(5,5,5,.42),rgba(5,5,5,.72)),radial-gradient(circle_at_20%_0%,rgba(214,168,79,.14),transparent_34%)]" />
-        <div className="fixed inset-0 h-screen w-screen bg-[#050505]/25" />
+        <div className="fixed inset-0 h-[100dvh] w-screen bg-[linear-gradient(180deg,rgba(5,5,5,.42),rgba(5,5,5,.72)),radial-gradient(circle_at_20%_0%,rgba(214,168,79,.14),transparent_34%)]" />
+        <div className="fixed inset-0 h-[100dvh] w-screen bg-[#050505]/25" />
       </div>
       <main
         ref={sectionScroll.containerRef}
-        className="relative z-10 h-full w-full overflow-y-auto bg-transparent"
+        className="relative z-10 h-full w-full overflow-y-auto overscroll-contain bg-transparent"
       >
         <div className="relative min-h-full overflow-hidden px-4 py-6 md:px-6 md:py-8">
           <div
-            className="relative z-10 mx-auto min-h-[calc(100vh-48px)] w-full"
-            style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+            className="relative z-10 mx-auto min-h-[calc(100dvh-48px)] w-full"
+            style={{ maxWidth: responsiveLayout.contentMaxWidth }}
           >
             <div className="grid w-full content-start gap-6 overflow-x-hidden pb-2">
               <section
@@ -2318,20 +2487,33 @@ export default function CryptoCenterContent() {
                   className="grid w-full max-w-full items-start gap-6 xl:grid-cols-[var(--crypto-hero-columns)]"
                   style={
                     {
-                      "--crypto-hero-columns": `${HERO_TOTAL_ASSET_CARD_WIDTH}px ${HERO_ASSET_ALLOCATION_CARD_WIDTH}px`,
-                      maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH,
+                      "--crypto-hero-columns": `${Math.min(
+                        HERO_TOTAL_ASSET_CARD_WIDTH,
+                        responsiveLayout.contentMaxWidth
+                      )}px ${responsiveLayout.heroAssetCardWidth}px`,
+                      maxWidth: responsiveLayout.contentMaxWidth,
                     } as React.CSSProperties
                   }
                 >
-                  <div className="min-h-[380px] w-full min-w-0 xl:h-[380px] xl:w-[640px]">
+                  <div
+                    className="w-full min-w-0"
+                    style={{
+                      minHeight: responsiveLayout.heroPortfolioHeight,
+                    }}
+                  >
                     <CryptoTotalAssetCard {...totalAssetParams} />
                   </div>
-                  <div className="h-[380px] w-full min-w-0 xl:w-[560px]">
+                  <div
+                    className="w-full min-w-0"
+                    style={{
+                      height: responsiveLayout.heroPortfolioHeight,
+                    }}
+                  >
                     {marketChartsEnabled ? (
                       <React.Suspense
                         fallback={
                           <CryptoComponentFallback
-                            height={HERO_PORTFOLIO_CARD_HEIGHT}
+                            height={responsiveLayout.heroPortfolioHeight}
                             label="资产分布组件加载中"
                           />
                         }
@@ -2340,7 +2522,7 @@ export default function CryptoCenterContent() {
                       </React.Suspense>
                     ) : (
                       <CryptoComponentFallback
-                        height={HERO_PORTFOLIO_CARD_HEIGHT}
+                        height={responsiveLayout.heroPortfolioHeight}
                         label="资产分布稍后加载"
                       />
                     )}
@@ -2358,20 +2540,20 @@ export default function CryptoCenterContent() {
                   </div>
                 </div>
                 <div
-                  className="mx-auto flex w-full max-w-full items-start justify-center gap-6 overflow-x-hidden"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  className="mx-auto flex w-full max-w-full flex-wrap items-start justify-center gap-6 overflow-x-hidden"
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 >
                   <div
                     className="shrink-0"
                     style={{
-                      width: BTC_SPOT_DETAIL_CARD_WIDTH,
-                      height: BTC_SPOT_CARD_HEIGHT,
+                      width: responsiveLayout.spotDetailWidth,
+                      height: responsiveLayout.spotCardHeight,
                     }}
                   >
                     <React.Suspense
                       fallback={
                         <CryptoComponentFallback
-                          height={BTC_SPOT_CARD_HEIGHT}
+                          height={responsiveLayout.spotCardHeight}
                           label="BTC 持仓组件加载中"
                         />
                       }
@@ -2383,15 +2565,16 @@ export default function CryptoCenterContent() {
                     className="min-w-0 flex-1"
                     data-crypto-section-scroll-ignore="true"
                     style={{
-                      maxWidth: BTC_SPOT_CHART_MAX_WIDTH,
-                      height: BTC_SPOT_CARD_HEIGHT,
+                      maxWidth: responsiveLayout.spotChartMaxWidth,
+                      minWidth: Math.min(320, responsiveLayout.contentMaxWidth),
+                      height: responsiveLayout.spotCardHeight,
                     }}
                   >
                     {marketChartsEnabled ? (
                       <React.Suspense
                         fallback={
                           <CryptoComponentFallback
-                            height={BTC_SPOT_CARD_HEIGHT}
+                            height={responsiveLayout.spotCardHeight}
                             label="BTC K 线组件加载中"
                           />
                         }
@@ -2408,27 +2591,35 @@ export default function CryptoCenterContent() {
                           assetNameCn={btcPreset.assetNameCn}
                           iconText={btcPreset.iconText}
                           iconImage={btcPreset.iconImage}
-                          iconSize={btcCandlestickVisual.iconSize}
-                          iconCropScale={btcCandlestickVisual.iconCropScale}
-                          iconCropX={btcCandlestickVisual.iconCropX}
-                          iconCropY={btcCandlestickVisual.iconCropY}
+                          iconSize={responsiveCandlestickVisual.iconSize}
+                          iconCropScale={
+                            responsiveCandlestickVisual.iconCropScale
+                          }
+                          iconCropX={responsiveCandlestickVisual.iconCropX}
+                          iconCropY={responsiveCandlestickVisual.iconCropY}
                           candles={btcCandlestick.activeCandles}
                           currentPriceQuote={btcCandlestick.currentPriceQuote}
                           currentPriceUsd={btcCandlestick.currentPriceQuote}
                           change24hPct={btcCandlestick.change24hPct}
                           status={btcCandlestick.status}
                           autoRefreshSeconds={30}
-                          showVolume={btcCandlestickVisual.showVolume}
-                          showCrosshair={btcCandlestickVisual.showCrosshair}
-                          showCurrentPriceLine={
-                            btcCandlestickVisual.showCurrentPriceLine
+                          showVolume={responsiveCandlestickVisual.showVolume}
+                          showCrosshair={
+                            responsiveCandlestickVisual.showCrosshair
                           }
-                          showGrid={btcCandlestickVisual.showGrid}
-                          compactMode={btcCandlestickVisual.compactMode}
-                          cardHeight={btcCandlestickVisual.cardHeight}
-                          borderRadius={btcCandlestickVisual.borderRadius}
-                          glowIntensity={btcCandlestickVisual.glowIntensity}
-                          accentColor={btcCandlestickVisual.accentColor}
+                          showCurrentPriceLine={
+                            responsiveCandlestickVisual.showCurrentPriceLine
+                          }
+                          showGrid={responsiveCandlestickVisual.showGrid}
+                          compactMode={responsiveCandlestickVisual.compactMode}
+                          cardHeight={responsiveCandlestickVisual.cardHeight}
+                          borderRadius={
+                            responsiveCandlestickVisual.borderRadius
+                          }
+                          glowIntensity={
+                            responsiveCandlestickVisual.glowIntensity
+                          }
+                          accentColor={responsiveCandlestickVisual.accentColor}
                           loading={btcCandlestick.loading}
                           historyLoading={btcCandlestick.historyLoading}
                           error={btcCandlestick.error}
@@ -2438,7 +2629,7 @@ export default function CryptoCenterContent() {
                       </React.Suspense>
                     ) : (
                       <CryptoComponentFallback
-                        height={BTC_SPOT_CARD_HEIGHT}
+                        height={responsiveLayout.spotCardHeight}
                         label="BTC K 线稍后加载"
                       />
                     )}
@@ -2446,23 +2637,23 @@ export default function CryptoCenterContent() {
                 </div>
                 <div
                   className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 />
                 <div
-                  className="mx-auto flex w-full max-w-full items-start justify-center gap-6 overflow-x-hidden"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  className="mx-auto flex w-full max-w-full flex-wrap items-start justify-center gap-6 overflow-x-hidden"
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 >
                   <div
                     className="shrink-0"
                     style={{
-                      width: BTC_SPOT_DETAIL_CARD_WIDTH,
-                      height: BTC_SPOT_CARD_HEIGHT,
+                      width: responsiveLayout.spotDetailWidth,
+                      height: responsiveLayout.spotCardHeight,
                     }}
                   >
                     <React.Suspense
                       fallback={
                         <CryptoComponentFallback
-                          height={BTC_SPOT_CARD_HEIGHT}
+                          height={responsiveLayout.spotCardHeight}
                           label="ETH 持仓组件加载中"
                         />
                       }
@@ -2474,15 +2665,16 @@ export default function CryptoCenterContent() {
                     className="min-w-0 flex-1"
                     data-crypto-section-scroll-ignore="true"
                     style={{
-                      maxWidth: BTC_SPOT_CHART_MAX_WIDTH,
-                      height: BTC_SPOT_CARD_HEIGHT,
+                      maxWidth: responsiveLayout.spotChartMaxWidth,
+                      minWidth: Math.min(320, responsiveLayout.contentMaxWidth),
+                      height: responsiveLayout.spotCardHeight,
                     }}
                   >
                     {marketChartsEnabled ? (
                       <React.Suspense
                         fallback={
                           <CryptoComponentFallback
-                            height={BTC_SPOT_CARD_HEIGHT}
+                            height={responsiveLayout.spotCardHeight}
                             label="ETH K 线组件加载中"
                           />
                         }
@@ -2499,26 +2691,34 @@ export default function CryptoCenterContent() {
                           assetNameCn={ethPreset.assetNameCn}
                           iconText={ethPreset.iconText}
                           iconImage={ethPreset.iconImage}
-                          iconSize={btcCandlestickVisual.iconSize}
-                          iconCropScale={btcCandlestickVisual.iconCropScale}
-                          iconCropX={btcCandlestickVisual.iconCropX}
-                          iconCropY={btcCandlestickVisual.iconCropY}
+                          iconSize={responsiveCandlestickVisual.iconSize}
+                          iconCropScale={
+                            responsiveCandlestickVisual.iconCropScale
+                          }
+                          iconCropX={responsiveCandlestickVisual.iconCropX}
+                          iconCropY={responsiveCandlestickVisual.iconCropY}
                           candles={ethCandlestick.activeCandles}
                           currentPriceQuote={ethCandlestick.currentPriceQuote}
                           currentPriceUsd={ethCandlestick.currentPriceQuote}
                           change24hPct={ethCandlestick.change24hPct}
                           status={ethCandlestick.status}
                           autoRefreshSeconds={30}
-                          showVolume={btcCandlestickVisual.showVolume}
-                          showCrosshair={btcCandlestickVisual.showCrosshair}
-                          showCurrentPriceLine={
-                            btcCandlestickVisual.showCurrentPriceLine
+                          showVolume={responsiveCandlestickVisual.showVolume}
+                          showCrosshair={
+                            responsiveCandlestickVisual.showCrosshair
                           }
-                          showGrid={btcCandlestickVisual.showGrid}
-                          compactMode={btcCandlestickVisual.compactMode}
-                          cardHeight={btcCandlestickVisual.cardHeight}
-                          borderRadius={btcCandlestickVisual.borderRadius}
-                          glowIntensity={btcCandlestickVisual.glowIntensity}
+                          showCurrentPriceLine={
+                            responsiveCandlestickVisual.showCurrentPriceLine
+                          }
+                          showGrid={responsiveCandlestickVisual.showGrid}
+                          compactMode={responsiveCandlestickVisual.compactMode}
+                          cardHeight={responsiveCandlestickVisual.cardHeight}
+                          borderRadius={
+                            responsiveCandlestickVisual.borderRadius
+                          }
+                          glowIntensity={
+                            responsiveCandlestickVisual.glowIntensity
+                          }
                           accentColor={ethPreset.accentColor}
                           chartBackgroundImage={ETH_CHART_BACKGROUND_URL}
                           loading={ethCandlestick.loading}
@@ -2530,7 +2730,7 @@ export default function CryptoCenterContent() {
                       </React.Suspense>
                     ) : (
                       <CryptoComponentFallback
-                        height={BTC_SPOT_CARD_HEIGHT}
+                        height={responsiveLayout.spotCardHeight}
                         label="ETH K 线稍后加载"
                       />
                     )}
@@ -2539,7 +2739,7 @@ export default function CryptoCenterContent() {
                 <div
                   className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
                   data-crypto-section-gate="overview-spot-to-top-assets"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 />
               </section>
               <section
@@ -2574,16 +2774,17 @@ export default function CryptoCenterContent() {
                 </div>
                 <div
                   className="mx-auto w-full max-w-full overflow-x-hidden"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 >
                   {!topAssetsEnabled ? (
                     <CryptoComponentFallback
-                      height={TOP_SPOT_CARD_HEIGHT}
+                      height={responsiveLayout.topSpotCardHeight}
                       label="继续向下时加载前六资产"
                     />
                   ) : topSpotAssets.assets.length ? (
                     <AnimatedTopSpotAssetGrid
                       assets={topSpotAssets.assets}
+                      cardHeight={responsiveLayout.topSpotCardHeight}
                       currentTime={currentDateTime.time}
                       enabled={topAssetsEnabled}
                     />
@@ -2596,7 +2797,7 @@ export default function CryptoCenterContent() {
                 <div
                   className="mx-auto h-px w-full bg-gradient-to-r from-[#D6A84F]/90 via-[#D6A84F]/45 to-transparent shadow-[0_0_20px_rgba(214,168,79,.28)]"
                   data-crypto-section-gate="top-assets-to-futures-trading"
-                  style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                  style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                 />
               </section>
               <section
@@ -2626,19 +2827,19 @@ export default function CryptoCenterContent() {
                       <>
                         <div
                           className="mx-auto w-full max-w-full overflow-x-hidden"
-                          style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                          style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                         >
                           <CryptoComponentFallback
-                            height={OPEN_FUTURES_POSITIONS_CARD_HEIGHT}
+                            height={responsiveLayout.futuresPositionsHeight}
                             label="合约组件加载中"
                           />
                         </div>
                         <div
                           className="mx-auto w-full max-w-full overflow-x-hidden"
-                          style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                          style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                         >
                           <CryptoComponentFallback
-                            height={TRADE_RECORDS_CARD_HEIGHT}
+                            height={responsiveLayout.tradeRecordsHeight}
                             label="交易明细组件加载中"
                           />
                         </div>
@@ -2646,29 +2847,29 @@ export default function CryptoCenterContent() {
                     }
                   >
                     <FuturesTradingSection
-                      contentMaxWidth={BTC_SPOT_CONTENT_MAX_WIDTH}
-                      positionsHeight={OPEN_FUTURES_POSITIONS_CARD_HEIGHT}
+                      contentMaxWidth={responsiveLayout.contentMaxWidth}
+                      positionsHeight={responsiveLayout.futuresPositionsHeight}
                       visiblePositionCount={OPEN_FUTURES_VISIBLE_POSITION_COUNT}
-                      tradeRecordsHeight={TRADE_RECORDS_CARD_HEIGHT}
+                      tradeRecordsHeight={responsiveLayout.tradeRecordsHeight}
                     />
                   </React.Suspense>
                 ) : (
                   <>
                     <div
                       className="mx-auto w-full max-w-full overflow-x-hidden"
-                      style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                      style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                     >
                       <CryptoComponentFallback
-                        height={OPEN_FUTURES_POSITIONS_CARD_HEIGHT}
+                        height={responsiveLayout.futuresPositionsHeight}
                         label="继续向下时加载合约数据"
                       />
                     </div>
                     <div
                       className="mx-auto w-full max-w-full overflow-x-hidden"
-                      style={{ maxWidth: BTC_SPOT_CONTENT_MAX_WIDTH }}
+                      style={{ maxWidth: responsiveLayout.contentMaxWidth }}
                     >
                       <CryptoComponentFallback
-                        height={TRADE_RECORDS_CARD_HEIGHT}
+                        height={responsiveLayout.tradeRecordsHeight}
                         label="继续向下时加载交易明细"
                       />
                     </div>

@@ -1,15 +1,42 @@
 import useGetProviderModels, {
   DISABLED_PROVIDERS,
 } from "@/hooks/useGetProvidersModels";
+import { useMemo } from "react";
 
 export default function ChatModelSelection({
   provider,
+  workspaceSlug = null,
   setHasChanges,
   selectedLLMModel,
   setSelectedLLMModel,
+  priority = "P1",
 }) {
-  const { defaultModels, customModels, loading } =
-    useGetProviderModels(provider);
+  const modelTaskOptions = useMemo(
+    () => ({
+      communicationScene: "llm-model-selector-visible",
+      scope: {
+        workspaceSlug: workspaceSlug || undefined,
+      },
+      task: {
+        label: `llm-selector:models:${provider || "unknown"}`,
+        kind: "settings",
+        priority,
+        policy: priority === "P0" ? "foreground" : "visible",
+        intentRank: 1,
+        scope: {
+          route: "workspace-chat",
+          surface: "llm-selector",
+          workspaceSlug: workspaceSlug || undefined,
+          provider: provider || undefined,
+        },
+      },
+    }),
+    [priority, provider, workspaceSlug]
+  );
+  const { defaultModels, customModels, loading } = useGetProviderModels(
+    provider,
+    modelTaskOptions
+  );
   if (DISABLED_PROVIDERS.includes(provider)) return null;
 
   if (loading) {
