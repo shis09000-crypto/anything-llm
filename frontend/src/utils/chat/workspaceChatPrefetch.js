@@ -169,52 +169,44 @@ function settingsPrefetchPathname(target) {
 export function prefetchThreadHistory(workspaceSlug, threadSlug = null) {
   if (!workspaceSlug) return;
   prefetchWorkspaceChatRoute();
-  requestPriorityQueue.schedule(
-    async () => {
-      const cached = await threadHistoryCache.get({
-        workspaceSlug,
-        threadSlug,
-        kind: "page",
-        cursor: "latest",
-        ...PREFETCH_HISTORY_SCOPE,
-      });
-      if (cached) return cached;
-      const payload = threadSlug
-        ? await Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, {
-            limit: 20,
-            detail: "light",
-            priorityWindow: 5,
-          })
-        : await Workspace.chatHistoryPage(workspaceSlug, {
-            limit: 20,
-            detail: "light",
-            priorityWindow: 5,
-          });
-      await threadHistoryCache.set(
-        {
+  const historyOptions = {
+    workspaceSlug,
+    threadSlug,
+    kind: "page",
+    cursor: "latest",
+    ...PREFETCH_HISTORY_SCOPE,
+  };
+  void threadHistoryCache
+    .ensure(
+      historyOptions,
+      () =>
+        threadSlug
+          ? Workspace.threads.chatHistoryPage(workspaceSlug, threadSlug, {
+              limit: 20,
+              detail: "light",
+              priorityWindow: 5,
+              task: false,
+            })
+          : Workspace.chatHistoryPage(workspaceSlug, {
+              limit: 20,
+              detail: "light",
+              priorityWindow: 5,
+              task: false,
+            }),
+      {
+        priority: "P3",
+        policy: "prefetch",
+        intentRank: 8,
+        label: "workspacechat:hover-prefetch:history",
+        dedupeKey: `thread-history:hover:${workspaceSlug}:${threadSlug || "default"}`,
+        meta: {
+          route: "workspace-chat",
           workspaceSlug,
           threadSlug,
-          kind: "page",
-          cursor: "latest",
-          ...PREFETCH_HISTORY_SCOPE,
         },
-        payload
-      );
-      return payload;
-    },
-    {
-      priority: "P3",
-      label: "workspacechat:hover-prefetch",
-      kind: "prefetch",
-      scope: {
-        route: "workspace-chat",
-        workspaceSlug,
-        threadSlug,
-      },
-      policy: "prefetch",
-      dedupeKey: `prefetch:${workspaceSlug}:${threadSlug || "default"}`,
-    }
-  );
+      }
+    )
+    .catch(() => null);
 }
 
 export function warmWorkspaceChat(workspaceSlug) {

@@ -4,6 +4,22 @@ import {
   apiErrorMessage,
 } from "@/lib/communication/apiError";
 
+function agentFlowTask(label, priority = "P1") {
+  return {
+    label,
+    kind: "agent-flow",
+    priority,
+    policy: priority === "P0" ? "foreground" : "visible",
+    resource: "network",
+    protected: priority === "P0",
+    abortable: priority !== "P0",
+    scope: {
+      route: "settings",
+      surface: "agent-flows",
+    },
+  };
+}
+
 const AgentFlows = {
   /**
    * Save a flow configuration
@@ -13,7 +29,14 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flow: {name: string, config: object, uuid: string} | null}>}
    */
   saveFlow: async (name, config, uuid = null) => {
-    return await postJson("/agent-flows/save", { name, config, uuid })
+    return await postJson(
+      "/agent-flows/save",
+      { name, config, uuid },
+      {
+        communicationScene: "agent-flow-action",
+        task: agentFlowTask("agent-flow:save", "P0"),
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => ({
         success: false,
@@ -27,7 +50,10 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flows: Array<{name: string, uuid: string, description: string, steps: Array}>}>}
    */
   listFlows: async () => {
-    return await getJson("/agent-flows/list")
+    return await getJson("/agent-flows/list", {
+      communicationScene: "agent-flow-visible",
+      task: agentFlowTask("agent-flow:list"),
+    })
       .then(({ data }) => data)
       .catch((e) =>
         apiErrorFallback(e, {
@@ -44,7 +70,10 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null, flow: {name: string, config: object, uuid: string} | null}>}
    */
   getFlow: async (uuid) => {
-    return await getJson(`/agent-flows/${uuid}`)
+    return await getJson(`/agent-flows/${uuid}`, {
+      communicationScene: "agent-flow-visible",
+      task: agentFlowTask("agent-flow:get"),
+    })
       .then(({ data }) => data)
       .catch((e) => ({
         success: false,
@@ -59,7 +88,10 @@ const AgentFlows = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   deleteFlow: async (uuid) => {
-    return await deleteJson(`/agent-flows/${uuid}`)
+    return await deleteJson(`/agent-flows/${uuid}`, {
+      communicationScene: "agent-flow-action",
+      task: agentFlowTask("agent-flow:delete", "P0"),
+    })
       .then(({ data }) => data)
       .catch((e) => ({
         success: false,
@@ -75,9 +107,16 @@ const AgentFlows = {
    */
   toggleFlow: async (uuid, active) => {
     try {
-      const { data: result } = await postJson(`/agent-flows/${uuid}/toggle`, {
-        active,
-      });
+      const { data: result } = await postJson(
+        `/agent-flows/${uuid}/toggle`,
+        {
+          active,
+        },
+        {
+          communicationScene: "agent-flow-action",
+          task: agentFlowTask("agent-flow:toggle", "P0"),
+        }
+      );
       return { success: true, flow: result.flow };
     } catch (error) {
       console.error("Failed to toggle flow:", error);

@@ -46,7 +46,7 @@ test("P0 requests are not exclusive unless emergency is explicit", () => {
 test("infers protected visible task for normal writes", () => {
   const task = inferTaskMetadata({
     method: "POST",
-    path: "/workspace/demo/thread/new",
+    path: "/workspace/demo/suggested-messages",
     communicationScene: "workspace-chat",
   });
 
@@ -92,6 +92,92 @@ test("infers visible thumbnail display as P1 while keeping maintenance P4", () =
   assert.equal(displayThumbnail.resource, "network");
   assert.equal(maintenanceThumbnail.priority, TASK_PRIORITIES.maintenance);
   assert.equal(maintenanceThumbnail.resource, "idle");
+});
+
+test("infers explicit user-intent scenes for auth account reader and upload", () => {
+  const authBootstrap = inferTaskMetadata({
+    method: "GET",
+    path: "/system/refresh-user",
+    communicationScene: "auth-bootstrap",
+  });
+  const accountSettings = inferTaskMetadata({
+    method: "GET",
+    path: "/auth/passkeys",
+    communicationScene: "account-settings",
+  });
+  const accountSecurity = inferTaskMetadata({
+    method: "POST",
+    path: "/auth/passkeys/register/options",
+    communicationScene: "account-security",
+  });
+  const uploadVisible = inferTaskMetadata({
+    method: "GET",
+    path: "/system/accepted-document-types",
+    communicationScene: "workspace-upload-visible",
+  });
+  const readerDelete = inferTaskMetadata({
+    method: "DELETE",
+    path: "/workspace/demo/reader-documents/doc-1",
+  });
+
+  assert.equal(authBootstrap.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(accountSettings.priority, TASK_PRIORITIES.visibleSupport);
+  assert.equal(accountSettings.resource, "network");
+  assert.equal(accountSecurity.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(accountSecurity.protected, true);
+  assert.equal(uploadVisible.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(readerDelete.priority, TASK_PRIORITIES.activeIntent);
+});
+
+test("infers foreground priority for thread create and quiz submit", () => {
+  const threadCreate = inferTaskMetadata({
+    method: "POST",
+    path: "/workspace/demo/thread/new",
+  });
+  const quizSubmit = inferTaskMetadata({
+    method: "POST",
+    path: "/workspace/demo/quiz/quiz-1/submit",
+  });
+
+  assert.equal(threadCreate.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(threadCreate.protected, true);
+  assert.equal(quizSubmit.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(quizSubmit.protected, true);
+});
+
+test("infers visible support for admin and workspace overview reads", () => {
+  const adminUsers = inferTaskMetadata({
+    method: "GET",
+    path: "/admin/users",
+  });
+  const overview = inferTaskMetadata({
+    method: "GET",
+    path: "/workspace/demo/overview",
+  });
+  const supplementList = inferTaskMetadata({
+    method: "GET",
+    path: "/workspace/demo/workspace-supplements",
+  });
+
+  assert.equal(adminUsers.priority, TASK_PRIORITIES.visibleSupport);
+  assert.equal(overview.priority, TASK_PRIORITIES.visibleSupport);
+  assert.equal(supplementList.priority, TASK_PRIORITIES.visibleSupport);
+});
+
+test("infers active intent for admin security writes", () => {
+  const deleteUser = inferTaskMetadata({
+    method: "DELETE",
+    path: "/admin/user/user-1",
+  });
+  const browserKey = inferTaskMetadata({
+    method: "POST",
+    path: "/browser-extension/api-keys/new",
+  });
+
+  assert.equal(deleteUser.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(deleteUser.protected, true);
+  assert.equal(browserKey.priority, TASK_PRIORITIES.activeIntent);
+  assert.equal(browserKey.protected, true);
 });
 
 test("stream requests use realtime policy without becoming exclusive", () => {

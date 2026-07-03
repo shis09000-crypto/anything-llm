@@ -34,6 +34,44 @@ const ZK_UNSUPPORTED_MESSAGE =
 
 const now = new Date();
 
+function accountVisibleTask(label, surface = "account-settings") {
+  return {
+    label,
+    kind: "account-settings",
+    priority: "P1",
+    policy: "visible",
+    resource: "network",
+    abortable: true,
+    scope: { route: "account-settings", surface },
+  };
+}
+
+function accountSecurityTask(label, surface = "account-security") {
+  return {
+    label,
+    kind: "account-security",
+    priority: "P0",
+    policy: "foreground",
+    resource: "network",
+    protected: true,
+    abortable: false,
+    scope: { route: "account-settings", surface },
+  };
+}
+
+function authLoginTask(label, surface = "auth-login") {
+  return {
+    label,
+    kind: "auth",
+    priority: "P0",
+    policy: "foreground",
+    resource: "network",
+    protected: true,
+    abortable: false,
+    scope: { route: "auth", surface },
+  };
+}
+
 export const mockPasskeys = [
   {
     id: "passkey-macbook-pro",
@@ -114,7 +152,13 @@ const AccountSettingsApi = {
   removeProfilePicture: () => System.removePfp(),
   passkeysSupported: () => detectAuthCapability().showPasskey,
   fetchPasskeys: async () => {
-    return passkeyJson(getJson("/auth/passkeys"), "无法读取通行密钥。")
+    return passkeyJson(
+      getJson("/auth/passkeys", {
+        communicationScene: "account-settings",
+        task: accountVisibleTask("account:passkeys"),
+      }),
+      "无法读取通行密钥。"
+    )
       .then((res) => ({
         success: res?.success,
         passkeys: res?.passkeys || [],
@@ -139,7 +183,10 @@ const AccountSettingsApi = {
     }
 
     const optionsResponse = await passkeyJson(
-      postJson("/auth/passkeys/register/options"),
+      postJson("/auth/passkeys/register/options", undefined, {
+        communicationScene: "account-security",
+        task: accountSecurityTask("account:passkey-register-options"),
+      }),
       "Could not start passkey setup."
     );
     if (!optionsResponse?.success) {
@@ -153,22 +200,36 @@ const AccountSettingsApi = {
       optionsJSON: optionsResponse.options,
     });
     return passkeyJson(
-      postJson("/auth/passkeys/register/verify", {
-        response,
-        ...deviceDescriptor(),
-      }),
+      postJson(
+        "/auth/passkeys/register/verify",
+        {
+          response,
+          ...deviceDescriptor(),
+        },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:passkey-register-verify"),
+        }
+      ),
       "Could not verify passkey setup."
     );
   },
   deletePasskey: async (id, { confirmRisk = false } = {}) => {
     return passkeyJson(
-      deleteJson(`/auth/passkeys/${id}`, { body: { confirmRisk } }),
+      deleteJson(`/auth/passkeys/${id}`, {
+        body: { confirmRisk },
+        communicationScene: "account-security",
+        task: accountSecurityTask("account:passkey-delete"),
+      }),
       "Could not delete passkey."
     );
   },
   fetchTrustedLoginDevices: async ({ user, avatarUrl } = {}) => {
     return passkeyJson(
-      getJson("/auth/zk-login/devices"),
+      getJson("/auth/zk-login/devices", {
+        communicationScene: "account-settings",
+        task: accountVisibleTask("account:trusted-devices"),
+      }),
       "Could not read trusted devices."
     )
       .then(async (res) => {
@@ -202,7 +263,14 @@ const AccountSettingsApi = {
   },
   reauthZkWithPassword: async ({ currentPassword }) => {
     return passkeyJson(
-      postJson("/auth/zk-login/reauth/password", { currentPassword }),
+      postJson(
+        "/auth/zk-login/reauth/password",
+        { currentPassword },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:zk-reauth-password"),
+        }
+      ),
       "Could not verify password."
     );
   },
@@ -215,7 +283,10 @@ const AccountSettingsApi = {
     }
 
     const optionsResponse = await passkeyJson(
-      postJson("/auth/zk-login/reauth/passkey/options"),
+      postJson("/auth/zk-login/reauth/passkey/options", undefined, {
+        communicationScene: "account-security",
+        task: accountSecurityTask("account:zk-reauth-passkey-options"),
+      }),
       "Could not start passkey verification."
     );
     if (!optionsResponse?.success) return optionsResponse;
@@ -224,7 +295,14 @@ const AccountSettingsApi = {
       optionsJSON: optionsResponse.options,
     });
     return passkeyJson(
-      postJson("/auth/zk-login/reauth/passkey/verify", { response }),
+      postJson(
+        "/auth/zk-login/reauth/passkey/verify",
+        { response },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:zk-reauth-passkey-verify"),
+        }
+      ),
       "Could not verify passkey."
     );
   },
@@ -249,13 +327,20 @@ const AccountSettingsApi = {
       });
 
     const startResponse = await passkeyJson(
-      postJson("/auth/zk-login/enroll/start", {
-        reauthToken,
-        deviceId: localDevice.deviceId,
-        deviceName: localDevice.metadata.deviceName,
-        deviceSalt: localDevice.deviceSalt,
-        registrationRequest,
-      }),
+      postJson(
+        "/auth/zk-login/enroll/start",
+        {
+          reauthToken,
+          deviceId: localDevice.deviceId,
+          deviceName: localDevice.metadata.deviceName,
+          deviceSalt: localDevice.deviceSalt,
+          registrationRequest,
+        },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:zk-enroll-start"),
+        }
+      ),
       "Could not start trusted device setup."
     );
     if (!startResponse?.success) return startResponse;
@@ -268,13 +353,20 @@ const AccountSettingsApi = {
     });
 
     const finishResponse = await passkeyJson(
-      postJson("/auth/zk-login/enroll/finish", {
-        reauthToken,
-        deviceId: localDevice.deviceId,
-        deviceName: localDevice.metadata.deviceName,
-        deviceSalt: localDevice.deviceSalt,
-        registrationRecord,
-      }),
+      postJson(
+        "/auth/zk-login/enroll/finish",
+        {
+          reauthToken,
+          deviceId: localDevice.deviceId,
+          deviceName: localDevice.metadata.deviceName,
+          deviceSalt: localDevice.deviceSalt,
+          registrationRecord,
+        },
+        {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:zk-enroll-finish"),
+        }
+      ),
       "Could not finish trusted device setup."
     );
     if (!finishResponse?.success) return finishResponse;
@@ -294,7 +386,10 @@ const AccountSettingsApi = {
   },
   revokeTrustedLoginDevice: async (id, { deviceId } = {}) => {
     const result = await passkeyJson(
-      deleteJson(`/auth/zk-login/devices/${id}`),
+      deleteJson(`/auth/zk-login/devices/${id}`, {
+        communicationScene: "account-security",
+        task: accountSecurityTask("account:trusted-device-revoke"),
+      }),
       "Could not revoke trusted device."
     );
     if (result?.success && deviceId) await removeLocalZkDevice(deviceId);
@@ -328,7 +423,11 @@ const AccountSettingsApi = {
           deviceId: device.deviceId,
           startLoginRequest,
         },
-        { includeBaseHeaders: false }
+        {
+          includeBaseHeaders: false,
+          communicationScene: "auth-login",
+          task: authLoginTask("auth:zk-login-start"),
+        }
       ),
       "快速登录暂不可用。"
     );
@@ -352,7 +451,11 @@ const AccountSettingsApi = {
           loginAttemptId: startResponse.loginAttemptId,
           finishLoginRequest,
         },
-        { includeBaseHeaders: false }
+        {
+          includeBaseHeaders: false,
+          communicationScene: "auth-login",
+          task: authLoginTask("auth:zk-login-finish"),
+        }
       ),
       "快速登录暂不可用。"
     );
@@ -373,6 +476,8 @@ const AccountSettingsApi = {
     const optionsResponse = await passkeyJson(
       postJson("/auth/passkeys/login/options", undefined, {
         includeBaseHeaders: false,
+        communicationScene: "auth-login",
+        task: authLoginTask("auth:passkey-login-options"),
       }),
       "Could not start passkey login."
     );
@@ -390,23 +495,44 @@ const AccountSettingsApi = {
       postJson(
         "/auth/passkeys/login/verify",
         { response },
-        { includeBaseHeaders: false }
+        {
+          includeBaseHeaders: false,
+          communicationScene: "auth-login",
+          task: authLoginTask("auth:passkey-login-verify"),
+        }
       ),
       "Could not verify passkey login."
     );
   },
   fetchSessions: async () => {
-    const clients = await listClients().catch(() => []);
+    const clients = await listClients({
+      communicationScene: "account-settings",
+      task: accountVisibleTask("account:sessions"),
+    }).catch(() => []);
     if (!Array.isArray(clients) || !clients.length) return mockSessions;
     return clients.map(sessionFromClient);
   },
-  signOutOtherSessions: async () => revokeAllOtherClients(),
-  signOutSession: async (clientId) => revokeClient(clientId),
+  signOutOtherSessions: async () =>
+    revokeAllOtherClients({
+      communicationScene: "account-security",
+      task: accountSecurityTask("account:sessions-revoke-others"),
+    }),
+  signOutSession: async (clientId) =>
+    revokeClient(clientId, {
+      communicationScene: "account-security",
+      task: accountSecurityTask("account:session-revoke"),
+    }),
   signOutAllSessions: async () => {
     const currentClientId = getClientIdentity().clientId;
-    await revokeAllOtherClients();
+    await revokeAllOtherClients({
+      communicationScene: "account-security",
+      task: accountSecurityTask("account:sessions-revoke-all-others"),
+    });
     const result = currentClientId
-      ? await revokeClient(currentClientId)
+      ? await revokeClient(currentClientId, {
+          communicationScene: "account-security",
+          task: accountSecurityTask("account:session-revoke-current"),
+        })
       : { success: true };
     if (result?.success) {
       clearSensitiveClientSession({
@@ -565,6 +691,8 @@ async function durableAvatarDataUrl(avatarUrl) {
     const { blob } = await requestBlob(avatarUrl, {
       includeBaseHeaders: false,
       blobKind: BLOB_KINDS.avatar,
+      communicationScene: "account-settings",
+      task: accountVisibleTask("account:avatar-cache", "account-avatar"),
     });
     if (!blob?.size || !blob.type?.startsWith("image/")) return null;
     return await blobToDataUrl(blob);

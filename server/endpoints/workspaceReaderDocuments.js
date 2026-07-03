@@ -122,6 +122,10 @@ const READER_POSTPROCESS_QUEUE_CONCURRENCY = Math.max(
   1,
   Number(process.env.READER_POSTPROCESS_QUEUE_CONCURRENCY) || 1
 );
+const READER_POSTPROCESS_AUTO_POLL_TIMEOUT_MS = Math.max(
+  5_000,
+  Number(process.env.READER_POSTPROCESS_AUTO_POLL_TIMEOUT_MS) || 45_000
+);
 const READER_STREAM_CACHE_CONTROL = "private, max-age=604800, no-transform";
 const readerPostprocessJobs = new Map();
 const readerDeleteJobs = new Map();
@@ -132,7 +136,10 @@ const readerPostprocessQueue = new PQueue({
   concurrency: READER_POSTPROCESS_QUEUE_CONCURRENCY,
 });
 let readerThumbnailMaintenanceStarted = false;
-const CLASSIFICATION_TIMEOUT_MS = 20_000;
+const CLASSIFICATION_TIMEOUT_MS = Math.max(
+  1_000,
+  Number(process.env.READER_CLASSIFICATION_TIMEOUT_MS) || 20_000
+);
 const CLASSIFICATION_LLM_TEXT_LIMIT = 3_000;
 const CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.55;
 const STANDALONE_READER_SCOPE = Object.freeze({
@@ -2742,6 +2749,19 @@ function sanitizedPostprocessTasks(tasks = []) {
   return [...new Set(source.filter((task) => allowed.has(task)))];
 }
 
+function readerAutoClassificationEnabled(env = process.env) {
+  return String(env.READER_AUTO_CLASSIFICATION_ENABLED || "true") !== "false";
+}
+
+function taskIsComplete(task = null) {
+  return ["complete", "skipped"].includes(task?.status);
+}
+
+function postprocessTasksComplete(status = {}, tasks = []) {
+  if (!tasks.length) return true;
+  return tasks.every((task) => taskIsComplete(status.tasks?.[task]));
+}
+
 async function runReaderPostprocessJob({
   workspace,
   readerDocumentId,
@@ -2913,9 +2933,25 @@ function enqueueReaderPostprocessJob({
   readerDocumentId,
   tasks,
   categories,
+  force = false,
 }) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
-  const requestedTasks = sanitizedPostprocessTasks(tasks);
+  const originalTasks = sanitizedPostprocessTasks(tasks);
+  const autoClassificationDisabled =
+    originalTasks.includes("classification") &&
+    !force &&
+    !readerAutoClassificationEnabled();
+  const requestedTasks = autoClassificationDisabled
+    ? originalTasks.filter((task) => task !== "classification")
+    : originalTasks;
+  if (autoClassificationDisabled) {
+    updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+      postprocessTaskPatch(status, "classification", {
+        status: "skipped",
+        reason: "自动分类已关闭。",
+      })
+    );
+  }
   if (!requestedTasks.length) {
     return readReaderPostprocessStatus(documentRoot, readerDocumentId);
   }
@@ -2924,9 +2960,16 @@ function enqueueReaderPostprocessJob({
   if (readerPostprocessJobs.has(key))
     return readReaderPostprocessStatus(documentRoot, readerDocumentId);
 
+  const currentStatus = readReaderPostprocessStatus(
+    documentRoot,
+    readerDocumentId
+  );
+  if (!force && postprocessTasksComplete(currentStatus, requestedTasks))
+    return currentStatus;
+
   const queuedAt = isoNow();
   const queuedStatus = writeReaderPostprocessStatus(documentRoot, {
-    ...readReaderPostprocessStatus(documentRoot, readerDocumentId),
+    ...currentStatus,
     status: "queued",
     requestedTasks,
     queuedAt,
@@ -2942,7 +2985,7 @@ function enqueueReaderPostprocessJob({
         };
         return tasksByName;
       },
-      { ...readReaderPostprocessStatus(documentRoot, readerDocumentId).tasks }
+      { ...currentStatus.tasks }
     ),
   });
 
@@ -2973,6 +3016,9 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
     progress,
     stage: progress.stage,
     tasks: status.tasks || {},
+    postprocessConfig: {
+      autoPollTimeoutMs: READER_POSTPROCESS_AUTO_POLL_TIMEOUT_MS,
+    },
     thumbnailUrl: existingThumbnailUrlForDocument(workspace, readerDocumentId),
     classification,
   };
@@ -3984,6 +4030,8 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           tasks: request.body?.tasks,
           categories: request.body?.categories,
+          force:
+            request.body?.force === true || request.body?.intent === "manual",
         });
         return response.status(202).json({
           ...readerPostprocessResponse(workspace, readerDocumentId),
@@ -4669,6 +4717,8 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           tasks: request.body?.tasks,
           categories: request.body?.categories,
+          force:
+            request.body?.force === true || request.body?.intent === "manual",
         });
         return response.status(202).json({
           ...readerPostprocessResponse(workspace, readerDocumentId),
@@ -5074,6 +5124,7 @@ module.exports = {
     findReaderDuplicateCandidate,
     findLibreOfficeBinary,
     generateReaderDocumentThumbnail,
+    enqueueReaderPostprocessJob,
     markReaderDocumentDeleted,
     listReaderDocumentsForWorkspace,
     metadataWithOriginalUrl,
@@ -5089,6 +5140,8 @@ module.exports = {
     runReaderThumbnailMaintenancePass,
     readerOcrConfigStatus,
     readerOcrProviderOptions,
+    readerAutoClassificationEnabled,
+    readReaderPostprocessStatus,
     readerPostprocessResponse,
     recognizeReaderScreenshot,
     safeSegment,

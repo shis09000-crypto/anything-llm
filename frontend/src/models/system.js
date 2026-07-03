@@ -22,6 +22,11 @@ import DataConnector from "./dataConnector";
 import LiveDocumentSync from "./experimental/liveSync";
 import AgentPlugins from "./experimental/agentPlugins";
 import SystemPromptVariable from "./systemPromptVariable";
+import {
+  ADMIN_SYSTEM_FAST_TTL_MS,
+  ADMIN_SYSTEM_VERSION_TTL_MS,
+  adminSystemStateStore,
+} from "@/utils/serverState/adminSystemStateStore";
 
 let systemKeysCache = null;
 let systemKeysCacheAt = 0;
@@ -29,6 +34,57 @@ let systemKeysInflight = null;
 const SYSTEM_KEYS_CACHE_TTL_MS = 30_000;
 const SYSTEM_KEYS_TIMEOUT_MS = 20_000;
 const SYSTEM_KEYS_RETRY_DELAYS_MS = [0, 750, 1_500];
+const LOGO_CACHE_TTL_MS = 1000 * 60 * 10;
+const logoCache = new Map();
+const logoInflight = new Map();
+const LOGO_SESSION_CACHE_PREFIX = "athena_logo_cache_v1:";
+
+function logoSessionCacheKey(cacheKey) {
+  try {
+    return `${LOGO_SESSION_CACHE_PREFIX}${btoa(cacheKey)}`;
+  } catch {
+    return `${LOGO_SESSION_CACHE_PREFIX}${cacheKey}`;
+  }
+}
+
+function readLogoSessionCache(cacheKey) {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(logoSessionCacheKey(cacheKey));
+    if (!raw) return null;
+    const entry = JSON.parse(raw);
+    if (!entry?.value?.logoURL || !entry?.updatedAt) return null;
+    if (Date.now() - entry.updatedAt > LOGO_CACHE_TTL_MS) return null;
+    return entry.value;
+  } catch {}
+  return null;
+}
+
+function writeLogoSessionCache(cacheKey, value) {
+  if (typeof window === "undefined" || !value?.logoURL) return;
+  try {
+    window.sessionStorage.setItem(
+      logoSessionCacheKey(cacheKey),
+      JSON.stringify({ value, updatedAt: Date.now() })
+    );
+  } catch {}
+}
+
+function clearLogoSessionCache(cacheKey) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(logoSessionCacheKey(cacheKey));
+  } catch {}
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(blob);
+  });
+}
 
 function sleep(ms = 0) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -100,30 +156,59 @@ const System = {
     deploymentVersion: "anythingllm_deployment_version",
   },
   ping: async function () {
-    return await getJson("/ping")
+    return await getJson("/ping", {
+      communicationScene: "app-bootstrap",
+    })
       .then(({ data }) => data?.online || false)
       .catch(() => false);
   },
   totalIndexes: async function (slug = null) {
     const url = new URL(`${fullApiUrl()}/system/system-vectors`);
     if (!!slug) url.searchParams.append("slug", encodeURIComponent(slug));
-    return await getJson(url.toString())
+    return await getJson(url.toString(), {
+      communicationScene: slug ? "workspace-overview" : "settings-tab",
+    })
       .then(({ data }) => data.vectorCount)
       .catch(() => 0);
   },
   patrolStatus: async function () {
-    return await getJson("/system/patrol/status")
-      .then(({ data }) => data)
+    const cacheKey = adminSystemStateStore.keys.systemPatrolStatus;
+    return await getJson("/system/patrol/status", {
+      communicationScene: "system-patrol",
+    })
+      .then(({ data }) => {
+        adminSystemStateStore.set(cacheKey, data, {
+          surface: "system-patrol",
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+          meta: { success: data?.success === true },
+        });
+        return data;
+      })
       .catch((e) =>
-        rawOrFallback(e, {
-          success: false,
-          error: localizedApiError(e, "无法读取系统巡查状态。"),
-        })
+        adminSystemStateStore.getOrFallback(
+          cacheKey,
+          rawOrFallback(e, {
+            success: false,
+            error: localizedApiError(e, "无法读取系统巡查状态。"),
+          }),
+          { ttlMs: ADMIN_SYSTEM_FAST_TTL_MS }
+        )
       );
   },
   runPatrol: async function ({ mode = "light" } = {}) {
-    return await postJson("/system/patrol/run", { mode })
-      .then(({ data }) => data)
+    return await postJson(
+      "/system/patrol/run",
+      { mode },
+      {
+        communicationScene: "system-patrol-action",
+      }
+    )
+      .then(({ data }) => {
+        adminSystemStateStore.invalidate(
+          adminSystemStateStore.keys.systemPatrolStatus
+        );
+        return data;
+      })
       .catch((e) =>
         rawOrFallback(e, {
           success: false,
@@ -132,7 +217,11 @@ const System = {
       );
   },
   patrolRepairPreview: async function (repairId) {
-    return await postJson(`/system/patrol/repairs/${repairId}/preview`, {})
+    return await postJson(
+      `/system/patrol/repairs/${repairId}/preview`,
+      {},
+      { communicationScene: "system-patrol-action" }
+    )
       .then(({ data }) => data)
       .catch((e) =>
         rawOrFallback(e, {
@@ -142,8 +231,17 @@ const System = {
       );
   },
   patrolRepairConfirm: async function (repairId) {
-    return await postJson(`/system/patrol/repairs/${repairId}/confirm`, {})
-      .then(({ data }) => data)
+    return await postJson(
+      `/system/patrol/repairs/${repairId}/confirm`,
+      {},
+      { communicationScene: "system-patrol-action" }
+    )
+      .then(({ data }) => {
+        adminSystemStateStore.invalidate(
+          adminSystemStateStore.keys.systemPatrolStatus
+        );
+        return data;
+      })
       .catch((e) =>
         rawOrFallback(e, {
           success: false,
@@ -157,7 +255,9 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isOnboardingComplete: async function () {
-    return await getJson("/onboarding")
+    return await getJson("/onboarding", {
+      communicationScene: "onboarding",
+    })
       .then(({ data }) => data.onboardingComplete)
       .catch(() => false);
   },
@@ -166,7 +266,9 @@ const System = {
    * @returns {Promise<boolean>}
    */
   markOnboardingComplete: async function () {
-    return await postJson("/onboarding")
+    return await postJson("/onboarding", undefined, {
+      communicationScene: "onboarding",
+    })
       .then(() => true)
       .catch(() => false);
   },
@@ -224,7 +326,9 @@ const System = {
     systemKeysInflight = null;
   },
   localFiles: async function () {
-    return await getJson("/system/local-files")
+    return await getJson("/system/local-files", {
+      communicationScene: "settings-tab",
+    })
       .then(({ data }) => data.localFiles)
       .catch(() => null);
   },
@@ -239,6 +343,7 @@ const System = {
     const valid = await getJson("/system/check-token", {
       headers: baseHeaders(currentToken),
       timeoutMs: 8_000,
+      communicationScene: "auth-bootstrap",
     })
       .then(() => true)
       .catch((e) => {
@@ -250,7 +355,13 @@ const System = {
     return valid;
   },
   requestToken: async function (body) {
-    return await postJson("/request-token", { ...body })
+    return await postJson(
+      "/request-token",
+      { ...body },
+      {
+        communicationScene: "auth-login",
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         return {
@@ -260,7 +371,9 @@ const System = {
       });
   },
   registrationConfig: async function () {
-    return await getJson("/auth/registration/config")
+    return await getJson("/auth/registration/config", {
+      communicationScene: "auth-login",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -268,7 +381,13 @@ const System = {
       });
   },
   requestRegistrationCode: async function ({ email }) {
-    return await postJson("/auth/register/request-code", { email })
+    return await postJson(
+      "/auth/register/request-code",
+      { email },
+      {
+        communicationScene: "auth-login",
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -279,7 +398,13 @@ const System = {
       });
   },
   checkRegistrationEmail: async function ({ email }) {
-    return await postJson("/auth/register/check-email", { email })
+    return await postJson(
+      "/auth/register/check-email",
+      { email },
+      {
+        communicationScene: "auth-login",
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -290,11 +415,15 @@ const System = {
       });
   },
   verifyRegistrationCode: async function ({ email, code, challengeId = "" }) {
-    return await postJson("/auth/register/verify-code", {
-      email,
-      code,
-      challengeId,
-    })
+    return await postJson(
+      "/auth/register/verify-code",
+      {
+        email,
+        code,
+        challengeId,
+      },
+      { communicationScene: "auth-login" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -305,7 +434,9 @@ const System = {
       });
   },
   registerAccount: async function (data) {
-    return await postJson("/auth/register", data)
+    return await postJson("/auth/register", data, {
+      communicationScene: "auth-login",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -320,7 +451,9 @@ const System = {
    * @returns {Promise<{success: boolean, user: Object | null, message: string | null}>}
    */
   refreshUser: () => {
-    return getJson("/system/refresh-user")
+    return getJson("/system/refresh-user", {
+      communicationScene: "auth-bootstrap",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         return {
@@ -334,10 +467,14 @@ const System = {
       });
   },
   recoverAccount: async function (username, recoveryCodes) {
-    return await postJson("/system/recover-account", {
-      username,
-      recoveryCodes,
-    })
+    return await postJson(
+      "/system/recover-account",
+      {
+        username,
+        recoveryCodes,
+      },
+      { communicationScene: "auth-login" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -348,10 +485,14 @@ const System = {
       });
   },
   requestEmailPasswordReset: async function (username, email) {
-    return await postJson("/system/recover-account/email/request", {
-      username,
-      email,
-    })
+    return await postJson(
+      "/system/recover-account/email/request",
+      {
+        username,
+        email,
+      },
+      { communicationScene: "auth-login" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -370,12 +511,16 @@ const System = {
     code,
     challengeId = ""
   ) {
-    return await postJson("/system/recover-account/email/confirm", {
-      username,
-      email,
-      code,
-      challengeId,
-    })
+    return await postJson(
+      "/system/recover-account/email/confirm",
+      {
+        username,
+        email,
+        code,
+        challengeId,
+      },
+      { communicationScene: "auth-login" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -388,11 +533,15 @@ const System = {
       });
   },
   resetPassword: async function (token, newPassword, confirmPassword) {
-    return await postJson("/system/reset-password", {
-      token,
-      newPassword,
-      confirmPassword,
-    })
+    return await postJson(
+      "/system/reset-password",
+      {
+        token,
+        newPassword,
+        confirmPassword,
+      },
+      { communicationScene: "auth-login" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -403,7 +552,9 @@ const System = {
       });
   },
   emailVerificationStatus: async function () {
-    return await getJson("/system/user/email-verification")
+    return await getJson("/system/user/email-verification", {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -411,7 +562,11 @@ const System = {
       });
   },
   requestEmailVerification: async function ({ email }) {
-    return await postJson("/system/user/email-verification/request", { email })
+    return await postJson(
+      "/system/user/email-verification/request",
+      { email },
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -424,11 +579,15 @@ const System = {
       });
   },
   confirmEmailVerification: async function ({ email, code, challengeId = "" }) {
-    return await postJson("/system/user/email-verification/confirm", {
-      email,
-      code,
-      challengeId,
-    })
+    return await postJson(
+      "/system/user/email-verification/confirm",
+      {
+        email,
+        code,
+        challengeId,
+      },
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -442,19 +601,42 @@ const System = {
   },
 
   checkDocumentProcessorOnline: async (options = {}) => {
+    const cacheKey = adminSystemStateStore.keys.systemDocumentProcessor;
     return await getJson("/system/document-processing-status", {
       signal: options.signal,
       communicationScene:
         options.communicationScene || "workspace-upload-visible",
       task: options.task,
     })
-      .then(() => true)
-      .catch(() => false);
+      .then(() => {
+        adminSystemStateStore.set(cacheKey, true, {
+          surface: "system-document-processor",
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+        });
+        return true;
+      })
+      .catch(() =>
+        adminSystemStateStore.getOrFallback(cacheKey, false, {
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+        })
+      );
   },
   acceptedDocumentTypes: async () => {
-    return await getJson("/system/accepted-document-types")
-      .then(({ data }) => data?.types)
-      .catch(() => null);
+    const cacheKey = adminSystemStateStore.keys.systemAcceptedDocumentTypes;
+    return await getJson("/system/accepted-document-types", {
+      communicationScene: "workspace-upload-visible",
+    })
+      .then(({ data }) => {
+        const types = data?.types || null;
+        if (types) {
+          adminSystemStateStore.set(cacheKey, types, {
+            surface: "system-accepted-document-types",
+            meta: { count: Array.isArray(types) ? types.length : 0 },
+          });
+        }
+        return types;
+      })
+      .catch(() => adminSystemStateStore.getOrFallback(cacheKey, null));
   },
   updateSystem: async (data) => {
     return await postJson("/system/update-env", data)
@@ -539,6 +721,7 @@ const System = {
   uploadPfp: async function (formData) {
     return await uploadFormData("/system/upload-pfp", formData, {
       uploadKind: UPLOAD_KINDS.avatar,
+      communicationScene: "account-settings",
     })
       .then(() => {
         return { success: true, error: null };
@@ -551,6 +734,7 @@ const System = {
   uploadLogo: async function (formData) {
     return await uploadFormData("/system/upload-logo", formData, {
       uploadKind: UPLOAD_KINDS.logo,
+      communicationScene: "settings-tab",
     })
       .then(() => {
         return { success: true, error: null };
@@ -571,6 +755,7 @@ const System = {
 
     const { footerData, error } = await getJson("/system/footer-data", {
       cache: "no-cache",
+      communicationScene: "app-bootstrap",
     })
       .then(({ data }) => data)
       .catch((e) => {
@@ -598,6 +783,7 @@ const System = {
 
     const { supportEmail, error } = await getJson("/system/support-email", {
       cache: "no-cache",
+      communicationScene: "app-bootstrap",
     })
       .then(({ data }) => data)
       .catch((e) => {
@@ -624,6 +810,7 @@ const System = {
 
     const { customAppName, error } = await getJson("/system/custom-app-name", {
       cache: "no-cache",
+      communicationScene: "app-bootstrap",
     })
       .then(({ data }) => data)
       .catch((e) => {
@@ -672,36 +859,56 @@ const System = {
       return { success: false, message: e.message };
     }
   },
-  fetchLogo: async function () {
+  fetchLogo: async function ({ force = false } = {}) {
     const url = new URL(`${fullApiUrl()}/system/logo`);
     url.searchParams.append(
       "theme",
       localStorage.getItem("theme") || "default"
     );
+    const cacheKey = url.toString();
+    const cached = logoCache.get(cacheKey);
+    if (!force && cached && Date.now() - cached.updatedAt < LOGO_CACHE_TTL_MS) {
+      return cached.value;
+    }
+    const sessionCached = !force ? readLogoSessionCache(cacheKey) : null;
+    if (sessionCached) {
+      logoCache.set(cacheKey, { value: sessionCached, updatedAt: Date.now() });
+      return sessionCached;
+    }
+    if (!force && logoInflight.has(cacheKey)) return logoInflight.get(cacheKey);
+    if (force) clearLogoSessionCache(cacheKey);
 
-    return await requestBlob(url.toString(), {
-      cache: "no-cache",
+    const request = requestBlob(url.toString(), {
+      cache: force ? "reload" : "default",
       includeBaseHeaders: false,
       blobKind: BLOB_KINDS.logo,
+      communicationScene: "app-bootstrap",
     })
-      .then(({ response, blob }) => {
+      .then(async ({ response, blob }) => {
         if (response.status !== 204 && blob) {
           const isCustomLogo =
             response.headers.get("X-Is-Custom-Logo") === "true";
-          const logoURL = URL.createObjectURL(blob);
-          return { isCustomLogo, logoURL };
+          const logoURL = await blobToDataUrl(blob);
+          const value = { isCustomLogo, logoURL };
+          logoCache.set(cacheKey, { value, updatedAt: Date.now() });
+          writeLogoSessionCache(cacheKey, value);
+          return value;
         }
         throw new Error("Failed to fetch logo!");
       })
       .catch((e) => {
         console.log(e);
         return { isCustomLogo: false, logoURL: null };
-      });
+      })
+      .finally(() => logoInflight.delete(cacheKey));
+    logoInflight.set(cacheKey, request);
+    return await request;
   },
   fetchPfp: async function (id) {
     return await requestBlob(`/system/pfp/${id}`, {
       cache: "no-cache",
       blobKind: BLOB_KINDS.avatar,
+      communicationScene: "account-settings",
     })
       .then(({ response, blob }) =>
         response.status !== 204 && blob ? URL.createObjectURL(blob) : null
@@ -711,7 +918,9 @@ const System = {
       });
   },
   removePfp: async function () {
-    return await deleteJson("/system/remove-pfp")
+    return await deleteJson("/system/remove-pfp", {
+      communicationScene: "account-settings",
+    })
       .then(() => {
         return { success: true, error: null };
       })
@@ -722,7 +931,10 @@ const System = {
   },
 
   isDefaultLogo: async function () {
-    return await getJson("/system/is-default-logo", { cache: "no-cache" })
+    return await getJson("/system/is-default-logo", {
+      cache: "no-cache",
+      communicationScene: "app-bootstrap",
+    })
       .then(({ data }) => data?.isDefaultLogo)
       .catch((e) => {
         console.log(e);
@@ -730,7 +942,9 @@ const System = {
       });
   },
   removeCustomLogo: async function () {
-    return await getJson("/system/remove-logo")
+    return await getJson("/system/remove-logo", {
+      communicationScene: "settings-tab",
+    })
       .then(() => ({ success: true, error: null }))
       .catch((e) => {
         console.log(e);
@@ -799,40 +1013,78 @@ const System = {
       });
   },
   chats: async (offset = 0, limit = 20) => {
+    const cacheKey = adminSystemStateStore.keys.systemChats({ offset, limit });
     return await postJson("/system/workspace-chats", { offset, limit })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.set(cacheKey, data, {
+          surface: "system-chats",
+          meta: { offset, limit },
+        });
+        return data;
+      })
       .catch((e) => {
         console.error(e);
-        return [];
+        return adminSystemStateStore.getOrFallback(cacheKey, []);
       });
   },
   eventLogs: async (offset = 0) => {
+    const cacheKey = adminSystemStateStore.keys.systemEventLogs(offset);
     return await postJson("/system/event-logs", { offset })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.set(cacheKey, data, {
+          surface: "system-event-logs",
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+          meta: { offset },
+        });
+        return data;
+      })
       .catch((e) => {
         console.error(e);
-        return [];
+        return adminSystemStateStore.getOrFallback(cacheKey, [], {
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+        });
       });
   },
   clearEventLogs: async () => {
     return await deleteJson("/system/event-logs")
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateSystemEventLogs();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
       });
   },
   embeddingBatchJobs: async (limit = 50) => {
+    const cacheKey = adminSystemStateStore.keys.systemEmbeddingBatchJobs(limit);
     return await postJson("/system/embedding-batch-jobs", { limit })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.set(cacheKey, data, {
+          surface: "system-embedding-batch-jobs",
+          ttlMs: ADMIN_SYSTEM_FAST_TTL_MS,
+          meta: {
+            limit,
+            count: Array.isArray(data?.jobs) ? data.jobs.length : 0,
+          },
+        });
+        return data;
+      })
       .catch((e) => {
         console.error(e);
-        return { jobs: [] };
+        return adminSystemStateStore.getOrFallback(
+          cacheKey,
+          { jobs: [] },
+          { ttlMs: ADMIN_SYSTEM_FAST_TTL_MS }
+        );
       });
   },
   retryEmbeddingBatchJob: async (jobId) => {
     return await postJson(`/system/embedding-batch-jobs/${jobId}/retry`)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateSystemEmbeddingBatchJobs();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -840,7 +1092,10 @@ const System = {
   },
   deleteChat: async (chatId) => {
     return await deleteJson(`/system/workspace-chats/${chatId}`)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidatePrefix("system.chats:");
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -852,6 +1107,7 @@ const System = {
     url.searchParams.append("chatType", encodeURIComponent(chatType));
     return await requestText(url.toString(), {
       blobKind: BLOB_KINDS.exportText,
+      communicationScene: "settings-tab",
     })
       .then(({ text }) => text)
       .catch((e) => {
@@ -860,7 +1116,9 @@ const System = {
       });
   },
   updateUser: async (data) => {
-    return await postJson("/system/user", data)
+    return await postJson("/system/user", data, {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -868,20 +1126,24 @@ const System = {
       });
   },
   memoryOverview: async () => {
-    return await getJson("/system/user/memory/overview")
+    return await getJson("/system/user/memory/overview", {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   memoryBlocks: async ({ limit = null, detail = null } = {}) => {
     return await getJson(
-      withQuery("/system/user/memory/blocks", { limit, detail })
+      withQuery("/system/user/memory/blocks", { limit, detail }),
+      { communicationScene: "account-settings" }
     )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   memoryArchives: async ({ limit = null, offset = null } = {}) => {
     return await getJson(
-      withQuery("/system/user/memory/archives", { limit, offset })
+      withQuery("/system/user/memory/archives", { limit, offset }),
+      { communicationScene: "account-settings" }
     )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
@@ -892,53 +1154,76 @@ const System = {
     detail = null,
   } = {}) => {
     return await getJson(
-      withQuery("/system/user/memory/sensitive", { limit, offset, detail })
+      withQuery("/system/user/memory/sensitive", { limit, offset, detail }),
+      { communicationScene: "account-security" }
     )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   createMemoryCandidate: async (data) => {
-    return await postJson("/system/user/memory/candidates", data)
+    return await postJson("/system/user/memory/candidates", data, {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   rebuildMemoryProfile: async () => {
-    return await postJson("/system/user/memory/rebuild")
+    return await postJson("/system/user/memory/rebuild", undefined, {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   updateMemory: async ({ id, ...data }) => {
-    return await patchJson(`/system/user/memory/${id}`, data)
+    return await patchJson(`/system/user/memory/${id}`, data, {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   deleteMemory: async ({ id }) => {
-    return await deleteJson(`/system/user/memory/${id}`)
+    return await deleteJson(`/system/user/memory/${id}`, {
+      communicationScene: "account-settings",
+    })
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   sensitiveMemoryPasskeyReauthOptions: async () => {
-    return await postJson("/system/user/memory/reauth/passkey/options")
+    return await postJson(
+      "/system/user/memory/reauth/passkey/options",
+      undefined,
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   sensitiveMemoryPasskeyReauthVerify: async ({ response }) => {
-    return await postJson("/system/user/memory/reauth/passkey/verify", {
-      response,
-    })
+    return await postJson(
+      "/system/user/memory/reauth/passkey/verify",
+      {
+        response,
+      },
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   revealSensitiveMemory: async ({ id, currentPassword, reauthToken }) => {
-    return await postJson(`/system/user/memory/${id}/reveal`, {
-      currentPassword,
-      reauthToken,
-    })
+    return await postJson(
+      `/system/user/memory/${id}/reveal`,
+      {
+        currentPassword,
+        reauthToken,
+      },
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   accountDeletePreview: async () => {
-    return await getJson("/system/user/delete-preview")
+    return await getJson("/system/user/delete-preview", {
+      communicationScene: "account-security",
+    })
       .then(({ data }) => data)
       .catch((e) => ({
         success: false,
@@ -946,9 +1231,13 @@ const System = {
       }));
   },
   reauthAccountDeleteWithPassword: async ({ currentPassword }) => {
-    return await postJson("/system/user/delete/reauth/password", {
-      currentPassword,
-    })
+    return await postJson(
+      "/system/user/delete/reauth/password",
+      {
+        currentPassword,
+      },
+      { communicationScene: "account-security" }
+    )
       .then(({ data }) => data)
       .catch((e) => ({
         success: false,
@@ -958,6 +1247,7 @@ const System = {
   deleteAccount: async ({ confirm, reauthToken }) => {
     return await deleteJson("/system/user", {
       body: { confirm, reauthToken },
+      communicationScene: "account-security",
     })
       .then(({ data }) => data)
       .catch((e) => ({
@@ -1071,17 +1361,40 @@ const System = {
    * @returns {Promise<string | null>} The app version.
    */
   fetchAppVersion: async function () {
+    const cacheKey = adminSystemStateStore.keys.systemAppVersion;
+    const cachedVersion = adminSystemStateStore.get(cacheKey, {
+      allowStale: false,
+      ttlMs: ADMIN_SYSTEM_VERSION_TTL_MS,
+    });
+    if (cachedVersion) return cachedVersion;
     const cache = window.localStorage.getItem(this.cacheKeys.deploymentVersion);
     const { version, lastFetched } = cache
       ? safeJsonParse(cache, { version: null, lastFetched: 0 })
       : { version: null, lastFetched: 0 };
 
-    if (!!version && Date.now() - lastFetched < 3_600_000) return version;
-    const newVersion = await getJson("/utils/metrics", { cache: "no-cache" })
+    if (!!version && Date.now() - lastFetched < 3_600_000) {
+      adminSystemStateStore.set(cacheKey, version, {
+        surface: "system-app-version",
+        ttlMs: ADMIN_SYSTEM_VERSION_TTL_MS,
+      });
+      return version;
+    }
+    const newVersion = await getJson("/utils/metrics", {
+      cache: "no-cache",
+      communicationScene: "app-bootstrap",
+    })
       .then(({ data }) => data?.appVersion)
-      .catch(() => null);
+      .catch(() =>
+        adminSystemStateStore.getOrFallback(cacheKey, null, {
+          ttlMs: ADMIN_SYSTEM_VERSION_TTL_MS,
+        })
+      );
 
     if (!newVersion) return null;
+    adminSystemStateStore.set(cacheKey, newVersion, {
+      surface: "system-app-version",
+      ttlMs: ADMIN_SYSTEM_VERSION_TTL_MS,
+    });
     window.localStorage.setItem(
       this.cacheKeys.deploymentVersion,
       JSON.stringify({ version: newVersion, lastFetched: Date.now() })
@@ -1096,10 +1409,14 @@ const System = {
    * @returns {Promise<{success: boolean, error: string | null}>}
    */
   validateSQLConnection: async function (engine, connectionString) {
-    return postJson("/system/validate-sql-connection", {
-      engine,
-      connectionString,
-    })
+    return postJson(
+      "/system/validate-sql-connection",
+      {
+        engine,
+        connectionString,
+      },
+      { communicationScene: "settings-tab" }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error("Failed to validate SQL connection:", e);
@@ -1113,7 +1430,9 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isFileSystemAgentAvailable: async function () {
-    return getJson("/agent-skills/filesystem-agent/is-available")
+    return getJson("/agent-skills/filesystem-agent/is-available", {
+      communicationScene: "workspace-chat",
+    })
       .then(({ data }) => data?.available ?? false)
       .catch(() => false);
   },
@@ -1124,7 +1443,9 @@ const System = {
    * @returns {Promise<boolean>}
    */
   isCreateFilesAgentAvailable: async function () {
-    return getJson("/agent-skills/create-files-agent/is-available")
+    return getJson("/agent-skills/create-files-agent/is-available", {
+      communicationScene: "workspace-chat",
+    })
       .then(({ data }) => data?.available ?? false)
       .catch(() => false);
   },

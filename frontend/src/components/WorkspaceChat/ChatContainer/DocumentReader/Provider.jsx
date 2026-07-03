@@ -95,6 +95,13 @@ import {
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
+import {
+  nextReaderPostprocessDelay,
+  readerPostprocessIsForeground,
+  readerPostprocessLockKey,
+  readerPostprocessPollTimeoutMs,
+  readerPostprocessScheduleOptions,
+} from "./postprocessScheduling";
 
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
@@ -677,7 +684,7 @@ export function DocumentReaderProvider({
           },
           policy: "maintenance",
           signal,
-          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}:${_reason}`,
+          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}`,
         }
       );
     },
@@ -816,10 +823,17 @@ export function DocumentReaderProvider({
           : tasks;
       const readerDocumentWorkspaceSlug =
         item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
-      const key = `${readerDocumentId}:${intent}:${requestedTasks
-        .slice()
-        .sort()
-        .join(",")}`;
+      const workspaceSlugForTask =
+        readerDocumentWorkspaceSlug || workspace?.slug || null;
+      const scheduleOptions = readerPostprocessScheduleOptions({
+        intent,
+        workspaceSlug: workspaceSlugForTask,
+        readerDocumentId,
+      });
+      const key = readerPostprocessLockKey({
+        workspaceSlug: workspaceSlugForTask,
+        readerDocumentId,
+      });
       if (postprocessQueueRef.current.has(key)) return;
       postprocessQueueRef.current.add(key);
       if (uploadEntryId) {
@@ -834,11 +848,26 @@ export function DocumentReaderProvider({
         async ({ signal }) => {
           try {
             const bookshelfKey = item.key || `${item.bookKey}:main`;
+            const foreground = readerPostprocessIsForeground(intent);
+            const categoryTasks = requestedTasks.includes("classification");
+            const keepClassificationPending = (
+              reason = "后台自动分类仍在处理中"
+            ) => {
+              const latest = readReaderBookshelf().find(
+                (book) => book.key === bookshelfKey
+              );
+              if (!latest || latest.category?.source === "manual") return;
+              markItemCategoryPending(latest, "queued", reason);
+            };
             const failClassification = (reason) => {
               const latest = readReaderBookshelf().find(
                 (book) => book.key === bookshelfKey
               );
               if (!latest || latest.category?.source === "manual") return;
+              if (!foreground) {
+                keepClassificationPending("后台自动分类仍在处理中");
+                return;
+              }
               patchStoredCategoryForItem(
                 latest,
                 fallbackReaderCategory(reason)
@@ -848,12 +877,11 @@ export function DocumentReaderProvider({
               (book) => book.key === bookshelfKey
             );
             if (!current) return;
-            const categoryTasks = tasks.includes("classification");
             if (categoryTasks && current.category?.source !== "manual")
               markItemCategoryPending(
                 current,
                 "extracting",
-                "等待后台自动分类"
+                foreground ? "正在重新自动分类" : "等待后台自动分类"
               );
 
             const categories = readReaderBookshelfCategories().map(
@@ -862,11 +890,15 @@ export function DocumentReaderProvider({
                 name: category.name,
               })
             );
-            const foreground = intent === "manual" || intent === "open";
-            const { response } = await ReaderDocument.postprocess(
+            const { response, data } = await ReaderDocument.postprocess(
               readerDocumentWorkspaceSlug,
               readerDocumentId,
-              { tasks: requestedTasks, categories },
+              {
+                tasks: requestedTasks,
+                categories,
+                intent,
+                force: foreground,
+              },
               {
                 signal,
                 communicationScene: foreground
@@ -882,9 +914,13 @@ export function DocumentReaderProvider({
             }
 
             const startedAt = Date.now();
-            let delayMs = 700;
+            const pollTimeoutMs = readerPostprocessPollTimeoutMs({
+              foreground,
+              serverTimeoutMs: data?.postprocessConfig?.autoPollTimeoutMs,
+            });
+            let delayMs = foreground ? 700 : 1_200;
             let completed = false;
-            while (!signal.aborted && Date.now() - startedAt < 120_000) {
+            while (!signal.aborted && Date.now() - startedAt < pollTimeoutMs) {
               await new Promise((resolve) =>
                 window.setTimeout(resolve, delayMs)
               );
@@ -928,15 +964,22 @@ export function DocumentReaderProvider({
                 completed = true;
                 break;
               }
-              delayMs = Math.min(2_500, Math.floor(delayMs * 1.35));
+              delayMs = nextReaderPostprocessDelay(delayMs, {
+                foreground,
+                hidden:
+                  typeof document !== "undefined" &&
+                  document.visibilityState === "hidden",
+              });
             }
-            if (!completed && categoryTasks)
-              failClassification("后台分类等待超时。");
+            if (!completed && categoryTasks) {
+              if (foreground) failClassification("后台分类等待超时。");
+              else keepClassificationPending("后台自动分类仍在处理中");
+            }
             if (uploadEntryId && !completed) {
               patchBookshelfUpload(uploadEntryId, {
-                status: "failed",
-                stage: "failed",
-                error: "后台处理等待超时。",
+                status: foreground ? "failed" : "postprocessing",
+                stage: foreground ? "failed" : "postprocessing",
+                error: foreground ? "后台处理等待超时。" : "后台处理仍在继续。",
               });
             }
           } finally {
@@ -944,26 +987,20 @@ export function DocumentReaderProvider({
           }
         },
         {
-          priority: intent === "manual" || intent === "open" ? "P0" : "P4",
-          label:
-            intent === "manual"
-              ? "reader:manual-postprocess"
-              : "reader:postprocess-poll",
+          priority: scheduleOptions.priority,
+          label: scheduleOptions.label,
           kind: "reader",
           scope: {
             route: "workspace-chat",
-            workspaceSlug:
-              readerDocumentWorkspaceSlug || workspace?.slug || null,
+            workspaceSlug: workspaceSlugForTask,
             readerDocumentId,
             surface: "reader-postprocess",
           },
-          policy:
-            intent === "manual" || intent === "open"
-              ? "foreground"
-              : "maintenance",
-          emergency: intent === "manual" || intent === "open",
-          intentRank: 0,
-          dedupeKey: `reader:postprocess:${intent}:${key}`,
+          policy: scheduleOptions.policy,
+          resource: scheduleOptions.resource,
+          emergency: scheduleOptions.emergency,
+          intentRank: scheduleOptions.intentRank,
+          dedupeKey: scheduleOptions.dedupeKey,
           onAbort: () => postprocessQueueRef.current.delete(key),
         }
       );

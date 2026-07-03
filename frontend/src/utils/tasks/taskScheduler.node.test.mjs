@@ -306,6 +306,97 @@ test("higher priority background task preempts lower priority lane occupant", as
   assert.equal(scheduler.snapshot().lanes.background, 0);
 });
 
+test("P0 network task preempts lower priority work across occupied lanes", async () => {
+  const scheduler = new TaskScheduler({
+    maxConcurrent: 1,
+    backgroundMaxConcurrent: 1,
+    prefetchMaxConcurrent: 1,
+  });
+  const never = deferred();
+  const started = {
+    main: deferred(),
+    background: deferred(),
+    prefetch: deferred(),
+    active: deferred(),
+  };
+  const aborted = {
+    main: false,
+    background: false,
+    prefetch: false,
+  };
+
+  const main = scheduler.schedule(
+    async ({ signal }) => {
+      started.main.resolve();
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted.main = true;
+        },
+        { once: true }
+      );
+      await never.promise;
+    },
+    { priority: "P1", label: "visible-main", kind: "test" }
+  );
+  const background = scheduler.schedule(
+    async ({ signal }) => {
+      started.background.resolve();
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted.background = true;
+        },
+        { once: true }
+      );
+      await never.promise;
+    },
+    { priority: "P2", label: "background-fetch", kind: "test" }
+  );
+  const prefetch = scheduler.schedule(
+    async ({ signal }) => {
+      started.prefetch.resolve();
+      signal.addEventListener(
+        "abort",
+        () => {
+          aborted.prefetch = true;
+        },
+        { once: true }
+      );
+      await never.promise;
+    },
+    { priority: "P3", label: "prefetch-fetch", kind: "test" }
+  );
+
+  await Promise.all([
+    started.main.promise,
+    started.background.promise,
+    started.prefetch.promise,
+  ]);
+  assert.equal(scheduler.snapshot().lanes.resources.network, 3);
+
+  const active = scheduler.schedule(
+    async () => {
+      started.active.resolve();
+      return "active";
+    },
+    {
+      priority: "P0",
+      intentRank: 0,
+      label: "active-intent",
+      kind: "test",
+    }
+  );
+
+  await started.active.promise;
+  assert.equal(await active.promise, "active");
+  assert.equal(aborted.main, true);
+  assert.equal(aborted.background || aborted.prefetch, true);
+
+  scheduler.cancelScope({}, "test-cleanup");
+  await Promise.all([main.promise, background.promise, prefetch.promise]);
+});
+
 test("render resource tasks do not occupy network lanes", async () => {
   const scheduler = new TaskScheduler({
     maxConcurrent: 1,

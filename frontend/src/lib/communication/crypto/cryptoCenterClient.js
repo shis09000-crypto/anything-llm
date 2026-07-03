@@ -1,5 +1,6 @@
 import { getJson } from "../apiClient";
 import { createWebSocket } from "../webSocketClient";
+import { cryptoServerStateStore } from "@/utils/serverState/cryptoServerStateStore";
 import {
   cryptoCenterPath,
   cryptoCenterStreamUrl,
@@ -24,6 +25,10 @@ export async function fetchCryptoCenterSnapshot(range, options = {}) {
       error.status = result.response?.status;
       error.details = { requestId: result.requestId };
       throw error;
+    }
+
+    if (result.data?.snapshot && options.writeCache !== false) {
+      cryptoServerStateStore.setSnapshot(range, result.data.snapshot);
     }
 
     cryptoDevLog("success", {

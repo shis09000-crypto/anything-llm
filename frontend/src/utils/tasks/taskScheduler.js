@@ -439,6 +439,12 @@ class TaskScheduler {
       acc[key] = (acc[key] || 0) + 1;
       return acc;
     }, {});
+    const cacheLinkedTasks = activeTasks.filter(
+      (task) =>
+        String(task.kind || "").includes("server-state") ||
+        String(task.dedupeKey || "").startsWith("server-state:") ||
+        String(task.label || "").startsWith("server-state:")
+    );
     return {
       active: running.length,
       pending,
@@ -447,6 +453,7 @@ class TaskScheduler {
       byKind,
       byScope,
       byResource,
+      cacheLinkedTasks,
       oldestPendingMs: pending.length
         ? Math.max(...pending.map((task) => task.ageMs || 0))
         : 0,
@@ -659,7 +666,11 @@ class TaskScheduler {
       return false;
     if (this.#hasForegroundPressure() && this.#isYoungMaintenance(task))
       return false;
-    if (!this.#hasResourceCapacity(task)) return false;
+    if (
+      !this.#hasResourceCapacity(task) &&
+      !this.#preemptLowerPriorityForResource(task)
+    )
+      return false;
     if (task.policy === "realtime") return true;
     if (task.resource !== "network") return true;
 
@@ -692,12 +703,7 @@ class TaskScheduler {
         const rankDelta =
           priorityRank(task.priority) - priorityRank(nextTask.priority);
         if (rankDelta > 0) return true;
-        if (rankDelta < 0) return false;
-        if (!["P0", "P1"].includes(nextTask.priority)) return false;
-        return (
-          normalizeIntentRank(task.intentRank) >
-          normalizeIntentRank(nextTask.intentRank)
-        );
+        return false;
       })
       .sort((a, b) => {
         const rank = priorityRank(b.priority) - priorityRank(a.priority);
@@ -709,6 +715,34 @@ class TaskScheduler {
 
     if (!candidate) return false;
     this.#abortTask(candidate, "priority-lane-preempt");
+    return true;
+  }
+
+  #preemptLowerPriorityForResource(nextTask) {
+    const resource = normalizeResource(nextTask.resource);
+    const limit = this.#resourceLimit(nextTask);
+    if (!Number.isFinite(limit) || limit <= 0) return false;
+
+    const candidate = [...this.running.values()]
+      .filter((task) => {
+        if (normalizeResource(task.resource) !== resource) return false;
+        if (task.policy === "realtime") return false;
+        if (task.protected || !task.abortable) return false;
+        const rankDelta =
+          priorityRank(task.priority) - priorityRank(nextTask.priority);
+        if (rankDelta > 0) return true;
+        return false;
+      })
+      .sort((a, b) => {
+        const rank = priorityRank(b.priority) - priorityRank(a.priority);
+        if (rank !== 0) return rank;
+        const intentRank =
+          normalizeIntentRank(b.intentRank) - normalizeIntentRank(a.intentRank);
+        return intentRank !== 0 ? intentRank : a.createdAt - b.createdAt;
+      })[0];
+
+    if (!candidate) return false;
+    this.#abortTask(candidate, "priority-resource-preempt");
     return true;
   }
 
@@ -1067,6 +1101,18 @@ function markTaskPerformance(name, detail = {}) {
     } catch {}
   }
   if (typeof window !== "undefined" && import.meta.env?.DEV) {
+    window.dispatchEvent?.(
+      new CustomEvent("athena-task-performance-mark", {
+        detail: { name, markName, ...detail },
+      })
+    );
+    return;
+  }
+  if (
+    typeof window !== "undefined" &&
+    (window.__athenaRuntimeObserverActive ||
+      window.localStorage?.getItem?.("athenaRuntimeObserver") === "true")
+  ) {
     window.dispatchEvent?.(
       new CustomEvent("athena-task-performance-mark", {
         detail: { name, markName, ...detail },

@@ -4,6 +4,7 @@ import {
   apiErrorMessage as responseError,
   apiErrorRaw as rawBody,
 } from "@/lib/communication/apiError";
+import { adminSystemStateStore } from "@/utils/serverState/adminSystemStateStore";
 
 function responseJsonError(error) {
   const data = rawBody(error) || {};
@@ -24,27 +25,75 @@ function withQuery(path, params = {}) {
   return queryString ? `${path}?${queryString}` : path;
 }
 
+async function ensureAdminValue(cacheKey, fetcher, fallback, options = {}) {
+  try {
+    return await adminSystemStateStore.ensure(cacheKey, fetcher, {
+      priority: options.priority || "P2",
+      policy: options.policy || "background",
+      surface: options.surface,
+      scope: options.scope,
+      ttlMs: options.ttlMs,
+      meta: options.meta,
+      label: options.label,
+      dedupeKey: options.dedupeKey || `server-state:${cacheKey}`,
+    });
+  } catch (e) {
+    console.error(e);
+    return adminSystemStateStore.getOrFallback(cacheKey, fallback, {
+      ttlMs: options.ttlMs,
+    });
+  }
+}
+
 const Admin = {
   // User Management
   usersPage: async ({ limit = 50, offset = 0 } = {}) => {
-    return await getJson(withQuery("/admin/users", { limit, offset }))
-      .then(({ data }) => ({ users: data?.users || [], page: data?.page }))
-      .catch((e) => {
-        console.error(e);
-        return { users: [], page: null };
-      });
+    const cacheKey = adminSystemStateStore.keys.adminUsersPage({
+      limit,
+      offset,
+    });
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson(
+          withQuery("/admin/users", { limit, offset }),
+          {
+            signal,
+            task: false,
+          }
+        );
+        const payload = { users: data?.users || [], page: data?.page };
+        return payload;
+      },
+      { users: [], page: null },
+      {
+        surface: "admin-users",
+        meta: { limit, offset },
+        label: `admin:users:${limit}:${offset}`,
+      }
+    );
   },
   users: async () => {
-    return await getJson("/admin/users")
-      .then(({ data }) => data?.users || [])
-      .catch((e) => {
-        console.error(e);
-        return [];
-      });
+    const cacheKey = adminSystemStateStore.keys.adminUsers;
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson("/admin/users", {
+          signal,
+          task: false,
+        });
+        return data?.users || [];
+      },
+      [],
+      { surface: "admin-users", label: "admin:users" }
+    );
   },
   newUser: async (data) => {
     return await postJson("/admin/users/new", data)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminUsers();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { user: null, error: e.message });
@@ -52,7 +101,10 @@ const Admin = {
   },
   updateUser: async (userId, data) => {
     return await postJson(`/admin/user/${userId}`, data)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminUsers();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -78,7 +130,10 @@ const Admin = {
     return await deleteJson(`/admin/user/${userId}`, {
       body: { confirm, reauthToken },
     })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminUsers();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawBody(e)
@@ -88,7 +143,10 @@ const Admin = {
   },
   banUser: async (userId, reason = "") => {
     return await postJson(`/admin/users/${userId}/ban`, { reason })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminUsers();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawBody(e)
@@ -101,7 +159,10 @@ const Admin = {
       restoreRole,
       restoreAllowedEnvs,
     })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminUsers();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawBody(e)
@@ -112,20 +173,42 @@ const Admin = {
 
   // Invitations
   invitesPage: async ({ limit = 50, offset = 0 } = {}) => {
-    return await getJson(withQuery("/admin/invites", { limit, offset }))
-      .then(({ data }) => ({ invites: data?.invites || [], page: data?.page }))
-      .catch((e) => {
-        console.error(e);
-        return { invites: [], page: null };
-      });
+    const cacheKey = adminSystemStateStore.keys.adminInvitesPage({
+      limit,
+      offset,
+    });
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson(
+          withQuery("/admin/invites", { limit, offset }),
+          { signal, task: false }
+        );
+        const payload = { invites: data?.invites || [], page: data?.page };
+        return payload;
+      },
+      { invites: [], page: null },
+      {
+        surface: "admin-invites",
+        meta: { limit, offset },
+        label: `admin:invites:${limit}:${offset}`,
+      }
+    );
   },
   invites: async () => {
-    return await getJson("/admin/invites")
-      .then(({ data }) => data?.invites || [])
-      .catch((e) => {
-        console.error(e);
-        return [];
-      });
+    const cacheKey = adminSystemStateStore.keys.adminInvites;
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson("/admin/invites", {
+          signal,
+          task: false,
+        });
+        return data?.invites || [];
+      },
+      [],
+      { surface: "admin-invites", label: "admin:invites" }
+    );
   },
   newInvite: async ({
     role = "default",
@@ -137,7 +220,10 @@ const Admin = {
       workspaceIds,
       expiresInHours,
     })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminInvites();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawBody(e)
@@ -147,16 +233,33 @@ const Admin = {
   },
   systemPreferences: async (labels = []) => {
     const query = labels.length ? `?labels=${labels.join(",")}` : "";
-    return await getJson(`/admin/system-preferences-for${query}`)
-      .then(({ data }) => data?.settings || {})
-      .catch((e) => {
-        console.error(e);
-        return {};
-      });
+    const cacheKey = adminSystemStateStore.keys.adminSystemPreferences(labels);
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson(
+          `/admin/system-preferences-for${query}`,
+          {
+            signal,
+            task: false,
+          }
+        );
+        return data?.settings || {};
+      },
+      {},
+      {
+        surface: "admin-system-preferences",
+        meta: { labels: labels.join(",") },
+        label: `admin:system-preferences:${labels.join(",")}`,
+      }
+    );
   },
   disableInvite: async (inviteId) => {
     return await deleteJson(`/admin/invite/${inviteId}`)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminInvites();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -165,35 +268,75 @@ const Admin = {
 
   // Workspaces Mgmt
   workspacesPage: async ({ limit = 50, offset = 0 } = {}) => {
-    return await getJson(withQuery("/admin/workspaces", { limit, offset }))
-      .then(({ data }) => ({
-        workspaces: data?.workspaces || [],
-        page: data?.page,
-      }))
-      .catch((e) => {
-        console.error(e);
-        return { workspaces: [], page: null };
-      });
+    const cacheKey = adminSystemStateStore.keys.adminWorkspacesPage({
+      limit,
+      offset,
+    });
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson(
+          withQuery("/admin/workspaces", { limit, offset }),
+          { signal, task: false }
+        );
+        const payload = {
+          workspaces: data?.workspaces || [],
+          page: data?.page,
+        };
+        return payload;
+      },
+      { workspaces: [], page: null },
+      {
+        surface: "admin-workspaces",
+        meta: { limit, offset },
+        label: `admin:workspaces:${limit}:${offset}`,
+      }
+    );
   },
   workspaces: async () => {
-    return await getJson("/admin/workspaces")
-      .then(({ data }) => data?.workspaces || [])
-      .catch((e) => {
-        console.error(e);
-        return [];
-      });
+    const cacheKey = adminSystemStateStore.keys.adminWorkspaces;
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson("/admin/workspaces", {
+          signal,
+          task: false,
+        });
+        return data?.workspaces || [];
+      },
+      [],
+      { surface: "admin-workspaces", label: "admin:workspaces" }
+    );
   },
   workspaceUsers: async (workspaceId) => {
-    return await getJson(`/admin/workspaces/${workspaceId}/users`)
-      .then(({ data }) => data?.users || [])
-      .catch((e) => {
-        console.error(e);
-        return [];
-      });
+    const cacheKey =
+      adminSystemStateStore.keys.adminWorkspaceUsers(workspaceId);
+    return await ensureAdminValue(
+      cacheKey,
+      async ({ signal }) => {
+        const { data } = await getJson(
+          `/admin/workspaces/${workspaceId}/users`,
+          {
+            signal,
+            task: false,
+          }
+        );
+        return data?.users || [];
+      },
+      [],
+      {
+        surface: "admin-workspace-users",
+        scope: { workspaceId },
+        label: `admin:workspace-users:${workspaceId}`,
+      }
+    );
   },
   newWorkspace: async (name) => {
     return await postJson("/admin/workspaces/new", { name })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminWorkspaces();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { workspace: null, error: e.message });
@@ -203,7 +346,10 @@ const Admin = {
     return await postJson(`/admin/workspaces/${workspaceId}/update-users`, {
       userIds,
     })
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminWorkspaces();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -211,7 +357,10 @@ const Admin = {
   },
   deleteWorkspace: async (workspaceId) => {
     return await deleteJson(`/admin/workspaces/${workspaceId}`)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminWorkspaces();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawOrFallback(e, { success: false, error: e.message });
@@ -225,18 +374,28 @@ const Admin = {
    * @returns {Promise<{settings: Object, error: string}>} - System preferences object
    */
   systemPreferencesByFields: async (labels = []) => {
+    const cacheKey = adminSystemStateStore.keys.adminSystemPreferences(labels);
     return await getJson(
       `/admin/system-preferences-for?labels=${labels.join(",")}`
     )
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.set(cacheKey, data, {
+          surface: "admin-system-preferences",
+          meta: { labels: labels.join(",") },
+        });
+        return data;
+      })
       .catch((e) => {
         console.error(e);
-        return null;
+        return adminSystemStateStore.getOrFallback(cacheKey, null);
       });
   },
   updateSystemPreferences: async (updates = {}) => {
     return await postJson("/admin/system-preferences", updates)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        adminSystemStateStore.invalidateAdminSystemPreferences();
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return rawBody(e)

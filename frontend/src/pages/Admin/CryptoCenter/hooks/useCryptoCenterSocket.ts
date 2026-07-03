@@ -5,6 +5,7 @@ import {
 } from "@/lib/communication/crypto/cryptoCenterClient";
 import { safeJsonParse } from "@/utils/request";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { cryptoServerStateStore } from "@/utils/serverState/cryptoServerStateStore";
 import type { CryptoCenterEvent, TimeRange } from "../types";
 
 export function useCryptoCenterSocket(
@@ -23,27 +24,32 @@ export function useCryptoCenterSocket(
 
     async function loadSnapshot() {
       onStatus("connecting");
+      const cachedSnapshot = cryptoServerStateStore.getSnapshot(range, {
+        allowStale: true,
+      });
+      if (cachedSnapshot && !cancelled) {
+        onEvent({ type: "snapshot", data: cachedSnapshot });
+      }
       try {
-        const result = await requestPriorityQueue.schedule(
-          ({ signal }: { signal: AbortSignal }) =>
-            fetchCryptoCenterSnapshot(range, { signal }),
+        const snapshot = await cryptoServerStateStore.ensureSnapshot(
+          range,
+          async ({ signal }: { signal: AbortSignal }) => {
+            const result = await fetchCryptoCenterSnapshot(range, {
+              signal,
+              task: false,
+              writeCache: false,
+            });
+            return result.data?.snapshot || null;
+          },
           {
             priority: "P1",
             label: "crypto:snapshot",
-            kind: "crypto",
-            scope: {
-              route: "crypto-center",
-              range,
-              surface: "snapshot",
-            },
-            policy: "visible",
-            dedupeKey: `crypto:center:snapshot:${range}`,
+            intentRank: 3,
+            dedupeKey: `server-state:crypto.snapshot:${range}`,
           }
         );
-        if (!result || cancelled) return;
-        const { data: payload } = result;
-        if (payload?.snapshot)
-          onEvent({ type: "snapshot", data: payload.snapshot });
+        if (!snapshot || cancelled) return;
+        onEvent({ type: "snapshot", data: snapshot });
       } catch (error) {
         onStatus(
           "degraded",

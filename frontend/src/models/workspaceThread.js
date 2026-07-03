@@ -4,6 +4,62 @@ import { streamThreadTitleEvents } from "@/lib/communication/workspaceRealtimeCl
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 
+function threadTask({
+  label,
+  workspaceSlug = null,
+  threadSlug = null,
+  surface = "thread",
+  priority = "P1",
+  policy = null,
+  protectedTask = false,
+  abortable = null,
+  intentRank = undefined,
+} = {}) {
+  return {
+    label,
+    kind: "workspace-thread",
+    priority,
+    policy:
+      policy ||
+      (priority === "P0"
+        ? "foreground"
+        : priority === "P4"
+          ? "maintenance"
+          : "visible"),
+    resource: "network",
+    protected: protectedTask,
+    abortable:
+      abortable !== null && abortable !== undefined
+        ? abortable
+        : !protectedTask,
+    ...(intentRank !== undefined ? { intentRank } : {}),
+    scope: {
+      route: "workspace-chat",
+      surface,
+      ...(workspaceSlug ? { workspaceSlug } : {}),
+      ...(threadSlug ? { threadSlug } : {}),
+    },
+  };
+}
+
+function threadUserActionTask(
+  label,
+  workspaceSlug,
+  threadSlug = null,
+  intentRank = 0
+) {
+  return threadTask({
+    label,
+    workspaceSlug,
+    threadSlug,
+    surface: "thread-action",
+    priority: "P0",
+    protectedTask: true,
+    abortable: false,
+    intentRank,
+  });
+}
+
 function historyPageQuery({
   limit = 20,
   beforeChatId = null,
@@ -60,8 +116,12 @@ const WorkspaceThread = {
         {},
         {
           signal: options.signal,
-          communicationScene: options.communicationScene,
-          task: options.task,
+          communicationScene:
+            options.communicationScene || "workspace-thread-create",
+          task:
+            options.task === undefined
+              ? threadUserActionTask("thread:create", workspaceSlug, null, 2)
+              : options.task,
         }
       );
       const error = payload?.error || payload?.message || null;
@@ -80,8 +140,12 @@ const WorkspaceThread = {
       data,
       {
         signal: options.signal,
-        communicationScene: options.communicationScene,
-        task: options.task,
+        communicationScene:
+          options.communicationScene || "workspace-thread-action",
+        task:
+          options.task === undefined
+            ? threadUserActionTask("thread:update", workspaceSlug, threadSlug)
+            : options.task,
       }
     )
       .then(({ data }) => data)
@@ -105,8 +169,12 @@ const WorkspaceThread = {
         { targetWorkspaceSlug },
         {
           signal: options.signal,
-          communicationScene: options.communicationScene,
-          task: options.task,
+          communicationScene:
+            options.communicationScene || "workspace-thread-action",
+          task:
+            options.task === undefined
+              ? threadUserActionTask("thread:move", workspaceSlug, threadSlug)
+              : options.task,
         }
       );
       const error = payload?.error || payload?.message || null;
@@ -133,11 +201,18 @@ const WorkspaceThread = {
     }
   },
   delete: async function (workspaceSlug, threadSlug, options = {}) {
-    return await deleteJson(`/workspace/${workspaceSlug}/thread/${threadSlug}`, {
-      signal: options.signal,
-      communicationScene: options.communicationScene,
-      task: options.task,
-    })
+    return await deleteJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}`,
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-thread-action",
+        task:
+          options.task === undefined
+            ? threadUserActionTask("thread:delete", workspaceSlug, threadSlug)
+            : options.task,
+      }
+    )
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
         workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
@@ -149,8 +224,12 @@ const WorkspaceThread = {
     return await deleteJson(`/workspace/${workspaceSlug}/thread-bulk-delete`, {
       body: { slugs: threadSlugs },
       signal: options.signal,
-      communicationScene: options.communicationScene,
-      task: options.task,
+      communicationScene:
+        options.communicationScene || "workspace-thread-action",
+      task:
+        options.task === undefined
+          ? threadUserActionTask("thread:delete-bulk", workspaceSlug)
+          : options.task,
     })
       .then(() => {
         threadSlugs.forEach((threadSlug) =>
@@ -253,7 +332,12 @@ const WorkspaceThread = {
   compactionStatus: async function (
     workspaceSlug,
     threadSlug,
-    { userId = undefined, apiSessionId = undefined, signal } = {}
+    {
+      userId = undefined,
+      apiSessionId = undefined,
+      signal,
+      task = undefined,
+    } = {}
   ) {
     if (!workspaceSlug || !threadSlug)
       return { success: false, status: null, error: "Missing thread." };
@@ -268,7 +352,21 @@ const WorkspaceThread = {
     const query = params.toString();
     return await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/compact/status${query ? `?${query}` : ""}`,
-      { signal }
+      {
+        signal,
+        communicationScene: "workspace-chat-maintenance",
+        task:
+          task === undefined
+            ? threadTask({
+                label: "thread:compaction-status",
+                workspaceSlug,
+                threadSlug,
+                surface: "thread-compaction",
+                priority: "P2",
+                policy: "background",
+              })
+            : task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -285,6 +383,7 @@ const WorkspaceThread = {
       mode = undefined,
       targetRatio = undefined,
       signal,
+      task = undefined,
     } = {}
   ) {
     if (!workspaceSlug || !threadSlug)
@@ -297,7 +396,14 @@ const WorkspaceThread = {
     return await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/compact`,
       body,
-      { signal }
+      {
+        signal,
+        communicationScene: "workspace-thread-action",
+        task:
+          task === undefined
+            ? threadUserActionTask("thread:compact", workspaceSlug, threadSlug)
+            : task,
+      }
     )
       .then(({ data }) => data)
       .catch((error) => {
@@ -308,11 +414,25 @@ const WorkspaceThread = {
   _deleteEditedChats: async function (
     workspaceSlug = "",
     threadSlug = "",
-    startingId
+    startingId,
+    options = {}
   ) {
     return await deleteJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/delete-edited-chats`,
-      { body: { startingId } }
+      {
+        body: { startingId },
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-thread-action",
+        task:
+          options.task === undefined
+            ? threadUserActionTask(
+                "thread:delete-edited-chats",
+                workspaceSlug,
+                threadSlug
+              )
+            : options.task,
+      }
     )
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
@@ -328,11 +448,25 @@ const WorkspaceThread = {
     threadSlug = "",
     chatId,
     newText,
-    role = "assistant"
+    role = "assistant",
+    options = {}
   ) {
     return await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/update-chat`,
-      { chatId, newText, role }
+      { chatId, newText, role },
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-thread-action",
+        task:
+          options.task === undefined
+            ? threadUserActionTask(
+                "thread:update-chat",
+                workspaceSlug,
+                threadSlug
+              )
+            : options.task,
+      }
     )
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);

@@ -23,6 +23,7 @@ import { AppToastHost } from "@/components/lib/AppToast";
 import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm";
 import { loadAppEnvironment } from "@/utils/appEnvironment";
 import CommunicationDebugPanel from "@/components/CommunicationDebugPanel";
+import CacheSchedulerDebugPanel from "@/components/CacheSchedulerDebugPanel";
 import { SettingsDataProvider } from "@/pages/GeneralSettings/SettingsDataProvider";
 import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
 import { useWorkspaceNavigationSyncInvalidation } from "@/hooks/useWorkspaceSyncEvents";
@@ -89,6 +90,7 @@ export default function App() {
                               <KeyboardShortcutsHelp />
                               <ImageLightbox />
                               <CommunicationDebugPanel />
+                              <CacheSchedulerDebugPanel />
                             </SettingsDataProvider>
                           </AuthenticatedSyncCenter>
                         </WorkspaceLayoutProvider>

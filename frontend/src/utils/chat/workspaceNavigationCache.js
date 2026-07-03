@@ -1,32 +1,8 @@
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
-import { getAppEnvironment } from "@/utils/appEnvironment";
-import { getStoredAuthUser } from "@/utils/authUserStorage";
-import { safeJsonParse } from "@/utils/request";
+import { workspaceNavigationStore } from "@/utils/serverState/workspaceNavigationStore";
 
-const WORKSPACES_TTL_MS = 1000 * 60 * 10;
-const THREADS_TTL_MS = 1000 * 60 * 10;
-const WORKSPACE_DETAIL_TTL_MS = 1000 * 60 * 10;
-const SESSION_CACHE_VERSION = 1;
-const SESSION_CACHE_PREFIX = "workspaceNavigationCache";
-
-const workspacesEntry = { payload: null, updatedAt: 0 };
-const threadsByWorkspace = new Map();
-const workspaceDetailsBySlug = new Map();
 const inFlightRequests = new Map();
 const resolvedRequests = new Map();
-
-function isFresh(entry, ttlMs) {
-  return !!entry?.payload && Date.now() - entry.updatedAt < ttlMs;
-}
-
-function entryStatus(entry, ttlMs) {
-  if (!entry?.payload) return "miss";
-  return isFresh(entry, ttlMs) ? "fresh" : "stale";
-}
-
-function ageMs(entry) {
-  return entry?.updatedAt ? Date.now() - entry.updatedAt : null;
-}
 
 function clone(value) {
   try {
@@ -34,89 +10,6 @@ function clone(value) {
   } catch {
     return value;
   }
-}
-
-function currentUserScope() {
-  if (typeof window === "undefined") return "server";
-  const user = getStoredAuthUser();
-  return [
-    getAppEnvironment(),
-    user?.authUserId || user?.id || user?.username || "anonymous",
-  ].join(":");
-}
-
-function sessionKey(kind) {
-  return `${SESSION_CACHE_PREFIX}:v${SESSION_CACHE_VERSION}:${currentUserScope()}:${kind}`;
-}
-
-function readSessionEntry(kind, ttlMs) {
-  if (typeof window === "undefined") return null;
-  try {
-    const entry = safeJsonParse(
-      window.sessionStorage.getItem(sessionKey(kind))
-    );
-    if (!entry?.payload || !entry?.updatedAt) return null;
-    if (Date.now() - entry.updatedAt > ttlMs) return null;
-    return {
-      payload: clone(entry.payload),
-      updatedAt: entry.updatedAt,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeSessionEntry(kind, entry) {
-  if (typeof window === "undefined" || !entry?.payload) return;
-  try {
-    window.sessionStorage.setItem(
-      sessionKey(kind),
-      JSON.stringify({
-        payload: entry.payload,
-        updatedAt: entry.updatedAt,
-      })
-    );
-  } catch {}
-}
-
-function removeSessionEntry(kind) {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.removeItem(sessionKey(kind));
-  } catch {}
-}
-
-function clearSessionScope() {
-  if (typeof window === "undefined") return;
-  const prefix = `${SESSION_CACHE_PREFIX}:v${SESSION_CACHE_VERSION}:${currentUserScope()}:`;
-  try {
-    for (let index = window.sessionStorage.length - 1; index >= 0; index -= 1) {
-      const key = window.sessionStorage.key(index);
-      if (key?.startsWith(prefix)) window.sessionStorage.removeItem(key);
-    }
-  } catch {}
-}
-
-function hydrateWorkspacesFromSession() {
-  if (workspacesEntry.payload) return;
-  const entry = readSessionEntry("workspaces", WORKSPACES_TTL_MS);
-  if (!entry) return;
-  workspacesEntry.payload = entry.payload;
-  workspacesEntry.updatedAt = entry.updatedAt;
-  debugNavigationCache("workspaces:session-hydrate", {
-    count: workspacesEntry.payload?.length || 0,
-  });
-}
-
-function hydrateThreadsFromSession(workspaceSlug) {
-  if (!workspaceSlug || threadsByWorkspace.has(workspaceSlug)) return;
-  const entry = readSessionEntry(`threads:${workspaceSlug}`, THREADS_TTL_MS);
-  if (!entry) return;
-  threadsByWorkspace.set(workspaceSlug, entry);
-  debugNavigationCache("threads:session-hydrate", {
-    workspaceSlug,
-    count: entry.payload?.length || 0,
-  });
 }
 
 function debugNavigationCache(label, payload = {}) {
@@ -146,17 +39,73 @@ function recordNavigationCache(action, payload = {}) {
   });
 }
 
+function knownNavigationRefresh(key, loader, options = {}) {
+  if (key === "workspaces" || key === "workspaces:all") {
+    return workspaceNavigationStore.ensureWorkspaces(loader, {
+      staleWhileRevalidate: false,
+      priority: "P0",
+      intentRank: 0,
+      policy: "foreground",
+      emergency: true,
+      dedupeKey: options.dedupeKey || "server-state:workspace.list",
+      label: "workspace:list",
+    });
+  }
+
+  const workspaceMatch = String(key || "").match(/^workspace:([^:]+)$/);
+  if (workspaceMatch?.[1]) {
+    const workspaceSlug = workspaceMatch[1];
+    return workspaceNavigationStore.ensureWorkspaceDetail(
+      workspaceSlug,
+      loader,
+      {
+        staleWhileRevalidate: false,
+        priority: "P0",
+        intentRank: 2,
+        policy: "foreground",
+        emergency: true,
+        dedupeKey:
+          options.dedupeKey || `server-state:workspace.detail:${workspaceSlug}`,
+        label: `workspace:detail:${workspaceSlug}`,
+      }
+    );
+  }
+
+  const threadsMatch = String(key || "").match(/^threads:([^:]+)$/);
+  if (threadsMatch?.[1]) {
+    const workspaceSlug = threadsMatch[1];
+    return workspaceNavigationStore.ensureThreads(workspaceSlug, loader, {
+      staleWhileRevalidate: false,
+      priority: "P0",
+      intentRank: 1,
+      policy: "foreground",
+      emergency: true,
+      dedupeKey:
+        options.dedupeKey || `server-state:workspace.threads:${workspaceSlug}`,
+      label: `workspace:threads:${workspaceSlug}`,
+    });
+  }
+
+  return null;
+}
+
 export const workspaceNavigationCache = {
   ttl: {
-    workspaces: WORKSPACES_TTL_MS,
-    threads: THREADS_TTL_MS,
-    workspaceDetail: WORKSPACE_DETAIL_TTL_MS,
+    workspaces: workspaceNavigationStore.ttlMs,
+    threads: workspaceNavigationStore.ttlMs,
+    workspaceDetail: workspaceNavigationStore.ttlMs,
   },
   debug(label, payload = {}) {
     debugNavigationCache(label, payload);
   },
   runInFlight(key, loader, { reuseResolvedWithinMs = 0 } = {}) {
     if (!key || typeof loader !== "function") return Promise.resolve(null);
+    const knownRefresh = knownNavigationRefresh(key, loader);
+    if (knownRefresh) {
+      debugNavigationCache("server-state-refresh", { key });
+      recordNavigationCache("server-state-refresh", { key });
+      return knownRefresh;
+    }
     const existing = inFlightRequests.get(key);
     if (existing) {
       debugNavigationCache("dedupe", { key });
@@ -187,186 +136,125 @@ export const workspaceNavigationCache = {
     return promise;
   },
   getWorkspacesMeta() {
-    hydrateWorkspacesFromSession();
-    return {
-      status: entryStatus(workspacesEntry, WORKSPACES_TTL_MS),
-      ageMs: ageMs(workspacesEntry),
-      updatedAt: workspacesEntry.updatedAt,
-      count: workspacesEntry.payload?.length || 0,
-    };
+    return workspaceNavigationStore.getWorkspacesMeta();
   },
   getWorkspaces({ allowStale = true } = {}) {
-    hydrateWorkspacesFromSession();
-    if (!workspacesEntry.payload) {
-      recordNavigationCache("miss", { path: "workspaces" });
-      return null;
-    }
-    if (!allowStale && !isFresh(workspacesEntry, WORKSPACES_TTL_MS)) {
-      recordNavigationCache("stale", { path: "workspaces" });
-      return null;
-    }
-    recordNavigationCache(
-      isFresh(workspacesEntry, WORKSPACES_TTL_MS) ? "hit" : "stale",
-      {
+    const workspaces = workspaceNavigationStore.getWorkspaces({ allowStale });
+    const meta = workspaceNavigationStore.getWorkspacesMeta();
+    if (!workspaces) {
+      recordNavigationCache(meta.status === "stale" ? "stale" : "miss", {
         path: "workspaces",
-        count: workspacesEntry.payload.length,
-      }
-    );
-    return clone(workspacesEntry.payload);
+      });
+      return null;
+    }
+    recordNavigationCache(meta.status === "fresh" ? "hit" : "stale", {
+      path: "workspaces",
+      count: workspaces.length,
+    });
+    return clone(workspaces);
   },
   setWorkspaces(workspaces = []) {
-    workspacesEntry.payload = clone(workspaces);
-    workspacesEntry.updatedAt = Date.now();
-    writeSessionEntry("workspaces", workspacesEntry);
+    workspaceNavigationStore.setWorkspaces(workspaces);
     debugNavigationCache("workspaces:set", {
-      count: workspacesEntry.payload?.length || 0,
+      count: workspaces?.length || 0,
     });
   },
   upsertWorkspace(workspace = null) {
-    if (!workspace?.id || !workspacesEntry.payload) return;
-    const exists = workspacesEntry.payload.some(
-      (item) => item.id === workspace.id
-    );
-    workspacesEntry.payload = exists
-      ? workspacesEntry.payload.map((item) =>
-          item.id === workspace.id ? { ...item, ...workspace } : item
-        )
-      : [...workspacesEntry.payload, workspace];
-    workspacesEntry.updatedAt = Date.now();
+    workspaceNavigationStore.upsertWorkspace(workspace);
   },
   invalidateWorkspaces() {
-    workspacesEntry.payload = null;
-    workspacesEntry.updatedAt = 0;
-    removeSessionEntry("workspaces");
+    workspaceNavigationStore.invalidateWorkspaces();
     recordNavigationCache("invalidate", { path: "workspaces" });
   },
   getThreadsMeta(workspaceSlug) {
-    hydrateThreadsFromSession(workspaceSlug);
-    const entry = workspaceSlug ? threadsByWorkspace.get(workspaceSlug) : null;
-    return {
-      status: entryStatus(entry, THREADS_TTL_MS),
-      ageMs: ageMs(entry),
-      updatedAt: entry?.updatedAt || 0,
-      count: entry?.payload?.length || 0,
-    };
+    return workspaceNavigationStore.getThreadsMeta(workspaceSlug);
   },
   getThreads(workspaceSlug, { allowStale = true } = {}) {
     if (!workspaceSlug) return null;
-    hydrateThreadsFromSession(workspaceSlug);
-    const entry = threadsByWorkspace.get(workspaceSlug);
-    if (!entry?.payload) {
-      recordNavigationCache("miss", { path: `threads:${workspaceSlug}` });
+    const threads = workspaceNavigationStore.getThreads(workspaceSlug, {
+      allowStale,
+    });
+    const meta = workspaceNavigationStore.getThreadsMeta(workspaceSlug);
+    if (!threads) {
+      recordNavigationCache(meta.status === "stale" ? "stale" : "miss", {
+        path: `threads:${workspaceSlug}`,
+        workspaceSlug,
+      });
       return null;
     }
-    if (!allowStale && !isFresh(entry, THREADS_TTL_MS)) {
-      recordNavigationCache("stale", { path: `threads:${workspaceSlug}` });
-      return null;
-    }
-    recordNavigationCache(isFresh(entry, THREADS_TTL_MS) ? "hit" : "stale", {
+    recordNavigationCache(meta.status === "fresh" ? "hit" : "stale", {
       path: `threads:${workspaceSlug}`,
       workspaceSlug,
-      count: entry.payload.length,
+      count: threads.length,
     });
-    return clone(entry.payload);
+    return clone(threads);
   },
   setThreads(workspaceSlug, threads = []) {
     if (!workspaceSlug) return;
-    const entry = {
-      payload: clone(threads),
-      updatedAt: Date.now(),
-    };
-    threadsByWorkspace.set(workspaceSlug, entry);
-    writeSessionEntry(`threads:${workspaceSlug}`, entry);
+    workspaceNavigationStore.setThreads(workspaceSlug, threads);
     debugNavigationCache("threads:set", {
       workspaceSlug,
       count: threads.length,
     });
   },
   updateThread(workspaceSlug, thread = null) {
-    if (!workspaceSlug || !thread?.slug) return;
-    const current = this.getThreads(workspaceSlug) || [];
-    this.setThreads(workspaceSlug, [
-      ...current.filter((item) => item.slug !== thread.slug),
-      thread,
-    ]);
+    workspaceNavigationStore.updateThread(workspaceSlug, thread);
   },
   removeThread(workspaceSlug, threadSlug = null) {
-    if (!workspaceSlug || !threadSlug) return;
-    const current = this.getThreads(workspaceSlug);
-    if (!current) return;
-    this.setThreads(
-      workspaceSlug,
-      current.filter((thread) => thread.slug !== threadSlug)
-    );
+    workspaceNavigationStore.removeThread(workspaceSlug, threadSlug);
   },
   invalidateThreads(workspaceSlug) {
     if (!workspaceSlug) return;
-    threadsByWorkspace.delete(workspaceSlug);
-    removeSessionEntry(`threads:${workspaceSlug}`);
+    workspaceNavigationStore.invalidateThreads(workspaceSlug);
     recordNavigationCache("invalidate", { path: `threads:${workspaceSlug}` });
   },
   getWorkspaceDetail(workspaceSlug, { allowStale = true } = {}) {
     if (!workspaceSlug) return null;
-    const entry = workspaceDetailsBySlug.get(workspaceSlug);
-    if (!entry?.payload) {
-      recordNavigationCache("miss", { path: `workspace:${workspaceSlug}` });
-      return null;
-    }
-    if (!allowStale && !isFresh(entry, WORKSPACE_DETAIL_TTL_MS)) {
-      recordNavigationCache("stale", { path: `workspace:${workspaceSlug}` });
-      return null;
-    }
-    recordNavigationCache(
-      isFresh(entry, WORKSPACE_DETAIL_TTL_MS) ? "hit" : "stale",
-      { path: `workspace:${workspaceSlug}`, workspaceSlug }
+    const workspace = workspaceNavigationStore.getWorkspaceDetail(
+      workspaceSlug,
+      { allowStale }
     );
-    return clone(entry.payload);
+    const meta = workspaceNavigationStore.getWorkspaceDetailMeta(workspaceSlug);
+    if (!workspace) {
+      recordNavigationCache(meta.status === "stale" ? "stale" : "miss", {
+        path: `workspace:${workspaceSlug}`,
+        workspaceSlug,
+      });
+      return null;
+    }
+    recordNavigationCache(meta.status === "fresh" ? "hit" : "stale", {
+      path: `workspace:${workspaceSlug}`,
+      workspaceSlug,
+    });
+    return clone(workspace);
   },
   getWorkspaceDetailMeta(workspaceSlug) {
-    const entry = workspaceSlug
-      ? workspaceDetailsBySlug.get(workspaceSlug)
-      : null;
-    return {
-      status: entryStatus(entry, WORKSPACE_DETAIL_TTL_MS),
-      ageMs: ageMs(entry),
-      updatedAt: entry?.updatedAt || 0,
-      hasDetail: !!entry?.payload,
-    };
+    return workspaceNavigationStore.getWorkspaceDetailMeta(workspaceSlug);
   },
   setWorkspaceDetail(workspaceSlug, workspace = null) {
-    if (!workspaceSlug || !workspace) return;
-    workspaceDetailsBySlug.set(workspaceSlug, {
-      payload: clone(workspace),
-      updatedAt: Date.now(),
-    });
-    this.upsertWorkspace(workspace);
+    workspaceNavigationStore.setWorkspaceDetail(workspaceSlug, workspace);
     debugNavigationCache("workspace-detail:set", { workspaceSlug });
   },
   invalidateWorkspaceDetail(workspaceSlug) {
     if (!workspaceSlug) return;
-    workspaceDetailsBySlug.delete(workspaceSlug);
+    workspaceNavigationStore.invalidateWorkspaceDetail(workspaceSlug);
     recordNavigationCache("invalidate", { path: `workspace:${workspaceSlug}` });
   },
   clear() {
-    workspacesEntry.payload = null;
-    workspacesEntry.updatedAt = 0;
-    threadsByWorkspace.clear();
-    workspaceDetailsBySlug.clear();
+    workspaceNavigationStore.clear();
     inFlightRequests.clear();
     resolvedRequests.clear();
-    clearSessionScope();
   },
   stats() {
+    const workspaceStats = workspaceNavigationStore.stats();
     return {
-      hasWorkspaces: !!workspacesEntry.payload,
-      workspaceCount: workspacesEntry.payload?.length || 0,
-      workspaces: this.getWorkspacesMeta(),
-      threadWorkspaceCount: threadsByWorkspace.size,
-      threadCount: [...threadsByWorkspace.values()].reduce(
-        (sum, entry) => sum + (entry.payload?.length || 0),
-        0
-      ),
-      workspaceDetailCount: workspaceDetailsBySlug.size,
+      hasWorkspaces: workspaceStats.hasWorkspaces,
+      workspaceCount: workspaceStats.workspaceCount,
+      workspaces: workspaceStats.workspaces,
+      threadWorkspaceCount: workspaceStats.threadWorkspaceCount,
+      threadCount: workspaceStats.threadCount,
+      workspaceDetailCount: workspaceStats.workspaceDetailCount,
+      serverStateEntries: workspaceStats.serverStateEntries,
       inFlightCount: inFlightRequests.size,
       inFlightKeys: [...inFlightRequests.keys()],
     };

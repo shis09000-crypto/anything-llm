@@ -15,6 +15,20 @@ export async function streamQuizSubmit({
     body: { answers },
     openWhenHidden: true,
     communicationScene: "workspace-chat",
+    task: {
+      label: "workspace:quiz-submit-stream",
+      kind: "realtime-stream",
+      priority: "P0",
+      policy: "realtime",
+      resource: "realtime",
+      protected: true,
+      abortable: false,
+      scope: {
+        route: "workspace-chat",
+        surface: "quiz",
+        workspaceSlug,
+      },
+    },
     onMessage(event, rawMessage) {
       onEvent?.(event, rawMessage);
     },

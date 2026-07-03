@@ -3,6 +3,9 @@ import {
   getAppEnvironment,
   storageKeys,
 } from "@/utils/appEnvironment";
+import { getStoredAuthUser } from "@/utils/authUserStorage";
+import { serverStateCache } from "@/utils/serverState/serverStateCache";
+import { serverStateTaskBridge } from "@/utils/serverState/serverStateTaskBridge";
 import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
@@ -12,6 +15,7 @@ import { historyCacheScope } from "./historyCacheScope";
 const DB_NAME = "anythingllm-workspacechat-cache";
 const STORE_NAME = "history";
 const SESSION_PREFIX = "workspacechat-history:";
+const SERVER_STATE_PREFIX = "thread.history:";
 
 export const THREAD_HISTORY_CACHE_VERSION = 2;
 export const THREAD_HISTORY_CACHE_TTL_MS = 1000 * 60 * 60 * 12;
@@ -21,6 +25,15 @@ export const THREAD_HISTORY_SESSION_MAX_SIZE = 4 * 1024 * 1024;
 export const THREAD_HISTORY_MEMORY_MAX_ENTRIES = 32;
 
 const memoryCache = new Map();
+
+function currentOwnerScope() {
+  if (typeof window === "undefined") return "server";
+  const user = getStoredAuthUser();
+  return [
+    getAppEnvironment(),
+    user?.authUserId || user?.id || user?.username || "anonymous",
+  ].join(":");
+}
 
 function cacheKey({
   workspaceSlug,
@@ -40,6 +53,83 @@ function estimateSize(value) {
   } catch {
     return 0;
   }
+}
+
+function serverStateKey(key) {
+  return `${SERVER_STATE_PREFIX}${key}`;
+}
+
+function serverStateScope(options = {}) {
+  const scope = historyCacheScope({
+    detail: options.detail,
+    surface: options.surface,
+  });
+  return {
+    domain: "thread-history",
+    route: "workspace-chat",
+    workspaceSlug: options.workspaceSlug,
+    threadSlug: options.threadSlug || "default",
+    kind: options.kind || "page",
+    cursor: options.cursor || "latest",
+    detail: scope.detail,
+    surface: scope.surface,
+  };
+}
+
+function shouldMirrorToServerState(options = {}, payload = null) {
+  if ((options.kind || "page") !== "page") return false;
+  if (!payload) return false;
+  return estimateSize(payload) <= THREAD_HISTORY_MEMORY_MAX_SIZE;
+}
+
+function pruneServerStateHistoryCache() {
+  const ownerScope = currentOwnerScope();
+  const entries = serverStateCache
+    .snapshot()
+    .entries.filter(
+      (entry) =>
+        entry.ownerScope === ownerScope &&
+        entry.scope?.domain === "thread-history"
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+
+  let size = 0;
+  entries.forEach((entry, index) => {
+    size += entry.meta?.size || 0;
+    if (
+      index >= THREAD_HISTORY_MEMORY_MAX_ENTRIES ||
+      size > THREAD_HISTORY_MEMORY_MAX_SIZE
+    ) {
+      serverStateCache.invalidate(entry.key, { ownerScope });
+    }
+  });
+}
+
+function mirrorToServerState(
+  options = {},
+  key,
+  payload,
+  updatedAt = Date.now()
+) {
+  if (!shouldMirrorToServerState(options, payload)) return;
+  const size = estimateSize(payload);
+  serverStateCache.set(serverStateKey(key), payload, {
+    ttlMs: THREAD_HISTORY_CACHE_TTL_MS,
+    ownerScope: currentOwnerScope(),
+    updatedAt,
+    scope: serverStateScope(options),
+    meta: { size },
+  });
+  pruneServerStateHistoryCache();
+}
+
+function readFromServerState(options = {}, key) {
+  if ((options.kind || "page") !== "page") return null;
+  return serverStateCache.get(serverStateKey(key), {
+    allowStale: false,
+    ttlMs: THREAD_HISTORY_CACHE_TTL_MS,
+    ownerScope: currentOwnerScope(),
+  });
 }
 
 function sanitizeForCache(value) {
@@ -268,14 +358,21 @@ export const threadHistoryCache = {
   key: cacheKey,
   async get(options) {
     const key = cacheKey(options);
+    const serverState = readFromServerState(options, key);
+    if (serverState) return serverState;
+
     const memory = memoryCache.get(key);
-    if (!isExpired(memory)) return memory.payload;
+    if (!isExpired(memory)) {
+      mirrorToServerState(options, key, memory.payload, memory.updatedAt);
+      return memory.payload;
+    }
     if (memory) memoryCache.delete(key);
 
     const session = await getSession(key);
     if (!isExpired(session)) {
       memoryCache.set(key, session);
       pruneMemoryCache();
+      mirrorToServerState(options, key, session.payload, session.updatedAt);
       return session.payload;
     }
 
@@ -284,9 +381,37 @@ export const threadHistoryCache = {
       memoryCache.set(key, indexed);
       setSession(key, await sealEntry(indexed));
       pruneMemoryCache();
+      mirrorToServerState(options, key, indexed.payload, indexed.updatedAt);
       return indexed.payload;
     }
     return null;
+  },
+  async ensure(options, fetcher, taskOptions = {}) {
+    const cached = await this.get(options);
+    if (cached) return cached;
+    const key = cacheKey(options);
+    return serverStateTaskBridge.ensure({
+      key: serverStateKey(key),
+      fetcher: async (taskArgs) => {
+        const payload = await fetcher(taskArgs);
+        return sanitizeForCache(payload);
+      },
+      ttlMs: THREAD_HISTORY_CACHE_TTL_MS,
+      ownerScope: currentOwnerScope(),
+      scope: serverStateScope(options),
+      priority: taskOptions.priority || "P1",
+      policy: taskOptions.policy || "visible",
+      intentRank: taskOptions.intentRank ?? 2,
+      staleWhileRevalidate: taskOptions.staleWhileRevalidate !== false,
+      dedupeKey: taskOptions.dedupeKey || `server-state:${serverStateKey(key)}`,
+      label: taskOptions.label || `thread-history:${key}`,
+      meta: taskOptions.meta || { size: 0 },
+      onCommit: async (payload) => {
+        await this.set(options, payload, {
+          indexed: taskOptions.indexed === true,
+        });
+      },
+    });
   },
   async set(options, payload, { indexed = false } = {}) {
     const key = cacheKey(options);
@@ -300,6 +425,7 @@ export const threadHistoryCache = {
     };
     memoryCache.set(key, entry);
     pruneMemoryCache();
+    mirrorToServerState(options, key, cachedPayload, entry.updatedAt);
     const sealedEntry = await sealEntry(entry);
     setSession(key, sealedEntry);
     if (indexed) await writeIndexedDb(sealedEntry);
@@ -312,11 +438,23 @@ export const threadHistoryCache = {
   stats() {
     const memory = memoryEntries();
     const session = sessionEntries();
+    const serverStateEntries = serverStateCache
+      .snapshot()
+      .entries.filter(
+        (entry) =>
+          entry.ownerScope === currentOwnerScope() &&
+          entry.scope?.domain === "thread-history"
+      );
     return {
       memoryEntries: memory.length,
       memoryBytes: memory.reduce((sum, item) => sum + item.size, 0),
       sessionEntries: session.length,
       sessionBytes: session.reduce((sum, item) => sum + item.size, 0),
+      serverStateEntries: serverStateEntries.length,
+      serverStateBytes: serverStateEntries.reduce(
+        (sum, entry) => sum + (entry.meta?.size || 0),
+        0
+      ),
       limits: {
         memoryBytes: THREAD_HISTORY_MEMORY_MAX_SIZE,
         sessionBytes: THREAD_HISTORY_SESSION_MAX_SIZE,
@@ -327,6 +465,14 @@ export const threadHistoryCache = {
   },
   invalidateThread(workspaceSlug, threadSlug = null) {
     const needle = `:${workspaceSlug}:${threadSlug || "default"}:`;
+    serverStateCache.invalidateScope(
+      {
+        domain: "thread-history",
+        workspaceSlug,
+        threadSlug: threadSlug || "default",
+      },
+      { ownerScope: currentOwnerScope() }
+    );
     for (const key of [...memoryCache.keys()]) {
       if (key.includes(needle)) memoryCache.delete(key);
     }
@@ -349,6 +495,10 @@ export const threadHistoryCache = {
   },
   invalidateWorkspace(workspaceSlug) {
     const needle = `:${workspaceSlug}:`;
+    serverStateCache.invalidateScope(
+      { domain: "thread-history", workspaceSlug },
+      { ownerScope: currentOwnerScope() }
+    );
     for (const key of [...memoryCache.keys()]) {
       if (key.includes(needle)) memoryCache.delete(key);
     }
@@ -370,6 +520,10 @@ export const threadHistoryCache = {
     });
   },
   clearAll() {
+    serverStateCache.invalidateScope(
+      { domain: "thread-history" },
+      { ownerScope: currentOwnerScope() }
+    );
     memoryCache.clear();
     try {
       storageKeys(sessionStorage)

@@ -12,10 +12,10 @@ export function LogoProvider({ children }) {
   const [loginLogo, setLoginLogo] = useState("");
   const [isCustomLogo, setIsCustomLogo] = useState(false);
 
-  async function fetchInstanceLogo() {
+  async function fetchInstanceLogo({ force = false } = {}) {
     const DefaultLoginLogo = AthenaLogo;
     try {
-      const { isCustomLogo, logoURL } = await System.fetchLogo();
+      const { isCustomLogo, logoURL } = await System.fetchLogo({ force });
       if (logoURL && isCustomLogo) {
         setLogo(logoURL);
         setLoginLogo(logoURL);
@@ -35,9 +35,10 @@ export function LogoProvider({ children }) {
 
   useEffect(() => {
     fetchInstanceLogo();
-    window.addEventListener(REFETCH_LOGO_EVENT, fetchInstanceLogo);
+    const forceRefetchLogo = () => fetchInstanceLogo({ force: true });
+    window.addEventListener(REFETCH_LOGO_EVENT, forceRefetchLogo);
     return () => {
-      window.removeEventListener(REFETCH_LOGO_EVENT, fetchInstanceLogo);
+      window.removeEventListener(REFETCH_LOGO_EVENT, forceRefetchLogo);
     };
   }, []);
 

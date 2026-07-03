@@ -63,6 +63,16 @@ function policyForPriority(priority) {
 function routeFromScene(scene, path, transport) {
   const value = String(scene || "").toLowerCase();
   const normalizedPath = normalizePath(path).toLowerCase();
+  if (value.includes("account")) return "account-settings";
+  if (value.includes("admin") || normalizedPath.startsWith("/admin/"))
+    return "admin";
+  if (value.includes("agent-flow") || normalizedPath.startsWith("/agent-flows"))
+    return "agent-flows";
+  if (
+    value.includes("community-hub") ||
+    normalizedPath.startsWith("/community-hub")
+  )
+    return "community-hub";
   if (value.includes("crypto") || normalizedPath.includes("crypto"))
     return "crypto-center";
   if (value.includes("reader") || normalizedPath.includes("reader-document"))
@@ -108,6 +118,16 @@ function defaultKind({ transport, method, path, communicationScene }) {
     return "blob";
   }
   if (transport === "stream") return "realtime-stream";
+  if (scene.includes("account")) return "account";
+  if (scene.includes("admin") || normalizedPath.startsWith("/admin/"))
+    return "admin";
+  if (scene.includes("agent-flow") || normalizedPath.startsWith("/agent-flows"))
+    return "agent-flow";
+  if (
+    scene.includes("community-hub") ||
+    normalizedPath.startsWith("/community-hub")
+  )
+    return "community-hub";
   if (scene.includes("crypto") || normalizedPath.includes("crypto"))
     return "crypto";
   if (scene.includes("reader") || normalizedPath.includes("reader-document"))
@@ -122,10 +142,103 @@ function defaultKind({ transport, method, path, communicationScene }) {
 function defaultPriority({ method, path, transport, communicationScene }) {
   const normalizedPath = normalizePath(path).toLowerCase();
   const scene = String(communicationScene || "").toLowerCase();
+  const isWorkspaceThreadAction =
+    normalizedPath.match(/\/workspace\/[^/]+\/thread\/new\b/) ||
+    normalizedPath.match(/\/workspace\/[^/]+\/thread\/fork\b/) ||
+    normalizedPath.match(
+      /\/workspace\/[^/]+\/thread\/[^/]+\/(update|move)\b/
+    ) ||
+    normalizedPath.match(/\/workspace\/[^/]+\/thread-bulk-delete\b/) ||
+    (normalizedPath.match(/\/workspace\/[^/]+\/thread\/[^/]+$/) &&
+      method === "DELETE") ||
+    normalizedPath.match(/\/workspace\/[^/]+\/thread\/[^/]+\/update-chat\b/) ||
+    normalizedPath.match(
+      /\/workspace\/[^/]+\/thread\/[^/]+\/delete-edited-chats\b/
+    );
+  const isWorkspaceQuizForeground =
+    normalizedPath.match(/\/workspace\/[^/]+\/quiz\/generate\b/) ||
+    normalizedPath.match(/\/workspace\/[^/]+\/quiz\/[^/]+\/submit\b/);
+  const isReaderDelete =
+    normalizedPath.includes("/reader-documents/") && method === "DELETE";
+  const isAdminSecurityAction =
+    WRITE_METHODS.has(method) &&
+    (normalizedPath.match(/\/admin\/user(s)?\b/) ||
+      normalizedPath.includes("/admin/invite/") ||
+      normalizedPath.includes("/admin/workspaces/") ||
+      normalizedPath.includes("/admin/generate-api-key") ||
+      normalizedPath.includes("/admin/delete-api-key") ||
+      normalizedPath.includes("/browser-extension/api-keys"));
+  if (
+    scene.includes("auth-bootstrap") ||
+    scene.includes("auth-login") ||
+    scene.includes("security-current") ||
+    scene.includes("account-security") ||
+    scene.includes("admin-security") ||
+    scene.includes("system-patrol-action")
+  )
+    return "P0";
+  if (
+    scene.includes("workspace-upload-visible") ||
+    scene.includes("workspace-upload-action") ||
+    scene.includes("workspace-thread-create") ||
+    scene.includes("workspace-thread-action") ||
+    scene.includes("reader-open") ||
+    scene.includes("reader-action") ||
+    scene.includes("reader-manual")
+  )
+    return "P0";
+  if (
+    isWorkspaceThreadAction ||
+    isWorkspaceQuizForeground ||
+    isAdminSecurityAction ||
+    normalizedPath.includes("/upload-and-embed") ||
+    isReaderDelete
+  )
+    return "P0";
+  if (
+    scene.includes("app-bootstrap") ||
+    scene.includes("account-settings") ||
+    scene.includes("workspace-navigation") ||
+    scene.includes("workspace-overview") ||
+    scene.includes("workspace-supplement") ||
+    scene.includes("visual-assets") ||
+    scene.includes("admin-panel") ||
+    scene.includes("agent-flow") ||
+    scene.includes("community-hub") ||
+    scene.includes("data-connector") ||
+    scene.includes("scheduled-jobs") ||
+    scene.includes("wechat") ||
+    scene.includes("model-settings") ||
+    scene.includes("system-patrol") ||
+    scene.includes("onboarding") ||
+    scene.includes("llm-model-selector") ||
+    scene.includes("reader-visible") ||
+    scene.includes("crypto-visible") ||
+    scene.includes("settings-tab")
+  )
+    return "P1";
   if (isHighRiskPath(path)) return "P0";
   if (transport === "upload") return "P1";
   if (transport === "stream") return scene.includes("chat") ? "P0" : "P2";
   if (WRITE_METHODS.has(method)) return "P1";
+  if (
+    normalizedPath.startsWith("/admin/") ||
+    normalizedPath.startsWith("/agent-flows") ||
+    normalizedPath.startsWith("/community-hub") ||
+    normalizedPath.startsWith("/scheduled-jobs") ||
+    normalizedPath.startsWith("/wechat") ||
+    normalizedPath.startsWith("/advanced-gateway") ||
+    normalizedPath.startsWith("/browser-extension") ||
+    normalizedPath.includes("/overview") ||
+    normalizedPath.includes("/knowledge/") ||
+    normalizedPath.includes("/workspace-supplements") ||
+    normalizedPath.includes("/visual-assets") ||
+    normalizedPath.includes("/node-supplements") ||
+    normalizedPath.includes("/mind-maps") ||
+    normalizedPath.includes("/workspace/search") ||
+    normalizedPath.includes("/tts/")
+  )
+    return "P1";
   if (
     (normalizedPath.includes("thumbnail") &&
       (scene.includes("visible") || scene.includes("current"))) ||
@@ -156,6 +269,8 @@ function defaultResource({
   const taskKind = String(kind || "").toLowerCase();
   if (transport === "stream") return "realtime";
   if (transport === "upload") return "upload";
+  if (scene.includes("account-security") || scene.includes("auth-login"))
+    return "network";
   if (
     taskKind.includes("render") ||
     scene.includes("render") ||

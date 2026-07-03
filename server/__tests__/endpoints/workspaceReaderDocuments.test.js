@@ -72,6 +72,40 @@ function loadEndpoint(storageDir, helpersMock = null) {
   return require("../../endpoints/workspaceReaderDocuments")._private;
 }
 
+const TEST_READER_DOCUMENT_ID = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+
+function writeMarkdownReaderDocument(api, workspace, overrides = {}) {
+  const readerDocumentId = overrides.readerDocumentId || TEST_READER_DOCUMENT_ID;
+  const documentRoot = api.readerDocumentRoot(workspace, readerDocumentId);
+  fs.mkdirSync(documentRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(documentRoot, "original.md"),
+    overrides.text || "哲学思想与理性传统。".repeat(200)
+  );
+  fs.writeFileSync(
+    path.join(documentRoot, "metadata.json"),
+    JSON.stringify({
+      readerDocumentId,
+      originalName: overrides.originalName || "哲学书.md",
+      storedName: "original.md",
+      mimeType: "text/markdown",
+      documentType: "markdown",
+      size: 1024,
+      createdAt: "2026-07-01T00:00:00.000Z",
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      ...overrides.metadata,
+    })
+  );
+  fs.writeFileSync(
+    path.join(documentRoot, "content.json"),
+    JSON.stringify({
+      documentType: "markdown",
+      markdown: overrides.text || "哲学思想与理性传统。".repeat(200),
+    })
+  );
+  return { readerDocumentId, documentRoot };
+}
+
 describe("workspace reader documents", () => {
   const originalEnv = { ...process.env };
   let storageDir;
@@ -493,6 +527,113 @@ describe("workspace reader documents", () => {
       "classification",
       "pdfManifest",
     ]);
+  });
+
+  it("returns an active postprocess status instead of duplicating jobs", async () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const { readerDocumentId } = writeMarkdownReaderDocument(api, workspace);
+
+    const first = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "unknown", name: "未知分类" }],
+    });
+    const second = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "unknown", name: "未知分类" }],
+    });
+
+    expect(first.status).toBe("queued");
+    expect(["queued", "processing"]).toContain(second.status);
+    expect(second.requestedTasks).toEqual(["classification"]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  it("reuses completed postprocess results unless forced", () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const { readerDocumentId, documentRoot } = writeMarkdownReaderDocument(
+      api,
+      workspace
+    );
+    const completedStatus = {
+      schemaVersion: 1,
+      readerDocumentId,
+      status: "complete",
+      requestedTasks: ["classification"],
+      queuedAt: "2026-07-01T00:00:00.000Z",
+      startedAt: "2026-07-01T00:00:01.000Z",
+      completedAt: "2026-07-01T00:00:02.000Z",
+      updatedAt: "2026-07-01T00:00:02.000Z",
+      tasks: {
+        classification: {
+          status: "complete",
+          reason: "done",
+          result: {
+            success: true,
+            categoryStatus: "classified",
+            category: {
+              primaryCategoryId: "philosophy",
+              primaryCategoryName: "哲学思想",
+              source: "llm",
+            },
+          },
+        },
+      },
+    };
+    fs.writeFileSync(
+      path.join(documentRoot, "postprocess.json"),
+      JSON.stringify(completedStatus)
+    );
+
+    const reused = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "philosophy", name: "哲学思想" }],
+    });
+    expect(reused.status).toBe("complete");
+    expect(reused.queuedAt).toBe(completedStatus.queuedAt);
+
+    const forced = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "philosophy", name: "哲学思想" }],
+      force: true,
+    });
+    expect(forced.status).toBe("queued");
+  });
+
+  it("skips automatic classification when disabled but allows forced manual classification", async () => {
+    process.env.READER_AUTO_CLASSIFICATION_ENABLED = "false";
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const { readerDocumentId } = writeMarkdownReaderDocument(api, workspace);
+
+    expect(api.readerAutoClassificationEnabled()).toBe(false);
+    const skipped = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "unknown", name: "未知分类" }],
+    });
+    expect(skipped.tasks.classification.status).toBe("skipped");
+    expect(skipped.tasks.classification.reason).toBe("自动分类已关闭。");
+
+    const manual = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["classification"],
+      categories: [{ id: "unknown", name: "未知分类" }],
+      force: true,
+    });
+    expect(manual.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 50));
   });
 
   it("prioritizes target and nearby pages for PDF preview windows", () => {

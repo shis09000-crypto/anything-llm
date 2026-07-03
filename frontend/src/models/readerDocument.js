@@ -1,6 +1,7 @@
 import { deleteJson, getJson, postJson } from "@/lib/communication/apiClient";
 import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
+import { readerServerStateStore } from "@/utils/serverState/readerServerStateStore";
 
 function readerDocumentsPath(slug = null) {
   return slug ? `/workspace/${slug}/reader-documents` : "/reader-documents";
@@ -24,12 +25,51 @@ function pagePreviewUrlForOriginal(originalUrl, pageNumber = 1) {
 
 const ReaderDocument = {
   list: async function (slug = null, options = {}) {
-    const { response, data } = await getJson(readerDocumentsPath(slug), {
-      signal: options.signal,
-      communicationScene: "reader-open",
-      task: options.task,
-    });
-    return { response, data };
+    try {
+      const documents = await readerServerStateStore.ensureDocumentList(
+        slug,
+        async ({ signal }) => {
+          const { data } = await getJson(readerDocumentsPath(slug), {
+            signal,
+            communicationScene: "reader-open",
+            task: false,
+          });
+          if (!data?.success) return [];
+          return data.documents || [];
+        },
+        {
+          priority: options.task?.priority || "P1",
+          intentRank: options.task?.intentRank ?? 3,
+          staleWhileRevalidate: options.staleWhileRevalidate !== false,
+          signal: options.signal,
+          dedupeKey: `server-state:reader.documents:${slug || "global"}`,
+          label: `reader:documents:${slug || "global"}`,
+        }
+      );
+      return {
+        response: new Response(null, { status: 200 }),
+        data: {
+          success: true,
+          documents: Array.isArray(documents) ? documents : [],
+        },
+      };
+    } catch (error) {
+      if (error?.name === "AbortError") throw error;
+      if (options.allowCacheFallback === false) throw error;
+      const cachedDocuments = readerServerStateStore.getDocumentList(slug, {
+        allowStale: true,
+      });
+      if (!cachedDocuments) throw error;
+      return {
+        response: new Response(null, { status: 200 }),
+        data: {
+          success: true,
+          cached: true,
+          stale: true,
+          documents: cachedDocuments,
+        },
+      };
+    }
   },
   upload: async function (slug, formData, options = {}) {
     const { response, data } = await uploadFormData(
@@ -41,27 +81,81 @@ const ReaderDocument = {
         ...options,
       }
     );
+    if (response.ok && data?.success) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   get: async function (slug, readerDocumentId, options = {}) {
-    const { response, data } = await getJson(
-      withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
-        detail: options.detail,
-      }),
+    const data = await readerServerStateStore.ensureDocument(
+      slug,
+      readerDocumentId,
+      async ({ signal }) => {
+        const result = await getJson(
+          withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
+            detail: options.detail,
+          }),
+          {
+            signal,
+            communicationScene: "reader-open",
+            task: false,
+          }
+        );
+        return result.data;
+      },
       {
+        priority: options.task?.priority || "P0",
+        intentRank: options.task?.intentRank ?? 0,
+        staleWhileRevalidate: options.staleWhileRevalidate !== false,
         signal: options.signal,
-        communicationScene: "reader-open",
-        task: options.task,
+        dedupeKey: `server-state:reader.document:${slug || "global"}:${readerDocumentId}`,
+        label: `reader:document:${readerDocumentId}`,
       }
     );
-    return { response, data };
+    return {
+      response: new Response(null, { status: 200 }),
+      data: data || { success: false },
+    };
   },
   delete: async function (slug, readerDocumentId, options = {}) {
-    const { response, data } = await deleteJson(
-      `${readerDocumentsPath(slug)}/${readerDocumentId}`,
-      options
-    );
-    return { response, data };
+    const task =
+      options.task === undefined
+        ? {
+            label: "reader:delete-document",
+            kind: "reader",
+            priority: "P0",
+            policy: "foreground",
+            resource: "network",
+            protected: true,
+            abortable: false,
+            intentRank: 0,
+            scope: {
+              route: "workspace-chat",
+              surface: "reader-delete",
+              workspaceSlug: slug || null,
+              readerDocumentId,
+            },
+          }
+        : options.task;
+    try {
+      const { response, data } = await deleteJson(
+        `${readerDocumentsPath(slug)}/${readerDocumentId}`,
+        {
+          ...options,
+          communicationScene: options.communicationScene || "reader-action",
+          task,
+        }
+      );
+      if ((response.ok && data?.success) || response.status === 404) {
+        readerServerStateStore.removeDocument(slug, readerDocumentId);
+      }
+      return { response, data };
+    } catch (error) {
+      if (error?.status === 404) {
+        readerServerStateStore.removeDocument(slug, readerDocumentId);
+      }
+      throw error;
+    }
   },
   originalBlob: async function (originalUrl, options = {}) {
     const { response, blob } = await requestBlob(originalUrl, {
@@ -111,6 +205,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.success) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   fromLocalPath: async function (slug, absolutePath, options = {}) {
@@ -123,6 +220,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.success) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   reopenLocalPath: async function (slug, readerDocumentId, options = {}) {
@@ -135,6 +235,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.success) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   classify: async function (slug, payload = {}, options = {}) {
@@ -147,6 +250,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   postprocess: async function (
@@ -164,6 +270,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   postprocessStatus: async function (slug, readerDocumentId, options = {}) {
@@ -175,6 +284,9 @@ const ReaderDocument = {
         task: options.task,
       }
     );
+    if (response.ok && data?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, data);
+    }
     return { response, data };
   },
   ocrConfig: async function (slug, options = {}) {

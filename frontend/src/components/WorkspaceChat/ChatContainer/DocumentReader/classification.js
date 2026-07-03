@@ -4,6 +4,7 @@ import {
   normalizeReaderCategoryPatch,
   readReaderBookshelfCategories,
 } from "./storage";
+import { readerPostprocessScheduleOptions } from "./postprocessScheduling";
 
 const PDFJS_PUBLIC_BASE = `${import.meta.env.BASE_URL || "/"}`.replace(
   /\/?$/,
@@ -229,6 +230,11 @@ export async function classifyReaderBook({
       id: category.id,
       name: category.name,
     }));
+    const taskOptions = readerPostprocessScheduleOptions({
+      intent: "manual",
+      workspaceSlug,
+      readerDocumentId: title || "visible-classification",
+    });
     const { response, data } = await ReaderDocument.classify(
       workspaceSlug,
       {
@@ -240,12 +246,13 @@ export async function classifyReaderBook({
       {
         communicationScene,
         task: task || {
-          label: "reader:classify-visible",
+          label: taskOptions.label,
           kind: "reader",
-          priority: "P0",
-          policy: "foreground",
-          emergency: true,
-          intentRank: 0,
+          priority: taskOptions.priority,
+          policy: taskOptions.policy,
+          resource: taskOptions.resource,
+          emergency: taskOptions.emergency,
+          intentRank: taskOptions.intentRank,
           scope: {
             route: "workspace-chat",
             surface: "reader-classification",

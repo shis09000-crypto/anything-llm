@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cryptoHubFetch } from "./useCryptoHubQuery";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
+import { cryptoServerStateStore } from "@/utils/serverState/cryptoServerStateStore";
 
 export type CryptoHubLoadingItem = {
   key: string;
@@ -29,7 +30,10 @@ const POLL_MS = 500;
 
 export function useCryptoHubInit({ enabled = true } = {}) {
   const [progress, setProgress] = useState<CryptoHubLoadingProgress | null>(
-    null
+    () =>
+      (cryptoServerStateStore.getHubProgress({
+        allowStale: true,
+      }) as CryptoHubLoadingProgress | null) || null
   );
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -46,8 +50,15 @@ export function useCryptoHubInit({ enabled = true } = {}) {
     retryNonceRef.current += 1;
     const runId = retryNonceRef.current;
     startedAtRef.current = Date.now();
+    const cachedProgress = cryptoServerStateStore.getHubProgress({
+      allowStale: true,
+    }) as CryptoHubLoadingProgress | null;
+    if (cachedProgress) {
+      setProgress(cachedProgress);
+      if (cachedProgress.phase === "ready") setReady(true);
+    }
     setRunning(true);
-    setReady(false);
+    setReady(cachedProgress?.phase === "ready");
     setError(null);
 
     abortRef.current?.abort();
@@ -104,6 +115,7 @@ export function useCryptoHubInit({ enabled = true } = {}) {
         );
         if (!next) return;
         if (retryNonceRef.current !== runId) return;
+        cryptoServerStateStore.setHubProgress(next);
         setProgress(next);
         const elapsed = Date.now() - (startedAtRef.current || Date.now());
         if (

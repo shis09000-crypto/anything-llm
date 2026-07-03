@@ -24,6 +24,68 @@ import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
 
+function workspaceTask({
+  label,
+  slug = null,
+  threadSlug = null,
+  surface = "workspace",
+  priority = "P1",
+  policy = null,
+  protectedTask = false,
+  abortable = null,
+  intentRank = undefined,
+  resource = "network",
+} = {}) {
+  return {
+    label,
+    kind: "workspace",
+    priority,
+    policy:
+      policy ||
+      (priority === "P0"
+        ? "foreground"
+        : priority === "P4"
+          ? "maintenance"
+          : "visible"),
+    resource,
+    protected: protectedTask,
+    abortable:
+      abortable !== null && abortable !== undefined
+        ? abortable
+        : !protectedTask,
+    ...(intentRank !== undefined ? { intentRank } : {}),
+    scope: {
+      route: "workspace-chat",
+      surface,
+      ...(slug ? { workspaceSlug: slug } : {}),
+      ...(threadSlug ? { threadSlug } : {}),
+    },
+  };
+}
+
+function workspaceUserActionTask(label, slug, surface, threadSlug = null) {
+  return workspaceTask({
+    label,
+    slug,
+    threadSlug,
+    surface,
+    priority: "P0",
+    protectedTask: true,
+    abortable: false,
+    intentRank: 0,
+  });
+}
+
+function workspaceVisibleTask(label, slug, surface, threadSlug = null) {
+  return workspaceTask({
+    label,
+    slug,
+    threadSlug,
+    surface,
+    priority: "P1",
+  });
+}
+
 function historyPageQuery({
   limit = 20,
   beforeChatId = null,
@@ -48,10 +110,23 @@ const Workspace = {
   /** The maximum percentage of the context window that can be used for attachments */
   maxContextWindowLimit: 0.8,
 
-  new: async function (data = {}) {
+  new: async function (data = {}, options = {}) {
     const { workspace, message, defaultThreads } = await postJson(
       "/workspace/new",
-      data
+      data,
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-navigation",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:create",
+                null,
+                "workspace-create"
+              )
+            : options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => {
@@ -74,8 +149,11 @@ const Workspace = {
       data,
       {
         signal: options.signal,
-        communicationScene: options.communicationScene,
-        task: options.task,
+        communicationScene: options.communicationScene || "workspace-settings",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask("workspace:update", slug, "workspace-save")
+            : options.task,
       }
     )
       .then(({ data }) => data)
@@ -91,14 +169,27 @@ const Workspace = {
 
     return { workspace, message };
   },
-  modifyEmbeddings: async function (slug, changes = {}) {
+  modifyEmbeddings: async function (slug, changes = {}, options = {}) {
     const {
       workspace,
       message,
       batchJob = null,
     } = await postJson(
       `/workspace/${slug}/update-embeddings`,
-      changes // contains 'adds' and 'removes' keys that are arrays of filepaths
+      changes, // contains 'adds' and 'removes' keys that are arrays of filepaths
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-upload-action",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:update-embeddings",
+                slug,
+                "workspace-documents"
+              )
+            : options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => {
@@ -107,9 +198,20 @@ const Workspace = {
 
     return { workspace, message, batchJob };
   },
-  removeQueuedEmbedding: async function (slug, filename) {
+  removeQueuedEmbedding: async function (slug, filename, options = {}) {
     return deleteJson(`/workspace/${slug}/embed-queue`, {
       body: { filename },
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-upload-action",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:remove-queued-embedding",
+              slug,
+              "workspace-documents"
+            )
+          : options.task,
     })
       .then(({ data }) => data)
       .catch(() => ({ success: false }));
@@ -188,11 +290,23 @@ const Workspace = {
       hydratedPublicChatIds: payload.hydratedPublicChatIds || [],
     };
   },
-  updateChatFeedback: async function (chatId, slug, feedback) {
+  updateChatFeedback: async function (chatId, slug, feedback, options = {}) {
     const result = await postJson(
       `/workspace/${slug}/chat-feedback/${chatId}`,
       {
         feedback,
+      },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask(
+                "workspace:chat-feedback",
+                slug,
+                "chat-feedback"
+              )
+            : options.task,
       }
     )
       .then(() => true)
@@ -200,9 +314,15 @@ const Workspace = {
     return result;
   },
 
-  deleteChats: async function (slug = "", chatIds = []) {
+  deleteChats: async function (slug = "", chatIds = [], options = {}) {
     return await deleteJson(`/workspace/${slug}/delete-chats`, {
       body: { chatIds },
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask("workspace:delete-chats", slug, "chat-edit")
+          : options.task,
     })
       .then(() => {
         threadHistoryCache.invalidateThread(slug, null);
@@ -213,21 +333,39 @@ const Workspace = {
         return false;
       });
   },
-  deleteEditedChats: async function (slug = "", threadSlug = "", startingId) {
+  deleteEditedChats: async function (
+    slug = "",
+    threadSlug = "",
+    startingId,
+    options = {}
+  ) {
     if (!!threadSlug)
-      return this.threads._deleteEditedChats(slug, threadSlug, startingId);
-    return this._deleteEditedChats(slug, startingId);
+      return this.threads._deleteEditedChats(
+        slug,
+        threadSlug,
+        startingId,
+        options
+      );
+    return this._deleteEditedChats(slug, startingId, options);
   },
   updateChat: async function (
     slug = "",
     threadSlug = "",
     chatId,
     newText,
-    role = "assistant"
+    role = "assistant",
+    options = {}
   ) {
     if (!!threadSlug)
-      return this.threads._updateChat(slug, threadSlug, chatId, newText, role);
-    const result = await this._updateChat(slug, chatId, newText, role);
+      return this.threads._updateChat(
+        slug,
+        threadSlug,
+        chatId,
+        newText,
+        role,
+        options
+      );
+    const result = await this._updateChat(slug, chatId, newText, role, options);
     if (result) threadHistoryCache.invalidateThread(slug, null);
     return result;
   },
@@ -259,15 +397,38 @@ const Workspace = {
       workspaceNavigationCache.setWorkspaceDetail(workspace.slug, workspace);
     return workspace;
   },
-  delete: async function (slug) {
-    const result = await deleteJson(`/workspace/${slug}`)
+  delete: async function (slug, options = {}) {
+    const result = await deleteJson(`/workspace/${slug}`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-navigation",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:delete",
+              slug,
+              "workspace-delete"
+            )
+          : options.task,
+    })
       .then(() => true)
       .catch(() => false);
 
     return result;
   },
-  wipeVectorDb: async function (slug) {
-    return await deleteJson(`/workspace/${slug}/reset-vector-db`)
+  wipeVectorDb: async function (slug, options = {}) {
+    return await deleteJson(`/workspace/${slug}/reset-vector-db`, {
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-settings-security",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:wipe-vector-db",
+              slug,
+              "workspace-settings"
+            )
+          : options.task,
+    })
       .then(() => true)
       .catch(() => false);
   },
@@ -357,8 +518,23 @@ const Workspace = {
         return null;
       });
   },
-  setSuggestedMessages: async function (slug, messages) {
-    return postJson(`/workspace/${slug}/suggested-messages`, { messages })
+  setSuggestedMessages: async function (slug, messages, options = {}) {
+    return postJson(
+      `/workspace/${slug}/suggested-messages`,
+      { messages },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-settings",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask(
+                "workspace:set-suggested-messages",
+                slug,
+                "workspace-settings"
+              )
+            : options.task,
+      }
+    )
       .then(({ data }) => ({ success: true, ...data }))
       .catch((e) => {
         console.error(e);
@@ -368,18 +544,40 @@ const Workspace = {
         };
       });
   },
-  setPinForDocument: async function (slug, docPath, pinStatus) {
-    return postJson(`/workspace/${slug}/update-pin`, { docPath, pinStatus })
+  setPinForDocument: async function (slug, docPath, pinStatus, options = {}) {
+    return postJson(
+      `/workspace/${slug}/update-pin`,
+      { docPath, pinStatus },
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-upload-action",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:set-document-pin",
+                slug,
+                "workspace-documents"
+              )
+            : options.task,
+      }
+    )
       .then(() => true)
       .catch((e) => {
         console.error(e);
         return false;
       });
   },
-  ttsMessage: async function (slug, chatId) {
+  ttsMessage: async function (slug, chatId, options = {}) {
     return await requestBlob(`/workspace/${slug}/tts/${chatId}`, {
       cache: "no-cache",
       blobKind: BLOB_KINDS.ttsAudio,
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task:
+        options.task === undefined
+          ? workspaceVisibleTask("workspace:tts-message", slug, "chat-tts")
+          : options.task,
     })
       .then(({ response, blob }) =>
         response.status !== 204 && blob ? URL.createObjectURL(blob) : null
@@ -388,9 +586,19 @@ const Workspace = {
         return null;
       });
   },
-  uploadPfp: async function (formData, slug) {
+  uploadPfp: async function (formData, slug, options = {}) {
     return await uploadFormData(`/workspace/${slug}/upload-pfp`, formData, {
       uploadKind: UPLOAD_KINDS.avatar,
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-settings",
+      task:
+        options.task === undefined
+          ? workspaceVisibleTask(
+              "workspace:upload-profile-picture",
+              slug,
+              "workspace-settings"
+            )
+          : options.task,
     })
       .then(() => {
         return { success: true, error: null };
@@ -401,10 +609,20 @@ const Workspace = {
       });
   },
 
-  fetchPfp: async function (slug) {
+  fetchPfp: async function (slug, options = {}) {
     return await requestBlob(`/workspace/${slug}/pfp`, {
       cache: "no-cache",
       blobKind: BLOB_KINDS.avatar,
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-navigation",
+      task:
+        options.task === undefined
+          ? workspaceVisibleTask(
+              "workspace:profile-picture",
+              slug,
+              "workspace-avatar"
+            )
+          : options.task,
     })
       .then(({ response, blob }) =>
         response.status !== 204 && blob ? URL.createObjectURL(blob) : null
@@ -414,8 +632,19 @@ const Workspace = {
       });
   },
 
-  removePfp: async function (slug) {
-    return await deleteJson(`/workspace/${slug}/remove-pfp`)
+  removePfp: async function (slug, options = {}) {
+    return await deleteJson(`/workspace/${slug}/remove-pfp`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-settings",
+      task:
+        options.task === undefined
+          ? workspaceVisibleTask(
+              "workspace:remove-profile-picture",
+              slug,
+              "workspace-settings"
+            )
+          : options.task,
+    })
       .then(() => {
         return { success: true, error: null };
       })
@@ -424,21 +653,52 @@ const Workspace = {
         return { success: false, error: e.message };
       });
   },
-  _updateChat: async function (slug = "", chatId, newText, role = "assistant") {
-    return await postJson(`/workspace/${slug}/update-chat`, {
-      chatId,
-      newText,
-      role,
-    })
+  _updateChat: async function (
+    slug = "",
+    chatId,
+    newText,
+    role = "assistant",
+    options = {}
+  ) {
+    return await postJson(
+      `/workspace/${slug}/update-chat`,
+      {
+        chatId,
+        newText,
+        role,
+      },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:update-chat",
+                slug,
+                "chat-edit"
+              )
+            : options.task,
+      }
+    )
       .then(() => true)
       .catch((e) => {
         console.log(e);
         return false;
       });
   },
-  _deleteEditedChats: async function (slug = "", startingId) {
+  _deleteEditedChats: async function (slug = "", startingId, options = {}) {
     return await deleteJson(`/workspace/${slug}/delete-edited-chats`, {
       body: { startingId },
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:delete-edited-chats",
+              slug,
+              "chat-edit"
+            )
+          : options.task,
     })
       .then(() => true)
       .catch((e) => {
@@ -446,8 +706,15 @@ const Workspace = {
         return false;
       });
   },
-  deleteChat: async (chatId) => {
-    return await putJson(`/workspace/workspace-chats/${chatId}`)
+  deleteChat: async (chatId, options = {}) => {
+    return await putJson(`/workspace/workspace-chats/${chatId}`, undefined, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask("workspace:delete-chat", null, "chat-edit")
+          : options.task,
+    })
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -460,17 +727,40 @@ const Workspace = {
     chatId = null,
     options = {}
   ) {
-    return await postJson(`/workspace/${slug}/thread/fork`, {
-      threadSlug,
-      chatId,
-      ...options,
-    })
+    const {
+      signal,
+      task,
+      communicationScene,
+      returnFull = false,
+      ...forkOptions
+    } = options;
+    return await postJson(
+      `/workspace/${slug}/thread/fork`,
+      {
+        threadSlug,
+        chatId,
+        ...forkOptions,
+      },
+      {
+        signal,
+        communicationScene: communicationScene || "workspace-thread-action",
+        task:
+          task === undefined
+            ? workspaceUserActionTask(
+                "workspace:fork-thread",
+                slug,
+                "thread-fork",
+                threadSlug
+              )
+            : task,
+      }
+    )
       .then(({ data }) => data)
-      .then((data) => (options.returnFull ? data : data.newThreadSlug))
+      .then((data) => (returnFull ? data : data.newThreadSlug))
       .catch((e) => {
         console.error("Error forking thread:", e);
         const error = responseError(e, "Failed to fork thread.");
-        return options.returnFull ? { error } : null;
+        return returnFull ? { error } : null;
       });
   },
   /**
@@ -479,21 +769,43 @@ const Workspace = {
    * @param {FormData} formData
    * @returns {Promise<{response: {ok: boolean}, data: {success: boolean, error: string|null, document: {id: string, location:string}|null}}>}
    */
-  uploadAndEmbedFile: async function (slug, formData) {
+  uploadAndEmbedFile: async function (slug, formData, options = {}) {
     const { response, data } = await uploadFormData(
       `/workspace/${slug}/upload-and-embed`,
       formData,
       {
         uploadKind: UPLOAD_KINDS.uploadAndEmbed,
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-upload-action",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:upload-and-embed",
+                slug,
+                "workspace-upload"
+              )
+            : options.task,
       }
     );
 
     return { response, data };
   },
 
-  deleteParsedFiles: async function (slug, fileIds = []) {
+  deleteParsedFiles: async function (slug, fileIds = [], options = {}) {
     return await deleteJson(`/workspace/${slug}/delete-parsed-files`, {
       body: { fileIds },
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-upload-action",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:delete-parsed-files",
+              slug,
+              "workspace-upload"
+            )
+          : options.task,
     })
       .then(() => true)
       .catch(() => false);
@@ -519,9 +831,20 @@ const Workspace = {
    * @param {string} documentLocation - location of file eg: custom-documents/my-file-uuid.json
    * @returns {Promise<boolean>}
    */
-  deleteAndUnembedFile: async function (slug, documentLocation) {
+  deleteAndUnembedFile: async function (slug, documentLocation, options = {}) {
     return await deleteJson(`/workspace/${slug}/remove-and-unembed`, {
       body: { documentLocation },
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "workspace-upload-action",
+      task:
+        options.task === undefined
+          ? workspaceUserActionTask(
+              "workspace:delete-and-unembed",
+              slug,
+              "workspace-documents"
+            )
+          : options.task,
     })
       .then(() => true)
       .catch(() => false);
@@ -591,8 +914,20 @@ const Workspace = {
    * @param {string} searchTerm
    * @returns {Promise<{workspaces: [{slug: string, name: string}], threads: [{slug: string, name: string, workspace: {slug: string, name: string}}]}}>}
    */
-  searchWorkspaceOrThread: async function (searchTerm) {
-    const response = await postJson("/workspace/search", { searchTerm })
+  searchWorkspaceOrThread: async function (searchTerm, options = {}) {
+    const response = await postJson(
+      "/workspace/search",
+      { searchTerm },
+      {
+        signal: options.signal,
+        communicationScene:
+          options.communicationScene || "workspace-navigation",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask("workspace:search", null, "workspace-search")
+            : options.task,
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => {
         console.error(e);
@@ -603,27 +938,68 @@ const Workspace = {
 
   generateQuiz: async function (
     slug,
-    { message, threadSlug = null, nodeContext = null } = {}
+    { message, threadSlug = null, nodeContext = null } = {},
+    options = {}
   ) {
-    return await postJson(`/workspace/${slug}/quiz/generate`, {
-      message,
-      threadSlug,
-      nodeContext,
+    return await postJson(
+      `/workspace/${slug}/quiz/generate`,
+      {
+        message,
+        threadSlug,
+        nodeContext,
+      },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask(
+                "workspace:quiz-generate",
+                slug,
+                "quiz",
+                threadSlug
+              )
+            : options.task,
+      }
+    )
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
+  },
+
+  quizStatus: async function (slug, quizId, options = {}) {
+    return await getJson(`/workspace/${slug}/quiz/${quizId}/status`, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "workspace-chat",
+      task:
+        options.task === undefined
+          ? workspaceTask({
+              label: "workspace:quiz-status",
+              slug,
+              surface: "quiz-status",
+              priority: "P2",
+              policy: "background",
+            })
+          : options.task,
     })
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
-  quizStatus: async function (slug, quizId) {
-    return await getJson(`/workspace/${slug}/quiz/${quizId}/status`)
-      .then(({ data }) => data)
-      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
-  },
-
-  submitQuiz: async function (slug, quizId, answers = {}) {
-    return await postJson(`/workspace/${slug}/quiz/${quizId}/submit`, {
-      answers,
-    })
+  submitQuiz: async function (slug, quizId, answers = {}, options = {}) {
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/submit`,
+      {
+        answers,
+      },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceUserActionTask("workspace:quiz-submit", slug, "quiz")
+            : options.task,
+      }
+    )
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
@@ -652,40 +1028,112 @@ const Workspace = {
   saveQuizProgress: async function (
     slug,
     quizId,
-    { answers = {}, currentIndex = 0 } = {}
+    { answers = {}, currentIndex = 0 } = {},
+    options = {}
   ) {
-    return await postJson(`/workspace/${slug}/quiz/${quizId}/progress`, {
-      answers,
-      currentIndex,
-    })
-      .then(({ data }) => data)
-      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
-  },
-
-  abandonQuiz: async function (slug, quizId) {
-    return await postJson(`/workspace/${slug}/quiz/${quizId}/abandon`)
-      .then(({ data }) => data)
-      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
-  },
-
-  saveQuizWrongQuestions: async function (slug, quizId) {
-    return await postJson(`/workspace/${slug}/quiz/${quizId}/wrong-questions`)
-      .then(({ data }) => data)
-      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
-  },
-
-  favoriteQuizQuestion: async function (slug, quizId, questionId) {
     return await postJson(
-      `/workspace/${slug}/quiz/${quizId}/favorite-question`,
-      { questionId }
+      `/workspace/${slug}/quiz/${quizId}/progress`,
+      {
+        answers,
+        currentIndex,
+      },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask("workspace:quiz-progress", slug, "quiz")
+            : options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
   },
 
-  unfavoriteQuizQuestion: async function (slug, quizId, questionId) {
+  abandonQuiz: async function (slug, quizId, options = {}) {
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/abandon`,
+      undefined,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask("workspace:quiz-abandon", slug, "quiz")
+            : options.task,
+      }
+    )
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
+  },
+
+  saveQuizWrongQuestions: async function (slug, quizId, options = {}) {
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/wrong-questions`,
+      undefined,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask(
+                "workspace:quiz-save-wrong-questions",
+                slug,
+                "quiz"
+              )
+            : options.task,
+      }
+    )
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
+  },
+
+  favoriteQuizQuestion: async function (
+    slug,
+    quizId,
+    questionId,
+    options = {}
+  ) {
+    return await postJson(
+      `/workspace/${slug}/quiz/${quizId}/favorite-question`,
+      { questionId },
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask(
+                "workspace:quiz-favorite-question",
+                slug,
+                "quiz"
+              )
+            : options.task,
+      }
+    )
+      .then(({ data }) => data)
+      .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
+  },
+
+  unfavoriteQuizQuestion: async function (
+    slug,
+    quizId,
+    questionId,
+    options = {}
+  ) {
     return await deleteJson(
-      `/workspace/${slug}/quiz/${quizId}/favorite-question/${questionId}`
+      `/workspace/${slug}/quiz/${quizId}/favorite-question/${questionId}`,
+      {
+        signal: options.signal,
+        communicationScene: options.communicationScene || "workspace-chat",
+        task:
+          options.task === undefined
+            ? workspaceVisibleTask(
+                "workspace:quiz-unfavorite-question",
+                slug,
+                "quiz"
+              )
+            : options.task,
+      }
     )
       .then(({ data }) => data)
       .catch((e) => rawOrFallback(e, { success: false, error: e.message }));
