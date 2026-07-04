@@ -2,12 +2,24 @@ import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 
 export const SENSITIVE_SESSION_HEADER = "X-Athena-Sensitive-Session";
 const NAVIGATION_PAGE_LIFECYCLE_EVENT = "athena-navigation-page-lifecycle";
-const SENSITIVE_REVOKE_PAGE_EVENTS = new Set([
-  "blur",
-  "hidden",
-  "pagehide",
-  "beforeunload",
-]);
+const SENSITIVE_REVOKE_PAGE_EVENTS = new Set(["pagehide", "beforeunload"]);
+
+function sensitiveSessionDebug(stage, detail = {}) {
+  if (typeof window === "undefined") return;
+  const payload = {
+    stage,
+    at: Math.round(window.performance?.now?.() || Date.now()),
+    ...detail,
+  };
+  window.dispatchEvent(
+    new CustomEvent("athena-sensitive-session-stage", { detail: payload })
+  );
+  const debugEnabled =
+    window.__ATHENA_READER_DEBUG__ === true ||
+    window.localStorage?.getItem?.("athenaReaderDebug") === "true" ||
+    window.location?.search?.includes("athenaReaderDebug=1");
+  if (debugEnabled) console.debug("[sensitive-session]", payload);
+}
 
 function nowMs() {
   return Date.now();
@@ -140,6 +152,14 @@ class SensitiveSessionCenter {
       this.aliases.set(aliasKey, key);
     });
     this.counters.stored += 1;
+    sensitiveSessionDebug("store", {
+      resourceType,
+      resourceId,
+      ownerScope: session.ownerScope,
+      hasAliases: aliasKeys.length > 0,
+      viewer: session.viewer,
+      expiresInMs: expiresAt ? Math.max(0, expiresAt - nowMs()) : null,
+    });
     this.#scheduleHeartbeat(session);
     this.#expose();
     return session;
@@ -232,7 +252,19 @@ class SensitiveSessionCenter {
     this.guardInstalled = true;
     window.addEventListener(NAVIGATION_PAGE_LIFECYCLE_EVENT, (event) => {
       const lifecycleEvent = event?.detail?.event;
-      if (!SENSITIVE_REVOKE_PAGE_EVENTS.has(lifecycleEvent)) return;
+      if (!SENSITIVE_REVOKE_PAGE_EVENTS.has(lifecycleEvent)) {
+        sensitiveSessionDebug("page-lifecycle-preserve", {
+          event: lifecycleEvent,
+          reason: event?.detail?.reason || null,
+          size: this.sessions.size,
+        });
+        return;
+      }
+      sensitiveSessionDebug("page-lifecycle-revoke-all", {
+        event: lifecycleEvent,
+        reason: event?.detail?.reason || null,
+        size: this.sessions.size,
+      });
       this.#revokeAll(event?.detail?.reason || `navigation-${lifecycleEvent}`);
     });
     window.addEventListener(AUTH_SESSION_CLEARED_EVENT, () => {
@@ -309,6 +341,7 @@ class SensitiveSessionCenter {
 
   #clearKey(key) {
     const canonicalKey = this.#canonicalKey(key);
+    const existing = this.sessions.get(canonicalKey);
     this.sessions.delete(canonicalKey);
     for (const [aliasKey, targetKey] of this.aliases.entries()) {
       if (aliasKey === key || targetKey === canonicalKey) {
@@ -318,6 +351,14 @@ class SensitiveSessionCenter {
     const heartbeat = this.heartbeats.get(canonicalKey);
     if (heartbeat) clearTimeout(heartbeat);
     this.heartbeats.delete(canonicalKey);
+    if (existing) {
+      sensitiveSessionDebug("clear", {
+        resourceType: existing.resourceType,
+        resourceId: existing.resourceId,
+        ownerScope: existing.ownerScope,
+        viewer: existing.viewer,
+      });
+    }
   }
 
   #canonicalKey(key) {

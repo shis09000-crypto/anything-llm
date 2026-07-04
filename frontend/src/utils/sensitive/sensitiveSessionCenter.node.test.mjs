@@ -260,7 +260,35 @@ test("abnormal path: heartbeat failure clears the local session and heartbeat ti
   }
 });
 
-test("pressure path: navigation blur revokes all sessions with one scheduled scope revoke, not N revokes", async () => {
+test("navigation blur preserves sessions because reader viewer may still be active", async () => {
+  const windowStub = installWindowStub();
+  try {
+    const { sensitiveSessionCenter } = await loadSensitiveSessionCenter();
+    sensitiveSessionCenter.store(
+      {
+        token: "ssn_blur_reader",
+        resourceType: "reader_document",
+        resourceId: "doc-blur",
+      },
+      {
+        resourceType: "reader_document",
+        resourceId: "doc-blur",
+      }
+    );
+
+    windowStub.window.dispatchEvent({
+      type: "athena-navigation-page-lifecycle",
+      detail: { event: "blur", reason: "window-blur" },
+    });
+
+    assert.equal(globalThis.__sensitiveSessionTestApiClient.calls.length, 0);
+    assert.equal(sensitiveSessionCenter.snapshot().size, 1);
+  } finally {
+    windowStub.cleanup();
+  }
+});
+
+test("pressure path: pagehide revokes all sessions with one scheduled scope revoke, not N revokes", async () => {
   const windowStub = installWindowStub();
   try {
     const { sensitiveSessionCenter } = await loadSensitiveSessionCenter();
@@ -280,13 +308,13 @@ test("pressure path: navigation blur revokes all sessions with one scheduled sco
 
     windowStub.window.dispatchEvent({
       type: "athena-navigation-page-lifecycle",
-      detail: { event: "blur", reason: "window-blur" },
+      detail: { event: "pagehide", reason: "pagehide" },
     });
     const calls = globalThis.__sensitiveSessionTestApiClient.calls;
 
     assert.equal(calls.length, 1);
     assert.equal(calls[0].path, "/sensitive-sessions/revoke-scope");
-    assert.equal(calls[0].body.reason, "window-blur");
+    assert.equal(calls[0].body.reason, "pagehide");
     assert.equal(calls[0].options.task.kind, "sensitive-session");
     assert.equal(calls[0].options.task.priority, "P0");
     assert.equal(calls[0].options.task.protected, true);

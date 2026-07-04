@@ -142,6 +142,31 @@ function validateSensitiveSession({
     session?.resourceIdHash === expectedResourceIdHash;
   const ownerScopeMatches =
     !ownerScope || session?.ownerScope === compactString(ownerScope, 256);
+  const failureReason = !session
+    ? "missing_or_expired"
+    : !ownerId
+      ? "missing_user"
+      : !normalizedClientId
+        ? "missing_client"
+        : session.status !== "active"
+          ? "inactive"
+          : session.userId !== ownerId
+            ? "user_mismatch"
+            : session.clientId !== normalizedClientId
+              ? "client_mismatch"
+              : !resourceMatches
+                ? "resource_type_mismatch"
+                : !idMatches
+                  ? "resource_id_mismatch"
+                  : !ownerScopeMatches
+                    ? "owner_scope_mismatch"
+                    : session.sessionFingerprint &&
+                        session.sessionFingerprint !==
+                          compactString(sessionFingerprint, 128)
+                      ? "auth_session_mismatch"
+                      : session.expiresAt <= now()
+                        ? "expired"
+                        : null;
 
   if (
     !session ||
@@ -158,7 +183,12 @@ function validateSensitiveSession({
     session.expiresAt <= now()
   ) {
     if (token && session) sensitiveSessions.delete(String(token));
-    return { ok: false, error: "sensitive_session_required" };
+    return {
+      ok: false,
+      error: "sensitive_session_required",
+      reason: failureReason || "unknown",
+      present: !!session,
+    };
   }
 
   if (heartbeat) session.lastHeartbeatAt = now();

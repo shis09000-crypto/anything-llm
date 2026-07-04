@@ -31,14 +31,38 @@ function pagePreviewUrlForOriginal(originalUrl, pageNumber = 1) {
   return `${base}${separator}page=${Math.max(1, Math.round(Number(pageNumber) || 1))}`;
 }
 
+function readerDocumentDebug(stage, detail = {}) {
+  if (typeof window === "undefined") return;
+  const payload = {
+    stage,
+    at: Math.round(window.performance?.now?.() || Date.now()),
+    ...detail,
+  };
+  window.dispatchEvent(
+    new CustomEvent("athena-reader-document-stage", { detail: payload })
+  );
+  const debugEnabled =
+    window.__ATHENA_READER_DEBUG__ === true ||
+    window.localStorage?.getItem?.("athenaReaderDebug") === "true" ||
+    window.location?.search?.includes("athenaReaderDebug=1");
+  if (debugEnabled) console.debug("[reader:document]", payload);
+}
+
 function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
   const session = documentData?.sensitiveSession;
   const descriptor = readerAccessDescriptorForDocument(
     documentData,
     fallbackId
   );
-  if (!session || !descriptor?.readerDocumentId) return null;
-  return sensitiveSessionCenter.beginViewer(session, {
+  if (!session || !descriptor?.readerDocumentId) {
+    readerDocumentDebug("sensitive-session-missing", {
+      readerDocumentId: fallbackId || documentData?.readerDocumentId || null,
+      hasSession: !!session,
+      hasDescriptor: !!descriptor?.readerDocumentId,
+    });
+    return null;
+  }
+  const storedSession = sensitiveSessionCenter.beginViewer(session, {
     resourceType: READER_DOCUMENT_RESOURCE_TYPE,
     resourceId: descriptor.resourceId,
     aliasResourceIds: [descriptor.readerDocumentId],
@@ -46,6 +70,14 @@ function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
     exclusiveByResourceType: true,
     reason: "reader-open",
   });
+  readerDocumentDebug("sensitive-session-stored", {
+    readerDocumentId: descriptor.readerDocumentId,
+    namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+    resourceId: descriptor.resourceId,
+    ownerScope: descriptor.ownerScope,
+    hasToken: !!storedSession?.token,
+  });
+  return storedSession;
 }
 
 function isReaderAuthError(errorOrResponse = null) {
@@ -86,7 +118,10 @@ async function fetchReaderDocumentDirect(slug, readerDocumentId, options = {}) {
   };
 }
 
-async function refreshReaderSensitiveSessionForUrl(url = "", options = {}) {
+export async function refreshReaderSensitiveSessionForUrl(
+  url = "",
+  options = {}
+) {
   const descriptor = readerAccessDescriptorFromUrl(url);
   if (!descriptor?.readerDocumentId) return null;
   const result = await fetchReaderDocumentDirect(
@@ -102,23 +137,71 @@ async function refreshReaderSensitiveSessionForUrl(url = "", options = {}) {
 }
 
 export function readerSensitiveHeadersForUrl(url = "") {
+  const state = readerSensitiveSessionStateForUrl(url);
+  return state.hasHeader ? { "X-Athena-Sensitive-Session": state.token } : {};
+}
+
+export function readerSensitiveSessionStateForUrl(url = "") {
   const descriptor = readerAccessDescriptorFromUrl(url);
-  if (!descriptor) return {};
+  if (!descriptor)
+    return {
+      hasDescriptor: false,
+      hasDirectSession: false,
+      hasAliasSession: false,
+      hasHeader: false,
+      token: null,
+    };
   const directSession = sensitiveSessionCenter.get({
     resourceType: READER_DOCUMENT_RESOURCE_TYPE,
     resourceId: descriptor.resourceId,
   });
   if (readerSessionMatchesDescriptor(directSession, descriptor)) {
-    return { "X-Athena-Sensitive-Session": directSession.token };
+    return {
+      hasDescriptor: true,
+      readerDocumentId: descriptor.readerDocumentId,
+      namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+      resourceId: descriptor.resourceId,
+      ownerScope: descriptor.ownerScope,
+      hasDirectSession: true,
+      hasAliasSession: false,
+      hasHeader: true,
+      token: directSession.token,
+    };
   }
   const aliasSession = sensitiveSessionCenter.get({
     resourceType: READER_DOCUMENT_RESOURCE_TYPE,
     resourceId: descriptor.readerDocumentId,
   });
   if (readerSessionMatchesDescriptor(aliasSession, descriptor)) {
-    return { "X-Athena-Sensitive-Session": aliasSession.token };
+    return {
+      hasDescriptor: true,
+      readerDocumentId: descriptor.readerDocumentId,
+      namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+      resourceId: descriptor.resourceId,
+      ownerScope: descriptor.ownerScope,
+      hasDirectSession: false,
+      hasAliasSession: true,
+      hasHeader: true,
+      token: aliasSession.token,
+    };
   }
-  return {};
+  readerDocumentDebug("sensitive-header-missing", {
+    readerDocumentId: descriptor.readerDocumentId,
+    namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+    resourceId: descriptor.resourceId,
+    ownerScope: descriptor.ownerScope,
+  });
+  return {
+    hasDescriptor: true,
+    readerDocumentId: descriptor.readerDocumentId,
+    namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+    resourceId: descriptor.resourceId,
+    ownerScope: descriptor.ownerScope,
+    hasDirectSession: false,
+    hasAliasSession: false,
+    hasHeader: false,
+    token: null,
+  };
 }
 
 const ReaderDocument = {
@@ -296,16 +379,32 @@ const ReaderDocument = {
         task: options.task,
       });
     try {
+      const state = readerSensitiveSessionStateForUrl(originalUrl);
+      readerDocumentDebug("original-blob-start", {
+        urlNamespace: state.namespace || null,
+        hasSensitiveHeader: state.hasHeader,
+        hasDirectSession: state.hasDirectSession,
+        hasAliasSession: state.hasAliasSession,
+      });
       const { response, blob } = await requestOriginal(originalUrl);
       return { response, blob };
     } catch (error) {
       if (options.disableSensitiveRefresh || !isReaderAuthError(error))
         throw error;
+      readerDocumentDebug("original-blob-auth-refresh", {
+        message: error?.message || String(error),
+      });
       const refreshed = await refreshReaderSensitiveSessionForUrl(originalUrl, {
         signal: options.signal,
         task: options.refreshTask || options.task,
       });
       const retryUrl = refreshed?.metadata?.originalUrl || originalUrl;
+      const retryState = readerSensitiveSessionStateForUrl(retryUrl);
+      readerDocumentDebug("original-blob-auth-retry", {
+        refreshed: !!refreshed,
+        hasSensitiveHeader: retryState.hasHeader,
+        namespace: retryState.namespace || null,
+      });
       const { response, blob } = await requestOriginal(retryUrl);
       return { response, blob };
     }
@@ -367,6 +466,7 @@ const ReaderDocument = {
       return { response, blob };
     }
   },
+  refreshSensitiveSessionForUrl: refreshReaderSensitiveSessionForUrl,
   thumbnailBlob: async function (thumbnailUrl, options = {}) {
     const { response, blob } = await requestBlob(thumbnailUrl, {
       signal: options.signal,

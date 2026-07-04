@@ -1110,14 +1110,41 @@ function validateReaderSensitiveSessionIfPresent({
 
   const userId = Number(response?.locals?.user?.id || 0);
   const context = getClientContext(request);
+  const expectedResourceId = readerSensitiveResourceId(
+    workspace,
+    readerDocumentId
+  );
+  const expectedOwnerScope = readerSensitiveOwnerScope(workspace);
   const result = validateSensitiveSessionForRequest(request, {
     userId,
     clientId: context?.clientId,
     resourceType: "reader_document",
-    resourceId: readerSensitiveResourceId(workspace, readerDocumentId),
-    ownerScope: readerSensitiveOwnerScope(workspace),
+    resourceId: expectedResourceId,
+    ownerScope: expectedOwnerScope,
     heartbeat: true,
   });
+  if (!result.ok) {
+    console.warn("[ReaderSensitiveSession] denied", {
+      reason: result.reason || result.error || "unknown",
+      route: request?.path || request?.originalUrl || null,
+      readerDocumentId,
+      workspaceSlug: workspace?.readerStandalone
+        ? null
+        : workspace?.slug || null,
+      standalone: workspace?.readerStandalone === true,
+      expectedResourceId,
+      expectedOwnerScope,
+      tokenPresent: !!token,
+      sessionPresent: result.present === true,
+      userId: userId || null,
+      clientIdPresent: !!context?.clientId,
+      requestId:
+        request?.signedRequest?.requestId ||
+        context?.requestId ||
+        request?.communicationRequestId ||
+        null,
+    });
+  }
   return { ...result, present: true };
 }
 
