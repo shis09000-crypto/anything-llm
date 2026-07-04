@@ -94,7 +94,10 @@ import {
   setReaderDrawerSection,
   setReaderDrawerOpenIntent,
 } from "@/utils/chat/readerDrawerState";
-import { readerOpenFailureDetails } from "@/utils/chat/readerOpenFailure";
+import {
+  readerOpenFailureDetails,
+  readerOpenFailureResult,
+} from "@/utils/chat/readerOpenFailure";
 import {
   deleteReaderLocalSources,
   openReaderLocalSource,
@@ -115,6 +118,42 @@ import {
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
 const READER_VISIBLE_THUMBNAIL_COUNT = 6;
+
+function readerOpenDebug(stage, detail = {}) {
+  if (typeof window === "undefined") return;
+  const payload = {
+    stage,
+    at: Math.round(window.performance?.now?.() || Date.now()),
+    ...detail,
+  };
+  window.dispatchEvent(
+    new CustomEvent("athena-reader-open-stage", { detail: payload })
+  );
+  const debugEnabled =
+    window.__ATHENA_READER_DEBUG__ === true ||
+    window.localStorage?.getItem?.("athenaReaderDebug") === "true" ||
+    window.location?.search?.includes("athenaReaderDebug=1");
+  if (debugEnabled) console.debug("[reader:open]", payload);
+}
+
+function bestReaderOpenFailure(failures = []) {
+  const usable = failures.filter(Boolean);
+  return (
+    usable.find(
+      (failure) =>
+        failure.status &&
+        failure.status !== 404 &&
+        failure.reason !== "aborted" &&
+        failure.reason !== "stale-open"
+    ) ||
+    usable.find(
+      (failure) =>
+        failure.reason !== "aborted" && failure.reason !== "stale-open"
+    ) ||
+    usable[usable.length - 1] ||
+    null
+  );
+}
 
 function readerOpenTask(label, workspaceSlug = null, scope = {}) {
   return {
@@ -1372,6 +1411,25 @@ export function DocumentReaderProvider({
       const initialDocumentType = readerDocumentTypeFromData(data, historyItem);
       const canStreamPdf =
         initialDocumentType === "pdf" && readerPdfStreamUrl(data?.metadata);
+      readerOpenDebug("server-data-start", {
+        readerDocumentId:
+          data?.metadata?.readerDocumentId ||
+          data?.readerDocumentId ||
+          historyItem?.readerDocumentId ||
+          historyItem?.backupReaderDocumentId ||
+          null,
+        documentType: initialDocumentType,
+        hasMetadata: !!data?.metadata,
+        hasContent: !!data?.content,
+        canStreamPdf: !!canStreamPdf,
+        originalUrl: data?.metadata?.originalUrl || null,
+        workspaceSlug:
+          data?.metadata?.readerDocumentWorkspaceSlug ||
+          data?.readerDocumentWorkspaceSlug ||
+          historyItem?.readerDocumentWorkspaceSlug ||
+          historyItem?.workspaceSlug ||
+          null,
+      });
       if (!isCurrentOpen()) return null;
       if (!data?.content && data?.readerDocumentId && !canStreamPdf) {
         const readerDocumentWorkspaceSlug =
@@ -1379,6 +1437,10 @@ export function DocumentReaderProvider({
           historyItem?.readerDocumentWorkspaceSlug ||
           historyItem?.workspaceSlug ||
           null;
+        readerOpenDebug("server-data-content-fallback-start", {
+          readerDocumentId: data.readerDocumentId,
+          workspaceSlug: readerDocumentWorkspaceSlug,
+        });
         const result = await requestPriorityQueue.schedule(
           () =>
             ReaderDocument.get(
@@ -1410,15 +1472,37 @@ export function DocumentReaderProvider({
             }:${data.readerDocumentId}`,
           }
         );
-        if (!result) return null;
+        if (!result) {
+          readerOpenDebug("server-data-content-fallback-empty", {
+            readerDocumentId: data.readerDocumentId,
+            workspaceSlug: readerDocumentWorkspaceSlug,
+          });
+          return null;
+        }
         if (!isCurrentOpen()) return null;
         if (result?.response?.ok && result?.data?.success) {
+          readerOpenDebug("server-data-content-fallback-success", {
+            readerDocumentId: data.readerDocumentId,
+            workspaceSlug: readerDocumentWorkspaceSlug,
+          });
           return openServerDocumentData(result.data, historyItem, {
             openContext,
           });
         }
+        readerOpenDebug("server-data-content-fallback-failure", {
+          readerDocumentId: data.readerDocumentId,
+          workspaceSlug: readerDocumentWorkspaceSlug,
+          status: result?.response?.status || 0,
+          error: result?.data?.error || result?.data?.message || null,
+        });
       }
-      if (!data?.metadata || !isCurrentOpen()) return null;
+      if (!data?.metadata || !isCurrentOpen()) {
+        readerOpenDebug("server-data-missing-metadata", {
+          hasMetadata: !!data?.metadata,
+          isCurrent: isCurrentOpen(),
+        });
+        return null;
+      }
       const readerDocumentId = data.metadata.readerDocumentId;
       const documentType = readerDocumentTypeFromData(data, historyItem);
       const content =
@@ -1426,7 +1510,15 @@ export function DocumentReaderProvider({
         (documentType === "pdf" && readerPdfStreamUrl(data.metadata)
           ? lightweightPdfContent(readerDocumentId)
           : null);
-      if (!content) return null;
+      if (!content) {
+        readerOpenDebug("server-data-missing-content", {
+          readerDocumentId,
+          documentType,
+          canStreamPdf: !!canStreamPdf,
+          originalUrl: data?.metadata?.originalUrl || null,
+        });
+        return null;
+      }
       const progressItem = readerItemWithLatestBookMemory({
         ...historyItem,
         source: data.metadata.source || historyItem?.source || "reader_upload",
@@ -1453,6 +1545,15 @@ export function DocumentReaderProvider({
           percent: 0,
           updatedAt: null,
         },
+      });
+      readerOpenDebug("server-data-progress-item", {
+        readerDocumentId,
+        documentType,
+        readerDocumentWorkspaceSlug:
+          progressItem?.readerDocumentWorkspaceSlug || null,
+        originalUrl: data?.metadata?.originalUrl || null,
+        pagePreviewUrl: data?.metadata?.pagePreviewUrl || null,
+        thumbnailUrl: data?.metadata?.thumbnailUrl || null,
       });
       let parsedContent = content;
       let objectUrl = null;
@@ -1551,6 +1652,14 @@ export function DocumentReaderProvider({
       persistDocument(doc);
       rememberDocument(doc);
       setDrawerOpenPersisted(false);
+      readerOpenDebug("server-data-opened", {
+        readerDocumentId,
+        documentType: doc.documentType,
+        renderType: doc.renderType || null,
+        readerDocumentWorkspaceSlug: doc.readerDocumentWorkspaceSlug || null,
+        originalUrl: doc.metadata?.originalUrl || null,
+        objectUrl: doc.objectUrl || null,
+      });
       if (previewWarning) showToast(previewWarning, "warning");
       return doc;
     },
@@ -1673,7 +1782,22 @@ export function DocumentReaderProvider({
 
   const openReaderDocument = useCallback(
     async (readerDocumentId, historyItem = null, options = {}) => {
-      if (!readerDocumentId) return;
+      const returnStatus = options.returnStatus === true;
+      const openFailure = (failureOptions = {}) => {
+        const failure = readerOpenFailureResult({
+          readerDocumentId,
+          workspaceSlug: workspace?.slug || null,
+          ...failureOptions,
+        });
+        readerOpenDebug("failure", failure);
+        return returnStatus ? failure : null;
+      };
+      if (!readerDocumentId)
+        return openFailure({
+          stage: "missing-reader-document-id",
+          reason: "missing-reader-document-id",
+          fallback: "服务器伴读文档缺少文档 ID",
+        });
       const openContext = options.openContext || beginReaderOpen();
       const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       const workspaceCandidates = readerDocumentWorkspaceCandidates(
@@ -1689,11 +1813,24 @@ export function DocumentReaderProvider({
         historyItem?.metadata?.documentType === "pdf"
           ? "metadata"
           : "content";
+      readerOpenDebug("start", {
+        readerDocumentId,
+        detail,
+        workspaceCandidates,
+        title: historyItem?.title || null,
+      });
       try {
         const result = await requestPriorityQueue.schedule(
           async () => {
             let lastResult = null;
+            let lastCandidateWorkspaceSlug = workspaceCandidates[0] || null;
             for (const candidateWorkspaceSlug of workspaceCandidates) {
+              lastCandidateWorkspaceSlug = candidateWorkspaceSlug || null;
+              readerOpenDebug("candidate-start", {
+                readerDocumentId,
+                detail,
+                candidateWorkspaceSlug: candidateWorkspaceSlug || null,
+              });
               lastResult = await ReaderDocument.get(
                 candidateWorkspaceSlug,
                 readerDocumentId,
@@ -1706,16 +1843,32 @@ export function DocumentReaderProvider({
                 }
               );
               if (lastResult?.response?.ok && lastResult?.data?.success) {
+                readerOpenDebug("candidate-success", {
+                  readerDocumentId,
+                  detail,
+                  candidateWorkspaceSlug: candidateWorkspaceSlug || null,
+                  status: lastResult.response.status || 200,
+                  hasMetadata: !!lastResult.data?.metadata,
+                  hasContent: !!lastResult.data?.content,
+                });
                 return {
                   ...lastResult,
                   readerDocumentWorkspaceSlug: candidateWorkspaceSlug,
                 };
               }
+              readerOpenDebug("candidate-failure", {
+                readerDocumentId,
+                detail,
+                candidateWorkspaceSlug: candidateWorkspaceSlug || null,
+                status: lastResult?.response?.status || 0,
+                error: lastResult?.data?.error || null,
+                success: lastResult?.data?.success === true,
+              });
               if (lastResult?.response?.status !== 404) break;
             }
             return {
               ...lastResult,
-              readerDocumentWorkspaceSlug: workspaceCandidates[0] || null,
+              readerDocumentWorkspaceSlug: lastCandidateWorkspaceSlug,
             };
           },
           {
@@ -1737,16 +1890,34 @@ export function DocumentReaderProvider({
             }:${readerDocumentId}`,
           }
         );
-        if (!result) return null;
+        if (!result)
+          return openFailure({
+            stage: "scheduler-empty-result",
+            reason: "scheduler-empty-result",
+            fallback: "服务器伴读文档请求没有返回结果",
+          });
         response = result.response;
         data = result.data;
         openedReaderDocumentWorkspaceSlug =
           result.readerDocumentWorkspaceSlug || null;
       } catch (error) {
-        if (error?.name === "AbortError") return null;
+        if (error?.name === "AbortError")
+          return openFailure({
+            stage: "aborted",
+            reason: "aborted",
+            error,
+            extra: { retryable: false, terminal: false },
+            fallback: "服务器伴读文档打开已取消",
+          });
         requestError = error;
       }
-      if (!isCurrentOpen()) return null;
+      if (!isCurrentOpen())
+        return openFailure({
+          stage: "stale-open",
+          reason: "stale-open",
+          extra: { retryable: false, terminal: false },
+          fallback: "服务器伴读文档打开已被新的操作替代",
+        });
       if (
         data?.metadata &&
         openedReaderDocumentWorkspaceSlug &&
@@ -1761,12 +1932,17 @@ export function DocumentReaderProvider({
         };
       }
       if (!response?.ok || !data?.success) {
-        const failure = readerOpenFailureDetails(
+        const failure = readerOpenFailureResult({
+          stage: "metadata",
           response,
           data,
           requestError,
-          "服务器伴读文档打开失败"
-        );
+          fallback: "服务器伴读文档打开失败",
+          readerDocumentId,
+          workspaceSlug: workspace?.slug || null,
+          candidateWorkspaceSlug: openedReaderDocumentWorkspaceSlug,
+        });
+        readerOpenDebug("metadata-failure", failure);
         if (failure.retryable) {
           queuePendingReaderOpen(
             {
@@ -1780,30 +1956,52 @@ export function DocumentReaderProvider({
         } else if (!options.suppressTerminalToast) {
           showToast(failure.message, "error");
         }
-        return null;
+        return returnStatus ? failure : null;
       }
       try {
         const opened = await openServerDocumentData(data, historyItem, {
           openContext,
         });
-        if (!isCurrentOpen()) return null;
+        if (!isCurrentOpen())
+          return openFailure({
+            stage: "stale-after-render",
+            reason: "stale-after-render",
+            extra: { retryable: false, terminal: false },
+            fallback: "服务器伴读文档打开已被新的操作替代",
+          });
         if (opened) {
           markTaskPerformance("reader_target_ready", {
             readerDocumentId,
             workspaceSlug: openedReaderDocumentWorkspaceSlug || workspace?.slug,
           });
           clearPendingReaderOpen("server", readerDocumentId);
+          readerOpenDebug("success", {
+            readerDocumentId,
+            workspaceSlug:
+              openedReaderDocumentWorkspaceSlug || workspace?.slug || null,
+            documentType: opened.documentType || null,
+            renderType: opened.renderType || null,
+          });
+          return returnStatus
+            ? {
+                ok: true,
+                opened,
+                status: response?.status || 200,
+                readerDocumentId,
+                workspaceSlug:
+                  openedReaderDocumentWorkspaceSlug || workspace?.slug || null,
+              }
+            : opened;
         }
-        return opened;
-      } catch (error) {
-        if (error?.name === "AbortError") return null;
-        if (!isCurrentOpen()) return null;
-        const failure = readerOpenFailureDetails(
-          null,
-          null,
-          error,
-          "服务器伴读文档打开失败"
-        );
+        const failure = readerOpenFailureResult({
+          stage: "render",
+          error: new Error("Reader document metadata cannot be rendered."),
+          fallback: "服务器伴读文档元数据不可用",
+          readerDocumentId,
+          workspaceSlug: workspace?.slug || null,
+          candidateWorkspaceSlug: openedReaderDocumentWorkspaceSlug,
+        });
+        readerOpenDebug("render-failure", failure);
         if (failure.retryable) {
           queuePendingReaderOpen(
             {
@@ -1817,7 +2015,46 @@ export function DocumentReaderProvider({
         } else if (!options.suppressTerminalToast) {
           showToast(failure.message, "error");
         }
-        return null;
+        return returnStatus ? failure : null;
+      } catch (error) {
+        if (error?.name === "AbortError")
+          return openFailure({
+            stage: "render-aborted",
+            reason: "aborted",
+            error,
+            extra: { retryable: false, terminal: false },
+            fallback: "服务器伴读文档打开已取消",
+          });
+        if (!isCurrentOpen())
+          return openFailure({
+            stage: "stale-render-error",
+            reason: "stale-render-error",
+            extra: { retryable: false, terminal: false },
+            fallback: "服务器伴读文档打开已被新的操作替代",
+          });
+        const failure = readerOpenFailureResult({
+          stage: "render-error",
+          error,
+          fallback: "服务器伴读文档打开失败",
+          readerDocumentId,
+          workspaceSlug: workspace?.slug || null,
+          candidateWorkspaceSlug: openedReaderDocumentWorkspaceSlug,
+        });
+        readerOpenDebug("render-error", failure);
+        if (failure.retryable) {
+          queuePendingReaderOpen(
+            {
+              kind: "server",
+              readerDocumentId,
+              historyItem,
+            },
+            failure.message,
+            options
+          );
+        } else if (!options.suppressTerminalToast) {
+          showToast(failure.message, "error");
+        }
+        return returnStatus ? failure : null;
       }
     },
     [
@@ -2452,9 +2689,18 @@ export function DocumentReaderProvider({
 
   const openUploadedHistoryItem = useCallback(
     async (historyItem, options = {}) => {
-      if (!historyItem) return false;
+      if (!historyItem)
+        return options.returnStatus
+          ? {
+              ok: false,
+              reason: "missing-history-item",
+              message: "缺少伴读历史记录",
+              retryable: false,
+            }
+          : false;
       const openContext = options.openContext || beginReaderOpen();
       const isCurrentOpen = () => readerOpenIsCurrent(openContext);
+      const failures = [];
       const showDocumentLoadingStatus = ["docx", "epub"].includes(
         historyItem.documentType
       );
@@ -2468,12 +2714,30 @@ export function DocumentReaderProvider({
         const serverDocumentIds = serverReaderDocumentIds(historyItem);
 
         for (const readerDocumentId of serverDocumentIds) {
-          const opened = await openReaderDocument(
+          const openResult = await openReaderDocument(
             readerDocumentId,
             { ...historyItem, localPath: null, localSourceId: null },
-            { suppressTerminalToast: true, openContext }
+            {
+              suppressTerminalToast: true,
+              openContext,
+              returnStatus: true,
+            }
           );
-          if (!isCurrentOpen()) return false;
+          if (!isCurrentOpen())
+            return options.returnStatus
+              ? {
+                  ok: false,
+                  reason: "aborted",
+                  retryable: false,
+                  message: "伴读打开已被新的操作替代",
+                  failures,
+                }
+              : false;
+          if (!openResult?.ok) {
+            if (openResult) failures.push(openResult);
+            continue;
+          }
+          const opened = openResult.opened;
           if (!opened) continue;
           const nextBookshelf = updateReaderBookshelfItem(historyItem, {
             readerDocumentId: opened.readerDocumentId || readerDocumentId,
@@ -2490,7 +2754,9 @@ export function DocumentReaderProvider({
             progress: opened.progress || historyItem.progress,
           });
           setReaderBookshelf(nextBookshelf);
-          return true;
+          return options.returnStatus
+            ? { ok: true, opened, readerDocumentId }
+            : true;
         }
 
         if (
@@ -2507,9 +2773,38 @@ export function DocumentReaderProvider({
               openContext,
             }
           );
-          if (!isCurrentOpen()) return false;
-          if (localPathResult.ok) return true;
-          if (localPathResult.retryable) return false;
+          if (!isCurrentOpen())
+            return options.returnStatus
+              ? {
+                  ok: false,
+                  reason: "aborted",
+                  retryable: false,
+                  message: "伴读打开已被新的操作替代",
+                  failures,
+                }
+              : false;
+          if (localPathResult.ok)
+            return options.returnStatus ? localPathResult : true;
+          if (localPathResult) failures.push(localPathResult);
+          if (localPathResult.retryable)
+            return options.returnStatus
+              ? {
+                  ...localPathResult,
+                  failures,
+                }
+              : false;
+        }
+        if (options.returnStatus) {
+          const failure = bestReaderOpenFailure(failures);
+          return {
+            ok: false,
+            ...(failure || {
+              reason: "no-open-candidate",
+              message: "云端文档暂时不可用，请稍后重试。",
+              retryable: true,
+            }),
+            failures,
+          };
         }
         return false;
       } finally {
@@ -3236,9 +3531,13 @@ export function DocumentReaderProvider({
       const rememberedItem = readerItemWithLatestBookMemory(historyItem);
       setDrawerSectionPersisted(options.origin || "history");
       const hasServerBackup = hasServerReaderDocument(rememberedItem);
+      let serverFailure = null;
       if (hasServerBackup) {
-        const ok = await openUploadedHistoryItem(rememberedItem);
-        if (ok) return { ok: true };
+        const serverResult = await openUploadedHistoryItem(rememberedItem, {
+          returnStatus: true,
+        });
+        if (serverResult?.ok) return { ok: true };
+        serverFailure = serverResult || null;
       }
 
       let localSourceFailed = false;
@@ -3252,13 +3551,15 @@ export function DocumentReaderProvider({
         (rememberedItem.localPath ||
           ["reader_upload", "local_path"].includes(rememberedItem.source))
       ) {
-        const ok = await openUploadedHistoryItem(rememberedItem, {
+        const uploadedResult = await openUploadedHistoryItem(rememberedItem, {
           serverFallbackToast: localSourceFailed
             ? "本地文件不可用，已使用云端备份打开。"
             : null,
           allowLocalFallback: true,
+          returnStatus: true,
         });
-        if (ok) return { ok: true };
+        if (uploadedResult?.ok) return { ok: true };
+        serverFailure = uploadedResult || serverFailure;
       }
       if (
         rememberedItem.source === "workspace_parsed" &&
@@ -3274,8 +3575,29 @@ export function DocumentReaderProvider({
         return { ok: true };
       }
       if (hasServerBackup) {
-        showToast("云端文档暂时不可用，请稍后重试。", "warning");
-        return { ok: false };
+        const failure = serverFailure || {
+          ok: false,
+          message: "云端文档暂时不可用，请稍后重试。",
+          reason: "unknown-server-open-failure",
+        };
+        readerOpenDebug("history-server-failure", {
+          title: rememberedItem.title || null,
+          readerDocumentId:
+            rememberedItem.readerDocumentId ||
+            rememberedItem.backupReaderDocumentId ||
+            null,
+          workspaceSlug:
+            rememberedItem.readerDocumentWorkspaceSlug ||
+            rememberedItem.workspaceSlug ||
+            workspace?.slug ||
+            null,
+          ...failure,
+        });
+        showToast(
+          failure.message || "云端文档暂时不可用，请稍后重试。",
+          failure.terminal ? "error" : "warning"
+        );
+        return { ok: false, ...failure };
       }
       showToast("本地文档不可恢复，请重新选择文件。", "warning");
       return { ok: false, needsLocalFile: true };

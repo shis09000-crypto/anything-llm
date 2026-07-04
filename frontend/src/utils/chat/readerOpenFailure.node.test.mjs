@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   isRetryableReaderOpenFailure,
   readerOpenFailureDetails,
+  readerOpenFailureResult,
   readerOpenFailureStatus,
 } from "./readerOpenFailure.js";
 
@@ -49,4 +50,28 @@ test("readerOpenFailureDetails prefers server error payload messages", () => {
 
   assert.equal(details.message, "Reader document not found.");
   assert.equal(details.retryable, false);
+});
+
+test("readerOpenFailureResult carries reader open stage and scope", () => {
+  const failure = readerOpenFailureResult({
+    stage: "metadata",
+    response: { status: 403 },
+    data: { error: "Sensitive reader session is invalid or expired." },
+    readerDocumentId: "doc-1",
+    workspaceSlug: "workspace-a",
+    candidateWorkspaceSlug: "workspace-b",
+  });
+
+  assert.equal(failure.ok, false);
+  assert.equal(failure.stage, "metadata");
+  assert.equal(failure.status, 403);
+  assert.equal(failure.retryable, false);
+  assert.equal(failure.terminal, true);
+  assert.equal(failure.readerDocumentId, "doc-1");
+  assert.equal(failure.workspaceSlug, "workspace-a");
+  assert.equal(failure.candidateWorkspaceSlug, "workspace-b");
+  assert.equal(
+    failure.message,
+    "Sensitive reader session is invalid or expired."
+  );
 });

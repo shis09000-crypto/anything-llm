@@ -37,3 +37,29 @@ export function readerOpenFailureDetails(
       fallback,
   };
 }
+
+export function readerOpenFailureResult({
+  stage = "unknown",
+  response = null,
+  data = null,
+  error = null,
+  fallback = "伴读文档暂时无法打开",
+  readerDocumentId = null,
+  workspaceSlug = null,
+  candidateWorkspaceSlug = null,
+  reason = null,
+  extra = {},
+} = {}) {
+  const details = readerOpenFailureDetails(response, data, error, fallback);
+  return {
+    ok: false,
+    stage,
+    reason,
+    readerDocumentId: readerDocumentId || null,
+    workspaceSlug: workspaceSlug || null,
+    candidateWorkspaceSlug:
+      candidateWorkspaceSlug === undefined ? null : candidateWorkspaceSlug,
+    ...details,
+    ...extra,
+  };
+}

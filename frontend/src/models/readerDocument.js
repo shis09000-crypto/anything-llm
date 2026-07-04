@@ -93,6 +93,11 @@ function isReaderAuthError(errorOrResponse = null) {
 }
 
 async function fetchReaderDocumentDirect(slug, readerDocumentId, options = {}) {
+  readerDocumentDebug("direct-fetch-start", {
+    readerDocumentId,
+    workspaceSlug: slug || null,
+    detail: options.detail || null,
+  });
   const { response, data } = await getJson(
     withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
       detail: options.detail,
@@ -107,8 +112,27 @@ async function fetchReaderDocumentDirect(slug, readerDocumentId, options = {}) {
     workspaceSlug: slug,
     readerDocumentId,
   });
+  readerDocumentDebug("direct-fetch-done", {
+    readerDocumentId,
+    workspaceSlug: slug || null,
+    detail: options.detail || null,
+    status: response?.status || 0,
+    success: normalizedData?.success === true,
+    hasMetadata: !!normalizedData?.metadata,
+    hasSensitiveSession: !!normalizedData?.sensitiveSession,
+    originalUrl: normalizedData?.metadata?.originalUrl || null,
+  });
   if (response.ok && normalizedData?.success) {
-    storeReaderSensitiveSession(normalizedData, readerDocumentId);
+    const storedSession = storeReaderSensitiveSession(
+      normalizedData,
+      readerDocumentId
+    );
+    readerDocumentDebug("direct-fetch-session-state", {
+      readerDocumentId,
+      workspaceSlug: slug || null,
+      hasStoredSession: !!storedSession?.token,
+      ownerScope: storedSession?.ownerScope || null,
+    });
     if (options.cache !== false)
       readerServerStateStore.upsertDocument(slug, normalizedData);
   }
@@ -123,7 +147,19 @@ export async function refreshReaderSensitiveSessionForUrl(
   options = {}
 ) {
   const descriptor = readerAccessDescriptorFromUrl(url);
-  if (!descriptor?.readerDocumentId) return null;
+  if (!descriptor?.readerDocumentId) {
+    readerDocumentDebug("sensitive-session-refresh-skipped", {
+      reason: "missing-descriptor",
+      url,
+    });
+    return null;
+  }
+  readerDocumentDebug("sensitive-session-refresh-start", {
+    readerDocumentId: descriptor.readerDocumentId,
+    namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+    workspaceSlug: descriptor.workspaceSlug || null,
+    ownerScope: descriptor.ownerScope || null,
+  });
   const result = await fetchReaderDocumentDirect(
     descriptor.workspaceSlug || null,
     descriptor.readerDocumentId,
@@ -133,7 +169,18 @@ export async function refreshReaderSensitiveSessionForUrl(
       task: options.task,
     }
   );
-  return result?.response?.ok && result?.data?.success ? result.data : null;
+  const ok = result?.response?.ok && result?.data?.success;
+  readerDocumentDebug("sensitive-session-refresh-done", {
+    readerDocumentId: descriptor.readerDocumentId,
+    namespace: descriptor.workspaceSlug ? "workspace" : "standalone",
+    status: result?.response?.status || 0,
+    success: !!ok,
+    hasSensitiveSession: !!result?.data?.sensitiveSession,
+    hasHeader: readerSensitiveSessionStateForUrl(
+      result?.data?.metadata?.originalUrl || url
+    ).hasHeader,
+  });
+  return ok ? result.data : null;
 }
 
 export function readerSensitiveHeadersForUrl(url = "") {
@@ -303,7 +350,16 @@ const ReaderDocument = {
           workspaceSlug: slug,
           readerDocumentId,
         });
-        storeReaderSensitiveSession(normalizedData, readerDocumentId);
+        const storedSession = storeReaderSensitiveSession(
+          normalizedData,
+          readerDocumentId
+        );
+        readerDocumentDebug("cache-fetch-session-state", {
+          readerDocumentId,
+          workspaceSlug: slug || null,
+          hasStoredSession: !!storedSession?.token,
+          ownerScope: storedSession?.ownerScope || null,
+        });
         return normalizedData;
       },
       {

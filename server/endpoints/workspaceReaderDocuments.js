@@ -1154,6 +1154,43 @@ function readerStreamCacheControlForRequest(request) {
     : READER_STREAM_CACHE_CONTROL;
 }
 
+function readerTraceLog(stage, detail = {}) {
+  console.info("[ReaderTrace]", {
+    stage,
+    ...detail,
+  });
+}
+
+function readerAccessTrace(endpoint) {
+  return (request, response, next) => {
+    const startedAt = Date.now();
+    let clientContext = null;
+    try {
+      clientContext = getClientContext(request);
+    } catch {
+      clientContext = null;
+    }
+    response.on("finish", () => {
+      readerTraceLog("finish", {
+        endpoint,
+        status: response.statusCode,
+        durationMs: Date.now() - startedAt,
+        readerDocumentId: request.params?.readerDocumentId || null,
+        workspaceSlug: request.params?.slug || null,
+        standalone: !request.params?.slug,
+        sensitiveHeaderPresent: !!sensitiveSessionTokenFromRequest(request),
+        clientIdPresent: !!clientContext?.clientId,
+        requestId:
+          request?.signedRequest?.requestId ||
+          clientContext?.requestId ||
+          request?.communicationRequestId ||
+          null,
+      });
+    });
+    next();
+  };
+}
+
 async function assertAuthorizedStandaloneReaderDocument({
   request,
   response,
@@ -4308,7 +4345,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/reader-documents/:readerDocumentId/preview.pdf",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    [
+      readerAccessTrace("standalone.preview.pdf"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      standaloneReaderScope,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -4360,7 +4402,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/reader-documents/:readerDocumentId/thumbnail.jpg",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    [
+      readerAccessTrace("standalone.thumbnail"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      standaloneReaderScope,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -4397,7 +4444,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/reader-documents/:readerDocumentId/page-preview",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    [
+      readerAccessTrace("standalone.page-preview"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      standaloneReaderScope,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -4451,7 +4503,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/reader-documents/:readerDocumentId/original",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    [
+      readerAccessTrace("standalone.original"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      standaloneReaderScope,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -4497,7 +4554,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/reader-documents/:readerDocumentId",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), standaloneReaderScope],
+    [
+      readerAccessTrace("standalone.metadata"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      standaloneReaderScope,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -5056,7 +5118,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/workspace/:slug/reader-documents/:readerDocumentId/preview.pdf",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    [
+      readerAccessTrace("workspace.preview.pdf"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceSlug,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -5111,7 +5178,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/workspace/:slug/reader-documents/:readerDocumentId/thumbnail.jpg",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    [
+      readerAccessTrace("workspace.thumbnail"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceSlug,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -5151,7 +5223,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/workspace/:slug/reader-documents/:readerDocumentId/page-preview",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    [
+      readerAccessTrace("workspace.page-preview"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceSlug,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -5208,7 +5285,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/workspace/:slug/reader-documents/:readerDocumentId/original",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    [
+      readerAccessTrace("workspace.original"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceSlug,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -5257,7 +5339,12 @@ function workspaceReaderDocumentsEndpoints(app) {
 
   app.get(
     "/workspace/:slug/reader-documents/:readerDocumentId",
-    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    [
+      readerAccessTrace("workspace.metadata"),
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceSlug,
+    ],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

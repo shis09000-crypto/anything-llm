@@ -1149,6 +1149,24 @@ const PdfReader = forwardRef(function PdfReader(
         hasDirectSession: after.hasDirectSession,
         hasAliasSession: after.hasAliasSession,
       });
+      if (after.hasDescriptor && !after.hasHeader) {
+        const error = new Error(
+          "Reader sensitive session unavailable for PDF stream."
+        );
+        error.status = 403;
+        error.details = {
+          stage: "pdf-sensitive-session-missing",
+          readerDocumentId: after.readerDocumentId || before.readerDocumentId,
+          namespace: after.namespace || before.namespace || null,
+          resourceId: after.resourceId || before.resourceId || null,
+          ownerScope: after.ownerScope || before.ownerScope || null,
+        };
+        readerPdfDebug("document-sensitive-refresh-missing-header", {
+          reason,
+          ...error.details,
+        });
+        throw error;
+      }
       return after;
     }
 
@@ -1198,6 +1216,21 @@ const PdfReader = forwardRef(function PdfReader(
               },
             },
           });
+          const refreshedState = readerSensitiveSessionStateForUrl(sourceUrl);
+          if (refreshedState.hasDescriptor && !refreshedState.hasHeader) {
+            const missingSessionError = new Error(
+              "Reader sensitive session unavailable after auth refresh."
+            );
+            missingSessionError.status = 403;
+            missingSessionError.details = {
+              stage: "pdf-auth-refresh-missing-header",
+              readerDocumentId: refreshedState.readerDocumentId || null,
+              namespace: refreshedState.namespace || null,
+              resourceId: refreshedState.resourceId || null,
+              ownerScope: refreshedState.ownerScope || null,
+            };
+            throw missingSessionError;
+          }
           if (cancelled) return;
           loadingTask = loadPdfViaHttp(pdfjs);
           loadedDocument = await loadingTask.promise;
