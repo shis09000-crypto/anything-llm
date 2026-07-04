@@ -37,7 +37,11 @@ test("old global reader URL with workspace slug normalizes to workspace URL", ()
   );
   assert.equal(
     normalized.metadata.thumbnailUrl,
-    `/api/workspace/${WORKSPACE_SLUG}/reader-documents/${DOCUMENT_ID}/thumbnail`
+    `/api/workspace/${WORKSPACE_SLUG}/reader-documents/${DOCUMENT_ID}/thumbnail.jpg`
+  );
+  assert.equal(
+    normalized.metadata.previewPdfUrl,
+    `/api/workspace/${WORKSPACE_SLUG}/reader-documents/${DOCUMENT_ID}/preview.pdf`
   );
   assert.equal(normalized.readerDocumentWorkspaceSlug, WORKSPACE_SLUG);
 });

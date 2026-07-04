@@ -1699,6 +1699,8 @@ export function DocumentReaderProvider({
                 readerDocumentId,
                 {
                   detail,
+                  freshSensitiveSession: detail === "metadata",
+                  staleWhileRevalidate: detail !== "metadata",
                   signal: openContext.signal,
                   task: false,
                 }

@@ -48,6 +48,59 @@ function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
   });
 }
 
+function isReaderAuthError(errorOrResponse = null) {
+  const status = Number(
+    errorOrResponse?.status ||
+      errorOrResponse?.response?.status ||
+      errorOrResponse?.details?.status ||
+      0
+  );
+  if ([401, 403].includes(status)) return true;
+  const message = String(errorOrResponse?.message || errorOrResponse || "");
+  return /\b(401|403)\b/.test(message);
+}
+
+async function fetchReaderDocumentDirect(slug, readerDocumentId, options = {}) {
+  const { response, data } = await getJson(
+    withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
+      detail: options.detail,
+    }),
+    {
+      signal: options.signal,
+      communicationScene: "reader-open",
+      task: options.task,
+    }
+  );
+  const normalizedData = normalizeReaderDocumentLinks(data, {
+    workspaceSlug: slug,
+    readerDocumentId,
+  });
+  if (response.ok && normalizedData?.success) {
+    storeReaderSensitiveSession(normalizedData, readerDocumentId);
+    if (options.cache !== false)
+      readerServerStateStore.upsertDocument(slug, normalizedData);
+  }
+  return {
+    response,
+    data: normalizedData || { success: false },
+  };
+}
+
+async function refreshReaderSensitiveSessionForUrl(url = "", options = {}) {
+  const descriptor = readerAccessDescriptorFromUrl(url);
+  if (!descriptor?.readerDocumentId) return null;
+  const result = await fetchReaderDocumentDirect(
+    descriptor.workspaceSlug || null,
+    descriptor.readerDocumentId,
+    {
+      detail: "metadata",
+      signal: options.signal,
+      task: options.task,
+    }
+  );
+  return result?.response?.ok && result?.data?.success ? result.data : null;
+}
+
 export function readerSensitiveHeadersForUrl(url = "") {
   const descriptor = readerAccessDescriptorFromUrl(url);
   if (!descriptor) return {};
@@ -146,30 +199,8 @@ const ReaderDocument = {
     return { response, data: normalizedData };
   },
   get: async function (slug, readerDocumentId, options = {}) {
-    if (options.detail === "content") {
-      const { response, data } = await getJson(
-        withReaderQuery(`${readerDocumentsPath(slug)}/${readerDocumentId}`, {
-          detail: options.detail,
-        }),
-        {
-          signal: options.signal,
-          communicationScene: "reader-open",
-          task: options.task,
-        }
-      );
-      const normalizedData = normalizeReaderDocumentLinks(data, {
-        workspaceSlug: slug,
-        readerDocumentId,
-      });
-      if (response.ok && normalizedData?.success) {
-        storeReaderSensitiveSession(normalizedData, readerDocumentId);
-        readerServerStateStore.upsertDocument(slug, normalizedData);
-      }
-      return {
-        response,
-        data: normalizedData || { success: false },
-      };
-    }
+    if (options.detail === "content" || options.freshSensitiveSession)
+      return await fetchReaderDocumentDirect(slug, readerDocumentId, options);
 
     const data = await readerServerStateStore.ensureDocument(
       slug,
@@ -253,45 +284,88 @@ const ReaderDocument = {
     }
   },
   originalBlob: async function (originalUrl, options = {}) {
-    const { response, blob } = await requestBlob(originalUrl, {
-      signal: options.signal,
-      headers: {
-        ...readerSensitiveHeadersForUrl(originalUrl),
-        ...(options.headers || {}),
-      },
-      blobKind: BLOB_KINDS.readerOriginal,
-      communicationScene: "reader-open",
-      task: options.task,
-    });
-    return { response, blob };
+    const requestOriginal = (url) =>
+      requestBlob(url, {
+        signal: options.signal,
+        headers: {
+          ...readerSensitiveHeadersForUrl(url),
+          ...(options.headers || {}),
+        },
+        blobKind: BLOB_KINDS.readerOriginal,
+        communicationScene: "reader-open",
+        task: options.task,
+      });
+    try {
+      const { response, blob } = await requestOriginal(originalUrl);
+      return { response, blob };
+    } catch (error) {
+      if (options.disableSensitiveRefresh || !isReaderAuthError(error))
+        throw error;
+      const refreshed = await refreshReaderSensitiveSessionForUrl(originalUrl, {
+        signal: options.signal,
+        task: options.refreshTask || options.task,
+      });
+      const retryUrl = refreshed?.metadata?.originalUrl || originalUrl;
+      const { response, blob } = await requestOriginal(retryUrl);
+      return { response, blob };
+    }
   },
   pagePreviewBlob: async function (originalUrl, pageNumber = 1, options = {}) {
     const previewUrl = pagePreviewUrlForOriginal(originalUrl, pageNumber);
     if (!previewUrl) throw new Error("Reader page preview URL unavailable.");
-    const { response, blob } = await requestBlob(previewUrl, {
-      signal: options.signal,
-      headers: {
-        ...readerSensitiveHeadersForUrl(previewUrl),
-        ...(options.headers || {}),
-      },
-      blobKind: BLOB_KINDS.readerPreview,
-      communicationScene: "reader-open",
-      task: options.task,
-    });
-    return { response, blob, previewUrl };
+    const requestPreview = (url) =>
+      requestBlob(url, {
+        signal: options.signal,
+        headers: {
+          ...readerSensitiveHeadersForUrl(url),
+          ...(options.headers || {}),
+        },
+        blobKind: BLOB_KINDS.readerPreview,
+        communicationScene: "reader-open",
+        task: options.task,
+      });
+    try {
+      const { response, blob } = await requestPreview(previewUrl);
+      return { response, blob, previewUrl };
+    } catch (error) {
+      if (options.disableSensitiveRefresh || !isReaderAuthError(error))
+        throw error;
+      const refreshed = await refreshReaderSensitiveSessionForUrl(originalUrl, {
+        signal: options.signal,
+        task: options.refreshTask || options.task,
+      });
+      const retryOriginalUrl = refreshed?.metadata?.originalUrl || originalUrl;
+      const retryPreviewUrl =
+        pagePreviewUrlForOriginal(retryOriginalUrl, pageNumber) || previewUrl;
+      const { response, blob } = await requestPreview(retryPreviewUrl);
+      return { response, blob, previewUrl: retryPreviewUrl };
+    }
   },
   previewBlob: async function (previewUrl, options = {}) {
-    const { response, blob } = await requestBlob(previewUrl, {
-      signal: options.signal,
-      headers: {
-        ...readerSensitiveHeadersForUrl(previewUrl),
-        ...(options.headers || {}),
-      },
-      blobKind: BLOB_KINDS.readerPreview,
-      communicationScene: "reader-open",
-      task: options.task,
-    });
-    return { response, blob };
+    const requestPreview = () =>
+      requestBlob(previewUrl, {
+        signal: options.signal,
+        headers: {
+          ...readerSensitiveHeadersForUrl(previewUrl),
+          ...(options.headers || {}),
+        },
+        blobKind: BLOB_KINDS.readerPreview,
+        communicationScene: "reader-open",
+        task: options.task,
+      });
+    try {
+      const { response, blob } = await requestPreview();
+      return { response, blob };
+    } catch (error) {
+      if (options.disableSensitiveRefresh || !isReaderAuthError(error))
+        throw error;
+      await refreshReaderSensitiveSessionForUrl(previewUrl, {
+        signal: options.signal,
+        task: options.refreshTask || options.task,
+      });
+      const { response, blob } = await requestPreview();
+      return { response, blob };
+    }
   },
   thumbnailBlob: async function (thumbnailUrl, options = {}) {
     const { response, blob } = await requestBlob(thumbnailUrl, {

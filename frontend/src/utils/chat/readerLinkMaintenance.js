@@ -47,9 +47,9 @@ function canonicalReaderUrls(readerDocumentId, workspaceSlug = null) {
   return {
     apiPrefix: prefix,
     originalUrl: `${base}/original`,
-    pagePreviewUrl: `${base}/page-preview?page=1`,
-    previewPdfUrl: `${base}/preview-pdf`,
-    thumbnailUrl: `${base}/thumbnail`,
+    pagePreviewUrl: `${base}/page-preview`,
+    previewPdfUrl: `${base}/preview.pdf`,
+    thumbnailUrl: `${base}/thumbnail.jpg`,
   };
 }
 
