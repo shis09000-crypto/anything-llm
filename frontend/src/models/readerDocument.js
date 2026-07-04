@@ -4,6 +4,8 @@ import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 import { readerServerStateStore } from "@/utils/serverState/readerServerStateStore";
 import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 
+const GLOBAL_READER_RESOURCE_SEGMENT = "__global_reader__";
+
 function readerDocumentsPath(slug = null) {
   return slug ? `/workspace/${slug}/reader-documents` : "/reader-documents";
 }
@@ -31,6 +33,50 @@ function readerDocumentIdFromUrl(url = "") {
   return match?.[1] || null;
 }
 
+function readerWorkspaceSlugFromOwnerScope(ownerScope = "") {
+  const match = String(ownerScope || "").match(/^workspace:(.+):reader$/);
+  return match?.[1] || null;
+}
+
+function readerSensitiveResourceIdForDocument(
+  documentData = {},
+  fallbackId = null
+) {
+  const readerDocumentId =
+    fallbackId ||
+    documentData?.readerDocumentId ||
+    documentData?.metadata?.readerDocumentId ||
+    null;
+  if (!readerDocumentId) return null;
+  const workspaceSlug =
+    documentData?.metadata?.readerDocumentWorkspaceSlug ||
+    documentData?.readerDocumentWorkspaceSlug ||
+    readerWorkspaceSlugFromOwnerScope(
+      documentData?.sensitiveSession?.ownerScope
+    );
+  return workspaceSlug
+    ? `${workspaceSlug}:${readerDocumentId}`
+    : `${GLOBAL_READER_RESOURCE_SEGMENT}:${readerDocumentId}`;
+}
+
+function readerSensitiveResourceIdsFromUrl(url = "") {
+  const text = String(url || "");
+  const workspaceMatch = text.match(
+    /\/workspace\/([^/?#]+)\/reader-documents\/([0-9a-f-]{36})(?:\/|$)/i
+  );
+  if (workspaceMatch) {
+    const slug = decodeURIComponent(workspaceMatch[1]);
+    const readerDocumentId = workspaceMatch[2];
+    return [`${slug}:${readerDocumentId}`, readerDocumentId];
+  }
+  const readerDocumentId = readerDocumentIdFromUrl(text);
+  if (!readerDocumentId) return [];
+  return [
+    `${GLOBAL_READER_RESOURCE_SEGMENT}:${readerDocumentId}`,
+    readerDocumentId,
+  ];
+}
+
 function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
   const session = documentData?.sensitiveSession;
   const readerDocumentId =
@@ -39,9 +85,13 @@ function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
     documentData?.metadata?.readerDocumentId ||
     null;
   if (!session || !readerDocumentId) return null;
+  const resourceId =
+    readerSensitiveResourceIdForDocument(documentData, fallbackId) ||
+    readerDocumentId;
   return sensitiveSessionCenter.beginViewer(session, {
     resourceType: "reader_document",
-    resourceId: readerDocumentId,
+    resourceId,
+    aliasResourceIds: [readerDocumentId],
     ownerScope: session.ownerScope || null,
     exclusiveByResourceType: true,
     reason: "reader-open",
@@ -49,12 +99,14 @@ function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
 }
 
 function readerSensitiveHeadersForUrl(url = "") {
-  const readerDocumentId = readerDocumentIdFromUrl(url);
-  if (!readerDocumentId) return {};
-  return sensitiveSessionCenter.headers({
-    resourceType: "reader_document",
-    resourceId: readerDocumentId,
-  });
+  for (const resourceId of readerSensitiveResourceIdsFromUrl(url)) {
+    const headers = sensitiveSessionCenter.headers({
+      resourceType: "reader_document",
+      resourceId,
+    });
+    if (headers && Object.keys(headers).length > 0) return headers;
+  }
+  return {};
 }
 
 const ReaderDocument = {

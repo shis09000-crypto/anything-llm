@@ -70,6 +70,7 @@ const PDF_FAST_PREVIEW_CONCURRENCY = 3;
 const PDF_SELECTION_CLEANUP_DELAY_MS = 120;
 const PDF_RENDERING_STATE_FINISHED = 3;
 const PDF_PAGE_KEEPALIVE_PATCH_KEY = "__athenaPdfPageKeepalive";
+const GLOBAL_READER_RESOURCE_SEGMENT = "__global_reader__";
 
 const EMPTY_SCREENSHOT_DRAG_STATE = {
   isDragging: false,
@@ -105,13 +106,33 @@ function readerDocumentIdFromUrl(url = "") {
   return match?.[1] || null;
 }
 
+function readerSensitiveResourceIdsFromUrl(url = "") {
+  const text = String(url || "");
+  const workspaceMatch = text.match(
+    /\/workspace\/([^/?#]+)\/reader-documents\/([0-9a-f-]{36})(?:\/|$)/i
+  );
+  if (workspaceMatch) {
+    const slug = decodeURIComponent(workspaceMatch[1]);
+    const readerDocumentId = workspaceMatch[2];
+    return [`${slug}:${readerDocumentId}`, readerDocumentId];
+  }
+  const readerDocumentId = readerDocumentIdFromUrl(text);
+  if (!readerDocumentId) return [];
+  return [
+    `${GLOBAL_READER_RESOURCE_SEGMENT}:${readerDocumentId}`,
+    readerDocumentId,
+  ];
+}
+
 function pdfSensitiveHeadersForUrl(url) {
-  const readerDocumentId = readerDocumentIdFromUrl(url);
-  if (!readerDocumentId) return {};
-  return sensitiveSessionCenter.headers({
-    resourceType: "reader_document",
-    resourceId: readerDocumentId,
-  });
+  for (const resourceId of readerSensitiveResourceIdsFromUrl(url)) {
+    const headers = sensitiveSessionCenter.headers({
+      resourceType: "reader_document",
+      resourceId,
+    });
+    if (headers && Object.keys(headers).length > 0) return headers;
+  }
+  return {};
 }
 
 function pdfHttpHeadersForUrl(url) {

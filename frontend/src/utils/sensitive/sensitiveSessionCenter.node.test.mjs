@@ -168,6 +168,61 @@ test("missing secret path: headers are empty and heartbeat skips without creatin
   }
 });
 
+test("reader aliases resolve to the same sensitive session without duplicate snapshot entries", async () => {
+  const windowStub = installWindowStub();
+  try {
+    const { sensitiveSessionCenter, SENSITIVE_SESSION_HEADER } =
+      await loadSensitiveSessionCenter();
+    sensitiveSessionCenter.store(
+      {
+        token: "ssn_reader_alias_secret",
+        sessionId: "ssn_reader_alias_secret",
+        resourceType: "reader_document",
+        resourceId: "workspace-a:doc-alias",
+      },
+      {
+        resourceType: "reader_document",
+        resourceId: "workspace-a:doc-alias",
+        aliasResourceIds: ["doc-alias"],
+      }
+    );
+
+    assert.deepEqual(
+      sensitiveSessionCenter.headers({
+        resourceType: "reader_document",
+        resourceId: "doc-alias",
+      }),
+      { [SENSITIVE_SESSION_HEADER]: "ssn_reader_alias_secret" }
+    );
+    assert.deepEqual(
+      sensitiveSessionCenter.headers({
+        resourceType: "reader_document",
+        resourceId: "workspace-a:doc-alias",
+      }),
+      { [SENSITIVE_SESSION_HEADER]: "ssn_reader_alias_secret" }
+    );
+    assert.equal(sensitiveSessionCenter.snapshot().size, 1);
+
+    await sensitiveSessionCenter.revoke(
+      {
+        resourceType: "reader_document",
+        resourceId: "doc-alias",
+      },
+      "alias-revoke"
+    );
+    assert.equal(sensitiveSessionCenter.snapshot().size, 0);
+    assert.deepEqual(
+      sensitiveSessionCenter.headers({
+        resourceType: "reader_document",
+        resourceId: "workspace-a:doc-alias",
+      }),
+      {}
+    );
+  } finally {
+    windowStub.cleanup();
+  }
+});
+
 test("abnormal path: heartbeat failure clears the local session and heartbeat timer", async () => {
   const windowStub = installWindowStub();
   try {

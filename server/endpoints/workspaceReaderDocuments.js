@@ -2676,7 +2676,7 @@ function wrapThumbnailTitle(title = "", maxChars = 13, maxLines = 5) {
   if (!text) return ["Untitled"];
   const chars = Array.from(text);
   const lines = [];
-  for (let index = 0; index < chars.length && lines.length < maxLines;) {
+  for (let index = 0; index < chars.length && lines.length < maxLines; ) {
     lines.push(chars.slice(index, index + maxChars).join(""));
     index += maxChars;
   }
@@ -2747,23 +2747,35 @@ function readerOriginalEtag(originalPath, metadata = {}) {
 }
 
 function setReaderOriginalHeaders(
-  request,
-  response,
-  originalPath,
-  metadata = {}
+  requestOrResponse,
+  responseOrOriginalPath,
+  originalPathOrMetadata,
+  metadataMaybe = {}
 ) {
+  const legacySignature = typeof responseOrOriginalPath === "string";
+  const request = legacySignature ? {} : requestOrResponse;
+  const response = legacySignature ? requestOrResponse : responseOrOriginalPath;
+  const originalPath = legacySignature
+    ? responseOrOriginalPath
+    : originalPathOrMetadata;
+  const metadata = legacySignature
+    ? originalPathOrMetadata || {}
+    : metadataMaybe;
+  const setHeader = (name, value) => {
+    if (typeof response.setHeader === "function")
+      return response.setHeader(name, value);
+    if (typeof response.header === "function")
+      return response.header(name, value);
+    response.headers = response.headers || {};
+    response.headers[name] = value;
+    return undefined;
+  };
   const etag = readerOriginalEtag(originalPath, metadata);
-  response.setHeader("Accept-Ranges", "bytes");
-  response.setHeader(
-    "Cache-Control",
-    readerStreamCacheControlForRequest(request)
-  );
-  response.setHeader(
-    "Content-Type",
-    metadata.mimeType || "application/octet-stream"
-  );
-  if (etag) response.setHeader("ETag", etag);
-  response.setHeader("X-Reader-Stream", "range");
+  setHeader("Accept-Ranges", "bytes");
+  setHeader("Cache-Control", readerStreamCacheControlForRequest(request));
+  setHeader("Content-Type", metadata.mimeType || "application/octet-stream");
+  if (etag) setHeader("ETag", etag);
+  setHeader("X-Reader-Stream", "range");
 }
 
 function sendReaderOriginalFile({ request, response, originalPath, metadata }) {

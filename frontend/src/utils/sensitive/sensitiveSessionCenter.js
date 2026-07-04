@@ -71,9 +71,21 @@ function sessionKey({
   return `${resourceType}:${resourceId || "global"}`;
 }
 
+function uniqueAliasKeys(resourceType, resourceIds = [], primaryKey = null) {
+  const seen = new Set();
+  return (Array.isArray(resourceIds) ? resourceIds : [resourceIds])
+    .map((resourceId) => sessionKey({ resourceType, resourceId }))
+    .filter((key) => {
+      if (!key || key === primaryKey || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 class SensitiveSessionCenter {
   constructor() {
     this.sessions = new Map();
+    this.aliases = new Map();
     this.heartbeats = new Map();
     this.counters = {
       stored: 0,
@@ -94,6 +106,11 @@ class SensitiveSessionCenter {
       options.resourceType || record.resourceType || "sensitive";
     const resourceId = options.resourceId || record.resourceId || "global";
     const key = sessionKey({ resourceType, resourceId });
+    const aliasKeys = uniqueAliasKeys(
+      resourceType,
+      options.aliasResourceIds || record.aliasResourceIds || [],
+      key
+    );
     const expiresAt = parseExpiry(record.expiresAt);
     const session = {
       key,
@@ -110,7 +127,11 @@ class SensitiveSessionCenter {
       expiresAt,
       status: record.status || "active",
     };
+    this.#clearKey(key);
     this.sessions.set(key, session);
+    aliasKeys.forEach((aliasKey) => {
+      this.aliases.set(aliasKey, key);
+    });
     this.counters.stored += 1;
     this.#scheduleHeartbeat(session);
     this.#expose();
@@ -151,7 +172,7 @@ class SensitiveSessionCenter {
   }
 
   get({ resourceType = "sensitive", resourceId = "global" } = {}) {
-    const key = sessionKey({ resourceType, resourceId });
+    const key = this.#canonicalKey(sessionKey({ resourceType, resourceId }));
     const session = this.sessions.get(key);
     if (!session?.token) return null;
     if (session.expiresAt && session.expiresAt <= nowMs()) {
@@ -171,6 +192,7 @@ class SensitiveSessionCenter {
   clear(target = null) {
     if (!target) {
       for (const key of this.sessions.keys()) this.#clearKey(key);
+      this.aliases.clear();
       return;
     }
     this.#clearKey(sessionKey(target));
@@ -281,10 +303,20 @@ class SensitiveSessionCenter {
   }
 
   #clearKey(key) {
-    this.sessions.delete(key);
-    const heartbeat = this.heartbeats.get(key);
+    const canonicalKey = this.#canonicalKey(key);
+    this.sessions.delete(canonicalKey);
+    for (const [aliasKey, targetKey] of this.aliases.entries()) {
+      if (aliasKey === key || targetKey === canonicalKey) {
+        this.aliases.delete(aliasKey);
+      }
+    }
+    const heartbeat = this.heartbeats.get(canonicalKey);
     if (heartbeat) clearTimeout(heartbeat);
-    this.heartbeats.delete(key);
+    this.heartbeats.delete(canonicalKey);
+  }
+
+  #canonicalKey(key) {
+    return this.aliases.get(key) || key;
   }
 
   #scheduleHeartbeat(session) {
