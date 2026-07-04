@@ -12,6 +12,7 @@ import useUser from "@/hooks/useUser";
 import { Link } from "react-router-dom";
 import { canSeeAdmin } from "@/utils/authz";
 import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function WorkspaceAgentConfiguration({ workspace }) {
   const { user } = useUser();
@@ -66,21 +67,54 @@ export default function WorkspaceAgentConfiguration({ workspace }) {
       data.workspace[key] = castToType(key, value);
     }
 
-    const { workspace: updatedWorkspace, message } = await Workspace.update(
-      workspace.slug,
-      data.workspace
-    );
-    await Admin.updateSystemPreferences(data.system);
-    await System.updateSystem(data.env);
-
-    if (!!updatedWorkspace) {
+    const action = optimisticActionCenter.run({
+      type: "workspace.settings.agent.save",
+      scope: {
+        route: "workspace-settings",
+        surface: "agent-config",
+        workspaceSlug: workspace.slug,
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:workspace-agent-settings-save",
+      optimisticPatch: () => setHasChanges(false),
+      rollbackPatch: () => setHasChanges(true),
+      serverCall: async ({ signal }) => {
+        const workspaceResult = await Workspace.update(
+          workspace.slug,
+          data.workspace,
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!workspaceResult?.workspace)
+          throw new Error(workspaceResult?.message || "保存失败");
+        const systemResult = await Admin.updateSystemPreferences(data.system, {
+          signal,
+          task: false,
+        });
+        if (!systemResult?.success)
+          throw new Error(systemResult?.error || "系统偏好保存失败");
+        const envResult = await System.updateSystem(data.env, {
+          signal,
+          task: false,
+        });
+        if (envResult?.error) throw new Error(envResult.error);
+        return { workspace: workspaceResult.workspace };
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
       showToast("Workspace updated!", "success", { clear: true });
     } else {
-      showToast(`Error: ${message}`, "error", { clear: true });
+      showToast(`Error: ${outcome.error?.message}`, "error", { clear: true });
     }
 
     setSaving(false);
-    setHasChanges(false);
   };
 
   if (!workspace || loading) return <LoadingSkeleton />;

@@ -19,6 +19,7 @@ import {
   recordCommunicationEvent,
 } from "./communicationMetrics";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -31,6 +32,22 @@ function devLog(phase, metadata = {}) {
 
 function durationSince(startedAt) {
   return Math.round(nowMs() - startedAt);
+}
+
+function handleCommunicationRecovery(error, context = {}) {
+  return recoveryCenter.handle(error, {
+    source: "communication",
+    requestId: context.requestId,
+    retryAttempt: context.retryAttempt,
+    path: context.path,
+    communicationScene: context.communicationScene,
+    scope: {
+      route: "communication",
+      method: context.method,
+      path: context.path,
+      communicationScene: context.communicationScene || undefined,
+    },
+  });
 }
 
 function requestSignal({ signal, timeoutMs }) {
@@ -218,6 +235,27 @@ async function requestJsonCore(path, options = {}) {
         retryAttempt < 1 &&
         isRecoverableSigningError(data?.error)
       ) {
+        handleCommunicationRecovery(
+          createApiError({
+            code: data?.error,
+            status: response.status,
+            message: data?.error || "Recoverable signing error.",
+            details: {
+              requestId,
+              method: normalizedMethod,
+              path,
+              retryAttempt,
+            },
+            raw: data,
+          }),
+          {
+            requestId,
+            method: normalizedMethod,
+            path,
+            communicationScene,
+            retryAttempt,
+          }
+        );
         clearSigningSecretCache();
         devLog("retry", {
           requestId,
@@ -307,6 +345,13 @@ async function requestJsonCore(path, options = {}) {
         details: { requestId, method: normalizedMethod, path, timeoutMs },
         raw: error,
       });
+      handleCommunicationRecovery(apiError, {
+        requestId,
+        method: normalizedMethod,
+        path,
+        communicationScene,
+        retryAttempt,
+      });
       devLog("timeout", {
         requestId,
         method: normalizedMethod,
@@ -317,7 +362,16 @@ async function requestJsonCore(path, options = {}) {
       throw apiError;
     }
     if (error?.name === "AbortError") throw error;
-    if (error?.ok === false) throw error;
+    if (error?.ok === false) {
+      handleCommunicationRecovery(error, {
+        requestId,
+        method: normalizedMethod,
+        path,
+        communicationScene,
+        retryAttempt,
+      });
+      throw error;
+    }
 
     const apiError = normalizeApiError(error, null, {
       details: {
@@ -326,6 +380,13 @@ async function requestJsonCore(path, options = {}) {
         method: normalizedMethod,
         path,
       },
+    });
+    handleCommunicationRecovery(apiError, {
+      requestId,
+      method: normalizedMethod,
+      path,
+      communicationScene,
+      retryAttempt,
     });
     devLog("failure", {
       requestId,

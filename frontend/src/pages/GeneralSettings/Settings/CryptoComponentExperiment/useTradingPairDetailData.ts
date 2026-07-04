@@ -7,6 +7,10 @@ import type {
   TradingPairMarketType,
 } from "./tradingPairDetailTypes";
 
+const DETAIL_VISIBLE_REFRESH_MS = 30_000;
+const DETAIL_HIDDEN_REFRESH_MS = 120_000;
+const DETAIL_MAX_RETRY_MS = 60_000;
+
 export function useTradingPairDetailData({
   mode,
   pair,
@@ -105,10 +109,10 @@ export function useTradingPairDetailData({
 
     function nextDelay(wasSuccessful = true) {
       const hidden = document.visibilityState === "hidden";
-      if (hidden) return 30_000;
-      if (wasSuccessful) return 5_000;
+      if (hidden) return DETAIL_HIDDEN_REFRESH_MS;
+      if (wasSuccessful) return DETAIL_VISIBLE_REFRESH_MS;
       return Math.min(
-        30_000,
+        DETAIL_MAX_RETRY_MS,
         2_000 * 2 ** Math.min(failureCountRef.current, 4)
       );
     }

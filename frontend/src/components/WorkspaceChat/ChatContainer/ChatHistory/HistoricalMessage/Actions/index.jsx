@@ -12,6 +12,7 @@ import { EditMessageAction } from "./EditMessage";
 import RenderMetrics from "./RenderMetrics";
 import ActionMenu from "./ActionMenu";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const Actions = ({
   message,
@@ -31,10 +32,41 @@ const Actions = ({
   const [selectedFeedback, setSelectedFeedback] = useState(feedbackScore);
   const actionChatId = publicChatId || chatId;
   const handleFeedback = async (newFeedback) => {
+    const previousFeedback = selectedFeedback;
     const updatedFeedback =
       selectedFeedback === newFeedback ? null : newFeedback;
-    await Workspace.updateChatFeedback(actionChatId, slug, updatedFeedback);
-    setSelectedFeedback(updatedFeedback);
+    const action = optimisticActionCenter.run({
+      type: "chat.message.feedback",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug: slug,
+        chatId: actionChatId,
+        surface: "chat-history",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:chat-message-feedback",
+      dedupeKey: `optimistic:chat-feedback:${slug}:${actionChatId}`,
+      optimisticPatch: () => setSelectedFeedback(updatedFeedback),
+      rollbackPatch: () => setSelectedFeedback(previousFeedback),
+      serverCall: async ({ signal }) => {
+        const ok = await Workspace.updateChatFeedback(
+          actionChatId,
+          slug,
+          updatedFeedback,
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!ok) throw new Error("Feedback update failed");
+        return true;
+      },
+    });
+    await action.promise;
   };
 
   return (

@@ -10,6 +10,7 @@ import VectorCount from "./VectorCount";
 import VectorSearchMode from "./VectorSearchMode";
 import CTAButton from "@/components/lib/CTAButton";
 import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function VectorDatabase({ workspace }) {
   const [hasChanges, setHasChanges] = useState(false);
@@ -40,14 +41,42 @@ export default function VectorDatabase({ workspace }) {
     const data = {};
     const form = new FormData(formEl.current);
     for (var [key, value] of form.entries()) data[key] = castToType(key, value);
-    const { workspace: updatedWorkspace, message } = await Workspace.update(
-      workspace.slug,
-      data
-    );
-    if (!!updatedWorkspace) {
+    const previousVectorDB = vectorDB;
+    const action = optimisticActionCenter.run({
+      type: "workspace.settings.vector.save",
+      scope: {
+        route: "workspace-settings",
+        surface: "vector-database",
+        workspaceSlug: workspace.slug,
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:workspace-vector-save",
+      optimisticPatch: () => {
+        if (data.vectorDB !== undefined) setVectorDB(data.vectorDB);
+      },
+      rollbackPatch: () => setVectorDB(previousVectorDB),
+      confirmPatch: ({ result }) => {
+        if (result?.workspace?.vectorDB !== undefined)
+          setVectorDB(result.workspace.vectorDB);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Workspace.update(workspace.slug, data, {
+          signal,
+          task: false,
+        });
+        if (!result?.workspace) throw new Error(result?.message || "保存失败");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
       showToast("Workspace updated!", "success", { clear: true });
     } else {
-      showToast(`Error: ${message}`, "error", { clear: true });
+      showToast(`Error: ${outcome.error?.message}`, "error", { clear: true });
     }
     setSaving(false);
     setHasChanges(false);

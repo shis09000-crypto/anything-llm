@@ -12,7 +12,7 @@ import type {
 type DataMode = "mock" | "gate-api";
 
 const STREAM_RENDER_THROTTLE_MS = 500;
-const STREAM_RECONNECT_MS = 1_500;
+const STREAM_RECONNECT_MS = 10_000;
 
 const emptySummary: OpenFuturesPositionsSummary = {
   totalUnrealizedPnlUsd: "0.00",

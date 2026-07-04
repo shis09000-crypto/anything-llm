@@ -20,7 +20,10 @@ import { useTradingPairCandlestickData } from "@/pages/GeneralSettings/Settings/
 import { useAssetAllocationDonutData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useAssetAllocationDonutData";
 import { useTradingPairDetailData } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/useTradingPairDetailData";
 import { assetAllocationDonutDefaultVisual } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutVisual";
-import type { AssetAllocationDonutCardProps } from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutTypes";
+import type {
+  AssetAllocationDonutCardProps,
+  AssetAllocationItem,
+} from "@/pages/GeneralSettings/Settings/CryptoComponentExperiment/assetAllocationDonutTypes";
 import type {
   CryptoTotalAssetCardProps,
   CryptoTrendPoint,
@@ -60,6 +63,8 @@ const FuturesTradingSection = React.lazy(
 const CRYPTO_CENTER_BACKGROUND_URL =
   "/crypto-center-backgrounds/crypto-center-background.png";
 const FALLBACK_YESTERDAY_BASELINE_USD = 51685.38;
+const CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD = 30_000;
+const CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_SYMBOL = "USDT";
 const BTC_PAIR = "BTC_USDT";
 const BTC_MARKET = "spot";
 const btcPreset = presetById(BTC_PAIR);
@@ -83,7 +88,101 @@ const TOP_SPOT_MIN_TWO_COLUMN_WIDTH = 760;
 const OPEN_FUTURES_POSITIONS_CARD_HEIGHT = 645;
 const OPEN_FUTURES_VISIBLE_POSITION_COUNT = 6;
 const TRADE_RECORDS_CARD_HEIGHT = 680;
-const EQUITY_HISTORY_REFRESH_MS = 3_000;
+const CRYPTO_VISIBLE_BACKGROUND_REFRESH_MS = 30_000;
+const CRYPTO_HIDDEN_BACKGROUND_REFRESH_MS = 120_000;
+const EQUITY_HISTORY_REFRESH_MS = CRYPTO_VISIBLE_BACKGROUND_REFRESH_MS;
+function parseDisplayNumber(value?: string | number | null) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  const parsed = Number(String(value || "").replace(/,/g, ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatDisplayNumber(value: number, fractionDigits = 2) {
+  return value.toFixed(fractionDigits);
+}
+
+function withTotalAssetDisplayOffset(point: CryptoTrendPoint) {
+  const pointWithEquity = point as CryptoTrendPoint & {
+    totalEquityUsd?: number;
+  };
+  const displayPoint: CryptoTrendPoint & { totalEquityUsd?: number } = {
+    ...point,
+    value: point.value + CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD,
+  };
+
+  if (typeof pointWithEquity.totalEquityUsd !== "undefined") {
+    const equityValue = Number(pointWithEquity.totalEquityUsd);
+    displayPoint.totalEquityUsd =
+      (Number.isFinite(equityValue) ? equityValue : point.value) +
+      CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD;
+  }
+
+  return displayPoint;
+}
+
+function cryptoBackgroundRefreshDelay() {
+  return document.visibilityState === "hidden"
+    ? CRYPTO_HIDDEN_BACKGROUND_REFRESH_MS
+    : CRYPTO_VISIBLE_BACKGROUND_REFRESH_MS;
+}
+
+function withUsdtAllocationDisplayOffset(
+  items: AssetAllocationItem[],
+  totalValueUsd: string
+) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const itemValues = normalizedItems.map((item) =>
+    parseDisplayNumber(item.valueUsd)
+  );
+  const sourceTotal =
+    parseDisplayNumber(totalValueUsd) ||
+    itemValues.reduce((sum, value) => sum + value, 0);
+  const displayTotal = sourceTotal + CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD;
+  const offsetSymbol = CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_SYMBOL;
+  let appliedOffset = false;
+
+  const nextItems = normalizedItems.map((item, index) => {
+    const symbol = item.symbol.trim().toUpperCase();
+    const displayValue =
+      itemValues[index] +
+      (symbol === offsetSymbol ? CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD : 0);
+
+    if (symbol === offsetSymbol) appliedOffset = true;
+
+    return {
+      ...item,
+      symbol: symbol || item.symbol,
+      valueUsd: formatDisplayNumber(displayValue),
+      percentage: formatDisplayNumber(
+        displayTotal > 0 ? (displayValue / displayTotal) * 100 : 0
+      ),
+    };
+  });
+
+  if (!appliedOffset) {
+    nextItems.push({
+      symbol: offsetSymbol,
+      name: "Tether",
+      nameCn: "USDT",
+      color: "#26A17B",
+      valueUsd: formatDisplayNumber(CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD),
+      percentage: formatDisplayNumber(
+        displayTotal > 0
+          ? (CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD / displayTotal) * 100
+          : 0
+      ),
+      amount: formatDisplayNumber(CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD),
+      priceUsd: "1.00",
+      change24hPct: null,
+    });
+  }
+
+  return {
+    items: nextItems,
+    totalValueUsd: formatDisplayNumber(displayTotal),
+  };
+}
+
 const SECTION_SCROLL_TUNING = {
   minWidth: 900,
   tabletMinWidth: 768,
@@ -1610,7 +1709,7 @@ function useTopSpotAssets({ enabled = true } = {}) {
       timer = window.setTimeout(async () => {
         await loadTopAssets();
         if (!cancelled) schedule();
-      }, 10_000);
+      }, cryptoBackgroundRefreshDelay());
     }
 
     loadTopAssets();
@@ -2298,12 +2397,19 @@ export default function CryptoCenterContent() {
       }
     }
 
+    function scheduleHistoryRefresh() {
+      timer = window.setTimeout(async () => {
+        await loadHistory();
+        if (!cancelled) scheduleHistoryRefresh();
+      }, EQUITY_HISTORY_REFRESH_MS);
+    }
+
     loadHistory();
-    timer = window.setInterval(loadHistory, EQUITY_HISTORY_REFRESH_MS);
+    scheduleHistoryRefresh();
 
     return () => {
       cancelled = true;
-      if (timer) window.clearInterval(timer);
+      if (timer) window.clearTimeout(timer);
       inflightController?.abort();
     };
   }, [equityMode]);
@@ -2332,14 +2438,24 @@ export default function CryptoCenterContent() {
 
     if (!gateHistory) return timeStampedParams;
 
+    const displayTotalEquityUsd =
+      gateHistory.latestEquityUsd + CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD;
+    const displayYesterdayBaselineUsd =
+      gateHistory.yesterdayBaselineUsd + CRYPTO_TOTAL_ASSET_DISPLAY_OFFSET_USD;
+    const displayTodayPnlPct =
+      Number.isFinite(displayYesterdayBaselineUsd) &&
+      displayYesterdayBaselineUsd !== 0
+        ? (gateHistory.todayPnlUsd / displayYesterdayBaselineUsd) * 100
+        : gateHistory.todayPnlPct;
+
     return {
       ...timeStampedParams,
-      totalEquityUsd: gateHistory.latestEquityUsd,
+      totalEquityUsd: displayTotalEquityUsd,
       todayPnlUsd: gateHistory.todayPnlUsd,
-      todayPnlPct: gateHistory.todayPnlPct,
-      yesterdayBaselineUsd: gateHistory.yesterdayBaselineUsd,
+      todayPnlPct: displayTodayPnlPct,
+      yesterdayBaselineUsd: displayYesterdayBaselineUsd,
       yesterdayChangePct: gateHistory.yesterdayChangePct,
-      trendPoints: gateHistory.points,
+      trendPoints: gateHistory.points.map(withTotalAssetDisplayOffset),
     };
   }, [
     currentDateTime,
@@ -2411,27 +2527,31 @@ export default function CryptoCenterContent() {
     responsiveDetailVisual,
   ]);
 
-  const assetAllocationParams = useMemo<AssetAllocationDonutCardProps>(
-    () => ({
+  const assetAllocationParams = useMemo<AssetAllocationDonutCardProps>(() => {
+    const displayAllocation = withUsdtAllocationDisplayOffset(
+      assetAllocation.activeItems,
+      assetAllocation.activeTotalValueUsd
+    );
+
+    return {
       title: "资产分布",
-      totalValueUsd: assetAllocation.activeTotalValueUsd,
-      items: assetAllocation.activeItems,
+      totalValueUsd: displayAllocation.totalValueUsd,
+      items: displayAllocation.items,
       selectedAsset: selectedAllocationAsset,
       onSelectAsset: setSelectedAllocationAsset,
       ...assetAllocationDonutDefaultVisual,
       cardHeight: responsiveLayout.heroPortfolioHeight,
       borderRadius: responsiveLayout.spotBorderRadius,
       cardWidth: responsiveLayout.heroAssetCardWidth,
-    }),
-    [
-      assetAllocation.activeItems,
-      assetAllocation.activeTotalValueUsd,
-      responsiveLayout.heroAssetCardWidth,
-      responsiveLayout.heroPortfolioHeight,
-      responsiveLayout.spotBorderRadius,
-      selectedAllocationAsset,
-    ]
-  );
+    };
+  }, [
+    assetAllocation.activeItems,
+    assetAllocation.activeTotalValueUsd,
+    responsiveLayout.heroAssetCardWidth,
+    responsiveLayout.heroPortfolioHeight,
+    responsiveLayout.spotBorderRadius,
+    selectedAllocationAsset,
+  ]);
 
   return (
     <div

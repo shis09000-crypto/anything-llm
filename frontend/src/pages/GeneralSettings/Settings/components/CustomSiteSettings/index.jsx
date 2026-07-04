@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Admin from "@/models/admin";
 import showToast from "@/utils/toast";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function CustomSiteSettings() {
   const { t } = useTranslation();
@@ -25,16 +26,61 @@ export default function CustomSiteSettings() {
 
   async function handleSiteSettingUpdate(e) {
     e.preventDefault();
-    await Admin.updateSystemPreferences({
-      meta_page_title: settings.title ?? null,
-      meta_page_favicon: settings.faviconUrl ?? null,
+    const previousSettings = settings;
+    const nextSettings = {
+      title: settings.title ?? null,
+      faviconUrl: settings.faviconUrl ?? null,
+    };
+    const action = optimisticActionCenter.run({
+      type: "settings.siteAppearance.save",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "site_appearance",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-site-appearance",
+      optimisticPatch: () => {
+        setSettings(nextSettings);
+        setHasChanges(false);
+      },
+      rollbackPatch: () => setSettings(previousSettings),
+      serverCall: async ({ signal }) => {
+        const result = await Admin.updateSystemPreferences(
+          {
+            meta_page_title: nextSettings.title,
+            meta_page_favicon: nextSettings.faviconUrl,
+          },
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to update site preferences");
+        return result;
+      },
     });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        `Failed to update site preferences: ${outcome.error?.message}`,
+        "error",
+        {
+          clear: true,
+        }
+      );
+      return;
+    }
     showToast(
       "Site preferences updated! They will reflect on page reload.",
       "success",
       { clear: true }
     );
-    setHasChanges(false);
     return;
   }
 

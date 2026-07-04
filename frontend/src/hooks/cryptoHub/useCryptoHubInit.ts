@@ -26,7 +26,17 @@ export type CryptoHubLoadingProgress = {
 };
 
 const INIT_TIMEOUT_MS = 10_000;
-const POLL_MS = 500;
+const POLL_MS = 1_000;
+const READY_PROGRESS_FAST_PATH_MS = 30_000;
+
+function isRecentReadyProgress(progress: CryptoHubLoadingProgress | null) {
+  if (!progress || progress.phase !== "ready") return false;
+  const updatedAt = Number(progress.updatedAt || 0);
+  return (
+    Number.isFinite(updatedAt) &&
+    Date.now() - updatedAt < READY_PROGRESS_FAST_PATH_MS
+  );
+}
 
 export function useCryptoHubInit({ enabled = true } = {}) {
   const [progress, setProgress] = useState<CryptoHubLoadingProgress | null>(
@@ -56,6 +66,12 @@ export function useCryptoHubInit({ enabled = true } = {}) {
     if (cachedProgress) {
       setProgress(cachedProgress);
       if (cachedProgress.phase === "ready") setReady(true);
+    }
+    if (isRecentReadyProgress(cachedProgress)) {
+      setReady(true);
+      setRunning(false);
+      setError(null);
+      return;
     }
     setRunning(true);
     setReady(cachedProgress?.phase === "ready");

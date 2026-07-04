@@ -4,6 +4,7 @@ import showToast from "@/utils/toast";
 import { useEffect, useRef, useState } from "react";
 import { Plus } from "@phosphor-icons/react";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function CustomLogo() {
   const { t } = useTranslation();
@@ -26,35 +27,97 @@ export default function CustomLogo() {
     if (!file) return false;
 
     const objectURL = URL.createObjectURL(file);
-    setLogo(objectURL);
+    const previousLogo = logo || _initLogo || "";
+    const previousIsDefaultLogo = isDefaultLogo;
 
     const formData = new FormData();
     formData.append("logo", file);
-    const { success, error } = await System.uploadLogo(formData);
-    if (!success) {
-      showToast(`Failed to upload logo: ${error}`, "error");
-      setLogo(_initLogo);
+    const action = optimisticActionCenter.run({
+      type: "settings.logo.upload",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "logo",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      resource: "upload",
+      label: "optimistic:settings-logo-upload",
+      optimisticPatch: () => {
+        setLogo(objectURL);
+        setIsDefaultLogo(false);
+      },
+      rollbackPatch: () => {
+        setLogo(previousLogo);
+        setIsDefaultLogo(previousIsDefaultLogo);
+        URL.revokeObjectURL(objectURL);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await System.uploadLogo(formData, {
+          signal,
+          task: false,
+        });
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to upload logo");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(`Failed to upload logo: ${outcome.error?.message}`, "error");
       return;
     }
 
     const { logoURL } = await System.fetchLogo();
     _setLogo(logoURL);
+    setLogo(logoURL);
+    URL.revokeObjectURL(objectURL);
 
     showToast("Image uploaded successfully.", "success");
     setIsDefaultLogo(false);
   };
 
   const handleRemoveLogo = async () => {
-    setLogo("");
-    setIsDefaultLogo(true);
-
-    const { success, error } = await System.removeCustomLogo();
-    if (!success) {
-      console.error("Failed to remove logo:", error);
-      showToast(`Failed to remove logo: ${error}`, "error");
-      const { logoURL } = await System.fetchLogo();
-      setLogo(logoURL);
-      setIsDefaultLogo(false);
+    const previousLogo = logo || _initLogo || "";
+    const previousIsDefaultLogo = isDefaultLogo;
+    const action = optimisticActionCenter.run({
+      type: "settings.logo.remove",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "logo",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-logo-remove",
+      optimisticPatch: () => {
+        setLogo("");
+        setIsDefaultLogo(true);
+      },
+      rollbackPatch: () => {
+        setLogo(previousLogo);
+        setIsDefaultLogo(previousIsDefaultLogo);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await System.removeCustomLogo({
+          signal,
+          task: false,
+        });
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to remove logo");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      console.error("Failed to remove logo:", outcome.error);
+      showToast(`Failed to remove logo: ${outcome.error?.message}`, "error");
       return;
     }
 

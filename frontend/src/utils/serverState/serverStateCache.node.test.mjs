@@ -139,6 +139,25 @@ test("server state cache reports actual owner-scoped invalidation count", () => 
   assert.deepEqual(cache.get("workspace.detail:b"), { slug: "b" });
 });
 
+test("server state cache rejects sensitive keys and sensitive metadata", () => {
+  const now = { value: 4_300 };
+  const cache = cacheWithClock(now);
+
+  assert.throws(
+    () => cache.set("vault.secret:1", { secret: "value" }),
+    /Sensitive state/
+  );
+  assert.throws(
+    () =>
+      cache.set(
+        "workspace.detail:a",
+        { slug: "a" },
+        { meta: { sensitive: true } }
+      ),
+    /Sensitive state/
+  );
+});
+
 test("server state cache snapshots expose metadata for managed pruning", () => {
   const now = { value: 4_500 };
   const cache = cacheWithClock(now);

@@ -33,6 +33,7 @@ import {
 } from "@/lib/communication/clientIdentity";
 import ReaderDocument from "@/models/readerDocument";
 import { baseHeaders } from "@/utils/request";
+import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 import showToast from "@/utils/toast";
 import {
   pdfProgressRestoreKey,
@@ -97,9 +98,28 @@ function pdfSourceUrl(url) {
   }
 }
 
+function readerDocumentIdFromUrl(url = "") {
+  const match = String(url || "").match(
+    /\/reader-documents\/([0-9a-f-]{36})(?:\/|$)/i
+  );
+  return match?.[1] || null;
+}
+
+function pdfSensitiveHeadersForUrl(url) {
+  const readerDocumentId = readerDocumentIdFromUrl(url);
+  if (!readerDocumentId) return {};
+  return sensitiveSessionCenter.headers({
+    resourceType: "reader_document",
+    resourceId: readerDocumentId,
+  });
+}
+
 function pdfHttpHeadersForUrl(url) {
   if (!url || /^(blob:|data:)/i.test(String(url))) return undefined;
-  const headers = cleanPdfHeaders(baseHeaders());
+  const headers = cleanPdfHeaders({
+    ...baseHeaders(),
+    ...pdfSensitiveHeadersForUrl(url),
+  });
   const nextHeaders = shouldAttachClientIdentityToUrl(url)
     ? withClientIdentityHeaders(headers, {
         requestId: createCommunicationRequestId(),

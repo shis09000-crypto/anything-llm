@@ -358,6 +358,10 @@ function readerDocumentTimestamp(document = {}) {
   );
 }
 
+function bookshelfOrderTimestamp(item = {}) {
+  return timestampValue(item.lastOpenedAt || item.addedAt || item.updatedAt);
+}
+
 function migrateReaderHistoryToGlobal() {
   const prefix = "anythingllm_document_reader_history:v1:";
   const legacyKeys = legacyStorageKeysForPrefix(
@@ -1027,9 +1031,7 @@ export function readReaderBookshelf() {
   }
   return readerItemsWithLatestBookMemory(
     [...byKey.values()].sort(
-      (a, b) =>
-        timestampValue(b.updatedAt || b.addedAt) -
-        timestampValue(a.updatedAt || a.addedAt)
+      (a, b) => bookshelfOrderTimestamp(b) - bookshelfOrderTimestamp(a)
     )
   );
 }
@@ -1056,11 +1058,7 @@ export function writeReaderBookshelf(items = []) {
     );
   }
   next.push(...byKey.values());
-  next.sort(
-    (a, b) =>
-      timestampValue(b.updatedAt || b.addedAt) -
-      timestampValue(a.updatedAt || a.addedAt)
-  );
+  next.sort((a, b) => bookshelfOrderTimestamp(b) - bookshelfOrderTimestamp(a));
   writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, next);
   persistReaderLibraryState();
   return next;

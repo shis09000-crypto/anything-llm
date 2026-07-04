@@ -3,6 +3,7 @@ import System from "@/models/system";
 import showToast from "@/utils/toast";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function CustomAppName() {
   const { t } = useTranslation();
@@ -36,19 +37,57 @@ export default function CustomAppName() {
       const form = new FormData(e.target);
       custom_app_name = form.get("customAppName");
     }
-    const { success, error } = await Admin.updateSystemPreferences({
-      custom_app_name,
+    const previousAppName = originalAppName;
+    const action = optimisticActionCenter.run({
+      type: "settings.customAppName.save",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "custom_app_name",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-custom-app-name",
+      optimisticPatch: () => {
+        setCustomAppName(custom_app_name);
+        setOriginalAppName(custom_app_name);
+        setHasChanges(false);
+        window.localStorage.removeItem(System.cacheKeys.customAppName);
+      },
+      rollbackPatch: () => {
+        setCustomAppName(previousAppName);
+        setOriginalAppName(previousAppName);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Admin.updateSystemPreferences(
+          {
+            custom_app_name,
+          },
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to update custom app name");
+        return result;
+      },
     });
-    if (!success) {
-      showToast(`Failed to update custom app name: ${error}`, "error");
+    const outcome = await action.promise;
+    const { success, error } = outcome.result || {};
+    if (!outcome.ok || !success) {
+      showToast(
+        `Failed to update custom app name: ${
+          error || outcome.error?.message || "Unknown error"
+        }`,
+        "error"
+      );
       return;
-    } else {
-      showToast("Successfully updated custom app name.", "success");
-      window.localStorage.removeItem(System.cacheKeys.customAppName);
-      setCustomAppName(custom_app_name);
-      setOriginalAppName(custom_app_name);
-      setHasChanges(false);
     }
+    showToast("Successfully updated custom app name.", "success");
   };
 
   const handleChange = (e) => {

@@ -39,8 +39,19 @@ const {
   requestAuthContext,
   stripFileBackedOwnerMetadata,
 } = require("../utils/authz/resourceAccess");
-const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
+const {
+  getClientContext,
+  recordClientTrustCheckpoint,
+} = require("../utils/clientIdentity");
 const { hashLogValue } = require("../utils/security/redaction");
+const {
+  authSessionFingerprintFromRequest,
+} = require("../utils/authz/vaultAccessGrants");
+const {
+  issueSensitiveSession,
+  sensitiveSessionTokenFromRequest,
+  validateSensitiveSessionForRequest,
+} = require("../utils/authz/sensitiveSessions");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -127,6 +138,8 @@ const READER_POSTPROCESS_AUTO_POLL_TIMEOUT_MS = Math.max(
   Number(process.env.READER_POSTPROCESS_AUTO_POLL_TIMEOUT_MS) || 45_000
 );
 const READER_STREAM_CACHE_CONTROL = "private, max-age=604800, no-transform";
+const READER_SENSITIVE_STREAM_CACHE_CONTROL =
+  "private, no-store, max-age=0, must-revalidate, no-transform";
 const readerPostprocessJobs = new Map();
 const readerDeleteJobs = new Map();
 const readerPdfManifestJobs = new Map();
@@ -1044,6 +1057,74 @@ function readerDocumentNotFoundError() {
   const error = new Error("Reader document not found.");
   error.status = 404;
   return error;
+}
+
+function readerSensitiveOwnerScope(workspace) {
+  return workspace?.readerStandalone
+    ? "reader:standalone"
+    : `workspace:${workspace?.slug || "unknown"}:reader`;
+}
+
+function readerSensitiveResourceId(workspace, readerDocumentId) {
+  const owner =
+    workspace?.readerStorageSegment ||
+    workspace?.slug ||
+    (workspace?.readerStandalone ? "standalone" : "unknown");
+  return `${owner}:${readerDocumentId}`;
+}
+
+function readerSensitiveSessionForResponse(
+  request,
+  response,
+  workspace,
+  readerDocumentId,
+  method = "reader-document-open"
+) {
+  const userId = Number(response?.locals?.user?.id || 0);
+  const context = getClientContext(request);
+  if (!userId || !context?.clientId) return null;
+  return issueSensitiveSession({
+    userId,
+    clientId: context.clientId,
+    resourceType: "reader_document",
+    resourceId: readerSensitiveResourceId(workspace, readerDocumentId),
+    ownerScope: readerSensitiveOwnerScope(workspace),
+    method,
+    requestId:
+      request?.signedRequest?.requestId ||
+      context.requestId ||
+      request?.communicationRequestId ||
+      null,
+    sessionFingerprint: authSessionFingerprintFromRequest(request),
+  });
+}
+
+function validateReaderSensitiveSessionIfPresent({
+  request,
+  response,
+  workspace,
+  readerDocumentId,
+}) {
+  const token = sensitiveSessionTokenFromRequest(request);
+  if (!token) return { ok: true, present: false };
+
+  const userId = Number(response?.locals?.user?.id || 0);
+  const context = getClientContext(request);
+  const result = validateSensitiveSessionForRequest(request, {
+    userId,
+    clientId: context?.clientId,
+    resourceType: "reader_document",
+    resourceId: readerSensitiveResourceId(workspace, readerDocumentId),
+    ownerScope: readerSensitiveOwnerScope(workspace),
+    heartbeat: true,
+  });
+  return { ...result, present: true };
+}
+
+function readerStreamCacheControlForRequest(request) {
+  return sensitiveSessionTokenFromRequest(request)
+    ? READER_SENSITIVE_STREAM_CACHE_CONTROL
+    : READER_STREAM_CACHE_CONTROL;
 }
 
 async function assertAuthorizedStandaloneReaderDocument({
@@ -2539,7 +2620,10 @@ async function sendReaderPdfPagePreview({
     pageNumber,
   });
   response.setHeader("Content-Type", "image/jpeg");
-  response.setHeader("Cache-Control", READER_STREAM_CACHE_CONTROL);
+  response.setHeader(
+    "Cache-Control",
+    readerStreamCacheControlForRequest(request)
+  );
   response.setHeader("X-Reader-Page", String(pageNumber));
   response.setHeader("X-Reader-Page-Preview-Cache", cached ? "hit" : "miss");
   response.setHeader(
@@ -2592,7 +2676,7 @@ function wrapThumbnailTitle(title = "", maxChars = 13, maxLines = 5) {
   if (!text) return ["Untitled"];
   const chars = Array.from(text);
   const lines = [];
-  for (let index = 0; index < chars.length && lines.length < maxLines; ) {
+  for (let index = 0; index < chars.length && lines.length < maxLines;) {
     lines.push(chars.slice(index, index + maxChars).join(""));
     index += maxChars;
   }
@@ -2662,10 +2746,18 @@ function readerOriginalEtag(originalPath, metadata = {}) {
   }
 }
 
-function setReaderOriginalHeaders(response, originalPath, metadata = {}) {
+function setReaderOriginalHeaders(
+  request,
+  response,
+  originalPath,
+  metadata = {}
+) {
   const etag = readerOriginalEtag(originalPath, metadata);
   response.setHeader("Accept-Ranges", "bytes");
-  response.setHeader("Cache-Control", READER_STREAM_CACHE_CONTROL);
+  response.setHeader(
+    "Cache-Control",
+    readerStreamCacheControlForRequest(request)
+  );
   response.setHeader(
     "Content-Type",
     metadata.mimeType || "application/octet-stream"
@@ -2677,7 +2769,7 @@ function setReaderOriginalHeaders(response, originalPath, metadata = {}) {
 function sendReaderOriginalFile({ request, response, originalPath, metadata }) {
   const startedAt = Date.now();
   const range = request.headers.range || null;
-  setReaderOriginalHeaders(response, originalPath, metadata);
+  setReaderOriginalHeaders(request, response, originalPath, metadata);
   response.on("finish", () => {
     console.info("[reader:original]", {
       requestId: request.communicationRequestId || null,
@@ -3899,6 +3991,13 @@ function workspaceReaderDocumentsEndpoints(app) {
             success: true,
             warning: finalMetadata.previewWarning || null,
             readerDocumentId,
+            sensitiveSession: readerSensitiveSessionForResponse(
+              request,
+              response,
+              workspace,
+              readerDocumentId,
+              "reader-upload"
+            ),
             ...(includeUploadContent(request) ? { content } : {}),
             metadata: metadataWithOriginalUrl(
               workspace,
@@ -3957,6 +4056,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           success: true,
           warning: finalMetadata.previewWarning || null,
           readerDocumentId,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-local-path-open"
+          ),
           content,
           metadata: metadataWithOriginalUrl(
             workspace,
@@ -4138,6 +4244,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           success: true,
           warning: finalMetadata.previewWarning || null,
           readerDocumentId,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-local-path-reopen"
+          ),
           content,
           metadata: metadataWithOriginalUrl(
             workspace,
@@ -4171,6 +4284,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "preview"
         );
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
@@ -4178,6 +4302,10 @@ function workspaceReaderDocumentsEndpoints(app) {
             error: "DOCX preview PDF not found.",
           });
         response.setHeader("Content-Type", "application/pdf");
+        response.setHeader(
+          "Cache-Control",
+          readerStreamCacheControlForRequest(request)
+        );
         response.setHeader(
           "Content-Disposition",
           `inline; filename="${DOCX_PREVIEW_NAME}"`
@@ -4245,6 +4373,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "page-preview"
         );
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         if (!metadataIsPdf(metadata))
           return response.status(400).json({
             success: false,
@@ -4288,6 +4427,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "original"
         );
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         const originalPath = await originalPathForReaderDocument({
           documentRoot,
           metadata,
@@ -4344,6 +4494,13 @@ function workspaceReaderDocumentsEndpoints(app) {
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-document-open"
+          ),
           ...(includeContent ? { content } : {}),
           contentSummary: readerContentSummary({
             content,
@@ -4536,6 +4693,13 @@ function workspaceReaderDocumentsEndpoints(app) {
             success: true,
             warning: finalMetadata.previewWarning || null,
             readerDocumentId,
+            sensitiveSession: readerSensitiveSessionForResponse(
+              request,
+              response,
+              workspace,
+              readerDocumentId,
+              "reader-upload"
+            ),
             ...(includeUploadContent(request) ? { content } : {}),
             metadata: metadataWithOriginalUrl(
               workspace,
@@ -4647,6 +4811,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           success: true,
           warning: finalMetadata.previewWarning || null,
           readerDocumentId,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-local-path-open"
+          ),
           content,
           metadata: metadataWithOriginalUrl(
             workspace,
@@ -4821,6 +4992,13 @@ function workspaceReaderDocumentsEndpoints(app) {
           success: true,
           warning: finalMetadata.previewWarning || null,
           readerDocumentId,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-local-path-reopen"
+          ),
           content,
           metadata: metadataWithOriginalUrl(
             workspace,
@@ -4857,6 +5035,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
@@ -4864,6 +5053,10 @@ function workspaceReaderDocumentsEndpoints(app) {
             error: "DOCX preview PDF not found.",
           });
         response.setHeader("Content-Type", "application/pdf");
+        response.setHeader(
+          "Cache-Control",
+          readerStreamCacheControlForRequest(request)
+        );
         response.setHeader(
           "Content-Disposition",
           `inline; filename="${DOCX_PREVIEW_NAME}"`
@@ -4937,6 +5130,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         if (!metadataIsPdf(metadata))
           return response.status(400).json({
             success: false,
@@ -4983,6 +5187,17 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
+        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+          request,
+          response,
+          workspace,
+          readerDocumentId,
+        });
+        if (!sensitiveSession.ok)
+          return response.status(403).json({
+            success: false,
+            error: "Sensitive reader session is invalid or expired.",
+          });
         const originalPath = await originalPathForReaderDocument({
           documentRoot,
           metadata,
@@ -5034,6 +5249,13 @@ function workspaceReaderDocumentsEndpoints(app) {
         return response.status(200).json({
           success: true,
           warning: metadata.previewWarning || null,
+          sensitiveSession: readerSensitiveSessionForResponse(
+            request,
+            response,
+            workspace,
+            readerDocumentId,
+            "reader-document-open"
+          ),
           ...(includeContent ? { content } : {}),
           contentSummary: readerContentSummary({
             content,

@@ -7,6 +7,7 @@ import {
   recordCommunicationEvent,
 } from "./communicationMetrics";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
@@ -27,6 +28,21 @@ function parseSseJsonMessage(msg, { requestId, path } = {}) {
 
 function isAbort(signal, error) {
   return signal?.aborted || error?.name === "AbortError";
+}
+
+function handleStreamRecovery(error, context = {}) {
+  return recoveryCenter.handle(error, {
+    source: "communication",
+    requestId: context.requestId,
+    path: context.path,
+    communicationScene: context.communicationScene,
+    scope: {
+      route: "stream",
+      method: context.method,
+      path: context.path,
+      communicationScene: context.communicationScene || undefined,
+    },
+  });
 }
 
 async function jsonSseCore({
@@ -76,7 +92,7 @@ async function jsonSseCore({
         return;
       }
 
-      throw normalizeApiError(null, response, {
+      const apiError = normalizeApiError(null, response, {
         code: API_ERROR_CODES.HTTP_OPEN_ERROR,
         status: response.status,
         message:
@@ -88,11 +104,29 @@ async function jsonSseCore({
         raw: response,
         details: { requestId, method: normalizedMethod, path },
       });
+      handleStreamRecovery(apiError, {
+        requestId,
+        method: normalizedMethod,
+        path,
+        communicationScene,
+      });
+      throw apiError;
     },
     async onmessage(msg) {
       eventCount += 1;
       await onRawMessage?.(msg);
-      const payload = parseSseJsonMessage(msg, { requestId, path });
+      let payload;
+      try {
+        payload = parseSseJsonMessage(msg, { requestId, path });
+      } catch (error) {
+        handleStreamRecovery(error, {
+          requestId,
+          method: normalizedMethod,
+          path,
+          communicationScene,
+        });
+        throw error;
+      }
       await onMessage?.(payload, msg);
     },
     onclose() {
@@ -127,6 +161,12 @@ async function jsonSseCore({
               raw: error,
             });
 
+      handleStreamRecovery(apiError, {
+        requestId,
+        method: normalizedMethod,
+        path,
+        communicationScene,
+      });
       const retryValue = onError?.(apiError);
       recordCommunicationEvent({
         requestId,

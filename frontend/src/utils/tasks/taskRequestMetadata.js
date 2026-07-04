@@ -461,16 +461,20 @@ function warnUnscheduledRequest(
   const key = `${method}:${path}:${communicationScene || ""}`;
   if (DEV_UNSCHEDULED_WARNED.has(key)) return;
   DEV_UNSCHEDULED_WARNED.add(key);
-  console.warn("[TaskScheduler] unscheduled request inferred", {
-    method,
-    path,
-    communicationScene,
-    task: {
-      kind: metadata.kind,
-      priority: metadata.priority,
-      scope: metadata.scope,
-    },
-  });
+  console.warn(
+    `[TaskScheduler] unscheduled request inferred ${method} ${path}` +
+      (communicationScene ? ` (${communicationScene})` : ""),
+    {
+      method,
+      path,
+      communicationScene,
+      task: {
+        kind: metadata.kind,
+        priority: metadata.priority,
+        scope: metadata.scope,
+      },
+    }
+  );
 }
 
 export async function runScheduledTaskRequest(operation, request = {}) {

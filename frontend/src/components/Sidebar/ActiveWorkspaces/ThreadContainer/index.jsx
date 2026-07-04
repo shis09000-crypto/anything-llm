@@ -32,46 +32,12 @@ import { Draggable, Droppable } from "react-beautiful-dnd";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const THREAD_DUPLICATE_REUSE_MS = 1_500;
 const titleEventStreamsByWorkspace = new Map();
-
-function navigationWriteTask(label, workspaceSlug, scope = {}) {
-  return {
-    label,
-    kind: "navigation",
-    priority: "P0",
-    policy: "foreground",
-    protected: true,
-    abortable: false,
-    intentRank: 1,
-    scope: {
-      route: "workspace-sidebar",
-      surface: "threads",
-      workspaceSlug,
-      ...scope,
-    },
-  };
-}
-
-function optimisticThreadCreateTask(label, workspaceSlug, scope = {}) {
-  return {
-    label,
-    kind: "navigation",
-    priority: "P0",
-    policy: "foreground",
-    protected: true,
-    abortable: false,
-    intentRank: 2,
-    scope: {
-      route: "workspace-sidebar",
-      surface: "thread-create",
-      workspaceSlug,
-      ...scope,
-    },
-  };
-}
 
 function createOptimisticThread(workspaceSlug, label) {
   const now = new Date().toISOString();
@@ -274,6 +240,15 @@ export default function ThreadContainer({
       })
       .catch((error) => {
         if (ctrl.signal.aborted) return;
+        const recovery = recoveryCenter.handle(error, {
+          source: "task",
+          scope: {
+            route: "workspace-sidebar",
+            surface: "thread-title-events",
+            workspaceSlug: workspace.slug,
+          },
+        });
+        if (recovery?.silent) return;
         console.warn("[ThreadTitle] event stream closed", error.message);
       });
 
@@ -579,21 +554,54 @@ export default function ThreadContainer({
     const slugs = threads
       .filter((t) => t.deleted === true && !isOverviewThread(t))
       .map((t) => t.slug);
-    const success = await Workspace.threads.deleteBulk(workspace.slug, slugs, {
-      communicationScene: "workspace-navigation",
-      task: navigationWriteTask(
-        "navigation:thread-delete-bulk",
-        workspace.slug
-      ),
+    if (!slugs.length) return;
+    const previousThreads = threadsRef.current;
+    const action = optimisticActionCenter.run({
+      type: "thread.deleteBulk",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "threads",
+        workspaceSlug: workspace.slug,
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 1,
+      protected: true,
+      abortable: false,
+      tombstone: true,
+      label: "optimistic:thread-delete-bulk",
+      dedupeKey: `optimistic:thread-delete-bulk:${workspace.slug}:${slugs.join(",")}`,
+      optimisticPatch: () => {
+        setThreads((prev) => {
+          const nextThreads = prev.filter((t) => !slugs.includes(t.slug));
+          cacheWorkspaceThreads(workspace.slug, nextThreads);
+          return nextThreads;
+        });
+      },
+      rollbackPatch: () => {
+        setThreads(previousThreads);
+        cacheWorkspaceThreads(workspace.slug, previousThreads);
+      },
+      serverCall: async ({ signal }) => {
+        const success = await Workspace.threads.deleteBulk(
+          workspace.slug,
+          slugs,
+          {
+            signal,
+            communicationScene: "workspace-navigation",
+            task: false,
+          }
+        );
+        if (!success) throw new Error("bulk delete failed");
+        return true;
+      },
     });
-    if (success) {
-      slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast("批量删除线程失败。", "error", { clear: true });
+      return;
     }
-    setThreads((prev) => {
-      const nextThreads = prev.filter((t) => !t.deleted);
-      cacheWorkspaceThreads(workspace.slug, nextThreads);
-      return nextThreads;
-    });
+    slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
 
     // Only redirect if current thread is being deleted
     if (slugs.includes(threadSlug)) {
@@ -889,35 +897,51 @@ function NewThreadButton({
       },
     });
 
-    try {
-      setLoading(true);
-      const { thread, error } = await Workspace.threads.new(workspace.slug, {
-        communicationScene: "workspace-navigation",
-        task: optimisticThreadCreateTask(
-          "navigation:thread-new-real-create",
-          workspace.slug,
-          { optimisticThreadSlug: optimisticThread.slug }
-        ),
-      });
-      if (!!error || !thread?.slug) {
-        showToast(
-          `Could not create thread - ${error || "Invalid thread response"}`,
-          "error",
-          { clear: true }
-        );
-        onThreadCreateFailed?.(optimisticThread.slug);
-        return;
-      }
-
-      onThreadCreateResolved?.(optimisticThread.slug, thread);
-    } catch (error) {
-      showToast(`Could not create thread - ${error.message}`, "error", {
-        clear: true,
-      });
-      onThreadCreateFailed?.(optimisticThread.slug);
-    } finally {
-      setLoading(false);
+    setLoading(true);
+    const action = optimisticActionCenter.run({
+      type: "thread.create",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "thread-create",
+        workspaceSlug: workspace.slug,
+        optimisticThreadSlug: optimisticThread.slug,
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 2,
+      protected: true,
+      abortable: false,
+      emergency: true,
+      label: "optimistic:thread-create",
+      dedupeKey: `optimistic:thread-create:${workspace.slug}:${optimisticThread.slug}`,
+      rollbackPatch: () => onThreadCreateFailed?.(optimisticThread.slug),
+      confirmPatch: ({ result }) => {
+        if (result?.thread?.slug)
+          onThreadCreateResolved?.(optimisticThread.slug, result.thread);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Workspace.threads.new(workspace.slug, {
+          signal,
+          communicationScene: "workspace-navigation",
+          task: false,
+        });
+        if (result?.error || !result?.thread?.slug) {
+          throw new Error(result?.error || "Invalid thread response");
+        }
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        `Could not create thread - ${outcome.error?.message}`,
+        "error",
+        {
+          clear: true,
+        }
+      );
     }
+    setLoading(false);
   };
 
   return (

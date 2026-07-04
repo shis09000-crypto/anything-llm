@@ -11,6 +11,7 @@ import {
   SoftCard,
   SoftSettingsLayout,
 } from "@/components/SoftSettings";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -49,7 +50,7 @@ export default function EmbeddingTextSplitterPreference() {
       const form = new FormData(
         document.getElementById("text-splitter-chunking-form")
       );
-      await Admin.updateSystemPreferences({
+      const payload = {
         text_splitter_chunk_size: isNullOrNaN(
           form.get("text_splitter_chunk_size")
         )
@@ -60,8 +61,35 @@ export default function EmbeddingTextSplitterPreference() {
         )
           ? 1000
           : Number(form.get("text_splitter_chunk_overlap")),
+      };
+      const action = optimisticActionCenter.run({
+        type: "settings.textSplitter.save",
+        scope: {
+          route: "settings",
+          surface: "text-splitter",
+        },
+        priority: "P1",
+        policy: "visible",
+        intentRank: 0,
+        protected: true,
+        abortable: false,
+        label: "optimistic:settings-text-splitter",
+        optimisticPatch: () => setHasChanges(false),
+        rollbackPatch: () => setHasChanges(true),
+        serverCall: async ({ signal }) => {
+          const result = await Admin.updateSystemPreferences(payload, {
+            signal,
+            task: false,
+          });
+          if (!result?.success)
+            throw new Error(
+              result?.error || "Failed to save text chunking strategy settings."
+            );
+          return result;
+        },
       });
-      setHasChanges(false);
+      const outcome = await action.promise;
+      if (!outcome.ok) throw outcome.error;
       closeModal();
       showToast("Text chunking strategy settings saved.", "success");
     } catch {

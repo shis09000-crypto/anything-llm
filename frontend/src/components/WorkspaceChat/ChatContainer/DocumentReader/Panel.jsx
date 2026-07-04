@@ -156,8 +156,8 @@ function sortBookshelfItems(items = [], sortBy = "recent") {
         "zh-Hans"
       );
     return (
-      timestampValue(b.lastOpenedAt || b.updatedAt || b.addedAt) -
-      timestampValue(a.lastOpenedAt || a.updatedAt || a.addedAt)
+      timestampValue(b.lastOpenedAt || b.addedAt || b.updatedAt) -
+      timestampValue(a.lastOpenedAt || a.addedAt || a.updatedAt)
     );
   });
   return sorted;

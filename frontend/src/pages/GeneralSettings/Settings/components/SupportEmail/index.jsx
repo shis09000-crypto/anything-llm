@@ -4,6 +4,7 @@ import System from "@/models/system";
 import showToast from "@/utils/toast";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function SupportEmail() {
   const { user } = useUser();
@@ -31,20 +32,56 @@ export default function SupportEmail() {
       support_email = form.get("supportEmail");
     }
 
-    const { success, error } = await Admin.updateSystemPreferences({
-      support_email,
+    const previousEmail = originalEmail;
+    const action = optimisticActionCenter.run({
+      type: "settings.supportEmail.save",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "support_email",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-support-email",
+      optimisticPatch: () => {
+        setSupportEmail(support_email);
+        setOriginalEmail(support_email);
+        setHasChanges(false);
+        window.localStorage.removeItem(System.cacheKeys.supportEmail);
+      },
+      rollbackPatch: () => {
+        setSupportEmail(previousEmail);
+        setOriginalEmail(previousEmail);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Admin.updateSystemPreferences(
+          {
+            support_email,
+          },
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to update support email");
+        return result;
+      },
     });
-
-    if (!success) {
-      showToast(`Failed to update support email: ${error}`, "error");
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        `Failed to update support email: ${
+          outcome.error?.message || "Unknown error"
+        }`,
+        "error"
+      );
       return;
-    } else {
-      showToast("Successfully updated support email.", "success");
-      window.localStorage.removeItem(System.cacheKeys.supportEmail);
-      setSupportEmail(support_email);
-      setOriginalEmail(support_email);
-      setHasChanges(false);
     }
+    showToast("Successfully updated support email.", "success");
   };
 
   const handleChange = (e) => {

@@ -26,10 +26,11 @@ function devHttpsOptions() {
 const apiProxyTarget =
   process.env.VITE_DEV_API_PROXY_TARGET ||
   `${
-    process.env.VITE_DEV_HTTPS === "true" || process.env.ENABLE_HTTPS === "true"
-      ? "https"
-      : "http"
-  }://localhost:${process.env.SERVER_PORT || "3002"}`
+    process.env.VITE_DEV_HTTPS === "false" ||
+    process.env.ENABLE_HTTPS === "false"
+      ? "http"
+      : "https"
+  }://localhost:${process.env.SERVER_PORT || "3001"}`
 const apiProxyAgent = apiProxyTarget.startsWith("https:")
   ? new https.Agent({ rejectUnauthorized: false })
   : undefined

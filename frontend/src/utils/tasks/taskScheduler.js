@@ -1,3 +1,6 @@
+import { recoveryCenter } from "../recovery/recoveryCenter.js";
+import { redactSensitiveSnapshotEntry } from "../sensitive/sensitiveDataGuards.js";
+
 const PRIORITY_ORDER = {
   P0: 0,
   P1: 1,
@@ -391,32 +394,33 @@ class TaskScheduler {
   }
 
   snapshot() {
-    const serialize = (task) => ({
-      id: task.id,
-      kind: task.kind,
-      label: task.label,
-      priority: task.priority,
-      policy: task.policy,
-      status: task.status,
-      stale: task.stale,
-      resumable: task.resumable,
-      protected: task.protected,
-      emergency: task.emergency,
-      dedupeKey: task.dedupeKey,
-      scope: task.scope,
-      ageMs: Math.round(nowMs() - task.createdAt),
-      intentRank: task.intentRank,
-      resource: task.resource,
-      createdAt: Math.round(task.createdAt),
-      startedAt: task.startedAt ? Math.round(task.startedAt) : null,
-      durationMs:
-        task.finishedAt && task.startedAt
-          ? Math.round(task.finishedAt - task.startedAt)
-          : null,
-      staleReason: task.staleReason || null,
-      abortReason: task.abortReason || null,
-      demoteReason: task.demoteReason || null,
-    });
+    const serialize = (task) =>
+      redactSensitiveSnapshotEntry({
+        id: task.id,
+        kind: task.kind,
+        label: task.label,
+        priority: task.priority,
+        policy: task.policy,
+        status: task.status,
+        stale: task.stale,
+        resumable: task.resumable,
+        protected: task.protected,
+        emergency: task.emergency,
+        dedupeKey: task.dedupeKey,
+        scope: task.scope,
+        ageMs: Math.round(nowMs() - task.createdAt),
+        intentRank: task.intentRank,
+        resource: task.resource,
+        createdAt: Math.round(task.createdAt),
+        startedAt: task.startedAt ? Math.round(task.startedAt) : null,
+        durationMs:
+          task.finishedAt && task.startedAt
+            ? Math.round(task.finishedAt - task.startedAt)
+            : null,
+        staleReason: task.staleReason || null,
+        abortReason: task.abortReason || null,
+        demoteReason: task.demoteReason || null,
+      });
     const pending = this.pending.map(serialize);
     const running = [...this.running.values()].map(serialize);
     const activeTasks = [...pending, ...running];
@@ -509,6 +513,13 @@ class TaskScheduler {
     }
     this.#recordPreemption(task, "stale", reason);
     this.#recordTimeline("stale", task, { reason });
+    recoveryCenter.handle(new Error(reason || "Task stale."), {
+      source: "task",
+      taskId: task.id,
+      scope: task.scope,
+      stale: true,
+      reason,
+    });
     if (!this.running.has(task.id)) {
       this.pending = this.pending.filter((pendingTask) => pendingTask !== task);
       this.#finishTask(task, null);
@@ -656,6 +667,13 @@ class TaskScheduler {
     this.#recordTimeline("abort", task, { reason });
     task.onAbort?.({ task, reason });
     task.abortController.abort(abortError());
+    recoveryCenter.handle(abortError(), {
+      source: "task",
+      taskId: task.id,
+      scope: task.scope,
+      aborted: true,
+      reason,
+    });
     if (fromPending || this.running.has(task.id)) this.#finishTask(task, null);
   }
 
@@ -796,6 +814,11 @@ class TaskScheduler {
         task.error = error;
         this.counters.failed += 1;
         this.#recordTimeline("failed", task, { error: error?.message });
+        recoveryCenter.handle(error, {
+          source: "task",
+          taskId: task.id,
+          scope: task.scope,
+        });
         this.#finishTask(task, undefined, error);
       })
       .finally(() => {

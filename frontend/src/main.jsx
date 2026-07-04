@@ -9,6 +9,7 @@ import PrivateRoute, {
   SingleUserRoute,
 } from "@/components/PrivateRoute";
 import "@/index.css";
+import "@/utils/observability/athenaRuntimeObserver";
 import { installEnvironmentStorageScope } from "@/utils/appEnvironment";
 import { isCryptoCenterDevAuthBypassEnabled } from "@/utils/cryptoCenterDevAuthBypass";
 import {
@@ -212,6 +213,7 @@ const router = createBrowserRouter([
               },
               {
                 path: ":tab",
+                element: <React.Fragment />,
               },
             ],
           },

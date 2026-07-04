@@ -5,6 +5,7 @@ import { nFormatter } from "@/utils/numbers";
 import showToast from "@/utils/toast";
 import pluralize from "pluralize";
 import { PARSED_FILE_ATTACHMENT_REMOVED_EVENT } from "../../../DnDWrapper";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function ParsedFilesMenu({
   onEmbeddingChange,
@@ -33,18 +34,53 @@ export default function ParsedFilesMenu({
     e.stopPropagation();
     if (!file?.id) return;
 
-    const success = await Workspace.deleteParsedFiles(workspaceSlug, [file.id]);
-    if (!success) return;
-
-    // Update the local files list and current tokens
-    setFiles((prev) => prev.filter((f) => f.id !== file.id));
-
-    // Dispatch an event to the DnDFileUploaderWrapper to update the files list in attachment manager if it exists
-    window.dispatchEvent(
-      new CustomEvent(PARSED_FILE_ATTACHMENT_REMOVED_EVENT, {
-        detail: { document: file },
-      })
-    );
+    const previousFiles = files;
+    const previousCurrentTokens = currentTokens;
+    const previousContextWindowLimitExceeded = contextWindowLimitExceeded;
+    const action = optimisticActionCenter.run({
+      type: "chat.parsedFile.remove",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug,
+        threadSlug,
+        fileId: file.id,
+        surface: "parsed-files-menu",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:parsed-file-remove",
+      dedupeKey: `optimistic:parsed-file-remove:${workspaceSlug}:${file.id}`,
+      optimisticPatch: () => {
+        setFiles((prev) => prev.filter((item) => item.id !== file.id));
+        window.dispatchEvent(
+          new CustomEvent(PARSED_FILE_ATTACHMENT_REMOVED_EVENT, {
+            detail: { document: file },
+          })
+        );
+      },
+      rollbackPatch: () => {
+        setFiles(previousFiles);
+        setCurrentTokens(previousCurrentTokens);
+        setContextWindowLimitExceeded(previousContextWindowLimitExceeded);
+      },
+      serverCall: async ({ signal }) => {
+        const success = await Workspace.deleteParsedFiles(
+          workspaceSlug,
+          [file.id],
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!success) throw new Error("Parsed file removal failed");
+        return true;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) return;
     const { currentContextTokenCount } = await Workspace.getParsedFiles(
       workspaceSlug,
       threadSlug

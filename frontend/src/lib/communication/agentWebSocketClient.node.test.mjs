@@ -117,6 +117,28 @@ async function loadAgentClient() {
       },
     },
   });
+  globalThis.__agentWsRecovery = {
+    events: [],
+    recoveryCenter: {
+      handle(error, context = {}) {
+        const result = {
+          classification: context.background ? "background" : "retryable",
+          shouldRetry: !context.background,
+          shouldRollback: false,
+          shouldToast: false,
+          shouldReauth: false,
+          silent: false,
+          userMessage: null,
+          recoveryAction: context.background
+            ? "activity-background-failure"
+            : "retry",
+        };
+        error.recovery = result;
+        globalThis.__agentWsRecovery.events.push({ error, context, result });
+        return result;
+      },
+    },
+  };
 
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "agent-ws-client-"));
   const protocolSource = await readFile(protocolUrl, "utf8");
@@ -182,6 +204,10 @@ export function isRecoverableSigningError(code) {
       .replace(
         'import { getAuthToken } from "@/utils/authTokenStorage";',
         'const getAuthToken = () => "jwt-secret";'
+      )
+      .replace(
+        'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
+        "const { recoveryCenter } = globalThis.__agentWsRecovery;"
       )
       .replace(
         /import\s+\{[\s\S]*?\}\s+from\s+"@\/utils\/codexDevAuthBypass";/,

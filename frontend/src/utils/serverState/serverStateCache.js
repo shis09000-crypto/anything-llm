@@ -1,4 +1,8 @@
 import { markTaskPerformance, taskScheduler } from "../tasks/taskScheduler.js";
+import {
+  assertNonSensitiveCacheKey,
+  redactSensitiveSnapshotEntry,
+} from "../sensitive/sensitiveDataGuards.js";
 
 function nowMs() {
   return Date.now();
@@ -94,6 +98,7 @@ export class ServerStateCache {
   }
 
   set(key, value, options = {}) {
+    assertNonSensitiveCacheKey(key, options.meta || {});
     const entry = {
       value: clone(value),
       updatedAt: Number(options.updatedAt || 0) || this.now(),
@@ -109,6 +114,7 @@ export class ServerStateCache {
   }
 
   async refresh(key, fetcher, options = {}) {
+    assertNonSensitiveCacheKey(key, options.meta || {});
     if (typeof fetcher !== "function") return this.get(key, options);
 
     const {
@@ -127,6 +133,7 @@ export class ServerStateCache {
       kind = "server-state",
       staleWhileRevalidate = false,
       onCommit,
+      respectOptimistic = true,
     } = options;
 
     if (!force) {
@@ -205,6 +212,21 @@ export class ServerStateCache {
           return null;
         }
         if (value === undefined) return value;
+        const currentEntry = this.#entry(key, { ownerScope });
+        if (
+          respectOptimistic &&
+          currentEntry?.meta?.optimistic === true &&
+          currentEntry?.meta?.optimisticStatus !== "confirmed"
+        ) {
+          this.counters.droppedStaleWrites += 1;
+          this.#mark("cache_refresh_stale_dropped", {
+            key,
+            requestKey,
+            reason: "pending-optimistic",
+            optimisticActionId: currentEntry.meta.optimisticActionId || null,
+          });
+          return value;
+        }
         if (this.#revision(key) !== startRevision) {
           this.counters.droppedStaleWrites += 1;
           this.#mark("cache_refresh_stale_dropped", {
@@ -363,16 +385,18 @@ export class ServerStateCache {
 
   snapshot() {
     const now = this.now();
-    const entries = [...this.entries.entries()].map(([key, entry]) => ({
-      key,
-      status: entryStatus(entry, { now }),
-      ageMs: Math.max(0, now - entry.updatedAt),
-      updatedAt: entry.updatedAt,
-      ttlMs: entry.ttlMs,
-      scope: { ...entry.scope },
-      ownerScope: entry.ownerScope || null,
-      meta: { ...(entry.meta || {}) },
-    }));
+    const entries = [...this.entries.entries()].map(([key, entry]) =>
+      redactSensitiveSnapshotEntry({
+        key,
+        status: entryStatus(entry, { now }),
+        ageMs: Math.max(0, now - entry.updatedAt),
+        updatedAt: entry.updatedAt,
+        ttlMs: entry.ttlMs,
+        scope: { ...entry.scope },
+        ownerScope: entry.ownerScope || null,
+        meta: { ...(entry.meta || {}) },
+      })
+    );
     const byScope = entries.reduce((acc, entry) => {
       const scopeKey = this.#scopeSummary(entry.scope);
       acc[scopeKey] = (acc[scopeKey] || 0) + 1;
@@ -385,11 +409,15 @@ export class ServerStateCache {
     }, {});
     return {
       size: this.entries.size,
-      inflight: [...this.inflight.keys()],
-      inflightDetails: [...this.inflightDetails.values()].map((entry) => ({
-        ...entry,
-        ageMs: Math.max(0, now - entry.startedAt),
-      })),
+      inflight: [...this.inflight.keys()].map(
+        (key) => redactSensitiveSnapshotEntry({ key }).key
+      ),
+      inflightDetails: [...this.inflightDetails.values()].map((entry) =>
+        redactSensitiveSnapshotEntry({
+          ...entry,
+          ageMs: Math.max(0, now - entry.startedAt),
+        })
+      ),
       counters: { ...this.counters },
       byScope,
       byKeyPrefix,

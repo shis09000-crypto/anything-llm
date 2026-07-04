@@ -23,7 +23,7 @@ test("automatic reader postprocess stays in idle background priority", () => {
   assert.equal(options.dedupeKey, "reader:postprocess:workspace-a:doc-1");
 });
 
-test("manual reader postprocess is visible but not emergency exclusive", () => {
+test("manual reader postprocess is foreground emergency active intent", () => {
   const options = readerPostprocessScheduleOptions({
     intent: "manual",
     workspaceSlug: "workspace-a",
@@ -32,10 +32,11 @@ test("manual reader postprocess is visible but not emergency exclusive", () => {
 
   assert.equal(readerPostprocessIsForeground("manual"), true);
   assert.equal(options.foreground, true);
-  assert.equal(options.priority, "P1");
-  assert.equal(options.policy, "visible");
+  assert.equal(options.priority, "P0");
+  assert.equal(options.policy, "foreground");
   assert.equal(options.resource, "network");
-  assert.equal(options.emergency, false);
+  assert.equal(options.emergency, true);
+  assert.equal(options.intentRank, 0);
 });
 
 test("postprocess lock key ignores intent so one document has one poller", () => {

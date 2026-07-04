@@ -10,6 +10,7 @@ import SystemPromptVariable from "@/models/systemPromptVariable";
 import { Link } from "react-router-dom";
 import paths from "@/utils/paths";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function DefaultSystemPrompt() {
   const [systemPromptForm, setSystemPromptForm] = useState({
@@ -76,50 +77,84 @@ export default function DefaultSystemPrompt() {
       isSubmitting: true,
     }));
     const newSystemPrompt = systemPromptForm.value.trim();
-    await System.updateDefaultSystemPrompt(
-      newSystemPrompt,
-      systemPromptForm.syncExistingWorkspaces ? "defaultOnly" : null
-    )
-      .then(({ success, message, defaultSystemPrompt, sync }) => {
-        if (!success) throw new Error(message);
-
-        const savedSystemPrompt =
-          defaultSystemPrompt ||
-          (!newSystemPrompt || newSystemPrompt === saneDefaultSystemPrompt
-            ? saneDefaultSystemPrompt
-            : newSystemPrompt);
-
-        showToast(
-          sync?.enabled
-            ? t("default-system-prompt.toasts.updatedWithSync", {
-                synced: sync.synced,
-                skipped: sync.skipped,
-                failed: sync.failed,
-              })
-            : t("default-system-prompt.toasts.updated"),
-          "success"
-        );
+    const previousForm = systemPromptForm;
+    const syncExistingWorkspaces = systemPromptForm.syncExistingWorkspaces
+      ? "defaultOnly"
+      : null;
+    const action = optimisticActionCenter.run({
+      type: "admin.defaultSystemPrompt.save",
+      scope: {
+        route: "settings",
+        surface: "default-system-prompt",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:default-system-prompt-save",
+      optimisticPatch: () =>
         setSystemPromptForm((prev) => ({
           ...prev,
-          default: savedSystemPrompt,
-          value: savedSystemPrompt,
           isDirty: false,
-          isSubmitting: false,
-          syncExistingWorkspaces: false,
-        }));
-      })
-      .catch((error) => {
-        showToast(
-          t("default-system-prompt.toasts.updateFailed", {
-            error: error.message,
-          }),
-          "error"
+          isSubmitting: true,
+        })),
+      rollbackPatch: () => setSystemPromptForm(previousForm),
+      serverCall: async ({ signal }) => {
+        const result = await System.updateDefaultSystemPrompt(
+          newSystemPrompt,
+          syncExistingWorkspaces,
+          {
+            signal,
+            task: false,
+          }
         );
-        setSystemPromptForm((prev) => ({
-          ...prev,
-          isSubmitting: false,
-        }));
-      });
+        if (!result?.success)
+          throw new Error(result?.message || "Failed to update prompt");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
+      const { defaultSystemPrompt, sync } = outcome.result || {};
+
+      const savedSystemPrompt =
+        defaultSystemPrompt ||
+        (!newSystemPrompt || newSystemPrompt === saneDefaultSystemPrompt
+          ? saneDefaultSystemPrompt
+          : newSystemPrompt);
+
+      showToast(
+        sync?.enabled
+          ? t("default-system-prompt.toasts.updatedWithSync", {
+              synced: sync.synced,
+              skipped: sync.skipped,
+              failed: sync.failed,
+            })
+          : t("default-system-prompt.toasts.updated"),
+        "success"
+      );
+      setSystemPromptForm((prev) => ({
+        ...prev,
+        default: savedSystemPrompt,
+        value: savedSystemPrompt,
+        isDirty: false,
+        isSubmitting: false,
+        syncExistingWorkspaces: false,
+      }));
+      return;
+    }
+
+    showToast(
+      t("default-system-prompt.toasts.updateFailed", {
+        error: outcome.error?.message,
+      }),
+      "error"
+    );
+    setSystemPromptForm((prev) => ({
+      ...prev,
+      isSubmitting: false,
+    }));
   };
 
   return (

@@ -18,6 +18,9 @@ import {
 } from "@/lib/communication/blobClient";
 import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 import { baseHeaders, safeJsonParse } from "@/utils/request";
+import { getAppEnvironment } from "@/utils/appEnvironment";
+import { serverStateCache } from "@/utils/serverState/serverStateCache";
+import { serverStateTaskBridge } from "@/utils/serverState/serverStateTaskBridge";
 import DataConnector from "./dataConnector";
 import LiveDocumentSync from "./experimental/liveSync";
 import AgentPlugins from "./experimental/agentPlugins";
@@ -27,6 +30,7 @@ import {
   ADMIN_SYSTEM_VERSION_TTL_MS,
   adminSystemStateStore,
 } from "@/utils/serverState/adminSystemStateStore";
+import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 
 let systemKeysCache = null;
 let systemKeysCacheAt = 0;
@@ -35,8 +39,10 @@ const SYSTEM_KEYS_CACHE_TTL_MS = 30_000;
 const SYSTEM_KEYS_TIMEOUT_MS = 20_000;
 const SYSTEM_KEYS_RETRY_DELAYS_MS = [0, 750, 1_500];
 const LOGO_CACHE_TTL_MS = 1000 * 60 * 10;
+const ACCOUNT_AVATAR_CACHE_TTL_MS = 1000 * 60 * 10;
 const logoCache = new Map();
 const logoInflight = new Map();
+const accountAvatarInflight = new Map();
 const LOGO_SESSION_CACHE_PREFIX = "athena_logo_cache_v1:";
 
 function logoSessionCacheKey(cacheKey) {
@@ -53,7 +59,8 @@ function readLogoSessionCache(cacheKey) {
     const raw = window.sessionStorage.getItem(logoSessionCacheKey(cacheKey));
     if (!raw) return null;
     const entry = JSON.parse(raw);
-    if (!entry?.value?.logoURL || !entry?.updatedAt) return null;
+    if (!entry || typeof entry.value !== "object" || !entry.updatedAt)
+      return null;
     if (Date.now() - entry.updatedAt > LOGO_CACHE_TTL_MS) return null;
     return entry.value;
   } catch {}
@@ -61,7 +68,8 @@ function readLogoSessionCache(cacheKey) {
 }
 
 function writeLogoSessionCache(cacheKey, value) {
-  if (typeof window === "undefined" || !value?.logoURL) return;
+  if (typeof window === "undefined" || !value || typeof value !== "object")
+    return;
   try {
     window.sessionStorage.setItem(
       logoSessionCacheKey(cacheKey),
@@ -638,8 +646,12 @@ const System = {
       })
       .catch(() => adminSystemStateStore.getOrFallback(cacheKey, null));
   },
-  updateSystem: async (data) => {
-    return await postJson("/system/update-env", data)
+  updateSystem: async (data, options = {}) => {
+    return await postJson("/system/update-env", data, {
+      signal: options.signal,
+      communicationScene: options.communicationScene || "system-update-env",
+      task: options.task,
+    })
       .then(({ data }) => {
         System.clearSettingsCache();
         if (typeof window !== "undefined") {
@@ -718,12 +730,16 @@ const System = {
         return false;
       });
   },
-  uploadPfp: async function (formData) {
+  uploadPfp: async function (formData, options = {}) {
     return await uploadFormData("/system/upload-pfp", formData, {
+      signal: options.signal,
+      task: options.task,
       uploadKind: UPLOAD_KINDS.avatar,
-      communicationScene: "account-settings",
+      communicationScene: options.communicationScene || "account-settings",
     })
       .then(() => {
+        serverStateCache.invalidatePrefix("account.avatar:");
+        accountAvatarInflight.clear();
         return { success: true, error: null };
       })
       .catch((e) => {
@@ -731,10 +747,12 @@ const System = {
         return { success: false, error: e.message };
       });
   },
-  uploadLogo: async function (formData) {
+  uploadLogo: async function (formData, options = {}) {
     return await uploadFormData("/system/upload-logo", formData, {
+      signal: options.signal,
+      task: options.task,
       uploadKind: UPLOAD_KINDS.logo,
-      communicationScene: "settings-tab",
+      communicationScene: options.communicationScene || "settings-tab",
     })
       .then(() => {
         return { success: true, error: null };
@@ -846,13 +864,23 @@ const System = {
   },
   updateDefaultSystemPrompt: async function (
     defaultSystemPrompt,
-    syncExistingWorkspaces = null
+    syncExistingWorkspaces = null,
+    options = {}
   ) {
     try {
-      const { data } = await postJson("/system/default-system-prompt", {
-        defaultSystemPrompt,
-        syncExistingWorkspaces,
-      });
+      const { data } = await postJson(
+        "/system/default-system-prompt",
+        {
+          defaultSystemPrompt,
+          syncExistingWorkspaces,
+        },
+        {
+          signal: options.signal,
+          task: options.task,
+          communicationScene:
+            options.communicationScene || "admin-system-prompt",
+        }
+      );
       return data;
     } catch (e) {
       console.error(e);
@@ -883,9 +911,20 @@ const System = {
       includeBaseHeaders: false,
       blobKind: BLOB_KINDS.logo,
       communicationScene: "app-bootstrap",
+      task: {
+        kind: "app-logo",
+        priority: "P1",
+        policy: "visible",
+        resource: "network",
+        scope: {
+          route: "app-bootstrap",
+          surface: "logo",
+        },
+        dedupeKey: `app-logo:${cacheKey}`,
+      },
     })
       .then(async ({ response, blob }) => {
-        if (response.status !== 204 && blob) {
+        if (response.status !== 204 && blob?.size) {
           const isCustomLogo =
             response.headers.get("X-Is-Custom-Logo") === "true";
           const logoURL = await blobToDataUrl(blob);
@@ -894,7 +933,10 @@ const System = {
           writeLogoSessionCache(cacheKey, value);
           return value;
         }
-        throw new Error("Failed to fetch logo!");
+        const value = { isCustomLogo: false, logoURL: null };
+        logoCache.set(cacheKey, { value, updatedAt: Date.now() });
+        writeLogoSessionCache(cacheKey, value);
+        return value;
       })
       .catch((e) => {
         console.log(e);
@@ -905,23 +947,62 @@ const System = {
     return await request;
   },
   fetchPfp: async function (id) {
-    return await requestBlob(`/system/pfp/${id}`, {
-      cache: "no-cache",
-      blobKind: BLOB_KINDS.avatar,
-      communicationScene: "account-settings",
-    })
-      .then(({ response, blob }) =>
-        response.status !== 204 && blob ? URL.createObjectURL(blob) : null
-      )
+    if (!id) return null;
+    const cacheKey = `account.avatar:${id}`;
+    if (accountAvatarInflight.has(cacheKey)) {
+      return await accountAvatarInflight.get(cacheKey);
+    }
+    const request = serverStateTaskBridge
+      .ensure({
+        key: cacheKey,
+        ttlMs: ACCOUNT_AVATAR_CACHE_TTL_MS,
+        ownerScope: `${getAppEnvironment()}:account-avatar:${id}`,
+        scope: {
+          route: "workspace-chat",
+          surface: "account-avatar",
+          userId: id,
+        },
+        priority: "P0",
+        intentRank: 3,
+        policy: "foreground",
+        resource: "network",
+        kind: "account-avatar",
+        label: "account:avatar",
+        staleWhileRevalidate: true,
+        dedupeKey: `server-state:${cacheKey}`,
+        fetcher: async ({ signal }) => {
+          const { response, blob } = await requestBlob(`/system/pfp/${id}`, {
+            signal,
+            cache: "default",
+            blobKind: BLOB_KINDS.avatar,
+            communicationScene: "account-avatar-current",
+            task: false,
+          });
+          return response.status !== 204 && blob
+            ? await blobToDataUrl(blob)
+            : null;
+        },
+      })
       .catch(() => {
         return null;
+      })
+      .finally(() => {
+        if (accountAvatarInflight.get(cacheKey) === request) {
+          accountAvatarInflight.delete(cacheKey);
+        }
       });
+    accountAvatarInflight.set(cacheKey, request);
+    return await request;
   },
-  removePfp: async function () {
+  removePfp: async function (options = {}) {
     return await deleteJson("/system/remove-pfp", {
-      communicationScene: "account-settings",
+      signal: options.signal,
+      task: options.task,
+      communicationScene: options.communicationScene || "account-settings",
     })
       .then(() => {
+        serverStateCache.invalidatePrefix("account.avatar:");
+        accountAvatarInflight.clear();
         return { success: true, error: null };
       })
       .catch((e) => {
@@ -941,9 +1022,11 @@ const System = {
         return null;
       });
   },
-  removeCustomLogo: async function () {
+  removeCustomLogo: async function (options = {}) {
     return await getJson("/system/remove-logo", {
-      communicationScene: "settings-tab",
+      signal: options.signal,
+      task: options.task,
+      communicationScene: options.communicationScene || "settings-tab",
     })
       .then(() => ({ success: true, error: null }))
       .catch((e) => {
@@ -964,7 +1047,15 @@ const System = {
   },
   generateApiKey: async function (data = {}) {
     return postJson("/system/generate-api-key", data)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        if (data?.sensitiveSession) {
+          sensitiveSessionCenter.store(data.sensitiveSession, {
+            resourceType: "api_key",
+            resourceId: data?.apiKey?.id || "generated",
+          });
+        }
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return {
@@ -1115,9 +1206,11 @@ const System = {
         return null;
       });
   },
-  updateUser: async (data) => {
+  updateUser: async (data, options = {}) => {
     return await postJson("/system/user", data, {
-      communicationScene: "account-settings",
+      signal: options.signal,
+      task: options.task,
+      communicationScene: options.communicationScene || "account-settings",
     })
       .then(({ data }) => data)
       .catch((e) => {
@@ -1217,7 +1310,17 @@ const System = {
       },
       { communicationScene: "account-security" }
     )
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        if (data?.sensitiveSession) {
+          sensitiveSessionCenter.beginViewer(data.sensitiveSession, {
+            resourceType: "user_memory",
+            resourceId: id,
+            exclusiveByResourceType: true,
+            reason: "sensitive-memory-reveal",
+          });
+        }
+        return data;
+      })
       .catch((e) => ({ success: false, error: localizedApiError(e) }));
   },
   accountDeletePreview: async () => {

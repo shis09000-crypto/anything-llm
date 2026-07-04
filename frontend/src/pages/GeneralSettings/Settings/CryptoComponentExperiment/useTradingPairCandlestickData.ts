@@ -18,7 +18,7 @@ import type {
 
 const MAX_CACHED_CANDLES = 720;
 const STREAM_RENDER_THROTTLE_MS = 250;
-const STREAM_RECONNECT_MS = 1_500;
+const STREAM_RECONNECT_MS = 10_000;
 
 type CandleCache = Record<string, TradingPairCandle[]>;
 type CandleDirection = "initial" | "history" | "snapshot";

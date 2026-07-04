@@ -12,6 +12,11 @@ const {
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
 const { Telemetry } = require("../models/telemetry");
+const { getClientContext } = require("../utils/clientIdentity");
+const {
+  authSessionFingerprintFromRequest,
+} = require("../utils/authz/vaultAccessGrants");
+const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
 
 function browserExtensionEndpoints(app) {
   if (!app) return;
@@ -182,8 +187,24 @@ function browserExtensionEndpoints(app) {
           user?.id || null
         );
         if (error) throw new Error(error);
+        const context = getClientContext(request);
+        const sensitiveSession =
+          apiKey?.id && context?.clientId && user?.id
+            ? issueSensitiveSession({
+                userId: user.id,
+                clientId: context.clientId,
+                resourceType: "browser_extension_api_key",
+                resourceId: apiKey.id,
+                ownerScope: `browser-extension:api-key:${apiKey.id}`,
+                method: "browser-extension-generate-api-key",
+                requestId:
+                  request.signedRequest?.requestId || context.requestId || null,
+                sessionFingerprint: authSessionFingerprintFromRequest(request),
+              })
+            : null;
         response.status(200).json({
           apiKey: apiKey.key,
+          sensitiveSession,
         });
       } catch (error) {
         console.error(error);

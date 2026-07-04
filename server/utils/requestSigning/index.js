@@ -389,6 +389,22 @@ function isHighRiskSignedRequest({ method, path } = {}) {
       methods: ["POST"],
       pattern: /^\/system\/patrol\/repairs\/[^/]+\/confirm$/,
     },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/generate-api-key$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/system\/api-key\/[^/]+$/,
+    },
+    {
+      methods: ["POST", "DELETE"],
+      pattern: /^\/browser-extension\/api-keys(?:\/new|\/[^/]+)?$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/sensitive-sessions\/(?:heartbeat|revoke|revoke-scope)$/,
+    },
   ];
   if (
     highRiskRoutes.some(

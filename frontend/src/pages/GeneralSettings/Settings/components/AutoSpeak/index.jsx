@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Appearance from "@/models/appearance";
 import { useTranslation } from "react-i18next";
 import Toggle from "@/components/lib/Toggle";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function AutoSpeak() {
   const [saving, setSaving] = useState(false);
@@ -10,13 +11,26 @@ export default function AutoSpeak() {
   const { t } = useTranslation();
 
   const handleChange = async (checked) => {
+    const previousValue = autoPlayAssistantTtsResponse;
     setAutoPlayAssistantTtsResponse(checked);
     setSaving(true);
-    try {
-      Appearance.updateSettings({ autoPlayAssistantTtsResponse: checked });
-    } catch (error) {
-      console.error("Failed to update appearance settings:", error);
-      setAutoPlayAssistantTtsResponse(!checked);
+
+    const action = optimisticActionCenter.run({
+      type: "appearance.autoSpeak.toggle",
+      label: "optimistic:appearance-auto-speak-toggle",
+      scope: { surface: "settings:appearance" },
+      priority: "P1",
+      resource: "network",
+      protected: true,
+      dedupeKey: `appearance:auto-speak:${checked}`,
+      rollbackPatch: () => setAutoPlayAssistantTtsResponse(previousValue),
+      serverCall: async () =>
+        Appearance.updateSettings({ autoPlayAssistantTtsResponse: checked }),
+    });
+    const outcome = await action.promise;
+
+    if (!outcome.ok) {
+      console.error("Failed to update appearance settings:", outcome.error);
     }
     setSaving(false);
   };

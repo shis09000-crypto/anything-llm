@@ -5,6 +5,7 @@ import NewIconForm from "./NewIconForm";
 import Admin from "@/models/admin";
 import System from "@/models/system";
 import { useTranslation } from "react-i18next";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function FooterCustomization() {
   const [footerIcons, setFooterIcons] = useState(Array(3).fill(null));
@@ -32,19 +33,54 @@ export default function FooterCustomization() {
   }, []);
 
   const updateFooterIcons = async (updatedIcons) => {
-    const { success, error } = await Admin.updateSystemPreferences({
-      footer_data: JSON.stringify(updatedIcons.filter((icon) => icon !== null)),
+    const previousIcons = footerIcons;
+    const action = optimisticActionCenter.run({
+      type: "settings.footerIcons.save",
+      scope: {
+        route: "settings",
+        surface: "customization",
+        setting: "footer_data",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-footer-icons",
+      optimisticPatch: () => {
+        setFooterIcons(updatedIcons);
+        window.localStorage.removeItem(System.cacheKeys.footerIcons);
+      },
+      rollbackPatch: () => setFooterIcons(previousIcons),
+      serverCall: async ({ signal }) => {
+        const result = await Admin.updateSystemPreferences(
+          {
+            footer_data: JSON.stringify(
+              updatedIcons.filter((icon) => icon !== null)
+            ),
+          },
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to update footer icons");
+        return result;
+      },
     });
-
-    if (!success) {
-      showToast(`Failed to update footer icons - ${error}`, "error", {
-        clear: true,
-      });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        `Failed to update footer icons - ${outcome.error?.message}`,
+        "error",
+        {
+          clear: true,
+        }
+      );
       return;
     }
 
-    window.localStorage.removeItem(System.cacheKeys.footerIcons);
-    setFooterIcons(updatedIcons);
     showToast("Successfully updated footer icons.", "success", { clear: true });
   };
 

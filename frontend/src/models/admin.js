@@ -5,6 +5,7 @@ import {
   apiErrorRaw as rawBody,
 } from "@/lib/communication/apiError";
 import { adminSystemStateStore } from "@/utils/serverState/adminSystemStateStore";
+import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 
 function responseJsonError(error) {
   const data = rawBody(error) || {};
@@ -390,8 +391,13 @@ const Admin = {
         return adminSystemStateStore.getOrFallback(cacheKey, null);
       });
   },
-  updateSystemPreferences: async (updates = {}) => {
-    return await postJson("/admin/system-preferences", updates)
+  updateSystemPreferences: async (updates = {}, options = {}) => {
+    return await postJson("/admin/system-preferences", updates, {
+      signal: options.signal,
+      communicationScene:
+        options.communicationScene || "admin-system-preferences",
+      task: options.task,
+    })
       .then(({ data }) => {
         adminSystemStateStore.invalidateAdminSystemPreferences();
         return data;
@@ -418,7 +424,15 @@ const Admin = {
   },
   generateApiKey: async function (data = {}) {
     return postJson("/admin/generate-api-key", data)
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        if (data?.sensitiveSession) {
+          sensitiveSessionCenter.store(data.sensitiveSession, {
+            resourceType: "api_key",
+            resourceId: data?.apiKey?.id || "generated",
+          });
+        }
+        return data;
+      })
       .catch((e) => {
         console.error(e);
         return {

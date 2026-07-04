@@ -7,6 +7,7 @@ import type {
   TradingPairVisibleWindow,
 } from "./tradingPairCandlestickTypes";
 import { useCryptoStatusLabel } from "./cryptoStatusI18n";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const DEFAULT_VISIBLE_CANDLES = 50;
 const MIN_VISIBLE_CANDLES = 21;
@@ -899,7 +900,24 @@ export default function TradingPairCandlestickChart({
   function toggleIndicator(key: keyof IndicatorPreferences) {
     setIndicatorPreferences((current) => {
       const next = { ...current, [key]: !current[key] };
-      writeIndicatorPreferences(next);
+      optimisticActionCenter.run({
+        type: "crypto.ui.indicator.toggle",
+        scope: {
+          route: "settings",
+          surface: "crypto-center",
+          setting: "candlestick_indicators",
+          indicator: key,
+        },
+        priority: "P1",
+        policy: "visible",
+        intentRank: 0,
+        protected: true,
+        abortable: false,
+        label: "optimistic:crypto-indicator-toggle",
+        optimisticPatch: () => writeIndicatorPreferences(next),
+        rollbackPatch: () => writeIndicatorPreferences(current),
+        serverCall: async () => true,
+      });
       return next;
     });
   }

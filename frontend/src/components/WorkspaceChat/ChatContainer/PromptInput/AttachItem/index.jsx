@@ -10,6 +10,7 @@ import {
 } from "../../DnDWrapper";
 import { useTheme } from "@/hooks/useTheme";
 import ParsedFilesMenu from "./ParsedFilesMenu";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 /**
  * This is a simple proxy component that clicks on the DnD file uploader for the user.
@@ -33,6 +34,11 @@ export default function AttachItem({
   const [isLoading, setIsLoading] = useState(false);
   const hasFetchedRef = useRef(false);
   const inFlightRef = useRef(null);
+  const filesRef = useRef(files);
+
+  useEffect(() => {
+    filesRef.current = files;
+  }, [files]);
 
   const fetchFiles = ({ force = false } = {}) => {
     if (!slug) return;
@@ -64,8 +70,40 @@ export default function AttachItem({
    */
   async function handleRemoveAttachment(e) {
     const { document } = e.detail;
-    await Workspace.deleteParsedFiles(slug, [document.id]);
-    fetchFiles({ force: true });
+    if (!document?.id) return;
+    const previousFiles = filesRef.current;
+    const action = optimisticActionCenter.run({
+      type: "chat.attachment.remove",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug: slug,
+        threadSlug,
+        fileId: document.id,
+        surface: "prompt-attachments",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:chat-attachment-remove",
+      dedupeKey: `optimistic:attachment-remove:${slug}:${document.id}`,
+      optimisticPatch: () =>
+        setFiles((current) =>
+          current.filter((file) => file.id !== document.id)
+        ),
+      rollbackPatch: () => setFiles(previousFiles),
+      serverCall: async ({ signal }) => {
+        const ok = await Workspace.deleteParsedFiles(slug, [document.id], {
+          signal,
+          task: false,
+        });
+        if (!ok) throw new Error("Attachment removal failed");
+        return true;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) fetchFiles({ force: true });
   }
 
   /**

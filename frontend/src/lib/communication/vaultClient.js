@@ -1,5 +1,6 @@
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 import { deleteJson, getJson, postJson } from "./apiClient";
+import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 
 export const VAULT_GRANT_HEADER = "X-Athena-Vault-Grant";
 
@@ -35,13 +36,32 @@ function vaultGrantHeaders(vaultGrant = null) {
   return grant?.token ? { [VAULT_GRANT_HEADER]: grant.token } : {};
 }
 
+function vaultSensitiveHeaders() {
+  return sensitiveSessionCenter.headers({
+    resourceType: "vault",
+    resourceId: "vault",
+  });
+}
+
 export function setVaultAccessGrant(record = null) {
   vaultAccessGrant = normalizeGrant(record);
+  if (record?.sensitiveSession) {
+    sensitiveSessionCenter.beginViewer(record.sensitiveSession, {
+      resourceType: "vault",
+      resourceId: "vault",
+      ownerScope: record.sensitiveSession.ownerScope || null,
+      reason: "vault-unlock",
+    });
+  }
   return vaultAccessGrant;
 }
 
 export function clearVaultAccessGrant() {
   vaultAccessGrant = null;
+  void sensitiveSessionCenter.endViewer(
+    { resourceType: "vault", resourceId: "vault" },
+    "vault-lock"
+  );
 }
 
 export function getCachedVaultAccessGrant() {
@@ -103,7 +123,10 @@ export async function getVaultItem(itemId, { signal, vaultGrant = null } = {}) {
   if (!itemId) return null;
   const { data } = await getJson(`/vault/items/${encodeURIComponent(itemId)}`, {
     signal,
-    headers: vaultGrantHeaders(vaultGrant),
+    headers: {
+      ...vaultGrantHeaders(vaultGrant),
+      ...vaultSensitiveHeaders(),
+    },
     signing: "required",
   });
   return data?.item || null;
@@ -124,6 +147,7 @@ export async function deleteVaultItem(itemId, options = {}) {
       headers: {
         ...headers,
         ...vaultGrantHeaders(vaultGrant),
+        ...vaultSensitiveHeaders(),
       },
       signing: "required",
     }

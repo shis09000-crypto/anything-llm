@@ -18,6 +18,8 @@ import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
 import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import { displayThreadName, isOverviewThread } from "@/utils/workspaceThreads";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
 
@@ -309,7 +311,7 @@ function OptionsMenu({
 
     setListeners();
     return cleanupListeners;
-  }, [menuRef.current, containerRef.current]);
+  }, []);
 
   const renameThread = async () => {
     const name = window.prompt("请输入新的线程名称")?.trim();
@@ -318,38 +320,80 @@ function OptionsMenu({
       return;
     }
 
-    const { message } = await Workspace.threads.update(
-      workspace.slug,
-      thread.slug,
-      { name },
-      {
-        communicationScene: "workspace-navigation",
-        task: {
-          label: "navigation:thread-rename",
-          kind: "navigation",
-          priority: "P0",
-          policy: "foreground",
-          protected: true,
-          abortable: false,
-          intentRank: 1,
-          scope: {
-            route: "workspace-sidebar",
-            surface: "threads",
-            workspaceSlug: workspace.slug,
-            threadSlug: thread.slug,
+    const previousThread = { ...thread };
+    const emitRename = (nextThread) => {
+      window.dispatchEvent(
+        new CustomEvent("renameThread", {
+          detail: {
+            threadSlug: nextThread.slug,
+            newName: nextThread.name,
+            title: nextThread.title || nextThread.name,
           },
-        },
-      }
-    );
-    if (!!message) {
-      showToast(`线程更新失败！${message}`, "error", {
-        clear: true,
-      });
+        })
+      );
+    };
+    const action = optimisticActionCenter.run({
+      type: "thread.rename",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "threads",
+        workspaceSlug: workspace.slug,
+        threadSlug: thread.slug,
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 1,
+      protected: true,
+      abortable: false,
+      label: "optimistic:thread-rename",
+      dedupeKey: `optimistic:thread-rename:${workspace.slug}:${thread.slug}`,
+      optimisticPatch: () => {
+        thread.name = name;
+        workspaceNavigationCache.updateThread(workspace.slug, {
+          ...previousThread,
+          name,
+        });
+        emitRename({ ...previousThread, name });
+      },
+      rollbackPatch: () => {
+        thread.name = previousThread.name;
+        workspaceNavigationCache.updateThread(workspace.slug, previousThread);
+        emitRename(previousThread);
+      },
+      confirmPatch: ({ result }) => {
+        if (!result?.thread?.slug) return;
+        workspaceNavigationCache.updateThread(workspace.slug, result.thread);
+        emitRename(result.thread);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Workspace.threads.update(
+          workspace.slug,
+          thread.slug,
+          { name },
+          {
+            signal,
+            communicationScene: "workspace-navigation",
+            task: false,
+          }
+        );
+        if (result?.message) throw new Error(result.message);
+        return result;
+      },
+    });
+
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        `线程更新失败！${outcome.error?.message || "未知错误"}`,
+        "error",
+        {
+          clear: true,
+        }
+      );
       close();
       return;
     }
 
-    thread.name = name;
     close();
   };
 
@@ -363,41 +407,60 @@ function OptionsMenu({
       }))
     )
       return;
-    const success = await Workspace.threads.delete(
-      workspace.slug,
-      thread.slug,
-      {
-        communicationScene: "workspace-navigation",
-        task: {
-          label: "navigation:thread-delete",
-          kind: "navigation",
-          priority: "P0",
-          policy: "foreground",
-          protected: true,
-          abortable: false,
-          intentRank: 1,
-          scope: {
-            route: "workspace-sidebar",
-            surface: "threads",
-            workspaceSlug: workspace.slug,
-            threadSlug: thread.slug,
-          },
-        },
-      }
-    );
-    if (!success) {
+    const previousThread = { ...thread };
+    const action = optimisticActionCenter.run({
+      type: "thread.delete",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "threads",
+        workspaceSlug: workspace.slug,
+        threadSlug: thread.slug,
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 1,
+      protected: true,
+      abortable: false,
+      tombstone: true,
+      label: "optimistic:thread-delete",
+      dedupeKey: `optimistic:thread-delete:${workspace.slug}:${thread.slug}`,
+      optimisticPatch: () => {
+        workspaceNavigationCache.removeThread(workspace.slug, thread.slug);
+        onRemove(thread.id);
+      },
+      rollbackPatch: () => {
+        workspaceNavigationCache.updateThread(workspace.slug, previousThread);
+        window.dispatchEvent(
+          new CustomEvent("workspaceThreadsRefresh", {
+            detail: { workspaceSlug: workspace.slug, force: true },
+          })
+        );
+      },
+      serverCall: async ({ signal }) => {
+        const success = await Workspace.threads.delete(
+          workspace.slug,
+          thread.slug,
+          {
+            signal,
+            communicationScene: "workspace-navigation",
+            task: false,
+          }
+        );
+        if (!success) throw new Error("delete failed");
+        return true;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
       showToast("线程删除失败！", "error", { clear: true });
       return;
     }
-    if (success) {
-      showToast("线程已删除。", "success", { clear: true });
-      clearLastVisitedThread(workspace.slug, thread.slug);
-      onRemove(thread.id);
-      // Redirect if deleting the active thread
-      if (currentThreadSlug === thread.slug) {
-        navigate(paths.workspace.chat(workspace.slug));
-      }
-      return;
+
+    showToast("线程已删除。", "success", { clear: true });
+    clearLastVisitedThread(workspace.slug, thread.slug);
+    // Redirect if deleting the active thread
+    if (currentThreadSlug === thread.slug) {
+      navigate(paths.workspace.chat(workspace.slug));
     }
   };
 

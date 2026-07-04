@@ -62,6 +62,42 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
     runScheduledTaskRequest: (operation, request = {}) =>
       operation({ signal: request.signal, handle: null }),
   };
+  globalThis.__apiClientTestRecovery = {
+    events: [],
+    recoveryCenter: {
+      handle(error, context = {}) {
+        const result = {
+          classification:
+            error?.code === "API_TIMEOUT_ERROR"
+              ? "retryable"
+              : error?.code === "CLIENT_REVOKED"
+                ? "permission"
+                : error?.status === 401
+                  ? "reauth"
+                  : "fatal",
+          shouldRetry: error?.code === "API_TIMEOUT_ERROR",
+          shouldRollback: false,
+          shouldToast: false,
+          shouldReauth: error?.status === 401,
+          silent: false,
+          userMessage: null,
+          recoveryAction:
+            error?.code === "CLIENT_REVOKED"
+              ? "clear-signing-cache/client-identity"
+              : error?.code === "INVALID_SIGNATURE"
+                ? "refresh-signing-secret"
+                : null,
+        };
+        error.recovery = result;
+        globalThis.__apiClientTestRecovery.events.push({
+          error,
+          context,
+          result,
+        });
+        return result;
+      },
+    },
+  };
 
   const transformed = source
     .replace(
@@ -99,6 +135,10 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
     .replace(
       'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
       "const { runScheduledTaskRequest } = globalThis.__apiClientTestTaskRequestMetadata;"
+    )
+    .replace(
+      'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
+      "const { recoveryCenter } = globalThis.__apiClientTestRecovery;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 
@@ -187,6 +227,9 @@ test("requestJson maps CLIENT_REVOKED and clears volatile client session", async
       (error) =>
         error.code === apiError.API_ERROR_CODES.CLIENT_REVOKED &&
         error.status === 403 &&
+        error.recovery?.classification === "permission" &&
+        error.recovery?.recoveryAction ===
+          "clear-signing-cache/client-identity" &&
         globalThis.__apiClientTestSigning.cleared === 1 &&
         globalThis.__apiClientTestIdentity.resetCalls.length === 1 &&
         globalThis.__apiClientTestIdentity.resetCalls[0].rotateDeviceKey ===
@@ -303,7 +346,8 @@ test("requestJson maps timeoutMs aborts to API_TIMEOUT_ERROR", async () => {
       requestJson("/slow", { timeoutMs: 1 }),
       (error) =>
         error.code === apiError.API_ERROR_CODES.API_TIMEOUT_ERROR &&
-        error.details?.timeoutMs === 1
+        error.details?.timeoutMs === 1 &&
+        error.recovery?.classification === "retryable"
     );
   } finally {
     globalThis.fetch = originalFetch;

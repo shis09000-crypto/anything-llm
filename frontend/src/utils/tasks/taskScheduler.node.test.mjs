@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TaskScheduler } from "./taskScheduler.js";
+import { recoveryCenter } from "../recovery/recoveryCenter.js";
 
 const wait = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -253,6 +254,50 @@ test("stale running task releases its lane even when it cannot abort", async () 
     scheduler
       .snapshot()
       .stale.some((task) => task.label === "nonabortable-low"),
+    true
+  );
+});
+
+test("abort and stale task recoveries stay silent", async () => {
+  recoveryCenter.resetForTests();
+  const scheduler = new TaskScheduler({ maxConcurrent: 1 });
+  scheduler.setPaused("P2", true);
+
+  const pending = scheduler.schedule(async () => "never", {
+    priority: "P2",
+    label: "silent-pending",
+    kind: "test",
+    scope: { surface: "silent-recovery" },
+  });
+  await wait();
+  scheduler.cancelScope({ surface: "silent-recovery" }, "route-switch");
+  await pending.promise;
+
+  const runningStarted = deferred();
+  const running = scheduler.schedule(
+    async () => {
+      runningStarted.resolve();
+      await deferred().promise;
+    },
+    {
+      priority: "P0",
+      label: "silent-stale",
+      kind: "test",
+      abortable: false,
+      scope: { surface: "silent-stale-recovery" },
+    }
+  );
+  scheduler.setPaused("P2", false);
+  await runningStarted.promise;
+  running.markStale("thread-switch-stale");
+  await running.promise;
+
+  const silentRecoveries = recoveryCenter
+    .snapshot()
+    .recent.filter((item) => item.classification === "silent");
+  assert.equal(silentRecoveries.length >= 2, true);
+  assert.equal(
+    silentRecoveries.every((item) => item.shouldToast === false),
     true
   );
 });

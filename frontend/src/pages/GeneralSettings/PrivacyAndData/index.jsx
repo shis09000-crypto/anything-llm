@@ -7,6 +7,7 @@ import PreLoader from "@/components/Preloader";
 import { useTranslation } from "react-i18next";
 import ProviderPrivacy from "@/components/ProviderPrivacy";
 import Toggle from "@/components/lib/Toggle";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function PrivacyAndDataHandling() {
   const [settings, setSettings] = useState({});
@@ -64,12 +65,45 @@ function TelemetryLogs({ settings }) {
   );
   const { t } = useTranslation();
   async function toggleTelemetry() {
-    await System.updateSystem({
-      DisableTelemetry: !telemetry ? "false" : "true",
+    const previousTelemetry = telemetry;
+    const nextTelemetry = !telemetry;
+    const action = optimisticActionCenter.run({
+      type: "settings.telemetry.toggle",
+      scope: {
+        route: "settings",
+        surface: "privacy-data",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-telemetry-toggle",
+      optimisticPatch: () => setTelemetry(nextTelemetry),
+      rollbackPatch: () => setTelemetry(previousTelemetry),
+      serverCall: async ({ signal }) => {
+        const result = await System.updateSystem(
+          {
+            DisableTelemetry: nextTelemetry ? "false" : "true",
+          },
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (result?.error) throw new Error(result.error);
+        return result;
+      },
     });
-    setTelemetry(!telemetry);
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(`Anonymous Telemetry update failed.`, "error", {
+        clear: true,
+      });
+      return;
+    }
     showToast(
-      `Anonymous Telemetry has been ${!telemetry ? "enabled" : "disabled"}.`,
+      `Anonymous Telemetry has been ${nextTelemetry ? "enabled" : "disabled"}.`,
       "info",
       { clear: true }
     );

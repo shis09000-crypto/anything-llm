@@ -6,6 +6,7 @@ import {
   recordCommunicationEvent,
 } from "./communicationMetrics";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 export const UPLOAD_KINDS = {
   workspaceFile: "workspace_file",
@@ -29,6 +30,23 @@ function durationSince(startedAt) {
 function devLog(phase, metadata = {}) {
   if (!import.meta.env.DEV) return;
   console.debug(`[uploadClient] ${phase}`, metadata);
+}
+
+function handleUploadRecovery(error, context = {}) {
+  return recoveryCenter.handle(error, {
+    source: "upload",
+    requestId: context.requestId,
+    path: context.path,
+    communicationScene: context.communicationScene,
+    foreground: context.foreground,
+    background: context.background,
+    scope: {
+      route: "upload",
+      uploadKind: context.uploadKind,
+      path: context.path,
+      communicationScene: context.communicationScene || undefined,
+    },
+  });
 }
 
 function requestSignal({ signal, timeoutMs }) {
@@ -415,6 +433,12 @@ async function uploadFormDataCore(path, formData, options = {}) {
         }),
         raw: error,
       });
+      handleUploadRecovery(apiError, {
+        requestId,
+        uploadKind,
+        path,
+        communicationScene,
+      });
       devLog(
         "timeout",
         uploadLogPayload({
@@ -431,7 +455,15 @@ async function uploadFormDataCore(path, formData, options = {}) {
       throw apiError;
     }
     if (error?.name === "AbortError") throw error;
-    if (error?.ok === false) throw error;
+    if (error?.ok === false) {
+      handleUploadRecovery(error, {
+        requestId,
+        uploadKind,
+        path,
+        communicationScene,
+      });
+      throw error;
+    }
 
     const apiError = normalizeApiError(error, null, {
       details: uploadDetails({
@@ -442,6 +474,12 @@ async function uploadFormDataCore(path, formData, options = {}) {
         code: error?.code || API_ERROR_CODES.API_ERROR,
         message: error?.message || "Upload failed.",
       }),
+    });
+    handleUploadRecovery(apiError, {
+      requestId,
+      uploadKind,
+      path,
+      communicationScene,
     });
     devLog(
       "failure",

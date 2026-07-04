@@ -6,6 +6,7 @@ import WorkspaceName from "./WorkspaceName";
 import SuggestedChatMessages from "./SuggestedChatMessages";
 import DeleteWorkspace from "./DeleteWorkspace";
 import CTAButton from "@/components/lib/CTAButton";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function GeneralInfo({
   slug,
@@ -48,14 +49,39 @@ export default function GeneralInfo({
     const data = {};
     const form = new FormData(formEl.current);
     for (var [key, value] of form.entries()) data[key] = castToType(key, value);
-    const { workspace: updatedWorkspace, message } = await Workspace.update(
-      workspace.slug,
-      data
-    );
-    if (!!updatedWorkspace) {
+    const previousWorkspace = workspace;
+    const action = optimisticActionCenter.run({
+      type: "workspace.settings.save",
+      scope: {
+        route: "workspace-settings",
+        surface: "general-appearance",
+        workspaceSlug: workspace.slug,
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:workspace-settings-save",
+      optimisticPatch: () => setWorkspace({ ...workspace, ...data }),
+      rollbackPatch: () => setWorkspace(previousWorkspace),
+      confirmPatch: ({ result }) => {
+        if (result?.workspace) setWorkspace(result.workspace);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await Workspace.update(workspace.slug, data, {
+          signal,
+          task: false,
+        });
+        if (!result?.workspace) throw new Error(result?.message || "保存失败");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
       showToast("Workspace updated!", "success", { clear: true });
     } else {
-      showToast(`Error: ${message}`, "error", { clear: true });
+      showToast(`Error: ${outcome.error?.message}`, "error", { clear: true });
     }
     setSaving(false);
     setHasChanges(false);

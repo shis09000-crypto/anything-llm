@@ -31,6 +31,7 @@ import {
   USERNAME_MAX_LENGTH,
   USERNAME_PATTERN,
 } from "@/utils/username";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function AccountModal({ user, hideModal }) {
   const { pfp, setPfp } = usePfp();
@@ -105,27 +106,91 @@ export default function AccountModal({ user, hideModal }) {
     const file = event.target.files[0];
     if (!file) return false;
 
+    const previousPfp = pfp;
+    const previewUrl = URL.createObjectURL(file);
     const formData = new FormData();
     formData.append("file", file);
-    const { success, error } = await System.uploadPfp(formData);
-    if (!success) {
-      showToast(t("profile_settings.failed_upload", { error }), "error");
+    const action = optimisticActionCenter.run({
+      type: "account.avatar.upload",
+      scope: {
+        route: "account-settings",
+        surface: "profile",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      resource: "upload",
+      label: "optimistic:account-avatar-upload",
+      optimisticPatch: () => setPfp(previewUrl),
+      rollbackPatch: () => {
+        setPfp(previousPfp);
+        URL.revokeObjectURL(previewUrl);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await System.uploadPfp(formData, {
+          signal,
+          task: false,
+        });
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to upload avatar");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        t("profile_settings.failed_upload", {
+          error: outcome.error?.message,
+        }),
+        "error"
+      );
       return;
     }
 
     const pfpUrl = await System.fetchPfp(user.id);
     setPfp(pfpUrl);
+    URL.revokeObjectURL(previewUrl);
     showToast(t("profile_settings.upload_success"), "success");
   };
 
   const handleRemovePfp = async () => {
-    const { success, error } = await System.removePfp();
-    if (!success) {
-      showToast(t("profile_settings.failed_remove", { error }), "error");
+    const previousPfp = pfp;
+    const action = optimisticActionCenter.run({
+      type: "account.avatar.remove",
+      scope: {
+        route: "account-settings",
+        surface: "profile",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:account-avatar-remove",
+      optimisticPatch: () => setPfp(null),
+      rollbackPatch: () => setPfp(previousPfp),
+      serverCall: async ({ signal }) => {
+        const result = await System.removePfp({
+          signal,
+          task: false,
+        });
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to remove avatar");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        t("profile_settings.failed_remove", {
+          error: outcome.error?.message,
+        }),
+        "error"
+      );
       return;
     }
-
-    setPfp(null);
   };
 
   async function saveIfChanged() {
@@ -137,8 +202,42 @@ export default function AccountModal({ user, hideModal }) {
     if (currentHash === initialHashRef.current) return true;
     if (!form.reportValidity()) return false;
 
-    const { success, error } = await System.updateUser(data);
-    if (success) {
+    const previousStoredUser = getStoredAuthUser();
+    const action = optimisticActionCenter.run({
+      type: "account.profile.save",
+      scope: {
+        route: "account-settings",
+        surface: "profile",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:account-profile-save",
+      optimisticPatch: () => {
+        if (!previousStoredUser) return;
+        setStoredAuthUser({
+          ...previousStoredUser,
+          username: data.username,
+          bio: data.bio,
+        });
+      },
+      rollbackPatch: () => {
+        if (previousStoredUser) setStoredAuthUser(previousStoredUser);
+      },
+      serverCall: async ({ signal }) => {
+        const result = await System.updateUser(data, {
+          signal,
+          task: false,
+        });
+        if (!result?.success)
+          throw new Error(result?.error || "Failed to update user");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
       let storedUser = getStoredAuthUser();
       if (storedUser) {
         storedUser.username = data.username;
@@ -151,7 +250,12 @@ export default function AccountModal({ user, hideModal }) {
       initialHashRef.current = currentHash;
       return true;
     } else {
-      showToast(t("profile_settings.failed_update_user", { error }), "error");
+      showToast(
+        t("profile_settings.failed_update_user", {
+          error: outcome.error?.message,
+        }),
+        "error"
+      );
       return false;
     }
   }
@@ -640,9 +744,26 @@ function AutoSpeakPreference() {
     );
   }, []);
 
-  const handleChange = (checked) => {
+  const handleChange = async (checked) => {
+    const previousValue = autoPlayAssistantTtsResponse;
     setAutoPlayAssistantTtsResponse(checked);
-    Appearance.updateSettings({ autoPlayAssistantTtsResponse: checked });
+
+    const action = optimisticActionCenter.run({
+      type: "appearance.autoSpeak.toggle",
+      label: "optimistic:appearance-auto-speak-toggle",
+      scope: { route: "account-settings", surface: "profile" },
+      priority: "P1",
+      resource: "network",
+      protected: true,
+      dedupeKey: `appearance:auto-speak:${checked}`,
+      rollbackPatch: () => setAutoPlayAssistantTtsResponse(previousValue),
+      serverCall: async () =>
+        Appearance.updateSettings({ autoPlayAssistantTtsResponse: checked }),
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      console.error("Failed to update appearance settings:", outcome.error);
+    }
   };
 
   return (

@@ -34,6 +34,10 @@ const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { getClientContext } = require("../utils/clientIdentity");
+const {
+  authSessionFingerprintFromRequest,
+} = require("../utils/authz/vaultAccessGrants");
+const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -1125,36 +1129,41 @@ function systemEndpoints(app) {
     }
   });
 
-  app.get("/system/settings/bootstrap", [validatedRequest], async (request, response) => {
-    try {
-      const query = queryParams(request);
-      const sections = String(query.sections || "system")
-        .split(",")
-        .map((section) => section.trim())
-        .filter(Boolean);
-      const results = await SystemSettings.currentSettingsForSections(sections);
-      const settings = filterSettingsBySections(results, sections);
-      const user = await userFromSession(request, response).catch(() => null);
-      response.status(200).json({
-        success: true,
-        sections,
-        full: sections.includes("system") || sections.includes("all"),
-        settings,
-        user: user
-          ? {
-              id: user.id,
-              username: user.username,
-              role: user.role,
-              email: user.email || null,
-            }
-          : null,
-        version: results?.LastUpdatedAt || results?.lastUpdatedAt || null,
-      });
-    } catch (e) {
-      console.error(e.message, e);
-      response.sendStatus(500).end();
+  app.get(
+    "/system/settings/bootstrap",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const query = queryParams(request);
+        const sections = String(query.sections || "system")
+          .split(",")
+          .map((section) => section.trim())
+          .filter(Boolean);
+        const results =
+          await SystemSettings.currentSettingsForSections(sections);
+        const settings = filterSettingsBySections(results, sections);
+        const user = await userFromSession(request, response).catch(() => null);
+        response.status(200).json({
+          success: true,
+          sections,
+          full: sections.includes("system") || sections.includes("all"),
+          settings,
+          user: user
+            ? {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                email: user.email || null,
+              }
+            : null,
+          version: results?.LastUpdatedAt || results?.lastUpdatedAt || null,
+        });
+      } catch (e) {
+        console.error(e.message, e);
+        response.sendStatus(500).end();
+      }
     }
-  });
+  );
 
   app.get(
     "/system/check-token",
@@ -1503,10 +1512,12 @@ function systemEndpoints(app) {
     [simpleSSOEnabled],
     async (request, response) => {
       const { token: tempAuthToken } = request.query;
-      const { sessionToken, token, error } =
-        await TemporaryAuthToken.validate(tempAuthToken, {
+      const { sessionToken, token, error } = await TemporaryAuthToken.validate(
+        tempAuthToken,
+        {
           clientContext: getClientContext(request),
-        });
+        }
+      );
 
       if (error) {
         await EventLogs.logEvent("failed_login_invalid_temporary_auth_token", {
@@ -2309,11 +2320,7 @@ function systemEndpoints(app) {
 
   app.post(
     "/system/upload-logo",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin]),
-      handleAssetUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.admin]), handleAssetUpload],
     async (request, response) => {
       if (!request?.file || !request?.file.originalname) {
         return response.status(400).json({ message: "No logo file provided." });
@@ -2412,6 +2419,21 @@ function systemEndpoints(app) {
 
         const { name = null } = reqBody(request);
         const { apiKey, error } = await ApiKey.create(null, name);
+        const context = getClientContext(request);
+        const sensitiveSession =
+          apiKey?.id && context?.clientId && response?.locals?.user?.id
+            ? issueSensitiveSession({
+                userId: response.locals.user.id,
+                clientId: context.clientId,
+                resourceType: "api_key",
+                resourceId: apiKey.id,
+                ownerScope: `system:api-key:${apiKey.id}`,
+                method: "generate-api-key",
+                requestId:
+                  request.signedRequest?.requestId || context.requestId || null,
+                sessionFingerprint: authSessionFingerprintFromRequest(request),
+              })
+            : null;
         await EventLogs.logEvent(
           "api_key_created",
           { name: apiKey?.name },
@@ -2419,6 +2441,7 @@ function systemEndpoints(app) {
         );
         return response.status(200).json({
           apiKey,
+          sensitiveSession,
           error,
         });
       } catch (error) {
@@ -2555,11 +2578,7 @@ function systemEndpoints(app) {
 
   app.post(
     "/system/workspace-chats",
-    [
-      chatHistoryViewable,
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin]),
-    ],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { offset = 0, limit = 20 } = reqBody(request);
@@ -2599,11 +2618,7 @@ function systemEndpoints(app) {
 
   app.get(
     "/system/export-chats",
-    [
-      chatHistoryViewable,
-      validatedRequest,
-      flexUserRoleValid([ROLES.admin]),
-    ],
+    [chatHistoryViewable, validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
         const { type = "jsonl", chatType = "workspace" } = request.query;
@@ -2631,7 +2646,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const overview = await UserMemory.overview(memoryOwnerId);
         response.status(200).json({
           success: true,
@@ -2657,7 +2673,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const blocks = await UserMemory.blocks(memoryOwnerId, {
           limit: request.query.limit,
           detail: request.query.detail,
@@ -2676,9 +2693,14 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const limit = boundedMemoryQueryNumber(request.query.limit, 50, 500);
-        const offset = boundedMemoryQueryNumber(request.query.offset, 0, 50_000);
+        const offset = boundedMemoryQueryNumber(
+          request.query.offset,
+          0,
+          50_000
+        );
         const archives = await UserMemory.archives(memoryOwnerId, {
           limit,
           offset,
@@ -2697,9 +2719,14 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const limit = boundedMemoryQueryNumber(request.query.limit, 100, 500);
-        const offset = boundedMemoryQueryNumber(request.query.offset, 0, 50_000);
+        const offset = boundedMemoryQueryNumber(
+          request.query.offset,
+          0,
+          50_000
+        );
         const memories = await UserMemory.sensitive(memoryOwnerId, {
           limit,
           offset,
@@ -2719,7 +2746,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const body = reqBody(request);
         const isSensitive = Boolean(body?.isSensitive);
         const memory = isSensitive
@@ -2750,7 +2778,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const result = await UserMemory.rebuildUserProfile(memoryOwnerId);
         response.status(200).json(result);
       } catch (e) {
@@ -2766,7 +2795,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const memory = await UserMemory.updateActiveMemory(
           memoryOwnerId,
           request.params.id,
@@ -2786,7 +2816,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const result = await UserMemory.deleteActiveMemory(
           memoryOwnerId,
           request.params.id
@@ -2805,7 +2836,8 @@ function systemEndpoints(app) {
     async (request, response) => {
       try {
         const sessionUser = await userFromSession(request, response);
-        const memoryOwnerId = UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
+        const memoryOwnerId =
+          UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const { currentPassword, reauthToken } = reqBody(request) || {};
         const reauth = validateReauthToken(
           reauthToken,
@@ -2818,7 +2850,10 @@ function systemEndpoints(app) {
           const bcrypt = require("bcryptjs");
           if (
             !storedUser?.password ||
-            !bcrypt.compareSync(String(currentPassword || ""), storedUser.password)
+            !bcrypt.compareSync(
+              String(currentPassword || ""),
+              storedUser.password
+            )
           ) {
             response.status(401).json({
               success: false,
@@ -2832,8 +2867,26 @@ function systemEndpoints(app) {
           memoryOwnerId,
           request.params.id
         );
+        const context = getClientContext(request);
+        const sensitiveSession =
+          context?.clientId && sessionUser?.id
+            ? issueSensitiveSession({
+                userId: sessionUser.id,
+                clientId: context.clientId,
+                resourceType: "user_memory",
+                resourceId: request.params.id,
+                ownerScope: `user:${sessionUser.id}:memory`,
+                method: "sensitive-memory-reveal",
+                requestId:
+                  request.signedRequest?.requestId ||
+                  context.requestId ||
+                  request.communicationRequestId ||
+                  null,
+                sessionFingerprint: authSessionFingerprintFromRequest(request),
+              })
+            : null;
         if (reauth) consumeReauthToken(reauthToken);
-        response.status(200).json({ success: true, memory });
+        response.status(200).json({ success: true, memory, sensitiveSession });
       } catch (e) {
         console.error(e);
         respondMemoryError(response, e, 400);
@@ -3064,11 +3117,7 @@ function systemEndpoints(app) {
         }
         response.status(200).json({
           success: true,
-          reauthToken: issueReauthToken(
-            user.id,
-            "password",
-            "account_delete"
-          ),
+          reauthToken: issueReauthToken(user.id, "password", "account_delete"),
         });
       } catch (error) {
         response.status(500).json({

@@ -10,6 +10,7 @@ import WorkspaceLLMSelection from "./WorkspaceLLMSelection";
 import ChatQueryRefusalResponse from "./ChatQueryRefusalResponse";
 import CTAButton from "@/components/lib/CTAButton";
 import { useSettingsSection } from "@/pages/GeneralSettings/useSettingsSection";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function ChatSettings({ workspace }) {
   const [settings, setSettings] = useState({});
@@ -41,15 +42,35 @@ export default function ChatSettings({ workspace }) {
     const form = new FormData(formEl.current);
     for (var [key, value] of form.entries()) data[key] = castToType(key, value);
 
-    const { workspace: updatedWorkspace, message } = await Workspace.update(
-      workspace.slug,
-      data
-    );
-    if (updatedWorkspace) {
+    const action = optimisticActionCenter.run({
+      type: "workspace.settings.chat.save",
+      scope: {
+        route: "workspace-settings",
+        surface: "chat-settings",
+        workspaceSlug: workspace.slug,
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:workspace-chat-settings-save",
+      optimisticPatch: () => setHasChanges(false),
+      rollbackPatch: () => setHasChanges(true),
+      serverCall: async ({ signal }) => {
+        const result = await Workspace.update(workspace.slug, data, {
+          signal,
+          task: false,
+        });
+        if (!result?.workspace) throw new Error(result?.message || "保存失败");
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
       showToast("Workspace updated!", "success", { clear: true });
-      setHasChanges(false);
     } else {
-      showToast(`Error: ${message}`, "error", { clear: true });
+      showToast(`Error: ${outcome.error?.message}`, "error", { clear: true });
       // Keep hasChanges true on error so user can retry
     }
     setSaving(false);

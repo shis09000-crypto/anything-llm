@@ -74,19 +74,182 @@ function summarizeCache(snapshot) {
   };
 }
 
+function optionalWindowSnapshot(name) {
+  if (!canUseWindow()) return null;
+  try {
+    return window?.[name]?.snapshot?.() || null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeSensitive(snapshot) {
+  if (!snapshot) return null;
+  return {
+    size: snapshot.size || 0,
+    counters: snapshot.counters || {},
+    transport: snapshot.transport || null,
+    activeHeartbeatTimers: snapshot.transport?.activeHeartbeatTimers || 0,
+  };
+}
+
+function summarizeOptimistic(snapshot) {
+  if (!snapshot) return null;
+  return {
+    pending: snapshot.pending || 0,
+    confirmed: snapshot.confirmed || 0,
+    failed: snapshot.failed || 0,
+    rolledBack: snapshot.rolledBack || 0,
+    tombstones: snapshot.tombstones || 0,
+    retryAvailable: snapshot.retryAvailable || false,
+  };
+}
+
+function summarizeRecovery(snapshot) {
+  if (!snapshot) return null;
+  return {
+    byClassification: snapshot.byClassification || {},
+    toastCount: snapshot.toastCount || 0,
+    dedupedToastCount: snapshot.dedupedToastCount || 0,
+    retryRecommendations: snapshot.retryRecommendations || 0,
+    rollbackCount: snapshot.rollbackCount || 0,
+  };
+}
+
+function buildTimelineEvents(schedulerSnapshot, limit = 120) {
+  const normalizedLimit = Math.max(1, Number(limit) || 120);
+  const schedulerTimeline = (schedulerSnapshot.timeline || [])
+    .slice(-normalizedLimit)
+    .map((entry) => ({
+      source: "scheduler",
+      type: entry.event || "scheduler",
+      at: Number(entry.at || 0),
+      ...entry,
+    }));
+  const perfMarks = marks.slice(-normalizedLimit).map((entry) => ({
+    source: "performance",
+    type: entry.name || entry.markName || "performance",
+    at: Number(entry.at || 0),
+    ...entry,
+  }));
+
+  return [...schedulerTimeline, ...perfMarks]
+    .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+    .slice(-normalizedLimit);
+}
+
+function buildMetrics({
+  schedulerSnapshot,
+  cacheSnapshot,
+  events,
+  sensitiveSnapshot,
+  optimisticSnapshot,
+  recoverySnapshot,
+}) {
+  const schedulerCounters = schedulerSnapshot.counters || {};
+  const cacheCounters = cacheSnapshot.counters || {};
+  const latency = schedulerSnapshot.latency || {};
+  const sensitiveCounters = sensitiveSnapshot?.counters || {};
+  const recoveryByClassification = recoverySnapshot?.byClassification || {};
+  return {
+    eventCount: events.length,
+    markCount: marks.length,
+    schedulerTimelineCount: (schedulerSnapshot.timeline || []).length,
+    activeTaskCount: schedulerSnapshot.active || 0,
+    pendingCount: schedulerSnapshot.pending?.length || 0,
+    runningCount: schedulerSnapshot.running?.length || 0,
+    backgroundCount: schedulerSnapshot.background?.length || 0,
+    exclusiveActive: Boolean(schedulerSnapshot.exclusiveMode?.active),
+    oldestPendingMs: schedulerSnapshot.oldestPendingMs || 0,
+    schedulerAborted: schedulerCounters.aborted || 0,
+    schedulerDemoted: schedulerCounters.demoted || 0,
+    schedulerStale: schedulerCounters.stale || 0,
+    schedulerPreempted: schedulerCounters.preempted || 0,
+    oldP0StaleCount: schedulerSnapshot.oldP0StaleCount || 0,
+    cacheSize: cacheSnapshot.size || 0,
+    cacheInflightCount: cacheSnapshot.inflight?.length || 0,
+    cacheHits: cacheCounters.hits || 0,
+    cacheMisses: cacheCounters.misses || 0,
+    cacheStaleHits: cacheCounters.staleHits || 0,
+    cacheFastPathHits: cacheCounters.fastPathHits || 0,
+    cacheRefreshStarted: cacheCounters.refreshes || 0,
+    cacheRefreshCommitted: cacheCounters.refreshCommits || 0,
+    cacheRefreshStaleDropped: cacheCounters.droppedStaleWrites || 0,
+    sensitiveSessionSize: sensitiveSnapshot?.size || 0,
+    sensitiveSessionStored: sensitiveCounters.stored || 0,
+    sensitiveSessionRevoked: sensitiveCounters.revoked || 0,
+    sensitiveSessionScopeRevoked: sensitiveCounters.scopeRevoked || 0,
+    sensitiveSessionHeartbeats: sensitiveCounters.heartbeats || 0,
+    sensitiveSessionHeartbeatTimers:
+      sensitiveSnapshot?.transport?.activeHeartbeatTimers || 0,
+    optimisticPending: optimisticSnapshot?.pending || 0,
+    optimisticRolledBack: optimisticSnapshot?.rolledBack || 0,
+    recoverySilent: recoveryByClassification.silent || 0,
+    recoveryRetryable: recoveryByClassification.retryable || 0,
+    recoveryPermission: recoveryByClassification.permission || 0,
+    recoveryRollback: recoveryByClassification.rollback || 0,
+    latency,
+  };
+}
+
+function publishSnapshotDigest(snapshot) {
+  if (!canUseWindow()) return;
+  try {
+    const root = window.document?.documentElement;
+    if (!root) return;
+    root.setAttribute(
+      "data-athena-runtime-observer-event-count",
+      String(snapshot.eventCount || 0)
+    );
+    root.setAttribute(
+      "data-athena-runtime-observer-metrics",
+      JSON.stringify(snapshot.metrics || {})
+    );
+  } catch {
+    // DOM publication is diagnostic-only.
+  }
+}
+
 function buildCombinedSnapshot() {
   const schedulerSnapshot = taskScheduler.snapshot();
   const cacheSnapshot = serverStateCache.snapshot();
-  return {
+  const sensitiveSnapshot = optionalWindowSnapshot(
+    "__athenaSensitiveSessionCenter"
+  );
+  const optimisticSnapshot = optionalWindowSnapshot(
+    "__athenaOptimisticActionCenter"
+  );
+  const recoverySnapshot = optionalWindowSnapshot("__athenaRecoveryCenter");
+  const events = buildTimelineEvents(schedulerSnapshot, 160);
+  const metrics = buildMetrics({
+    schedulerSnapshot,
+    cacheSnapshot,
+    sensitiveSnapshot,
+    optimisticSnapshot,
+    recoverySnapshot,
+    events,
+  });
+  const snapshot = {
     at: new Date().toISOString(),
+    eventCount: events.length,
+    events,
+    metrics,
     scheduler: summarizeScheduler(schedulerSnapshot),
     cache: summarizeCache(cacheSnapshot),
+    sensitive: summarizeSensitive(sensitiveSnapshot),
+    optimistic: summarizeOptimistic(optimisticSnapshot),
+    recovery: summarizeRecovery(recoverySnapshot),
     marks: marks.slice(-80),
     raw: {
       scheduler: schedulerSnapshot,
       cache: cacheSnapshot,
+      sensitive: sensitiveSnapshot,
+      optimistic: optimisticSnapshot,
+      recovery: recoverySnapshot,
     },
   };
+  publishSnapshotDigest(snapshot);
+  return snapshot;
 }
 
 function enable({ panel = false, reload = false } = {}) {
@@ -123,16 +286,7 @@ function attachFullObserver() {
     cache: () => serverStateCache.snapshot(),
     marks: (limit = 80) => marks.slice(-Math.max(1, Number(limit) || 80)),
     timeline: (limit = 120) => {
-      const schedulerTimeline = taskScheduler
-        .snapshot()
-        .timeline.slice(-Math.max(1, Number(limit) || 120))
-        .map((entry) => ({ source: "scheduler", ...entry }));
-      const perfMarks = marks
-        .slice(-Math.max(1, Number(limit) || 120))
-        .map((entry) => ({ source: "performance", ...entry }));
-      return [...schedulerTimeline, ...perfMarks].sort(
-        (a, b) => Number(a.at || a.ts || 0) - Number(b.at || b.ts || 0)
-      );
+      return buildTimelineEvents(taskScheduler.snapshot(), limit);
     },
     print() {
       const snapshot = buildCombinedSnapshot();
@@ -160,6 +314,7 @@ function attachFullObserver() {
   window.__athenaServerStateCache = {
     snapshot: () => serverStateCache.snapshot(),
   };
+  publishSnapshotDigest(buildCombinedSnapshot());
 }
 
 function attachBootstrapObserver() {

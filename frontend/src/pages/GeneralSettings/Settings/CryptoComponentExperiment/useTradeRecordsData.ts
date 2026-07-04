@@ -18,7 +18,8 @@ import type {
 export type TradeRecordsDataMode = "mock" | "gate-api";
 
 const BATCH_LIMIT = 50;
-const RECONNECT_DELAY_MS = 5_000;
+const RECONNECT_DELAY_MS = 30_000;
+const HIDDEN_RECONNECT_DELAY_MS = 120_000;
 
 const emptySummary: TradeRecordsSummary = {
   totalNotionalUsd: "0.00",
@@ -225,6 +226,12 @@ function mockFeeSummary(records: TradeRecordItem[]) {
   };
 }
 
+function reconnectDelayMs() {
+  return document.visibilityState === "hidden"
+    ? HIDDEN_RECONNECT_DELAY_MS
+    : RECONNECT_DELAY_MS;
+}
+
 export function defaultTradeRecordsRange() {
   const nowSec = Math.floor(Date.now() / 1000);
   return {
@@ -295,7 +302,7 @@ export function useTradeRecordsData({
         reconnectTimerRef.current = null;
         loadSnapshotRef.current?.(options);
         if (!options.append) loadFeeSummaryRef.current?.();
-      }, RECONNECT_DELAY_MS);
+      }, reconnectDelayMs());
     },
     [clearReconnectTimer]
   );
@@ -558,7 +565,7 @@ export function useTradeRecordsData({
           error?.message ? error.message : "Gate trade records stream failed."
         );
         scheduleReconnect({ append: false });
-        return RECONNECT_DELAY_MS;
+        return reconnectDelayMs();
       },
     }).catch(() => null);
 

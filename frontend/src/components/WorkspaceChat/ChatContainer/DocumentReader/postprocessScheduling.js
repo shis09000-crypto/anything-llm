@@ -53,11 +53,11 @@ export function readerPostprocessScheduleOptions({
   return {
     foreground,
     lockKey,
-    priority: foreground ? "P1" : "P4",
-    policy: foreground ? "visible" : "maintenance",
+    priority: foreground ? "P0" : "P4",
+    policy: foreground ? "foreground" : "maintenance",
     resource: foreground ? "network" : "idle",
-    emergency: false,
-    intentRank: foreground ? 10 : 90,
+    emergency: foreground,
+    intentRank: foreground ? 0 : 90,
     label:
       intent === "manual"
         ? "reader:manual-postprocess"

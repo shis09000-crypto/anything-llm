@@ -49,6 +49,11 @@ const {
   simpleSSOLoginDisabledMiddleware,
 } = require("../utils/middleware/simpleSSOEnabled");
 const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
+const { getClientContext } = require("../utils/clientIdentity");
+const {
+  authSessionFingerprintFromRequest,
+} = require("../utils/authz/vaultAccessGrants");
+const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
 
 const DEFAULT_ADMIN_PAGE_LIMIT = 50;
 const MAX_ADMIN_PAGE_LIMIT = 200;
@@ -903,6 +908,21 @@ function adminEndpoints(app) {
         const { name = null } = reqBody(request);
         recordAdminCheckpoint(request, "admin_api_key_create", "api_key");
         const { apiKey, error } = await ApiKey.create(user.id, name);
+        const context = getClientContext(request);
+        const sensitiveSession =
+          apiKey?.id && context?.clientId
+            ? issueSensitiveSession({
+                userId: user.id,
+                clientId: context.clientId,
+                resourceType: "api_key",
+                resourceId: apiKey.id,
+                ownerScope: `admin:api-key:${apiKey.id}`,
+                method: "admin-generate-api-key",
+                requestId:
+                  request.signedRequest?.requestId || context.requestId || null,
+                sessionFingerprint: authSessionFingerprintFromRequest(request),
+              })
+            : null;
         await EventLogs.logEvent(
           "api_key_created",
           { createdBy: user?.username, name: apiKey?.name },
@@ -910,6 +930,7 @@ function adminEndpoints(app) {
         );
         return response.status(200).json({
           apiKey,
+          sensitiveSession,
           error,
         });
       } catch (e) {

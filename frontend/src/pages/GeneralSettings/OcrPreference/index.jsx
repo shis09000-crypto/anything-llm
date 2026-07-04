@@ -13,6 +13,7 @@ import {
   SoftProviderTrigger,
   SoftSettingsLayout,
 } from "@/components/SoftSettings";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const DEFAULT_ALIBABA_OCR_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -66,13 +67,35 @@ export default function GeneralOcrPreference() {
     const data = { ReaderOcrProvider: selectedProvider };
     for (const [key, value] of formData.entries()) data[key] = value;
 
-    const { error } = await System.updateSystem(data);
-    if (error) {
-      showToast(t("ocr.saveError", { error }), "error");
+    const action = optimisticActionCenter.run({
+      type: "settings.ocr.save",
+      scope: {
+        route: "settings",
+        surface: "ocr",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-ocr-save",
+      optimisticPatch: () => setHasChanges(false),
+      rollbackPatch: () => setHasChanges(true),
+      serverCall: async ({ signal }) => {
+        const result = await System.updateSystem(data, {
+          signal,
+          task: false,
+        });
+        if (result?.error) throw new Error(result.error);
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(t("ocr.saveError", { error: outcome.error?.message }), "error");
       setHasChanges(true);
     } else {
       showToast(t("ocr.saved"), "success");
-      setHasChanges(false);
       await refreshSettings();
     }
     setSaving(false);

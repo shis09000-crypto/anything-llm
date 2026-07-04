@@ -8,6 +8,7 @@ import React, {
   useState,
 } from "react";
 import Appearance from "@/models/appearance";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export const MOTION_DENSITIES = {
   minimal: "Minimal",
@@ -93,11 +94,26 @@ export function MotionProvider({ children }) {
     return () => document.removeEventListener("keydown", toggleDebug);
   }, []);
 
-  const setMotionDensity = useCallback((nextDensity) => {
-    const normalized = normalizeDensity(nextDensity);
-    Appearance.set("motionDensity", normalized);
-    _setMotionDensity(normalized);
-  }, []);
+  const setMotionDensity = useCallback(
+    (nextDensity) => {
+      const normalized = normalizeDensity(nextDensity);
+      const previousDensity = motionDensity;
+      _setMotionDensity(normalized);
+
+      optimisticActionCenter.run({
+        type: "appearance.motionDensity.set",
+        label: "optimistic:appearance-motion-density-set",
+        scope: { surface: "settings:appearance" },
+        priority: "P1",
+        resource: "network",
+        protected: true,
+        dedupeKey: `appearance:motion-density:${normalized}`,
+        rollbackPatch: () => _setMotionDensity(previousDensity),
+        serverCall: async () => Appearance.set("motionDensity", normalized),
+      });
+    },
+    [motionDensity]
+  );
 
   const requestMotion = useCallback(
     ({ category, token, duration = 0 }) => {

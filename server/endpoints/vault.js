@@ -13,6 +13,10 @@ const {
   revokeVaultAccessGrants,
   validateVaultGrantForRequest,
 } = require("../utils/authz/vaultAccessGrants");
+const {
+  issueSensitiveSession,
+  revokeSensitiveSessions,
+} = require("../utils/authz/sensitiveSessions");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 
 function currentUserId(response) {
@@ -124,10 +128,21 @@ async function issueGrantForRequest(request, response, { userId, method }) {
     },
     userId
   );
+  const sensitiveSession = issueSensitiveSession({
+    userId,
+    clientId: context.clientId,
+    resourceType: "vault",
+    resourceId: "vault",
+    ownerScope: `user:${userId}:vault`,
+    method,
+    requestId: request.signedRequest?.requestId || context.requestId || null,
+    sessionFingerprint: authSessionFingerprintFromRequest(request),
+  });
 
   return response.status(200).json({
     success: true,
     vaultGrant: grant.token,
+    sensitiveSession,
     expiresAt: grant.expiresAt,
     ttlMs: grant.ttlMs,
   });
@@ -227,12 +242,19 @@ function vaultEndpoints(app) {
       userId,
       clientId: context.clientId,
     });
+    const revokedSensitiveCount = revokeSensitiveSessions({
+      userId,
+      clientId: context.clientId,
+      resourceType: "vault",
+    });
     void logVaultEvent(
       "vault_locked",
-      { revokedGrantCount: revokedCount },
+      { revokedGrantCount: revokedCount, revokedSensitiveCount },
       userId
     );
-    return response.status(200).json({ success: true, revokedCount });
+    return response
+      .status(200)
+      .json({ success: true, revokedCount, revokedSensitiveCount });
   });
 
   app.get("/vault/items", [validatedRequest], async (request, response) => {

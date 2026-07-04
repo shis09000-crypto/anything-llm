@@ -12,6 +12,7 @@ import {
   recordCommunicationEvent,
 } from "./communicationMetrics";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 export const BLOB_KINDS = {
   ttsAudio: "tts_audio",
@@ -37,6 +38,24 @@ function durationSince(startedAt) {
 function devLog(phase, metadata = {}) {
   if (!import.meta.env.DEV) return;
   console.debug(`[blobClient] ${phase}`, metadata);
+}
+
+function handleBlobRecovery(error, context = {}) {
+  return recoveryCenter.handle(error, {
+    source: context.blobKind?.startsWith?.("reader")
+      ? "reader"
+      : "communication",
+    requestId: context.requestId,
+    path: context.path,
+    communicationScene: context.communicationScene,
+    foreground: context.foreground,
+    scope: {
+      route: "blob",
+      blobKind: context.blobKind,
+      path: context.path,
+      communicationScene: context.communicationScene || undefined,
+    },
+  });
 }
 
 function cleanHeaders(headers = {}) {
@@ -304,6 +323,12 @@ async function requestBodyCore(kind, path, options = {}, reader) {
         }),
         raw: error,
       });
+      handleBlobRecovery(apiError, {
+        requestId,
+        blobKind,
+        path,
+        communicationScene,
+      });
       devLog(
         "timeout",
         logPayload({
@@ -320,7 +345,15 @@ async function requestBodyCore(kind, path, options = {}, reader) {
       throw apiError;
     }
     if (error?.name === "AbortError") throw error;
-    if (error?.ok === false) throw error;
+    if (error?.ok === false) {
+      handleBlobRecovery(error, {
+        requestId,
+        blobKind,
+        path,
+        communicationScene,
+      });
+      throw error;
+    }
 
     const apiError = normalizeApiError(error, null, {
       details: blobDetails({
@@ -331,6 +364,12 @@ async function requestBodyCore(kind, path, options = {}, reader) {
         code: error?.code || API_ERROR_CODES.API_ERROR,
         message: error?.message || `${kind} request failed.`,
       }),
+    });
+    handleBlobRecovery(apiError, {
+      requestId,
+      blobKind,
+      path,
+      communicationScene,
     });
     devLog(
       "failure",

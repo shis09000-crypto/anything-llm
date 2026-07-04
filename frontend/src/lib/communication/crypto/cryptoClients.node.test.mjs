@@ -139,6 +139,56 @@ test("cryptoHubFetch returns payloads and maps success false to safe errors", as
   assert.equal(logs.at(-1).metadata.requestId, "request-2");
 });
 
+test("cryptoHubFetch singleflights concurrent hub GETs and init POSTs", async () => {
+  const shared = await loadCryptoShared();
+  let releaseRequest = () => {};
+  let requestGate = new Promise((resolve) => {
+    releaseRequest = resolve;
+  });
+  const calls = [];
+  globalThis.__cryptoClientTest = {
+    shared,
+    requestJson: async (path, options = {}) => {
+      calls.push({ path, method: options.method || "GET" });
+      await requestGate;
+      return {
+        response: { status: 200 },
+        data: {
+          success: true,
+          path,
+          method: options.method || "GET",
+          callCount: calls.length,
+        },
+        requestId: `request-${calls.length}`,
+      };
+    },
+  };
+
+  const { cryptoHubFetch, cryptoHubPost } = await loadCryptoHubClient();
+  const firstGet = cryptoHubFetch("/allocation");
+  const secondGet = cryptoHubFetch("/allocation");
+  await Promise.resolve();
+  assert.equal(calls.length, 1);
+  releaseRequest();
+  assert.deepEqual(await firstGet, await secondGet);
+  assert.equal(calls.length, 1);
+
+  const warmGet = await cryptoHubFetch("/allocation");
+  assert.equal(warmGet.callCount, 1);
+  assert.equal(calls.length, 1);
+
+  requestGate = new Promise((resolve) => {
+    releaseRequest = resolve;
+  });
+  const firstInit = cryptoHubPost("/init");
+  const secondInit = cryptoHubPost("/init");
+  await Promise.resolve();
+  assert.equal(calls.length, 2);
+  releaseRequest();
+  assert.deepEqual(await firstInit, await secondInit);
+  assert.equal(calls.at(-1).path, "/crypto-hub/init");
+});
+
 test("cryptoHub stream preserves envelopes and ignores heartbeat/status payloads", async () => {
   const shared = await loadCryptoShared();
   const events = [];

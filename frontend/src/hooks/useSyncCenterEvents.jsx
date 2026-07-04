@@ -9,6 +9,7 @@ import {
 import { streamSyncCenterEvents } from "@/lib/communication";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 const EVENT_CACHE_LIMIT = 500;
 const SyncCenterContext = createContext(null);
@@ -37,6 +38,16 @@ function rememberEvent(seenEvents, eventId) {
     seenEvents.delete(oldest);
   }
   return true;
+}
+
+function handleSyncStreamStop(error, context = {}) {
+  const recovery = recoveryCenter.handle(error, {
+    source: "sync",
+    scope: { route: "sync-center", surface: context.surface || "events" },
+    ...context,
+  });
+  if (recovery?.silent) return;
+  console.warn("[SyncCenter] stream stopped", error.message);
 }
 
 export function SyncCenterProvider({ children, enabled = true }) {
@@ -114,7 +125,7 @@ export function SyncCenterProvider({ children, enabled = true }) {
       },
     }).catch((error) => {
       if (controller.signal.aborted) return;
-      console.warn("[SyncCenter] stream stopped", error.message);
+      handleSyncStreamStop(error, { surface: "provider" });
     });
 
     return () => {
@@ -168,7 +179,7 @@ export function useSyncCenterEvents({ handlers = {}, enabled = true } = {}) {
       onEvent: fallbackEmit,
     }).catch((error) => {
       if (controller.signal.aborted) return;
-      console.warn("[SyncCenter] stream stopped", error.message);
+      handleSyncStreamStop(error, { surface: "fallback" });
     });
 
     return () => controller.abort();

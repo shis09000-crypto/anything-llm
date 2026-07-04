@@ -35,6 +35,26 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
     runScheduledTaskRequest: (operation, request = {}) =>
       operation({ signal: request.signal, handle: null }),
   };
+  globalThis.__blobClientTestRecovery = {
+    recoveryCenter: {
+      handle(error, context = {}) {
+        const result = {
+          classification:
+            error?.code === "API_TIMEOUT_ERROR" ? "retryable" : "fatal",
+          shouldRetry: error?.code === "API_TIMEOUT_ERROR",
+          shouldRollback: false,
+          shouldToast: false,
+          shouldReauth: false,
+          silent: false,
+          userMessage: null,
+          recoveryAction: error?.code === "API_TIMEOUT_ERROR" ? "retry" : null,
+        };
+        error.recovery = result;
+        globalThis.__blobClientTestRecovery.last = { error, context, result };
+        return result;
+      },
+    },
+  };
 
   const transformed = source
     .replace(
@@ -64,6 +84,10 @@ async function loadBlobClient({ dev = false, apiBase = "/api" } = {}) {
     .replace(
       'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
       "const { runScheduledTaskRequest } = globalThis.__blobClientTestTaskRequestMetadata;"
+    )
+    .replace(
+      'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
+      "const { recoveryCenter } = globalThis.__blobClientTestRecovery;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__blobClientTestDev");
 
@@ -212,7 +236,8 @@ test("requestBlob maps explicit timeoutMs and preserves external AbortError", as
       (error) =>
         error.code === apiError.API_ERROR_CODES.API_TIMEOUT_ERROR &&
         error.details?.blobKind === "reader_preview" &&
-        error.details?.timeoutMs === 1
+        error.details?.timeoutMs === 1 &&
+        error.recovery?.classification === "retryable"
     );
 
     const controller = new AbortController();

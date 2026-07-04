@@ -10,6 +10,27 @@ const apiErrorUrl = new URL("./apiError.js", import.meta.url);
 
 async function loadStreamClient() {
   const tmpDir = await mkdtemp(path.join(os.tmpdir(), "stream-client-"));
+  globalThis.__streamClientRecovery = {
+    recoveryCenter: {
+      handle(error, context = {}) {
+        const result = {
+          classification:
+            error?.code === "STREAM_RUNTIME_ERROR" ? "retryable" : "fatal",
+          shouldRetry: error?.code === "STREAM_RUNTIME_ERROR",
+          shouldRollback: false,
+          shouldToast: false,
+          shouldReauth: false,
+          silent: false,
+          userMessage: null,
+          recoveryAction:
+            error?.code === "STREAM_RUNTIME_ERROR" ? "retry" : null,
+        };
+        error.recovery = result;
+        globalThis.__streamClientRecovery.last = { error, context, result };
+        return result;
+      },
+    },
+  };
   await writeFile(
     path.join(tmpDir, "apiError.js"),
     await readFile(apiErrorUrl, "utf8"),
@@ -38,6 +59,10 @@ async function loadStreamClient() {
       .replace(
         'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
         "const runScheduledTaskRequest = (operation, request = {}) => operation({ signal: request.signal, handle: null });"
+      )
+      .replace(
+        'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
+        "const { recoveryCenter } = globalThis.__streamClientRecovery;"
       )
       .replaceAll('from "./apiError"', 'from "./apiError.js"'),
     "utf8"
@@ -101,6 +126,7 @@ test("postJsonSse maps runtime errors and ignores aborts", async () => {
       (error) => error.code === apiError.API_ERROR_CODES.STREAM_RUNTIME_ERROR
     );
     assert.equal(errors.length, 1);
+    assert.equal(errors[0].recovery?.classification, "retryable");
 
     const controller = new AbortController();
     controller.abort();

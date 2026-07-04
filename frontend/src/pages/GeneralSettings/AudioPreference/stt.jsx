@@ -11,6 +11,7 @@ import {
   SoftProviderDropdown,
   SoftProviderTrigger,
 } from "@/components/SoftSettings";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export default function SpeechToTextProvider({ settings }) {
   const [saving, setSaving] = useState(false);
@@ -40,16 +41,43 @@ export default function SpeechToTextProvider({ settings }) {
     const formData = new FormData(form);
 
     for (var [key, value] of formData.entries()) data[key] = value;
-    const { error } = await System.updateSystem(data);
     setSaving(true);
+    const action = optimisticActionCenter.run({
+      type: "settings.stt.save",
+      scope: {
+        route: "settings",
+        surface: "audio-stt",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-stt-save",
+      optimisticPatch: () => setHasChanges(false),
+      rollbackPatch: () => setHasChanges(true),
+      serverCall: async ({ signal }) => {
+        const result = await System.updateSystem(data, {
+          signal,
+          task: false,
+        });
+        if (result?.error) throw new Error(result.error);
+        return result;
+      },
+    });
+    const outcome = await action.promise;
 
-    if (error) {
-      showToast(t("audio-preference.toasts.sttSaveFailed", { error }), "error");
+    if (!outcome.ok) {
+      showToast(
+        t("audio-preference.toasts.sttSaveFailed", {
+          error: outcome.error?.message,
+        }),
+        "error"
+      );
     } else {
       showToast(t("audio-preference.toasts.sttSaved"), "success");
     }
     setSaving(false);
-    setHasChanges(!!error);
   };
 
   const updateProviderChoice = (selection) => {

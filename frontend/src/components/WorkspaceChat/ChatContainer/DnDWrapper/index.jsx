@@ -14,6 +14,7 @@ import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import FileUploadWarningModal from "./FileUploadWarningModal";
 import pluralize from "pluralize";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 export const DndUploaderContext = createContext();
 export const REMOVE_ATTACHMENT_EVENT = "ATTACHMENT_REMOVE";
@@ -161,13 +162,48 @@ export function DnDFileUploaderProvider({
   async function handleRemove(event) {
     /** @type {{uid: Attachment['uid'], document: Attachment['document']}} */
     const { uid, document } = event.detail;
-    setFiles((prev) => {
-      const next = prev.filter((prevFile) => prevFile.uid !== uid);
-      revokeRemovedAttachmentPreviews(prev, next);
-      return next;
-    });
+    const previousFiles = filesRef.current;
+    setFiles((prev) => prev.filter((prevFile) => prevFile.uid !== uid));
     if (!document?.location) return;
-    await Workspace.deleteAndUnembedFile(workspace.slug, document.location);
+    const action = optimisticActionCenter.run({
+      type: "chat.uploadAttachment.remove",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug: workspace.slug,
+        threadSlug: threadSlug || null,
+        surface: "workspace-upload",
+        documentLocation: document.location,
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:upload-attachment-remove",
+      dedupeKey: `optimistic:upload-attachment-remove:${workspace.slug}:${document.location}`,
+      rollbackPatch: () => setFiles(previousFiles),
+      serverCall: async ({ signal }) => {
+        const ok = await Workspace.deleteAndUnembedFile(
+          workspace.slug,
+          document.location,
+          {
+            signal,
+            task: false,
+          }
+        );
+        if (!ok) throw new Error("Attachment removal failed");
+        return true;
+      },
+    });
+    const outcome = await action.promise;
+    if (outcome.ok) {
+      revokeRemovedAttachmentPreviews(
+        previousFiles,
+        previousFiles.filter((prevFile) => prevFile.uid !== uid)
+      );
+    } else {
+      showToast("Failed to remove attachment", "error");
+    }
   }
 
   /**
@@ -451,24 +487,55 @@ export function DnDFileUploaderProvider({
   // Handle modal actions
   const handleCloseModal = async () => {
     if (!pendingFiles.length) return;
+    const previousFiles = filesRef.current;
+    const previousPendingFiles = pendingFiles;
+    const previousTokenCount = tokenCount;
 
-    // Delete all files from this batch
-    await Workspace.deleteParsedFiles(
-      workspace.slug,
-      pendingFiles.map((file) => file.parsedFileId)
-    );
-
-    // Remove all files from this batch from the UI
-    setFiles((prev) =>
-      prev.filter(
-        (prevFile) =>
-          !pendingFiles.some((file) => file.attachment.uid === prevFile.uid)
-      )
-    );
-    setShowWarningModal(false);
-    setPendingFiles([]);
-    setTokenCount(0);
-    window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSED_EVENT));
+    const fileIds = pendingFiles.map((file) => file.parsedFileId);
+    const action = optimisticActionCenter.run({
+      type: "chat.pendingUploadBatch.dismiss",
+      scope: {
+        route: "workspace-chat",
+        workspaceSlug: workspace.slug,
+        threadSlug: threadSlug || null,
+        surface: "workspace-upload-warning",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:pending-upload-dismiss",
+      dedupeKey: `optimistic:pending-upload-dismiss:${workspace.slug}:${fileIds.join(",")}`,
+      optimisticPatch: () => {
+        setFiles((prev) =>
+          prev.filter(
+            (prevFile) =>
+              !pendingFiles.some((file) => file.attachment.uid === prevFile.uid)
+          )
+        );
+        setShowWarningModal(false);
+        setPendingFiles([]);
+        setTokenCount(0);
+        window.dispatchEvent(new CustomEvent(ATTACHMENTS_PROCESSED_EVENT));
+      },
+      rollbackPatch: () => {
+        setFiles(previousFiles);
+        setPendingFiles(previousPendingFiles);
+        setTokenCount(previousTokenCount);
+        setShowWarningModal(true);
+      },
+      serverCall: async ({ signal }) => {
+        const ok = await Workspace.deleteParsedFiles(workspace.slug, fileIds, {
+          signal,
+          task: false,
+        });
+        if (!ok) throw new Error("Pending upload cleanup failed");
+        return true;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) showToast("Failed to remove pending files", "error");
   };
 
   const handleContinueAnyway = async () => {

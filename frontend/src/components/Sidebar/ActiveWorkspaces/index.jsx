@@ -31,6 +31,7 @@ import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache"
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const WORKSPACE_DND_TYPE = "WORKSPACE";
 const THREAD_DND_TYPE = "THREAD";
@@ -63,24 +64,6 @@ function refreshWorkspaceThreads(workspaceSlug) {
       detail: { workspaceSlug },
     })
   );
-}
-
-function navigationWriteTask(label, workspaceSlug, scope = {}) {
-  return {
-    label,
-    kind: "navigation",
-    priority: "P0",
-    policy: "foreground",
-    protected: true,
-    abortable: false,
-    intentRank: 1,
-    scope: {
-      route: "workspace-sidebar",
-      surface: "threads",
-      workspaceSlug,
-      ...scope,
-    },
-  };
 }
 
 export default function ActiveWorkspaces() {
@@ -284,18 +267,42 @@ export default function ActiveWorkspaces() {
    * @param {number} endIndex - the index to move the workspace to
    */
   function reorderWorkspaces(startIndex, endIndex) {
+    const previousWorkspaces = workspaces;
     const reorderedWorkspaces = Array.from(workspaces);
     const [removed] = reorderedWorkspaces.splice(startIndex, 1);
     reorderedWorkspaces.splice(endIndex, 0, removed);
-    setWorkspaces(reorderedWorkspaces);
-    workspaceNavigationCache.setWorkspaces(reorderedWorkspaces);
-    const success = Workspace.storeWorkspaceOrder(
-      reorderedWorkspaces.map((w) => w.id)
-    );
-    if (!success) {
-      showToast("Failed to reorder workspaces", "error");
-      Workspace.all().then((workspaces) => setWorkspaces(workspaces));
-    }
+    const action = optimisticActionCenter.run({
+      type: "workspace.reorder",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "workspaces",
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:workspace-reorder",
+      dedupeKey: "optimistic:workspace-reorder",
+      optimisticPatch: () => {
+        setWorkspaces(reorderedWorkspaces);
+        workspaceNavigationCache.setWorkspaces(reorderedWorkspaces);
+      },
+      rollbackPatch: () => {
+        setWorkspaces(previousWorkspaces);
+        workspaceNavigationCache.setWorkspaces(previousWorkspaces);
+      },
+      serverCall: async () => {
+        const success = Workspace.storeWorkspaceOrder(
+          reorderedWorkspaces.map((w) => w.id)
+        );
+        if (!success) throw new Error("workspace order sync failed");
+        return true;
+      },
+    });
+    void action.promise.then((outcome) => {
+      if (!outcome.ok) showToast("Failed to reorder workspaces", "error");
+    });
   }
 
   const onDragStart = (start) => {
@@ -333,25 +340,90 @@ export default function ActiveWorkspaces() {
       return;
     }
 
-    const resultPayload = await Workspace.threads.move(
-      draggedThread.sourceWorkspaceSlug,
-      draggedThread.threadSlug,
-      targetWorkspaceSlug,
-      {
-        communicationScene: "workspace-navigation",
-        task: navigationWriteTask(
-          "navigation:thread-move",
-          draggedThread.sourceWorkspaceSlug,
-          {
-            threadSlug: draggedThread.threadSlug,
-            targetWorkspaceSlug,
-          }
-        ),
-      }
+    const sourceThreadsBefore =
+      workspaceNavigationCache.getThreads(draggedThread.sourceWorkspaceSlug) ||
+      [];
+    const targetThreadsBefore =
+      workspaceNavigationCache.getThreads(targetWorkspaceSlug) || [];
+    const threadToMove = sourceThreadsBefore.find(
+      (thread) => thread?.slug === draggedThread.threadSlug
     );
-    if (!resultPayload.success) {
+    const action = optimisticActionCenter.run({
+      type: "thread.move",
+      scope: {
+        route: "workspace-sidebar",
+        surface: "threads",
+        workspaceSlug: draggedThread.sourceWorkspaceSlug,
+        threadSlug: draggedThread.threadSlug,
+        targetWorkspaceSlug,
+      },
+      priority: "P0",
+      policy: "foreground",
+      intentRank: 1,
+      protected: true,
+      abortable: false,
+      label: "optimistic:thread-move",
+      dedupeKey: `optimistic:thread-move:${draggedThread.sourceWorkspaceSlug}:${draggedThread.threadSlug}:${targetWorkspaceSlug}`,
+      optimisticPatch: () => {
+        if (!threadToMove) return;
+        workspaceNavigationCache.setThreads(
+          draggedThread.sourceWorkspaceSlug,
+          sourceThreadsBefore.filter(
+            (thread) => thread?.slug !== draggedThread.threadSlug
+          )
+        );
+        workspaceNavigationCache.setThreads(targetWorkspaceSlug, [
+          threadToMove,
+          ...targetThreadsBefore.filter(
+            (thread) => thread?.slug !== draggedThread.threadSlug
+          ),
+        ]);
+        refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
+        refreshWorkspaceThreads(targetWorkspaceSlug);
+      },
+      rollbackPatch: () => {
+        workspaceNavigationCache.setThreads(
+          draggedThread.sourceWorkspaceSlug,
+          sourceThreadsBefore
+        );
+        workspaceNavigationCache.setThreads(
+          targetWorkspaceSlug,
+          targetThreadsBefore
+        );
+        refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
+        refreshWorkspaceThreads(targetWorkspaceSlug);
+      },
+      confirmPatch: ({ result }) => {
+        if (result?.thread?.slug)
+          workspaceNavigationCache.updateThread(
+            targetWorkspaceSlug,
+            result.thread
+          );
+      },
+      serverCall: async ({ signal }) => {
+        const resultPayload = await Workspace.threads.move(
+          draggedThread.sourceWorkspaceSlug,
+          draggedThread.threadSlug,
+          targetWorkspaceSlug,
+          {
+            signal,
+            communicationScene: "workspace-navigation",
+            task: false,
+          }
+        );
+        if (!resultPayload.success) {
+          throw new Error(resultPayload.error || "Unknown error");
+        }
+        return resultPayload;
+      },
+    });
+    const outcome = await action.promise;
+    const resultPayload = outcome.result;
+    if (!outcome.ok || !resultPayload?.success) {
       showToast(
-        `Could not move thread - ${resultPayload.error || "Unknown error"}`,
+        `Could not move thread - ${
+          outcome.error?.message || resultPayload?.error || "Unknown error"
+        }`,
         "error",
         { clear: true }
       );

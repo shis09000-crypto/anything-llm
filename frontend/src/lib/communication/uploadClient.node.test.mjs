@@ -37,6 +37,26 @@ async function loadUploadClient({ dev = false } = {}) {
     runScheduledTaskRequest: (operation, request = {}) =>
       operation({ signal: request.signal, handle: null }),
   };
+  globalThis.__uploadClientTestRecovery = {
+    recoveryCenter: {
+      handle(error, context = {}) {
+        const result = {
+          classification:
+            error?.code === "API_TIMEOUT_ERROR" ? "retryable" : "fatal",
+          shouldRetry: error?.code === "API_TIMEOUT_ERROR",
+          shouldRollback: false,
+          shouldToast: false,
+          shouldReauth: false,
+          silent: false,
+          userMessage: null,
+          recoveryAction: error?.code === "API_TIMEOUT_ERROR" ? "retry" : null,
+        };
+        error.recovery = result;
+        globalThis.__uploadClientTestRecovery.last = { error, context, result };
+        return result;
+      },
+    },
+  };
 
   const transformed = source
     .replace(
@@ -58,6 +78,10 @@ async function loadUploadClient({ dev = false } = {}) {
     .replace(
       'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
       "const { runScheduledTaskRequest } = globalThis.__uploadClientTestTaskRequestMetadata;"
+    )
+    .replace(
+      'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
+      "const { recoveryCenter } = globalThis.__uploadClientTestRecovery;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__uploadClientTestDev");
 
@@ -205,7 +229,8 @@ test("uploadFormData maps explicit timeoutMs to API_TIMEOUT_ERROR", async () => 
       (error) =>
         error.code === apiError.API_ERROR_CODES.API_TIMEOUT_ERROR &&
         error.details?.uploadKind === "workspace_file" &&
-        error.details?.timeoutMs === 1
+        error.details?.timeoutMs === 1 &&
+        error.recovery?.classification === "retryable"
     );
   } finally {
     globalThis.fetch = originalFetch;

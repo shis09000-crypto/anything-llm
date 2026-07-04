@@ -44,6 +44,7 @@ function stripLargeReaderPayload(value) {
   if (!value || typeof value !== "object") return value;
   const next = { ...value };
   [
+    "sensitiveSession",
     "content",
     "text",
     "rawText",
@@ -57,6 +58,7 @@ function stripLargeReaderPayload(value) {
 
   if (next.metadata && typeof next.metadata === "object") {
     next.metadata = { ...next.metadata };
+    delete next.metadata.sensitiveSession;
     delete next.metadata.localPath;
     delete next.metadata.absolutePath;
   }
@@ -73,14 +75,37 @@ function readerDocumentIdFor(documentData) {
   );
 }
 
-function sanitizeDocument(documentData) {
-  const sanitized = stripLargeReaderPayload(clone(documentData));
+function withReaderDocumentWorkspaceSlug(documentData, workspaceSlug = null) {
+  if (!documentData || !workspaceSlug) return documentData;
+  const next = clone(documentData);
+  const metadata =
+    next.metadata && typeof next.metadata === "object" ? next.metadata : {};
+  next.metadata = {
+    ...metadata,
+    readerDocumentWorkspaceSlug:
+      metadata.readerDocumentWorkspaceSlug ||
+      next.readerDocumentWorkspaceSlug ||
+      workspaceSlug,
+  };
+  next.readerDocumentWorkspaceSlug =
+    next.readerDocumentWorkspaceSlug ||
+    next.metadata.readerDocumentWorkspaceSlug ||
+    workspaceSlug;
+  return next;
+}
+
+function sanitizeDocument(documentData, workspaceSlug = null) {
+  const withWorkspace = withReaderDocumentWorkspaceSlug(
+    documentData,
+    workspaceSlug
+  );
+  const sanitized = stripLargeReaderPayload(clone(withWorkspace));
   return sanitized || null;
 }
 
-function sanitizeDocuments(documents = []) {
+function sanitizeDocuments(documents = [], workspaceSlug = null) {
   return (Array.isArray(documents) ? documents : [])
-    .map((documentData) => sanitizeDocument(documentData))
+    .map((documentData) => sanitizeDocument(documentData, workspaceSlug))
     .filter(Boolean);
 }
 
@@ -98,7 +123,7 @@ function updateList(workspaceSlug, updater) {
 }
 
 function setDocumentList(workspaceSlug = null, documents = []) {
-  const sanitized = sanitizeDocuments(documents);
+  const sanitized = sanitizeDocuments(documents, workspaceSlug);
   serverStateCache.set(
     READER_SERVER_STATE_KEYS.documents(workspaceSlug),
     sanitized,
@@ -116,7 +141,7 @@ function setDocumentList(workspaceSlug = null, documents = []) {
 function setDocument(workspaceSlug = null, documentData = null) {
   const readerDocumentId = readerDocumentIdFor(documentData);
   if (!readerDocumentId) return null;
-  const sanitized = sanitizeDocument(documentData);
+  const sanitized = sanitizeDocument(documentData, workspaceSlug);
   serverStateCache.set(
     READER_SERVER_STATE_KEYS.document(workspaceSlug, readerDocumentId),
     sanitized,
@@ -160,7 +185,8 @@ export const readerServerStateStore = {
   ensureDocumentList(workspaceSlug = null, fetcher, options = {}) {
     return serverStateTaskBridge.ensure({
       key: READER_SERVER_STATE_KEYS.documents(workspaceSlug),
-      fetcher: async (taskArgs) => sanitizeDocuments(await fetcher(taskArgs)),
+      fetcher: async (taskArgs) =>
+        sanitizeDocuments(await fetcher(taskArgs), workspaceSlug),
       ttlMs: READER_SERVER_STATE_TTL_MS,
       ownerScope: currentUserScope(),
       scope: readerScope(workspaceSlug, { surface: "document-list" }),
@@ -175,7 +201,7 @@ export const readerServerStateStore = {
       label: options.label || `reader:documents:${workspaceSlug || "global"}`,
       meta: options.meta,
       onCommit: (documents) => {
-        sanitizeDocuments(documents).forEach((documentData) =>
+        sanitizeDocuments(documents, workspaceSlug).forEach((documentData) =>
           setDocument(workspaceSlug, documentData)
         );
       },
@@ -205,7 +231,8 @@ export const readerServerStateStore = {
     if (!readerDocumentId) return Promise.resolve(null);
     return serverStateTaskBridge.ensure({
       key: READER_SERVER_STATE_KEYS.document(workspaceSlug, readerDocumentId),
-      fetcher: async (taskArgs) => sanitizeDocument(await fetcher(taskArgs)),
+      fetcher: async (taskArgs) =>
+        sanitizeDocument(await fetcher(taskArgs), workspaceSlug),
       ttlMs: READER_SERVER_STATE_TTL_MS,
       ownerScope: currentUserScope(),
       scope: readerScope(workspaceSlug, {
@@ -226,7 +253,7 @@ export const readerServerStateStore = {
       label: options.label || `reader:document:${readerDocumentId}`,
       meta: options.meta,
       onCommit: (documentData) => {
-        const sanitized = sanitizeDocument(documentData);
+        const sanitized = sanitizeDocument(documentData, workspaceSlug);
         const committedReaderDocumentId = readerDocumentIdFor(sanitized);
         if (!committedReaderDocumentId) return;
         updateList(workspaceSlug, (documents) => {

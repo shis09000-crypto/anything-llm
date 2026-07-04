@@ -5,6 +5,7 @@ import {
   loadCryptoConfig,
   saveCryptoConfig,
 } from "@/lib/communication/crypto/cryptoConfigClient";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 import TradingPairDetailCard from "./TradingPairDetailCard";
 import { presetById, tradingPairMockPresets } from "./tradingPairMockPresets";
 import { useTradingPairDetailData } from "./useTradingPairDetailData";
@@ -640,14 +641,37 @@ export default function TradingPairDetailCardExperiment() {
       pairs: pairParamsById,
     };
 
-    const localSaved = saveConfig(payload);
-    if (!localSaved) {
+    const action = optimisticActionCenter.run({
+      type: "crypto.ui.tradingPairConfig.save",
+      scope: {
+        route: "settings",
+        surface: "crypto-center",
+        setting: "trading_pair_config",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:crypto-trading-pair-config",
+      optimisticPatch: () => {
+        const localSaved = saveConfig(payload);
+        if (!localSaved) throw new Error("浏览器存储不可用");
+        setSaveStatus("已保存到浏览器，正在同步后端长期配置...");
+      },
+      rollbackPatch: () => setSaveStatus("保存失败，浏览器存储不可用"),
+      serverCall: async () => {
+        const remoteSaved = await saveRemoteConfig(payload);
+        return { remoteSaved };
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
       setSaveStatus("保存失败，浏览器存储不可用");
       return;
     }
 
-    setSaveStatus("已保存到浏览器，正在同步后端长期配置...");
-    const remoteSaved = await saveRemoteConfig(payload);
+    const remoteSaved = Boolean(outcome.result?.remoteSaved);
     setSaveStatus(
       remoteSaved
         ? "已保存所有通用参数、交易对分别参数和后端长期配置"

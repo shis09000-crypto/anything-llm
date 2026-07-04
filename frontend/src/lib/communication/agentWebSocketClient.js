@@ -22,6 +22,7 @@ import {
   isRecoverableSigningError,
 } from "./requestSigningClient";
 import { getAuthToken } from "@/utils/authTokenStorage";
+import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
 export const AgentSessionState = {
   IDLE: "idle",
@@ -316,6 +317,23 @@ export function createAgentWebSocketSession({
     failureReason: null,
   };
 
+  function handleAgentRecovery(error, extra = {}) {
+    return recoveryCenter.handle(error, {
+      source: "agent",
+      taskId: websocketUUID,
+      path: `/agent-invocation/${websocketUUID}`,
+      background: !!extra.background,
+      scope: {
+        route: "workspace-chat",
+        surface: "agent-websocket",
+        workspaceSlug,
+        threadSlug,
+        websocketUUID,
+      },
+      ...extra,
+    });
+  }
+
   function snapshot(extra = {}) {
     return {
       state: session.current,
@@ -465,6 +483,13 @@ export function createAgentWebSocketSession({
     });
     const interruptedContext =
       getInterruptedContext?.(reason, snapshot({ reason })) || null;
+    handleAgentRecovery(
+      new Error(reason || "Agent websocket reconnect failed."),
+      {
+        background: true,
+        reconnectExhausted: true,
+      }
+    );
     onReconnectOffer?.(reason, interruptedContext, snapshot());
     return true;
   }
@@ -666,6 +691,9 @@ export function createAgentWebSocketSession({
       return;
     }
     session.closeReason = "Agent websocket connection failed.";
+    handleAgentRecovery(error || new Error(session.closeReason), {
+      background: false,
+    });
     onError?.(error, snapshot({ reason: session.closeReason }));
     safeClose(socket);
   }

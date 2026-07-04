@@ -4,6 +4,7 @@ import {
   loadCryptoConfig,
   saveCryptoConfig,
 } from "@/lib/communication/crypto/cryptoConfigClient";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 import TradeRecordsTable from "./TradeRecordsTable";
 import {
   rangeLabels,
@@ -234,14 +235,38 @@ export default function TradeRecordsExperiment() {
     setIsSavingConfig(true);
     setSaveStatus("正在保存参数到后台...");
 
-    try {
-      const savedAt = new Date().toISOString();
-      await saveCryptoConfig(REMOTE_CONFIG_KIND, {
-        version: 1,
-        savedAt,
-        visual,
-      } satisfies SavedVisualConfig);
+    const savedAt = new Date().toISOString();
+    const action = optimisticActionCenter.run({
+      type: "crypto.ui.tradeRecords.save",
+      scope: {
+        route: "settings",
+        surface: "crypto-center",
+        setting: "trade_records_visual",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:crypto-trade-records-config",
+      optimisticPatch: () =>
+        setSaveStatus(`正在同步后台 · ${new Date(savedAt).toLocaleString()}`),
+      rollbackPatch: () => setSaveStatus("保存失败"),
+      serverCall: async ({ signal }) =>
+        await saveCryptoConfig(
+          REMOTE_CONFIG_KIND,
+          {
+            version: 1,
+            savedAt,
+            visual,
+          } satisfies SavedVisualConfig,
+          { signal, task: false }
+        ),
+    });
 
+    try {
+      const outcome = await action.promise;
+      if (!outcome.ok) throw outcome.error;
       setSaveStatus(`已保存到后台 · ${new Date(savedAt).toLocaleString()}`);
     } catch (error) {
       setSaveStatus(

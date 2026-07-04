@@ -15,6 +15,7 @@ import {
   SoftProviderTrigger,
   SoftSettingsLayout,
 } from "@/components/SoftSettings";
+import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const DEFAULT_ALIBABA_VISION_BASE_URL =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -78,13 +79,38 @@ export default function GeneralVisionPreference() {
     const data = { VisionProvider: selectedProvider };
     for (const [key, value] of formData.entries()) data[key] = value;
 
-    const { error } = await System.updateSystem(data);
-    if (error) {
-      showToast(t("vision.saveError", { error }), "error");
+    const action = optimisticActionCenter.run({
+      type: "settings.vision.save",
+      scope: {
+        route: "settings",
+        surface: "vision",
+      },
+      priority: "P1",
+      policy: "visible",
+      intentRank: 0,
+      protected: true,
+      abortable: false,
+      label: "optimistic:settings-vision-save",
+      optimisticPatch: () => setHasChanges(false),
+      rollbackPatch: () => setHasChanges(true),
+      serverCall: async ({ signal }) => {
+        const result = await System.updateSystem(data, {
+          signal,
+          task: false,
+        });
+        if (result?.error) throw new Error(result.error);
+        return result;
+      },
+    });
+    const outcome = await action.promise;
+    if (!outcome.ok) {
+      showToast(
+        t("vision.saveError", { error: outcome.error?.message }),
+        "error"
+      );
       setHasChanges(true);
     } else {
       showToast(t("vision.saved"), "success");
-      setHasChanges(false);
       await refreshSettings();
     }
     setSaving(false);
