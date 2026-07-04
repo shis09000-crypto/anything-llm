@@ -27,7 +27,7 @@ const MODE_PRIORITY = [
   "overview",
   "normal",
 ];
-let hydratedWorkspaceLayout = false;
+const hydratedWorkspaceLayoutScopes = new Set();
 const WORKSPACE_LAYOUT_NAMESPACE = "workspace.layout";
 
 export function clampReaderSplitPercent(value) {
@@ -97,13 +97,25 @@ function applyWorkspaceLayoutValue(value = {}) {
   }
 }
 
+function currentWorkspaceLayoutScope() {
+  try {
+    if (typeof window === "undefined") return null;
+    const { workspaceId } = workspaceFromPath(window.location?.pathname || "");
+    return workspaceId ? `workspace:${workspaceId}` : null;
+  } catch {
+    return null;
+  }
+}
+
 function hydrateWorkspaceLayoutOnce() {
-  if (hydratedWorkspaceLayout) return;
-  hydratedWorkspaceLayout = true;
+  const scope = currentWorkspaceLayoutScope();
+  if (!scope || hydratedWorkspaceLayoutScopes.has(scope)) return;
+  hydratedWorkspaceLayoutScopes.add(scope);
   import("../userStateSync.js")
     .then(({ hydrateUserStateValue }) =>
       hydrateUserStateValue({
         namespace: WORKSPACE_LAYOUT_NAMESPACE,
+        scope,
         fallback: readWorkspaceLayoutValue(),
         apply: applyWorkspaceLayoutValue,
       })
@@ -112,11 +124,13 @@ function hydrateWorkspaceLayoutOnce() {
 }
 
 function persistWorkspaceLayout() {
+  const scope = currentWorkspaceLayoutScope();
+  if (!scope) return;
   import("../userStateSync.js")
     .then(({ pushUserStateValue }) =>
       pushUserStateValue(
         WORKSPACE_LAYOUT_NAMESPACE,
-        "global",
+        scope,
         readWorkspaceLayoutValue()
       )
     )

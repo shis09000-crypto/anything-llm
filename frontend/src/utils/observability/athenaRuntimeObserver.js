@@ -86,6 +86,7 @@ function optionalWindowSnapshot(name) {
 function summarizeSensitive(snapshot) {
   if (!snapshot) return null;
   return {
+    loaded: snapshot.loaded !== false,
     size: snapshot.size || 0,
     counters: snapshot.counters || {},
     transport: snapshot.transport || null,
@@ -96,6 +97,7 @@ function summarizeSensitive(snapshot) {
 function summarizeOptimistic(snapshot) {
   if (!snapshot) return null;
   return {
+    loaded: snapshot.loaded !== false,
     pending: snapshot.pending || 0,
     confirmed: snapshot.confirmed || 0,
     failed: snapshot.failed || 0,
@@ -108,6 +110,7 @@ function summarizeOptimistic(snapshot) {
 function summarizeRecovery(snapshot) {
   if (!snapshot) return null;
   return {
+    loaded: snapshot.loaded !== false,
     byClassification: snapshot.byClassification || {},
     toastCount: snapshot.toastCount || 0,
     dedupedToastCount: snapshot.dedupedToastCount || 0,
@@ -272,7 +275,50 @@ function disable({ reload = false } = {}) {
   return true;
 }
 
+function ensureCenterPlaceholder(name, snapshotFactory) {
+  if (!canUseWindow()) return;
+  try {
+    if (window?.[name]?.snapshot) return;
+    window[name] = {
+      placeholder: true,
+      snapshot: snapshotFactory,
+    };
+  } catch {
+    // Diagnostic placeholders must never affect app runtime.
+  }
+}
+
+function ensureObserverCenterPlaceholders() {
+  ensureCenterPlaceholder("__athenaSensitiveSessionCenter", () => ({
+    loaded: false,
+    size: 0,
+    counters: {},
+    transport: { activeHeartbeatTimers: 0 },
+    sessions: [],
+  }));
+  ensureCenterPlaceholder("__athenaOptimisticActionCenter", () => ({
+    loaded: false,
+    pending: 0,
+    confirmed: 0,
+    failed: 0,
+    rolledBack: 0,
+    tombstones: 0,
+    mutationVersionConflicts: 0,
+    retryAvailable: false,
+  }));
+  ensureCenterPlaceholder("__athenaRecoveryCenter", () => ({
+    loaded: false,
+    recent: [],
+    byClassification: {},
+    toastCount: 0,
+    dedupedToastCount: 0,
+    retryRecommendations: 0,
+    rollbackCount: 0,
+  }));
+}
+
 function attachFullObserver() {
+  ensureObserverCenterPlaceholders();
   window.document?.documentElement?.setAttribute?.(
     "data-athena-runtime-observer",
     "enabled"

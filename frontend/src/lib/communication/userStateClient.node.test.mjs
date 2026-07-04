@@ -18,6 +18,12 @@ async function loadClient(api = {}) {
   globalThis.__userStateClientBridge = api.serverStateTaskBridge || {
     ensure: ({ fetcher, signal }) => fetcher({ signal, handle: null }),
   };
+  globalThis.__userStateClientSensitiveGuard =
+    api.isSensitiveStateKey ||
+    ((value = "") =>
+      /(^|[._:-])(secret|token|password|credential|api[-_]?key|vault|signing[-_]?secret|private[-_]?config|sensitive[-_]?session|grant)([._:-]|$)/i.test(
+        String(value || "")
+      ));
   const transformed = source
     .replace(
       'import { deleteJson, getJson, patchJson } from "./apiClient";',
@@ -38,6 +44,10 @@ async function loadClient(api = {}) {
     .replace(
       'import { serverStateTaskBridge } from "@/utils/serverState/serverStateTaskBridge";',
       "const serverStateTaskBridge = globalThis.__userStateClientBridge;"
+    )
+    .replace(
+      'import { isSensitiveStateKey } from "@/utils/sensitive/sensitiveDataGuards";',
+      "const isSensitiveStateKey = globalThis.__userStateClientSensitiveGuard;"
     );
   return import(
     `data:text/javascript;base64,${Buffer.from(transformed).toString("base64")}#${Date.now()}-${Math.random()}`

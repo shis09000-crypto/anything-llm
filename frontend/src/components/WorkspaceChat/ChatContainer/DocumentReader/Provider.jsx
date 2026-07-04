@@ -107,6 +107,7 @@ import {
 
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
+const READER_VISIBLE_THUMBNAIL_COUNT = 6;
 
 function readerOpenTask(label, workspaceSlug = null, scope = {}) {
   return {
@@ -282,26 +283,38 @@ async function thumbnailDataUrlFromUrl(thumbnailUrl, options = {}) {
     return thumbnailUrl || null;
   try {
     const displayTask = options.profile === "display";
+    const prefetchTask = options.profile === "prefetch";
+    const taskSurface = displayTask
+      ? "reader-thumbnail-display"
+      : prefetchTask
+        ? "reader-thumbnail-prefetch"
+        : "reader-thumbnail-maintenance";
+    const taskLabel = displayTask
+      ? "reader:thumbnail-display"
+      : prefetchTask
+        ? "reader:thumbnail-prefetch"
+        : "reader:thumbnail-maintenance";
+    const taskPriority = displayTask ? "P1" : prefetchTask ? "P3" : "P4";
+    const taskPolicy = displayTask
+      ? "visible"
+      : prefetchTask
+        ? "prefetch"
+        : "maintenance";
     const { response, blob } = await ReaderDocument.thumbnailBlob(
       thumbnailUrl,
       {
-        communicationScene: displayTask
-          ? "reader-visible"
-          : "reader-maintenance",
+        communicationScene:
+          displayTask || prefetchTask ? "reader-visible" : "reader-maintenance",
         task: {
-          label: displayTask
-            ? "reader:thumbnail-display"
-            : "reader:thumbnail-maintenance",
+          label: taskLabel,
           kind: "reader-thumbnail",
-          priority: displayTask ? "P1" : "P4",
-          policy: displayTask ? "visible" : "maintenance",
-          resource: displayTask ? "network" : "idle",
+          priority: taskPriority,
+          policy: taskPolicy,
+          resource: displayTask || prefetchTask ? "network" : "idle",
           abortable: true,
           scope: {
             route: "reader",
-            surface: displayTask
-              ? "reader-thumbnail-display"
-              : "reader-thumbnail-maintenance",
+            surface: taskSurface,
           },
         },
       }
@@ -676,9 +689,10 @@ export function DocumentReaderProvider({
       const nextBookshelf = addItemsToBookshelf(items);
       items
         .filter((item) => item.thumbnailUrl && !item.thumbnailDataUrl)
-        .forEach((item) => {
+        .forEach((item, index) => {
           void thumbnailDataUrlFromUrl(item.thumbnailUrl, {
-            profile: "display",
+            profile:
+              index < READER_VISIBLE_THUMBNAIL_COUNT ? "display" : "prefetch",
           }).then((dataUrl) => {
             if (!dataUrl) return;
             setReaderBookshelf(
