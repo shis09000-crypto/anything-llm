@@ -50,8 +50,23 @@ async function getWorkspaceFromCacheOrNetwork(slug) {
     allowStale: false,
   });
   if (cached) return cached;
-  return workspaceNavigationCache.runInFlight(`workspace:${slug}`, () =>
-    Workspace.bySlug(slug, { communicationScene: "workspace-navigation" })
+  return workspaceNavigationCache.runInFlight(
+    `workspace:${slug}`,
+    ({ signal } = {}) =>
+      Workspace.bySlug(slug, {
+        signal,
+        communicationScene: "workspace-navigation",
+        task: false,
+      }),
+    {
+      priority: "P0",
+      label: "home:workspace-detail",
+      scope: { route: "home", workspaceSlug: slug },
+      policy: "foreground",
+      emergency: true,
+      intentRank: 0,
+      dedupeKey: `navigation:workspace:${slug}`,
+    }
   );
 }
 
@@ -63,7 +78,25 @@ async function getThreadsFromCacheOrNetwork(slug) {
   if (Array.isArray(cached)) return cached;
   const result = await workspaceNavigationCache.runInFlight(
     `threads:${slug}`,
-    () => Workspace.threads.all(slug)
+    ({ signal } = {}) =>
+      Workspace.threads.all(slug, {
+        signal,
+        communicationScene: "workspace-navigation",
+        task: false,
+      }),
+    {
+      priority: "P0",
+      label: "home:resolve-last-thread",
+      scope: {
+        route: "home",
+        workspaceSlug: slug,
+        surface: "threads",
+      },
+      policy: "foreground",
+      emergency: true,
+      intentRank: 1,
+      dedupeKey: `navigation:threads:${slug}`,
+    }
   );
   return Array.isArray(result?.threads) ? result.threads : [];
 }
@@ -73,7 +106,21 @@ async function getWorkspacesFromCacheOrNetwork() {
   if (Array.isArray(cached)) return cached;
   const workspaces = await workspaceNavigationCache.runInFlight(
     "workspaces",
-    () => Workspace.all({ communicationScene: "workspace-navigation" })
+    ({ signal } = {}) =>
+      Workspace.all({
+        signal,
+        communicationScene: "workspace-navigation",
+        task: false,
+      }),
+    {
+      priority: "P0",
+      label: "home:workspaces",
+      scope: { route: "home", surface: "workspaces" },
+      policy: "foreground",
+      emergency: true,
+      intentRank: 0,
+      dedupeKey: "navigation:workspaces",
+    }
   );
   return Array.isArray(workspaces) ? workspaces : [];
 }

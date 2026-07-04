@@ -1,6 +1,13 @@
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 
 export const SENSITIVE_SESSION_HEADER = "X-Athena-Sensitive-Session";
+const NAVIGATION_PAGE_LIFECYCLE_EVENT = "athena-navigation-page-lifecycle";
+const SENSITIVE_REVOKE_PAGE_EVENTS = new Set([
+  "blur",
+  "hidden",
+  "pagehide",
+  "beforeunload",
+]);
 
 function nowMs() {
   return Date.now();
@@ -223,12 +230,10 @@ class SensitiveSessionCenter {
   installGuards() {
     if (this.guardInstalled || typeof window === "undefined") return;
     this.guardInstalled = true;
-    window.addEventListener("pagehide", () => this.#revokeAll("pagehide"));
-    window.addEventListener("blur", () => this.#revokeAll("window-blur"));
-    window.document?.addEventListener?.("visibilitychange", () => {
-      if (window.document.visibilityState === "hidden") {
-        this.#revokeAll("visibility-hidden");
-      }
+    window.addEventListener(NAVIGATION_PAGE_LIFECYCLE_EVENT, (event) => {
+      const lifecycleEvent = event?.detail?.event;
+      if (!SENSITIVE_REVOKE_PAGE_EVENTS.has(lifecycleEvent)) return;
+      this.#revokeAll(event?.detail?.reason || `navigation-${lifecycleEvent}`);
     });
     window.addEventListener(AUTH_SESSION_CLEARED_EVENT, () => {
       this.clear();

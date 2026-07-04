@@ -39,6 +39,23 @@ test("manual reader postprocess is foreground emergency active intent", () => {
   assert.equal(options.intentRank, 0);
 });
 
+test("upload reader postprocess is foreground emergency after upload intent", () => {
+  const options = readerPostprocessScheduleOptions({
+    intent: "upload",
+    workspaceSlug: "workspace-a",
+    readerDocumentId: "doc-1",
+  });
+
+  assert.equal(readerPostprocessIsForeground("upload"), true);
+  assert.equal(options.foreground, true);
+  assert.equal(options.priority, "P0");
+  assert.equal(options.policy, "foreground");
+  assert.equal(options.resource, "network");
+  assert.equal(options.emergency, true);
+  assert.equal(options.intentRank, 2);
+  assert.equal(options.label, "reader:upload-postprocess");
+});
+
 test("postprocess lock key ignores intent so one document has one poller", () => {
   const lockKey = readerPostprocessLockKey({
     workspaceSlug: "workspace-a",

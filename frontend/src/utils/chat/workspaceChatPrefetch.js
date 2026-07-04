@@ -230,7 +230,24 @@ export function warmWorkspaceChat(workspaceSlug) {
 
         const result = await workspaceNavigationCache.runInFlight(
           `threads:${workspaceSlug}`,
-          () => Workspace.threads.all(workspaceSlug)
+          ({ signal } = {}) =>
+            Workspace.threads.all(workspaceSlug, {
+              signal,
+              task: false,
+            }),
+          {
+            priority: "P3",
+            label: "workspacechat:prefetch-threads",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug,
+              surface: "threads-prefetch",
+            },
+            policy: "prefetch",
+            emergency: false,
+            intentRank: 8,
+            dedupeKey: `prefetch:threads:${workspaceSlug}`,
+          }
         );
         if (generation !== warmupGeneration) return null;
         if (Array.isArray(result?.threads)) {

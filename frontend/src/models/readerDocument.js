@@ -3,8 +3,13 @@ import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 import { UPLOAD_KINDS, uploadFormData } from "@/lib/communication/uploadClient";
 import { readerServerStateStore } from "@/utils/serverState/readerServerStateStore";
 import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
-
-const GLOBAL_READER_RESOURCE_SEGMENT = "__global_reader__";
+import {
+  READER_DOCUMENT_RESOURCE_TYPE,
+  readerAccessDescriptorForDocument,
+  readerAccessDescriptorFromUrl,
+  readerSessionMatchesDescriptor,
+  normalizeReaderDocumentLinks,
+} from "@/utils/chat/readerLinkMaintenance";
 
 function readerDocumentsPath(slug = null) {
   return slug ? `/workspace/${slug}/reader-documents` : "/reader-documents";
@@ -26,85 +31,39 @@ function pagePreviewUrlForOriginal(originalUrl, pageNumber = 1) {
   return `${base}${separator}page=${Math.max(1, Math.round(Number(pageNumber) || 1))}`;
 }
 
-function readerDocumentIdFromUrl(url = "") {
-  const match = String(url || "").match(
-    /\/reader-documents\/([0-9a-f-]{36})(?:\/|$)/i
-  );
-  return match?.[1] || null;
-}
-
-function readerWorkspaceSlugFromOwnerScope(ownerScope = "") {
-  const match = String(ownerScope || "").match(/^workspace:(.+):reader$/);
-  return match?.[1] || null;
-}
-
-function readerSensitiveResourceIdForDocument(
-  documentData = {},
-  fallbackId = null
-) {
-  const readerDocumentId =
-    fallbackId ||
-    documentData?.readerDocumentId ||
-    documentData?.metadata?.readerDocumentId ||
-    null;
-  if (!readerDocumentId) return null;
-  const workspaceSlug =
-    documentData?.metadata?.readerDocumentWorkspaceSlug ||
-    documentData?.readerDocumentWorkspaceSlug ||
-    readerWorkspaceSlugFromOwnerScope(
-      documentData?.sensitiveSession?.ownerScope
-    );
-  return workspaceSlug
-    ? `${workspaceSlug}:${readerDocumentId}`
-    : `${GLOBAL_READER_RESOURCE_SEGMENT}:${readerDocumentId}`;
-}
-
-function readerSensitiveResourceIdsFromUrl(url = "") {
-  const text = String(url || "");
-  const workspaceMatch = text.match(
-    /\/workspace\/([^/?#]+)\/reader-documents\/([0-9a-f-]{36})(?:\/|$)/i
-  );
-  if (workspaceMatch) {
-    const slug = decodeURIComponent(workspaceMatch[1]);
-    const readerDocumentId = workspaceMatch[2];
-    return [`${slug}:${readerDocumentId}`, readerDocumentId];
-  }
-  const readerDocumentId = readerDocumentIdFromUrl(text);
-  if (!readerDocumentId) return [];
-  return [
-    `${GLOBAL_READER_RESOURCE_SEGMENT}:${readerDocumentId}`,
-    readerDocumentId,
-  ];
-}
-
 function storeReaderSensitiveSession(documentData = {}, fallbackId = null) {
   const session = documentData?.sensitiveSession;
-  const readerDocumentId =
-    fallbackId ||
-    documentData?.readerDocumentId ||
-    documentData?.metadata?.readerDocumentId ||
-    null;
-  if (!session || !readerDocumentId) return null;
-  const resourceId =
-    readerSensitiveResourceIdForDocument(documentData, fallbackId) ||
-    readerDocumentId;
+  const descriptor = readerAccessDescriptorForDocument(
+    documentData,
+    fallbackId
+  );
+  if (!session || !descriptor?.readerDocumentId) return null;
   return sensitiveSessionCenter.beginViewer(session, {
-    resourceType: "reader_document",
-    resourceId,
-    aliasResourceIds: [readerDocumentId],
-    ownerScope: session.ownerScope || null,
+    resourceType: READER_DOCUMENT_RESOURCE_TYPE,
+    resourceId: descriptor.resourceId,
+    aliasResourceIds: [descriptor.readerDocumentId],
+    ownerScope: descriptor.ownerScope || session.ownerScope || null,
     exclusiveByResourceType: true,
     reason: "reader-open",
   });
 }
 
-function readerSensitiveHeadersForUrl(url = "") {
-  for (const resourceId of readerSensitiveResourceIdsFromUrl(url)) {
-    const headers = sensitiveSessionCenter.headers({
-      resourceType: "reader_document",
-      resourceId,
-    });
-    if (headers && Object.keys(headers).length > 0) return headers;
+export function readerSensitiveHeadersForUrl(url = "") {
+  const descriptor = readerAccessDescriptorFromUrl(url);
+  if (!descriptor) return {};
+  const directSession = sensitiveSessionCenter.get({
+    resourceType: READER_DOCUMENT_RESOURCE_TYPE,
+    resourceId: descriptor.resourceId,
+  });
+  if (readerSessionMatchesDescriptor(directSession, descriptor)) {
+    return { "X-Athena-Sensitive-Session": directSession.token };
+  }
+  const aliasSession = sensitiveSessionCenter.get({
+    resourceType: READER_DOCUMENT_RESOURCE_TYPE,
+    resourceId: descriptor.readerDocumentId,
+  });
+  if (readerSessionMatchesDescriptor(aliasSession, descriptor)) {
+    return { "X-Athena-Sensitive-Session": aliasSession.token };
   }
   return {};
 }
@@ -132,11 +91,16 @@ const ReaderDocument = {
           label: `reader:documents:${slug || "global"}`,
         }
       );
+      const normalizedDocuments = (
+        Array.isArray(documents) ? documents : []
+      ).map((documentData) =>
+        normalizeReaderDocumentLinks(documentData, { workspaceSlug: slug })
+      );
       return {
         response: new Response(null, { status: 200 }),
         data: {
           success: true,
-          documents: Array.isArray(documents) ? documents : [],
+          documents: normalizedDocuments,
         },
       };
     } catch (error) {
@@ -146,13 +110,18 @@ const ReaderDocument = {
         allowStale: true,
       });
       if (!cachedDocuments) throw error;
+      const normalizedDocuments = (
+        Array.isArray(cachedDocuments) ? cachedDocuments : []
+      ).map((documentData) =>
+        normalizeReaderDocumentLinks(documentData, { workspaceSlug: slug })
+      );
       return {
         response: new Response(null, { status: 200 }),
         data: {
           success: true,
           cached: true,
           stale: true,
-          documents: cachedDocuments,
+          documents: normalizedDocuments,
         },
       };
     }
@@ -167,11 +136,14 @@ const ReaderDocument = {
         ...options,
       }
     );
-    if (response.ok && data?.success) {
-      storeReaderSensitiveSession(data);
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+    });
+    if (response.ok && normalizedData?.success) {
+      storeReaderSensitiveSession(normalizedData);
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   get: async function (slug, readerDocumentId, options = {}) {
     if (options.detail === "content") {
@@ -185,13 +157,17 @@ const ReaderDocument = {
           task: options.task,
         }
       );
-      if (response.ok && data?.success) {
-        storeReaderSensitiveSession(data, readerDocumentId);
-        readerServerStateStore.upsertDocument(slug, data);
+      const normalizedData = normalizeReaderDocumentLinks(data, {
+        workspaceSlug: slug,
+        readerDocumentId,
+      });
+      if (response.ok && normalizedData?.success) {
+        storeReaderSensitiveSession(normalizedData, readerDocumentId);
+        readerServerStateStore.upsertDocument(slug, normalizedData);
       }
       return {
         response,
-        data: data || { success: false },
+        data: normalizedData || { success: false },
       };
     }
 
@@ -209,8 +185,12 @@ const ReaderDocument = {
             task: false,
           }
         );
-        storeReaderSensitiveSession(result.data, readerDocumentId);
-        return result.data;
+        const normalizedData = normalizeReaderDocumentLinks(result.data, {
+          workspaceSlug: slug,
+          readerDocumentId,
+        });
+        storeReaderSensitiveSession(normalizedData, readerDocumentId);
+        return normalizedData;
       },
       {
         priority: options.task?.priority || "P0",
@@ -221,9 +201,15 @@ const ReaderDocument = {
         label: `reader:document:${readerDocumentId}`,
       }
     );
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+      readerDocumentId,
+    });
+    if (normalizedData?.success)
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     return {
       response: new Response(null, { status: 200 }),
-      data: data || { success: false },
+      data: normalizedData || { success: false },
     };
   },
   delete: async function (slug, readerDocumentId, options = {}) {
@@ -326,11 +312,14 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.success) {
-      storeReaderSensitiveSession(data);
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+    });
+    if (response.ok && normalizedData?.success) {
+      storeReaderSensitiveSession(normalizedData);
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   fromLocalPath: async function (slug, absolutePath, options = {}) {
     const { response, data } = await postJson(
@@ -342,11 +331,14 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.success) {
-      storeReaderSensitiveSession(data);
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+    });
+    if (response.ok && normalizedData?.success) {
+      storeReaderSensitiveSession(normalizedData);
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   reopenLocalPath: async function (slug, readerDocumentId, options = {}) {
     const { response, data } = await postJson(
@@ -358,11 +350,15 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.success) {
-      storeReaderSensitiveSession(data, readerDocumentId);
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+      readerDocumentId,
+    });
+    if (response.ok && normalizedData?.success) {
+      storeReaderSensitiveSession(normalizedData, readerDocumentId);
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   classify: async function (slug, payload = {}, options = {}) {
     const { response, data } = await postJson(
@@ -374,10 +370,14 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.metadata?.readerDocumentId) {
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+      readerDocumentId: payload.readerDocumentId,
+    });
+    if (response.ok && normalizedData?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   postprocess: async function (
     slug,
@@ -394,10 +394,14 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.metadata?.readerDocumentId) {
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+      readerDocumentId,
+    });
+    if (response.ok && normalizedData?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   postprocessStatus: async function (slug, readerDocumentId, options = {}) {
     const { response, data } = await getJson(
@@ -408,10 +412,14 @@ const ReaderDocument = {
         task: options.task,
       }
     );
-    if (response.ok && data?.metadata?.readerDocumentId) {
-      readerServerStateStore.upsertDocument(slug, data);
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug: slug,
+      readerDocumentId,
+    });
+    if (response.ok && normalizedData?.metadata?.readerDocumentId) {
+      readerServerStateStore.upsertDocument(slug, normalizedData);
     }
-    return { response, data };
+    return { response, data: normalizedData };
   },
   ocrConfig: async function (slug, options = {}) {
     const { response, data } = await getJson(

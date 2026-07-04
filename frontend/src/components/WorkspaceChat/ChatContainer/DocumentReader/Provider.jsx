@@ -58,8 +58,10 @@ import {
   upsertReaderBookshelfItems,
   upsertReaderHistory,
   validateReaderFile,
+  writeReaderBookshelf,
   writeReaderBookshelfCategories,
   writeReaderCurrentDocument,
+  writeReaderHistory,
   writeReaderSources,
 } from "./storage";
 import {
@@ -74,6 +76,10 @@ import {
   readerTextSourceIdentity,
 } from "@/utils/chat/readerTextSources";
 import { readerProgressFromPdfTargetSource } from "@/utils/chat/readerPdfTarget";
+import {
+  normalizeReaderDocumentLinks,
+  normalizeReaderStorageItemLinks,
+} from "@/utils/chat/readerLinkMaintenance";
 import {
   readerLibraryItemKey,
   removableBookshelfKeysAfterReaderDelete,
@@ -97,6 +103,7 @@ import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
+import { navigationLifecycle } from "@/utils/navigationLifecycle";
 import {
   nextReaderPostprocessDelay,
   readerPostprocessIsForeground,
@@ -124,6 +131,22 @@ function readerOpenTask(label, workspaceSlug = null, scope = {}) {
       workspaceSlug: workspaceSlug || null,
       ...scope,
     },
+  };
+}
+
+function readerLifecycleScope(
+  workspaceSlug = null,
+  threadSlug = null,
+  document = null
+) {
+  return {
+    kind: "reader",
+    route: "reader",
+    surface: "reader",
+    workspaceSlug: workspaceSlug || null,
+    threadSlug: threadSlug || null,
+    readerDocumentId:
+      document?.readerDocumentId || document?.backupReaderDocumentId || null,
   };
 }
 
@@ -282,35 +305,53 @@ async function thumbnailDataUrlFromUrl(thumbnailUrl, options = {}) {
   if (!thumbnailUrl || /^(data:|blob:)/i.test(thumbnailUrl))
     return thumbnailUrl || null;
   try {
+    const uploadTask = options.profile === "upload";
     const displayTask = options.profile === "display";
     const prefetchTask = options.profile === "prefetch";
-    const taskSurface = displayTask
-      ? "reader-thumbnail-display"
-      : prefetchTask
-        ? "reader-thumbnail-prefetch"
-        : "reader-thumbnail-maintenance";
-    const taskLabel = displayTask
-      ? "reader:thumbnail-display"
-      : prefetchTask
-        ? "reader:thumbnail-prefetch"
-        : "reader:thumbnail-maintenance";
-    const taskPriority = displayTask ? "P1" : prefetchTask ? "P3" : "P4";
-    const taskPolicy = displayTask
-      ? "visible"
-      : prefetchTask
-        ? "prefetch"
-        : "maintenance";
+    const taskSurface = uploadTask
+      ? "reader-thumbnail-upload-first"
+      : displayTask
+        ? "reader-thumbnail-display"
+        : prefetchTask
+          ? "reader-thumbnail-prefetch"
+          : "reader-thumbnail-maintenance";
+    const taskLabel = uploadTask
+      ? "reader:thumbnail-upload-first"
+      : displayTask
+        ? "reader:thumbnail-display"
+        : prefetchTask
+          ? "reader:thumbnail-prefetch"
+          : "reader:thumbnail-maintenance";
+    const taskPriority = uploadTask
+      ? "P0"
+      : displayTask
+        ? "P1"
+        : prefetchTask
+          ? "P3"
+          : "P4";
+    const taskPolicy = uploadTask
+      ? "foreground"
+      : displayTask
+        ? "visible"
+        : prefetchTask
+          ? "prefetch"
+          : "maintenance";
     const { response, blob } = await ReaderDocument.thumbnailBlob(
       thumbnailUrl,
       {
         communicationScene:
-          displayTask || prefetchTask ? "reader-visible" : "reader-maintenance",
+          uploadTask || displayTask || prefetchTask
+            ? "reader-visible"
+            : "reader-maintenance",
         task: {
           label: taskLabel,
           kind: "reader-thumbnail",
           priority: taskPriority,
           policy: taskPolicy,
-          resource: displayTask || prefetchTask ? "network" : "idle",
+          resource:
+            uploadTask || displayTask || prefetchTask ? "network" : "idle",
+          emergency: uploadTask,
+          intentRank: uploadTask ? 2 : displayTask ? 3 : undefined,
           abortable: true,
           scope: {
             route: "reader",
@@ -324,6 +365,48 @@ async function thumbnailDataUrlFromUrl(thumbnailUrl, options = {}) {
   return null;
 }
 
+function valuesDiffer(a, b) {
+  try {
+    return JSON.stringify(a) !== JSON.stringify(b);
+  } catch {
+    return true;
+  }
+}
+
+function normalizeReaderStoredItemsForLinks(items = [], workspaceSlug = null) {
+  return (Array.isArray(items) ? items : [])
+    .filter(Boolean)
+    .map((item) => normalizeReaderStorageItemLinks(item, workspaceSlug));
+}
+
+function repairReaderStoredLinks(workspaceSlug = null) {
+  const bookshelf = readReaderBookshelf();
+  const normalizedBookshelf = normalizeReaderStoredItemsForLinks(
+    bookshelf,
+    workspaceSlug
+  );
+  if (valuesDiffer(bookshelf, normalizedBookshelf))
+    writeReaderBookshelf(normalizedBookshelf);
+
+  const history = readReaderHistory();
+  const normalizedHistory = normalizeReaderStoredItemsForLinks(
+    history,
+    workspaceSlug
+  );
+  if (valuesDiffer(history, normalizedHistory))
+    writeReaderHistory(null, null, normalizedHistory);
+
+  const currentDocument = readReaderCurrentDocument(null);
+  if (currentDocument) {
+    const normalizedCurrent = normalizeReaderStorageItemLinks(
+      currentDocument,
+      workspaceSlug
+    );
+    if (valuesDiffer(currentDocument, normalizedCurrent))
+      writeReaderCurrentDocument(normalizedCurrent);
+  }
+}
+
 export function DocumentReaderProvider({
   workspace,
   threadSlug = null,
@@ -334,7 +417,10 @@ export function DocumentReaderProvider({
   const storageKey = readerStorageKey(workspace?.slug, threadSlug);
   const initialDrawerState = readReaderDrawerState();
   const initialStoredDocument = readerItemWithLatestBookMemory(
-    readReaderCurrentDocument(null)
+    normalizeReaderStorageItemLinks(
+      readReaderCurrentDocument(null),
+      workspace?.slug || null
+    )
   );
   const initialHasFreshDocument = isReaderCurrentDocumentFresh(
     initialStoredDocument,
@@ -430,13 +516,20 @@ export function DocumentReaderProvider({
   }, [readerCloseSuppressed]);
 
   const beginReaderOpen = useCallback(() => {
+    navigationLifecycle.enter(
+      readerLifecycleScope(workspace?.slug, threadSlug),
+      {
+        reason: "open-reader",
+        active: false,
+      }
+    );
     const seq = readerOpenSeqRef.current + 1;
     readerOpenSeqRef.current = seq;
     readerOpenAbortRef.current?.abort();
     const controller = new AbortController();
     readerOpenAbortRef.current = controller;
     return { seq, signal: controller.signal };
-  }, []);
+  }, [threadSlug, workspace?.slug]);
 
   const readerOpenIsCurrent = useCallback((openContext = null) => {
     if (!openContext) return true;
@@ -519,41 +612,61 @@ export function DocumentReaderProvider({
     pendingReaderOpenRef.current = null;
   }, []);
 
-  const historyItemFromDocument = useCallback((doc) => {
-    if (!doc) return null;
-    return {
-      source: doc.source,
-      title: doc.title,
-      bookKey: doc.bookKey || normalizeBookTitle(doc.title),
-      branchId: doc.branchId || null,
-      branchLabel: doc.branchLabel || null,
-      documentType: doc.documentType,
-      size: doc.metadata?.size ?? doc.file?.size ?? null,
-      readerDocumentId: doc.readerDocumentId || null,
-      backupReaderDocumentId: doc.backupReaderDocumentId || null,
-      readerDocumentWorkspaceSlug:
-        doc.readerDocumentWorkspaceSlug ||
-        doc.metadata?.readerDocumentWorkspaceSlug ||
-        doc.workspaceSlug ||
-        null,
-      workspaceDocPath: doc.workspaceDocPath || doc.metadata?.workspaceDocPath,
-      localDocumentId: doc.localDocumentId || null,
-      localPath: doc.localPath || doc.metadata?.localPath || null,
-      localSourceId: doc.localSourceId || doc.metadata?.localSourceId || null,
-      localSourceKind:
-        doc.localSourceKind || doc.metadata?.localSourceKind || null,
-      localFingerprint:
-        doc.localFingerprint || doc.metadata?.localFingerprint || null,
-      thumbnailDataUrl:
-        doc.thumbnailDataUrl ||
-        doc.thumbnailUrl ||
-        doc.metadata?.thumbnailUrl ||
-        doc.metadata?.thumbnailDataUrl ||
-        null,
-      uploaded: !!(doc.readerDocumentId || doc.backupReaderDocumentId),
-      progress: doc.progress || { label: "阅读进度", percent: 0 },
-    };
-  }, []);
+  const historyItemFromDocument = useCallback(
+    (doc) => {
+      if (!doc) return null;
+      const normalizedDoc = normalizeReaderStorageItemLinks(
+        doc,
+        workspace?.slug || null
+      );
+      return {
+        source: normalizedDoc.source,
+        title: normalizedDoc.title,
+        bookKey:
+          normalizedDoc.bookKey || normalizeBookTitle(normalizedDoc.title),
+        branchId: normalizedDoc.branchId || null,
+        branchLabel: normalizedDoc.branchLabel || null,
+        documentType: normalizedDoc.documentType,
+        size: normalizedDoc.metadata?.size ?? normalizedDoc.file?.size ?? null,
+        readerDocumentId: normalizedDoc.readerDocumentId || null,
+        backupReaderDocumentId: normalizedDoc.backupReaderDocumentId || null,
+        readerDocumentWorkspaceSlug:
+          normalizedDoc.readerDocumentWorkspaceSlug ||
+          normalizedDoc.metadata?.readerDocumentWorkspaceSlug ||
+          normalizedDoc.workspaceSlug ||
+          null,
+        workspaceDocPath:
+          normalizedDoc.workspaceDocPath ||
+          normalizedDoc.metadata?.workspaceDocPath,
+        localDocumentId: normalizedDoc.localDocumentId || null,
+        localPath:
+          normalizedDoc.localPath || normalizedDoc.metadata?.localPath || null,
+        localSourceId:
+          normalizedDoc.localSourceId ||
+          normalizedDoc.metadata?.localSourceId ||
+          null,
+        localSourceKind:
+          normalizedDoc.localSourceKind ||
+          normalizedDoc.metadata?.localSourceKind ||
+          null,
+        localFingerprint:
+          normalizedDoc.localFingerprint ||
+          normalizedDoc.metadata?.localFingerprint ||
+          null,
+        thumbnailDataUrl:
+          normalizedDoc.thumbnailDataUrl ||
+          normalizedDoc.thumbnailUrl ||
+          normalizedDoc.metadata?.thumbnailUrl ||
+          normalizedDoc.metadata?.thumbnailDataUrl ||
+          null,
+        uploaded: !!(
+          normalizedDoc.readerDocumentId || normalizedDoc.backupReaderDocumentId
+        ),
+        progress: normalizedDoc.progress || { label: "阅读进度", percent: 0 },
+      };
+    },
+    [workspace?.slug]
+  );
 
   const bookshelfItemFromDocument = useCallback(
     (doc) => {
@@ -562,6 +675,7 @@ export function DocumentReaderProvider({
       return {
         ...item,
         readerDocumentWorkspaceSlug:
+          item.readerDocumentWorkspaceSlug ||
           doc.readerDocumentWorkspaceSlug ||
           doc.metadata?.readerDocumentWorkspaceSlug ||
           null,
@@ -571,42 +685,54 @@ export function DocumentReaderProvider({
   );
 
   const bookshelfItemFromServerData = useCallback((data) => {
-    if (!data?.metadata) return null;
-    const title = data.metadata.originalName;
+    const normalizedData = normalizeReaderDocumentLinks(data, {
+      workspaceSlug:
+        data?.metadata?.readerDocumentWorkspaceSlug ||
+        data?.readerDocumentWorkspaceSlug ||
+        null,
+    });
+    if (!normalizedData?.metadata) return null;
+    const title = normalizedData.metadata.originalName;
     const documentType =
-      data.content?.documentType ||
-      data.contentSummary?.documentType ||
-      readerDocumentTypeFromMetadata(data.metadata);
+      normalizedData.content?.documentType ||
+      normalizedData.contentSummary?.documentType ||
+      readerDocumentTypeFromMetadata(normalizedData.metadata);
     if (!documentType) return null;
     return {
-      source: data.metadata.source || "reader_upload",
+      source: normalizedData.metadata.source || "reader_upload",
       title,
       bookKey: normalizeBookTitle(title),
       branchId: null,
       branchLabel: null,
       documentType,
-      size: data.metadata.size ?? null,
+      size: normalizedData.metadata.size ?? null,
       metadata: {
-        ...data.metadata,
+        ...normalizedData.metadata,
         documentType,
       },
-      pdfManifest: data.metadata.pdfManifest || null,
-      readerDocumentId: data.metadata.readerDocumentId,
-      backupReaderDocumentId: data.metadata.readerDocumentId,
+      pdfManifest: normalizedData.metadata.pdfManifest || null,
+      readerDocumentId: normalizedData.metadata.readerDocumentId,
+      backupReaderDocumentId: normalizedData.metadata.readerDocumentId,
       readerDocumentWorkspaceSlug:
-        data.metadata.readerDocumentWorkspaceSlug ||
-        data.readerDocumentWorkspaceSlug ||
+        normalizedData.metadata.readerDocumentWorkspaceSlug ||
+        normalizedData.readerDocumentWorkspaceSlug ||
         null,
-      thumbnailUrl: data.metadata.thumbnailUrl || null,
-      thumbnailDataUrl: data.metadata.thumbnailDataUrl || null,
+      thumbnailUrl: normalizedData.metadata.thumbnailUrl || null,
+      thumbnailDataUrl: normalizedData.metadata.thumbnailDataUrl || null,
       uploaded: true,
       category:
-        data.postprocess?.tasks?.classification?.result?.category ||
-        data.classification?.category ||
+        normalizedData.postprocess?.tasks?.classification?.result?.category ||
+        normalizedData.classification?.category ||
         null,
-      postprocess: data.postprocess || null,
-      addedAt: data.metadata.createdAt || data.metadata.updatedAt || null,
-      updatedAt: data.metadata.updatedAt || data.metadata.createdAt || null,
+      postprocess: normalizedData.postprocess || null,
+      addedAt:
+        normalizedData.metadata.createdAt ||
+        normalizedData.metadata.updatedAt ||
+        null,
+      updatedAt:
+        normalizedData.metadata.updatedAt ||
+        normalizedData.metadata.createdAt ||
+        null,
       progress: { label: "阅读进度", percent: 0, updatedAt: null },
     };
   }, []);
@@ -628,11 +754,12 @@ export function DocumentReaderProvider({
   }, []);
 
   const refreshLocalReaderLibraryState = useCallback(() => {
+    repairReaderStoredLinks(workspace?.slug || null);
     setSourcesByTurn(readReaderSources({}) || {});
     setReaderHistory(readReaderHistory());
     setReaderBookshelf(readReaderBookshelf());
     setReaderCategories(readReaderBookshelfCategories());
-  }, []);
+  }, [workspace?.slug]);
 
   const syncAllServerBookshelves = useCallback(
     async (signal = null) => {
@@ -798,11 +925,14 @@ export function DocumentReaderProvider({
     setReaderHistory(nextHistory);
   }, []);
 
-  const thumbnailSrcForStorage = useCallback(async (thumbnailSrc) => {
-    return await thumbnailDataUrlFromUrl(thumbnailSrc, {
-      profile: "maintenance",
-    });
-  }, []);
+  const thumbnailSrcForStorage = useCallback(
+    async (thumbnailSrc, options = {}) => {
+      return await thumbnailDataUrlFromUrl(thumbnailSrc, {
+        profile: options.profile || "maintenance",
+      });
+    },
+    []
+  );
 
   const applyPostprocessResult = useCallback(
     async (item, data = {}, options = {}) => {
@@ -813,7 +943,9 @@ export function DocumentReaderProvider({
 
       const thumbnailSrc = data.thumbnailUrl || data.thumbnailDataUrl || null;
       if (thumbnailSrc) {
-        const storageThumbnailSrc = await thumbnailSrcForStorage(thumbnailSrc);
+        const storageThumbnailSrc = await thumbnailSrcForStorage(thumbnailSrc, {
+          profile: options.thumbnailProfile || "maintenance",
+        });
         if (storageThumbnailSrc)
           patchStoredThumbnailForItem(latest, storageThumbnailSrc);
         latest = readReaderBookshelf().find((book) => book.key === key);
@@ -1007,6 +1139,7 @@ export function DocumentReaderProvider({
               }
               const stillExists = await applyPostprocessResult(current, data, {
                 trackClassification: categoryTasks,
+                thumbnailProfile: intent === "upload" ? "upload" : undefined,
               });
               if (uploadEntryId) {
                 const postprocessComplete = data.status === "complete";
@@ -1114,10 +1247,17 @@ export function DocumentReaderProvider({
     ]
   );
 
-  const persistDocument = useCallback((doc) => {
-    clearReaderCurrentDocumentClearMarker();
-    writeReaderCurrentDocument(compactDocumentForStorage(doc));
-  }, []);
+  const persistDocument = useCallback(
+    (doc) => {
+      const normalizedDoc = normalizeReaderStorageItemLinks(
+        doc,
+        workspace?.slug || null
+      );
+      clearReaderCurrentDocumentClearMarker();
+      writeReaderCurrentDocument(compactDocumentForStorage(normalizedDoc));
+    },
+    [workspace?.slug]
+  );
 
   const persistSources = useCallback((nextSources) => {
     writeReaderSources(nextSources || {});
@@ -1213,6 +1353,20 @@ export function DocumentReaderProvider({
 
   const openServerDocumentData = useCallback(
     async (data, historyItem = null, options = {}) => {
+      data = normalizeReaderDocumentLinks(data, {
+        readerDocumentId:
+          data?.metadata?.readerDocumentId ||
+          data?.readerDocumentId ||
+          historyItem?.readerDocumentId ||
+          historyItem?.backupReaderDocumentId ||
+          null,
+        workspaceSlug:
+          data?.metadata?.readerDocumentWorkspaceSlug ||
+          data?.readerDocumentWorkspaceSlug ||
+          historyItem?.readerDocumentWorkspaceSlug ||
+          historyItem?.workspaceSlug ||
+          null,
+      });
       const openContext = options.openContext || beginReaderOpen();
       const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       const initialDocumentType = readerDocumentTypeFromData(data, historyItem);
@@ -2490,6 +2644,7 @@ export function DocumentReaderProvider({
           void queueBookshelfPostprocess({
             item,
             tasks: ["thumbnail", "classification"],
+            intent: "upload",
           });
         }
         return doc;
@@ -2761,6 +2916,7 @@ export function DocumentReaderProvider({
               item: itemForAdd,
               tasks: ["thumbnail", "classification"],
               uploadEntryId: entryId,
+              intent: "upload",
             });
           } else {
             patchBookshelfUpload(entryId, {
@@ -2978,6 +3134,23 @@ export function DocumentReaderProvider({
 
   const exitCurrentDocument = useCallback(
     (progress = null) => {
+      navigationLifecycle.leave(
+        readerLifecycleScope(workspace?.slug, threadSlug, currentDocument),
+        {
+          reason: "close-reader",
+          extraScopes: [
+            { surface: "reader-open", workspaceSlug: workspace?.slug || null },
+            {
+              surface: "reader-postprocess",
+              workspaceSlug: workspace?.slug || null,
+            },
+            {
+              surface: "reader-upload",
+              workspaceSlug: workspace?.slug || null,
+            },
+          ],
+        }
+      );
       abortReaderOpen();
       beginReaderCloseSuppression();
       if (currentDocument && progress)
@@ -3002,11 +3175,30 @@ export function DocumentReaderProvider({
       setReaderObjectUrl,
       setPendingSelectionSources,
       setPendingTextSources,
+      threadSlug,
+      workspace?.slug,
     ]
   );
 
   const closeReader = useCallback(
     (progress = null) => {
+      navigationLifecycle.leave(
+        readerLifecycleScope(workspace?.slug, threadSlug, currentDocument),
+        {
+          reason: "close-reader",
+          extraScopes: [
+            { surface: "reader-open", workspaceSlug: workspace?.slug || null },
+            {
+              surface: "reader-postprocess",
+              workspaceSlug: workspace?.slug || null,
+            },
+            {
+              surface: "reader-upload",
+              workspaceSlug: workspace?.slug || null,
+            },
+          ],
+        }
+      );
       abortReaderOpen();
       beginReaderCloseSuppression();
       if (currentDocument && progress)
@@ -3031,6 +3223,8 @@ export function DocumentReaderProvider({
       setReaderObjectUrl,
       setPendingSelectionSources,
       setPendingTextSources,
+      threadSlug,
+      workspace?.slug,
     ]
   );
 

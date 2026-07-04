@@ -357,30 +357,26 @@ export default function WorkspaceChat({ loading, workspace }) {
         try {
           const result = await workspaceNavigationCache.runInFlight(
             `threads:${workspace.slug}`,
-            () =>
-              requestPriorityQueue.schedule(
-                () =>
-                  Workspace.threads.all(workspace.slug, {
-                    signal: historySignal,
-                    task: false,
-                  }),
-                {
-                  priority: "P0",
-                  label: "workspacechat:resolve-entry-threads",
-                  kind: "navigation",
-                  scope: {
-                    route: "workspace-chat",
-                    workspaceSlug: workspace.slug,
-                    threadSlug: threadSlug || null,
-                  },
-                  policy: "foreground",
-                  emergency: true,
-                  intentRank: 1,
-                  signal: historySignal,
-                  dedupeKey: `navigation:threads:${workspace.slug}`,
-                }
-              ),
-            { reuseResolvedWithinMs: 1_500 }
+            ({ signal } = {}) =>
+              Workspace.threads.all(workspace.slug, {
+                signal,
+                task: false,
+              }),
+            {
+              reuseResolvedWithinMs: 1_500,
+              priority: "P0",
+              label: "workspacechat:resolve-entry-threads",
+              scope: {
+                route: "workspace-chat",
+                workspaceSlug: workspace.slug,
+                threadSlug: threadSlug || null,
+              },
+              policy: "foreground",
+              emergency: true,
+              intentRank: 1,
+              signal: historySignal,
+              dedupeKey: `navigation:threads:${workspace.slug}`,
+            }
           );
           return {
             threads: Array.isArray(result?.threads) ? result.threads : [],

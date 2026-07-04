@@ -80,6 +80,22 @@ export function routeTransitionPolicy({
     isHeavyFullscreenRoute(previousPathname) ||
     isHeavyFullscreenRoute(nextPathname);
 
+  const returnsToWorkspaceChat =
+    WORKSPACE_CHAT_ROUTE_PATTERN.test(nextPathname) &&
+    (previousPathname.startsWith("/settings") ||
+      WORKSPACE_SETTINGS_ROUTE_PATTERN.test(previousPathname));
+
+  if (returnsToWorkspaceChat) {
+    return {
+      skipTransition: true,
+      skipExitLayer: true,
+      phase: "return-to-chat-skip",
+      reason: touchesHeavyFullscreen
+        ? "heavy-return-to-chat"
+        : "return-to-chat",
+    };
+  }
+
   if (navigationType === "POP") {
     return {
       skipTransition: true,

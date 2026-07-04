@@ -1,6 +1,6 @@
 import React, { Suspense, useEffect } from "react";
 import { useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigationType } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { AuthContext, AuthProvider } from "@/AuthContext";
 import i18n from "./i18n";
@@ -34,9 +34,11 @@ import {
   activateRouteScope,
   routeScopeFromPathname,
 } from "@/utils/tasks/routeScopeManager";
+import { installNavigationPageLifecycle } from "@/utils/navigationLifecycle";
 
 export default function App() {
   const location = useLocation();
+  const navigationType = useNavigationType();
   const [environmentReady, setEnvironmentReady] = useState(false);
   const loaderSurface = isPersistentSettingsRoute(location.pathname)
     ? "settings"
@@ -44,6 +46,8 @@ export default function App() {
 
   useEffect(() => {
     installAnythingMemoryDiagnostics();
+    const cleanupNavigationLifecycle = installNavigationPageLifecycle();
+    return () => cleanupNavigationLifecycle?.();
   }, []);
 
   useEffect(() => {
@@ -82,6 +86,7 @@ export default function App() {
                               <WorkspaceNavigationSyncBridge />
                               <RouteTaskScopeBridge
                                 pathname={location.pathname}
+                                navigationType={navigationType}
                               />
                               <DefaultDocumentTitle />
                               <MotionRouteOutlet />
@@ -107,10 +112,13 @@ export default function App() {
   );
 }
 
-function RouteTaskScopeBridge({ pathname }) {
+function RouteTaskScopeBridge({ pathname, navigationType }) {
   useEffect(() => {
-    activateRouteScope(routeScopeFromPathname(pathname));
-  }, [pathname]);
+    activateRouteScope(routeScopeFromPathname(pathname), "route-change", {
+      navigationType,
+      pathname,
+    });
+  }, [pathname, navigationType]);
 
   return null;
 }

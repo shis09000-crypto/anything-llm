@@ -42,13 +42,16 @@ function recordNavigationCache(action, payload = {}) {
 function knownNavigationRefresh(key, loader, options = {}) {
   if (key === "workspaces" || key === "workspaces:all") {
     return workspaceNavigationStore.ensureWorkspaces(loader, {
-      staleWhileRevalidate: false,
-      priority: "P0",
-      intentRank: 0,
-      policy: "foreground",
-      emergency: true,
+      staleWhileRevalidate: options.staleWhileRevalidate ?? false,
+      priority: options.priority || "P0",
+      intentRank: options.intentRank ?? 0,
+      policy: options.policy || "foreground",
+      emergency: options.emergency ?? true,
+      kind: options.kind || "navigation",
+      signal: options.signal,
+      resource: options.resource,
       dedupeKey: options.dedupeKey || "server-state:workspace.list",
-      label: "workspace:list",
+      label: options.label || "workspace:list",
     });
   }
 
@@ -59,14 +62,17 @@ function knownNavigationRefresh(key, loader, options = {}) {
       workspaceSlug,
       loader,
       {
-        staleWhileRevalidate: false,
-        priority: "P0",
-        intentRank: 2,
-        policy: "foreground",
-        emergency: true,
+        staleWhileRevalidate: options.staleWhileRevalidate ?? false,
+        priority: options.priority || "P0",
+        intentRank: options.intentRank ?? 2,
+        policy: options.policy || "foreground",
+        emergency: options.emergency ?? true,
+        kind: options.kind || "navigation",
+        signal: options.signal,
+        resource: options.resource,
         dedupeKey:
           options.dedupeKey || `server-state:workspace.detail:${workspaceSlug}`,
-        label: `workspace:detail:${workspaceSlug}`,
+        label: options.label || `workspace:detail:${workspaceSlug}`,
       }
     );
   }
@@ -75,14 +81,17 @@ function knownNavigationRefresh(key, loader, options = {}) {
   if (threadsMatch?.[1]) {
     const workspaceSlug = threadsMatch[1];
     return workspaceNavigationStore.ensureThreads(workspaceSlug, loader, {
-      staleWhileRevalidate: false,
-      priority: "P0",
-      intentRank: 1,
-      policy: "foreground",
-      emergency: true,
+      staleWhileRevalidate: options.staleWhileRevalidate ?? false,
+      priority: options.priority || "P0",
+      intentRank: options.intentRank ?? 1,
+      policy: options.policy || "foreground",
+      emergency: options.emergency ?? true,
+      kind: options.kind || "navigation",
+      signal: options.signal,
+      resource: options.resource,
       dedupeKey:
         options.dedupeKey || `server-state:workspace.threads:${workspaceSlug}`,
-      label: `workspace:threads:${workspaceSlug}`,
+      label: options.label || `workspace:threads:${workspaceSlug}`,
     });
   }
 
@@ -98,9 +107,9 @@ export const workspaceNavigationCache = {
   debug(label, payload = {}) {
     debugNavigationCache(label, payload);
   },
-  runInFlight(key, loader, { reuseResolvedWithinMs = 0 } = {}) {
+  runInFlight(key, loader, { reuseResolvedWithinMs = 0, ...options } = {}) {
     if (!key || typeof loader !== "function") return Promise.resolve(null);
-    const knownRefresh = knownNavigationRefresh(key, loader);
+    const knownRefresh = knownNavigationRefresh(key, loader, options);
     if (knownRefresh) {
       debugNavigationCache("server-state-refresh", { key });
       recordNavigationCache("server-state-refresh", { key });

@@ -53,6 +53,19 @@ test("leaving heavy fullscreen routes skips the exiting layer on PUSH", () => {
   assert.equal(policy.reason, "heavy-fullscreen-route");
 });
 
+test("returning from settings to workspace chat skips route exit animation", () => {
+  const policy = routeTransitionPolicy({
+    navigationType: "PUSH",
+    previous: route("/settings/interface"),
+    next: route("/workspace/demo/t/thread-a"),
+  });
+
+  assert.equal(policy.skipTransition, true);
+  assert.equal(policy.skipExitLayer, true);
+  assert.equal(policy.phase, "return-to-chat-skip");
+  assert.equal(policy.reason, "return-to-chat");
+});
+
 test("normal PUSH transitions can animate", () => {
   const policy = routeTransitionPolicy({
     navigationType: "PUSH",

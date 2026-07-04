@@ -27,7 +27,6 @@ import {
   visibleThreadRows,
 } from "@/utils/workspaceThreadRows";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
-import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { Draggable, Droppable } from "react-beautiful-dnd";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
@@ -316,30 +315,26 @@ export default function ThreadContainer({
 
       const request = workspaceNavigationCache.runInFlight(
         `threads:${workspace.slug}`,
-        () =>
-          requestPriorityQueue.schedule(
-            () =>
-              Workspace.threads.all(workspace.slug, {
-                signal: controller.signal,
-                task: false,
-              }),
-            {
-              priority: "P0",
-              label: "navigation:threads",
-              kind: "navigation",
-              scope: {
-                route: "workspace-sidebar",
-                workspaceSlug: workspace.slug,
-                surface: "threads",
-              },
-              policy: "foreground",
-              emergency: true,
-              intentRank: 1,
-              signal: controller.signal,
-              dedupeKey: `navigation:threads:${workspace.slug}`,
-            }
-          ),
-        { reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS }
+        ({ signal } = {}) =>
+          Workspace.threads.all(workspace.slug, {
+            signal,
+            task: false,
+          }),
+        {
+          reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS,
+          priority: "P0",
+          label: "navigation:threads",
+          scope: {
+            route: "workspace-sidebar",
+            workspaceSlug: workspace.slug,
+            surface: "threads",
+          },
+          policy: "foreground",
+          emergency: true,
+          intentRank: 1,
+          signal: controller.signal,
+          dedupeKey: `navigation:threads:${workspace.slug}`,
+        }
       );
       threadFetchInFlightRef.current = request;
       let result = null;
@@ -434,34 +429,28 @@ export default function ThreadContainer({
       try {
         result = await workspaceNavigationCache.runInFlight(
           `threads:${workspace.slug}`,
-          () =>
-            requestPriorityQueue.schedule(
-              () =>
-                Workspace.threads.all(workspace.slug, {
-                  signal: controller.signal,
-                  task: false,
-                }),
-              {
-                priority: "P0",
-                label: "navigation:threads-refresh",
-                kind: "navigation",
-                scope: {
-                  route: "workspace-sidebar",
-                  workspaceSlug: workspace.slug,
-                  surface: "threads",
-                },
-                policy: "foreground",
-                emergency: true,
-                intentRank: 1,
-                signal: controller.signal,
-                dedupeKey: `navigation:threads:${workspace.slug}`,
-              }
-            ),
+          ({ signal } = {}) =>
+            Workspace.threads.all(workspace.slug, {
+              signal,
+              task: false,
+            }),
           {
             reuseResolvedWithinMs:
               event?.detail?.force && !event?.detail?.replayed
                 ? 0
                 : THREAD_DUPLICATE_REUSE_MS,
+            priority: "P0",
+            label: "navigation:threads-refresh",
+            scope: {
+              route: "workspace-sidebar",
+              workspaceSlug: workspace.slug,
+              surface: "threads",
+            },
+            policy: "foreground",
+            emergency: true,
+            intentRank: 1,
+            signal: controller.signal,
+            dedupeKey: `navigation:threads:${workspace.slug}`,
           }
         );
       } catch (error) {

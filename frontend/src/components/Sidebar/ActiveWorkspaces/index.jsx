@@ -28,7 +28,6 @@ import {
 } from "@/utils/lastVisitedWorkspace";
 import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
-import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
@@ -146,25 +145,21 @@ export default function ActiveWorkspaces() {
 
       const workspaces = await workspaceNavigationCache.runInFlight(
         "workspaces:all",
-        () =>
-          requestPriorityQueue.schedule(
-            ({ signal }) =>
-              Workspace.all({
-                signal,
-                task: false,
-              }),
-            {
-              priority: "P0",
-              label: "navigation:workspaces",
-              kind: "navigation",
-              scope: { route: "workspace-sidebar", surface: "workspaces" },
-              policy: "foreground",
-              emergency: true,
-              intentRank: 0,
-              dedupeKey: "navigation:workspaces",
-            }
-          ),
-        { reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS }
+        ({ signal } = {}) =>
+          Workspace.all({
+            signal,
+            task: false,
+          }),
+        {
+          reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS,
+          priority: "P0",
+          label: "navigation:workspaces",
+          scope: { route: "workspace-sidebar", surface: "workspaces" },
+          policy: "foreground",
+          emergency: true,
+          intentRank: 0,
+          dedupeKey: "navigation:workspaces",
+        }
       );
       if (!workspaces) return null;
       workspaceNavigationCache.setWorkspaces(workspaces);

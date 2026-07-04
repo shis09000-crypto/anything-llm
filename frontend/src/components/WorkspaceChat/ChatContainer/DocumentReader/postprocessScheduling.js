@@ -16,7 +16,21 @@ export function readerPostprocessLockKey({
 }
 
 export function readerPostprocessIsForeground(intent = "maintenance") {
-  return intent === "manual" || intent === "open";
+  return intent === "manual" || intent === "open" || intent === "upload";
+}
+
+function foregroundIntentRank(intent = "maintenance") {
+  if (intent === "manual") return 0;
+  if (intent === "open") return 1;
+  if (intent === "upload") return 2;
+  return 90;
+}
+
+function postprocessLabel(intent = "maintenance") {
+  if (intent === "manual") return "reader:manual-postprocess";
+  if (intent === "open") return "reader:open-postprocess";
+  if (intent === "upload") return "reader:upload-postprocess";
+  return "reader:postprocess-poll";
 }
 
 export function readerPostprocessPollTimeoutMs({
@@ -57,11 +71,8 @@ export function readerPostprocessScheduleOptions({
     policy: foreground ? "foreground" : "maintenance",
     resource: foreground ? "network" : "idle",
     emergency: foreground,
-    intentRank: foreground ? 0 : 90,
-    label:
-      intent === "manual"
-        ? "reader:manual-postprocess"
-        : "reader:postprocess-poll",
+    intentRank: foregroundIntentRank(intent),
+    label: postprocessLabel(intent),
     dedupeKey: `reader:postprocess:${lockKey}`,
   };
 }

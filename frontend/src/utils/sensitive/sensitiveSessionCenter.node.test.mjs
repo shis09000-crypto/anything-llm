@@ -260,7 +260,7 @@ test("abnormal path: heartbeat failure clears the local session and heartbeat ti
   }
 });
 
-test("pressure path: page blur revokes all sessions with one scheduled scope revoke, not N revokes", async () => {
+test("pressure path: navigation blur revokes all sessions with one scheduled scope revoke, not N revokes", async () => {
   const windowStub = installWindowStub();
   try {
     const { sensitiveSessionCenter } = await loadSensitiveSessionCenter();
@@ -278,7 +278,10 @@ test("pressure path: page blur revokes all sessions with one scheduled scope rev
       );
     }
 
-    windowStub.window.dispatchEvent({ type: "blur" });
+    windowStub.window.dispatchEvent({
+      type: "athena-navigation-page-lifecycle",
+      detail: { event: "blur", reason: "window-blur" },
+    });
     const calls = globalThis.__sensitiveSessionTestApiClient.calls;
 
     assert.equal(calls.length, 1);
