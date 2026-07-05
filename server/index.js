@@ -88,6 +88,7 @@ const { syncCenterEndpoints } = require("./endpoints/syncCenter");
 const { clientIdentityEndpoints } = require("./endpoints/clientIdentity");
 const { vaultEndpoints } = require("./endpoints/vault");
 const { sensitiveSessionEndpoints } = require("./endpoints/sensitiveSessions");
+const { devControlEndpoints } = require("./endpoints/devControl");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
@@ -150,6 +151,7 @@ systemPatrolEndpoints(apiRouter);
 clientIdentityEndpoints(apiRouter);
 vaultEndpoints(apiRouter);
 sensitiveSessionEndpoints(apiRouter);
+devControlEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);

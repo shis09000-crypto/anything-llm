@@ -120,6 +120,21 @@ import {
 const DocumentReaderContext = createContext(null);
 const READER_CLOSE_SUPPRESSION_MS = 1_200;
 const READER_VISIBLE_THUMBNAIL_COUNT = 6;
+const READER_DEV_CONTROL_EVENT = "athena-dev-control-reader-command";
+const READER_DEV_CONTROL_RESULT_EVENT = "athena-dev-control-reader-result";
+const READER_DEV_CONTROL_ALLOWED_COMMANDS = new Set([
+  "reader.ui.openDrawer",
+  "reader.ui.openDocument",
+  "reader.ui.jumpToPage",
+  "reader.ui.refreshLibrary",
+  "reader.ui.snapshot",
+  "reader.library.hideMissing",
+  "reader.memory.setPage",
+  "reader.memory.clear",
+  "reader.scope.cancelTasks",
+  "reader.scope.markStale",
+  "reader.cache.invalidate",
+]);
 
 function readerOpenDebug(stage, detail = {}) {
   if (typeof window === "undefined") return;
@@ -204,6 +219,52 @@ function readerLifecycleScope(
     threadSlug: threadSlug || null,
     readerDocumentId:
       document?.readerDocumentId || document?.backupReaderDocumentId || null,
+  };
+}
+
+function isValidReaderDevControlCommand(detail = {}) {
+  if (detail?.center !== "developer-control") return false;
+  if (!READER_DEV_CONTROL_ALLOWED_COMMANDS.has(detail?.command)) return false;
+  const expiresAt = Number(detail.expiresAt || 0);
+  if (expiresAt && Date.now() > expiresAt) return false;
+  return true;
+}
+
+function readerDevDocumentId(scope = {}, params = {}) {
+  return (
+    scope.readerDocumentId ||
+    params.readerDocumentId ||
+    params.backupReaderDocumentId ||
+    params.documentId ||
+    null
+  );
+}
+
+function readerDevPage(params = {}) {
+  const raw = params.page || params.currentPage || params.pageNumber;
+  const page = Math.max(1, Math.round(Number(raw) || 0));
+  return Number.isFinite(page) && page > 0 ? page : null;
+}
+
+function readerDevJumpSource(document = {}, page = null, params = {}) {
+  if (!page) return null;
+  return {
+    __devControl: true,
+    readerDocumentId: document.readerDocumentId || params.readerDocumentId,
+    backupReaderDocumentId:
+      document.backupReaderDocumentId || params.backupReaderDocumentId,
+    documentTitle: document.title || params.title || "",
+    documentType: document.documentType || params.documentType || "pdf",
+    selectedText: params.selectedText || "",
+    locator: {
+      type: "pdf-page",
+      page,
+      pageOffsetRatio: Number(params.pageOffsetRatio || 0) || 0,
+    },
+    locatorLabel: params.locatorLabel || `page ${page}`,
+    position: {
+      pageNumber: page,
+    },
   };
 }
 
@@ -3623,6 +3684,308 @@ export function DocumentReaderProvider({
       workspace?.slug,
     ]
   );
+
+  const findReaderDevItem = useCallback(
+    (readerDocumentId) => {
+      if (!readerDocumentId) return null;
+      const matches = (item) =>
+        item?.readerDocumentId === readerDocumentId ||
+        item?.backupReaderDocumentId === readerDocumentId;
+      return (
+        readerBookshelf.find(matches) ||
+        readerHistory.find(matches) ||
+        readReaderBookshelf().find(matches) ||
+        readReaderHistory().find(matches) ||
+        null
+      );
+    },
+    [readerBookshelf, readerHistory]
+  );
+
+  const publishReaderDevResult = useCallback((result = {}) => {
+    if (typeof window === "undefined") return result;
+    const payload = {
+      at: Date.now(),
+      ...result,
+    };
+    window.__athenaReaderDevControlLastResult = payload;
+    window.dispatchEvent(
+      new CustomEvent(READER_DEV_CONTROL_RESULT_EVENT, { detail: payload })
+    );
+    return payload;
+  }, []);
+
+  const readerDevSnapshot = useCallback(
+    () => ({
+      drawerOpen,
+      drawerSection: drawerSectionRef.current,
+      currentDocument: currentDocument
+        ? {
+            readerDocumentId:
+              currentDocument.readerDocumentId ||
+              currentDocument.backupReaderDocumentId ||
+              null,
+            documentType: currentDocument.documentType || null,
+            renderType: currentDocument.renderType || null,
+            progress: currentDocument.progress || null,
+            hasContent: !!currentDocument.content,
+            hasMetadata: !!currentDocument.metadata,
+          }
+        : null,
+      bookshelfCount: readerBookshelf.length,
+      historyCount: readerHistory.length,
+      uploadQueueCount: bookshelfUploadQueue.length,
+    }),
+    [
+      bookshelfUploadQueue.length,
+      currentDocument,
+      drawerOpen,
+      readerBookshelf.length,
+      readerHistory.length,
+    ]
+  );
+
+  const recordReaderDevPage = useCallback(
+    (readerDocumentId, page, params = {}) => {
+      if (!page) return null;
+      const progress = normalizedReaderProgress({
+        ...(currentDocument?.progress || {}),
+        label: params.locatorLabel || `page ${page}`,
+        source: "dev-control",
+        trusted: true,
+        updatedAt: new Date().toISOString(),
+        locator: {
+          type: "pdf-page",
+          page,
+          pageOffsetRatio: Number(params.pageOffsetRatio || 0) || 0,
+        },
+      });
+      const currentReaderDocumentId =
+        currentDocument?.readerDocumentId ||
+        currentDocument?.backupReaderDocumentId ||
+        null;
+      if (currentDocument && currentReaderDocumentId === readerDocumentId) {
+        recordCurrentProgress(progress, {
+          force: true,
+          source: "dev-control",
+          trustStartPosition: true,
+        });
+        return progress;
+      }
+
+      const item = findReaderDevItem(readerDocumentId);
+      if (!item) return progress;
+      upsertReaderBookMemory(item, progress, {
+        source: "dev-control",
+        trustStartPosition: true,
+      });
+      upsertReaderProgressBackup(item, progress);
+      setReaderHistory(updateReaderHistoryItem(null, null, item, { progress }));
+      setReaderBookshelf(updateReaderBookshelfItem(item, { progress }));
+      return progress;
+    },
+    [currentDocument, findReaderDevItem, recordCurrentProgress]
+  );
+
+  useEffect(() => {
+    const runReaderDevCommand = async (event) => {
+      const detail = event.detail || {};
+      if (!isValidReaderDevControlCommand(detail)) return;
+      const command = detail.command;
+      const scope = detail.scope || {};
+      const params = detail.params || {};
+      const commandId = detail.commandId || null;
+      const requestId = detail.requestId || detail.sourceRequestId || null;
+      const respond = (patch = {}) =>
+        publishReaderDevResult({
+          command,
+          commandId,
+          requestId,
+          success: patch.success !== false,
+          ...patch,
+        });
+
+      try {
+        if (command === "reader.ui.openDrawer") {
+          const section = params.section || "bookshelf";
+          setDrawerSectionPersisted(section, { open: true });
+          setDrawerOpenPersisted(true, { section });
+          return respond({
+            status: "drawer_opened",
+            snapshot: readerDevSnapshot(),
+          });
+        }
+
+        if (
+          command === "reader.ui.refreshLibrary" ||
+          command === "reader.library.hideMissing" ||
+          command === "reader.cache.invalidate"
+        ) {
+          const section = params.section || "bookshelf";
+          setDrawerSectionPersisted(section, { open: true });
+          setDrawerOpenPersisted(true, { section });
+          await refreshReaderLibraryFromPersistentSources("drawer-open");
+          refreshLocalReaderLibraryState();
+          return respond({
+            status: "library_refreshed",
+            snapshot: readerDevSnapshot(),
+          });
+        }
+
+        if (command === "reader.ui.snapshot") {
+          return respond({ status: "snapshot", snapshot: readerDevSnapshot() });
+        }
+
+        if (
+          command === "reader.scope.cancelTasks" ||
+          command === "reader.scope.markStale"
+        ) {
+          const taskScope = {
+            route: "workspace-chat",
+            workspaceSlug: scope.workspaceSlug || workspace?.slug || null,
+            readerDocumentId: readerDevDocumentId(scope, params),
+          };
+          const count =
+            command === "reader.scope.cancelTasks"
+              ? requestPriorityQueue.cancelScope(
+                  taskScope,
+                  "dev-control-reader-cancel"
+                )
+              : requestPriorityQueue.markScopeStale(
+                  taskScope,
+                  "dev-control-reader-stale"
+                );
+          return respond({ status: "task_scope_updated", count });
+        }
+
+        const readerDocumentId = readerDevDocumentId(scope, params);
+        if (!readerDocumentId) {
+          return respond({
+            success: false,
+            status: "missing_reader_document_id",
+          });
+        }
+
+        if (command === "reader.memory.clear") {
+          const item = findReaderDevItem(readerDocumentId);
+          if (item) {
+            deleteReaderProgressBackup(item);
+            setReaderHistory(
+              updateReaderHistoryItem(null, null, item, {
+                progress: null,
+              })
+            );
+            setReaderBookshelf(
+              updateReaderBookshelfItem(item, { progress: null })
+            );
+          }
+          return respond({
+            status: item ? "memory_cleared" : "item_not_found",
+          });
+        }
+
+        const item = findReaderDevItem(readerDocumentId) || {
+          readerDocumentId,
+          backupReaderDocumentId: readerDocumentId,
+          title: params.title || "",
+          documentType: params.documentType || "pdf",
+          readerDocumentWorkspaceSlug:
+            scope.workspaceSlug ||
+            params.workspaceSlug ||
+            workspace?.slug ||
+            null,
+        };
+
+        if (
+          command === "reader.ui.openDocument" ||
+          command === "reader.ui.jumpToPage"
+        ) {
+          setDrawerSectionPersisted(params.section || "bookshelf", {
+            open: true,
+          });
+          setDrawerOpenPersisted(true, {
+            section: params.section || "bookshelf",
+          });
+          const opened = await openReaderDocument(readerDocumentId, item, {
+            returnStatus: true,
+            suppressTerminalToast: true,
+          });
+          if (!opened?.ok) {
+            return respond({
+              success: false,
+              status: "open_failed",
+              reason: opened?.reason || null,
+              message: opened?.message || "Reader document open failed",
+            });
+          }
+        }
+
+        if (
+          command === "reader.memory.setPage" ||
+          command === "reader.ui.jumpToPage"
+        ) {
+          const page = readerDevPage(params);
+          const progress = recordReaderDevPage(readerDocumentId, page, params);
+          const jumpSource = readerDevJumpSource(
+            currentDocument || item,
+            page,
+            {
+              ...params,
+              readerDocumentId,
+              backupReaderDocumentId:
+                item.backupReaderDocumentId || readerDocumentId,
+            }
+          );
+          if (jumpSource) {
+            window.setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent("anythingllm-document-reader-jump", {
+                  detail: jumpSource,
+                })
+              );
+            }, 180);
+          }
+          return respond({
+            status:
+              command === "reader.memory.setPage"
+                ? "memory_page_recorded"
+                : "document_opened_and_jumped",
+            progress,
+          });
+        }
+
+        return respond({
+          status:
+            command === "reader.ui.openDocument"
+              ? "document_opened"
+              : "command_accepted",
+          snapshot: readerDevSnapshot(),
+        });
+      } catch (error) {
+        return respond({
+          success: false,
+          status: "command_failed",
+          message: error?.message || "Reader dev command failed",
+        });
+      }
+    };
+
+    window.addEventListener(READER_DEV_CONTROL_EVENT, runReaderDevCommand);
+    return () =>
+      window.removeEventListener(READER_DEV_CONTROL_EVENT, runReaderDevCommand);
+  }, [
+    currentDocument,
+    findReaderDevItem,
+    openReaderDocument,
+    publishReaderDevResult,
+    readerDevSnapshot,
+    recordReaderDevPage,
+    refreshLocalReaderLibraryState,
+    refreshReaderLibraryFromPersistentSources,
+    setDrawerOpenPersisted,
+    setDrawerSectionPersisted,
+    workspace?.slug,
+  ]);
 
   const openHistoryDocument = useCallback(
     async (historyItem, options = {}) => {

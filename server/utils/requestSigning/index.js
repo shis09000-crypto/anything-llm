@@ -589,7 +589,18 @@ async function clientSigningSecret({ userId, clientId } = {}) {
   if (client?.revokedAt) return { client, secret: null, revoked: true };
   if (!client?.signingSecretEncrypted) return null;
 
-  const secret = decryptSigningSecret(client.signingSecretEncrypted);
+  let secret = null;
+  try {
+    secret = decryptSigningSecret(client.signingSecretEncrypted);
+  } catch (error) {
+    console.warn(
+      "[request-signing] Failed to decrypt client signing secret; reissuing",
+      productionRuntime()
+        ? { clientId: "[redacted]" }
+        : { clientId, error: error.message }
+    );
+    return null;
+  }
   if (secret && !isSecretEncrypted(client.signingSecretEncrypted)) {
     try {
       await prisma.athena_clients.updateMany({

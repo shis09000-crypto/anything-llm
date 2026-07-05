@@ -143,6 +143,7 @@ const READER_SENSITIVE_STREAM_CACHE_CONTROL =
   "private, no-store, max-age=0, must-revalidate, no-transform";
 const readerPostprocessJobs = new Map();
 const readerDeleteJobs = new Map();
+const readerPostprocessCancelRequests = new Set();
 const readerPdfManifestJobs = new Map();
 const readerPdfPagePreviewJobs = new Map();
 const readerPdfPreviewPrebuildJobs = new Map();
@@ -446,6 +447,24 @@ function readerDocumentIsDeleted(documentRoot, metadata = null) {
     status === "pending" ||
     status === "deleted"
   );
+}
+
+function restoreReaderDocumentVisibility({ workspace, readerDocumentId }) {
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const metadata = readReaderMetadata(documentRoot, {
+    readerDocumentId,
+    endpoint: "restore-visibility",
+  });
+  const markerPath = readerDeleteMarkerPath(documentRoot);
+  if (fs.existsSync(markerPath)) fs.rmSync(markerPath, { force: true });
+  const {
+    deletedAt: _deletedAt,
+    deleteStatus: _deleteStatus,
+    deleteRequestId: _deleteRequestId,
+    ...nextMetadata
+  } = metadata || {};
+  writeReaderJsonFile(documentRoot, "metadata.json", nextMetadata);
+  return nextMetadata;
 }
 
 function assertReaderDocumentVisible(documentRoot, metadata = null) {
@@ -1288,6 +1307,12 @@ function isoNow() {
 
 function readerPostprocessKey(workspace, readerDocumentId) {
   return `${workspace?.readerStorageSegment || safeWorkspaceSegment(workspace)}:${assertReaderDocumentId(readerDocumentId)}`;
+}
+
+function readerPostprocessWasCancelled(workspace, readerDocumentId) {
+  return readerPostprocessCancelRequests.has(
+    readerPostprocessKey(workspace, readerDocumentId)
+  );
 }
 
 function defaultReaderPostprocessStatus(readerDocumentId) {
@@ -2956,7 +2981,17 @@ async function runReaderPostprocessJob({
     metadata,
   });
 
+  if (readerPostprocessWasCancelled(workspace, readerDocumentId)) {
+    updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) => ({
+      ...status,
+      status: "cancelled",
+      completedAt: isoNow(),
+    }));
+    return;
+  }
+
   if (tasks.includes("pdfManifest")) {
+    if (readerPostprocessWasCancelled(workspace, readerDocumentId)) return;
     updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
       postprocessTaskPatch(status, "pdfManifest", {
         status: "processing",
@@ -2991,6 +3026,7 @@ async function runReaderPostprocessJob({
   }
 
   if (tasks.includes("thumbnail")) {
+    if (readerPostprocessWasCancelled(workspace, readerDocumentId)) return;
     updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
       postprocessTaskPatch(status, "thumbnail", {
         status: "processing",
@@ -3039,6 +3075,7 @@ async function runReaderPostprocessJob({
   }
 
   if (tasks.includes("classification")) {
+    if (readerPostprocessWasCancelled(workspace, readerDocumentId)) return;
     updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
       postprocessTaskPatch(status, "classification", {
         status: "extracting",
@@ -3248,9 +3285,41 @@ function enqueueReaderPostprocessJob({
       })
     )
     .catch(() => null)
-    .finally(() => readerPostprocessJobs.delete(key));
+    .finally(() => {
+      readerPostprocessJobs.delete(key);
+      readerPostprocessCancelRequests.delete(key);
+    });
   readerPostprocessJobs.set(key, job);
   return queuedStatus;
+}
+
+function cancelReaderPostprocessJob({ workspace, readerDocumentId }) {
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const key = readerPostprocessKey(workspace, readerDocumentId);
+  readerPostprocessCancelRequests.add(key);
+  readerPostprocessJobs.delete(key);
+  return updateReaderPostprocessStatus(
+    documentRoot,
+    readerDocumentId,
+    (status) => ({
+      ...status,
+      status: "cancelled",
+      completedAt: isoNow(),
+      tasks: Object.fromEntries(
+        Object.entries(status.tasks || {}).map(([task, value]) => [
+          task,
+          ["complete", "skipped"].includes(value?.status)
+            ? value
+            : {
+                ...value,
+                status: "cancelled",
+                reason: "已由 Developer Control 取消。",
+                updatedAt: isoNow(),
+              },
+        ])
+      ),
+    })
+  );
 }
 
 function readerPostprocessResponse(workspace, readerDocumentId) {
@@ -5553,8 +5622,10 @@ module.exports = {
     findReaderDuplicateCandidate,
     findLibreOfficeBinary,
     generateReaderDocumentThumbnail,
+    cancelReaderPostprocessJob,
     enqueueReaderPostprocessJob,
     markReaderDocumentDeleted,
+    restoreReaderDocumentVisibility,
     listReaderDocumentsForWorkspace,
     metadataWithOriginalUrl,
     orderedPdfPreviewPrebuildPages,
@@ -5571,7 +5642,13 @@ module.exports = {
     readerOcrProviderOptions,
     readerAutoClassificationEnabled,
     readReaderPostprocessStatus,
+    readReaderContentAndMetadata,
+    readAuthorizedStandaloneReaderMetadata,
+    readReaderJsonFile,
+    readReaderMetadata,
+    writeReaderJsonFile,
     readerPostprocessResponse,
+    readerContentSummary,
     recognizeReaderScreenshot,
     safeSegment,
     sanitizedClassificationCategories,

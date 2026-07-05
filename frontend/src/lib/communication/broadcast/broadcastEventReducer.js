@@ -111,6 +111,21 @@ function invalidateUserState(event) {
   invalidateScope(event, "broadcast-user-state");
 }
 
+function dispatchDeveloperReaderCommand(event) {
+  if (typeof window === "undefined") return { action: "dev-reader-ignored" };
+  window.dispatchEvent(
+    new CustomEvent("athena-dev-control-reader-command", {
+      detail: {
+        ...(event.payload || {}),
+        eventId: event.eventId,
+        scope: event.payload?.scope || event.scope || {},
+        sourceRequestId: event.sourceRequestId || event.payload?.requestId,
+      },
+    })
+  );
+  return { action: "dev-reader-dispatch" };
+}
+
 function handleCritical(event) {
   counters.critical += 1;
   switch (event.broadcastType) {
@@ -185,6 +200,8 @@ function reduceNormalized(event) {
     case "reader.classification.ready":
       invalidateReader(event);
       return { action: "reader-invalidate" };
+    case "developerControl.readerCommand":
+      return dispatchDeveloperReaderCommand(event);
     case "userState.updated":
     case "userState.deleted":
       invalidateUserState(event);
