@@ -204,6 +204,12 @@ export function clearReaderCurrentDocumentClearMarker() {
 
 export function isReaderCurrentDocumentFresh(document = null, clearedAt = 0) {
   if (!document) return false;
+  if (
+    document.hidden === true ||
+    document.readerAvailability === "missing" ||
+    document.availability === "missing"
+  )
+    return false;
   if (!clearedAt) return true;
   return readerCurrentDocumentTimestamp(document) > clearedAt;
 }

@@ -8,6 +8,7 @@ const {
   sensitiveSessionSnapshot,
   validateSensitiveSessionForRequest,
 } = require("../utils/authz/sensitiveSessions");
+const { publishBroadcastEvent } = require("../utils/broadcast");
 
 function currentUserId(response) {
   const id = Number(response?.locals?.user?.id);
@@ -91,6 +92,20 @@ function sensitiveSessionEndpoints(app) {
         { revokedCount },
         userId
       );
+      if (revokedCount) {
+        publishBroadcastEvent({
+          namespace: "sensitiveSession",
+          type: "revoked",
+          eventPriority: "critical",
+          visibility: "client",
+          scope: { userId, clientId: context.clientId },
+          sourceClientId: context.clientId,
+          payload: {
+            revokedCount,
+            reason: body.reason || "explicit-revoke",
+          },
+        });
+      }
       return response.status(200).json({ success: true, revokedCount });
     }
   );
@@ -129,6 +144,23 @@ function sensitiveSessionEndpoints(app) {
         },
         userId
       );
+      if (revokedCount) {
+        publishBroadcastEvent({
+          namespace: "sensitiveSession",
+          type: "revoked",
+          eventPriority: "critical",
+          visibility: "client",
+          scope: { userId, clientId: context.clientId },
+          sourceClientId: context.clientId,
+          payload: {
+            resourceType: body.resourceType || null,
+            resourceId: body.resourceId || null,
+            ownerScope: body.ownerScope || null,
+            revokedCount,
+            reason: body.reason || "scope-revoke",
+          },
+        });
+      }
       return response.status(200).json({ success: true, revokedCount });
     }
   );

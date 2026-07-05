@@ -225,6 +225,20 @@ class SensitiveSessionCenter {
     this.#clearKey(sessionKey(target));
   }
 
+  clearScope(target = {}) {
+    const resourceType = target.resourceType || null;
+    const resourceId = target.resourceId || null;
+    const ownerScope = target.ownerScope || null;
+    const matchingSessions = [...this.sessions.values()].filter((session) => {
+      if (resourceType && session.resourceType !== resourceType) return false;
+      if (resourceId && session.resourceId !== resourceId) return false;
+      if (ownerScope && session.ownerScope !== ownerScope) return false;
+      return true;
+    });
+    matchingSessions.forEach((session) => this.clear(session));
+    return matchingSessions.length;
+  }
+
   revoke(target = {}, reason = "manual") {
     const session = this.get(target);
     this.clear(target);
@@ -276,13 +290,7 @@ class SensitiveSessionCenter {
     const resourceType = target.resourceType || null;
     const resourceId = target.resourceId || null;
     const ownerScope = target.ownerScope || null;
-    const matchingSessions = [...this.sessions.values()].filter((session) => {
-      if (resourceType && session.resourceType !== resourceType) return false;
-      if (resourceId && session.resourceId !== resourceId) return false;
-      if (ownerScope && session.ownerScope !== ownerScope) return false;
-      return true;
-    });
-    matchingSessions.forEach((session) => this.clear(session));
+    this.clearScope({ resourceType, resourceId, ownerScope });
     this.counters.scopeRevoked += 1;
     return postJson(
       "/sensitive-sessions/revoke-scope",

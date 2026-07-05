@@ -6,7 +6,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { streamSyncCenterEvents } from "@/lib/communication";
+import { connectBroadcast, streamSyncCenterEvents } from "@/lib/communication";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
@@ -102,9 +102,9 @@ export function SyncCenterProvider({ children, enabled = true }) {
     if (!enabled) return;
     const controller = new AbortController();
     recordCommunicationEvent({
-      type: "sync-center-provider-start",
-      method: "EVENT",
-      path: "/sync/events",
+      type: "broadcast-provider-start",
+      method: "WS",
+      path: "/realtime/broadcast",
       communicationScene: "sync",
       durationMs: 0,
       requestBytes: 0,
@@ -112,7 +112,7 @@ export function SyncCenterProvider({ children, enabled = true }) {
       ok: true,
     });
 
-    streamSyncCenterEvents({
+    connectBroadcast({
       signal: controller.signal,
       onEvent: (event) => {
         if (!connectedMarkedRef.current) {
@@ -125,15 +125,15 @@ export function SyncCenterProvider({ children, enabled = true }) {
       },
     }).catch((error) => {
       if (controller.signal.aborted) return;
-      handleSyncStreamStop(error, { surface: "provider" });
+      handleSyncStreamStop(error, { surface: "broadcast-provider" });
     });
 
     return () => {
       controller.abort();
       recordCommunicationEvent({
-        type: "sync-center-provider-stop",
-        method: "EVENT",
-        path: "/sync/events",
+        type: "broadcast-provider-stop",
+        method: "WS",
+        path: "/realtime/broadcast",
         communicationScene: "sync",
         durationMs: 0,
         requestBytes: 0,

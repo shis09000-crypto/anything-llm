@@ -52,6 +52,7 @@ const {
   sensitiveSessionTokenFromRequest,
   validateSensitiveSessionForRequest,
 } = require("../utils/authz/sensitiveSessions");
+const { publishBroadcastEvent } = require("../utils/broadcast");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -3014,6 +3015,19 @@ async function runReaderPostprocessJob({
           generatedAt: thumbnail?.metadata?.thumbnailGeneratedAt || null,
         })
       );
+      if (thumbnail?.thumbnailUrl) {
+        publishReaderBroadcastEvent({
+          workspace,
+          readerDocumentId,
+          type: "thumbnail.ready",
+          eventPriority: "background",
+          payload: {
+            thumbnailReady: true,
+            thumbnailGeneratedAt:
+              thumbnail?.metadata?.thumbnailGeneratedAt || isoNow(),
+          },
+        });
+      }
     } catch {
       updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
         postprocessTaskPatch(status, "thumbnail", {
@@ -3074,6 +3088,19 @@ async function runReaderPostprocessJob({
           result,
         })
       );
+      publishReaderBroadcastEvent({
+        workspace,
+        readerDocumentId,
+        type: "classification.ready",
+        eventPriority: "background",
+        payload: {
+          classificationReady: true,
+          categoryId: result.categoryId || result.primaryCategoryId || null,
+          categoryName:
+            result.categoryName || result.primaryCategoryName || null,
+          source: result.source || null,
+        },
+      });
     } catch {
       const result = unknownClassificationCategory(
         sanitizedClassificationCategories(categories),
@@ -3086,6 +3113,19 @@ async function runReaderPostprocessJob({
           result,
         })
       );
+      publishReaderBroadcastEvent({
+        workspace,
+        readerDocumentId,
+        type: "classification.ready",
+        eventPriority: "background",
+        payload: {
+          classificationReady: true,
+          categoryId: result.categoryId || result.primaryCategoryId || null,
+          categoryName:
+            result.categoryName || result.primaryCategoryName || null,
+          source: result.source || "fallback",
+        },
+      });
     }
   }
 
@@ -3094,6 +3134,47 @@ async function runReaderPostprocessJob({
     status: "complete",
     completedAt: isoNow(),
   }));
+  publishReaderBroadcastEvent({
+    workspace,
+    readerDocumentId,
+    type: "postprocess.completed",
+    eventPriority: "normal",
+    payload: {
+      requestedTasks: tasks,
+      completedAt: isoNow(),
+    },
+  });
+}
+
+function publishReaderBroadcastEvent({
+  workspace,
+  readerDocumentId,
+  type,
+  eventPriority = "normal",
+  payload = {},
+} = {}) {
+  if (!readerDocumentId || !type) return null;
+  const workspaceSlug =
+    workspace?.slug === STANDALONE_READER_SCOPE.slug ? null : workspace?.slug;
+  return publishBroadcastEvent({
+    namespace: "reader",
+    type,
+    eventPriority,
+    visibility: "reader",
+    scope: {
+      ...(workspaceSlug ? { workspaceSlug } : {}),
+      readerDocumentId,
+    },
+    resource: {
+      kind: "reader-document",
+      id: readerDocumentId,
+    },
+    payload: {
+      ...(workspaceSlug ? { workspaceSlug } : {}),
+      readerDocumentId,
+      ...payload,
+    },
+  });
 }
 
 function enqueueReaderPostprocessJob({

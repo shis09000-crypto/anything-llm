@@ -35,6 +35,10 @@ import {
   routeScopeFromPathname,
 } from "@/utils/tasks/routeScopeManager";
 import { installNavigationPageLifecycle } from "@/utils/navigationLifecycle";
+import {
+  broadcastSubscriptionManager,
+  visibleBroadcastScopesForPath,
+} from "@/lib/communication/broadcast";
 
 export default function App() {
   const location = useLocation();
@@ -118,6 +122,9 @@ function RouteTaskScopeBridge({ pathname, navigationType }) {
       navigationType,
       pathname,
     });
+    broadcastSubscriptionManager.setVisibleScopes(
+      visibleBroadcastScopesForPath(pathname)
+    );
   }, [pathname, navigationType]);
 
   return null;

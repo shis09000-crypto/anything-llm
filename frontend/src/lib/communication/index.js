@@ -19,5 +19,6 @@ export * from "./systemRuntimeClient";
 export * from "./webPushClient";
 export * from "./userStateClient";
 export * from "./webSocketClient";
+export * from "./broadcast";
 export * from "./agentWebSocketProtocol";
 export * from "./agentWebSocketClient";

@@ -20,7 +20,10 @@ import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
 } from "@/utils/security/localCacheCrypto";
-import { mergeReaderLibraryBookshelfItems } from "@/utils/chat/readerLibraryPersistence";
+import {
+  mergeReaderLibraryBookshelfItems,
+  serverReaderDocumentIds,
+} from "@/utils/chat/readerLibraryPersistence";
 export { READER_DRAWER_OPEN_STORAGE_KEY };
 
 export const READER_SCHEMA_VERSION = 1;
@@ -49,6 +52,7 @@ export const READER_PROGRESS_BACKUP_STORAGE_KEY =
 export const READER_BOOK_MEMORY_STORAGE_KEY =
   "anythingllm_document_reader_book_memory:v1";
 export const UNKNOWN_READER_CATEGORY_ID = "unknown";
+export const READER_ITEM_AVAILABILITY_MISSING = "missing";
 const READER_HYDRATE_IDLE_DELAY_MS = 7_500;
 const READER_LOCAL_CACHE_CRYPTO_STORAGE_VERSION =
   "athena-reader-local-cache:v1";
@@ -923,6 +927,14 @@ function normalizeHistoryItem(item = {}) {
   };
 }
 
+function readerItemIsUnavailable(item = {}) {
+  return (
+    item?.hidden === true ||
+    item?.readerAvailability === READER_ITEM_AVAILABILITY_MISSING ||
+    item?.availability === READER_ITEM_AVAILABILITY_MISSING
+  );
+}
+
 function normalizeBookshelfItem(item = {}) {
   const normalized = normalizeHistoryItem(item);
   const now = new Date().toISOString();
@@ -964,6 +976,7 @@ export function readReaderHistory() {
   return readerItemsWithLatestBookMemory(
     normalizeHistory(parsed).filter(
       (item) =>
+        !readerItemIsUnavailable(item) &&
         ![item.readerDocumentId, item.backupReaderDocumentId].some((id) =>
           deletedIds.has(id)
         )
@@ -1013,6 +1026,7 @@ export function readReaderBookshelf() {
     )
       continue;
     const item = normalizeBookshelfItem(rawItem);
+    if (readerItemIsUnavailable(item)) continue;
     const previous = byKey.get(item.key);
     if (!previous) {
       byKey.set(item.key, item);
@@ -1062,6 +1076,75 @@ export function writeReaderBookshelf(items = []) {
   writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, next);
   persistReaderLibraryState();
   return next;
+}
+
+export function reconcileReaderBookshelfWithServerItems(
+  serverItems = [],
+  options = {}
+) {
+  const now = new Date().toISOString();
+  const current = readReaderBookshelf();
+  const successfulScopes = new Set(
+    (options.successfulScopes || []).map((scope) => scope || null)
+  );
+  const serverIdsByScope = new Map();
+  for (const rawItem of Array.isArray(serverItems) ? serverItems : []) {
+    const item = normalizeBookshelfItem(rawItem);
+    const scope =
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
+    if (!serverIdsByScope.has(scope)) serverIdsByScope.set(scope, new Set());
+    serverReaderDocumentIds(item).forEach((id) =>
+      serverIdsByScope.get(scope).add(id)
+    );
+  }
+  const shouldMarkMissing = (item) => {
+    const ids = serverReaderDocumentIds(item);
+    if (!ids.length) return false;
+    const scope =
+      item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
+    if (!successfulScopes.has(scope)) return false;
+    const serverIds = serverIdsByScope.get(scope) || new Set();
+    return !ids.some((id) => serverIds.has(id));
+  };
+  const markMissing = (item) => ({
+    ...item,
+    hidden: true,
+    readerAvailability: READER_ITEM_AVAILABILITY_MISSING,
+    unavailableReason: "server-document-missing",
+    updatedAt: now,
+  });
+  const missingItems = current
+    .filter(shouldMarkMissing)
+    .map((item) => normalizeBookshelfItem(markMissing(item)));
+  const history = readReaderHistory();
+  const missingHistory = history
+    .filter(shouldMarkMissing)
+    .map((item) => normalizeHistoryItem(markMissing(item)));
+  if (missingHistory.length) {
+    writeReaderHistory(null, null, [
+      ...history.filter((item) => !shouldMarkMissing(item)),
+      ...missingHistory,
+    ]);
+  }
+  const currentDocument = readReaderCurrentDocument(null);
+  if (shouldMarkMissing(currentDocument)) {
+    writeReaderCurrentDocument(
+      markMissing({
+        ...currentDocument,
+        metadata: {
+          ...(currentDocument.metadata || {}),
+          readerAvailability: READER_ITEM_AVAILABILITY_MISSING,
+        },
+      })
+    );
+  }
+  const retainedCurrent = current.filter((item) => !shouldMarkMissing(item));
+  writeReaderBookshelf([
+    ...retainedCurrent,
+    ...(Array.isArray(serverItems) ? serverItems : []),
+    ...missingItems,
+  ]);
+  return readReaderBookshelf();
 }
 
 export function upsertReaderBookshelfItems(items = []) {

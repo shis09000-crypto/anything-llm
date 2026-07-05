@@ -14,6 +14,7 @@ const {
   rotateAllSigningSecrets,
   rotateSigningSecret,
 } = require("../utils/requestSigning");
+const { publishBroadcastEvent } = require("../utils/broadcast");
 
 function clientIdentityEndpoints(app) {
   if (!app) return;
@@ -110,6 +111,19 @@ function clientIdentityEndpoints(app) {
           targetIsCurrentClient: clientId === context.clientId,
         },
       });
+      publishBroadcastEvent({
+        namespace: "client",
+        type: "revoked",
+        eventPriority: "critical",
+        visibility: "client",
+        scope: { userId: context.userId, clientId },
+        sourceClientId: context.clientId,
+        payload: {
+          clientId,
+          revokedAt: result.client.revokedAt,
+          targetIsCurrentClient: clientId === context.clientId,
+        },
+      });
 
       return response.status(200).json({
         success: true,
@@ -143,6 +157,19 @@ function clientIdentityEndpoints(app) {
         outcome: "revoked",
         metadata: {
           result: "revoked",
+          revokedCount: result.count || 0,
+        },
+      });
+      publishBroadcastEvent({
+        namespace: "client",
+        type: "revoked",
+        eventPriority: "critical",
+        visibility: "user",
+        scope: { userId: context.userId },
+        sourceClientId: context.clientId,
+        payload: {
+          revokedAllOthers: true,
+          excludedClientId: context.clientId,
           revokedCount: result.count || 0,
         },
       });
@@ -200,6 +227,19 @@ function clientIdentityEndpoints(app) {
           targetIsCurrentClient: clientId === context.clientId,
         },
       });
+      publishBroadcastEvent({
+        namespace: "signingSecret",
+        type: "rotated",
+        eventPriority: "critical",
+        visibility: "client",
+        scope: { userId: context.userId, clientId },
+        sourceClientId: context.clientId,
+        payload: {
+          clientId,
+          oldVersion: result.oldVersion,
+          newVersion: result.newVersion,
+        },
+      });
 
       return response.status(200).json({
         success: true,
@@ -239,6 +279,19 @@ function clientIdentityEndpoints(app) {
           result: "rotated",
           rotatedCount: result.count || 0,
           currentOldVersion: result.currentClient?.oldVersion || null,
+          currentNewVersion: result.currentClient?.newVersion || null,
+        },
+      });
+      publishBroadcastEvent({
+        namespace: "signingSecret",
+        type: "rotated",
+        eventPriority: "critical",
+        visibility: "user",
+        scope: { userId: context.userId },
+        sourceClientId: context.clientId,
+        payload: {
+          rotatedCount: result.count || 0,
+          currentClientId: context.clientId,
           currentNewVersion: result.currentClient?.newVersion || null,
         },
       });

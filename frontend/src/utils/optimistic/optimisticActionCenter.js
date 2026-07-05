@@ -450,6 +450,16 @@ class OptimisticActionCenter {
     return action.handle;
   }
 
+  confirmFromBroadcast({ actionId, event, result = null } = {}) {
+    if (!actionId) return { confirmed: false, reason: "missing-action-id" };
+    const action = activeActions.get(actionId);
+    if (!action?.handle?.confirm) {
+      return { confirmed: false, reason: "action-not-active" };
+    }
+    action.handle.confirm(result || { broadcastEvent: event || null });
+    return { confirmed: true, actionId };
+  }
+
   snapshot() {
     const active = [...activeActions.values()].map((action) =>
       this.#serialize(action)

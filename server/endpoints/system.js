@@ -69,6 +69,7 @@ const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const { EventLogs } = require("../models/eventLogs");
 const { UserStatePreference } = require("../models/userStatePreference");
+const { publishBroadcastEvent } = require("../utils/broadcast");
 const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
 const { CollectorApi } = require("../utils/collectorApi");
 const {
@@ -2960,6 +2961,25 @@ function systemEndpoints(app) {
           userId: sessionUser.id,
           states: validatedStates,
         });
+        const context = getClientContext(request, { user: sessionUser });
+        publishBroadcastEvent({
+          namespace: "userState",
+          type: "updated",
+          eventPriority: "normal",
+          visibility: "user",
+          scope: { userId: sessionUser.id },
+          sourceClientId: context?.clientId || null,
+          resource: {
+            kind: "user-state",
+            id: validatedStates.map((state) => state.namespace).join(","),
+          },
+          payload: {
+            namespaces: validatedStates.map((state) => state.namespace),
+            scopes: validatedStates.map((state) => state.scope || "global"),
+            count: saved.length,
+          },
+          coalesceKey: `userState.updated:${sessionUser.id}`,
+        });
         response.status(200).json({ success: true, states: saved });
       } catch (e) {
         console.error(e);
@@ -3000,6 +3020,24 @@ function systemEndpoints(app) {
           userId: sessionUser.id,
           namespace,
           scope,
+        });
+        const context = getClientContext(request, { user: sessionUser });
+        publishBroadcastEvent({
+          namespace: "userState",
+          type: "deleted",
+          eventPriority: "normal",
+          visibility: "user",
+          scope: { userId: sessionUser.id },
+          sourceClientId: context?.clientId || null,
+          resource: { kind: "user-state", id: namespace },
+          payload: {
+            namespace,
+            scope: scope || "global",
+            deletedCount: deleted.count,
+          },
+          coalesceKey: `userState.deleted:${sessionUser.id}:${namespace}:${
+            scope || "global"
+          }`,
         });
         response
           .status(200)

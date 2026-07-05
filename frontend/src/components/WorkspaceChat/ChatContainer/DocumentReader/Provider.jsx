@@ -37,6 +37,7 @@ import {
   readReaderCurrentDocument,
   readReaderHistory,
   readReaderSources,
+  reconcileReaderBookshelfWithServerItems,
   READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
   READER_BOOKSHELF_STORAGE_KEY,
   READER_HISTORY_STORAGE_KEY,
@@ -79,6 +80,7 @@ import { readerProgressFromPdfTargetSource } from "@/utils/chat/readerPdfTarget"
 import {
   normalizeReaderDocumentLinks,
   normalizeReaderStorageItemLinks,
+  parseReaderDocumentUrl,
 } from "@/utils/chat/readerLinkMaintenance";
 import {
   readerLibraryItemKey,
@@ -171,6 +173,22 @@ function readerOpenTask(label, workspaceSlug = null, scope = {}) {
       ...scope,
     },
   };
+}
+
+function readerLibraryReconcileDebug(detail = {}) {
+  if (typeof window === "undefined") return;
+  const payload = {
+    at: Math.round(window.performance?.now?.() || Date.now()),
+    ...detail,
+  };
+  window.dispatchEvent(
+    new CustomEvent("athena-reader-library-reconcile", { detail: payload })
+  );
+  const debugEnabled =
+    window.__ATHENA_READER_DEBUG__ === true ||
+    window.localStorage?.getItem?.("athenaReaderDebug") === "true" ||
+    window.location?.search?.includes("athenaReaderDebug=1");
+  if (debugEnabled) console.debug("[reader:library-reconcile]", payload);
 }
 
 function readerLifecycleScope(
@@ -314,12 +332,27 @@ function hasServerReaderDocument(item = {}) {
 }
 
 function readerDocumentWorkspaceCandidates(item = {}, currentWorkspaceSlug) {
-  const candidates = [
-    item?.readerDocumentWorkspaceSlug,
-    item?.workspaceSlug,
-    currentWorkspaceSlug,
-    null,
-  ];
+  const metadata = item?.metadata || {};
+  const parsedUrl = [
+    metadata?.originalUrl,
+    metadata?.stream?.url,
+    metadata?.stream?.streamUrl,
+    metadata?.thumbnailUrl,
+    item?.thumbnailUrl,
+  ]
+    .map(parseReaderDocumentUrl)
+    .find(Boolean);
+  const explicitWorkspaceSlug =
+    item?.readerDocumentWorkspaceSlug ||
+    item?.workspaceSlug ||
+    metadata?.readerDocumentWorkspaceSlug ||
+    parsedUrl?.workspaceSlug ||
+    null;
+  const knownStandalone =
+    parsedUrl?.namespace === "standalone" && !explicitWorkspaceSlug;
+  const candidates = knownStandalone
+    ? [null, currentWorkspaceSlug]
+    : [explicitWorkspaceSlug, currentWorkspaceSlug, null];
   const seen = new Set();
   return candidates
     .map((value) => value || null)
@@ -329,6 +362,27 @@ function readerDocumentWorkspaceCandidates(item = {}, currentWorkspaceSlug) {
       seen.add(key);
       return true;
     });
+}
+
+function readerCandidateFailureFromError(error) {
+  const status = Number(
+    error?.status ||
+      error?.response?.status ||
+      error?.details?.status ||
+      error?.raw?.status ||
+      0
+  );
+  const responseStatus = status >= 200 && status <= 599 ? status : 500;
+  const raw = error?.raw && typeof error.raw === "object" ? error.raw : null;
+  return {
+    response: new Response(null, { status: responseStatus }),
+    data: {
+      success: false,
+      error: raw?.error || raw?.message || error?.message || "request_failed",
+      status: responseStatus,
+    },
+    error,
+  };
 }
 
 function blobToDataUrl(blob) {
@@ -812,8 +866,9 @@ export function DocumentReaderProvider({
               signal,
               task: false,
             });
-            if (!response.ok || !data?.success) return { scope, documents: [] };
-            return { scope, documents: data.documents || [] };
+            if (!response.ok || !data?.success)
+              return { scope, documents: [], ok: false };
+            return { scope, documents: data.documents || [], ok: true };
           } catch (error) {
             if (error?.name !== "AbortError") {
               console.warn("[DocumentReader] bookshelf scope sync failed", {
@@ -821,7 +876,7 @@ export function DocumentReaderProvider({
                 error: error.message,
               });
             }
-            return { scope, documents: [] };
+            return { scope, documents: [], ok: false };
           }
         })
       );
@@ -831,6 +886,10 @@ export function DocumentReaderProvider({
       )
         return readReaderBookshelf();
 
+      const successfulScopes = results
+        .filter((result) => result.ok)
+        .map((result) => result.scope || null);
+      const localBookshelfBeforeReconcile = readReaderBookshelf();
       const items = results
         .flatMap(({ scope, documents }) =>
           documents.map((documentData) =>
@@ -851,8 +910,30 @@ export function DocumentReaderProvider({
           )
         )
         .filter(Boolean);
-      if (!items.length) return readReaderBookshelf();
-      const nextBookshelf = addItemsToBookshelf(items);
+      if (!items.length && !successfulScopes.length)
+        return readReaderBookshelf();
+      const nextBookshelf = reconcileReaderBookshelfWithServerItems(items, {
+        successfulScopes,
+      });
+      setReaderBookshelf(nextBookshelf);
+      readerLibraryReconcileDebug({
+        reason: "server-sync",
+        workspaceSlug: workspace?.slug || null,
+        localCount: localBookshelfBeforeReconcile.length,
+        serverGlobalCount:
+          results.find((result) => !result.scope)?.documents?.length || 0,
+        serverWorkspaceCount:
+          results.find((result) => result.scope === workspace?.slug)?.documents
+            ?.length || 0,
+        successfulScopes,
+        normalizedCount: nextBookshelf.length,
+        missingCount: Math.max(
+          0,
+          localBookshelfBeforeReconcile.length +
+            items.length -
+            nextBookshelf.length
+        ),
+      });
       items
         .filter((item) => item.thumbnailUrl && !item.thumbnailDataUrl)
         .forEach((item, index) => {
@@ -868,16 +949,17 @@ export function DocumentReaderProvider({
         });
       return nextBookshelf;
     },
-    [
-      addItemsToBookshelf,
-      authToken,
-      bookshelfItemFromServerData,
-      workspace?.slug,
-    ]
+    [authToken, bookshelfItemFromServerData, workspace?.slug]
   );
 
   const refreshReaderLibraryFromPersistentSources = useCallback(
-    async (_reason = "refresh", signal = null) => {
+    async (reason = "refresh", signal = null) => {
+      const visibleRefresh = [
+        "route-open",
+        "token-or-route",
+        "drawer-open",
+        "drawer-open-empty-retry",
+      ].includes(reason);
       return await requestPriorityQueue.schedule(
         async () => {
           refreshLocalReaderLibraryState();
@@ -892,7 +974,7 @@ export function DocumentReaderProvider({
           return bookshelf;
         },
         {
-          priority: "P4",
+          priority: visibleRefresh ? "P1" : "P4",
           label: "reader:library-refresh",
           kind: "reader",
           scope: {
@@ -900,9 +982,10 @@ export function DocumentReaderProvider({
             workspaceSlug: workspace?.slug || null,
             surface: "reader-library",
           },
-          policy: "maintenance",
+          policy: visibleRefresh ? "visible" : "maintenance",
+          intentRank: visibleRefresh ? 3 : undefined,
           signal,
-          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}`,
+          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}:${visibleRefresh ? "visible" : "maintenance"}`,
         }
       );
     },
@@ -1831,17 +1914,33 @@ export function DocumentReaderProvider({
                 detail,
                 candidateWorkspaceSlug: candidateWorkspaceSlug || null,
               });
-              lastResult = await ReaderDocument.get(
-                candidateWorkspaceSlug,
-                readerDocumentId,
-                {
+              try {
+                lastResult = await ReaderDocument.get(
+                  candidateWorkspaceSlug,
+                  readerDocumentId,
+                  {
+                    detail,
+                    freshSensitiveSession: detail === "metadata",
+                    staleWhileRevalidate: detail !== "metadata",
+                    signal: openContext.signal,
+                    task: false,
+                  }
+                );
+              } catch (error) {
+                if (error?.name === "AbortError") throw error;
+                lastResult = readerCandidateFailureFromError(error);
+                readerOpenDebug("candidate-exception", {
+                  readerDocumentId,
                   detail,
-                  freshSensitiveSession: detail === "metadata",
-                  staleWhileRevalidate: detail !== "metadata",
-                  signal: openContext.signal,
-                  task: false,
-                }
-              );
+                  candidateWorkspaceSlug: candidateWorkspaceSlug || null,
+                  status: lastResult.response.status,
+                  error: lastResult.data.error || null,
+                  fallbackToNextCandidate:
+                    lastResult.response.status === 404 &&
+                    workspaceCandidates.indexOf(candidateWorkspaceSlug) <
+                      workspaceCandidates.length - 1,
+                });
+              }
               if (lastResult?.response?.ok && lastResult?.data?.success) {
                 readerOpenDebug("candidate-success", {
                   readerDocumentId,

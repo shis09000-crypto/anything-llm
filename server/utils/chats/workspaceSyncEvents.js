@@ -92,6 +92,12 @@ function workspaceEventFromSyncEvent(event = {}) {
   };
 }
 
+function visibilityForWorkspaceEvent(mapped = {}) {
+  if (mapped.namespace === "thread") return "workspace";
+  if (mapped.namespace === "workspace") return "workspace";
+  return undefined;
+}
+
 function publishWorkspaceSyncEvent(event = {}) {
   if (!event?.workspaceId || !event?.workspaceSlug || !event?.type) return null;
 
@@ -113,6 +119,7 @@ function publishWorkspaceSyncEvent(event = {}) {
       id: event.chatId || event.threadId || event.workspaceId || null,
       publicId: event.publicChatId || null,
     },
+    visibility: visibilityForWorkspaceEvent(mapped),
     origin: {
       clientId: event.senderClientId || null,
       requestId: event.requestId || null,
@@ -121,7 +128,7 @@ function publishWorkspaceSyncEvent(event = {}) {
       workspaceSlug: String(event.workspaceSlug),
       threadSlug: event.threadSlug || null,
       clientTurnId: event.clientTurnId || null,
-      message: event.message || null,
+      hasMessage: !!event.message,
       error: event.error || null,
     },
     createdAt: event.createdAt,
