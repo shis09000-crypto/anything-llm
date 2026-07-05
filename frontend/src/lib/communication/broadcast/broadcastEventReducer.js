@@ -89,10 +89,19 @@ function invalidateWorkspace(event) {
 }
 
 function invalidateThread(event) {
+  counters.invalidated += 1;
   const workspaceSlug =
     event.payload?.workspaceSlug || event.scope?.workspaceSlug;
-  if (workspaceSlug) workspaceNavigationCache.invalidateThreads(workspaceSlug);
-  invalidateScope(event, "broadcast-thread");
+  if (workspaceSlug) {
+    workspaceNavigationCache.markThreadsStale(
+      workspaceSlug,
+      "broadcast-thread"
+    );
+  }
+  serverStateTaskBridge.markScopeStale(
+    scopeForCache(event),
+    "broadcast-thread"
+  );
 }
 
 function invalidateReader(event) {
@@ -124,6 +133,22 @@ function dispatchDeveloperReaderCommand(event) {
     })
   );
   return { action: "dev-reader-dispatch" };
+}
+
+function dispatchDeveloperNavigationCommand(event) {
+  if (typeof window === "undefined")
+    return { action: "dev-navigation-ignored" };
+  window.dispatchEvent(
+    new CustomEvent("athena-dev-control-navigation-command", {
+      detail: {
+        ...(event.payload || {}),
+        eventId: event.eventId,
+        scope: event.payload?.scope || event.scope || {},
+        sourceRequestId: event.sourceRequestId || event.payload?.requestId,
+      },
+    })
+  );
+  return { action: "dev-navigation-dispatch" };
 }
 
 function handleCritical(event) {
@@ -202,6 +227,8 @@ function reduceNormalized(event) {
       return { action: "reader-invalidate" };
     case "developerControl.readerCommand":
       return dispatchDeveloperReaderCommand(event);
+    case "developerControl.navigationCommand":
+      return dispatchDeveloperNavigationCommand(event);
     case "userState.updated":
     case "userState.deleted":
       invalidateUserState(event);

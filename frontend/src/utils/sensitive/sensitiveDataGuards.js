@@ -1,5 +1,13 @@
 const SENSITIVE_KEY_RE =
-  /(^|[._:-])(secret|token|password|credential|api[-_]?key|vault|signing[-_]?secret|private[-_]?config|sensitive[-_]?session|grant)([._:-]|$)/i;
+  /(^|[._:-])(secret|token|password|credential|api[-_]?key|vault|signing[-_]?secret|private[-_]?config|sensitive[-_]?session|grant|authorization|cookie|original[-_]?url|absolute[-_]?path|local[-_]?path)([._:-]|$)/i;
+const SENSITIVE_QUERY_RE =
+  /([?&](?:token|auth|authorization|access_token|refresh_token|sensitiveSession|sensitive_session|signature|signingSecret|signing_secret|apiKey|api_key|key|secret)=)[^&#\s]+/gi;
+
+function redactUrlString(value = "") {
+  const text = String(value || "");
+  if (!/[?&]/.test(text)) return text;
+  return text.replace(SENSITIVE_QUERY_RE, "$1[redacted]");
+}
 
 export function isSensitiveStateKey(value = "") {
   return SENSITIVE_KEY_RE.test(String(value || ""));
@@ -19,6 +27,7 @@ export function assertNonSensitiveCacheKey(key, meta = {}) {
 export function redactSensitiveValue(value, keyHint = "") {
   if (value === null || value === undefined) return value;
   if (isSensitiveStateKey(keyHint)) return "[redacted-sensitive]";
+  if (typeof value === "string") return redactUrlString(value);
   if (Array.isArray(value)) {
     return value.map((item) => redactSensitiveValue(item, keyHint));
   }

@@ -119,6 +119,19 @@ function summarizeRecovery(snapshot) {
   };
 }
 
+function summarizeNavigation(snapshot) {
+  if (!snapshot) return null;
+  const lastTransition = snapshot.transitions?.slice?.(-1)?.[0] || null;
+  return {
+    loaded: snapshot.loaded !== false,
+    activeScope: snapshot.activeScope || null,
+    pageState: snapshot.pageState || {},
+    counters: snapshot.counters || {},
+    lastTransition,
+    deferredCleanup: snapshot.deferredCleanup || null,
+  };
+}
+
 function buildTimelineEvents(schedulerSnapshot, limit = 120) {
   const normalizedLimit = Math.max(1, Number(limit) || 120);
   const schedulerTimeline = (schedulerSnapshot.timeline || [])
@@ -148,6 +161,7 @@ function buildMetrics({
   sensitiveSnapshot,
   optimisticSnapshot,
   recoverySnapshot,
+  navigationSnapshot,
 }) {
   const schedulerCounters = schedulerSnapshot.counters || {};
   const cacheCounters = cacheSnapshot.counters || {};
@@ -191,6 +205,8 @@ function buildMetrics({
     recoveryRetryable: recoveryByClassification.retryable || 0,
     recoveryPermission: recoveryByClassification.permission || 0,
     recoveryRollback: recoveryByClassification.rollback || 0,
+    navigationUiSwapMs: navigationSnapshot?.lastTransition?.uiSwapMs ?? null,
+    navigationRestoreMs: navigationSnapshot?.lastTransition?.restoredMs ?? null,
     latency,
   };
 }
@@ -223,6 +239,9 @@ function buildCombinedSnapshot() {
     "__athenaOptimisticActionCenter"
   );
   const recoverySnapshot = optionalWindowSnapshot("__athenaRecoveryCenter");
+  const navigationSnapshot = optionalWindowSnapshot(
+    "__athenaNavigationLifecycle"
+  );
   const events = buildTimelineEvents(schedulerSnapshot, 160);
   const metrics = buildMetrics({
     schedulerSnapshot,
@@ -230,6 +249,7 @@ function buildCombinedSnapshot() {
     sensitiveSnapshot,
     optimisticSnapshot,
     recoverySnapshot,
+    navigationSnapshot: summarizeNavigation(navigationSnapshot),
     events,
   });
   const snapshot = {
@@ -242,6 +262,7 @@ function buildCombinedSnapshot() {
     sensitive: summarizeSensitive(sensitiveSnapshot),
     optimistic: summarizeOptimistic(optimisticSnapshot),
     recovery: summarizeRecovery(recoverySnapshot),
+    navigation: summarizeNavigation(navigationSnapshot),
     marks: marks.slice(-80),
     raw: {
       scheduler: schedulerSnapshot,
@@ -249,6 +270,7 @@ function buildCombinedSnapshot() {
       sensitive: sensitiveSnapshot,
       optimistic: optimisticSnapshot,
       recovery: recoverySnapshot,
+      navigation: navigationSnapshot,
     },
   };
   publishSnapshotDigest(snapshot);

@@ -175,6 +175,11 @@ export const workspaceNavigationCache = {
     workspaceNavigationStore.invalidateWorkspaces();
     recordNavigationCache("invalidate", { path: "workspaces" });
   },
+  markWorkspacesStale(reason = "workspace-navigation-soft-stale") {
+    const count = workspaceNavigationStore.markWorkspacesStale(reason);
+    recordNavigationCache("soft-stale", { path: "workspaces", count });
+    return count;
+  },
   getThreadsMeta(workspaceSlug) {
     return workspaceNavigationStore.getThreadsMeta(workspaceSlug);
   },
@@ -217,6 +222,19 @@ export const workspaceNavigationCache = {
     workspaceNavigationStore.invalidateThreads(workspaceSlug);
     recordNavigationCache("invalidate", { path: `threads:${workspaceSlug}` });
   },
+  markThreadsStale(workspaceSlug, reason = "threads-soft-stale") {
+    if (!workspaceSlug) return 0;
+    const count = workspaceNavigationStore.markThreadsStale(
+      workspaceSlug,
+      reason
+    );
+    recordNavigationCache("soft-stale", {
+      path: `threads:${workspaceSlug}`,
+      workspaceSlug,
+      count,
+    });
+    return count;
+  },
   getWorkspaceDetail(workspaceSlug, { allowStale = true } = {}) {
     if (!workspaceSlug) return null;
     const workspace = workspaceNavigationStore.getWorkspaceDetail(
@@ -248,6 +266,22 @@ export const workspaceNavigationCache = {
     if (!workspaceSlug) return;
     workspaceNavigationStore.invalidateWorkspaceDetail(workspaceSlug);
     recordNavigationCache("invalidate", { path: `workspace:${workspaceSlug}` });
+  },
+  markWorkspaceDetailStale(
+    workspaceSlug,
+    reason = "workspace-detail-soft-stale"
+  ) {
+    if (!workspaceSlug) return 0;
+    const count = workspaceNavigationStore.markWorkspaceDetailStale(
+      workspaceSlug,
+      reason
+    );
+    recordNavigationCache("soft-stale", {
+      path: `workspace:${workspaceSlug}`,
+      workspaceSlug,
+      count,
+    });
+    return count;
   },
   clear() {
     workspaceNavigationStore.clear();

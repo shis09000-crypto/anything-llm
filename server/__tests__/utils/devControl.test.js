@@ -6,6 +6,10 @@ const {
 } = require("../../utils/devControl/developerSession");
 const { verifyAgreementKey } = require("../../utils/devControl/codexAuth");
 const { CommandRegistry } = require("../../utils/devControl/commandRegistry");
+const {
+  assertLocalPath,
+  registerNavigationCommands,
+} = require("../../utils/devControl/navigationCommands");
 const { redactDeveloperObject } = require("../../utils/devControl/redactor");
 
 function sign(secret, payload) {
@@ -96,6 +100,26 @@ describe("Developer Control Center", () => {
     ).rejects.toMatchObject({
       code: "developer_command_not_registered",
     });
+  });
+
+  test("registers navigation control commands", () => {
+    const registry = new CommandRegistry();
+    registerNavigationCommands(registry);
+
+    expect(registry.has("navigation.ui.goto")).toBe(true);
+    expect(registry.has("navigation.test.roundTrip")).toBe(true);
+  });
+
+  test("navigation control rejects external paths", () => {
+    expect(assertLocalPath("/settings/crypto-center")).toBe(
+      "/settings/crypto-center"
+    );
+    expect(() => assertLocalPath("https://evil.example")).toThrow(
+      /local app path|external path/
+    );
+    expect(() => assertLocalPath("//evil.example/path")).toThrow(
+      /local app path/
+    );
   });
 
   test("redacts sensitive reader fields from command output", () => {

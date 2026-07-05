@@ -78,7 +78,10 @@ export const serverStateTaskBridge = {
   },
 
   markScopeStale(scope = {}, reason = "server-state-stale") {
-    return taskScheduler.markScopeStale(scope, reason);
+    return {
+      cacheStale: serverStateCache.markScopeStale(scope, { reason }),
+      staleTasks: taskScheduler.markScopeStale(scope, reason),
+    };
   },
 };
 

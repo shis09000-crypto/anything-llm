@@ -1,5 +1,9 @@
 import { navigationLifecycle } from "../navigationLifecycle/navigationLifecycleCenter.js";
 import {
+  extraExitScopesForRoute,
+  restoreTargetForScope,
+} from "../navigationLifecycle/navigationRestoreRegistry.js";
+import {
   navigationReasonForScopes,
   routeScopeFromPathname,
   sameRouteScope,
@@ -22,16 +26,19 @@ export function activateRouteScope(
   }
   if (sameRouteScope(previous, activeScope)) return;
 
+  const transitionReason = navigationReasonForScopes(previous, activeScope, {
+    navigationType: options.navigationType,
+    explicitReason: reason === "route-change" ? null : reason,
+  });
   navigationLifecycle.transition({
     fromScope: previous,
     toScope: activeScope,
-    reason: navigationReasonForScopes(previous, activeScope, {
-      navigationType: options.navigationType,
-      explicitReason: reason === "route-change" ? null : reason,
-    }),
+    reason: transitionReason,
     navigationType: options.navigationType || "PUSH",
     preferCache: true,
     immediateUi: true,
+    restoreTarget: restoreTargetForScope(activeScope),
+    extraExitScopes: extraExitScopesForRoute(previous),
   });
 }
 

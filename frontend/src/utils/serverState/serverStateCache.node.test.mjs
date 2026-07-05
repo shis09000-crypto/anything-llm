@@ -314,6 +314,72 @@ test("server state cache ensure returns stale value and refreshes in background"
   );
 });
 
+test("server state cache soft-stale keeps value visible and refreshes in background", async () => {
+  const now = { value: 7_500 };
+  const cache = cacheWithClock(now);
+  const release = deferred();
+  let calls = 0;
+
+  cache.set("workspace.threads:soft", [{ slug: "cached" }], {
+    ttlMs: 10_000,
+    ownerScope: "user:a",
+    scope: { domain: "workspace-navigation", workspaceSlug: "soft" },
+  });
+
+  assert.equal(
+    cache.markStale("workspace.threads:soft", {
+      ownerScope: "user:a",
+      reason: "broadcast-thread",
+    }),
+    1
+  );
+  assert.equal(
+    cache.get("workspace.threads:soft", {
+      allowStale: false,
+      ttlMs: 10_000,
+      ownerScope: "user:a",
+    }),
+    null
+  );
+  assert.deepEqual(
+    cache.get("workspace.threads:soft", {
+      allowStale: true,
+      ttlMs: 10_000,
+      ownerScope: "user:a",
+    }),
+    [{ slug: "cached" }]
+  );
+
+  const value = await cache.ensure(
+    "workspace.threads:soft",
+    async () => {
+      calls += 1;
+      await release.promise;
+      return [{ slug: "fresh" }];
+    },
+    {
+      ttlMs: 10_000,
+      ownerScope: "user:a",
+      priority: "P0",
+      staleWhileRevalidate: true,
+    }
+  );
+
+  assert.deepEqual(value, [{ slug: "cached" }]);
+  await wait();
+  assert.equal(calls, 1);
+  release.resolve();
+  await wait();
+  assert.deepEqual(
+    cache.get("workspace.threads:soft", {
+      allowStale: false,
+      ttlMs: 10_000,
+      ownerScope: "user:a",
+    }),
+    [{ slug: "fresh" }]
+  );
+});
+
 test("server state cache ensure dedupes cache misses by server-state key", async () => {
   const now = { value: 8_000 };
   const cache = cacheWithClock(now);

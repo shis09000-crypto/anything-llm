@@ -31,6 +31,7 @@ function scopeMatches(entryScope = {}, queryScope = {}) {
 
 function entryStatus(entry, { ttlMs, now = nowMs() } = {}) {
   if (!entry) return "miss";
+  if (entry.stale === true) return "stale";
   const ttl = Number.isFinite(ttlMs) ? ttlMs : entry.ttlMs;
   if (!Number.isFinite(ttl) || ttl < 0) return "fresh";
   return now - entry.updatedAt < ttl ? "fresh" : "stale";
@@ -106,6 +107,8 @@ export class ServerStateCache {
       scope: normalizeScope(options.scope),
       ownerScope: options.ownerScope || null,
       meta: { ...(options.meta || {}) },
+      stale: false,
+      staleAt: null,
     };
     this.entries.set(key, entry);
     this.#bumpRevision(key);
@@ -369,6 +372,50 @@ export class ServerStateCache {
     return keys.length;
   }
 
+  markStale(keyOrPrefix, options = {}) {
+    const { prefix = false, ownerScope, reason = "soft-stale" } = options;
+    const keys = [...this.entries.keys()].filter((key) =>
+      prefix ? keyMatchesPrefix(key, keyOrPrefix) : key === keyOrPrefix
+    );
+    let updated = 0;
+    keys.forEach((key) => {
+      const entry = this.#entry(key, { ownerScope });
+      if (!entry) return;
+      entry.stale = true;
+      entry.staleAt = this.now();
+      entry.meta = {
+        ...(entry.meta || {}),
+        staleReason: reason,
+        staleAt: entry.staleAt,
+      };
+      updated += 1;
+      this.#bumpRevision(key);
+      this.#notify(key, "stale", entry);
+    });
+    return updated;
+  }
+
+  markPrefixStale(prefix, options = {}) {
+    return this.markStale(prefix, { ...options, prefix: true });
+  }
+
+  markScopeStale(scope = {}, options = {}) {
+    const keys = [...this.entries.entries()]
+      .filter(([, entry]) => {
+        if (options.ownerScope && entry.ownerScope !== options.ownerScope)
+          return false;
+        return scopeMatches(entry.scope, scope);
+      })
+      .map(([key]) => key);
+    keys.forEach((key) =>
+      this.markStale(key, {
+        ownerScope: options.ownerScope,
+        reason: options.reason || "soft-stale-scope",
+      })
+    );
+    return keys.length;
+  }
+
   mutate(key, patcher, options = {}) {
     const current = this.get(key, { allowStale: true, ...options });
     const next =
@@ -394,6 +441,8 @@ export class ServerStateCache {
         ttlMs: entry.ttlMs,
         scope: { ...entry.scope },
         ownerScope: entry.ownerScope || null,
+        stale: entry.stale === true,
+        staleAt: entry.staleAt || null,
         meta: { ...(entry.meta || {}) },
       })
     );

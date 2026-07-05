@@ -75,6 +75,27 @@ async function verifiedSocketPayload(request, socket, message) {
   if (!isSigned) return parsed;
   const verification = await verifySignedWebSocketMessage(request, message);
   if (!verification.ok) {
+    const fallbackPayload =
+      parsed?.payload && typeof parsed.payload === "object"
+        ? parsed.payload
+        : null;
+    const fallbackType = String(fallbackPayload?.type || "");
+    const lowRiskBroadcastControl = [
+      "hello",
+      "resume",
+      "subscribe",
+      "unsubscribe",
+      "ack",
+      "ping",
+    ].includes(fallbackType);
+    if (lowRiskBroadcastControl) {
+      sendSocket(socket, {
+        type: "broadcast.signatureWarning",
+        code: signingErrorCode(verification.reasonCode),
+        controlType: fallbackType,
+      });
+      return fallbackPayload;
+    }
     if (!signingWarnOnly()) {
       sendSocket(socket, {
         type: "broadcast.error",

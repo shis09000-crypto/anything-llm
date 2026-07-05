@@ -269,6 +269,7 @@ async function readerCommand(
         tasks: params.tasks,
         categories: params.categories,
         force: true,
+        userId: context.userId || null,
       });
       return {
         queued: true,
@@ -306,6 +307,7 @@ async function readerCommand(
             readerDocumentId: resolved.readerDocumentId,
             tasks: ["thumbnail"],
             force: true,
+            userId: context.userId || null,
           })
         ),
       };
@@ -326,6 +328,7 @@ async function readerCommand(
             tasks: ["classification"],
             categories: params.categories,
             force: true,
+            userId: context.userId || null,
           })
         ),
       };
@@ -393,6 +396,7 @@ async function readerCommand(
           eventPriority: "normal",
           visibility: "reader",
           scope: {
+            ...(context.userId ? { userId: Number(context.userId) } : {}),
             ...(scope.workspaceSlug
               ? { workspaceSlug: scope.workspaceSlug }
               : {}),

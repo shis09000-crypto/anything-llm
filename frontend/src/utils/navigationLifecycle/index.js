@@ -18,4 +18,8 @@ export {
   routeScopeKey,
   sameRouteScope,
 } from "./routeScope.js";
+export {
+  extraExitScopesForRoute,
+  restoreTargetForScope,
+} from "./navigationRestoreRegistry.js";
 export { useNavigationLifecycle } from "./useNavigationLifecycle.js";

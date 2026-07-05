@@ -205,6 +205,12 @@ export class NavigationLifecycleCenter {
     });
     this.counters.oldTasksCancelled += cancelled;
     this.counters.oldTasksStaled += staled;
+    markTaskPerformance("navigation_old_scope_released", {
+      reason,
+      scope,
+      cancelled,
+      staled,
+    });
 
     if (scope.kind === "sensitive" || scope.sensitive === true) {
       this.#revokeSensitiveScope(scope, reason);
@@ -504,8 +510,16 @@ export const navigationLifecycle = new NavigationLifecycleCenter();
 
 function exposeNavigationLifecycleSnapshot() {
   if (typeof window === "undefined") return;
+  let runtimeObserverFromUrl = false;
+  try {
+    const params = new URLSearchParams(window.location?.search || "");
+    runtimeObserverFromUrl =
+      params.get("athenaRuntimeObserver") === "1" ||
+      params.get("athenaRuntimeObserver") === "true";
+  } catch {}
   const enabled =
     import.meta.env?.DEV ||
+    runtimeObserverFromUrl ||
     window.localStorage?.getItem?.("athenaNavigationLifecycleDebug") ===
       "true" ||
     window.localStorage?.getItem?.("athenaRuntimeObserver") === "true";

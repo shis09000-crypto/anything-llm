@@ -53,6 +53,7 @@ const {
   validateSensitiveSessionForRequest,
 } = require("../utils/authz/sensitiveSessions");
 const { publishBroadcastEvent } = require("../utils/broadcast");
+const { userFromSession } = require("../utils/http");
 
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
@@ -1069,8 +1070,12 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
 }
 
 async function readerOwnerMetadataForRequest(request, response) {
-  const auth = await requestAuthContext({ request, response });
-  return fileBackedOwnerMetadata(auth.user || null);
+  const user =
+    response?.locals?.user ||
+    (await userFromSession(request, response)) ||
+    (await requestAuthContext({ request, response })).user ||
+    null;
+  return fileBackedOwnerMetadata(user);
 }
 
 function readerDocumentNotFoundError() {
@@ -2961,6 +2966,7 @@ async function runReaderPostprocessJob({
   readerDocumentId,
   tasks,
   categories,
+  userId = null,
 }) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   if (!fs.existsSync(documentRoot)) return;
@@ -3054,6 +3060,7 @@ async function runReaderPostprocessJob({
       if (thumbnail?.thumbnailUrl) {
         publishReaderBroadcastEvent({
           workspace,
+          userId: userId || metadata?.ownerUserId,
           readerDocumentId,
           type: "thumbnail.ready",
           eventPriority: "background",
@@ -3127,6 +3134,7 @@ async function runReaderPostprocessJob({
       );
       publishReaderBroadcastEvent({
         workspace,
+        userId: userId || metadata?.ownerUserId,
         readerDocumentId,
         type: "classification.ready",
         eventPriority: "background",
@@ -3152,6 +3160,7 @@ async function runReaderPostprocessJob({
       );
       publishReaderBroadcastEvent({
         workspace,
+        userId: userId || metadata?.ownerUserId,
         readerDocumentId,
         type: "classification.ready",
         eventPriority: "background",
@@ -3173,6 +3182,7 @@ async function runReaderPostprocessJob({
   }));
   publishReaderBroadcastEvent({
     workspace,
+    userId: userId || metadata?.ownerUserId,
     readerDocumentId,
     type: "postprocess.completed",
     eventPriority: "normal",
@@ -3185,6 +3195,7 @@ async function runReaderPostprocessJob({
 
 function publishReaderBroadcastEvent({
   workspace,
+  userId = null,
   readerDocumentId,
   type,
   eventPriority = "normal",
@@ -3199,6 +3210,7 @@ function publishReaderBroadcastEvent({
     eventPriority,
     visibility: "reader",
     scope: {
+      ...(userId ? { userId: Number(userId) } : {}),
       ...(workspaceSlug ? { workspaceSlug } : {}),
       readerDocumentId,
     },
@@ -3220,6 +3232,7 @@ function enqueueReaderPostprocessJob({
   tasks,
   categories,
   force = false,
+  userId = null,
 }) {
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   const originalTasks = sanitizedPostprocessTasks(tasks);
@@ -3282,6 +3295,7 @@ function enqueueReaderPostprocessJob({
         readerDocumentId,
         tasks: requestedTasks,
         categories,
+        userId,
       })
     )
     .catch(() => null)
@@ -4364,6 +4378,7 @@ function workspaceReaderDocumentsEndpoints(app) {
           categories: request.body?.categories,
           force:
             request.body?.force === true || request.body?.intent === "manual",
+          userId: response.locals.user?.id || null,
         });
         return response.status(202).json({
           ...readerPostprocessResponse(workspace, readerDocumentId),
@@ -5141,6 +5156,7 @@ function workspaceReaderDocumentsEndpoints(app) {
           categories: request.body?.categories,
           force:
             request.body?.force === true || request.body?.intent === "manual",
+          userId: response.locals.user?.id || null,
         });
         return response.status(202).json({
           ...readerPostprocessResponse(workspace, readerDocumentId),

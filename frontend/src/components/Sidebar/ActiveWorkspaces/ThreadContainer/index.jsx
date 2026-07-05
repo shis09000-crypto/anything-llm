@@ -74,6 +74,22 @@ function cacheWorkspaceThreads(workspaceSlug, threads = []) {
   );
 }
 
+function cachedThreadsForWorkspace(workspaceSlug) {
+  if (!workspaceSlug) return null;
+  const threads = workspaceNavigationCache.getThreads(workspaceSlug, {
+    allowStale: true,
+  });
+  return Array.isArray(threads) ? threads : null;
+}
+
+function initialThreadStateForWorkspace(workspaceSlug) {
+  const cachedThreads = cachedThreadsForWorkspace(workspaceSlug);
+  return {
+    threads: cachedThreads || [],
+    loading: !Array.isArray(cachedThreads),
+  };
+}
+
 export default function ThreadContainer({
   workspace,
   isVirtualThread = false,
@@ -82,8 +98,18 @@ export default function ThreadContainer({
 }) {
   const navigate = useNavigate();
   const { threadSlug = null } = useParams();
-  const [threads, setThreads] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const initialThreadStateRef = useRef(null);
+  if (!initialThreadStateRef.current) {
+    initialThreadStateRef.current = initialThreadStateForWorkspace(
+      workspace?.slug
+    );
+  }
+  const [threads, setThreads] = useState(
+    () => initialThreadStateRef.current.threads
+  );
+  const [loading, setLoading] = useState(
+    () => initialThreadStateRef.current.loading
+  );
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [showAllThreads, setShowAllThreads] = useState(false);
   const titleAnimationTimers = useRef(new Map());
@@ -101,6 +127,15 @@ export default function ThreadContainer({
   useEffect(() => {
     threadsRef.current = threads;
   }, [threads]);
+
+  useEffect(() => {
+    if (loading || !workspace?.slug || !Array.isArray(threads)) return;
+    markTaskPerformance("thread_list_cache_visible", {
+      source: "component-state",
+      workspaceSlug: workspace.slug,
+      count: threads.length,
+    });
+  }, [loading, threads, workspace?.slug]);
 
   const clearTitleAnimation = useCallback((threadSlug) => {
     const timers = titleAnimationTimers.current.get(threadSlug) || [];

@@ -354,8 +354,8 @@ export default function WorkspaceChat({ loading, workspace }) {
           workspace.slug
         );
 
-        try {
-          const result = await workspaceNavigationCache.runInFlight(
+        const refreshThreads = () =>
+          workspaceNavigationCache.runInFlight(
             `threads:${workspace.slug}`,
             ({ signal } = {}) =>
               Workspace.threads.all(workspace.slug, {
@@ -378,6 +378,23 @@ export default function WorkspaceChat({ loading, workspace }) {
               dedupeKey: `navigation:threads:${workspace.slug}`,
             }
           );
+
+        if (Array.isArray(staleThreads)) {
+          void refreshThreads()
+            .then((result) => {
+              if (Array.isArray(result?.threads)) {
+                workspaceNavigationCache.setThreads(
+                  workspace.slug,
+                  result.threads
+                );
+              }
+            })
+            .catch(() => null);
+          return { threads: staleThreads, trusted: false };
+        }
+
+        try {
+          const result = await refreshThreads();
           return {
             threads: Array.isArray(result?.threads) ? result.threads : [],
             trusted: true,

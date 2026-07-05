@@ -221,7 +221,10 @@ export function useWorkspaceSyncEvents({
           ) {
             return;
           }
-          workspaceNavigationCache.invalidateThreads(event.workspaceSlug);
+          workspaceNavigationCache.markThreadsStale(
+            event.workspaceSlug,
+            "sync-center-thread"
+          );
           return;
         case "thread_deleted":
           if (
@@ -233,7 +236,10 @@ export function useWorkspaceSyncEvents({
           ) {
             return;
           }
-          workspaceNavigationCache.invalidateThreads(event.workspaceSlug);
+          workspaceNavigationCache.markThreadsStale(
+            event.workspaceSlug,
+            "sync-center-thread-deleted"
+          );
           if (sameThread(event.threadSlug, activeThreadSlug)) {
             onThreadDeleted?.(event);
           }
@@ -344,7 +350,10 @@ export function useWorkspaceNavigationSyncInvalidation({
       const threadsMeta =
         workspaceNavigationCache.getThreadsMeta(workspaceSlug);
       if (isOlderThan(threadsMeta.updatedAt, event)) return;
-      workspaceNavigationCache.invalidateThreads(workspaceSlug);
+      workspaceNavigationCache.markThreadsStale(
+        workspaceSlug,
+        "sync-center-thread"
+      );
       dispatchWorkspaceThreadsRefresh(workspaceSlug, {
         force: false,
         source: "sync-center",

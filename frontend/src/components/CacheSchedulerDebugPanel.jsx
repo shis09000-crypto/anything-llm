@@ -52,6 +52,8 @@ export default function CacheSchedulerDebugPanel() {
   const cacheInflight = snapshot?.cache?.inflightDetails || [];
   const counters = snapshot?.cache?.counters || {};
   const scheduler = snapshot?.scheduler || {};
+  const navigation = snapshot?.navigation || {};
+  const lastNavigation = navigation?.lastTransition || null;
 
   if (!visible || !snapshot) return null;
 
@@ -92,6 +94,36 @@ export default function CacheSchedulerDebugPanel() {
           label="stale drops"
           value={formatCount(counters.droppedStaleWrites)}
           tone={counters.droppedStaleWrites ? "text-amber-200" : "text-white"}
+        />
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <Stat
+          label="nav ui"
+          value={
+            lastNavigation?.uiSwapMs === null ||
+            lastNavigation?.uiSwapMs === undefined
+              ? "-"
+              : `${lastNavigation.uiSwapMs}ms`
+          }
+          tone="text-emerald-200"
+        />
+        <Stat
+          label="nav restore"
+          value={
+            lastNavigation?.restoredMs === null ||
+            lastNavigation?.restoredMs === undefined
+              ? "-"
+              : `${lastNavigation.restoredMs}ms`
+          }
+          tone="text-cyan-200"
+        />
+        <Stat
+          label="old released"
+          value={`${formatCount(
+            navigation?.counters?.oldTasksCancelled
+          )}/${formatCount(navigation?.counters?.oldTasksStaled)}`}
+          tone="text-amber-100"
         />
       </div>
 

@@ -270,6 +270,13 @@ export const workspaceNavigationStore = {
     removeSessionEntry("workspaces");
   },
 
+  markWorkspacesStale(reason = "workspace-navigation-soft-stale") {
+    return serverStateCache.markStale(WORKSPACE_NAVIGATION_KEYS.workspaces, {
+      ownerScope: currentUserScope(),
+      reason,
+    });
+  },
+
   getWorkspaceDetail(workspaceSlug, options = {}) {
     if (!workspaceSlug) return null;
     this.hydrateWorkspaceDetailFromSession(workspaceSlug);
@@ -355,6 +362,17 @@ export const workspaceNavigationStore = {
       { ownerScope: currentUserScope() }
     );
     removeSessionEntry(`workspace:${workspaceSlug}`);
+  },
+
+  markWorkspaceDetailStale(
+    workspaceSlug,
+    reason = "workspace-detail-soft-stale"
+  ) {
+    if (!workspaceSlug) return 0;
+    return serverStateCache.markStale(
+      WORKSPACE_NAVIGATION_KEYS.workspaceDetail(workspaceSlug),
+      { ownerScope: currentUserScope(), reason }
+    );
   },
 
   getThreads(workspaceSlug, options = {}) {
@@ -469,6 +487,14 @@ export const workspaceNavigationStore = {
       { ownerScope: currentUserScope() }
     );
     removeSessionEntry(`threads:${workspaceSlug}`);
+  },
+
+  markThreadsStale(workspaceSlug, reason = "threads-soft-stale") {
+    if (!workspaceSlug) return 0;
+    return serverStateCache.markStale(
+      WORKSPACE_NAVIGATION_KEYS.workspaceThreads(workspaceSlug),
+      { ownerScope: currentUserScope(), reason }
+    );
   },
 
   clear() {
