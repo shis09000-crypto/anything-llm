@@ -5,9 +5,15 @@ const truncate = require("truncate");
 const { WorkspaceChats } = require("../../models/workspaceChats");
 const { WorkspaceMindMaps } = require("../../models/workspaceMindMaps");
 const { WorkspaceThread } = require("../../models/workspaceThread");
-const { Document } = require("../../models/documents");
-const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
-const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
+const {
+  DocumentIndexStatusRepository: DocumentIndexStatus,
+} = require("../../repositories/documentIndexStatusRepository");
+const {
+  WorkspaceParsedFileRepository: WorkspaceParsedFiles,
+} = require("../../repositories/workspaceParsedFileRepository");
 const { getBaseLLMProviderModel } = require("../helpers");
 const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");

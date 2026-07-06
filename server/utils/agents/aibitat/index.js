@@ -2,7 +2,9 @@
 const { EventEmitter } = require("events");
 const { APIError } = require("./error.js");
 const Providers = require("./providers/index.js");
-const { Telemetry } = require("../../../models/telemetry.js");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../repositories/telemetryRepository");
 const { v4 } = require("uuid");
 const { ToolReranker } = require("./utils/toolReranker.js");
 const {

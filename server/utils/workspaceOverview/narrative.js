@@ -1,8 +1,11 @@
 const crypto = require("crypto");
 const { getTaskConnector } = require("../llmTasks");
-const {
-  WorkspaceOverviewNarrative,
-} = require("../../models/workspaceOverviewNarrative");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
+
+const WorkspaceOverviewNarrative = lazyDataAccessProperty(
+  "workspaceOverview",
+  "workspaceOverviewNarrative"
+);
 
 const activeGenerations = new Set();
 const PENDING_RETRY_MS = 60_000;

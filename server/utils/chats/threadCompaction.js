@@ -1,6 +1,5 @@
-const {
-  WorkspaceChatCompaction,
-} = require("../../models/workspaceChatCompaction");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceChatCompaction = lazyDataAccessFacade("workspaceChatCompaction");
 const { getTaskConnector, resolveTaskProviderModel } = require("../llmTasks");
 const { TokenManager } = require("../helpers/tiktoken");
 const { convertToPromptHistory } = require("../helpers/chat/responses");
@@ -239,7 +238,10 @@ function cleanText(value = "", maxLength = 2_000) {
   return String(value).replace(/\s+/g, " ").trim().slice(0, maxLength);
 }
 
-function cleanStringArray(value = [], { maxItems = 30, maxLength = 1_000 } = {}) {
+function cleanStringArray(
+  value = [],
+  { maxItems = 30, maxLength = 1_000 } = {}
+) {
   if (!Array.isArray(value)) return [];
   const seen = new Set();
   const output = [];
@@ -258,10 +260,7 @@ function normalizeTemporaryContext(value = []) {
   const output = [];
   const seen = new Set();
   for (const item of value) {
-    const text = cleanText(
-      typeof item === "string" ? item : item?.text,
-      1_000
-    );
+    const text = cleanText(typeof item === "string" ? item : item?.text, 1_000);
     if (!text || seen.has(text)) continue;
     const ttl = Math.floor(
       Number(item?.expiresAfterCompactions ?? DEFAULT_TEMPORARY_CONTEXT_TTL)
@@ -658,7 +657,9 @@ function compactionMetadata(compaction = null) {
   return {
     id: compaction.id,
     summary_format: compaction.summary_format,
-    hasCapsule: Boolean(parseConversationCapsule(compaction.capsule_json, null)),
+    hasCapsule: Boolean(
+      parseConversationCapsule(compaction.capsule_json, null)
+    ),
     covered_from_chat_id: compaction.covered_from_chat_id,
     covered_to_chat_id: compaction.covered_to_chat_id,
     covered_message_count: compaction.covered_message_count,
@@ -763,9 +764,7 @@ function buildCapsulePrompt({
   summaryTokenBudget = null,
   coveredToChatId = null,
 } = {}) {
-  const priorCapsule = previousCapsule
-    ? capsuleJson(previousCapsule)
-    : "未知";
+  const priorCapsule = previousCapsule ? capsuleJson(previousCapsule) : "未知";
   const legacyPrior = normalizeCompactionSummary(previousSummary);
   const exactValueCandidates = extractExactValueCandidates(chats);
   const durableTopicHints = extractDurableTopicHints(chats);
@@ -936,7 +935,11 @@ function capsuleToMarkdownSummary(capsule = null) {
   return lines.join("\n");
 }
 
-function trimCapsuleToTokenBudget(llm, capsule = null, maxSummaryTokens = 2500) {
+function trimCapsuleToTokenBudget(
+  llm,
+  capsule = null,
+  maxSummaryTokens = 2500
+) {
   const normalized = normalizeConversationCapsule(capsule);
   const tokenManager = new TokenManager(llm?.model);
   const withinBudget = (candidate) =>
@@ -1232,11 +1235,9 @@ async function compactThread({
 
     let rollingCompactionUsed = false;
     let cannotReachTargetReason = targetPlan.cannotReachTargetReason;
-    let previousCapsule = parseConversationCapsule(
-      latest?.capsule_json,
-      null
-    );
-    if (previousCapsule) previousCapsule = decrementTemporaryContextTtl(previousCapsule);
+    let previousCapsule = parseConversationCapsule(latest?.capsule_json, null);
+    if (previousCapsule)
+      previousCapsule = decrementTemporaryContextTtl(previousCapsule);
     let previousSummary = previousCapsule
       ? ""
       : normalizeCompactionSummary(latest?.summary || null);

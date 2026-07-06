@@ -50,10 +50,14 @@ const {
   LOGO_FILENAME,
   isDefaultFilename,
 } = require("../utils/files/logo");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const { ApiKey } = require("../models/apiKeys");
 const { getCustomModels } = require("../utils/helpers/customModels");
-const { WorkspaceChats } = require("../models/workspaceChats");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../repositories/workspaceChatRepository");
 const {
   flexUserRoleValid,
   ROLES,
@@ -67,8 +71,10 @@ const {
 } = require("../utils/authz/accountRoles");
 const { fetchPfp, determinePfpFilepath } = require("../utils/files/pfp");
 const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
-const { EventLogs } = require("../models/eventLogs");
-const { UserStatePreference } = require("../models/userStatePreference");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { publishBroadcastEvent } = require("../utils/broadcast");
 const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
 const { CollectorApi } = require("../utils/collectorApi");
@@ -2907,7 +2913,7 @@ function systemEndpoints(app) {
         }
 
         const namespaces = parseNamespaceFilter(request.query?.namespaces);
-        const states = await UserStatePreference.where({
+        const states = await DataAccessCenter.userState.where({
           userId: sessionUser.id,
           namespaces,
         });
@@ -2957,7 +2963,7 @@ function systemEndpoints(app) {
           validatedStates.push(result.state);
         }
 
-        const saved = await UserStatePreference.upsertMany({
+        const saved = await DataAccessCenter.userState.upsertMany({
           userId: sessionUser.id,
           states: validatedStates,
         });
@@ -3016,7 +3022,7 @@ function systemEndpoints(app) {
           return;
         }
 
-        const deleted = await UserStatePreference.delete({
+        const deleted = await DataAccessCenter.userState.delete({
           userId: sessionUser.id,
           namespace,
           scope,

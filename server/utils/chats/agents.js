@@ -1,9 +1,10 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
 const pluralize = require("pluralize");
-const {
-  WorkspaceAgentInvocation,
-} = require("../../models/workspaceAgentInvocation");
+const WorkspaceAgentInvocation = lazyDataAccessFacade(
+  "workspaceAgentInvocation"
+);
 const { writeResponseChunk } = require("../helpers/chat/responses");
-const { Workspace } = require("../../models/workspace");
 
 /**
  * In-memory cache for attachments associated with agent invocations.

@@ -1,7 +1,6 @@
 const fs = require("fs");
 const path = require("path");
 const { v5: uuidv5 } = require("uuid");
-const { Document } = require("../../models/documents");
 const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
 const { storagePath } = require("../environment");
 const {
@@ -15,6 +14,10 @@ const hotdirPath =
   process.env.NODE_ENV === "development"
     ? path.resolve(__dirname, `../../../collector/hotdir`)
     : path.resolve(process.env.STORAGE_DIR, `../../collector/hotdir`);
+
+function getDataAccessCenter() {
+  return require("../dataAccess").DataAccessCenter;
+}
 
 // Should take in a folder that is a subfolder of documents
 // eg: youtube-subject/video-123.json
@@ -345,8 +348,9 @@ function hasVectorCachedFiles() {
  * @returns {Promise<Record<string, string[]>>} - a record of filenames and their corresponding workspaceIds
  */
 async function getPinnedWorkspacesByDocument(filenames = []) {
+  const { document } = getDataAccessCenter();
   return (
-    await Document.where(
+    await document.where(
       {
         docpath: {
           in: Object.keys(filenames),
@@ -377,8 +381,9 @@ async function getPinnedWorkspacesByDocument(filenames = []) {
  * @returns {Promise<Record<string, string[]>>} - a record of filenames and their corresponding workspaceIds
  */
 async function getWatchedDocumentFilenames(filenames = []) {
+  const { document } = getDataAccessCenter();
   return (
-    await Document.where(
+    await document.where(
       {
         docpath: { in: Object.keys(filenames) },
         watched: true,
@@ -401,8 +406,8 @@ async function getWatchedDocumentFilenames(filenames = []) {
  */
 async function getEmbeddingStatusesByDocument(filenames = []) {
   const docpaths = Object.keys(filenames);
-  const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
-  const indexStatuses = await DocumentIndexStatus.forFilePaths(docpaths);
+  const { document, documentIndexStatus } = getDataAccessCenter();
+  const indexStatuses = await documentIndexStatus.forFilePaths(docpaths);
   const result = indexStatuses.reduce((result, status) => {
     const filename = filenames[status.filePath];
     if (!filename) return result;
@@ -419,7 +424,7 @@ async function getEmbeddingStatusesByDocument(filenames = []) {
     return result;
   }, {});
 
-  const legacyDocs = await Document.where(
+  const legacyDocs = await document.where(
     {
       docpath: { in: docpaths },
     },
@@ -442,10 +447,10 @@ async function getEmbeddingStatusesByDocument(filenames = []) {
     result[filename][doc.workspaceId] = {
       status:
         doc.embeddingStatus === "processing"
-          ? DocumentIndexStatus.statuses.indexing
+          ? documentIndexStatus.statuses.indexing
           : doc.embeddingStatus === "failed"
-            ? DocumentIndexStatus.statuses.failed
-            : DocumentIndexStatus.statuses.indexed,
+            ? documentIndexStatus.statuses.failed
+            : documentIndexStatus.statuses.indexed,
       error: doc.embeddingError || null,
       batchJobId: doc.embeddingBatchJobId || null,
     };

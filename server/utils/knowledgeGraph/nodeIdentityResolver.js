@@ -1,6 +1,11 @@
-const prisma = require("../prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { safeJsonParse } = require("../http");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const {
   buildNodeKey,
   isStableNodeKey,
@@ -77,7 +82,7 @@ function scoreLabelMatch(row = {}, label = "") {
 
 async function workspaceNodes(workspaceId) {
   if (!workspaceId) return [];
-  return await prisma.$queryRawUnsafe(
+  return await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT "id", "workspaceId", "canonicalName", "canonicalKey", "aliases",
       "entityType", "displayNameZh", "displayNameEn"
     FROM "KnowledgeNode"
@@ -99,7 +104,7 @@ async function resolveNodeIdentity({
   const id = Number(nodeId || 0);
   if (id > 0) {
     const row = (
-      await prisma.$queryRawUnsafe(
+      await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT "id", "workspaceId", "canonicalName", "canonicalKey", "aliases",
           "entityType", "displayNameZh", "displayNameEn"
         FROM "KnowledgeNode"
@@ -130,7 +135,7 @@ async function resolveNodeIdentity({
   const canonical = normalizeCanonicalKey(canonicalKey);
   if (canonical) {
     const row = (
-      await prisma.$queryRawUnsafe(
+      await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT "id", "workspaceId", "canonicalName", "canonicalKey", "aliases",
           "entityType", "displayNameZh", "displayNameEn"
         FROM "KnowledgeNode"

@@ -1,4 +1,6 @@
-const prisma = require("../../utils/prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const QuizData = lazyDataAccessFacade("quiz");
+const quizDb = QuizData.db;
 const { safeJsonParse } = require("../http");
 
 let tablesReady = false;
@@ -16,18 +18,18 @@ function cacheUserKey(user = null) {
 }
 
 async function ensureColumn(tableName, columnName, definition) {
-  const columns = await prisma.$queryRawUnsafe(
+  const columns = await quizDb.$queryRawUnsafe(
     `PRAGMA table_info("${tableName}")`
   );
   if (columns.some((column) => column.name === columnName)) return;
-  await prisma.$executeRawUnsafe(
+  await quizDb.$executeRawUnsafe(
     `ALTER TABLE "${tableName}" ADD COLUMN ${definition}`
   );
 }
 
 async function ensureQuizLearningTables() {
   if (tablesReady) return;
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_quiz_attempts" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "workspaceId" INTEGER NOT NULL,
@@ -50,11 +52,11 @@ async function ensureQuizLearningTables() {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "workspace_quiz_attempts_workspaceId_cacheUserKey_quizChatId_key"
     ON "workspace_quiz_attempts"("workspaceId", "cacheUserKey", "quizChatId");
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_quiz_question_results" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "attemptId" INTEGER NOT NULL,
@@ -75,11 +77,11 @@ async function ensureQuizLearningTables() {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "workspace_quiz_question_results_attemptId_questionId_key"
     ON "workspace_quiz_question_results"("attemptId", "questionId");
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_quiz_wrong_questions" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "workspaceId" INTEGER NOT NULL,
@@ -103,11 +105,11 @@ async function ensureQuizLearningTables() {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "workspace_quiz_wrong_questions_workspaceId_cacheUserKey_questionResultId_key"
     ON "workspace_quiz_wrong_questions"("workspaceId", "cacheUserKey", "questionResultId");
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_quiz_favorite_questions" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "workspaceId" INTEGER NOT NULL,
@@ -131,7 +133,7 @@ async function ensureQuizLearningTables() {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await prisma.$executeRawUnsafe(`
+  await quizDb.$executeRawUnsafe(`
     CREATE UNIQUE INDEX IF NOT EXISTS "workspace_quiz_favorite_questions_workspaceId_cacheUserKey_quizId_questionId_key"
     ON "workspace_quiz_favorite_questions"("workspaceId", "cacheUserKey", "quizId", "questionId");
   `);
@@ -242,7 +244,7 @@ async function upsertAttemptAndQuestionResults({
       ? correctCount / graded.length
       : null;
 
-  await prisma.$executeRawUnsafe(
+  await quizDb.$executeRawUnsafe(
     `INSERT INTO "workspace_quiz_attempts"
       ("workspaceId","userId","cacheUserKey","quizId","quizChatId","topic","keywordsJson","difficulty","totalQuestions","completedQuestions","score","accuracy","analysis","questionResultsReliable","questionResultsParseError","submittedAt","updatedAt")
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -277,7 +279,7 @@ async function upsertAttemptAndQuestionResults({
     questionResultsParseError,
     submittedAt
   );
-  const [attempt] = await prisma.$queryRawUnsafe(
+  const [attempt] = await quizDb.$queryRawUnsafe(
     `SELECT * FROM "workspace_quiz_attempts" WHERE "workspaceId" = ? AND "cacheUserKey" = ? AND "quizChatId" = ? LIMIT 1`,
     workspace.id,
     userKey,
@@ -285,7 +287,7 @@ async function upsertAttemptAndQuestionResults({
   );
 
   for (const item of normalized) {
-    await prisma.$executeRawUnsafe(
+    await quizDb.$executeRawUnsafe(
       `INSERT INTO "workspace_quiz_question_results"
         ("attemptId","questionId","questionType","difficulty","question","optionsJson","userAnswerJson","correctAnswerJson","isCorrect","score","analysis","mistakeReason","weakConceptsJson","sourceRefsJson","updatedAt")
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -320,7 +322,7 @@ async function upsertAttemptAndQuestionResults({
     );
   }
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await quizDb.$queryRawUnsafe(
     `SELECT * FROM "workspace_quiz_question_results" WHERE "attemptId" = ? ORDER BY "id" ASC`,
     attempt.id
   );
@@ -336,12 +338,12 @@ async function saveWrongQuestions({ workspace, user = null, quiz }) {
   await ensureQuizLearningTables();
   if (!quiz.attemptId) throw new Error("quiz_attempt_missing");
   const userKey = cacheUserKey(user);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await quizDb.$queryRawUnsafe(
     `SELECT * FROM "workspace_quiz_question_results" WHERE "attemptId" = ? AND "isCorrect" = 0`,
     Number(quiz.attemptId)
   );
   for (const row of rows) {
-    await prisma.$executeRawUnsafe(
+    await quizDb.$executeRawUnsafe(
       `INSERT INTO "workspace_quiz_wrong_questions"
         ("workspaceId","userId","cacheUserKey","attemptId","questionResultId","questionId","questionType","topic","question","optionsJson","userAnswerJson","correctAnswerJson","analysis","mistakeReason","weakConceptsJson","sourceRefsJson","updatedAt")
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -382,7 +384,7 @@ async function favoriteQuestion({ workspace, user = null, quiz, questionId }) {
   const result = (quiz.questionResults || []).find(
     (item) => item.questionId === questionId
   );
-  await prisma.$executeRawUnsafe(
+  await quizDb.$executeRawUnsafe(
     `INSERT INTO "workspace_quiz_favorite_questions"
       ("workspaceId","userId","cacheUserKey","quizId","quizChatId","attemptId","questionResultId","questionId","questionType","topic","difficulty","question","optionsJson","correctAnswerJson","userAnswerJson","analysis","sourceRefsJson","updatedAt")
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,CURRENT_TIMESTAMP)
@@ -421,7 +423,7 @@ async function unfavoriteQuestion({
   questionId,
 }) {
   await ensureQuizLearningTables();
-  await prisma.$executeRawUnsafe(
+  await quizDb.$executeRawUnsafe(
     `DELETE FROM "workspace_quiz_favorite_questions"
      WHERE "workspaceId" = ? AND "cacheUserKey" = ? AND "quizId" = ? AND "questionId" = ?`,
     workspace.id,

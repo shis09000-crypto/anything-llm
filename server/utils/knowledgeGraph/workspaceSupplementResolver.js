@@ -1,7 +1,18 @@
-const prisma = require("../prisma");
-const { fileData } = require("../files");
-const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const WorkspaceSupplement = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "workspaceSupplement"
+);
 const { isHighStructureSupplement } = require("./supplementConstants");
+
+function fileHelpers() {
+  return require("../files");
+}
 
 async function workspaceSupplementsWithContent({
   workspaceId,
@@ -14,13 +25,14 @@ async function workspaceSupplementsWithContent({
     limit,
   }).catch(() => []);
   if (!supplements.length) return [];
-  const docs = await prisma.workspace_documents.findMany({
+  const docs = await knowledgeGraphDb.workspace_documents.findMany({
     where: {
       workspaceId: Number(workspaceId),
       docId: { in: supplements.map((item) => item.documentId) },
     },
   });
   const docsById = new Map(docs.map((doc) => [doc.docId, doc]));
+  const { fileData } = fileHelpers();
   const enriched = [];
   for (const supplement of supplements) {
     const doc = docsById.get(supplement.documentId);

@@ -1,14 +1,24 @@
 const crypto = require("crypto");
 const { ApiKey } = require("../models/apiKeys");
-const { Document } = require("../models/documents");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  DocumentRepository: Document,
+} = require("../repositories/documentRepository");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { Invite } = require("../models/invite");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
-const { DocumentVectors } = require("../models/vectors");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceChats } = require("../models/workspaceChats");
+const {
+  DocumentVectorRepository: DocumentVectors,
+} = require("../repositories/documentVectorRepository");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../repositories/workspaceRepository");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../repositories/workspaceChatRepository");
 const prisma = require("../utils/prisma");
 const {
   getVectorDbClass,

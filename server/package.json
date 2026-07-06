@@ -13,7 +13,10 @@
     "dev": "cross-env NODE_ENV=development nodemon --ignore documents --ignore vector-cache --ignore storage --ignore swagger --trace-warnings index.js",
     "start": "cross-env NODE_ENV=production node index.js",
     "lint": "eslint --fix .",
-    "lint:check": "eslint .",
+    "lint:check": "eslint . && yarn data-access:enforce",
+    "data-access:audit": "node scripts/data-access-bypass-check.js",
+    "data-access:baseline": "node scripts/data-access-bypass-check.js --update-baseline",
+    "data-access:enforce": "cross-env DATA_ACCESS_MODE=enforce node scripts/data-access-bypass-check.js",
     "swagger": "node ./swagger/init.js"
   },
   "prisma": {

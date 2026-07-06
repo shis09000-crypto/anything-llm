@@ -1,6 +1,10 @@
 const crypto = require("crypto");
-const prisma = require("../prisma");
-const { EventLogs } = require("../../models/eventLogs");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const ClientIdentityData = lazyDataAccessFacade("clientIdentity");
+const clientIdentityDb = ClientIdentityData.db;
+const {
+  EventLogRepository: EventLogs,
+} = require("../../repositories/eventLogRepository");
 
 const CLIENT_HEADERS = {
   clientId: "X-Athena-Client-Id",
@@ -327,7 +331,7 @@ async function registerClient({
       clientId: String(clientId),
     },
   };
-  const existing = await prisma.athena_clients.findUnique({ where });
+  const existing = await clientIdentityDb.athena_clients.findUnique({ where });
   if (existing?.revokedAt) return existing;
 
   const data = {
@@ -342,7 +346,7 @@ async function registerClient({
   if (existing) {
     const nextPublicKey =
       !existing.publicKey && publicKey ? compactString(publicKey, 2048) : null;
-    return prisma.athena_clients.update({
+    return clientIdentityDb.athena_clients.update({
       where: { id: existing.id },
       data: {
         ...data,
@@ -360,7 +364,7 @@ async function registerClient({
     });
   }
 
-  return prisma.athena_clients.create({
+  return clientIdentityDb.athena_clients.create({
     data: {
       userId: Number(userId),
       clientId: String(clientId),
@@ -405,7 +409,7 @@ async function getClientRecord({
   includeRevoked = false,
 } = {}) {
   if (!userId || !clientId || clientId === "legacy") return null;
-  return prisma.athena_clients.findFirst({
+  return clientIdentityDb.athena_clients.findFirst({
     where: {
       userId: Number(userId),
       clientId: String(clientId),
@@ -416,7 +420,7 @@ async function getClientRecord({
 
 async function listUserClients({ userId, currentClientId = null } = {}) {
   if (!userId) return [];
-  const clients = await prisma.athena_clients.findMany({
+  const clients = await clientIdentityDb.athena_clients.findMany({
     where: { userId: Number(userId) },
     orderBy: [{ revokedAt: "asc" }, { lastSeenAt: "desc" }],
   });
@@ -435,7 +439,7 @@ async function revokeClient({ userId, clientId } = {}) {
   }
 
   const revokedAt = new Date();
-  const result = await prisma.athena_clients.updateMany({
+  const result = await clientIdentityDb.athena_clients.updateMany({
     where: {
       userId: Number(userId),
       clientId: String(clientId),
@@ -454,7 +458,7 @@ async function revokeAllOtherClients({ userId, currentClientId } = {}) {
   if (!userId || !currentClientId || currentClientId === "legacy") {
     return { count: 0 };
   }
-  return prisma.athena_clients.updateMany({
+  return clientIdentityDb.athena_clients.updateMany({
     where: {
       userId: Number(userId),
       clientId: { not: String(currentClientId) },
@@ -472,7 +476,7 @@ async function updateLastSeen({ userId, clientId } = {}) {
   if (nowMs - lastWrite < LAST_SEEN_THROTTLE_MS) return null;
   lastSeenWrites.set(key, nowMs);
 
-  return prisma.athena_clients.updateMany({
+  return clientIdentityDb.athena_clients.updateMany({
     where: {
       userId: Number(userId),
       clientId: String(clientId),

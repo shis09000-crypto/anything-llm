@@ -1,16 +1,18 @@
 const { v4: uuidv4 } = require("uuid");
-const { WorkspaceThread } = require("../../../models/workspaceThread");
-const { Workspace } = require("../../../models/workspace");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { reqBody, multiUserMode } = require("../../../utils/http");
 const { VALID_CHAT_MODE } = require("../../../utils/chats/stream");
-const { Telemetry } = require("../../../models/telemetry");
-const { EventLogs } = require("../../../models/eventLogs");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../repositories/telemetryRepository");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../../repositories/eventLogRepository");
 const {
   writeResponseChunk,
   convertToChatHistory,
 } = require("../../../utils/helpers/chat/responses");
-const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
@@ -18,6 +20,10 @@ const { compactThread } = require("../../../utils/chats/threadCompaction");
 const {
   setSseTransportHeaders,
 } = require("../../../utils/security/transportSecurity");
+
+const WorkspaceThread = DataAccessCenter.workspaceThread;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
 
 function nullableUserId(value) {
   if (value === null || value === undefined || value === "" || value === "null")

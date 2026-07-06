@@ -1,6 +1,14 @@
-const prisma = require("../prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { chunksForDocument } = require("./chunks");
-const { NodeSupplement } = require("../../models/nodeSupplement");
+const NodeSupplement = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "nodeSupplement"
+);
 
 function tokenize(value = "") {
   return [
@@ -36,7 +44,7 @@ async function supplementChunks({
     nodeKey: key,
   });
   if (!supplements.length) return { supplements, chunks: [] };
-  const documents = await prisma.workspace_documents.findMany({
+  const documents = await knowledgeGraphDb.workspace_documents.findMany({
     where: {
       workspaceId: Number(workspace.id),
       docId: { in: supplements.map((item) => item.documentId) },

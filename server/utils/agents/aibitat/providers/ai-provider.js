@@ -22,9 +22,8 @@ const {
   parseDockerModelRunnerEndpoint,
 } = require("../../../AiProviders/dockerModelRunner");
 const { parseFoundryBasePath } = require("../../../AiProviders/foundry");
-const {
-  SystemPromptVariables,
-} = require("../../../../models/systemPromptVariables");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const SystemPromptVariables = lazyDataAccessFacade("systemPromptVariable");
 const {
   createBedrockChatClient,
 } = require("../../../AiProviders/bedrock/utils");

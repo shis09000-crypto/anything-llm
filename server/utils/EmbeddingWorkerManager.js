@@ -1,5 +1,7 @@
 const path = require("path");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 
 /** @type {Map<string, { worker: ChildProcess, jobId: string }>} */
 const runningWorkers = new Map();

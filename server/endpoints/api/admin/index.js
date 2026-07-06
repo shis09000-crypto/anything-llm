@@ -1,15 +1,18 @@
-const { EventLogs } = require("../../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../../repositories/eventLogRepository");
 const { Invite } = require("../../../models/invite");
 const { SystemSettings } = require("../../../models/systemSettings");
 const { User } = require("../../../models/user");
-const { Workspace } = require("../../../models/workspace");
-const { WorkspaceChats } = require("../../../models/workspaceChats");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../../../repositories/workspaceRepository");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../../../repositories/workspaceChatRepository");
 const { WorkspaceUser } = require("../../../models/workspaceUsers");
 const { canModifyAdmin } = require("../../../utils/helpers/admin");
-const {
-  ROLES,
-  normalizeRole,
-} = require("../../../utils/authz/accountRoles");
+const { ROLES, normalizeRole } = require("../../../utils/authz/accountRoles");
 const { multiUserMode, reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 

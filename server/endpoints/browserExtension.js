@@ -1,6 +1,10 @@
-const { Workspace } = require("../models/workspace");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../repositories/workspaceRepository");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
-const { Document } = require("../models/documents");
+const {
+  DocumentRepository: Document,
+} = require("../repositories/documentRepository");
 const {
   validBrowserExtensionApiKey,
 } = require("../utils/middleware/validBrowserExtensionApiKey");
@@ -11,7 +15,9 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const { getClientContext } = require("../utils/clientIdentity");
 const {
   authSessionFingerprintFromRequest,

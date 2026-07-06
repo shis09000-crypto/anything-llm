@@ -2,7 +2,9 @@ const { FLOW_TYPES } = require("./flowTypes");
 const executeApiCall = require("./executors/api-call");
 const executeLLMInstruction = require("./executors/llm-instruction");
 const executeWebScraping = require("./executors/web-scraping");
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const { safeJsonParse } = require("../http");
 
 class FlowExecutor {

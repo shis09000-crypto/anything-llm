@@ -346,6 +346,8 @@ model users {
   workspace_mind_maps          workspace_mind_maps[]
   athena_clients               athena_clients[]
   user_state_preferences       user_state_preferences[]
+  reader_library_items         reader_library_items[]
+  reader_library_categories    reader_library_categories[]
   vault_items                  vault_items[]
 
   @@index([originEnv])
@@ -747,6 +749,78 @@ model user_state_preferences {
   @@unique([userId, namespace, scope])
   @@index([userId, namespace])
   @@index([updatedAt])
+}
+
+model reader_book_catalog {
+  id                   Int      @id @default(autoincrement())
+  catalogKey           String   @unique
+  readerDocumentId     String
+  workspaceSlug        String?
+  title                String?
+  documentType         String?
+  mimeType             String?
+  fingerprint          String?
+  previewStatus        String?
+  thumbnailStatus      String?
+  classificationStatus String?
+  availability         String   @default("available")
+  metadataJson         String   @default("{}")
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @default(now())
+
+  @@index([readerDocumentId])
+  @@index([workspaceSlug])
+  @@index([availability])
+}
+
+model reader_library_items {
+  id               Int       @id @default(autoincrement())
+  itemId           String    @unique
+  userId           Int
+  catalogKey       String
+  readerDocumentId String
+  workspaceSlug    String?
+  itemKey          String
+  title            String?
+  categoryId       String?
+  sortOrder        Int       @default(0)
+  progressJson     String    @default("{}")
+  stateJson        String    @default("{}")
+  visible          Boolean   @default(true)
+  hiddenAt         DateTime?
+  deletedAt        DateTime?
+  tombstone        Boolean   @default(false)
+  availability     String    @default("available")
+  mutationVersion  Int       @default(1)
+  addedAt          DateTime  @default(now())
+  lastOpenedAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, catalogKey])
+  @@unique([userId, itemKey])
+  @@index([userId])
+  @@index([userId, deletedAt, tombstone])
+  @@index([catalogKey])
+}
+
+model reader_library_categories {
+  id              Int       @id @default(autoincrement())
+  categoryId      String
+  userId          Int
+  name            String
+  sortOrder       Int       @default(0)
+  hiddenAt        DateTime?
+  deletedAt       DateTime?
+  mutationVersion Int       @default(1)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+  user            users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId])
+  @@index([userId])
+  @@index([userId, deletedAt])
 }
 
 model ZkLoginAttempt {

@@ -1,5 +1,7 @@
 const crypto = require("crypto");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const {
   EmailVerificationCode,
   EmailVerificationRateLimit,

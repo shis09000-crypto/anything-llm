@@ -1,5 +1,7 @@
 const { getGitVersion } = require("../../endpoints/utils");
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 
 function checkColumnTemplate(tablename = null, column = null) {
   if (!tablename || !column)
@@ -57,8 +59,12 @@ async function validateTablePragmas(force = false) {
     const { User } = require("../../models/user");
     const { Workspace } = require("../../models/workspace");
     const { WorkspaceUser } = require("../../models/workspaceUsers");
-    const { Document } = require("../../models/documents");
-    const { DocumentVectors } = require("../../models/vectors");
+    const {
+      DocumentRepository: Document,
+    } = require("../../repositories/documentRepository");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../repositories/documentVectorRepository");
     const { WorkspaceChats } = require("../../models/workspaceChats");
     const { Invite } = require("../../models/invite");
     const { ApiKey } = require("../../models/apiKeys");

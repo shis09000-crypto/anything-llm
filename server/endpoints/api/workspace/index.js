@@ -1,14 +1,15 @@
 const { v4: uuidv4 } = require("uuid");
-const { Document } = require("../../../models/documents");
-const { Telemetry } = require("../../../models/telemetry");
-const { DocumentVectors } = require("../../../models/vectors");
-const { Workspace } = require("../../../models/workspace");
-const { WorkspaceChats } = require("../../../models/workspaceChats");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../repositories/telemetryRepository");
 const { getVectorDbClass, getLLMProvider } = require("../../../utils/helpers");
 const { multiUserMode, reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { VALID_CHAT_MODE } = require("../../../utils/chats/stream");
-const { EventLogs } = require("../../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../../repositories/eventLogRepository");
 const {
   convertToChatHistory,
   writeResponseChunk,
@@ -18,6 +19,11 @@ const { getModelTag } = require("../../utils");
 const {
   setSseTransportHeaders,
 } = require("../../../utils/security/transportSecurity");
+
+const Document = DataAccessCenter.document;
+const DocumentVectors = DataAccessCenter.documentVector;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
 
 function apiWorkspaceEndpoints(app) {
   if (!app) return;

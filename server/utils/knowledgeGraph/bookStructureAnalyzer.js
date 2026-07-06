@@ -1,7 +1,13 @@
-const prisma = require("../prisma");
 const {
-  BookStructureAnalysis,
-} = require("../../models/workspaceKnowledgeProfile");
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const BookStructureAnalysis = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "bookStructureAnalysis"
+);
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -116,7 +122,7 @@ function labelForType(type) {
 
 async function entityTypeCounts(workspaceId) {
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT "entityType", COUNT(*) AS count
       FROM "KnowledgeNode"
       WHERE "workspaceId" = ?
@@ -133,7 +139,7 @@ async function entityTypeCounts(workspaceId) {
 
 async function relationTypeCounts(workspaceId) {
   try {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT "relationType", COUNT(*) AS count
       FROM "KnowledgeEdge"
       WHERE "workspaceId" = ?

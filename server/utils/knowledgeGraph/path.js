@@ -1,5 +1,10 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { buildNodeKey } = require("./nodeIdentity");
 
 const DEFAULT_PATH_OPTIONS = {
@@ -144,7 +149,7 @@ async function reasoningPaths({
   while (queue.length && found.length < bounded.limit * 4) {
     const current = queue.shift();
     if (current.edgeIds.length >= bounded.maxDepth) continue;
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT * FROM "KnowledgeEdge"
       WHERE "workspaceId" = ? AND "confidence" >= ?
         AND ("sourceNodeId" = ? OR "targetNodeId" = ?)
@@ -210,7 +215,7 @@ async function reasoningPaths({
   });
 
   const nodes = allNodeIds.size
-    ? await prisma.$queryRawUnsafe(
+    ? await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT * FROM "KnowledgeNode"
         WHERE "workspaceId" = ? AND "id" IN (${Array.from(allNodeIds)
           .map(() => "?")
@@ -225,7 +230,7 @@ async function reasoningPaths({
 
   const evidence =
     bounded.includeEvidence && allEdgeIds.size
-      ? await prisma.$queryRawUnsafe(
+      ? await knowledgeGraphDb.$queryRawUnsafe(
           `SELECT * FROM "EdgeEvidence"
           WHERE "workspaceId" = ? AND "edgeId" IN (${Array.from(allEdgeIds)
             .map(() => "?")

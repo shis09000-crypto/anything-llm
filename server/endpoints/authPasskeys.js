@@ -6,7 +6,9 @@ const {
   verifyRegistrationResponse,
 } = require("@simplewebauthn/server");
 const authPrisma = require("../utils/authPrisma");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
@@ -60,10 +62,12 @@ function authPasskeyEndpoints(app) {
         const authUserId = await currentAuthUserId(user);
         const { origin, rpID } = passkeyRpConfig(request);
         assertSecurePasskeyOrigin(origin);
-        const existingCredentials = await authPrisma.passkeyCredential.findMany({
-          where: { userId: authUserId },
-          select: { credentialId: true, transports: true },
-        });
+        const existingCredentials = await authPrisma.passkeyCredential.findMany(
+          {
+            where: { userId: authUserId },
+            select: { credentialId: true, transports: true },
+          }
+        );
         const options = await generateRegistrationOptions({
           rpName: RP_NAME,
           rpID,
@@ -486,7 +490,9 @@ function authPasskeyEndpoints(app) {
           });
         }
 
-        await authPrisma.passkeyCredential.delete({ where: { id: passkey.id } });
+        await authPrisma.passkeyCredential.delete({
+          where: { id: passkey.id },
+        });
         await EventLogs.logEvent(
           "passkey_deleted",
           safeAuditMetadata(request, {

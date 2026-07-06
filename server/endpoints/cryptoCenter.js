@@ -1,5 +1,5 @@
 const { User } = require("../models/user");
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { decodeJWT, reqBody, safeJsonParse } = require("../utils/http");
 const {
   flexUserRoleValid,
@@ -78,7 +78,7 @@ function recordCryptoConfigCheckpoint(request, action, kind) {
 async function isCryptoSocketAuthorized(request) {
   if (isCryptoCenterDevAuthBypassEnabled(request)) return true;
 
-  const multiUserMode = await SystemSettings.isMultiUserMode();
+  const multiUserMode = await DataAccessCenter.adminSystem.isMultiUserMode();
   if (!multiUserMode) return true;
 
   const rawToken =
@@ -102,7 +102,7 @@ function cryptoCenterEndpoints(app) {
     cryptoCenterAccessMiddleware([ROLES.admin]),
     async (_request, response) => {
       try {
-        const setting = await SystemSettings.get({
+        const setting = await DataAccessCenter.adminSystem.getSetting({
           label: CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY,
         });
         response.status(200).json({
@@ -142,7 +142,7 @@ function cryptoCenterEndpoints(app) {
           return;
         }
 
-        const result = await SystemSettings._updateSettings({
+        const result = await DataAccessCenter.adminSystem._updateSettings({
           [CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY]: JSON.stringify(config),
         });
         if (result.error) throw new Error(result.error);
@@ -171,7 +171,7 @@ function cryptoCenterEndpoints(app) {
           "crypto_config_delete",
           "trading_pair_detail"
         );
-        await SystemSettings.delete({
+        await DataAccessCenter.adminSystem.deleteSetting({
           label: CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY,
         });
         response.status(200).json({ success: true, error: null });
@@ -193,7 +193,7 @@ function cryptoCenterEndpoints(app) {
     cryptoCenterAccessMiddleware([ROLES.admin]),
     async (_request, response) => {
       try {
-        const setting = await SystemSettings.get({
+        const setting = await DataAccessCenter.adminSystem.getSetting({
           label: ASSET_ALLOCATION_DONUT_CONFIG_KEY,
         });
         response.status(200).json({
@@ -230,7 +230,7 @@ function cryptoCenterEndpoints(app) {
           return;
         }
 
-        const result = await SystemSettings._updateSettings({
+        const result = await DataAccessCenter.adminSystem._updateSettings({
           [ASSET_ALLOCATION_DONUT_CONFIG_KEY]: JSON.stringify(config),
         });
         if (result.error) throw new Error(result.error);
@@ -256,7 +256,7 @@ function cryptoCenterEndpoints(app) {
           "crypto_config_delete",
           "asset_allocation_donut"
         );
-        await SystemSettings.delete({
+        await DataAccessCenter.adminSystem.deleteSetting({
           label: ASSET_ALLOCATION_DONUT_CONFIG_KEY,
         });
         response.status(200).json({ success: true, error: null });
@@ -278,7 +278,7 @@ function cryptoCenterEndpoints(app) {
     cryptoCenterAccessMiddleware([ROLES.admin]),
     async (_request, response) => {
       try {
-        const setting = await SystemSettings.get({
+        const setting = await DataAccessCenter.adminSystem.getSetting({
           label: OPEN_FUTURES_POSITIONS_CONFIG_KEY,
         });
         response.status(200).json({
@@ -315,7 +315,7 @@ function cryptoCenterEndpoints(app) {
           return;
         }
 
-        const result = await SystemSettings._updateSettings({
+        const result = await DataAccessCenter.adminSystem._updateSettings({
           [OPEN_FUTURES_POSITIONS_CONFIG_KEY]: JSON.stringify(config),
         });
         if (result.error) throw new Error(result.error);
@@ -341,7 +341,7 @@ function cryptoCenterEndpoints(app) {
           "crypto_config_delete",
           "open_futures_positions"
         );
-        await SystemSettings.delete({
+        await DataAccessCenter.adminSystem.deleteSetting({
           label: OPEN_FUTURES_POSITIONS_CONFIG_KEY,
         });
         response.status(200).json({ success: true, error: null });
@@ -363,7 +363,7 @@ function cryptoCenterEndpoints(app) {
     cryptoCenterAccessMiddleware([ROLES.admin]),
     async (_request, response) => {
       try {
-        const setting = await SystemSettings.get({
+        const setting = await DataAccessCenter.adminSystem.getSetting({
           label: TRADE_RECORDS_CONFIG_KEY,
         });
         response.status(200).json({
@@ -400,7 +400,7 @@ function cryptoCenterEndpoints(app) {
           return;
         }
 
-        const result = await SystemSettings._updateSettings({
+        const result = await DataAccessCenter.adminSystem._updateSettings({
           [TRADE_RECORDS_CONFIG_KEY]: JSON.stringify(config),
         });
         if (result.error) throw new Error(result.error);
@@ -426,7 +426,7 @@ function cryptoCenterEndpoints(app) {
           "crypto_config_delete",
           "trade_records"
         );
-        await SystemSettings.delete({
+        await DataAccessCenter.adminSystem.deleteSetting({
           label: TRADE_RECORDS_CONFIG_KEY,
         });
         response.status(200).json({ success: true, error: null });

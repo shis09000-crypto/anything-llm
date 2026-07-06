@@ -1,6 +1,7 @@
-const { WorkspaceChats } = require("../../../../models/workspaceChats");
-const { Workspace } = require("../../../../models/workspace");
-const { WorkspaceThread } = require("../../../../models/workspaceThread");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
+const WorkspaceThread = lazyDataAccessFacade("workspaceThread");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const {
   maybeEnqueueTitleGenerationAfterChat,
 } = require("../../../chats/threadTitleGeneration");

@@ -109,6 +109,9 @@ function invalidateReader(event) {
     event.scope?.readerDocumentId ||
     event.payload?.readerDocumentId ||
     event.resource?.id;
+  if (event.broadcastType?.startsWith?.("reader.library.")) {
+    serverStateCache.invalidate("reader.library");
+  }
   if (readerDocumentId) {
     serverStateCache.invalidateScope({ readerDocumentId });
   }
@@ -220,6 +223,13 @@ function reduceNormalized(event) {
       return { action: "chat-invalidate" };
     case "reader.document.added":
     case "reader.document.removed":
+    case "reader.library.bootstrapped":
+    case "reader.library.updated":
+    case "reader.library.item.updated":
+    case "reader.library.item.deleted":
+    case "reader.library.category.updated":
+    case "reader.library.category.deleted":
+    case "reader.library.reconciled":
     case "reader.postprocess.completed":
     case "reader.thumbnail.ready":
     case "reader.classification.ready":

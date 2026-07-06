@@ -1,6 +1,7 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
-const { WorkspaceChats } = require("../../models/workspaceChats");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const {
@@ -18,7 +19,9 @@ const {
   EphemeralAgentHandler,
   EphemeralEventListener,
 } = require("../agents/ephemeral");
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const { CollectorApi } = require("../collectorApi");
 const fs = require("fs");
 const path = require("path");

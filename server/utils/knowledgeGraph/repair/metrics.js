@@ -1,4 +1,6 @@
-const prisma = require("../../../utils/prisma");
+const { lazyDataAccessFacade } = require("../../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 
 function ratio(part, total) {
   const denominator = Number(total || 0);
@@ -16,21 +18,21 @@ async function graphQualityMetrics(workspaceId) {
     malformedJobs,
     failedJobs,
   ] = await Promise.all([
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "KnowledgeEdge" WHERE "workspaceId" = ?`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "KnowledgeEdge"
         WHERE "workspaceId" = ? AND "confidence" < 0.45`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "KnowledgeEdge"
         WHERE "workspaceId" = ? AND "relationType" = 'related_to'`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM (
           SELECT ev."documentId", COUNT(DISTINCT ev."edgeId") AS edgeCount
           FROM "EdgeEvidence" ev
@@ -40,16 +42,16 @@ async function graphQualityMetrics(workspaceId) {
         )`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob" WHERE "workspaceId" = ?`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob"
         WHERE "workspaceId" = ? AND LOWER(COALESCE("errorMessage", '')) LIKE '%json%'`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob"
         WHERE "workspaceId" = ? AND "status" = 'failed'`,
       Number(workspaceId)
@@ -69,21 +71,21 @@ async function graphQualityMetrics(workspaceId) {
 
 async function providerHealthMetrics(workspaceId) {
   const [jobs, timeoutJobs, failedJobs, malformedJobs] = await Promise.all([
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob" WHERE "workspaceId" = ?`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob"
       WHERE "workspaceId" = ? AND LOWER(COALESCE("errorMessage", '')) LIKE '%timeout%'`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob"
       WHERE "workspaceId" = ? AND "status" = 'failed'`,
       Number(workspaceId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "GraphExtractionJob"
       WHERE "workspaceId" = ? AND LOWER(COALESCE("errorMessage", '')) LIKE '%json%'`,
       Number(workspaceId)

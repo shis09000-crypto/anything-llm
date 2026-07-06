@@ -1,4 +1,5 @@
-const { KnowledgeGraph } = require("../../../models/knowledgeGraph");
+const { lazyDataAccessProperty } = require("../../dataAccess/lazyFacade");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { priorityForIssue } = require("./prioritize");
 
 function shouldQuarantineDensity({

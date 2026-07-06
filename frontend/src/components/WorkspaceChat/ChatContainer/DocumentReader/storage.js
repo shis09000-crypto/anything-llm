@@ -206,6 +206,7 @@ function scheduleReaderLocalDecrypt(key, encryptedPayload) {
 
 let readerLibraryHydrated = false;
 let readerProgressHydrated = false;
+let readerLibraryAuthorityActive = false;
 
 function rawReaderLibraryState() {
   return {
@@ -224,7 +225,7 @@ function applyReaderLibraryState(value = {}) {
   if (Array.isArray(value.history)) {
     writeReaderLocalJson(READER_HISTORY_STORAGE_KEY, value.history);
   }
-  if (Array.isArray(value.bookshelf)) {
+  if (!readerLibraryAuthorityActive && Array.isArray(value.bookshelf)) {
     writeReaderLocalJson(
       READER_BOOKSHELF_STORAGE_KEY,
       mergeReaderLibraryBookshelfItems(
@@ -233,7 +234,7 @@ function applyReaderLibraryState(value = {}) {
       )
     );
   }
-  if (Array.isArray(value.categories)) {
+  if (!readerLibraryAuthorityActive && Array.isArray(value.categories)) {
     writeReaderLocalJson(
       READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
       value.categories
@@ -256,6 +257,28 @@ export async function hydrateReaderLibraryNow() {
     sanitize: sanitizeReaderState,
     apply: applyReaderLibraryState,
   });
+}
+
+export function markReaderLibraryAuthorityActive(active = true) {
+  readerLibraryAuthorityActive = active === true;
+}
+
+export function writeReaderAuthorityLibraryState(library = {}) {
+  markReaderLibraryAuthorityActive(true);
+  if (Array.isArray(library.categories)) {
+    writeReaderLocalJson(
+      READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
+      library.categories
+    );
+  }
+  if (Array.isArray(library.bookshelf)) {
+    writeReaderLocalJson(READER_BOOKSHELF_STORAGE_KEY, library.bookshelf);
+  }
+  persistReaderLibraryState();
+  return {
+    categories: readReaderBookshelfCategories(),
+    bookshelf: readReaderBookshelf(),
+  };
 }
 
 function hydrateReaderLibraryOnce() {
@@ -976,11 +999,7 @@ function normalizeHistoryItem(item = {}) {
 }
 
 function readerItemIsUnavailable(item = {}) {
-  return (
-    item?.hidden === true ||
-    item?.readerAvailability === READER_ITEM_AVAILABILITY_MISSING ||
-    item?.availability === READER_ITEM_AVAILABILITY_MISSING
-  );
+  return item?.hidden === true || item?.tombstone === true || !!item?.deletedAt;
 }
 
 function normalizeBookshelfItem(item = {}) {

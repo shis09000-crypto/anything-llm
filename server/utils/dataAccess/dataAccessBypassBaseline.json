@@ -1,0 +1,1269 @@
+{
+  "version": 1,
+  "generatedAt": "2026-07-06T17:44:13.438Z",
+  "mode": "observe",
+  "scannedFiles": 595,
+  "blocked": 154,
+  "findings": [
+    {
+      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/apiKeys\")|apiKeys",
+      "type": "direct-model-import",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/apiKeys\")",
+      "detail": "apiKeys",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/invite\")|invite",
+      "type": "direct-model-import",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/invite\")",
+      "detail": "invite",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/advancedGateway.js|unknown|require(\"../models/externalCommunicationConnector\")|externalCommunicationConnector",
+      "type": "direct-model-import",
+      "file": "endpoints/advancedGateway.js",
+      "domain": "unknown",
+      "match": "require(\"../models/externalCommunicationConnector\")",
+      "detail": "externalCommunicationConnector",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/agentFileServer.js|unknown|require(\"../models/scheduledJobRun\")|scheduledJobRun",
+      "type": "direct-model-import",
+      "file": "endpoints/agentFileServer.js",
+      "domain": "unknown",
+      "match": "require(\"../models/scheduledJobRun\")",
+      "detail": "scheduledJobRun",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/agentSkillWhitelist.js|unknown|require(\"../models/agentSkillWhitelist\")|agentSkillWhitelist",
+      "type": "direct-model-import",
+      "file": "endpoints/agentSkillWhitelist.js",
+      "domain": "unknown",
+      "match": "require(\"../models/agentSkillWhitelist\")",
+      "detail": "agentSkillWhitelist",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/agentWebsocket.js|workspace|require(\"../models/workspaceAgentInvocation\")|workspaceAgentInvocation",
+      "type": "direct-model-import",
+      "file": "endpoints/agentWebsocket.js",
+      "domain": "workspace",
+      "match": "require(\"../models/workspaceAgentInvocation\")",
+      "detail": "workspaceAgentInvocation",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/admin/index.js|adminSystem|require(\"../../../models/invite\")|invite",
+      "type": "direct-model-import",
+      "file": "endpoints/api/admin/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../../models/invite\")",
+      "detail": "invite",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/admin/index.js|adminSystem|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/api/admin/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/admin/index.js|adminSystem|require(\"../../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/api/admin/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/admin/index.js|workspace|require(\"../../../models/workspaceUsers\")|workspaceUsers",
+      "type": "direct-model-import",
+      "file": "endpoints/api/admin/index.js",
+      "domain": "workspace",
+      "match": "require(\"../../../models/workspaceUsers\")",
+      "detail": "workspaceUsers",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/embed/index.js|unknown|require(\"../../../models/embedConfig\")|embedConfig",
+      "type": "direct-model-import",
+      "file": "endpoints/api/embed/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../../models/embedConfig\")",
+      "detail": "embedConfig",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/embed/index.js|workspaceChat|require(\"../../../models/embedChats\")|embedChats",
+      "type": "direct-model-import",
+      "file": "endpoints/api/embed/index.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../../models/embedChats\")",
+      "detail": "embedChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/system/index.js|adminSystem|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/api/system/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/userManagement/index.js|authIdentity|require(\"../../../models/temporaryAuthToken\")|temporaryAuthToken",
+      "type": "direct-model-import",
+      "file": "endpoints/api/userManagement/index.js",
+      "domain": "authIdentity",
+      "match": "require(\"../../../models/temporaryAuthToken\")",
+      "detail": "temporaryAuthToken",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/userManagement/index.js|unknown|require(\"../../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/api/userManagement/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/api/workspaceThread/index.js|workspaceThread|require(\"../../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/api/workspaceThread/index.js",
+      "domain": "workspaceThread",
+      "match": "require(\"../../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authPasskeys.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/authPasskeys.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authPasskeys.js|authIdentity|require(\"../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "endpoints/authPasskeys.js",
+      "domain": "authIdentity",
+      "match": "require(\"../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authPasskeys.js|authIdentity|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/authPasskeys.js",
+      "domain": "authIdentity",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authTrustedDevices.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/authTrustedDevices.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authZkLogin.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/authZkLogin.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authZkLogin.js|authIdentity|require(\"../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "endpoints/authZkLogin.js",
+      "domain": "authIdentity",
+      "match": "require(\"../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/authZkLogin.js|authIdentity|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/authZkLogin.js",
+      "domain": "authIdentity",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/browserExtension.js|unknown|require(\"../models/browserExtensionApiKey\")|browserExtensionApiKey",
+      "type": "direct-model-import",
+      "file": "endpoints/browserExtension.js",
+      "domain": "unknown",
+      "match": "require(\"../models/browserExtensionApiKey\")",
+      "detail": "browserExtensionApiKey",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/chat.js|workspaceChat|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/chat.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/communityHub.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/communityHub.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/communityHub.js|unknown|require(\"../models/communityHub\")|communityHub",
+      "type": "direct-model-import",
+      "file": "endpoints/communityHub.js",
+      "domain": "unknown",
+      "match": "require(\"../models/communityHub\")",
+      "detail": "communityHub",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/cryptoCenter.js|crypto|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/cryptoCenter.js",
+      "domain": "crypto",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/embed/index.js|workspaceChat|require(\"../../models/embedChats\")|embedChats",
+      "type": "direct-model-import",
+      "file": "endpoints/embed/index.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../models/embedChats\")",
+      "detail": "embedChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/embedManagement.js|unknown|require(\"../models/embedConfig\")|embedConfig",
+      "type": "direct-model-import",
+      "file": "endpoints/embedManagement.js",
+      "domain": "unknown",
+      "match": "require(\"../models/embedConfig\")",
+      "detail": "embedConfig",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/embedManagement.js|workspaceChat|require(\"../models/embedChats\")|embedChats",
+      "type": "direct-model-import",
+      "file": "endpoints/embedManagement.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../models/embedChats\")",
+      "detail": "embedChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/experimental/liveSync.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/experimental/liveSync.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/experimental/liveSync.js|document|require(\"../../models/documentSyncQueue\")|documentSyncQueue",
+      "type": "direct-model-import",
+      "file": "endpoints/experimental/liveSync.js",
+      "domain": "document",
+      "match": "require(\"../../models/documentSyncQueue\")",
+      "detail": "documentSyncQueue",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/invite.js|authIdentity|require(\"../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "endpoints/invite.js",
+      "domain": "authIdentity",
+      "match": "require(\"../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/invite.js|unknown|require(\"../models/emailVerification\")|emailVerification",
+      "type": "direct-model-import",
+      "file": "endpoints/invite.js",
+      "domain": "unknown",
+      "match": "require(\"../models/emailVerification\")",
+      "detail": "emailVerification",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/invite.js|unknown|require(\"../models/invite\")|invite",
+      "type": "direct-model-import",
+      "file": "endpoints/invite.js",
+      "domain": "unknown",
+      "match": "require(\"../models/invite\")",
+      "detail": "invite",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/invite.js|unknown|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/invite.js",
+      "domain": "unknown",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mindMaps.js|workspace|require(\"../models/workspaceMindMaps\")|workspaceMindMaps",
+      "type": "direct-model-import",
+      "file": "endpoints/mindMaps.js",
+      "domain": "workspace",
+      "match": "require(\"../models/workspaceMindMaps\")",
+      "detail": "workspaceMindMaps",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mobile/index.js|unknown|require(\"../../models/mobileDevice\")|mobileDevice",
+      "type": "direct-model-import",
+      "file": "endpoints/mobile/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/mobileDevice\")",
+      "detail": "mobileDevice",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mobile/middleware/index.js|adminSystem|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/mobile/middleware/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mobile/middleware/index.js|unknown|require(\"../../../models/mobileDevice\")|mobileDevice",
+      "type": "direct-model-import",
+      "file": "endpoints/mobile/middleware/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../../models/mobileDevice\")",
+      "detail": "mobileDevice",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mobile/middleware/index.js|unknown|require(\"../../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/mobile/middleware/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/mobile/utils/index.js|unknown|require(\"../../../models/mobileDevice\")|mobileDevice",
+      "type": "direct-model-import",
+      "file": "endpoints/mobile/utils/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../../models/mobileDevice\")",
+      "detail": "mobileDevice",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/nodeSupplements.js|unknown|require(\"../models/nodeSupplement\")|nodeSupplement",
+      "type": "direct-model-import",
+      "file": "endpoints/nodeSupplements.js",
+      "domain": "unknown",
+      "match": "require(\"../models/nodeSupplement\")",
+      "detail": "nodeSupplement",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/scheduledJobs.js|unknown|require(\"../models/scheduledJob\")|scheduledJob",
+      "type": "direct-model-import",
+      "file": "endpoints/scheduledJobs.js",
+      "domain": "unknown",
+      "match": "require(\"../models/scheduledJob\")",
+      "detail": "scheduledJob",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/scheduledJobs.js|unknown|require(\"../models/scheduledJobRun\")|scheduledJobRun",
+      "type": "direct-model-import",
+      "file": "endpoints/scheduledJobs.js",
+      "domain": "unknown",
+      "match": "require(\"../models/scheduledJobRun\")",
+      "detail": "scheduledJobRun",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/syncCenter.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/syncCenter.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/agentSkillWhitelist\")|agentSkillWhitelist",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/agentSkillWhitelist\")",
+      "detail": "agentSkillWhitelist",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/apiKeys\")|apiKeys",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/apiKeys\")",
+      "detail": "apiKeys",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/browserExtensionApiKey\")|browserExtensionApiKey",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/browserExtensionApiKey\")",
+      "detail": "browserExtensionApiKey",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/emailVerification\")|emailVerification",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/emailVerification\")",
+      "detail": "emailVerification",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/embeddingBatchJob\")|embeddingBatchJob",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/embeddingBatchJob\")",
+      "detail": "embeddingBatchJob",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/slashCommandsPresets\")|slashCommandsPresets",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/slashCommandsPresets\")",
+      "detail": "slashCommandsPresets",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/systemPromptVariables\")|systemPromptVariables",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemPromptVariables\")",
+      "detail": "systemPromptVariables",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/temporaryAuthToken\")|temporaryAuthToken",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/temporaryAuthToken\")",
+      "detail": "temporaryAuthToken",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/userMemory\")|userMemory",
+      "type": "direct-model-import",
+      "file": "endpoints/system.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/userMemory\")",
+      "detail": "userMemory",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/telegram.js|unknown|require(\"../models/externalCommunicationConnector\")|externalCommunicationConnector",
+      "type": "direct-model-import",
+      "file": "endpoints/telegram.js",
+      "domain": "unknown",
+      "match": "require(\"../models/externalCommunicationConnector\")",
+      "detail": "externalCommunicationConnector",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/utils.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/utils.js",
+      "domain": "adminSystem",
+      "match": "require(\"../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/utils/outlookAgentUtils.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "endpoints/utils/outlookAgentUtils.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/vault.js|vault|require(\"../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "endpoints/vault.js",
+      "domain": "vault",
+      "match": "require(\"../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/wechat.js|workspaceChat|require(\"../models/externalCommunicationConnector\")|externalCommunicationConnector",
+      "type": "direct-model-import",
+      "file": "endpoints/wechat.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../models/externalCommunicationConnector\")",
+      "detail": "externalCommunicationConnector",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/wechat.js|workspaceThread|require(\"../models/wechatGatewayThread\")|wechatGatewayThread",
+      "type": "direct-model-import",
+      "file": "endpoints/wechat.js",
+      "domain": "workspaceThread",
+      "match": "require(\"../models/wechatGatewayThread\")",
+      "detail": "wechatGatewayThread",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/workspaces.js|workspace|require(\"../models/workspacesSuggestedMessages\")|workspacesSuggestedMessages",
+      "type": "direct-model-import",
+      "file": "endpoints/workspaces.js",
+      "domain": "workspace",
+      "match": "require(\"../models/workspacesSuggestedMessages\")",
+      "detail": "workspacesSuggestedMessages",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/workspaceSupplements.js|workspace|require(\"../models/workspaceSupplement\")|workspaceSupplement",
+      "type": "direct-model-import",
+      "file": "endpoints/workspaceSupplements.js",
+      "domain": "workspace",
+      "match": "require(\"../models/workspaceSupplement\")",
+      "detail": "workspaceSupplement",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/workspaceThreads.js|workspaceThread|require(\"../models/wechatGatewayThread\")|wechatGatewayThread",
+      "type": "direct-model-import",
+      "file": "endpoints/workspaceThreads.js",
+      "domain": "workspaceThread",
+      "match": "require(\"../models/wechatGatewayThread\")",
+      "detail": "wechatGatewayThread",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|endpoints/workspaceVisualAssets.js|workspace|require(\"../models/workspaceVisualAsset\")|workspaceVisualAsset",
+      "type": "direct-model-import",
+      "file": "endpoints/workspaceVisualAssets.js",
+      "domain": "workspace",
+      "match": "require(\"../models/workspaceVisualAsset\")",
+      "detail": "workspaceVisualAsset",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/authz/resourceAccess.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/authz/resourceAccess.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/authz/resourceAccess.js|authIdentity|require(\"../../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "utils/authz/resourceAccess.js",
+      "domain": "authIdentity",
+      "match": "require(\"../../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/authz/resourceAccess.js|authIdentity|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/authz/resourceAccess.js",
+      "domain": "authIdentity",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/authz/resourceAccess.js|workspace|require(\"../../models/workspaceAgentInvocation\")|workspaceAgentInvocation",
+      "type": "direct-model-import",
+      "file": "utils/authz/resourceAccess.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/workspaceAgentInvocation\")",
+      "detail": "workspaceAgentInvocation",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/BackgroundWorkers/index.js|document|require(\"../../models/documentSyncQueue\")|documentSyncQueue",
+      "type": "direct-model-import",
+      "file": "utils/BackgroundWorkers/index.js",
+      "domain": "document",
+      "match": "require(\"../../models/documentSyncQueue\")",
+      "detail": "documentSyncQueue",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/BackgroundWorkers/index.js|unknown|require(\"../../models/scheduledJob\")|scheduledJob",
+      "type": "direct-model-import",
+      "file": "utils/BackgroundWorkers/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/scheduledJob\")",
+      "detail": "scheduledJob",
+      "count": 2
+    },
+    {
+      "key": "direct-model-import|utils/BackgroundWorkers/index.js|unknown|require(\"../../models/scheduledJobRun\")|scheduledJobRun",
+      "type": "direct-model-import",
+      "file": "utils/BackgroundWorkers/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/scheduledJobRun\")",
+      "detail": "scheduledJobRun",
+      "count": 2
+    },
+    {
+      "key": "direct-model-import|utils/boot/markOnboarded.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/boot/markOnboarded.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/boot/MetaGenerator.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/boot/MetaGenerator.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 2
+    },
+    {
+      "key": "direct-model-import|utils/cryptoGate/tradeRecordCycles.js|crypto|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/cryptoGate/tradeRecordCycles.js",
+      "domain": "crypto",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/fileAccessPolicy/index.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/fileAccessPolicy/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/files/index.js|document|require(\"../../models/documentSyncQueue\")|documentSyncQueue",
+      "type": "direct-model-import",
+      "file": "utils/files/index.js",
+      "domain": "document",
+      "match": "require(\"../../models/documentSyncQueue\")",
+      "detail": "documentSyncQueue",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/files/logo.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/files/logo.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/files/pfp.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/files/pfp.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/files/pfp.js|workspace|require(\"../../models/workspace\")|workspace",
+      "type": "direct-model-import",
+      "file": "utils/files/pfp.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/workspace\")",
+      "detail": "workspace",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/helpers/chat/convertTo.js|workspaceChat|require(\"../../../models/embedChats\")|embedChats",
+      "type": "direct-model-import",
+      "file": "utils/helpers/chat/convertTo.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../../models/embedChats\")",
+      "detail": "embedChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/helpers/chat/convertTo.js|workspaceChat|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/helpers/chat/convertTo.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/helpers/chat/convertTo.js|workspaceChat|require(\"../../../models/workspaceChats\")|workspaceChats",
+      "type": "direct-model-import",
+      "file": "utils/helpers/chat/convertTo.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../../models/workspaceChats\")",
+      "detail": "workspaceChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/helpers/search.js|workspace|require(\"../../models/workspace\")|workspace",
+      "type": "direct-model-import",
+      "file": "utils/helpers/search.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/workspace\")",
+      "detail": "workspace",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/helpers/search.js|workspaceThread|require(\"../../models/workspaceThread\")|workspaceThread",
+      "type": "direct-model-import",
+      "file": "utils/helpers/search.js",
+      "domain": "workspaceThread",
+      "match": "require(\"../../models/workspaceThread\")",
+      "detail": "workspaceThread",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/http/index.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/http/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/communityHubDownloadsEnabled.js|unknown|require(\"../../models/communityHub\")|communityHub",
+      "type": "direct-model-import",
+      "file": "utils/middleware/communityHubDownloadsEnabled.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/communityHub\")",
+      "detail": "communityHub",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/embedMiddleware.js|unknown|require(\"../../models/embedConfig\")|embedConfig",
+      "type": "direct-model-import",
+      "file": "utils/middleware/embedMiddleware.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/embedConfig\")",
+      "detail": "embedConfig",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/embedMiddleware.js|workspaceChat|require(\"../../models/embedChats\")|embedChats",
+      "type": "direct-model-import",
+      "file": "utils/middleware/embedMiddleware.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../models/embedChats\")",
+      "detail": "embedChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/featureFlagEnabled.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/featureFlagEnabled.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/multiUserProtected.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/multiUserProtected.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/simpleSSOEnabled.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/simpleSSOEnabled.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validApiKey.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validApiKey.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validApiKey.js|unknown|require(\"../../models/apiKeys\")|apiKeys",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validApiKey.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/apiKeys\")",
+      "detail": "apiKeys",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validatedRequest.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validatedRequest.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validatedRequest.js|authIdentity|require(\"../../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validatedRequest.js",
+      "domain": "authIdentity",
+      "match": "require(\"../../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validatedRequest.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validatedRequest.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validBrowserExtensionApiKey.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validBrowserExtensionApiKey.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validBrowserExtensionApiKey.js|unknown|require(\"../../models/browserExtensionApiKey\")|browserExtensionApiKey",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validBrowserExtensionApiKey.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/browserExtensionApiKey\")",
+      "detail": "browserExtensionApiKey",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/middleware/validBrowserExtensionApiKey.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/middleware/validBrowserExtensionApiKey.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/mindMap/graph.js|knowledgeGraph|require(\"../../models/knowledgeGraph\")|knowledgeGraph",
+      "type": "direct-model-import",
+      "file": "utils/mindMap/graph.js",
+      "domain": "knowledgeGraph",
+      "match": "require(\"../../models/knowledgeGraph\")",
+      "detail": "knowledgeGraph",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/mindMap/index.js|workspace|require(\"../../models/workspaceMindMaps\")|workspaceMindMaps",
+      "type": "direct-model-import",
+      "file": "utils/mindMap/index.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/workspaceMindMaps\")",
+      "detail": "workspaceMindMaps",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/mindMap/index.js|workspaceChat|require(\"../../models/workspaceChats\")|workspaceChats",
+      "type": "direct-model-import",
+      "file": "utils/mindMap/index.js",
+      "domain": "workspaceChat",
+      "match": "require(\"../../models/workspaceChats\")",
+      "detail": "workspaceChats",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/mindMap/index.js|workspaceThread|require(\"../../models/workspaceThread\")|workspaceThread",
+      "type": "direct-model-import",
+      "file": "utils/mindMap/index.js",
+      "domain": "workspaceThread",
+      "match": "require(\"../../models/workspaceThread\")",
+      "detail": "workspaceThread",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/nodeSupplementContext.js|unknown|require(\"../models/nodeSupplement\")|nodeSupplement",
+      "type": "direct-model-import",
+      "file": "utils/nodeSupplementContext.js",
+      "domain": "unknown",
+      "match": "require(\"../models/nodeSupplement\")",
+      "detail": "nodeSupplement",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PasswordRecovery/index.js|authIdentity|require(\"../../models/authIdentity\")|authIdentity",
+      "type": "direct-model-import",
+      "file": "utils/PasswordRecovery/index.js",
+      "domain": "authIdentity",
+      "match": "require(\"../../models/authIdentity\")",
+      "detail": "authIdentity",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PasswordRecovery/index.js|unknown|require(\"../../models/emailVerification\")|emailVerification",
+      "type": "direct-model-import",
+      "file": "utils/PasswordRecovery/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/emailVerification\")",
+      "detail": "emailVerification",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PasswordRecovery/index.js|unknown|require(\"../../models/passwordRecovery\")|passwordRecovery",
+      "type": "direct-model-import",
+      "file": "utils/PasswordRecovery/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/passwordRecovery\")",
+      "detail": "passwordRecovery",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PasswordRecovery/index.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/PasswordRecovery/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PushNotifications/index.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/PushNotifications/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/PushNotifications/index.js|unknown|require(\"../../models/user\")|user",
+      "type": "direct-model-import",
+      "file": "utils/PushNotifications/index.js",
+      "domain": "unknown",
+      "match": "require(\"../../models/user\")",
+      "detail": "user",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/astra/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/astra/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/chroma/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/chroma/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/lance/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/lance/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/milvus/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/milvus/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/pgvector/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/pgvector/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/pinecone/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/pinecone/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/qdrant/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/qdrant/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorDbProviders/weaviate/index.js|documentVector|require(\"../../../models/systemSettings\")|systemSettings",
+      "type": "direct-model-import",
+      "file": "utils/vectorDbProviders/weaviate/index.js",
+      "domain": "documentVector",
+      "match": "require(\"../../../models/systemSettings\")",
+      "detail": "systemSettings",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/vectorStore/resetAllVectorStores.js|workspace|require(\"../../models/workspace\")|workspace",
+      "type": "direct-model-import",
+      "file": "utils/vectorStore/resetAllVectorStores.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/workspace\")",
+      "detail": "workspace",
+      "count": 1
+    },
+    {
+      "key": "direct-model-import|utils/workspaceHealth/beacon.js|workspace|require(\"../../models/knowledgeGraph\")|knowledgeGraph",
+      "type": "direct-model-import",
+      "file": "utils/workspaceHealth/beacon.js",
+      "domain": "workspace",
+      "match": "require(\"../../models/knowledgeGraph\")",
+      "detail": "knowledgeGraph",
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-access|endpoints/admin.js|adminSystem|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "endpoints/admin.js",
+      "domain": "adminSystem",
+      "match": "prisma.",
+      "detail": null,
+      "count": 2
+    },
+    {
+      "key": "direct-prisma-access|endpoints/authTrustedDevices.js|authIdentity|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "endpoints/authTrustedDevices.js",
+      "domain": "authIdentity",
+      "match": "prisma.",
+      "detail": null,
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-access|endpoints/authZkLogin.js|authIdentity|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "endpoints/authZkLogin.js",
+      "domain": "authIdentity",
+      "match": "prisma.",
+      "detail": null,
+      "count": 3
+    },
+    {
+      "key": "direct-prisma-access|endpoints/mobile/utils/index.js|unknown|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "endpoints/mobile/utils/index.js",
+      "domain": "unknown",
+      "match": "prisma.",
+      "detail": null,
+      "count": 6
+    },
+    {
+      "key": "direct-prisma-access|endpoints/workspaceSupplements.js|workspace|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "endpoints/workspaceSupplements.js",
+      "domain": "workspace",
+      "match": "prisma.",
+      "detail": null,
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-access|utils/BackgroundWorkers/index.js|unknown|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "utils/BackgroundWorkers/index.js",
+      "domain": "unknown",
+      "match": "prisma.",
+      "detail": null,
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-access|utils/mindMap/graph.js|unknown|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "utils/mindMap/graph.js",
+      "domain": "unknown",
+      "match": "prisma.",
+      "detail": null,
+      "count": 4
+    },
+    {
+      "key": "direct-prisma-access|utils/nodeSupplementContext.js|unknown|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "utils/nodeSupplementContext.js",
+      "domain": "unknown",
+      "match": "prisma.",
+      "detail": null,
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-access|utils/workspaceHealth/beacon.js|workspace|prisma.|",
+      "type": "direct-prisma-access",
+      "file": "utils/workspaceHealth/beacon.js",
+      "domain": "workspace",
+      "match": "prisma.",
+      "detail": null,
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-client-import|utils/accountDeletion.js|unknown|require(\"@prisma/client\")|@prisma/client",
+      "type": "direct-prisma-client-import",
+      "file": "utils/accountDeletion.js",
+      "domain": "unknown",
+      "match": "require(\"@prisma/client\")",
+      "detail": "@prisma/client",
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-client-import|utils/authPrisma/index.js|authIdentity|require(\"@prisma/client\")|@prisma/client",
+      "type": "direct-prisma-client-import",
+      "file": "utils/authPrisma/index.js",
+      "domain": "authIdentity",
+      "match": "require(\"@prisma/client\")",
+      "detail": "@prisma/client",
+      "count": 1
+    },
+    {
+      "key": "direct-prisma-client-import|utils/systemPatrol/index.js|adminSystem|require(\"@prisma/client\")|@prisma/client",
+      "type": "direct-prisma-client-import",
+      "file": "utils/systemPatrol/index.js",
+      "domain": "adminSystem",
+      "match": "require(\"@prisma/client\")",
+      "detail": "@prisma/client",
+      "count": 1
+    }
+  ]
+}

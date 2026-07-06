@@ -776,6 +776,15 @@ export function createAgentWebSocketSession({
     return result;
   }
 
+  function markClientInputSent(reason = "client_input_sent") {
+    if (session.current !== AgentSessionState.WAITING_ON_INPUT) return false;
+    emittedTurnFinal = false;
+    emittedFinalWithChatId = false;
+    transition(AgentSessionState.OPEN, reason);
+    scheduleSilenceTimer();
+    return true;
+  }
+
   async function stop(reason = "user_stop") {
     if (emittedStop || isTerminal()) {
       return {
@@ -861,6 +870,7 @@ export function createAgentWebSocketSession({
     sendFeedback,
     respondToApproval,
     respondToClarification,
+    markClientInputSent,
     reconnect,
     getState: () => snapshot(),
     isTerminal,

@@ -3,7 +3,9 @@ const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
 const { PrismaClient } = require("@prisma/client");
-const prisma = require("../prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const SystemPatrolData = lazyDataAccessFacade("systemPatrol");
+const systemPatrolDb = SystemPatrolData.db;
 const {
   appEnvironment,
   authDatabasePath,
@@ -15,9 +17,13 @@ const {
   vectorNamespace,
   vectorNamespacePrefix,
 } = require("../environment");
-const { Workspace } = require("../../models/workspace");
-const { Document } = require("../../models/documents");
-const { DocumentVectors } = require("../../models/vectors");
+const Workspace = SystemPatrolData.workspace;
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
+const {
+  DocumentVectorRepository: DocumentVectors,
+} = require("../../repositories/documentVectorRepository");
 const {
   auditSharedAuthIdentity,
 } = require("../../scripts/audit-shared-auth-identity");
@@ -100,7 +106,7 @@ function summarizeChecks(checks = []) {
 }
 
 async function ensurePatrolTables() {
-  await prisma.$executeRawUnsafe(`
+  await systemPatrolDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "${RUN_TABLE}" (
       "id" INTEGER PRIMARY KEY AUTOINCREMENT,
       "mode" TEXT NOT NULL DEFAULT 'light',
@@ -116,7 +122,7 @@ async function ensurePatrolTables() {
       "completedAt" DATETIME
     )
   `);
-  await prisma.$executeRawUnsafe(`
+  await systemPatrolDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "${REPAIR_TABLE}" (
       "id" INTEGER PRIMARY KEY AUTOINCREMENT,
       "repairId" TEXT NOT NULL UNIQUE,
@@ -133,30 +139,32 @@ async function ensurePatrolTables() {
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `CREATE INDEX IF NOT EXISTS "system_patrol_runs_startedAt_idx" ON "${RUN_TABLE}" ("startedAt")`
   );
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `CREATE INDEX IF NOT EXISTS "system_patrol_repairs_repairId_idx" ON "${REPAIR_TABLE}" ("repairId")`
   );
 }
 
 async function createRun({ mode, trigger, triggeredBy }) {
   await ensurePatrolTables();
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `INSERT INTO "${RUN_TABLE}" ("mode", "status", "trigger", "triggeredBy", "startedAt")
      VALUES (?, 'running', ?, ?, CURRENT_TIMESTAMP)`,
     mode,
     trigger,
     triggeredBy || null
   );
-  const rows = await prisma.$queryRawUnsafe(`SELECT last_insert_rowid() AS id`);
+  const rows = await systemPatrolDb.$queryRawUnsafe(
+    `SELECT last_insert_rowid() AS id`
+  );
   return Number(rows?.[0]?.id);
 }
 
 async function completeRun(runId, report) {
   const summary = summarizeChecks(report.checks);
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `UPDATE "${RUN_TABLE}"
      SET "status" = 'completed',
          "summaryScore" = ?,
@@ -175,7 +183,7 @@ async function completeRun(runId, report) {
 }
 
 async function failRun(runId, error) {
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `UPDATE "${RUN_TABLE}"
      SET "status" = 'failed',
          "error" = ?,
@@ -266,8 +274,9 @@ async function checkStorage() {
 
 async function checkMainDatabase() {
   try {
-    const quickCheck = await prisma.$queryRawUnsafe("PRAGMA quick_check");
-    const tableCount = await prisma.$queryRawUnsafe(
+    const quickCheck =
+      await systemPatrolDb.$queryRawUnsafe("PRAGMA quick_check");
+    const tableCount = await systemPatrolDb.$queryRawUnsafe(
       "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'"
     );
     return [
@@ -314,7 +323,7 @@ async function checkSharedAuth({ deep = false } = {}) {
   try {
     const summary = await withAuthDb((authDb) =>
       auditSharedAuthIdentity({
-        envDb: prisma,
+        envDb: systemPatrolDb,
         authDb,
         envName: appEnvironment(),
         dryRun: true,
@@ -423,7 +432,7 @@ async function checkVectorNamespaces({ deep = false } = {}) {
       const bare = workspace.slug;
       const expectedCount = counts[expected] || 0;
       const bareCount = counts[bare] || 0;
-      const dbVectorCount = await prisma.document_vectors.count({
+      const dbVectorCount = await systemPatrolDb.document_vectors.count({
         where: {
           docId: {
             in: (await Document.forWorkspace(workspace.id)).map(
@@ -523,7 +532,7 @@ async function workspaceDocumentVectorIssues(
       if (relative.startsWith("../") || relative === "..") return true;
       return !fs.existsSync(fullPath);
     });
-    const indexStatuses = await prisma.documentIndexStatus.findMany({
+    const indexStatuses = await systemPatrolDb.documentIndexStatus.findMany({
       where: { workspaceId: workspace.id },
       orderBy: { updatedAt: "desc" },
     });
@@ -602,7 +611,7 @@ async function checkWorkspaceConsistency({ deep = false } = {}) {
 }
 
 async function checkBackgroundWorkers() {
-  const recentRuns = await prisma
+  const recentRuns = await systemPatrolDb
     .$queryRawUnsafe(
       `SELECT "mode", "status", "summaryStatus", "startedAt", "completedAt"
      FROM "${RUN_TABLE}"
@@ -658,7 +667,7 @@ async function runSystemPatrol({
 
 async function latestRun() {
   await ensurePatrolTables();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await systemPatrolDb.$queryRawUnsafe(
     `SELECT * FROM "${RUN_TABLE}" ORDER BY "startedAt" DESC LIMIT 1`
   );
   return hydrateRun(rows?.[0] || null);
@@ -666,7 +675,7 @@ async function latestRun() {
 
 async function getRun(runId) {
   await ensurePatrolTables();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await systemPatrolDb.$queryRawUnsafe(
     `SELECT * FROM "${RUN_TABLE}" WHERE "id" = ? LIMIT 1`,
     Number(runId)
   );
@@ -700,7 +709,7 @@ async function status() {
 
 async function findRepairInRuns(id) {
   await ensurePatrolTables();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await systemPatrolDb.$queryRawUnsafe(
     `SELECT * FROM "${RUN_TABLE}" ORDER BY "startedAt" DESC LIMIT 25`
   );
   for (const row of rows) {
@@ -763,7 +772,7 @@ async function vectorPromotePreview() {
 async function authFixPreview() {
   const summary = await withAuthDb((authDb) =>
     auditSharedAuthIdentity({
-      envDb: prisma,
+      envDb: systemPatrolDb,
       authDb,
       envName: appEnvironment(),
       dryRun: true,
@@ -809,7 +818,7 @@ async function previewRepair(repairIdValue) {
       );
   }
 
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `INSERT INTO "${REPAIR_TABLE}"
        ("repairId", "runId", "checkId", "action", "status", "previewJson", "updatedAt")
      VALUES (?, ?, ?, ?, 'previewed', ?, CURRENT_TIMESTAMP)
@@ -888,7 +897,7 @@ async function executeAuthFix(preview) {
 
   const summary = await withAuthDb((authDb) =>
     auditSharedAuthIdentity({
-      envDb: prisma,
+      envDb: systemPatrolDb,
       authDb,
       envName: appEnvironment(),
       dryRun: false,
@@ -919,7 +928,7 @@ async function confirmRepair(repairIdValue, { confirmedBy = null } = {}) {
       throw new Error(`Unsupported repair action: ${action.action}`);
   }
 
-  await prisma.$executeRawUnsafe(
+  await systemPatrolDb.$executeRawUnsafe(
     `UPDATE "${REPAIR_TABLE}"
      SET "status" = 'completed',
          "confirmedBy" = ?,

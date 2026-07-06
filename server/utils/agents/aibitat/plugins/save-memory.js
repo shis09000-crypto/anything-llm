@@ -1,5 +1,6 @@
-const { User } = require("../../../../models/user");
-const { UserMemory } = require("../../../../models/userMemory");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const User = lazyDataAccessFacade("user");
+const UserMemory = lazyDataAccessFacade("userMemory");
 const {
   SAVE_MEMORY_TOOL_NAME,
   approvalPayloadForMemory,
@@ -119,7 +120,9 @@ const saveMemory = {
                 id: result.memory.id,
                 category: result.memory.category,
                 title: input.title,
-                detail: input.isSensitive ? UserMemory.maskedText : input.detail,
+                detail: input.isSensitive
+                  ? UserMemory.maskedText
+                  : input.detail,
                 source: result.memory.source,
                 confidence: 1,
                 isSensitive: input.isSensitive,

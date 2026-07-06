@@ -1,7 +1,9 @@
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
 const { getEmbeddingEngineSelection, getVectorDbClass } = require("../helpers");
-const {
-  WorkspaceKnowledgeProfile,
-} = require("../../models/workspaceKnowledgeProfile");
+const WorkspaceKnowledgeProfile = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "workspaceKnowledgeProfile"
+);
 const { buildWorkspaceKnowledgeProfile } = require("./workspaceProfileBuilder");
 const {
   sourceRefForChunk,

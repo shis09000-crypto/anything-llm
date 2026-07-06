@@ -1,4 +1,7 @@
-const { SystemSettings } = require("../../../../../../models/systemSettings");
+const {
+  lazyDataAccessFacade,
+} = require("../../../../../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 const { safeJsonParse } = require("../../../../../http");
 
 /**

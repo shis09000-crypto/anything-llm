@@ -1,4 +1,5 @@
-const { Workspace } = require("../../../../../models/workspace");
+const { lazyDataAccessFacade } = require("../../../../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
 const { getCustomModels } = require("../../../../helpers/customModels");
 const { resolveWorkspaceProvider } = require("../../index");
 

@@ -2,7 +2,9 @@ const { EmbedConfig } = require("../../../models/embedConfig");
 const { EmbedChats } = require("../../../models/embedChats");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { reqBody } = require("../../../utils/http");
-const { Workspace } = require("../../../models/workspace");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../../../repositories/workspaceRepository");
 
 function apiEmbedEndpoints(app) {
   if (!app) return;

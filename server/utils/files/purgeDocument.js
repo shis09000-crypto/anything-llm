@@ -7,29 +7,28 @@ const {
   isWithin,
   documentsPath,
 } = require(".");
-const { Document } = require("../../models/documents");
-const { Workspace } = require("../../models/workspace");
+const { DataAccessCenter } = require("../dataAccess");
 
 async function purgeDocument(filename = null) {
   if (!filename || !normalizePath(filename)) return;
 
   await purgeVectorCache(filename);
   await purgeSourceDocument(filename);
-  const workspaces = await Workspace.where();
+  const workspaces = await DataAccessCenter.workspace.where();
   for (const workspace of workspaces) {
-    await Document.removeDocuments(workspace, [filename]);
+    await DataAccessCenter.document.removeDocuments(workspace, [filename]);
   }
   return;
 }
 
 async function purgeWorkspaceDocument(workspace = null, filename = null) {
   if (!workspace || !filename || !normalizePath(filename)) return false;
-  const document = await Document.get({
+  const document = await DataAccessCenter.document.get({
     workspaceId: workspace.id,
     docpath: filename,
   });
   if (!document) return false;
-  await Document.removeDocuments(workspace, [filename]);
+  await DataAccessCenter.document.removeDocuments(workspace, [filename]);
   return true;
 }
 
@@ -69,7 +68,7 @@ async function purgeFolder(folderName = null) {
     .map((file) =>
       path.join(subFolderPath, file).replace(documentsPath + "/", "")
     );
-  const workspaces = await Workspace.where();
+  const workspaces = await DataAccessCenter.workspace.where();
 
   const purgePromises = [];
   // Remove associated Vector-cache files
@@ -85,7 +84,9 @@ async function purgeFolder(folderName = null) {
   for (const workspace of workspaces) {
     const rmWorkspaceDoc = () =>
       new Promise((resolve) =>
-        Document.removeDocuments(workspace, filenames).then(() => resolve(true))
+        DataAccessCenter.document
+          .removeDocuments(workspace, filenames)
+          .then(() => resolve(true))
       );
     purgePromises.push(rmWorkspaceDoc);
   }

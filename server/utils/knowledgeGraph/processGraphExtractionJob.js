@@ -1,4 +1,5 @@
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { extractGraphFromChunk } = require("./extractGraph");
 const { chunkForJob } = require("./chunks");
 const { mergeKnowledgeNode } = require("./mergeKnowledgeNode");

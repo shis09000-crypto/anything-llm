@@ -6,8 +6,12 @@ const {
   communityHubDownloadsEnabled,
   communityHubItem,
 } = require("../utils/middleware/communityHubDownloadsEnabled");
-const { EventLogs } = require("../models/eventLogs");
-const { Telemetry } = require("../models/telemetry");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const {
   flexUserRoleValid,
   ROLES,

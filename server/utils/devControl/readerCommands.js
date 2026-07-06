@@ -4,7 +4,10 @@ const { publishBroadcastEvent } = require("../broadcast");
 const {
   _private: reader,
 } = require("../../endpoints/workspaceReaderDocuments");
-const { UserStatePreference } = require("../../models/userStatePreference");
+const {
+  ReaderDocumentStorageProvider,
+} = require("../../providers/readerDocumentStorageProvider");
+const { DataAccessCenter } = require("../dataAccess");
 const { broadcastCenter } = require("../broadcast");
 const {
   redactDeveloperObject,
@@ -22,12 +25,6 @@ function normalizeScope(scope = {}) {
     readerDocumentId: scope.readerDocumentId || null,
     clientId: scope.clientId || null,
   };
-}
-
-function apiNamespace(workspace) {
-  return workspace?.readerStandalone
-    ? "standalone"
-    : `workspace:${workspace?.slug || "unknown"}`;
 }
 
 async function resolveWorkspace({ request, response, scope = {} } = {}) {
@@ -97,29 +94,6 @@ function postprocessSummary(workspace, readerDocumentId) {
   return redactDeveloperObject(
     reader.readerPostprocessResponse(workspace, readerDocumentId)
   );
-}
-
-function accessDescriptorSummary(workspace, readerDocumentId, metadata = {}) {
-  const canonical = reader.metadataWithOriginalUrl(
-    workspace,
-    readerDocumentId,
-    metadata
-  );
-  return {
-    readerDocumentId,
-    workspaceSlug: workspace?.readerStandalone ? null : workspace?.slug || null,
-    apiNamespace: apiNamespace(workspace),
-    ownerScope: workspace?.readerStandalone
-      ? "standalone:reader"
-      : `workspace:${workspace?.slug}:reader`,
-    hasOriginalUrl: !!canonical.originalUrl,
-    hasThumbnailUrl: !!canonical.thumbnailUrl,
-    hasPagePreviewUrl: !!canonical.pagePreviewUrl,
-    hasPreviewPdfUrl: !!canonical.previewPdfUrl,
-    streamType: canonical.stream?.type || null,
-    streamUrlPresent: !!canonical.stream?.url,
-    sensitiveSessionRequired: true,
-  };
 }
 
 function previewSummary(workspace, readerDocumentId, metadata = {}) {
@@ -248,21 +222,22 @@ async function readerCommand(
         scope,
         allowDeleted: command === "reader.document.status",
       });
+      const storageStatus = ReaderDocumentStorageProvider.status({
+        workspace: resolved.workspace,
+        readerDocumentId: resolved.readerDocumentId,
+      });
       return {
         readerDocumentId: resolved.readerDocumentId,
         workspaceSlug: resolved.workspace?.readerStandalone
           ? null
           : resolved.workspace?.slug || null,
-        deleted: reader.readerDocumentIsDeleted(
-          resolved.documentRoot,
-          resolved.metadata
-        ),
+        deleted: storageStatus.deleted,
+        storage: storageStatus,
         metadata: safeReaderMetadataSummary(resolved.metadata),
-        access: accessDescriptorSummary(
-          resolved.workspace,
-          resolved.readerDocumentId,
-          resolved.metadata
-        ),
+        access: ReaderDocumentStorageProvider.canonicalDescriptor({
+          workspace: resolved.workspace,
+          readerDocumentId: resolved.readerDocumentId,
+        }),
         postprocess: postprocessSummary(
           resolved.workspace,
           resolved.readerDocumentId
@@ -537,8 +512,44 @@ async function readerCommand(
           : {}),
       };
     }
+    case "reader.library.db.snapshot": {
+      return redactDeveloperObject({
+        authority: await DataAccessCenter.readerLibrary.snapshot({
+          userId: currentUserId(response),
+        }),
+        library: await DataAccessCenter.readerLibrary.listLibrary({
+          userId: currentUserId(response),
+          includeHidden: true,
+          includeDeleted: true,
+        }),
+      });
+    }
+    case "reader.library.db.reconcile": {
+      if (params.apply === true) {
+        return {
+          uiCommand: true,
+          ...publishUiCommand({ context, command, params, scope }),
+        };
+      }
+      return redactDeveloperObject({
+        dryRun: true,
+        authority: await DataAccessCenter.readerLibrary.snapshot({
+          userId: currentUserId(response),
+        }),
+      });
+    }
+    case "reader.library.db.bootstrap":
+    case "reader.library.db.patchItem":
+    case "reader.library.db.deleteItem":
+    case "reader.library.db.patchCategory":
+    case "reader.library.db.deleteCategory": {
+      return {
+        uiCommand: true,
+        ...publishUiCommand({ context, command, params, scope }),
+      };
+    }
     case "reader.memory.get": {
-      const states = await UserStatePreference.where({
+      const states = await DataAccessCenter.userState.where({
         userId: currentUserId(response),
         namespaces: ["reader.library"],
       });
@@ -614,6 +625,13 @@ function registerReaderCommands(registry) {
     "reader.library.refresh",
     "reader.library.normalizeLinks",
     "reader.library.hideMissing",
+    "reader.library.db.snapshot",
+    "reader.library.db.reconcile",
+    "reader.library.db.bootstrap",
+    "reader.library.db.patchItem",
+    "reader.library.db.deleteItem",
+    "reader.library.db.patchCategory",
+    "reader.library.db.deleteCategory",
     "reader.document.prepareOpen",
     "reader.document.resolveAccess",
     "reader.memory.get",

@@ -6,20 +6,22 @@ const {
   queryParams,
 } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { EventLogs } = require("../models/eventLogs");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceThread } = require("../models/workspaceThread");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { WeChatGatewayThread } = require("../models/wechatGatewayThread");
 const {
   validWorkspaceSlug,
   validWorkspaceAndThreadSlug,
 } = require("../utils/middleware/validWorkspace");
-const { WorkspaceChats } = require("../models/workspaceChats");
 const {
   convertToChatHistory,
   writeResponseChunk,
@@ -45,6 +47,10 @@ const {
   setSseTransportHeaders,
 } = require("../utils/security/transportSecurity");
 const { getClientContext } = require("../utils/clientIdentity");
+
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);

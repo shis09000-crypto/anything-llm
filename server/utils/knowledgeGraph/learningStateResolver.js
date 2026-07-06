@@ -1,7 +1,13 @@
-const prisma = require("../prisma");
 const {
-  WorkspaceKnowledgeProfile,
-} = require("../../models/workspaceKnowledgeProfile");
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const WorkspaceKnowledgeProfile = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "workspaceKnowledgeProfile"
+);
 
 function toState(row = null) {
   if (!row) {
@@ -46,7 +52,7 @@ async function getLearningState({ workspaceId, userId = 0, nodeKey }) {
   await WorkspaceKnowledgeProfile.ensureTables();
   if (!workspaceId || !nodeKey) return toState(null);
   const row = (
-    await prisma.$queryRawUnsafe(
+    await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT * FROM "NodeLearningState"
       WHERE "workspaceId" = ? AND "userId" = ? AND "nodeKey" = ?
       LIMIT 1`,
@@ -66,7 +72,7 @@ async function recordNodeView({
 }) {
   await WorkspaceKnowledgeProfile.ensureTables();
   if (!workspaceId || !nodeKey) return null;
-  await prisma.$executeRawUnsafe(
+  await knowledgeGraphDb.$executeRawUnsafe(
     `INSERT INTO "NodeLearningState" (
       "workspaceId","userId","nodeKey","viewedCount","lastViewedAt",
       "supplementCount","hasUserSupplement","updatedAt"

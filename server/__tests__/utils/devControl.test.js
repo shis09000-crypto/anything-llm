@@ -121,6 +121,9 @@ describe("Developer Control Center", () => {
     expect(registry.has("reader.preview.status")).toBe(true);
     expect(registry.has("reader.preview.retry")).toBe(true);
     expect(registry.has("reader.preview.rebuildMissing")).toBe(true);
+    expect(registry.has("reader.library.db.snapshot")).toBe(true);
+    expect(registry.has("reader.library.db.patchItem")).toBe(true);
+    expect(registry.has("reader.library.db.deleteItem")).toBe(true);
   });
 
   test("navigation control rejects external paths", () => {

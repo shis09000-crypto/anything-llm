@@ -2753,7 +2753,7 @@ export function ChatThreadDraftProvider({ children }) {
 
       let sendResult = { ok: true, transport: "local" };
       let websocketResult = null;
-      let fallbackAttempted = false;
+      let websocketFallbackAttempted = false;
 
       if (!payload.timedOut) {
         const turn = findAssistantTurn(draft.items || [], turnId);
@@ -2795,57 +2795,64 @@ export function ChatThreadDraftProvider({ children }) {
           );
           await waitForAgentSessionOpen(agentSession);
         }
-        if (typeof agentSession?.respondToClarification !== "function") {
-          websocketResult = {
-            ok: false,
-            reason: "agent_session_missing",
-            transport: "websocket",
-          };
-        } else if (!agentSession.isOpen?.()) {
-          await waitForAgentSessionOpen(agentSession);
-        }
 
-        if (!websocketResult) {
-          websocketResult = await agentSession.respondToClarification(
-            requestId,
-            payload
-          );
-          if (
-            !websocketResult?.ok &&
-            ["not_open", "sign_or_send_failed"].includes(
-              websocketResult?.reason
-            )
-          ) {
-            const reopened = await waitForAgentSessionOpen(agentSession, 8_000);
-            if (reopened) {
-              websocketResult = await agentSession.respondToClarification(
-                requestId,
-                payload
+        sendResult = await respondToClarificationViaHttp(
+          turn?.websocketUUID,
+          requestId,
+          payload
+        );
+
+        if (sendResult?.ok) {
+          agentSession?.markClientInputSent?.("clarification_http_sent");
+        } else {
+          websocketFallbackAttempted = true;
+          if (typeof agentSession?.respondToClarification !== "function") {
+            websocketResult = {
+              ok: false,
+              reason: "agent_session_missing",
+              transport: "websocket",
+            };
+          } else if (!agentSession.isOpen?.()) {
+            await waitForAgentSessionOpen(agentSession);
+          }
+
+          if (!websocketResult) {
+            websocketResult = await agentSession.respondToClarification(
+              requestId,
+              payload
+            );
+            if (
+              !websocketResult?.ok &&
+              ["not_open", "sign_or_send_failed"].includes(
+                websocketResult?.reason
+              )
+            ) {
+              const reopened = await waitForAgentSessionOpen(
+                agentSession,
+                8_000
               );
+              if (reopened) {
+                websocketResult = await agentSession.respondToClarification(
+                  requestId,
+                  payload
+                );
+              }
             }
           }
-        }
 
-        sendResult = websocketResult?.ok
-          ? { ...websocketResult, transport: "websocket" }
-          : websocketResult;
-
-        if (!sendResult?.ok) {
-          fallbackAttempted = true;
-          const fallbackResult = await respondToClarificationViaHttp(
-            turn?.websocketUUID,
-            requestId,
-            payload
-          );
-          sendResult = fallbackResult?.ok
+          sendResult = websocketResult?.ok
             ? {
-                ...fallbackResult,
-                websocketReason: websocketResult?.reason || null,
+                ...websocketResult,
+                transport: "websocket",
+                httpReason: sendResult?.reason || null,
               }
             : {
-                ...fallbackResult,
+                ...sendResult,
                 websocketReason: websocketResult?.reason || null,
               };
+          if (websocketResult?.ok) {
+            agentSession?.markClientInputSent?.("clarification_ws_sent");
+          }
         }
 
         if (!sendResult?.ok) {
@@ -2855,7 +2862,7 @@ export function ChatThreadDraftProvider({ children }) {
               requestId,
               reason: sendResult?.reason || "clarification_send_failed",
               websocketReason: websocketResult?.reason || null,
-              fallbackAttempted,
+              websocketFallbackAttempted,
               error: sendResult?.error?.message || null,
               state: agentSession?.getState?.() || null,
             };
@@ -2868,7 +2875,7 @@ export function ChatThreadDraftProvider({ children }) {
             ok: false,
             reason: sendResult?.reason || "clarification_send_failed",
             websocketReason: websocketResult?.reason || null,
-            fallbackAttempted,
+            fallbackAttempted: websocketFallbackAttempted,
             error: sendResult?.error,
           };
         }
@@ -2883,8 +2890,8 @@ export function ChatThreadDraftProvider({ children }) {
 
       return {
         ok: true,
-        transport: sendResult?.transport || "websocket",
-        fallbackAttempted,
+        transport: sendResult?.transport || "http_fallback",
+        fallbackAttempted: websocketFallbackAttempted,
         websocketReason: websocketResult?.reason || null,
       };
     },

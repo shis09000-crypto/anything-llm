@@ -1,5 +1,7 @@
 const crypto = require("crypto");
-const prisma = require("../prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const RequestSigningData = lazyDataAccessFacade("requestSigning");
+const requestSigningDb = RequestSigningData.db;
 const { EncryptionManager } = require("../EncryptionManager");
 const { isSecretEncrypted, readSecret, saveSecret } = require("../security");
 const {
@@ -163,6 +165,10 @@ function canonicalPathForRequest(request) {
   return request?.originalUrl || request?.url || "/";
 }
 
+function canonicalWebSocketPathForRequest(request) {
+  return canonicalPathForRequest(request).split("?")[0] || "/";
+}
+
 function canonicalSigningString({
   method,
   canonicalPath,
@@ -274,7 +280,7 @@ async function ensureClientDevicePublicKey({
   }
 
   if (!client.publicKey) {
-    await prisma.athena_clients.updateMany({
+    await requestSigningDb.athena_clients.updateMany({
       where: {
         userId: Number(userId),
         clientId: String(clientId),
@@ -543,7 +549,7 @@ async function cleanupExpiredNonces() {
   lastNonceCleanupAt = now;
 
   try {
-    await prisma.athena_request_nonces.deleteMany({
+    await requestSigningDb.athena_request_nonces.deleteMany({
       where: { expiresAt: { lt: new Date(now) } },
     });
   } catch (error) {
@@ -552,7 +558,10 @@ async function cleanupExpiredNonces() {
 }
 
 async function auditNonceVolume({ clientId, userId } = {}) {
-  if (!clientId || typeof prisma.athena_request_nonces.count !== "function")
+  if (
+    !clientId ||
+    typeof requestSigningDb.athena_request_nonces.count !== "function"
+  )
     return;
 
   const threshold = numericEnv("ATHENA_NONCE_WARNING_THRESHOLD", 5_000);
@@ -561,12 +570,14 @@ async function auditNonceVolume({ clientId, userId } = {}) {
   if (now - lastAuditAt < NONCE_VOLUME_AUDIT_INTERVAL_MS) return;
 
   try {
-    const activeNonceCount = await prisma.athena_request_nonces.count({
-      where: {
-        clientId: String(clientId),
-        expiresAt: { gt: new Date(now) },
-      },
-    });
+    const activeNonceCount = await requestSigningDb.athena_request_nonces.count(
+      {
+        where: {
+          clientId: String(clientId),
+          expiresAt: { gt: new Date(now) },
+        },
+      }
+    );
     if (activeNonceCount >= threshold) {
       nonceVolumeAuditAt.set(clientId, now);
       const metadata = productionRuntime()
@@ -603,7 +614,7 @@ async function clientSigningSecret({ userId, clientId } = {}) {
   }
   if (secret && !isSecretEncrypted(client.signingSecretEncrypted)) {
     try {
-      await prisma.athena_clients.updateMany({
+      await requestSigningDb.athena_clients.updateMany({
         where: {
           userId: Number(userId),
           clientId: String(clientId),
@@ -669,7 +680,7 @@ async function ensureClientSigningSecret({ context } = {}) {
   });
 
   const issuedAt = new Date();
-  await prisma.athena_clients.updateMany({
+  await requestSigningDb.athena_clients.updateMany({
     where: {
       userId: Number(context.userId),
       clientId: String(context.clientId),
@@ -712,7 +723,7 @@ async function rotateSigningSecret({
 
   const issuedAt = new Date();
   const signingSecretVersion = newSigningSecretVersion();
-  const result = await prisma.athena_clients.updateMany({
+  const result = await requestSigningDb.athena_clients.updateMany({
     where: {
       userId: Number(userId),
       clientId: String(clientId),
@@ -750,7 +761,7 @@ async function rotateAllSigningSecrets({ userId, currentClientId } = {}) {
   if (!userId || !currentClientId || currentClientId === "legacy") {
     return { count: 0, currentClient: null, clients: [] };
   }
-  const clients = await prisma.athena_clients.findMany({
+  const clients = await requestSigningDb.athena_clients.findMany({
     where: {
       userId: Number(userId),
       revokedAt: null,
@@ -781,7 +792,7 @@ async function claimNonce({ clientId, userId, nonce, requestId, timestampMs }) {
   await cleanupExpiredNonces();
   await auditNonceVolume({ clientId, userId });
   try {
-    await prisma.athena_request_nonces.create({
+    await requestSigningDb.athena_request_nonces.create({
       data: {
         clientId: String(clientId),
         userId: userId ? Number(userId) : null,
@@ -1037,17 +1048,42 @@ async function verifySignedWebSocketMessage(request, rawMessage) {
   }
 
   const payloadString = JSON.stringify(parsed.payload ?? null);
-  const result = await verifySignatureParts({
+  const stableCanonicalPath = canonicalWebSocketPathForRequest(request);
+  const legacyCanonicalPath = canonicalPathForRequest(request);
+  const signed = {
+    ...parsed.envelope.signed,
+    signatureVersion: parsed.envelope.signatureVersion,
+  };
+  let result = await verifySignatureParts({
     request,
     method: "WS",
-    canonicalPath: canonicalPathForRequest(request),
+    canonicalPath: stableCanonicalPath,
     bodyString: payloadString,
-    signed: {
-      ...parsed.envelope.signed,
-      signatureVersion: parsed.envelope.signatureVersion,
-    },
+    signed,
   });
-  await recordSigningAudit(request, result, { transport: "websocket" });
+  let canonicalPathMode = "stable_path";
+
+  if (
+    !result.ok &&
+    result.reasonCode === "signature_mismatch" &&
+    legacyCanonicalPath !== stableCanonicalPath
+  ) {
+    const legacyResult = await verifySignatureParts({
+      request,
+      method: "WS",
+      canonicalPath: legacyCanonicalPath,
+      bodyString: payloadString,
+      signed,
+    });
+    if (legacyResult.ok) {
+      result = legacyResult;
+      canonicalPathMode = "legacy_query_path";
+    }
+  }
+  await recordSigningAudit(request, result, {
+    transport: "websocket",
+    canonicalPathMode,
+  });
 
   return {
     ...result,

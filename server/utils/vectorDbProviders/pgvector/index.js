@@ -557,7 +557,9 @@ class PGVector extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const {
       storeVectorResult,
       cachedVectorInformation,
@@ -696,7 +698,9 @@ class PGVector extends VectorDatabase {
           `PGVector:deleteDocumentFromNamespace - namespace ${namespace} does not exist.`
         );
 
-      const { DocumentVectors } = require("../../../models/vectors");
+      const {
+        DocumentVectorRepository: DocumentVectors,
+      } = require("../../../repositories/documentVectorRepository");
       const vectorIds = (await DocumentVectors.where({ docId })).map(
         (record) => record.vectorId
       );

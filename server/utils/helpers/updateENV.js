@@ -1,4 +1,6 @@
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const {
   SUPPORTED_CONNECTION_METHODS,
 } = require("../AiProviders/bedrock/utils");
@@ -1679,7 +1681,9 @@ async function executeValidationChecks(checks, value, force) {
 }
 
 async function logChangesToEventLog(newValues = {}, userId = null) {
-  const { EventLogs } = require("../../models/eventLogs");
+  const {
+    EventLogRepository: EventLogs,
+  } = require("../../repositories/eventLogRepository");
   const eventMapping = {
     LLMProvider: "update_llm_provider",
     EmbeddingEngine: "update_embedding_engine",

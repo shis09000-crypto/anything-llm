@@ -1,5 +1,10 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const {
   getGraphRetrievalCache,
   setGraphRetrievalCache,
@@ -103,7 +108,7 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
     const next = [];
     for (const nodeId of frontier) {
       if (visited.size >= traversal.maxExpandedNodes) break;
-      const edges = await prisma.$queryRawUnsafe(
+      const edges = await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT * FROM "KnowledgeEdge"
         WHERE "workspaceId" = ? AND "confidence" >= ?
           AND ("sourceNodeId" = ? OR "targetNodeId" = ?)
@@ -133,7 +138,7 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
   }
 
   const relatedNodeRows = relatedNodeIds.size
-    ? await prisma.$queryRawUnsafe(
+    ? await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT * FROM "KnowledgeNode"
         WHERE "workspaceId" = ? AND "id" IN (${Array.from(relatedNodeIds)
           .map(() => "?")
@@ -155,7 +160,7 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
   }));
 
   const evidence = traversal.includeEvidence
-    ? await prisma.$queryRawUnsafe(
+    ? await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT * FROM "EdgeEvidence"
         WHERE "workspaceId" = ? AND "edgeId" IN (${
           edges.length ? edges.map(() => "?").join(",") : "NULL"
@@ -207,7 +212,7 @@ async function relatedConcepts({ workspaceId, concept, options = {} }) {
 
 async function recordTraversalUsage(nodeId) {
   try {
-    await prisma.$executeRawUnsafe(
+    await knowledgeGraphDb.$executeRawUnsafe(
       `UPDATE "KnowledgeNode"
       SET "usageCount" = "usageCount" + 1,
         "recentUsageCount" = "recentUsageCount" + 1,

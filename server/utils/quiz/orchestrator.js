@@ -1,6 +1,8 @@
 const { v4: uuidv4 } = require("uuid");
-const { WorkspaceChats } = require("../../models/workspaceChats");
-const { WorkspaceThread } = require("../../models/workspaceThread");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const QuizData = lazyDataAccessFacade("quiz");
+const WorkspaceChats = QuizData.workspaceChats;
+const WorkspaceThread = QuizData.workspaceThread;
 const {
   convertToChatHistory,
   safeJSONStringify,

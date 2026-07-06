@@ -2,12 +2,14 @@ const crypto = require("crypto");
 const { CommandRegistry } = require("./commandRegistry");
 const { registerReaderCommands } = require("./readerCommands");
 const { registerNavigationCommands } = require("./navigationCommands");
+const { registerDataAccessCommands } = require("./dataAccessCommands");
 const { recordDeveloperCommandAudit } = require("./commandAudit");
 const { redactDeveloperObject } = require("./redactor");
 
 const registry = new CommandRegistry();
 registerReaderCommands(registry);
 registerNavigationCommands(registry);
+registerDataAccessCommands(registry);
 
 function commandId() {
   return `cmd_${crypto.randomUUID()}`;

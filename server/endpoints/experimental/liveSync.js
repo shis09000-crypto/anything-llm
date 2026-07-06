@@ -1,8 +1,14 @@
 const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
-const { Document } = require("../../models/documents");
-const { EventLogs } = require("../../models/eventLogs");
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../repositories/eventLogRepository");
 const { SystemSettings } = require("../../models/systemSettings");
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const { reqBody } = require("../../utils/http");
 const {
   featureFlagEnabled,

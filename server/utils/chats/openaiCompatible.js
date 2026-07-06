@@ -1,6 +1,7 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
-const { WorkspaceChats } = require("../../models/workspaceChats");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { chatPrompt, sourceIdentifier } = require("./index");

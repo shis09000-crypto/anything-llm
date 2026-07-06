@@ -2,17 +2,29 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { PrismaClient } = require("@prisma/client");
-const prisma = require("./prisma");
+const { lazyDataAccessFacade } = require("./dataAccess/lazyFacade");
+const AccountDeletionData = lazyDataAccessFacade("accountDeletion");
+const accountDeletionDb = AccountDeletionData.db;
 const authPrisma = require("./authPrisma");
-const { appEnvironment, storageBaseDir, storagePath } = require("./environment");
+const {
+  appEnvironment,
+  storageBaseDir,
+  storagePath,
+} = require("./environment");
 const { getVectorDbClass } = require("./helpers");
 const { normalizePath, isWithin } = require("./files");
-const { EventLogs } = require("../models/eventLogs");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceChats } = require("../models/workspaceChats");
-const { Document } = require("../models/documents");
-const { DocumentVectors } = require("../models/vectors");
-const { AuthIdentity } = require("../models/authIdentity");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
+const Workspace = AccountDeletionData.workspace;
+const WorkspaceChats = AccountDeletionData.workspaceChats;
+const {
+  DocumentRepository: Document,
+} = require("../repositories/documentRepository");
+const {
+  DocumentVectorRepository: DocumentVectors,
+} = require("../repositories/documentVectorRepository");
+const AuthIdentity = AccountDeletionData.authIdentity;
 const {
   assertDeleteAllowed,
   assertOwnerWillRemainAfterMutation,
@@ -31,7 +43,12 @@ function sqliteUrl(dbPath) {
 }
 
 const AccountDeletionService = {
-  async preview({ actor, target = null, env = appEnvironment(), mode = "self" }) {
+  async preview({
+    actor,
+    target = null,
+    env = appEnvironment(),
+    mode = "self",
+  }) {
     const targetUser = target || actor;
     const actorAuth = await authUserFor(actor);
     const targetAuth = await authUserFor(targetUser);
@@ -114,7 +131,12 @@ const AccountDeletionService = {
     });
 
     try {
-      const preview = await this.preview({ actor, target: targetUser, env, mode });
+      const preview = await this.preview({
+        actor,
+        target: targetUser,
+        env,
+        mode,
+      });
       const targetAuth = await authUserFor(targetUser);
       const hasOtherEnv = !preview.willDeleteSharedAuthUser;
 
@@ -126,7 +148,9 @@ const AccountDeletionService = {
 
       await cleanupUserScopedData(targetUser);
       await deleteProfilePicture(targetUser.pfpFilename);
-      await prisma.users.deleteMany({ where: { id: Number(targetUser.id) } });
+      await accountDeletionDb.users.deleteMany({
+        where: { id: Number(targetUser.id) },
+      });
 
       if (hasOtherEnv) {
         await authPrisma.authEnvironmentDeletion.upsert({
@@ -183,7 +207,7 @@ async function authUserFor(user) {
 }
 
 async function workspacePreview(userId) {
-  const memberships = await prisma.workspace_users.findMany({
+  const memberships = await accountDeletionDb.workspace_users.findMany({
     where: { user_id: Number(userId) },
     include: { workspaces: true },
     orderBy: { createdAt: "asc" },
@@ -192,7 +216,7 @@ async function workspacePreview(userId) {
   for (const membership of memberships) {
     const workspace = membership.workspaces;
     if (!workspace) continue;
-    const memberCount = await prisma.workspace_users.count({
+    const memberCount = await accountDeletionDb.workspace_users.count({
       where: { workspace_id: workspace.id },
     });
     const deleteWorkspace = memberCount <= 1;
@@ -207,12 +231,16 @@ async function workspacePreview(userId) {
       : { workspaceId: workspace.id, user_id: Number(userId) };
     const [threadCount, chatCount, documentCount, mindMapCount] =
       await Promise.all([
-        prisma.workspace_threads.count({ where: threadWhere }),
-        prisma.workspace_chats.count({ where: chatWhere }),
+        accountDeletionDb.workspace_threads.count({ where: threadWhere }),
+        accountDeletionDb.workspace_chats.count({ where: chatWhere }),
         deleteWorkspace
-          ? prisma.workspace_documents.count({ where: { workspaceId: workspace.id } })
+          ? accountDeletionDb.workspace_documents.count({
+              where: { workspaceId: workspace.id },
+            })
           : Promise.resolve(0),
-        prisma.workspace_mind_maps.count({ where: memoryWhere }).catch(() => 0),
+        accountDeletionDb.workspace_mind_maps
+          .count({ where: memoryWhere })
+          .catch(() => 0),
       ]);
     result.push({
       id: workspace.id,
@@ -249,68 +277,108 @@ async function deleteWorkspaceCompletely(workspace) {
 }
 
 async function removeUserFromWorkspace(workspace, userId) {
-  await prisma.workspace_chats.deleteMany({
+  await accountDeletionDb.workspace_chats.deleteMany({
     where: { workspaceId: workspace.id, user_id: Number(userId) },
   });
-  await prisma.workspace_threads.deleteMany({
+  await accountDeletionDb.workspace_threads.deleteMany({
     where: { workspace_id: workspace.id, user_id: Number(userId) },
   });
   await cleanupUserWorkspaceAuxiliaryData(Number(workspace.id), Number(userId));
-  await prisma.workspace_users.deleteMany({
+  await accountDeletionDb.workspace_users.deleteMany({
     where: { workspace_id: workspace.id, user_id: Number(userId) },
   });
 }
 
 async function cleanupWorkspaceAuxiliaryData(workspaceId) {
   await Promise.allSettled([
-    prisma.workspace_chat_compactions.deleteMany({ where: { workspace_id: workspaceId } }),
-    prisma.workspace_mind_maps.deleteMany({ where: { workspaceId } }),
-    prisma.workspace_agent_invocations.deleteMany({ where: { workspace_id: workspaceId } }),
-    prisma.workspace_parsed_files.deleteMany({ where: { workspaceId } }),
-    prisma.workspace_quiz_attempts.deleteMany({ where: { workspaceId } }),
-    prisma.workspace_quiz_wrong_questions.deleteMany({ where: { workspaceId } }),
-    prisma.workspace_quiz_favorite_questions.deleteMany({ where: { workspaceId } }),
-    prisma.prompt_history.deleteMany({ where: { workspaceId } }),
-    prisma.documentIndexStatus.deleteMany({ where: { workspaceId } }),
+    accountDeletionDb.workspace_chat_compactions.deleteMany({
+      where: { workspace_id: workspaceId },
+    }),
+    accountDeletionDb.workspace_mind_maps.deleteMany({
+      where: { workspaceId },
+    }),
+    accountDeletionDb.workspace_agent_invocations.deleteMany({
+      where: { workspace_id: workspaceId },
+    }),
+    accountDeletionDb.workspace_parsed_files.deleteMany({
+      where: { workspaceId },
+    }),
+    accountDeletionDb.workspace_quiz_attempts.deleteMany({
+      where: { workspaceId },
+    }),
+    accountDeletionDb.workspace_quiz_wrong_questions.deleteMany({
+      where: { workspaceId },
+    }),
+    accountDeletionDb.workspace_quiz_favorite_questions.deleteMany({
+      where: { workspaceId },
+    }),
+    accountDeletionDb.prompt_history.deleteMany({ where: { workspaceId } }),
+    accountDeletionDb.documentIndexStatus.deleteMany({
+      where: { workspaceId },
+    }),
   ]);
 }
 
 async function cleanupUserWorkspaceAuxiliaryData(workspaceId, userId) {
   await Promise.allSettled([
-    prisma.workspace_chat_compactions.deleteMany({ where: { workspace_id: workspaceId, user_id: userId } }),
-    prisma.workspace_mind_maps.deleteMany({ where: { workspaceId, user_id: userId } }),
-    prisma.workspace_agent_invocations.deleteMany({ where: { workspace_id: workspaceId, user_id: userId } }),
-    prisma.workspace_parsed_files.deleteMany({ where: { workspaceId, userId } }).catch(() => null),
-    prisma.workspace_quiz_attempts.deleteMany({ where: { workspaceId, userId } }),
-    prisma.workspace_quiz_wrong_questions.deleteMany({ where: { workspaceId, userId } }),
-    prisma.workspace_quiz_favorite_questions.deleteMany({ where: { workspaceId, userId } }),
-    prisma.prompt_history.deleteMany({ where: { workspaceId, modifiedBy: userId } }),
+    accountDeletionDb.workspace_chat_compactions.deleteMany({
+      where: { workspace_id: workspaceId, user_id: userId },
+    }),
+    accountDeletionDb.workspace_mind_maps.deleteMany({
+      where: { workspaceId, user_id: userId },
+    }),
+    accountDeletionDb.workspace_agent_invocations.deleteMany({
+      where: { workspace_id: workspaceId, user_id: userId },
+    }),
+    accountDeletionDb.workspace_parsed_files
+      .deleteMany({ where: { workspaceId, userId } })
+      .catch(() => null),
+    accountDeletionDb.workspace_quiz_attempts.deleteMany({
+      where: { workspaceId, userId },
+    }),
+    accountDeletionDb.workspace_quiz_wrong_questions.deleteMany({
+      where: { workspaceId, userId },
+    }),
+    accountDeletionDb.workspace_quiz_favorite_questions.deleteMany({
+      where: { workspaceId, userId },
+    }),
+    accountDeletionDb.prompt_history.deleteMany({
+      where: { workspaceId, modifiedBy: userId },
+    }),
   ]);
 }
 
 async function cleanupUserScopedData(user) {
   const userId = Number(user.id);
   await Promise.allSettled([
-    prisma.browser_extension_api_keys.deleteMany({ where: { user_id: userId } }),
-    prisma.temporary_auth_tokens.deleteMany({ where: { userId } }),
-    prisma.system_prompt_variables.deleteMany({ where: { userId } }),
-    prisma.desktop_mobile_devices.deleteMany({ where: { userId } }),
+    accountDeletionDb.browser_extension_api_keys.deleteMany({
+      where: { user_id: userId },
+    }),
+    accountDeletionDb.temporary_auth_tokens.deleteMany({ where: { userId } }),
+    accountDeletionDb.system_prompt_variables.deleteMany({ where: { userId } }),
+    accountDeletionDb.desktop_mobile_devices.deleteMany({ where: { userId } }),
   ]);
 }
 
 async function cleanupSharedAuthUser(authUserId) {
   const userId = Number(authUserId);
   await authPrisma.recovery_codes.deleteMany({ where: { user_id: userId } });
-  await authPrisma.password_reset_tokens.deleteMany({ where: { user_id: userId } });
-  await authPrisma.email_verification_codes.deleteMany({ where: { user_id: userId } });
+  await authPrisma.password_reset_tokens.deleteMany({
+    where: { user_id: userId },
+  });
+  await authPrisma.email_verification_codes.deleteMany({
+    where: { user_id: userId },
+  });
   await authPrisma.passkeyCredential.deleteMany({ where: { userId } });
   await authPrisma.passkeyChallenge.deleteMany({ where: { userId } });
   await authPrisma.trustedLoginDevice.deleteMany({ where: { userId } });
   await authPrisma.zkLoginAttempt.deleteMany({ where: { userId } });
-  await authPrisma.invites.updateMany({
-    where: { usedByUserId: userId },
-    data: { usedByUserId: null },
-  }).catch(() => null);
+  await authPrisma.invites
+    .updateMany({
+      where: { usedByUserId: userId },
+      data: { usedByUserId: null },
+    })
+    .catch(() => null);
   await authPrisma.users.deleteMany({ where: { id: userId } });
 }
 
@@ -357,11 +425,17 @@ function maskEmail(email) {
 
 function fingerprint(value) {
   if (!value) return null;
-  return crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 16);
+  return crypto
+    .createHash("sha256")
+    .update(String(value))
+    .digest("hex")
+    .slice(0, 16);
 }
 
 function safeReason(message = "") {
-  return String(message || "unknown").replace(/[<>]/g, "").slice(0, 160);
+  return String(message || "unknown")
+    .replace(/[<>]/g, "")
+    .slice(0, 160);
 }
 
 module.exports = { AccountDeletionService };

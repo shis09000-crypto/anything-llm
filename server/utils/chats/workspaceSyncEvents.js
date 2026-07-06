@@ -1,7 +1,4 @@
-const {
-  publishSyncEvent,
-  subscribeToSyncEvents,
-} = require("../syncCenter");
+const { publishSyncEvent, subscribeToSyncEvents } = require("../syncCenter");
 
 function normalizeUserId(userId = null) {
   if (userId === null || userId === undefined || userId === "") return null;

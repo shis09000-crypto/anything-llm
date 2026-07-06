@@ -215,7 +215,9 @@ class Chroma extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       const { pageContent, docId, ...metadata } = documentData;
       if (!pageContent || pageContent.length == 0) return false;
@@ -352,7 +354,9 @@ class Chroma extends VectorDatabase {
   }
 
   async deleteDocumentFromNamespace(namespace, docId) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const { client } = await this.connect();
     if (!(await this.namespaceExists(client, namespace))) return;
     const collection = await client.getCollection({

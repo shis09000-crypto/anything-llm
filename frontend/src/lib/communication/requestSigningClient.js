@@ -110,6 +110,11 @@ export function canonicalPathFromUrl(url) {
   return `${target.pathname}${target.search}`;
 }
 
+export function canonicalWebSocketPathFromUrl(url) {
+  const canonicalPath = canonicalPathFromUrl(url);
+  return canonicalPath.split("?")[0] || "/";
+}
+
 function comparablePath(pathOrUrl = "") {
   const path = /^https?:\/\//i.test(String(pathOrUrl))
     ? canonicalPathFromUrl(pathOrUrl)
@@ -537,6 +542,7 @@ function nonce() {
 export async function signedRequestHeaders({
   method,
   url,
+  canonicalPath: canonicalPathOverride,
   requestId,
   bodyString = "",
   signal,
@@ -546,7 +552,7 @@ export async function signedRequestHeaders({
   const timestamp = String(Date.now());
   const nextNonce = nonce();
   const bodySha256 = await sha256Base64Url(bodyString);
-  const canonicalPath = canonicalPathFromUrl(url);
+  const canonicalPath = canonicalPathOverride || canonicalPathFromUrl(url);
 
   const deviceHeaders = await signedDeviceRequestHeaders({
     method,
@@ -625,6 +631,7 @@ export async function signedWebSocketEnvelope({
   const headers = await signedRequestHeaders({
     method: "WS",
     url,
+    canonicalPath: canonicalWebSocketPathFromUrl(url),
     requestId,
     bodyString,
     signal,

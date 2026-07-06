@@ -1,6 +1,8 @@
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { User } = require("../models/user");
-const { VaultItem } = require("../models/vaultItem");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody } = require("../utils/http");
 const { getClientContext } = require("../utils/clientIdentity");
 const {
@@ -265,7 +267,7 @@ function vaultEndpoints(app) {
         .json({ success: false, error: "unauthorized" });
     }
 
-    const items = await VaultItem.list({
+    const items = await DataAccessCenter.vault.listItems({
       userId,
       itemType: request.query?.type || null,
     });
@@ -289,7 +291,7 @@ function vaultEndpoints(app) {
       });
       if (!grant.ok) return grant.response;
 
-      const item = await VaultItem.get({
+      const item = await DataAccessCenter.vault.getItem({
         userId,
         itemId: request.params.itemId,
         includeEncryptedPayload: true,
@@ -323,7 +325,7 @@ function vaultEndpoints(app) {
 
     try {
       const body = reqBody(request);
-      const item = await VaultItem.createOrUpdate({
+      const item = await DataAccessCenter.vault.createOrUpdateItem({
         userId,
         itemId: body.itemId || body.id || null,
         itemType: body.itemType || body.type || "secret",
@@ -366,7 +368,7 @@ function vaultEndpoints(app) {
       });
       if (!grant.ok) return grant.response;
 
-      const deleted = await VaultItem.delete({
+      const deleted = await DataAccessCenter.vault.deleteItem({
         userId,
         itemId: request.params.itemId,
       });

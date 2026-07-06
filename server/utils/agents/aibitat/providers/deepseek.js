@@ -29,7 +29,10 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
     this.model = model;
     this.verbose = true;
     this.maxTokens = process.env.DEEPSEEK_MAX_TOKENS
-      ? toValidNumber(process.env.DEEPSEEK_MAX_TOKENS, DEFAULT_DEEPSEEK_MAX_TOKENS)
+      ? toValidNumber(
+          process.env.DEEPSEEK_MAX_TOKENS,
+          DEFAULT_DEEPSEEK_MAX_TOKENS
+        )
       : DEFAULT_DEEPSEEK_MAX_TOKENS;
   }
 

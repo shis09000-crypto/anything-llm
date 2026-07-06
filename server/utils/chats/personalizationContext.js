@@ -1,4 +1,5 @@
-const { User } = require("../../models/user");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const User = lazyDataAccessFacade("user");
 
 const PERSONALIZATION_PROFILE_TAG = "personalization_profile";
 const USER_PERSONALIZATION_CONTEXT_TAG = "user_personalization_context";

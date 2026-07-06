@@ -6,7 +6,9 @@ const {
 } = require("@simplewebauthn/server");
 const prisma = require("../utils/prisma");
 const authPrisma = require("../utils/authPrisma");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { SystemSettings } = require("../models/systemSettings");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");

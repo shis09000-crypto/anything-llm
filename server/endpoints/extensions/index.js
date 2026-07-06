@@ -1,4 +1,6 @@
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const { CollectorApi } = require("../../utils/collectorApi");
 const {
   flexUserRoleValid,

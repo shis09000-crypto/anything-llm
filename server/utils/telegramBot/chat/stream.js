@@ -1,4 +1,5 @@
-const { WorkspaceChats } = require("../../../models/workspaceChats");
+const { lazyDataAccessFacade } = require("../../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const { getLLMProvider, getVectorDbClass } = require("../../helpers");
 const { DocumentManager } = require("../../DocumentManager");
 const {

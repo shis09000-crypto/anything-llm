@@ -1,8 +1,9 @@
+const { lazyDataAccessFacade } = require("../../../../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const mime = require("mime");
-const { SystemSettings } = require("../../../../../models/systemSettings");
 const { CollectorApi } = require("../../../../collectorApi");
 const { humanFileSize } = require("../../../../helpers");
 const { safeJsonParse } = require("../../../../http");

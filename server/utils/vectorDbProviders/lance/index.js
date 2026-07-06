@@ -350,7 +350,9 @@ class LanceDb extends VectorDatabase {
       return;
     }
 
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const table = await client.openTable(namespace);
     const vectorIds = (await DocumentVectors.where({ docId })).map(
       (record) => record.vectorId
@@ -367,7 +369,9 @@ class LanceDb extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       const { pageContent, docId, ...metadata } = documentData;
       if (!pageContent || pageContent.length == 0) return false;

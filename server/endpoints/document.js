@@ -1,4 +1,4 @@
-const { Document } = require("../models/documents");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { normalizePath, documentsPath, isWithin } = require("../utils/files");
 const { reqBody, multiUserMode, userFromSession } = require("../utils/http");
 const {
@@ -21,16 +21,20 @@ function documentEndpoints(app) {
   }
 
   async function resolveWorkspaceForRequest(request, response) {
-    const { Workspace } = require("../models/workspace");
     const { workspaceSlug, workspaceId } =
       workspaceIdentifierForRequest(request);
     if (workspaceSlug) {
       const user = await userFromSession(request, response);
       return multiUserMode(response)
-        ? await Workspace.getWithUser(user, { slug: String(workspaceSlug) })
-        : await Workspace.get({ slug: String(workspaceSlug) });
+        ? await DataAccessCenter.workspace.getWithUser(user, {
+            slug: String(workspaceSlug),
+          })
+        : await DataAccessCenter.workspace.get({
+            slug: String(workspaceSlug),
+          });
     }
-    if (workspaceId) return await Workspace.get({ id: Number(workspaceId) });
+    if (workspaceId)
+      return await DataAccessCenter.workspace.get({ id: Number(workspaceId) });
     return null;
   }
 
@@ -39,9 +43,6 @@ function documentEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.all])],
     async (request, response) => {
       try {
-        const {
-          DocumentIndexStatus,
-        } = require("../models/documentIndexStatus");
         const { workspaceSlug, workspaceId } =
           workspaceIdentifierForRequest(request);
         if (!workspaceSlug && !workspaceId) {
@@ -66,7 +67,7 @@ function documentEndpoints(app) {
           return;
         }
 
-        const rows = await DocumentIndexStatus.where({
+        const rows = await DataAccessCenter.documentIndexStatus.where({
           workspaceId: workspace.id,
           filePath: request.query.filePath || null,
           docId: request.query.docId || null,
@@ -87,12 +88,9 @@ function documentEndpoints(app) {
     [validatedRequest, flexUserRoleValid([ROLES.admin])],
     async (request, response) => {
       try {
-        const {
-          DocumentIndexStatus,
-        } = require("../models/documentIndexStatus");
         const workspace = await resolveWorkspaceForRequest(request, response);
         const body = reqBody(request);
-        const status = await DocumentIndexStatus.manualUpdate({
+        const status = await DataAccessCenter.documentIndexStatus.manualUpdate({
           workspaceId: workspace?.id || body.workspaceId,
           filePath: body.filePath,
           docId: body.docId || null,
@@ -149,7 +147,9 @@ function documentEndpoints(app) {
       try {
         const { files } = reqBody(request);
         const docpaths = files.map(({ from }) => from);
-        const documents = await Document.where({ docpath: { in: docpaths } });
+        const documents = await DataAccessCenter.document.where({
+          docpath: { in: docpaths },
+        });
 
         const embeddedFiles = documents.map((doc) => doc.docpath);
         const moveableFiles = files.filter(

@@ -4,7 +4,9 @@ const os = require("os");
 const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 const { SystemSettings } = require("../../models/systemSettings");
-const { EventLogs } = require("../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../repositories/eventLogRepository");
 const { safeJsonParse } = require("../http");
 const { documentsPath, directUploadsPath } = require("../files");
 const { storageRoot } = require("../environment");

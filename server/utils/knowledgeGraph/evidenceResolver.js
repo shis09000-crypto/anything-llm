@@ -1,10 +1,12 @@
-const prisma = require("../prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { chunksForDocument } = require("./chunks");
 
 async function loadDocuments(workspaceId, documentIds = []) {
   const unique = [...new Set(documentIds.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
-  const docs = await prisma.workspace_documents.findMany({
+  const docs = await knowledgeGraphDb.workspace_documents.findMany({
     where: { workspaceId: Number(workspaceId), docId: { in: unique } },
   });
   return new Map(docs.map((doc) => [doc.docId, doc]));
@@ -50,7 +52,7 @@ async function originalEvidenceChunks({
 }) {
   if (!workspaceId || (!node?.id && !nodeKey)) return [];
   const bindingRows = nodeKey
-    ? await prisma
+    ? await knowledgeGraphDb
         .$queryRawUnsafe(
           `SELECT * FROM "NodeChunkBinding"
         WHERE "workspaceId" = ? AND "nodeKey" = ?
@@ -70,7 +72,7 @@ async function originalEvidenceChunks({
     });
   }
   if (!node?.id) return [];
-  const conceptRows = await prisma
+  const conceptRows = await knowledgeGraphDb
     .$queryRawUnsafe(
       `SELECT *, 'original' AS "evidenceType"
     FROM "ConceptChunkMap"

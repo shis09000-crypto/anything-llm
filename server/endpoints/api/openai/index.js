@@ -1,14 +1,22 @@
 const { v4: uuidv4 } = require("uuid");
-const { Document } = require("../../../models/documents");
-const { Telemetry } = require("../../../models/telemetry");
-const { Workspace } = require("../../../models/workspace");
+const {
+  DocumentRepository: Document,
+} = require("../../../repositories/documentRepository");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../repositories/telemetryRepository");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../../../repositories/workspaceRepository");
 const {
   getLLMProvider,
   getEmbeddingEngineSelection,
 } = require("../../../utils/helpers");
 const { reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
-const { EventLogs } = require("../../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../../repositories/eventLogRepository");
 const {
   OpenAICompatibleChat,
 } = require("../../../utils/chats/openaiCompatible");

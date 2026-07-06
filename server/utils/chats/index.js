@@ -1,9 +1,11 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 const { v4: uuidv4 } = require("uuid");
-const { WorkspaceChats } = require("../../models/workspaceChats");
 const { resetMemory } = require("./commands/reset");
 const { convertToPromptHistory } = require("../helpers/chat/responses");
-const { SlashCommandPresets } = require("../../models/slashCommandsPresets");
-const { SystemPromptVariables } = require("../../models/systemPromptVariables");
+const SlashCommandPresets = lazyDataAccessFacade("slashCommandPreset");
+const SystemPromptVariables = lazyDataAccessFacade("systemPromptVariable");
 
 const CACHE_STABLE_HISTORY_STRATEGY = "cache-stable-blocks";
 
@@ -174,7 +176,6 @@ function cacheStableHistoryWindow({
  * @returns {Promise<string>} - the base prompt
  */
 async function chatPrompt(workspace, user = null) {
-  const { SystemSettings } = require("../../models/systemSettings");
   const basePrompt =
     workspace?.openAiPrompt ?? SystemSettings.saneDefaultSystemPrompt;
   return await SystemPromptVariables.expandSystemPromptVariables(

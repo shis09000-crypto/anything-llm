@@ -1,7 +1,9 @@
 const { v4: uuidv4 } = require("uuid");
 const { reqBody, userFromSession, multiUserMode } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const { streamChatWithWorkspace } = require("../utils/chats/stream");
 const {
   subscribeToThreadTitleUpdates,
@@ -10,7 +12,9 @@ const {
   ROLES,
   flexUserRoleValid,
 } = require("../utils/middleware/multiUserProtected");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const {
   validWorkspaceAndThreadSlug,
   validWorkspaceSlug,

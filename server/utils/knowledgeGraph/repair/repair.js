@@ -1,6 +1,11 @@
-const prisma = require("../../../utils/prisma");
-const { Workspace } = require("../../../models/workspace");
-const { KnowledgeGraph } = require("../../../models/knowledgeGraph");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const Workspace = lazyDataAccessProperty("knowledgeGraph", "workspace");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const {
   scheduleGraphExtractionForDocument,
 } = require("../scheduleGraphExtraction");
@@ -358,7 +363,7 @@ async function markIssueError(issue, error) {
 async function targetWorkspaces({ workspaceSlug, workspaceId, all }) {
   if (all) return await Workspace.where({});
   if (workspaceId) {
-    const row = await prisma.workspaces.findFirst({
+    const row = await knowledgeGraphDb.workspaces.findFirst({
       where: { id: Number(workspaceId) },
     });
     return row ? [row] : [];
@@ -368,7 +373,7 @@ async function targetWorkspaces({ workspaceSlug, workspaceId, all }) {
 }
 
 async function documentForIssue(workspaceId, issue) {
-  return await prisma.workspace_documents.findFirst({
+  return await knowledgeGraphDb.workspace_documents.findFirst({
     where: {
       workspaceId: Number(workspaceId),
       docId: issue.documentId,
@@ -378,7 +383,7 @@ async function documentForIssue(workspaceId, issue) {
 
 async function jobForIssue(issue) {
   return (
-    await prisma.$queryRawUnsafe(
+    await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT * FROM "GraphExtractionJob"
       WHERE "workspaceId" = ? AND "chunkId" = ?
       LIMIT 1`,

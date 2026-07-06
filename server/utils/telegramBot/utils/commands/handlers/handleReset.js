@@ -1,6 +1,7 @@
-const { Workspace } = require("../../../../../models/workspace");
-const { WorkspaceThread } = require("../../../../../models/workspaceThread");
-const { WorkspaceChats } = require("../../../../../models/workspaceChats");
+const { lazyDataAccessFacade } = require("../../../../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
+const WorkspaceThread = lazyDataAccessFacade("workspaceThread");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 
 /**
  * /reset - Clears LLM chat history context.

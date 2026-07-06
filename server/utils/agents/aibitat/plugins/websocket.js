@@ -1,5 +1,9 @@
 const chalk = require("chalk");
-const { Telemetry } = require("../../../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../../repositories/telemetryRepository");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const AgentSkillWhitelist = lazyDataAccessFacade("agentSkillWhitelist");
 const { v4: uuidv4 } = require("uuid");
 const { safeJsonParse } = require("../../../http");
 const { skillIsAutoApproved } = require("../../../helpers/agents");
@@ -326,9 +330,6 @@ const websocket = {
           }
 
           if (!forceApproval) {
-            const {
-              AgentSkillWhitelist,
-            } = require("../../../../models/agentSkillWhitelist");
             const isWhitelisted = await AgentSkillWhitelist.isWhitelisted(
               skillName,
               userId

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  PANEL_CLOSED_KEY,
   athenaRuntimeObserverPanelEnabled,
   installAthenaRuntimeObserver,
 } from "@/utils/observability/athenaRuntimeObserver";
@@ -28,7 +29,7 @@ function Stat({ label, value, tone = "text-white" }) {
 }
 
 export default function CacheSchedulerDebugPanel() {
-  const [visible] = useState(readPanelEnabled);
+  const [visible, setVisible] = useState(readPanelEnabled);
   const [snapshot, setSnapshot] = useState(null);
 
   useEffect(() => {
@@ -57,6 +58,23 @@ export default function CacheSchedulerDebugPanel() {
 
   if (!visible || !snapshot) return null;
 
+  const closePanel = () => {
+    try {
+      window.localStorage?.setItem?.(PANEL_CLOSED_KEY, "true");
+      [
+        "athenaRuntimeObserverPanel",
+        "athenaRuntimeObserver",
+        "athenaTaskSchedulerDebug",
+        "athenaServerStateDebug",
+        "athenaNavigationLifecycleDebug",
+        "athenaBroadcastDebug",
+        "athenaRecoveryDebug",
+        "athenaOptimisticActionDebug",
+      ].forEach((key) => window.localStorage?.removeItem?.(key));
+    } catch {}
+    setVisible(false);
+  };
+
   return (
     <aside className="fixed bottom-3 left-3 z-[9999] max-h-[48vh] w-[420px] overflow-auto rounded-lg border border-cyan-300/20 bg-slate-950/90 p-3 text-xs text-white shadow-2xl backdrop-blur">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -64,13 +82,24 @@ export default function CacheSchedulerDebugPanel() {
           <strong>Cache / Scheduler</strong>
           <div className="text-[11px] text-white/50">{snapshot.at}</div>
         </div>
-        <button
-          type="button"
-          className="rounded border border-white/10 px-2 py-1 text-white/70 hover:bg-white/10"
-          onClick={() => window.__athenaRuntimeObserver?.print?.()}
-        >
-          print
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="rounded border border-white/10 px-2 py-1 text-white/70 hover:bg-white/10"
+            onClick={() => window.__athenaRuntimeObserver?.print?.()}
+          >
+            print
+          </button>
+          <button
+            type="button"
+            className="rounded border border-white/10 px-2 py-1 text-white/70 hover:bg-white/10"
+            onClick={closePanel}
+            aria-label="关闭 Cache Scheduler 调试面板"
+            title="关闭调试面板"
+          >
+            关闭
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-4 gap-2">

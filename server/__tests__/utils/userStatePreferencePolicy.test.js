@@ -11,6 +11,7 @@ jest.mock("../../utils/authz/resourceAccess", () => ({
 }));
 
 const {
+  namespacePolicy,
   parseNamespaceFilter,
   validateUserStateInput,
   validateUserStateScope,
@@ -35,6 +36,13 @@ describe("user state preference policy", () => {
         "recent.navigation,unknown,chat.draft,preferences.appearance"
       )
     ).toEqual(["recent.navigation", "chat.draft", "preferences.appearance"]);
+  });
+
+  it("marks reader.library as bootstrap cache instead of business authority", () => {
+    expect(namespacePolicy("reader.library")).toMatchObject({
+      authority: "bootstrap-cache",
+      businessAuthority: false,
+    });
   });
 
   it("allows global low-risk preferences", async () => {

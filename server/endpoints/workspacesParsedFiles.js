@@ -1,16 +1,19 @@
 const { reqBody, multiUserMode, userFromSession } = require("../utils/http");
 const { handleFileUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { CollectorApi } = require("../utils/collectorApi");
-const { WorkspaceThread } = require("../models/workspaceThread");
-const { WorkspaceParsedFiles } = require("../models/workspaceParsedFiles");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { getAuthorizedParsedFile } = require("../utils/authz/resourceAccess");
 
 function workspaceParsedFilesEndpoints(app) {
@@ -25,10 +28,12 @@ function workspaceParsedFilesEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = threadSlug
-          ? await WorkspaceThread.get({ slug: String(threadSlug) })
+          ? await DataAccessCenter.workspaceThread.get({
+              slug: String(threadSlug),
+            })
           : null;
         const { files, contextWindow, currentContextTokenCount } =
-          await WorkspaceParsedFiles.getContextMetadataAndLimits(
+          await DataAccessCenter.workspaceParsedFile.getContextMetadataAndLimits(
             workspace,
             thread || null,
             multiUserMode(response) ? user : null
@@ -53,7 +58,7 @@ function workspaceParsedFilesEndpoints(app) {
         if (!fileIds.length) return response.sendStatus(400).end();
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const success = await WorkspaceParsedFiles.delete({
+        const success = await DataAccessCenter.workspaceParsedFile.delete({
           id: {
             in: fileIds.map((id) => parseInt(id)),
           },
@@ -92,7 +97,7 @@ function workspaceParsedFilesEndpoints(app) {
         if (!parsedFile) return response.sendStatus(404).end();
 
         const { success, error, document } =
-          await WorkspaceParsedFiles.moveToDocumentsAndEmbed(
+          await DataAccessCenter.workspaceParsedFile.moveToDocumentsAndEmbed(
             user,
             fileId,
             workspace,
@@ -163,7 +168,7 @@ function workspaceParsedFilesEndpoints(app) {
         // Get thread ID if we have a slug
         const { threadSlug = null } = reqBody(request);
         const thread = threadSlug
-          ? await WorkspaceThread.get({
+          ? await DataAccessCenter.workspaceThread.get({
               slug: String(threadSlug),
               workspace_id: workspace.id,
               user_id: user?.id || null,
@@ -175,14 +180,15 @@ function workspaceParsedFilesEndpoints(app) {
             // Strip out pageContent
             delete metadata.pageContent;
             const filename = `${originalname}-${doc.id}.json`;
-            const { file, error: dbError } = await WorkspaceParsedFiles.create({
-              filename,
-              workspaceId: workspace.id,
-              userId: user?.id || null,
-              threadId: thread?.id || null,
-              metadata: JSON.stringify(metadata),
-              tokenCountEstimate: doc.token_count_estimate || 0,
-            });
+            const { file, error: dbError } =
+              await DataAccessCenter.workspaceParsedFile.create({
+                filename,
+                workspaceId: workspace.id,
+                userId: user?.id || null,
+                threadId: thread?.id || null,
+                metadata: JSON.stringify(metadata),
+                tokenCountEstimate: doc.token_count_estimate || 0,
+              });
 
             if (dbError) throw new Error(dbError);
             return file;

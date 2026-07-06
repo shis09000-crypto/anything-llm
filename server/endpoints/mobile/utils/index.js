@@ -1,6 +1,12 @@
-const { Workspace } = require("../../../models/workspace");
-const { WorkspaceChats } = require("../../../models/workspaceChats");
-const { WorkspaceThread } = require("../../../models/workspaceThread");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../../../repositories/workspaceRepository");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../../../repositories/workspaceChatRepository");
+const {
+  WorkspaceThreadRepository: WorkspaceThread,
+} = require("../../../repositories/workspaceThreadRepository");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { reqBody } = require("../../../utils/http");
 const prisma = require("../../../utils/prisma");

@@ -3,7 +3,9 @@ const crypto = require("crypto");
 const { v4, validate } = require("uuid");
 const { User } = require("../../models/user");
 const { AuthIdentity } = require("../../models/authIdentity");
-const { EventLogs } = require("../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../repositories/eventLogRepository");
 const {
   RecoveryCode,
   PasswordResetToken,

@@ -128,7 +128,9 @@ class PineconeDB extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       const { pageContent, docId, ...metadata } = documentData;
       if (!pageContent || pageContent.length == 0) return false;
@@ -230,7 +232,9 @@ class PineconeDB extends VectorDatabase {
   }
 
   async deleteDocumentFromNamespace(namespace, docId) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const { pineconeIndex } = await this.connect();
     if (!(await this.namespaceExists(pineconeIndex, namespace))) return;
 

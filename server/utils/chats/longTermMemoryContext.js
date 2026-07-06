@@ -1,11 +1,11 @@
-const { User } = require("../../models/user");
-const {
-  UserMemory,
-  MEMORY_CATEGORIES,
-  MEMORY_CATEGORY_LABELS,
-  MEMORY_OWNER_REQUIRED_ERROR,
-  isMemorySchemaMissingError,
-} = require("../../models/userMemory");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const User = lazyDataAccessFacade("user");
+const UserMemory = lazyDataAccessFacade("userMemory");
+const MEMORY_CATEGORIES = UserMemory.categories;
+const MEMORY_CATEGORY_LABELS = UserMemory.labels;
+const MEMORY_OWNER_REQUIRED_ERROR = UserMemory.ownerRequiredError;
+const isMemorySchemaMissingError = (error) =>
+  UserMemory.isMemorySchemaMissingError(error);
 
 const USER_LONG_TERM_MEMORY_CONTEXT_TAG = "user_long_term_memory_context";
 const USER_LONG_TERM_MEMORY_CONTEXT_REGEX = new RegExp(
@@ -53,7 +53,11 @@ function memoryLine(item = {}) {
     .join("\n");
 }
 
-function truncateContextBody(text = "", closingTag = "", maxChars = MAX_CONTEXT_CHARS) {
+function truncateContextBody(
+  text = "",
+  closingTag = "",
+  maxChars = MAX_CONTEXT_CHARS
+) {
   const reservedChars = closingTag.length + 6;
   if (text.length + closingTag.length + 1 <= maxChars) return text;
   return `${text.slice(0, Math.max(0, maxChars - reservedChars)).trimEnd()}\n...`;

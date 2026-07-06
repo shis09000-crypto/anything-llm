@@ -2,13 +2,21 @@ const crypto = require("crypto");
 const { AuthIdentity } = require("../../models/authIdentity");
 const { SystemSettings } = require("../../models/systemSettings");
 const { User } = require("../../models/user");
-const { Workspace } = require("../../models/workspace");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../../repositories/workspaceRepository");
 const {
   WorkspaceAgentInvocation,
 } = require("../../models/workspaceAgentInvocation");
-const { WorkspaceChats } = require("../../models/workspaceChats");
-const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
-const { WorkspaceThread } = require("../../models/workspaceThread");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../../repositories/workspaceChatRepository");
+const {
+  WorkspaceParsedFileRepository: WorkspaceParsedFiles,
+} = require("../../repositories/workspaceParsedFileRepository");
+const {
+  WorkspaceThreadRepository: WorkspaceThread,
+} = require("../../repositories/workspaceThreadRepository");
 const {
   codexDevAuthUser,
   isCodexDevAuthBypassEnabled,

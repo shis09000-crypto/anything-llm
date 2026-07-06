@@ -2,10 +2,11 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
-const { Document } = require("../../../../models/documents");
 const {
-  WorkspaceParsedFiles,
-} = require("../../../../models/workspaceParsedFiles");
+  DocumentRepository: Document,
+} = require("../../../../repositories/documentRepository");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
 const { CollectorApi } = require("../../../collectorApi");
 const { safeJsonParse } = require("../../../http");
 const {

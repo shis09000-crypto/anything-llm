@@ -9,7 +9,9 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - "server/**/*.js"
+      - "server/**/*.json"
       - "server/eslint.config.mjs"
+      - "server/package.json"
       - "collector/**/*.js"
       - "collector/eslint.config.mjs"
       - "frontend/src/**/*.js"

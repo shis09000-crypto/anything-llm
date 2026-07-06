@@ -1,3 +1,8 @@
+const path = require("path");
+
+process.env.STORAGE_DIR =
+  process.env.STORAGE_DIR || path.resolve(__dirname, "../../../storage");
+
 const {
   documentEmbeddingMode,
   isBatchMode,

@@ -1,13 +1,18 @@
-const { cachedVectorInformation, fileData } = require("../files");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
 const { safeJsonParse } = require("../http");
-const prisma = require("../prisma");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+
+function fileHelpers() {
+  return require("../files");
+}
 
 function flattenCachedChunks(chunks = []) {
   return chunks.flatMap((batch) => (Array.isArray(batch) ? batch : [batch]));
 }
 
 async function vectorRowsForDocument(docId) {
-  return await prisma.$queryRawUnsafe(
+  return await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "document_vectors" WHERE "docId" = ? ORDER BY "id" ASC`,
     String(docId)
   );
@@ -17,6 +22,7 @@ async function chunksForDocument(document = null) {
   if (!document?.docId || !document?.docpath) return [];
   const vectorRows = await vectorRowsForDocument(document.docId);
   if (vectorRows.length === 0) return [];
+  const { cachedVectorInformation, fileData } = fileHelpers();
   const cache = await cachedVectorInformation(document.docpath);
   const metadata = safeJsonParse(document.metadata, {});
   const cachedChunks = cache.exists ? flattenCachedChunks(cache.chunks) : [];
@@ -69,7 +75,7 @@ async function chunksForDocument(document = null) {
 
 async function chunkForJob(job = null) {
   if (!job?.documentId || !job?.chunkId) return null;
-  const document = await prisma.workspace_documents.findFirst({
+  const document = await knowledgeGraphDb.workspace_documents.findFirst({
     where: { docId: job.documentId, workspaceId: Number(job.workspaceId) },
   });
   const chunks = await chunksForDocument(document);

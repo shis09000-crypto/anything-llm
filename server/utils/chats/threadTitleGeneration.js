@@ -1,12 +1,10 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceThread = lazyDataAccessFacade("workspaceThread");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const crypto = require("crypto");
 const PQueue = require("p-queue").default;
-const prisma = require("../prisma");
 const { getTaskConnector } = require("../llmTasks");
-const { WorkspaceThread } = require("../../models/workspaceThread");
 const { publishThreadTitleUpdate } = require("./threadTitleEvents");
-const {
-  decryptWorkspaceChatRecordsAsync,
-} = require("../security/chatHistoryEncryption");
 
 const TITLE_GENERATION_TIMEOUT_MS = 15_000;
 const TITLE_REFRESH_PAGE_SIZE =
@@ -93,30 +91,16 @@ function titleRefreshOnCooldown(thread = null, nowMs = Date.now()) {
   return nowMs - generatedAtMs < parseTitleRefreshCooldownMs();
 }
 
-function prismaClientHasTitleMetadata() {
-  const fields =
-    prisma._runtimeDataModel?.models?.workspace_threads?.fields?.map(
-      (field) => field.name
-    ) || [];
-  return THREAD_TITLE_METADATA_FIELDS.every((field) => fields.includes(field));
-}
-
-async function dbHasTitleMetadata() {
-  if (typeof prisma.$queryRawUnsafe !== "function") return false;
-  const columns = await prisma.$queryRawUnsafe(
-    'PRAGMA table_info("workspace_threads")'
-  );
-  const columnNames = new Set(columns.map((column) => column.name));
-  return THREAD_TITLE_METADATA_FIELDS.every((field) => columnNames.has(field));
-}
-
 async function titleMetadataReady() {
   if (titleMetadataReadiness !== null) return titleMetadataReadiness;
 
   try {
-    const prismaReady = prismaClientHasTitleMetadata();
-    const dbReady = await dbHasTitleMetadata();
-    titleMetadataReadiness = prismaReady && dbReady;
+    const readiness = await WorkspaceThread.titleMetadataSchemaReady(
+      THREAD_TITLE_METADATA_FIELDS
+    );
+    const prismaReady = Boolean(readiness.prismaReady);
+    const dbReady = Boolean(readiness.dbReady);
+    titleMetadataReadiness = Boolean(readiness.ready);
     if (!titleMetadataReadiness) {
       console.warn(
         `[ThreadTitle] title metadata schema is not ready. ` +
@@ -253,34 +237,16 @@ async function userPromptsForScope({
 }) {
   const clause = visibleThreadChatClause({ workspaceId, threadId, userId });
   if (scope === TITLE_SCOPES.firstUserMessage) {
-    const chats = await decryptWorkspaceChatRecordsAsync(
-      await prisma.workspace_chats.findMany({
-        where: clause,
-        take: 1,
-        orderBy: { id: "asc" },
-      })
-    );
+    const chats = await WorkspaceChats.where(clause, 1, { id: "asc" });
     return chats.map((chat) => chat.prompt);
   }
 
   if (scope === TITLE_SCOPES.firstFiveUserMessages) {
-    const chats = await decryptWorkspaceChatRecordsAsync(
-      await prisma.workspace_chats.findMany({
-        where: clause,
-        take: 5,
-        orderBy: { id: "asc" },
-      })
-    );
+    const chats = await WorkspaceChats.where(clause, 5, { id: "asc" });
     return chats.map((chat) => chat.prompt);
   }
 
-  const chats = await decryptWorkspaceChatRecordsAsync(
-    await prisma.workspace_chats.findMany({
-      where: clause,
-      take: 5,
-      orderBy: { id: "desc" },
-    })
-  );
+  const chats = await WorkspaceChats.where(clause, 5, { id: "desc" });
   return chats.reverse().map((chat) => chat.prompt);
 }
 
@@ -530,9 +496,9 @@ async function maybeEnqueueTitleGenerationAfterChat({
       return;
     }
 
-    const count = await prisma.workspace_chats.count({
-      where: visibleThreadChatClause({ workspaceId, threadId, userId }),
-    });
+    const count = await WorkspaceChats.count(
+      visibleThreadChatClause({ workspaceId, threadId, userId })
+    );
     titleDebug("trigger:count", {
       workspaceId,
       threadId,
@@ -592,17 +558,17 @@ async function refreshRecentThreadTitles({
   let queued = 0;
 
   while (true) {
-    const chats = await prisma.workspace_chats.findMany({
-      where: {
+    const chats = await WorkspaceChats.whereMetadata(
+      {
         include: true,
         api_session_id: null,
         thread_id: { not: null },
         lastUpdatedAt: { gte: cutoff },
+        ...(cursorId ? { id: { lt: cursorId } } : {}),
       },
-      take: pageSize,
-      ...(cursorId ? { cursor: { id: cursorId }, skip: 1 } : {}),
-      orderBy: { id: "desc" },
-    });
+      pageSize,
+      { id: "desc" }
+    );
     if (chats.length === 0) break;
 
     scannedChats += chats.length;

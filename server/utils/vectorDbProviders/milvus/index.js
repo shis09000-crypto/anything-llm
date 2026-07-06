@@ -164,7 +164,9 @@ class Milvus extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       let vectorDimension = null;
       const { pageContent, docId, ...metadata } = documentData;
@@ -299,7 +301,9 @@ class Milvus extends VectorDatabase {
   }
 
   async deleteDocumentFromNamespace(namespace, docId) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const { client } = await this.connect();
     if (!(await this.namespaceExists(client, namespace))) return;
     const knownDocuments = await DocumentVectors.where({ docId });

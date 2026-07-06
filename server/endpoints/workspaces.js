@@ -8,20 +8,20 @@ const {
   queryParams,
 } = require("../utils/http");
 const { normalizePath, isWithin } = require("../utils/files");
-const { Workspace } = require("../models/workspace");
-const { Document } = require("../models/documents");
-const { DocumentVectors } = require("../models/vectors");
-const { DocumentIndexStatus } = require("../models/documentIndexStatus");
-const { WorkspaceChats } = require("../models/workspaceChats");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { getVectorDbClass } = require("../utils/helpers");
 const { handleFileUpload, handlePfpUpload } = require("../utils/files/multer");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const {
   WorkspaceSuggestedMessages,
 } = require("../models/workspacesSuggestedMessages");
@@ -33,7 +33,6 @@ const {
   fetchPfp,
 } = require("../utils/files/pfp");
 const { getTTSProvider } = require("../utils/TextToSpeech");
-const { WorkspaceThread } = require("../models/workspaceThread");
 const {
   chatIdentifierPayload,
   chatIdentifiersWhere,
@@ -51,7 +50,7 @@ const { workspaceParsedFilesEndpoints } = require("./workspacesParsedFiles");
 const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
-const { safeFileMove, safeReadJsonFile } = require("../utils/safety");
+const { safeFileMove } = require("../utils/safety");
 const { storagePath: environmentStoragePath } = require("../utils/environment");
 const {
   redactSensitiveText,
@@ -67,6 +66,14 @@ const {
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath = environmentStoragePath("documents");
+const Workspace = DataAccessCenter.workspace;
+const Document = DataAccessCenter.document;
+const DocumentVectors = DataAccessCenter.documentVector;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
+const {
+  DocumentVectorConsistencyService,
+} = require("../services/documentVectorConsistencyService");
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -185,102 +192,6 @@ function moveProcessedDocumentsToFolder(documents = [], target = {}) {
   }
 
   return documents;
-}
-
-function localDocumentPath(docpath = "") {
-  try {
-    return path.resolve(documentsPath, normalizePath(docpath));
-  } catch {
-    return null;
-  }
-}
-
-function localDocumentHealth(docpath = "") {
-  const fullPath = localDocumentPath(docpath);
-  if (!fullPath || !isWithin(documentsPath, fullPath))
-    return { exists: false, readableJson: false, error: "invalid_path" };
-  if (!fs.existsSync(fullPath))
-    return { exists: false, readableJson: false, error: "missing_file" };
-
-  const result = safeReadJsonFile(fullPath, null, {
-    quarantine: false,
-    context: { docpath },
-  });
-  return {
-    exists: true,
-    readableJson: result.ok,
-    error: result.error?.code || null,
-  };
-}
-
-async function workspaceRobustnessDiagnostics(workspace) {
-  const workspaceDocuments = await Document.forWorkspace(workspace.id);
-  const docIds = [...new Set(workspaceDocuments.map((doc) => doc.docId))];
-  const vectorRows = docIds.length
-    ? await DocumentVectors.where({ docId: { in: docIds } })
-    : [];
-  const vectorDocIds = new Set(vectorRows.map((row) => row.docId));
-  const indexStatuses = await DocumentIndexStatus.forWorkspace(workspace.id);
-  const documentPaths = new Set(workspaceDocuments.map((doc) => doc.docpath));
-  const statusPaths = new Set(indexStatuses.map((status) => status.filePath));
-  const allPaths = [...new Set([...documentPaths, ...statusPaths])];
-  const fileHealth = allPaths.map((docpath) => ({
-    docpath,
-    ...localDocumentHealth(docpath),
-    hasWorkspaceDocument: documentPaths.has(docpath),
-    hasIndexStatus: statusPaths.has(docpath),
-  }));
-  const dbWithoutFile = fileHealth.filter(
-    (item) => item.hasWorkspaceDocument && !item.exists
-  );
-  const statusWithoutDb = fileHealth.filter(
-    (item) => item.hasIndexStatus && !item.hasWorkspaceDocument
-  );
-  const dbWithoutVector = workspaceDocuments.filter(
-    (doc) => !vectorDocIds.has(doc.docId)
-  );
-  const corruptFiles = fileHealth.filter(
-    (item) => item.exists && !item.readableJson
-  );
-  const stuckIndexStatuses = indexStatuses.filter((status) =>
-    ["pending", "indexing"].includes(status.indexStatus)
-  );
-
-  return {
-    success: true,
-    workspace: { id: workspace.id, slug: workspace.slug },
-    summary: {
-      workspaceDocuments: workspaceDocuments.length,
-      vectorRows: vectorRows.length,
-      indexStatuses: indexStatuses.length,
-      checkedFiles: fileHealth.length,
-      dbWithoutFile: dbWithoutFile.length,
-      statusWithoutDb: statusWithoutDb.length,
-      dbWithoutVector: dbWithoutVector.length,
-      corruptFiles: corruptFiles.length,
-      stuckIndexStatuses: stuckIndexStatuses.length,
-    },
-    issues: {
-      dbWithoutFile: dbWithoutFile.map((item) => item.docpath),
-      statusWithoutDb: statusWithoutDb.map((item) => item.docpath),
-      dbWithoutVector: dbWithoutVector.map((doc) => ({
-        docId: doc.docId,
-        docpath: doc.docpath,
-        filename: doc.filename,
-      })),
-      corruptFiles: corruptFiles.map((item) => ({
-        docpath: item.docpath,
-        error: item.error,
-      })),
-      stuckIndexStatuses: stuckIndexStatuses.map((status) => ({
-        filePath: status.filePath,
-        docId: status.docId,
-        indexStatus: status.indexStatus,
-        updatedAt: status.updatedAt,
-      })),
-    },
-    fileHealth,
-  };
 }
 
 function branchBaseName(sourceThread = null) {
@@ -831,9 +742,15 @@ function workspaceEndpoints(app) {
             .status(404)
             .json({ success: false, error: "Workspace not found." });
 
-        return response
-          .status(200)
-          .json(await workspaceRobustnessDiagnostics(workspace));
+        const diagnostics =
+          await DocumentVectorConsistencyService.workspaceRobustnessDiagnostics(
+            workspace
+          );
+        return response.status(200).json({
+          ...diagnostics,
+          repairPlan:
+            DocumentVectorConsistencyService.buildRepairPlan(diagnostics),
+        });
       } catch (error) {
         console.error("[RobustnessDiagnostics]", error.message, error);
         return response.status(500).json({

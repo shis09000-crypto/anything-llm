@@ -1,4 +1,6 @@
-const { Telemetry } = require("../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../repositories/telemetryRepository");
 const { BackgroundService } = require("../BackgroundWorkers");
 const { EncryptionManager } = require("../EncryptionManager");
 const { CommunicationKey } = require("../comKey");

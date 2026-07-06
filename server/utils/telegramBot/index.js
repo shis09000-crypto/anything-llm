@@ -1,16 +1,18 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 // Suppress deprecated content-type warning when sending files via the Telegram bot API.
 // https://github.com/yagop/node-telegram-bot-api/blob/master/doc/usage.md#sending-files
 process.env.NTBA_FIX_350 = 1;
 const TelegramBot = require("node-telegram-bot-api");
-const {
-  ExternalCommunicationConnector,
-} = require("../../models/externalCommunicationConnector");
+const ExternalCommunicationConnector = lazyDataAccessFacade(
+  "externalCommunication"
+);
 const { BackgroundService } = require("../BackgroundWorkers");
 const { MessageQueue } = require("./utils/messageQueue");
 const { decryptToken } = require("./utils");
-const {
-  WorkspaceAgentInvocation,
-} = require("../../models/workspaceAgentInvocation");
+const WorkspaceAgentInvocation = lazyDataAccessFacade(
+  "workspaceAgentInvocation"
+);
 const {
   isVerified,
   sendPairingRequest,
@@ -168,7 +170,6 @@ class TelegramBotService {
    * @returns {Promise<boolean>}
    */
   async checkMultiUserMode() {
-    const { SystemSettings } = require("../../models/systemSettings");
     return await SystemSettings.isMultiUserMode();
   }
 

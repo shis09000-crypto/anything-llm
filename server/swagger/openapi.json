@@ -838,7 +838,7 @@
         }
       }
     },
-    "{{slugString(workspaceSlug)});returnworkspace?.id||null;}returnworkspaceId?Number(workspaceId):null;}}": {
+    "{{slugString(workspaceSlug)}": {
       "get": {
         "description": "",
         "parameters": [],

@@ -4,6 +4,7 @@ import { defineConfig } from "eslint/config";
 import pluginPrettier from "eslint-plugin-prettier";
 import configPrettier from "eslint-config-prettier";
 import unusedImports from "eslint-plugin-unused-imports";
+import dataAccessPlugin from "./utils/dataAccess/eslintPluginDataAccess.mjs";
 
 export default defineConfig([
   {
@@ -18,7 +19,12 @@ export default defineConfig([
   },
   {
     files: ["**/*.{js,mjs,cjs}"],
-    plugins: { js, prettier: pluginPrettier, "unused-imports": unusedImports },
+    plugins: {
+      js,
+      prettier: pluginPrettier,
+      "unused-imports": unusedImports,
+      "data-access": dataAccessPlugin,
+    },
     extends: ["js/recommended"],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
     rules: {
@@ -41,6 +47,7 @@ export default defineConfig([
           argsIgnorePattern: "^_",
         },
       ],
+      "data-access/no-direct-data-access": "error",
     },
   },
   { files: ["**/*.js"], languageOptions: { sourceType: "commonjs" } },

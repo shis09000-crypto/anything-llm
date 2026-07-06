@@ -1,5 +1,6 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 const AgentPlugins = require("./aibitat/plugins");
-const { SystemSettings } = require("../../models/systemSettings");
 const { safeJsonParse } = require("../http");
 const { isSearchModelConfigured } = require("../SearchModels/alibaba");
 const Provider = require("./aibitat/providers/ai-provider");
@@ -128,7 +129,11 @@ const WORKSPACE_AGENT = {
   },
 };
 
-function pushSkillFunctions(systemFunctions = [], skillName, filterState = null) {
+function pushSkillFunctions(
+  systemFunctions = [],
+  skillName,
+  filterState = null
+) {
   if (!AgentPlugins.hasOwnProperty(skillName)) return;
   if (skillName === WEB_BROWSING_NAME && !isSearchModelConfigured()) return;
 

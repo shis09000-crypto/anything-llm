@@ -1,4 +1,5 @@
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 
 const DEFAULT_GRAPH_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
 

@@ -4,7 +4,12 @@ const path = require("path");
 
 function makeStorage() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "anythingllm-ingest-"));
-  const docsDir = path.join(dir, "documents", "custom-documents");
+  const docsDir = path.join(
+    dir,
+    "production",
+    "documents",
+    "custom-documents"
+  );
   fs.mkdirSync(docsDir, { recursive: true });
   fs.writeFileSync(
     path.join(docsDir, "a.json"),
@@ -168,7 +173,7 @@ describe("document-ingest-agent", () => {
       7,
       { embeddingModeOverride: "direct" }
     );
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       success: true,
       documents: [{ docId: "doc-1", path: "custom-documents/a.json" }],
       embeddingStatus: "completed",

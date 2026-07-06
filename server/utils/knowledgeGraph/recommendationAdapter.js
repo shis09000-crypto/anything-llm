@@ -1,5 +1,7 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
 const crypto = require("crypto");
-const prisma = require("../prisma");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { workspaceSupplementKindLabel } = require("./supplementConstants");
 
 const FORMULA_VERSION = "knowledge-engine-rec-v1";
@@ -27,7 +29,7 @@ function idFor({ workspaceId, type, targetType, targetId }) {
 async function learningStatesFor({ workspaceId, userId = 0, nodeKeys = [] }) {
   const unique = [...new Set(nodeKeys.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
-  const rows = await prisma
+  const rows = await knowledgeGraphDb
     .$queryRawUnsafe(
       `SELECT * FROM "NodeLearningState"
     WHERE "workspaceId" = ? AND "userId" = ? AND "nodeKey" IN (${unique

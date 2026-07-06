@@ -1,10 +1,7 @@
 const crypto = require("crypto");
-const prisma = require("../prisma");
 const { safeJsonParse } = require("../http");
 const { healthBeacon, unknownBeacon } = require("../workspaceHealth/beacon");
-const { NodeSupplement } = require("../../models/nodeSupplement");
-const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
-const { WorkspaceVisualAsset } = require("../../models/workspaceVisualAsset");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const { buildNodeKey } = require("../knowledgeGraph/nodeKey");
 const {
   buildWorkspaceKnowledgeProfile,
@@ -17,6 +14,12 @@ const { getOrScheduleWorkspaceOverviewNarrative } = require("./narrative");
 const {
   decryptWorkspaceChatRecordsAsync,
 } = require("../security/chatHistoryEncryption");
+
+const WorkspaceOverviewData = lazyDataAccessFacade("workspaceOverview");
+const workspaceOverviewDb = WorkspaceOverviewData.db;
+const NodeSupplement = WorkspaceOverviewData.nodeSupplement;
+const WorkspaceSupplement = WorkspaceOverviewData.workspaceSupplement;
+const WorkspaceVisualAsset = WorkspaceOverviewData.workspaceVisualAsset;
 
 const FORMULA_VERSION = "overview-rec-v1";
 const DAY_MS = 86_400_000;
@@ -469,7 +472,7 @@ function canonicalText(value = "") {
 
 async function optionalQuery(query, ...params) {
   try {
-    return await prisma.$queryRawUnsafe(query, ...params);
+    return await workspaceOverviewDb.$queryRawUnsafe(query, ...params);
   } catch (error) {
     if (process.env.NODE_ENV === "development")
       console.warn("[WorkspaceOverview] optional query failed:", error.message);
@@ -1070,7 +1073,7 @@ async function hydrateRecommendationCards({
 
   try {
     const nodeRows = nodeIds.length
-      ? await prisma.$queryRawUnsafe(
+      ? await workspaceOverviewDb.$queryRawUnsafe(
           `SELECT "id", "canonicalName", "canonicalKey", "displayNameZh",
             "displayNameEn", "entityType", "summary"
           FROM "KnowledgeNode"
@@ -1101,7 +1104,7 @@ async function hydrateRecommendationCards({
       learningRows,
     ] = await Promise.all([
       nodeIds.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT "nodeId", COUNT(*) AS "relationCount"
         FROM (
           SELECT "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
@@ -1118,7 +1121,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeIds.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT e."sourceNodeId", e."targetNodeId", e."confidence", e."weight",
           s."canonicalName" AS "sourceName",
           s."displayNameZh" AS "sourceDisplayNameZh",
@@ -1141,7 +1144,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeIds.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT x."nodeId", COUNT(ev."id") AS "evidenceCount"
         FROM "KnowledgeEdge" e
         JOIN (
@@ -1157,7 +1160,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeIds.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT x."nodeId", ev."snippet", ev."confidence", ev."createdAt"
         FROM "KnowledgeEdge" e
         JOIN (
@@ -1178,7 +1181,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeIds.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT "nodeId", COUNT(DISTINCT "chunkId") AS "chunkCount"
         FROM "ConceptChunkMap"
         WHERE "workspaceId" = ? AND "nodeId" IN (${placeholders(nodeIds)})
@@ -1188,7 +1191,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeKeys.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT "nodeKey", COUNT(*) AS "supplementCount"
             FROM "NodeSupplement"
             WHERE "workspaceId" = ? AND "nodeKey" IN (${placeholders(nodeKeys)})
@@ -1198,7 +1201,7 @@ async function hydrateRecommendationCards({
           )
         : [],
       nodeKeys.length
-        ? prisma.$queryRawUnsafe(
+        ? workspaceOverviewDb.$queryRawUnsafe(
             `SELECT * FROM "NodeLearningState"
             WHERE "workspaceId" = ? AND "userId" = ?
               AND "nodeKey" IN (${placeholders(nodeKeys)})`,
@@ -1211,7 +1214,7 @@ async function hydrateRecommendationCards({
 
     const relationDisplayByEdgeId = new Map();
     if (edgeIds.length) {
-      const edgeRows = await prisma.$queryRawUnsafe(
+      const edgeRows = await workspaceOverviewDb.$queryRawUnsafe(
         `SELECT e."id", e."sourceNodeId", e."targetNodeId",
           e."relationType", e."relationLabel", e."relationLabelZh",
           e."confidence", e."weight",
@@ -1231,7 +1234,7 @@ async function hydrateRecommendationCards({
         ...edgeIds
       );
       const [edgeEvidenceCounts, edgeEvidenceSnippets] = await Promise.all([
-        prisma.$queryRawUnsafe(
+        workspaceOverviewDb.$queryRawUnsafe(
           `SELECT "edgeId", COUNT(*) AS "evidenceCount"
           FROM "EdgeEvidence"
           WHERE "workspaceId" = ? AND "edgeId" IN (${placeholders(edgeIds)})
@@ -1239,7 +1242,7 @@ async function hydrateRecommendationCards({
           Number(workspaceId),
           ...edgeIds
         ),
-        prisma.$queryRawUnsafe(
+        workspaceOverviewDb.$queryRawUnsafe(
           `SELECT "edgeId", "snippet", "confidence", "createdAt"
           FROM "EdgeEvidence"
           WHERE "workspaceId" = ?
@@ -1275,7 +1278,7 @@ async function hydrateRecommendationCards({
         ),
       ];
       const endpointNeighborRows = endpointIds.length
-        ? await prisma.$queryRawUnsafe(
+        ? await workspaceOverviewDb.$queryRawUnsafe(
             `SELECT e."sourceNodeId", e."targetNodeId", e."confidence", e."weight",
               s."displayNameZh" AS "sourceDisplayNameZh",
               s."displayNameEn" AS "sourceDisplayNameEn",
@@ -2452,7 +2455,7 @@ async function recordRecommendationUsage({
   try {
     const row = (
       await withSqliteBusyRetry(() =>
-        prisma.$queryRawUnsafe(
+        workspaceOverviewDb.$queryRawUnsafe(
           `SELECT "id", "workspaceId", "userId", "recommendationId", "type",
         "targetType", "targetId", "formulaVersion", "impressionCount",
         "clickCount", "dismissCount", "continueCount",
@@ -2507,7 +2510,7 @@ async function recordRecommendationUsage({
       action === "impression" ? row?.lastInteractedAt || null : now;
 
     await withSqliteBusyRetry(() =>
-      prisma.$executeRawUnsafe(
+      workspaceOverviewDb.$executeRawUnsafe(
         `INSERT INTO "WorkspaceOverviewRecommendationUsage" (
       "workspaceId", "userId", "recommendationId", "type", "targetType",
       "targetId", "formulaVersion", "${column}", "lastShownAt",

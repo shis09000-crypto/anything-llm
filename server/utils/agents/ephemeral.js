@@ -1,12 +1,16 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
+const User = lazyDataAccessFacade("user");
+const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
+const WorkspaceAgentInvocation = lazyDataAccessFacade(
+  "workspaceAgentInvocation"
+);
 const AIbitat = require("./aibitat");
 const AgentPlugins = require("./aibitat/plugins");
 const ImportedPlugin = require("./imported");
 const MCPCompatibilityLayer = require("../MCP");
 const { AgentFlows } = require("../agentFlows");
 const { httpSocket } = require("./aibitat/plugins/http-socket.js");
-const { User } = require("../../models/user");
-const { Workspace } = require("../../models/workspace");
-const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
 const { DocumentManager } = require("../DocumentManager");
 const { safeJsonParse } = require("../http");
 const { resolveTaskProviderModel } = require("../llmTasks");
@@ -22,9 +26,6 @@ const {
   SHELL_AGENT_NAME,
 } = require("./defaults");
 const { AgentHandler } = require(".");
-const {
-  WorkspaceAgentInvocation,
-} = require("../../models/workspaceAgentInvocation");
 const { resolveEffectivePolicy } = require("../fileAccessPolicy");
 
 /**

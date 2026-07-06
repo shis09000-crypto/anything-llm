@@ -1,15 +1,14 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const EmbedChats = lazyDataAccessFacade("embedChat");
 const { v4: uuidv4 } = require("uuid");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { chatPrompt, sourceIdentifier } = require("./index");
-const { EmbedChats } = require("../../models/embedChats");
 const {
   convertToPromptHistory,
   writeResponseChunk,
 } = require("../helpers/chat/responses");
 const { DocumentManager } = require("../DocumentManager");
-const {
-  appendCurrentDateTimeToPrompt,
-} = require("./currentDateTimeContext");
+const { appendCurrentDateTimeToPrompt } = require("./currentDateTimeContext");
 
 async function streamChatWithForEmbed(
   response,

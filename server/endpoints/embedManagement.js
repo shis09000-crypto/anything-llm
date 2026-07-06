@@ -1,6 +1,8 @@
 const { EmbedChats } = require("../models/embedChats");
 const { EmbedConfig } = require("../models/embedConfig");
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validEmbedConfigId } = require("../utils/middleware/embedMiddleware");
 const {

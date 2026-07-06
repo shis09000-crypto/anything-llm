@@ -1,6 +1,7 @@
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
 const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { LABEL_TRANSLATION_PROMPT_VERSION } = require("./constants");
 
 function parseLabelJson(raw = "") {

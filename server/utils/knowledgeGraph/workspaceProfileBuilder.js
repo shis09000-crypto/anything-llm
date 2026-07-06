@@ -1,9 +1,15 @@
-const prisma = require("../prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { safeJsonParse } = require("../http");
 const { chunksForDocument } = require("./chunks");
-const {
-  WorkspaceKnowledgeProfile,
-} = require("../../models/workspaceKnowledgeProfile");
+const WorkspaceKnowledgeProfile = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "workspaceKnowledgeProfile"
+);
 const { analyzeBookStructure } = require("./bookStructureAnalyzer");
 const {
   workspaceSupplementsWithContent,
@@ -45,7 +51,7 @@ function scoreKeywords(docs = [], keywords = []) {
 }
 
 async function documentStats(workspaceId) {
-  const docs = await prisma.workspace_documents.findMany({
+  const docs = await knowledgeGraphDb.workspace_documents.findMany({
     where: { workspaceId: Number(workspaceId) },
     orderBy: { lastUpdatedAt: "desc" },
   });

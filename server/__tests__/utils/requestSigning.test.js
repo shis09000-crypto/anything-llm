@@ -613,12 +613,86 @@ describe("request signing", () => {
   it("verifies websocket signed envelopes and exposes only inner payload", async () => {
     const payload = { type: "toolApprovalResponse", requestId: "r1", approved: true };
     const body = JSON.stringify(payload);
-    const path = "/api/agent-invocation/uuid?token=token";
+    const path = "/api/agent-invocation/uuid";
     const headers = signedHeaders({
       method: "WS",
       path,
       body,
       nonce: "ws_nonce",
+    });
+    const message = JSON.stringify({
+      type: "athenaSignedMessage",
+      signatureVersion: SIGNATURE_VERSION,
+      signed: {
+        clientId: headers["X-Athena-Client-Id"],
+        requestId: headers["X-Athena-Request-Id"],
+        timestamp: headers["X-Athena-Timestamp"],
+        nonce: headers["X-Athena-Nonce"],
+        bodySha256: headers["X-Athena-Body-SHA256"],
+        signature: headers["X-Athena-Signature"],
+      },
+      payload,
+    });
+
+    await expect(
+      verifySignedWebSocketMessage(
+        requestDouble({ method: "GET", path, body: "", headers }),
+        message
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      payload,
+      rawMessage: body,
+    });
+  });
+
+  it("verifies websocket envelopes against stable path when connection has query params", async () => {
+    const payload = { type: "clarificationResponse", requestId: "r2", answers: [] };
+    const body = JSON.stringify(payload);
+    const signedPath = "/api/agent-invocation/uuid";
+    const requestPath =
+      "/api/agent-invocation/uuid?token=token&resume=1&lastEventSeq=151";
+    const headers = signedHeaders({
+      method: "WS",
+      path: signedPath,
+      body,
+      nonce: "ws_stable_path",
+    });
+    const message = JSON.stringify({
+      type: "athenaSignedMessage",
+      signatureVersion: SIGNATURE_VERSION,
+      signed: {
+        clientId: headers["X-Athena-Client-Id"],
+        requestId: headers["X-Athena-Request-Id"],
+        timestamp: headers["X-Athena-Timestamp"],
+        nonce: headers["X-Athena-Nonce"],
+        bodySha256: headers["X-Athena-Body-SHA256"],
+        signature: headers["X-Athena-Signature"],
+      },
+      payload,
+    });
+
+    await expect(
+      verifySignedWebSocketMessage(
+        requestDouble({ method: "GET", path: requestPath, body: "", headers }),
+        message
+      )
+    ).resolves.toMatchObject({
+      ok: true,
+      payload,
+      rawMessage: body,
+    });
+  });
+
+  it("temporarily accepts legacy websocket envelopes signed with query params", async () => {
+    const payload = { type: "clarificationResponse", requestId: "r3", answers: [] };
+    const body = JSON.stringify(payload);
+    const path = "/api/agent-invocation/uuid?token=token&resume=1";
+    const headers = signedHeaders({
+      method: "WS",
+      path,
+      body,
+      nonce: "ws_legacy_query_path",
     });
     const message = JSON.stringify({
       type: "athenaSignedMessage",

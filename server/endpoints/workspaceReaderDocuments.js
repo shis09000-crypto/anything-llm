@@ -9,7 +9,9 @@ const cheerio = require("cheerio");
 const ExcelJS = require("exceljs");
 const PQueue = require("p-queue").default;
 const sharp = require("sharp");
-const { Document } = require("../models/documents");
+const {
+  DocumentRepository: Document,
+} = require("../repositories/documentRepository");
 const { validateReadPath } = require("../utils/fileAccessPolicy");
 const { fileData, isWithin, normalizePath } = require("../utils/files");
 const {

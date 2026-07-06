@@ -1,14 +1,22 @@
 const {
   ExternalCommunicationConnector,
 } = require("../models/externalCommunicationConnector");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const { TelegramBotService } = require("../utils/telegramBot");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody } = require("../utils/http");
-const { EventLogs } = require("../models/eventLogs");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceThread } = require("../models/workspaceThread");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../repositories/workspaceRepository");
+const {
+  WorkspaceThreadRepository: WorkspaceThread,
+} = require("../repositories/workspaceThreadRepository");
 const { encryptToken } = require("../utils/telegramBot/utils");
 
 function telegramEndpoints(app) {

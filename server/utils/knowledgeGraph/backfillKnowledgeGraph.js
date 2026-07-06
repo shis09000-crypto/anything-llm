@@ -1,5 +1,8 @@
-const { Workspace } = require("../../models/workspace");
-const { Document } = require("../../models/documents");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessProperty("knowledgeGraph", "workspace");
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
 const {
   scheduleGraphExtractionForDocument,
 } = require("./scheduleGraphExtraction");
@@ -7,7 +10,7 @@ const {
   processPendingGraphExtractionJobs,
 } = require("./processGraphExtractionJob");
 const { cleanupKnowledgeGraph } = require("./cleanup");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 
 async function backfillKnowledgeGraph({
   workspaceSlug = null,

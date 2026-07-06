@@ -261,6 +261,30 @@ test("signing cache can be updated and recoverable signing errors are detected",
   }
 });
 
+test("websocket signing canonical path ignores volatile query parameters", async () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    sessionStorage: memoryStorage(),
+    localStorage: memoryStorage(),
+    location: {
+      href: "https://athenallm.online/workspace/demo",
+      origin: "https://athenallm.online",
+    },
+  };
+
+  try {
+    const mod = await loadSigningClient({ dev: true });
+    assert.equal(
+      mod.canonicalWebSocketPathFromUrl(
+        "wss://athenallm.online/api/agent-invocation/abc?token=jwt&resume=1&lastEventSeq=9&athenaClientId=client_1"
+      ),
+      "/api/agent-invocation/abc"
+    );
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
 test("auto signing is warn-only in development and required in production", async () => {
   const originalWindow = globalThis.window;
   const originalFetch = globalThis.fetch;

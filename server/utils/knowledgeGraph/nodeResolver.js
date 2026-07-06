@@ -1,5 +1,10 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const {
   buildNodeKey,
   nodeKeyCandidates,
@@ -33,7 +38,7 @@ async function resolveNode({ workspaceId, nodeKey = null, nodeId = null }) {
   }
   const parsed = parseNodeKey(nodeKey);
   if (!parsed) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "KnowledgeNode" WHERE "workspaceId" = ?`,
     Number(workspaceId)
   );
@@ -43,7 +48,7 @@ async function resolveNode({ workspaceId, nodeKey = null, nodeId = null }) {
 
 async function relatedNodes({ workspaceId, nodeId, limit = 8 }) {
   if (!workspaceId || !nodeId) return [];
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT n.*, e."relationType", e."confidence", e."weight"
     FROM "KnowledgeEdge" e
     JOIN "KnowledgeNode" n

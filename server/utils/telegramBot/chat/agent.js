@@ -1,6 +1,7 @@
+const { lazyDataAccessFacade } = require("../../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const { v4: uuidv4 } = require("uuid");
 const { EphemeralAgentHandler } = require("../../agents/ephemeral");
-const { WorkspaceChats } = require("../../../models/workspaceChats");
 const { safeJsonParse } = require("../../http");
 const {
   editMessage,

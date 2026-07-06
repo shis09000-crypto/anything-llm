@@ -204,7 +204,9 @@ class Weaviate extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       const {
         pageContent,
@@ -373,7 +375,9 @@ class Weaviate extends VectorDatabase {
   }
 
   async deleteDocumentFromNamespace(namespace, docId) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const { client } = await this.connect();
     if (!(await this.namespaceExists(client, namespace))) return;
 

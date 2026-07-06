@@ -1,4 +1,6 @@
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const {
   WorkspaceAgentInvocation,
 } = require("../models/workspaceAgentInvocation");

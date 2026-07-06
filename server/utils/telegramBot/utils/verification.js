@@ -1,7 +1,8 @@
 const crypto = require("crypto");
-const {
-  ExternalCommunicationConnector,
-} = require("../../../models/externalCommunicationConnector");
+const { lazyDataAccessFacade } = require("../../dataAccess/lazyFacade");
+const ExternalCommunicationConnector = lazyDataAccessFacade(
+  "externalCommunication"
+);
 const { markdownToTelegram } = require("./format");
 
 /**

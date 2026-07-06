@@ -1,5 +1,6 @@
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
 const { getTaskConnector, resolveTaskProviderModel } = require("../llmTasks");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { invalidateGraphRetrievalCache } = require("./retrievalCache");
 const { normalizeAliasPairs, firstChineseAlias } = require("./bilingualLabels");
 const { safeJsonParse } = require("../http");

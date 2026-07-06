@@ -5,8 +5,12 @@ const crypto = require("crypto");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody } = require("../utils/http");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceThread } = require("../models/workspaceThread");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../repositories/workspaceRepository");
+const {
+  WorkspaceThreadRepository: WorkspaceThread,
+} = require("../repositories/workspaceThreadRepository");
 const { WeChatGatewayThread } = require("../models/wechatGatewayThread");
 const { ApiChatHandler } = require("../utils/chats/apiChatHandler");
 const { decryptSecret } = require("./advancedGateway");

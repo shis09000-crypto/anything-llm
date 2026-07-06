@@ -1,4 +1,6 @@
-const { EventLogs } = require("../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../repositories/eventLogRepository");
 const { reqBody } = require("../utils/http");
 const { getClientContext } = require("../utils/clientIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");

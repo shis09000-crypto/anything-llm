@@ -1,6 +1,11 @@
-const prisma = require("../prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { safeJsonParse } = require("../http");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { chunksForDocument } = require("./chunks");
 
 const DEFAULT_LIMIT = 10;
@@ -480,7 +485,7 @@ function whyNoEvidence({ total = 0, filtered = null, weak = false } = {}) {
 async function loadDocuments(workspaceId, documentIds = []) {
   const unique = [...new Set(documentIds.filter(Boolean).map(String))];
   if (!unique.length) return new Map();
-  const rows = await prisma.workspace_documents.findMany({
+  const rows = await knowledgeGraphDb.workspace_documents.findMany({
     where: {
       workspaceId: Number(workspaceId),
       docId: { in: unique },
@@ -503,11 +508,11 @@ async function documentCoverage(workspaceId, documentIds = []) {
   const coverage = new Map();
   for (const documentId of unique) {
     const [vectors, mapped] = await Promise.all([
-      prisma.$queryRawUnsafe(
+      knowledgeGraphDb.$queryRawUnsafe(
         `SELECT COUNT(*) AS count FROM "document_vectors" WHERE "docId" = ?`,
         documentId
       ),
-      prisma.$queryRawUnsafe(
+      knowledgeGraphDb.$queryRawUnsafe(
         `SELECT COUNT(DISTINCT "chunkId") AS count
         FROM "ConceptChunkMap"
         WHERE "workspaceId" = ? AND "documentId" = ?`,
@@ -526,7 +531,7 @@ async function documentCoverage(workspaceId, documentIds = []) {
 }
 
 async function siblingEdgesFor(edge) {
-  return await prisma.$queryRawUnsafe(
+  return await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "KnowledgeEdge"
     WHERE "workspaceId" = ?
       AND (
@@ -544,7 +549,7 @@ async function siblingEdgesFor(edge) {
 async function edgeRowsByIds(workspaceId, edgeIds = []) {
   const ids = [...new Set(edgeIds.map(Number).filter(Boolean))];
   if (!ids.length) return new Map();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT e.*, s."canonicalName" AS "sourceName", s."displayNameZh" AS "sourceZh",
       s."displayNameEn" AS "sourceEn", s."aliases" AS "sourceAliases",
       s."entityType" AS "sourceType", s."globalImportanceScore" AS "sourceGlobal",
@@ -778,7 +783,7 @@ async function edgeEvidence({
   const edgeMap = await edgeRowsByIds(workspaceId, [edgeId]);
   const edge = edgeMap.get(Number(edgeId));
   if (!edge) return null;
-  const evidenceRows = await prisma.$queryRawUnsafe(
+  const evidenceRows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "EdgeEvidence"
     WHERE "workspaceId" = ? AND "edgeId" = ?
     ORDER BY "createdAt" DESC`,
@@ -849,7 +854,7 @@ async function nodeEvidence({
       });
   if (!node) return null;
 
-  const relationRows = await prisma.$queryRawUnsafe(
+  const relationRows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "KnowledgeEdge"
     WHERE "workspaceId" = ? AND ("sourceNodeId" = ? OR "targetNodeId" = ?)`,
     Number(workspaceId),
@@ -859,7 +864,7 @@ async function nodeEvidence({
   const edgeIds = relationRows.map((row) => Number(row.id));
   const edgeMap = await edgeRowsByIds(workspaceId, edgeIds);
   const evidenceRows = edgeIds.length
-    ? await prisma.$queryRawUnsafe(
+    ? await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT ev.* FROM "EdgeEvidence" ev
         WHERE ev."workspaceId" = ?
           AND ev."edgeId" IN (${edgeIds.map(() => "?").join(",")})
@@ -879,7 +884,7 @@ async function nodeEvidence({
     : enriched;
   const sorted = applySort(filtered, sort);
   const paged = paginate(sorted, page, limit);
-  const relatedChunks = await prisma.$queryRawUnsafe(
+  const relatedChunks = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT c.*, d."filename", d."docpath"
     FROM "ConceptChunkMap" c
     LEFT JOIN "workspace_documents" d

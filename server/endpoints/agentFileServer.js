@@ -8,11 +8,17 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
-const { WorkspaceChats } = require("../models/workspaceChats");
-const { Workspace } = require("../models/workspace");
+const {
+  WorkspaceChatRepository: WorkspaceChats,
+} = require("../repositories/workspaceChatRepository");
+const {
+  WorkspaceRepository: Workspace,
+} = require("../repositories/workspaceRepository");
 const { ScheduledJobRun } = require("../models/scheduledJobRun");
 const createFilesLib = require("../utils/agents/aibitat/plugins/create-files/lib");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 const { getAuthorizedWorkspace } = require("../utils/authz/resourceAccess");
 
 /**

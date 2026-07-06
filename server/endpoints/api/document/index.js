@@ -1,4 +1,6 @@
-const { Telemetry } = require("../../../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../../../repositories/telemetryRepository");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { handleAPIFileUpload } = require("../../../utils/files/multer");
 const {
@@ -9,12 +11,16 @@ const {
   isWithin,
 } = require("../../../utils/files");
 const { reqBody, safeJsonParse } = require("../../../utils/http");
-const { EventLogs } = require("../../../models/eventLogs");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../../repositories/eventLogRepository");
 const { CollectorApi } = require("../../../utils/collectorApi");
 const fs = require("fs");
 const path = require("path");
-const { Document } = require("../../../models/documents");
-const { Workspace } = require("../../../models/workspace");
+const {
+  DocumentRepository: Document,
+} = require("../../../repositories/documentRepository");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
 const { purgeFolder } = require("../../../utils/files/purgeDocument");
 const { storagePath } = require("../../../utils/environment");
 const {
@@ -52,7 +58,9 @@ function apiDocumentEndpoints(app) {
     const workspaceSlug = request.query.workspaceSlug || body.workspaceSlug;
     const workspaceId = request.query.workspaceId || body.workspaceId;
     if (workspaceSlug) {
-      const workspace = await Workspace.get({ slug: String(workspaceSlug) });
+      const workspace = await DataAccessCenter.workspace.get({
+        slug: String(workspaceSlug),
+      });
       return workspace?.id || null;
     }
     return workspaceId ? Number(workspaceId) : null;
@@ -63,11 +71,8 @@ function apiDocumentEndpoints(app) {
     [validApiKey],
     async (request, response) => {
       try {
-        const {
-          DocumentIndexStatus,
-        } = require("../../../models/documentIndexStatus");
         const workspaceId = await resolveWorkspaceId(request);
-        const statuses = await DocumentIndexStatus.where({
+        const statuses = await DataAccessCenter.documentIndexStatus.where({
           workspaceId,
           filePath: request.query.filePath || null,
           docId: request.query.docId || null,
@@ -88,12 +93,9 @@ function apiDocumentEndpoints(app) {
     [validApiKey],
     async (request, response) => {
       try {
-        const {
-          DocumentIndexStatus,
-        } = require("../../../models/documentIndexStatus");
         const body = reqBody(request);
         const workspaceId = await resolveWorkspaceId(request);
-        const status = await DocumentIndexStatus.manualUpdate({
+        const status = await DataAccessCenter.documentIndexStatus.manualUpdate({
           workspaceId: workspaceId || body.workspaceId,
           filePath: body.filePath,
           docId: body.docId || null,
@@ -1144,7 +1146,9 @@ function apiDocumentEndpoints(app) {
       try {
         const { files } = reqBody(request);
         const docpaths = files.map(({ from }) => from);
-        const documents = await Document.where({ docpath: { in: docpaths } });
+        const documents = await DataAccessCenter.document.where({
+          docpath: { in: docpaths },
+        });
         const embeddedFiles = documents.map((doc) => doc.docpath);
         const moveableFiles = files.filter(
           ({ from }) => !embeddedFiles.includes(from)

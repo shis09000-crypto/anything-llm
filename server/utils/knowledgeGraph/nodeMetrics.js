@@ -1,7 +1,12 @@
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
 const os = require("os");
-const prisma = require("../prisma");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { safeJsonParse } = require("../http");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 
 const NODE_METRICS_FORMULA_VERSION = "metrics-v1";
 const CORE_DIMENSIONS = [
@@ -234,7 +239,7 @@ async function collectNormalizedInputs({ workspaceId, nodeId }) {
   const node = await KnowledgeGraph.getNode(nodeId);
   if (!node || Number(node.workspaceId) !== Number(workspaceId)) return null;
 
-  const edges = await prisma.$queryRawUnsafe(
+  const edges = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "KnowledgeEdge"
     WHERE "workspaceId" = ?
       AND ("sourceNodeId" = ? OR "targetNodeId" = ?)`,
@@ -244,14 +249,14 @@ async function collectNormalizedInputs({ workspaceId, nodeId }) {
   );
   const edgeIds = edges.map((edge) => Number(edge.id));
   const evidenceRows = edgeIds.length
-    ? await prisma.$queryRawUnsafe(
+    ? await knowledgeGraphDb.$queryRawUnsafe(
         `SELECT * FROM "EdgeEvidence"
         WHERE "workspaceId" = ? AND "edgeId" IN (${edgeIds.map(() => "?").join(",")})`,
         Number(workspaceId),
         ...edgeIds
       )
     : [];
-  const mapRows = await prisma.$queryRawUnsafe(
+  const mapRows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT c.*, d."pinned", d."watched", d."metadata"
     FROM "ConceptChunkMap" c
     LEFT JOIN "workspace_documents" d
@@ -261,7 +266,7 @@ async function collectNormalizedInputs({ workspaceId, nodeId }) {
     Number(nodeId)
   );
   const usageRows = await usageRowsForNode({ workspaceId, nodeId, edgeIds });
-  const repairIssues = await prisma.$queryRawUnsafe(
+  const repairIssues = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT COUNT(*) AS count FROM "KnowledgeGraphRepairIssue"
     WHERE "workspaceId" = ? AND "status" IN ('open', 'quarantined', 'needs_reembed')`,
     Number(workspaceId)
@@ -399,7 +404,7 @@ async function collectNormalizedInputs({ workspaceId, nodeId }) {
 
 async function usageRowsForNode({ workspaceId, nodeId, edgeIds = [] }) {
   const edgeTargetIds = edgeIds.map(String);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT * FROM "KnowledgeGraphEvidenceUsage"
     WHERE "workspaceId" = ? AND (
       ("targetType" = 'node' AND "targetId" = ?)
@@ -417,7 +422,7 @@ async function usageRowsForNode({ workspaceId, nodeId, edgeIds = [] }) {
 }
 
 async function twoHopPathCountForNode({ workspaceId, nodeId }) {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await knowledgeGraphDb.$queryRawUnsafe(
     `SELECT COUNT(*) AS count FROM "KnowledgeEdge" e1
     JOIN "KnowledgeEdge" e2
       ON (

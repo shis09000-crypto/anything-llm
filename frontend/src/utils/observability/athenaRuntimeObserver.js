@@ -3,6 +3,7 @@ import { taskScheduler } from "@/utils/tasks/taskScheduler";
 
 const OBSERVER_KEY = "athenaRuntimeObserver";
 const PANEL_KEY = "athenaRuntimeObserverPanel";
+export const PANEL_CLOSED_KEY = "athenaRuntimeObserverPanelClosed";
 const LEGACY_TASK_KEY = "athenaTaskSchedulerDebug";
 const LEGACY_CACHE_KEY = "athenaServerStateDebug";
 const MAX_MARKS = 240;
@@ -28,10 +29,25 @@ function readFlag(key) {
   }
 }
 
-export function athenaRuntimeObserverEnabled() {
+function panelClosedLocally() {
   if (!canUseWindow()) return false;
+  try {
+    return window.localStorage?.getItem?.(PANEL_CLOSED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function runtimeObserverDebugAllowed() {
   return (
     import.meta.env?.DEV ||
+    import.meta.env?.VITE_ENABLE_RUNTIME_OBSERVER_DEBUG === "true"
+  );
+}
+
+export function athenaRuntimeObserverEnabled() {
+  if (!canUseWindow() || !runtimeObserverDebugAllowed()) return false;
+  return (
     readFlag(OBSERVER_KEY) ||
     readFlag(LEGACY_TASK_KEY) ||
     readFlag(LEGACY_CACHE_KEY)
@@ -39,7 +55,10 @@ export function athenaRuntimeObserverEnabled() {
 }
 
 export function athenaRuntimeObserverPanelEnabled() {
-  return readFlag(PANEL_KEY);
+  if (!runtimeObserverDebugAllowed()) return false;
+  if (readFlag(PANEL_KEY)) return true;
+  if (panelClosedLocally()) return false;
+  return false;
 }
 
 function summarizeScheduler(snapshot) {

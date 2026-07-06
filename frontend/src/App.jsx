@@ -294,6 +294,7 @@ function DeveloperNavigationControlBridge() {
       });
 
     const enableObserver = (params = {}) => {
+      if (!import.meta.env?.DEV) return;
       window.localStorage?.setItem?.("athenaRuntimeObserver", "true");
       window.localStorage?.setItem?.("athenaRuntimeObserverPanel", "true");
       window.localStorage?.setItem?.("athenaNavigationLifecycleDebug", "true");

@@ -1,6 +1,11 @@
-const prisma = require("../../../utils/prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { cachedVectorInformation, fileData } = require("../../files");
-const { KnowledgeGraph } = require("../../../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const { vectorRowsForDocument } = require("../chunks");
 const { priorityForIssue } = require("./prioritize");
 const { shouldQuarantineDensity, quarantineIssue } = require("./quarantine");
@@ -10,7 +15,7 @@ const STALE_PROCESSING_MS = 30 * 60 * 1_000;
 async function scanWorkspaceForRepairIssues({ workspace, limit = 100 } = {}) {
   if (!workspace?.id) return { scanned: 0, issues: [] };
   await KnowledgeGraph.ensureTables();
-  const documents = await prisma.workspace_documents.findMany({
+  const documents = await knowledgeGraphDb.workspace_documents.findMany({
     where: {
       workspaceId: Number(workspace.id),
       embeddingStatus: "completed",
@@ -159,7 +164,7 @@ async function writeIssue({
 
 async function graphJob(workspaceId, chunkId) {
   return (
-    await prisma.$queryRawUnsafe(
+    await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT * FROM "GraphExtractionJob"
       WHERE "workspaceId" = ? AND "chunkId" = ?
       LIMIT 1`,
@@ -176,7 +181,7 @@ function isStale(updatedAt) {
 
 async function documentGraphSignal({ workspaceId, documentId }) {
   const [nodeScore, usage, evidence] = await Promise.all([
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT MAX(n."workspaceImportanceScore") AS score
       FROM "ConceptChunkMap" c
       JOIN "KnowledgeNode" n ON n."id" = c."nodeId"
@@ -184,7 +189,7 @@ async function documentGraphSignal({ workspaceId, documentId }) {
       Number(workspaceId),
       String(documentId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COALESCE(SUM(e."usageCount"), 0) + COALESCE(SUM(n."usageCount"), 0) AS count
       FROM "ConceptChunkMap" c
       LEFT JOIN "KnowledgeNode" n ON n."id" = c."nodeId"
@@ -195,7 +200,7 @@ async function documentGraphSignal({ workspaceId, documentId }) {
       Number(workspaceId),
       String(documentId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS count FROM "EdgeEvidence"
       WHERE "workspaceId" = ? AND "documentId" = ?`,
       Number(workspaceId),
@@ -214,7 +219,7 @@ async function documentGraphSignal({ workspaceId, documentId }) {
 
 async function relationDensity({ workspaceId, documentId }) {
   const [edges, lowConfidence, relatedTo] = await Promise.all([
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT e."id") AS count
       FROM "KnowledgeEdge" e
       JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
@@ -222,7 +227,7 @@ async function relationDensity({ workspaceId, documentId }) {
       Number(workspaceId),
       String(documentId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT e."id") AS count
       FROM "KnowledgeEdge" e
       JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"
@@ -231,7 +236,7 @@ async function relationDensity({ workspaceId, documentId }) {
       Number(workspaceId),
       String(documentId)
     ),
-    prisma.$queryRawUnsafe(
+    knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT e."id") AS count
       FROM "KnowledgeEdge" e
       JOIN "EdgeEvidence" ev ON ev."edgeId" = e."id"

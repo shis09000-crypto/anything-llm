@@ -1,7 +1,9 @@
 const fs = require("fs");
 const path = require("path");
 const { CollectorApi } = require("../collectorApi");
-const { Document } = require("../../models/documents");
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
 const { hotdirPath, sanitizeFileName, normalizePath } = require("../files");
 const {
   STRUCTURE_JSON_REQUIRED_FIELDS,

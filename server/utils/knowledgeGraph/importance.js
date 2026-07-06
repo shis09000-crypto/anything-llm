@@ -1,5 +1,10 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 
 function clampScore(value = 0) {
   return Math.max(0, Math.min(1, Number(value) || 0));
@@ -9,7 +14,7 @@ async function updateNodeImportance({ workspaceId, nodeIds = [] }) {
   await KnowledgeGraph.ensureTables();
   const ids = [...new Set(nodeIds.map(Number).filter(Boolean))];
   for (const nodeId of ids) {
-    const edgeRows = await prisma.$queryRawUnsafe(
+    const edgeRows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS edgeCount, COALESCE(SUM("weight"), 0) AS totalWeight
       FROM "KnowledgeEdge"
       WHERE "workspaceId" = ? AND ("sourceNodeId" = ? OR "targetNodeId" = ?)`,
@@ -17,7 +22,7 @@ async function updateNodeImportance({ workspaceId, nodeIds = [] }) {
       nodeId,
       nodeId
     );
-    const evidenceRows = await prisma.$queryRawUnsafe(
+    const evidenceRows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(DISTINCT "documentId") AS docCount, COUNT(*) AS evidenceCount
       FROM "EdgeEvidence"
       WHERE "workspaceId" = ? AND "edgeId" IN (
@@ -29,14 +34,14 @@ async function updateNodeImportance({ workspaceId, nodeIds = [] }) {
       nodeId,
       nodeId
     );
-    const mapRows = await prisma.$queryRawUnsafe(
+    const mapRows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT COUNT(*) AS chunkCount, COALESCE(SUM("mentionCount"), 0) AS mentions
       FROM "ConceptChunkMap"
       WHERE "workspaceId" = ? AND "nodeId" = ?`,
       Number(workspaceId),
       nodeId
     );
-    const usageRows = await prisma.$queryRawUnsafe(
+    const usageRows = await knowledgeGraphDb.$queryRawUnsafe(
       `SELECT "usageCount", "recentUsageCount" FROM "KnowledgeNode" WHERE "id" = ?`,
       nodeId
     );
@@ -60,7 +65,7 @@ async function updateNodeImportance({ workspaceId, nodeIds = [] }) {
       recentUsageCount * 0.08 + Math.min(evidenceCount, 10) * 0.025
     );
 
-    await prisma.$executeRawUnsafe(
+    await knowledgeGraphDb.$executeRawUnsafe(
       `UPDATE "KnowledgeNode"
       SET "globalImportanceScore" = ?, "workspaceImportanceScore" = ?,
         "recentImportanceScore" = ?, "updatedAt" = CURRENT_TIMESTAMP

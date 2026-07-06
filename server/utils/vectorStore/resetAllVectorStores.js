@@ -1,7 +1,13 @@
 const { Workspace } = require("../../models/workspace");
-const { Document } = require("../../models/documents");
-const { DocumentVectors } = require("../../models/vectors");
-const { EventLogs } = require("../../models/eventLogs");
+const {
+  DocumentRepository: Document,
+} = require("../../repositories/documentRepository");
+const {
+  DocumentVectorRepository: DocumentVectors,
+} = require("../../repositories/documentVectorRepository");
+const {
+  EventLogRepository: EventLogs,
+} = require("../../repositories/eventLogRepository");
 const { purgeEntireVectorCache } = require("../files");
 const { getVectorDbClass } = require("../helpers");
 

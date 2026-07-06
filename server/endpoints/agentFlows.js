@@ -4,7 +4,9 @@ const {
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
-const { Telemetry } = require("../models/telemetry");
+const {
+  TelemetryRepository: Telemetry,
+} = require("../repositories/telemetryRepository");
 
 function agentFlowEndpoints(app) {
   if (!app) return;

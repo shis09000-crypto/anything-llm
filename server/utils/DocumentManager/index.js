@@ -1,6 +1,7 @@
 const fs = require("fs");
 const path = require("path");
 const { storagePath } = require("../environment");
+const { DataAccessCenter } = require("../dataAccess");
 
 const documentsPath = storagePath("documents");
 
@@ -17,8 +18,7 @@ class DocumentManager {
 
   async pinnedDocuments() {
     if (!this.workspace) return [];
-    const { Document } = require("../../models/documents");
-    return await Document.where({
+    return await DataAccessCenter.document.where({
       workspaceId: Number(this.workspace.id),
       pinned: true,
     });

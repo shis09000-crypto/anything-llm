@@ -165,7 +165,9 @@ class AstraDB extends VectorDatabase {
     fullFilePath = null,
     skipCache = false
   ) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     try {
       let vectorDimension = null;
       const { pageContent, docId, ...metadata } = documentData;
@@ -292,7 +294,9 @@ class AstraDB extends VectorDatabase {
   }
 
   async deleteDocumentFromNamespace(namespace, docId) {
-    const { DocumentVectors } = require("../../../models/vectors");
+    const {
+      DocumentVectorRepository: DocumentVectors,
+    } = require("../../../repositories/documentVectorRepository");
     const { client } = await this.connect();
     namespace = sanitizeNamespace(namespace);
     if (!(await this.namespaceExists(client, namespace)))

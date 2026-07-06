@@ -9,11 +9,16 @@ const {
   toChunks,
 } = require("../helpers");
 const { fileData, storeVectorResult } = require("../files");
-const { SystemSettings } = require("../../models/systemSettings");
-const { EmbeddingBatchJob } = require("../../models/embeddingBatchJob");
-const { DocumentIndexStatus } = require("../../models/documentIndexStatus");
-const prisma = require("../prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const { DataAccessCenter } = require("../dataAccess");
 const { storagePath: environmentStoragePath } = require("../environment");
+const DocumentEmbeddingBatchData = lazyDataAccessFacade(
+  "documentEmbeddingBatch"
+);
+const DocumentIndexStatus = DataAccessCenter.documentIndexStatus;
+const EmbeddingBatchJob = DocumentEmbeddingBatchData.embeddingBatchJob;
+const SystemSettings = DocumentEmbeddingBatchData.systemSettings;
+const WorkspaceDocuments = DocumentEmbeddingBatchData.workspaceDocuments;
 
 const DASH_SCOPE_BASE_PATH =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
@@ -195,7 +200,7 @@ async function createWorkspaceDocuments({ workspace, additions, jobId }) {
     };
 
     try {
-      await prisma.workspace_documents.create({ data: newDoc });
+      await WorkspaceDocuments.create({ data: newDoc });
       await DocumentIndexStatus.markIndexing({
         workspaceId: workspace.id,
         docId,
@@ -259,7 +264,7 @@ async function enqueueBatchDocuments({
   });
 
   if (error) {
-    await prisma.workspace_documents.updateMany({
+    await WorkspaceDocuments.updateMany({
       where: { embeddingBatchJobId: jobId },
       data: {
         embeddingStatus: "failed",
@@ -315,7 +320,7 @@ async function enqueueBatchDocuments({
 }
 
 async function prepareJsonl(job) {
-  const docs = await prisma.workspace_documents.findMany({
+  const docs = await WorkspaceDocuments.findMany({
     where: { embeddingBatchJobId: job.jobId },
   });
   const EmbedderEngine = getEmbeddingEngineSelection();
@@ -459,12 +464,12 @@ function buildWorkspaceDocumentRecord({ docId, docManifest, job }) {
 }
 
 async function ensureWorkspaceDocumentForBatch({ docId, docManifest, job }) {
-  const existingDoc = await prisma.workspace_documents.findFirst({
+  const existingDoc = await WorkspaceDocuments.findFirst({
     where: { docId },
   });
   if (existingDoc) return existingDoc;
 
-  return await prisma.workspace_documents.create({
+  return await WorkspaceDocuments.create({
     data: buildWorkspaceDocumentRecord({ docId, docManifest, job }),
   });
 }
@@ -558,7 +563,7 @@ async function writeBatchOutput(jobId, outputFileId) {
     vectorsWritten += vectors.length;
   }
 
-  await prisma.workspace_documents.updateMany({
+  await WorkspaceDocuments.updateMany({
     where: { embeddingBatchJobId: jobId },
     data: {
       embeddingStatus: "completed",

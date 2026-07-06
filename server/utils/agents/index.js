@@ -1,11 +1,12 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
+const WorkspaceAgentInvocation = lazyDataAccessFacade(
+  "workspaceAgentInvocation"
+);
+const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
+const User = lazyDataAccessFacade("user");
 const AIbitat = require("./aibitat");
 const AgentPlugins = require("./aibitat/plugins");
-const {
-  WorkspaceAgentInvocation,
-} = require("../../models/workspaceAgentInvocation");
-const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
-const { User } = require("../../models/user");
-const { Workspace } = require("../../models/workspace");
 const { safeJsonParse } = require("../http");
 const {
   agentThreadMemory,

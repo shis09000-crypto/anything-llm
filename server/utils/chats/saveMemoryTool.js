@@ -1,9 +1,8 @@
 const { v4: uuidv4 } = require("uuid");
-const {
-  UserMemory,
-  MEMORY_CATEGORIES,
-  MEMORY_CATEGORY_LABELS,
-} = require("../../models/userMemory");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const UserMemory = lazyDataAccessFacade("userMemory");
+const MEMORY_CATEGORIES = UserMemory.categories;
+const MEMORY_CATEGORY_LABELS = UserMemory.labels;
 
 const SAVE_MEMORY_TOOL_NAME = "save_memory";
 const EXPLICIT_MEMORY_SOURCE = "explicit_user_request";

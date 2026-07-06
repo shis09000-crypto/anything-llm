@@ -6,22 +6,19 @@ const {
   getAuthorizedWorkspace,
   getAuthorizedWorkspaceThread,
 } = require("./authz/resourceAccess");
+const {
+  USER_STATE_NAMESPACE_POLICIES,
+  namespacePolicy,
+} = require("./dataAccess/dataAccessPolicy");
 const { safeJsonParse } = require("./http");
 
 const DEFAULT_SCOPE = "global";
 const MAX_STATE_BYTES = 256 * 1024;
 const MAX_DRAFT_BYTES = 64 * 1024;
 
-const USER_STATE_NAMESPACES = new Set([
-  "recent.navigation",
-  "preferences.appearance",
-  "workspace.layout",
-  "workspace.order",
-  "reader.progress",
-  "reader.library",
-  "chat.draft",
-  "crypto.ui",
-]);
+const USER_STATE_NAMESPACES = new Set(
+  Object.keys(USER_STATE_NAMESPACE_POLICIES)
+);
 
 const GLOBAL_NAMESPACES = new Set([
   "recent.navigation",
@@ -173,6 +170,7 @@ function parseNamespaceFilter(value = null) {
 module.exports = {
   DEFAULT_SCOPE,
   USER_STATE_NAMESPACES,
+  namespacePolicy,
   parseNamespaceFilter,
   validateUserStateInput,
   validateUserStateScope,

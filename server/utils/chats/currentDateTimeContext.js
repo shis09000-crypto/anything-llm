@@ -19,7 +19,10 @@ function configuredPromptTimeZone() {
   }
 }
 
-function dateTimeParts(date = new Date(), timeZone = configuredPromptTimeZone()) {
+function dateTimeParts(
+  date = new Date(),
+  timeZone = configuredPromptTimeZone()
+) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone,
     year: "numeric",

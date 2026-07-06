@@ -1,4 +1,6 @@
-const prisma = require("../prisma");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { relatedNodes } = require("./nodeResolver");
 
 function pathTypeFor({ profile, bookStructure, workspaceSupplements = [] }) {
@@ -49,7 +51,7 @@ async function keyPathsForNode({
     limit: Math.max(3, Number(limit || 3) * 3),
   });
   if (!neighbors.length) return [];
-  const rows = await prisma
+  const rows = await knowledgeGraphDb
     .$queryRawUnsafe(
       `SELECT e.*
     FROM "KnowledgeEdge" e

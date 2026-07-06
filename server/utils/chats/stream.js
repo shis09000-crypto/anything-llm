@@ -1,8 +1,9 @@
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
 const { v4: uuidv4 } = require("uuid");
 const { DocumentManager } = require("../DocumentManager");
-const { WorkspaceChats } = require("../../models/workspaceChats");
-const { WorkspaceParsedFiles } = require("../../models/workspaceParsedFiles");
-const { UserMemory } = require("../../models/userMemory");
+const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
+const UserMemory = lazyDataAccessFacade("userMemory");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
 const { grepAgents } = require("./agents");
@@ -18,9 +19,7 @@ const {
   maybeAutoCompact,
   recentChatHistoryWithCompaction,
 } = require("./threadCompaction");
-const {
-  publishWorkspaceSyncEvent,
-} = require("./workspaceSyncEvents");
+const { publishWorkspaceSyncEvent } = require("./workspaceSyncEvents");
 const {
   resolveGraphContext,
 } = require("../knowledgeGraph/graphContextResolver");

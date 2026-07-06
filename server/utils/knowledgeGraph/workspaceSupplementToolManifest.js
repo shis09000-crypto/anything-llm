@@ -1,6 +1,14 @@
-const prisma = require("../prisma");
+const {
+  lazyDataAccessFacade,
+  lazyDataAccessProperty,
+} = require("../dataAccess/lazyFacade");
+const KnowledgeGraphData = lazyDataAccessFacade("knowledgeGraph");
+const knowledgeGraphDb = KnowledgeGraphData.db;
 const { fileData } = require("../files");
-const { WorkspaceSupplement } = require("../../models/workspaceSupplement");
+const WorkspaceSupplement = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "workspaceSupplement"
+);
 const {
   WORKSPACE_SUPPLEMENT_KIND_LABELS,
   normalizeSupplementKind,
@@ -142,7 +150,7 @@ function truncateContent(content = "", budget = MAX_ITEM_CONTENT_CHARS) {
 async function documentsById({ workspaceId, documentIds = [] }) {
   const ids = [...new Set(documentIds.filter(Boolean))];
   if (!workspaceId || !ids.length) return new Map();
-  const documents = await prisma.workspace_documents.findMany({
+  const documents = await knowledgeGraphDb.workspace_documents.findMany({
     where: {
       workspaceId: Number(workspaceId),
       docId: { in: ids },

@@ -1,8 +1,11 @@
-const { Workspace } = require("../../../../models/workspace");
-const { Document } = require("../../../../models/documents");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const Workspace = lazyDataAccessFacade("workspace");
 const {
-  DocumentIndexStatus,
-} = require("../../../../models/documentIndexStatus");
+  DocumentRepository: Document,
+} = require("../../../../repositories/documentRepository");
+const {
+  DocumentIndexStatusRepository: DocumentIndexStatus,
+} = require("../../../../repositories/documentIndexStatusRepository");
 
 const TOOL_NAME = "document_index_status_tool";
 const MISSING_STATUS_ERROR = "missing_status_row";

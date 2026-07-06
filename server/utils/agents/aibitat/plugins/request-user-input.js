@@ -1,4 +1,5 @@
-const { SystemSettings } = require("../../../../models/systemSettings");
+const { lazyDataAccessFacade } = require("../../../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 
 const REQUEST_USER_INPUT_TOOL_NAME = "request-user-input";
 const HARD_MAX_PER_TURN = 3;
@@ -88,7 +89,9 @@ function normalizeChoiceQuestion(raw) {
   if (typeof raw.question !== "string" || !raw.question.trim())
     return { error: "question must be a non-empty string" };
   if (raw.kind !== "choice")
-    return { error: "kind must be 'choice'; free-form input questions are not allowed" };
+    return {
+      error: "kind must be 'choice'; free-form input questions are not allowed",
+    };
 
   const options = Array.isArray(raw.options)
     ? raw.options.map((option) => String(option || "").trim()).filter(Boolean)
@@ -249,7 +252,9 @@ const AskUser = {
             );
             const invalid = normalizedResults.find((result) => result.error);
             if (invalid) return choiceRepairMessage(invalid.error);
-            const normalized = normalizedResults.map((result) => result.question);
+            const normalized = normalizedResults.map(
+              (result) => result.question
+            );
 
             const state = await ensureState(this.super);
             const remaining = state.maxPerTurn - state.asked;

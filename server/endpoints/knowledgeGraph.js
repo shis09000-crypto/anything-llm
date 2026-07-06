@@ -1,3 +1,4 @@
+const { lazyDataAccessProperty } = require("../utils/dataAccess/lazyFacade");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody, userFromSession } = require("../utils/http");
 const {
@@ -16,7 +17,7 @@ const {
   nodeEvidence,
   edgeEvidence,
 } = require("../utils/knowledgeGraph/evidence");
-const { KnowledgeGraph } = require("../models/knowledgeGraph");
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
 const {
   USER_DESCRIPTION_TEMPLATE,
   buildWorkspaceKnowledgeProfile,
@@ -61,11 +62,7 @@ function knowledgeGraphEndpoints(app) {
 
   app.post(
     "/workspace/:slug/knowledge/profile",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

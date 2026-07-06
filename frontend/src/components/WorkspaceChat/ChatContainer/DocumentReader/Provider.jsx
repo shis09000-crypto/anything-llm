@@ -8,12 +8,12 @@ import {
   useState,
 } from "react";
 import ReaderDocument from "@/models/readerDocument";
+import ReaderLibrary from "@/models/readerLibrary";
 import showToast from "@/utils/toast";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import { AuthContext } from "@/AuthContext";
 import { getAuthToken } from "@/utils/authTokenStorage";
 import {
-  clearDeletedReaderDocumentIdsFromAllStorage,
   compactDocumentForStorage,
   clearReaderHistory as clearStoredReaderHistory,
   deleteReaderHistoryItem as deleteStoredReaderHistoryItem,
@@ -37,13 +37,11 @@ import {
   readReaderCurrentDocument,
   readReaderHistory,
   readReaderSources,
-  reconcileReaderBookshelfWithServerItems,
   READER_BOOKSHELF_CATEGORIES_STORAGE_KEY,
   READER_BOOKSHELF_STORAGE_KEY,
   READER_HISTORY_STORAGE_KEY,
   READER_SOURCES_STORAGE_KEY,
   readerItemWithLatestBookMemory,
-  rememberDeletedReaderDocumentIds,
   registerReaderBookMemoryAlias,
   readerStorageKey,
   renameReaderBookshelfCategory,
@@ -60,6 +58,7 @@ import {
   upsertReaderHistory,
   validateReaderFile,
   writeReaderBookshelf,
+  writeReaderAuthorityLibraryState,
   writeReaderBookshelfCategories,
   writeReaderCurrentDocument,
   writeReaderHistory,
@@ -82,10 +81,7 @@ import {
   normalizeReaderStorageItemLinks,
   parseReaderDocumentUrl,
 } from "@/utils/chat/readerLinkMaintenance";
-import {
-  readerLibraryItemKey,
-  removableBookshelfKeysAfterReaderDelete,
-} from "@/utils/chat/readerLibraryPersistence";
+import { readerLibraryItemKey } from "@/utils/chat/readerLibraryPersistence";
 import {
   clearReaderCurrentDocumentClearMarker,
   clearReaderCurrentDocumentStorage,
@@ -100,10 +96,7 @@ import {
   readerOpenFailureDetails,
   readerOpenFailureResult,
 } from "@/utils/chat/readerOpenFailure";
-import {
-  deleteReaderLocalSources,
-  openReaderLocalSource,
-} from "@/utils/chat/readerLocalSources";
+import { openReaderLocalSource } from "@/utils/chat/readerLocalSources";
 import { useWorkspaceLayout } from "@/contexts/WorkspaceLayoutProvider";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
@@ -967,11 +960,37 @@ export function DocumentReaderProvider({
     [historyItemFromDocument]
   );
 
-  const addItemsToBookshelf = useCallback((items = []) => {
-    const next = upsertReaderBookshelfItems(items);
-    setReaderBookshelf(next);
-    return next;
-  }, []);
+  const addItemsToBookshelf = useCallback(
+    (items = []) => {
+      const normalizedItems = Array.isArray(items) ? items : [items];
+      const next = upsertReaderBookshelfItems(normalizedItems);
+      setReaderBookshelf(next);
+      if (normalizedItems.some((item) => item?.readerDocumentId)) {
+        void ReaderLibrary.bootstrap(
+          {
+            bookshelf: normalizedItems,
+            categories: readReaderBookshelfCategories(),
+          },
+          {
+            priority: "P0",
+            intentRank: 2,
+            label: "reader:library-add-item",
+            scope: {
+              workspaceSlug: workspace?.slug || null,
+              surface: "reader-library-add",
+            },
+          }
+        ).then((result) => {
+          if (!result?.data?.success) return;
+          const authorityState = writeReaderAuthorityLibraryState(result.data);
+          setReaderCategories(authorityState.categories);
+          setReaderBookshelf(authorityState.bookshelf);
+        });
+      }
+      return next;
+    },
+    [workspace?.slug]
+  );
 
   const refreshLocalReaderLibraryState = useCallback(() => {
     repairReaderStoredLinks(workspace?.slug || null);
@@ -982,86 +1001,75 @@ export function DocumentReaderProvider({
   }, [workspace?.slug]);
 
   const syncAllServerBookshelves = useCallback(
-    async (signal = null) => {
+    async (signal = null, options = {}) => {
       if (!(authToken || getAuthToken())) return readReaderBookshelf();
       const syncSeq = ++readerBookshelfServerSyncSeqRef.current;
-      const scopes = workspace?.slug ? [null, workspace.slug] : [null];
-      const results = await Promise.all(
-        scopes.map(async (scope) => {
-          try {
-            const { response, data } = await ReaderDocument.list(scope, {
-              signal,
-              task: false,
-            });
-            if (!response.ok || !data?.success)
-              return { scope, documents: [], ok: false };
-            return { scope, documents: data.documents || [], ok: true };
-          } catch (error) {
-            if (error?.name !== "AbortError") {
-              console.warn("[DocumentReader] bookshelf scope sync failed", {
-                scope: scope || "standalone",
-                error: error.message,
-              });
-            }
-            return { scope, documents: [], ok: false };
+      const localBookshelfBeforeReconcile = readReaderBookshelf();
+      const localCategoriesBeforeReconcile = readReaderBookshelfCategories();
+      const visible = options.visible === true;
+      const taskOptions = {
+        signal,
+        priority: visible ? "P0" : "P4",
+        policy: visible ? "foreground" : "maintenance",
+        intentRank: visible ? 1 : undefined,
+        emergency: visible,
+        resource: visible ? "network" : "idle",
+        label: "reader:library-authority",
+        scope: {
+          workspaceSlug: workspace?.slug || null,
+          reason: options.reason || "reader-library-refresh",
+        },
+      };
+
+      let result = await ReaderLibrary.list(taskOptions);
+      if (
+        !signal?.aborted &&
+        syncSeq === readerBookshelfServerSyncSeqRef.current &&
+        result?.data?.success &&
+        !result.data.bookshelf.length &&
+        localBookshelfBeforeReconcile.length
+      ) {
+        result = await ReaderLibrary.bootstrap(
+          {
+            bookshelf: localBookshelfBeforeReconcile,
+            categories: localCategoriesBeforeReconcile,
+          },
+          {
+            ...taskOptions,
+            label: "reader:library-bootstrap",
           }
-        })
-      );
+        );
+      }
+
       if (
         signal?.aborted ||
         syncSeq !== readerBookshelfServerSyncSeqRef.current
       )
         return readReaderBookshelf();
 
-      const successfulScopes = results
-        .filter((result) => result.ok)
-        .map((result) => result.scope || null);
-      const localBookshelfBeforeReconcile = readReaderBookshelf();
-      const items = results
-        .flatMap(({ scope, documents }) =>
-          documents.map((documentData) =>
-            bookshelfItemFromServerData(
-              scope && documentData?.metadata
-                ? {
-                    ...documentData,
-                    metadata: {
-                      ...documentData.metadata,
-                      readerDocumentWorkspaceSlug:
-                        documentData.metadata.readerDocumentWorkspaceSlug ||
-                        documentData.readerDocumentWorkspaceSlug ||
-                        scope,
-                    },
-                  }
-                : documentData
-            )
-          )
-        )
-        .filter(Boolean);
-      if (!items.length && !successfulScopes.length)
+      if (!result?.response?.ok || !result?.data?.success) {
         return readReaderBookshelf();
-      const nextBookshelf = reconcileReaderBookshelfWithServerItems(items, {
-        successfulScopes,
-      });
-      setReaderBookshelf(nextBookshelf);
+      }
+
+      const authorityState = writeReaderAuthorityLibraryState(result.data);
+      setReaderCategories(authorityState.categories);
+      setReaderBookshelf(authorityState.bookshelf);
+      const nextBookshelf = authorityState.bookshelf;
       readerLibraryReconcileDebug({
-        reason: "server-sync",
+        reason: "authority-sync",
         workspaceSlug: workspace?.slug || null,
         localCount: localBookshelfBeforeReconcile.length,
-        serverGlobalCount:
-          results.find((result) => !result.scope)?.documents?.length || 0,
-        serverWorkspaceCount:
-          results.find((result) => result.scope === workspace?.slug)?.documents
-            ?.length || 0,
-        successfulScopes,
+        serverGlobalCount: 0,
+        serverWorkspaceCount: 0,
+        authorityCount: nextBookshelf.length,
+        revision: result.data.revision || null,
+        successfulScopes: ["reader-library-db"],
         normalizedCount: nextBookshelf.length,
-        missingCount: Math.max(
-          0,
-          localBookshelfBeforeReconcile.length +
-            items.length -
-            nextBookshelf.length
-        ),
+        missingCount: nextBookshelf.filter(
+          (item) => item.availability === "missing"
+        ).length,
       });
-      items
+      nextBookshelf
         .filter((item) => item.thumbnailUrl && !item.thumbnailDataUrl)
         .forEach((item, index) => {
           void thumbnailDataUrlFromUrl(item.thumbnailUrl, {
@@ -1076,7 +1084,7 @@ export function DocumentReaderProvider({
         });
       return nextBookshelf;
     },
-    [authToken, bookshelfItemFromServerData, workspace?.slug]
+    [authToken, workspace?.slug]
   );
 
   const refreshReaderLibraryFromPersistentSources = useCallback(
@@ -1100,7 +1108,10 @@ export function DocumentReaderProvider({
             } catch {}
             if (signal?.aborted) return readReaderBookshelf();
             refreshLocalReaderLibraryState();
-            const bookshelf = await syncAllServerBookshelves(signal);
+            const bookshelf = await syncAllServerBookshelves(signal, {
+              visible: visibleRefresh,
+              reason,
+            });
             if (signal?.aborted) return bookshelf;
             refreshLocalReaderLibraryState();
             return bookshelf;
@@ -4165,6 +4176,123 @@ export function DocumentReaderProvider({
           return respond({ status: "snapshot", snapshot: readerDevSnapshot() });
         }
 
+        if (command?.startsWith?.("reader.library.db.")) {
+          let result = null;
+          const applyAuthorityResult = (libraryResult) => {
+            if (!libraryResult?.data?.success) return null;
+            const authorityState = writeReaderAuthorityLibraryState(
+              libraryResult.data
+            );
+            setReaderCategories(authorityState.categories);
+            setReaderBookshelf(authorityState.bookshelf);
+            return authorityState;
+          };
+
+          if (
+            command === "reader.library.db.snapshot" ||
+            command === "reader.library.db.reconcile"
+          ) {
+            result = await ReaderLibrary.list({
+              priority: "P0",
+              intentRank: 1,
+              scope: { workspaceSlug: workspace?.slug || null },
+            });
+            applyAuthorityResult(result);
+          } else if (command === "reader.library.db.bootstrap") {
+            result = await ReaderLibrary.bootstrap(
+              {
+                bookshelf: params.bookshelf || readReaderBookshelf(),
+                categories:
+                  params.categories || readReaderBookshelfCategories(),
+              },
+              {
+                priority: "P0",
+                intentRank: 0,
+                scope: { workspaceSlug: workspace?.slug || null },
+              }
+            );
+            applyAuthorityResult(result);
+          } else if (command === "reader.library.db.patchItem") {
+            const item =
+              (params.itemId && { libraryItemId: params.itemId }) ||
+              findReaderDevItem(
+                params.readerDocumentId || scope.readerDocumentId
+              );
+            const itemId =
+              params.itemId ||
+              item?.libraryItemId ||
+              item?.itemId ||
+              item?.itemKey ||
+              item?.key;
+            if (!itemId)
+              return respond({
+                success: false,
+                status: "missing_library_item_id",
+              });
+            result = await ReaderLibrary.patchItem(itemId, params.patch || {}, {
+              priority: "P0",
+              intentRank: 0,
+              scope: {
+                workspaceSlug: workspace?.slug || null,
+                readerDocumentId:
+                  params.readerDocumentId || scope.readerDocumentId || null,
+              },
+            });
+            applyAuthorityResult(result);
+          } else if (command === "reader.library.db.deleteItem") {
+            const item =
+              (params.itemId && { libraryItemId: params.itemId }) ||
+              findReaderDevItem(
+                params.readerDocumentId || scope.readerDocumentId
+              );
+            const itemId =
+              params.itemId ||
+              item?.libraryItemId ||
+              item?.itemId ||
+              item?.itemKey ||
+              item?.key;
+            if (!itemId)
+              return respond({
+                success: false,
+                status: "missing_library_item_id",
+              });
+            result = await ReaderLibrary.deleteItem(itemId, {
+              priority: "P0",
+              intentRank: 0,
+              scope: {
+                workspaceSlug: workspace?.slug || null,
+                readerDocumentId:
+                  params.readerDocumentId || scope.readerDocumentId || null,
+              },
+            });
+            applyAuthorityResult(result);
+          } else if (command === "reader.library.db.patchCategory") {
+            result = await ReaderLibrary.patchCategory(
+              params.categoryId,
+              params.patch || { name: params.name },
+              {
+                priority: "P0",
+                intentRank: 0,
+                scope: { workspaceSlug: workspace?.slug || null },
+              }
+            );
+            applyAuthorityResult(result);
+          } else if (command === "reader.library.db.deleteCategory") {
+            result = await ReaderLibrary.deleteCategory(params.categoryId, {
+              priority: "P0",
+              intentRank: 0,
+              scope: { workspaceSlug: workspace?.slug || null },
+            });
+            applyAuthorityResult(result);
+          }
+
+          return respond({
+            status: "reader_library_db_command_done",
+            result: result?.data || null,
+            snapshot: readerDevSnapshot(),
+          });
+        }
+
         if (
           command === "reader.scope.cancelTasks" ||
           command === "reader.scope.markStale"
@@ -4430,46 +4558,8 @@ export function DocumentReaderProvider({
         Boolean
       );
       if (!selectedItems.length) return;
-
-      const idsByWorkspace = new Map();
-      for (const item of selectedItems) {
-        const explicitWorkspaceSlug =
-          item.readerDocumentWorkspaceSlug || item.workspaceSlug || null;
-        const targetWorkspaceSlugs = explicitWorkspaceSlug
-          ? [explicitWorkspaceSlug]
-          : readerDocumentWorkspaceCandidates(item, workspace?.slug);
-        for (const readerDocumentId of [
-          item.readerDocumentId,
-          item.backupReaderDocumentId,
-        ]) {
-          if (!readerDocumentId) continue;
-          targetWorkspaceSlugs.forEach((targetWorkspaceSlug) => {
-            if (!idsByWorkspace.has(targetWorkspaceSlug))
-              idsByWorkspace.set(targetWorkspaceSlug, new Set());
-            idsByWorkspace.get(targetWorkspaceSlug).add(readerDocumentId);
-          });
-        }
-      }
-
-      const deleteTargets = Array.from(idsByWorkspace.entries()).flatMap(
-        ([targetWorkspaceSlug, ids]) =>
-          Array.from(ids).map((readerDocumentId) => ({
-            targetWorkspaceSlug,
-            readerDocumentId,
-          }))
-      );
-      const optimisticDeletedIds = deleteTargets.map(
-        (target) => target.readerDocumentId
-      );
-      rememberDeletedReaderDocumentIds(optimisticDeletedIds);
-      const removableKeys = removableBookshelfKeysAfterReaderDelete(
-        selectedItems,
-        optimisticDeletedIds
-      );
-      const removableKeySet = new Set(removableKeys);
-      const removableItems = selectedItems.filter((item) =>
-        removableKeySet.has(readerLibraryItemKey(item))
-      );
+      const removableKeys = selectedItems.map(readerLibraryItemKey);
+      const removableItems = selectedItems;
 
       if (removableKeys.length) {
         const nextBookshelf = deleteStoredReaderBookshelfItems(removableKeys);
@@ -4477,43 +4567,9 @@ export function DocumentReaderProvider({
         setReaderBookshelf(nextBookshelf);
       }
 
-      if (optimisticDeletedIds.length) {
-        const { bookshelf } =
-          clearDeletedReaderDocumentIdsFromAllStorage(optimisticDeletedIds);
-        setReaderBookshelf(bookshelf);
-
-        if (
-          currentDocument &&
-          (optimisticDeletedIds.includes(currentDocument.readerDocumentId) ||
-            optimisticDeletedIds.includes(
-              currentDocument.backupReaderDocumentId
-            ))
-        ) {
-          const readerDocumentId = optimisticDeletedIds.includes(
-            currentDocument.readerDocumentId
-          )
-            ? null
-            : currentDocument.readerDocumentId || null;
-          const backupReaderDocumentId = optimisticDeletedIds.includes(
-            currentDocument.backupReaderDocumentId
-          )
-            ? null
-            : currentDocument.backupReaderDocumentId || null;
-          const nextDocument = {
-            ...currentDocument,
-            readerDocumentId,
-            backupReaderDocumentId,
-            uploaded: !!(readerDocumentId || backupReaderDocumentId),
-          };
-          setCurrentDocument(nextDocument);
-          persistDocument(nextDocument);
-        }
-      }
-
       for (const item of removableItems) {
         deleteStoredReaderHistoryItem(null, null, item);
       }
-      await deleteReaderLocalSources(removableItems);
       setReaderHistory(readReaderHistory());
 
       const deleteAction = optimisticActionCenter.run({
@@ -4530,39 +4586,51 @@ export function DocumentReaderProvider({
         abortable: false,
         tombstone: true,
         label: "optimistic:reader-bookshelf-delete",
-        dedupeKey: `optimistic:reader-bookshelf-delete:${optimisticDeletedIds.join(",")}`,
+        dedupeKey: `optimistic:reader-bookshelf-delete:${removableKeys.join(",")}`,
         rollbackPatch: () => {},
         serverCall: async ({ signal }) =>
           await Promise.all(
-            deleteTargets.map(
-              async ({ targetWorkspaceSlug, readerDocumentId }) => {
-                try {
-                  const { response, data } = await ReaderDocument.delete(
-                    targetWorkspaceSlug,
-                    readerDocumentId,
-                    { timeoutMs: 15_000, signal, task: false }
-                  );
-                  if (response.ok && data?.success)
-                    return { ok: true, readerDocumentId };
-                  if (response.status === 404)
-                    return { ok: true, readerDocumentId, missing: true };
-                  return {
-                    ok: false,
-                    readerDocumentId,
-                    error: data?.error || readerDocumentId,
-                  };
-                } catch (error) {
-                  if (error?.status === 404) {
-                    return { ok: true, readerDocumentId, missing: true };
+            selectedItems.map(async (item) => {
+              const authorityItemId =
+                item.libraryItemId ||
+                item.itemId ||
+                item.itemKey ||
+                item.key ||
+                readerLibraryItemKey(item);
+              try {
+                const { response, data } = await ReaderLibrary.deleteItem(
+                  authorityItemId,
+                  {
+                    signal,
+                    timeoutMs: 15_000,
+                    priority: "P0",
+                    intentRank: 0,
+                    scope: {
+                      workspaceSlug: workspace?.slug || null,
+                      readerDocumentId: item.readerDocumentId || null,
+                    },
                   }
-                  return {
-                    ok: false,
-                    readerDocumentId,
-                    error: error?.message || readerDocumentId,
-                  };
+                );
+                if (response.ok && data?.success)
+                  return { ok: true, itemId: authorityItemId };
+                if (response.status === 404)
+                  return { ok: true, itemId: authorityItemId, missing: true };
+                return {
+                  ok: false,
+                  itemId: authorityItemId,
+                  error: data?.error || authorityItemId,
+                };
+              } catch (error) {
+                if (error?.status === 404) {
+                  return { ok: true, itemId: authorityItemId, missing: true };
                 }
+                return {
+                  ok: false,
+                  itemId: authorityItemId,
+                  error: error?.message || authorityItemId,
+                };
               }
-            )
+            })
           ),
       });
       const deleteOutcome = await deleteAction.promise;
@@ -4571,16 +4639,16 @@ export function DocumentReaderProvider({
 
       if (!deleteOutcome.ok || failedDeletes.length) {
         showToast(
-          `部分服务器备份删除失败，已先从本机书架隐藏 ${
-            failedDeletes.length || deleteTargets.length
+          `部分书架删除同步失败，已先从本机隐藏 ${
+            failedDeletes.length || selectedItems.length
           } 本书，后台稍后可重试。`,
           "warning"
         );
       } else {
-        showToast(`已删除 ${removableItems.length} 本书`, "success");
+        showToast(`已从书架移除 ${removableItems.length} 本书`, "success");
       }
     },
-    [currentDocument, persistDocument, workspace?.slug]
+    [workspace?.slug]
   );
 
   const createBookshelfCategory = useCallback(
@@ -4605,7 +4673,23 @@ export function DocumentReaderProvider({
           setReaderCategories(
             writeReaderBookshelfCategories(previousCategories)
           ),
-        serverCall: async () => true,
+        serverCall: async ({ signal }) => {
+          const categories = readReaderBookshelfCategories();
+          const category = categories.find((entry) => entry.name === name) || {
+            id: name,
+            name,
+          };
+          return await ReaderLibrary.patchCategory(
+            category.id,
+            { name: category.name },
+            {
+              signal,
+              priority: "P0",
+              intentRank: 0,
+              scope: { workspaceSlug: workspace?.slug || null },
+            }
+          );
+        },
       });
       return action.promise;
     },
@@ -4635,7 +4719,17 @@ export function DocumentReaderProvider({
           setReaderCategories(
             writeReaderBookshelfCategories(previousCategories)
           ),
-        serverCall: async () => true,
+        serverCall: async ({ signal }) =>
+          await ReaderLibrary.patchCategory(
+            categoryId,
+            { name },
+            {
+              signal,
+              priority: "P0",
+              intentRank: 0,
+              scope: { workspaceSlug: workspace?.slug || null, categoryId },
+            }
+          ),
       });
       return action.promise;
     },
@@ -4672,7 +4766,13 @@ export function DocumentReaderProvider({
           setReaderCategories(
             writeReaderBookshelfCategories(previousCategories)
           ),
-        serverCall: async () => true,
+        serverCall: async ({ signal }) =>
+          await ReaderLibrary.deleteCategory(categoryId, {
+            signal,
+            priority: "P0",
+            intentRank: 0,
+            scope: { workspaceSlug: workspace?.slug || null, categoryId },
+          }),
       });
       void action.promise.then((outcome) => {
         if (!outcome.ok) showToast(outcome.error?.message, "warning");
@@ -4707,7 +4807,26 @@ export function DocumentReaderProvider({
           if (previousCategory)
             patchStoredCategoryForItem(item, previousCategory);
         },
-        serverCall: async () => true,
+        serverCall: async ({ signal }) =>
+          await ReaderLibrary.patchItem(
+            item.libraryItemId || item.itemId || item.itemKey || item.key,
+            {
+              categoryId,
+              category: patch.category,
+              categoryStatus: patch.categoryStatus,
+              categoryStage: patch.categoryStage,
+              categoryReason: patch.categoryReason,
+            },
+            {
+              signal,
+              priority: "P0",
+              intentRank: 0,
+              scope: {
+                workspaceSlug: workspace?.slug || null,
+                readerDocumentId: item.readerDocumentId || null,
+              },
+            }
+          ),
       });
       void action.promise.then((outcome) => {
         if (outcome.ok) showToast("已修改分类", "success");

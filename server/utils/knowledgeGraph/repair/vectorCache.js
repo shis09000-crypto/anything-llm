@@ -1,3 +1,4 @@
+const { lazyDataAccessProperty } = require("../../dataAccess/lazyFacade");
 const { v4: uuidv4 } = require("uuid");
 const {
   getVectorDbClass,
@@ -5,19 +6,22 @@ const {
   toChunks,
 } = require("../../helpers");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
-const {
-  cachedVectorInformation,
-  fileData,
-  storeVectorResult,
-} = require("../../files");
+const SystemSettings = lazyDataAccessProperty(
+  "knowledgeGraph",
+  "systemSettings"
+);
 const { vectorRowsForDocument } = require("../chunks");
 
 const DASH_SCOPE_BASE_PATH =
   "https://dashscope.aliyuncs.com/compatible-mode/v1";
 const DASH_SCOPE_MODEL = "text-embedding-v4";
 
+function fileHelpers() {
+  return require("../../files");
+}
+
 async function repairVectorCacheByReadback({ workspace, document }) {
+  const { cachedVectorInformation, storeVectorResult } = fileHelpers();
   if (!workspace?.slug || !document?.docId || !document?.docpath)
     return { repaired: false, reason: "invalid_document" };
   if (await cachedVectorInformation(document.docpath, true))
@@ -65,6 +69,7 @@ async function repairVectorCacheByReadback({ workspace, document }) {
 }
 
 async function repairVectorCacheByDashScopeReembed({ document }) {
+  const { fileData, storeVectorResult } = fileHelpers();
   const guard = dashScopeGuard();
   if (guard) return { repaired: false, reason: guard };
 
