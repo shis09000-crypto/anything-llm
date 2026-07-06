@@ -207,6 +207,14 @@ function buildMetrics({
     recoveryRollback: recoveryByClassification.rollback || 0,
     navigationUiSwapMs: navigationSnapshot?.lastTransition?.uiSwapMs ?? null,
     navigationRestoreMs: navigationSnapshot?.lastTransition?.restoredMs ?? null,
+    navigationFinishedMs:
+      navigationSnapshot?.lastTransition?.finishedMs ?? null,
+    navigationRestoreCacheHit: Boolean(
+      navigationSnapshot?.lastTransition?.restoreCacheHit
+    ),
+    navigationRestoreFailed: Boolean(
+      navigationSnapshot?.lastTransition?.restoreFailed
+    ),
     latency,
   };
 }

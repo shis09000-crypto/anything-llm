@@ -57,6 +57,13 @@ function safeReaderMetadataSummary(metadata = {}) {
     deleteStatus: metadata.deleteStatus || null,
     deletedAt: metadata.deletedAt || null,
     previewWarning: metadata.previewWarning || null,
+    previewStatus: metadata.previewStatus || null,
+    previewAttemptedAt: metadata.previewAttemptedAt || null,
+    previewAttemptCount: metadata.previewAttemptCount || 0,
+    previewGeneratedAt: metadata.previewGeneratedAt || null,
+    previewSource: metadata.previewSource || null,
+    previewEngineVersion: metadata.previewEngineVersion || null,
+    previewLastError: metadata.previewLastError || null,
     parsedOnly: !!metadata.parsedOnly,
     pdfManifest: metadata.pdfManifest
       ? {

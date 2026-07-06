@@ -14,6 +14,7 @@ function normalizeTitleKey(title = "") {
 }
 
 export function readerLibraryItemKey(item = {}) {
+  item = item || {};
   if (!item) return null;
   const explicitKey = compactString(item.key);
   if (explicitKey) return explicitKey;
@@ -24,6 +25,7 @@ export function readerLibraryItemKey(item = {}) {
 }
 
 export function serverReaderDocumentIds(item = {}) {
+  item = item || {};
   return [item.readerDocumentId, item.backupReaderDocumentId].filter(
     (id, index, ids) => id && ids.indexOf(id) === index
   );
@@ -31,6 +33,33 @@ export function serverReaderDocumentIds(item = {}) {
 
 export function hasServerReaderDocument(item = {}) {
   return serverReaderDocumentIds(item).length > 0;
+}
+
+function resolvedCategoryFields(current = {}, incoming = {}) {
+  const incomingIsPending = incoming.categoryStatus === "pending";
+  const currentIsResolved =
+    current.categoryStatus && current.categoryStatus !== "pending";
+  const categorySource =
+    incomingIsPending && currentIsResolved ? current : incoming;
+  const fallbackSource = categorySource === incoming ? current : incoming;
+  const postprocessComplete =
+    incoming.postprocess?.status === "complete" ||
+    current.postprocess?.status === "complete";
+
+  return {
+    categoryStatus:
+      categorySource.categoryStatus ||
+      fallbackSource.categoryStatus ||
+      undefined,
+    categoryStage:
+      categorySource.categoryStage || fallbackSource.categoryStage || "",
+    categoryReason:
+      categorySource.categoryReason || fallbackSource.categoryReason || "",
+    category: categorySource.category || fallbackSource.category,
+    postprocessPercent: postprocessComplete
+      ? null
+      : (incoming.postprocessPercent ?? current.postprocessPercent),
+  };
 }
 
 export function mergeReaderLibraryBookshelfItems(
@@ -45,6 +74,7 @@ export function mergeReaderLibraryBookshelfItems(
     const key = readerLibraryItemKey(rawItem);
     if (!key) continue;
     const previous = byKey.get(key);
+    const categoryFields = resolvedCategoryFields(previous, rawItem);
     byKey.set(key, {
       ...previous,
       ...rawItem,
@@ -61,7 +91,7 @@ export function mergeReaderLibraryBookshelfItems(
         rawItem.workspaceSlug ||
         previous?.workspaceSlug ||
         null,
-      category: rawItem.category || previous?.category,
+      ...categoryFields,
       progress: rawItem.progress || previous?.progress,
       addedAt: previous?.addedAt || rawItem.addedAt,
       updatedAt: rawItem.updatedAt || previous?.updatedAt,

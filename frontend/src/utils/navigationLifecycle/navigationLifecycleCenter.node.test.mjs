@@ -57,6 +57,43 @@ test("transition marks UI swapped before deferred cleanup runs", async () => {
   assert.deepEqual(order, ["after-transition", "cleanup"]);
 });
 
+test("transition records cache restore timing and released old tasks", async () => {
+  const scheduler = new TaskScheduler({ maxConcurrent: 1 });
+  const { center } = createCenter({ scheduler });
+
+  const oldTask = scheduler.schedule(
+    async ({ signal }) => {
+      await new Promise((resolve) => {
+        signal.addEventListener("abort", resolve, { once: true });
+      });
+    },
+    {
+      kind: "reader",
+      priority: "P3",
+      scope: { route: "reader" },
+      label: "reader-old-work",
+    }
+  );
+
+  await wait();
+  const { transition, restorePromise } = center.transition({
+    fromScope: { route: "reader" },
+    toScope: { route: "workspace-chat", workspaceSlug: "alpha" },
+    reason: "close-reader",
+    restoreTarget: () => ({ source: "cache", cacheHit: true }),
+  });
+
+  await Promise.all([oldTask.promise, restorePromise]);
+  const snapshotTransition = center.snapshot().transitions.at(-1);
+
+  assert.equal(transition.restoreSource, "cache");
+  assert.equal(transition.restoreCacheHit, true);
+  assert.equal(transition.oldTasksCancelled >= 1, true);
+  assert.equal(snapshotTransition.restoreSource, "cache");
+  assert.equal(snapshotTransition.restoreCacheHit, true);
+  assert.equal(typeof snapshotTransition.finishedMs, "number");
+});
+
 test("leave aborts old non-protected tasks and keeps protected work", async () => {
   const scheduler = new TaskScheduler({ maxConcurrent: 2 });
   const { center } = createCenter({ scheduler });
@@ -229,5 +266,10 @@ test("route scope parser classifies first batch lifecycle routes", () => {
     route: "workspace-settings",
     surface: "workspace-settings",
     workspaceSlug: "ws-a",
+  });
+  assert.deepEqual(routeScopeFromPathname("/onboarding/user-setup"), {
+    kind: "route",
+    route: "onboarding",
+    surface: "onboarding",
   });
 });

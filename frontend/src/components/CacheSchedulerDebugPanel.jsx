@@ -127,6 +127,35 @@ export default function CacheSchedulerDebugPanel() {
         />
       </div>
 
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <Stat
+          label="nav done"
+          value={
+            lastNavigation?.finishedMs === null ||
+            lastNavigation?.finishedMs === undefined
+              ? "-"
+              : `${lastNavigation.finishedMs}ms`
+          }
+          tone="text-cyan-100"
+        />
+        <Stat
+          label="restore"
+          value={
+            lastNavigation?.restoreCacheHit
+              ? "cache"
+              : lastNavigation?.restoreSource || "-"
+          }
+          tone={
+            lastNavigation?.restoreCacheHit ? "text-emerald-200" : "text-white"
+          }
+        />
+        <Stat
+          label="nav fail"
+          value={lastNavigation?.restoreFailed ? "yes" : "no"}
+          tone={lastNavigation?.restoreFailed ? "text-red-200" : "text-white"}
+        />
+      </div>
+
       <div className="mt-3 rounded-md border border-white/10 bg-white/5 p-2">
         <div className="mb-1 font-semibold text-white/80">Active Intent</div>
         <pre className="max-h-20 overflow-auto whitespace-pre-wrap text-[11px] text-white/60">

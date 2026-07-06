@@ -780,6 +780,52 @@ export function normalizeReaderCategoryPatch(result = {}) {
   };
 }
 
+function readerCategoryPatchFromItem(item = {}) {
+  const classification =
+    item.postprocess?.tasks?.classification || item.classification || null;
+  const result = classification?.result || classification;
+  if (
+    result?.category &&
+    (item.postprocess?.status === "complete" ||
+      classification?.status === "complete")
+  ) {
+    return normalizeReaderCategoryPatch(result);
+  }
+  return null;
+}
+
+function mergeReaderCategoryFields(primary = {}, secondary = {}) {
+  const primaryPostprocessPatch = readerCategoryPatchFromItem(primary);
+  if (primaryPostprocessPatch) return primaryPostprocessPatch;
+
+  const secondaryPostprocessPatch = readerCategoryPatchFromItem(secondary);
+  if (
+    secondaryPostprocessPatch &&
+    (!primary.categoryStatus || primary.categoryStatus === "pending")
+  ) {
+    return secondaryPostprocessPatch;
+  }
+
+  const primaryIsPending = primary.categoryStatus === "pending";
+  const secondaryIsResolved =
+    secondary.categoryStatus && secondary.categoryStatus !== "pending";
+  const categorySource =
+    primaryIsPending && secondaryIsResolved ? secondary : primary;
+  const fallbackSource = categorySource === primary ? secondary : primary;
+
+  return {
+    categoryStatus:
+      categorySource.categoryStatus ||
+      fallbackSource.categoryStatus ||
+      undefined,
+    categoryStage:
+      categorySource.categoryStage || fallbackSource.categoryStage || "",
+    categoryReason:
+      categorySource.categoryReason || fallbackSource.categoryReason || "",
+    category: categorySource.category || fallbackSource.category || undefined,
+  };
+}
+
 export function effectiveReaderCategoryId(
   item = {},
   categories = readReaderBookshelfCategories()
@@ -871,6 +917,7 @@ function historySort(a, b) {
 function mergeHistoryItems(primary = {}, secondary = {}) {
   const primaryUploaded = isUploadedHistoryItem(primary);
   const secondaryUploaded = isUploadedHistoryItem(secondary);
+  const categoryFields = mergeReaderCategoryFields(primary, secondary);
   return {
     ...secondary,
     ...primary,
@@ -898,11 +945,12 @@ function mergeHistoryItems(primary = {}, secondary = {}) {
       primary.localFingerprint || secondary.localFingerprint || null,
     thumbnailDataUrl:
       primary.thumbnailDataUrl || secondary.thumbnailDataUrl || null,
-    categoryStatus:
-      primary.categoryStatus || secondary.categoryStatus || undefined,
-    categoryStage: primary.categoryStage || secondary.categoryStage || "",
-    categoryReason: primary.categoryReason || secondary.categoryReason || "",
-    category: primary.category || secondary.category || undefined,
+    ...categoryFields,
+    postprocessPercent:
+      primary.postprocess?.status === "complete" ||
+      secondary.postprocess?.status === "complete"
+        ? null
+        : (primary.postprocessPercent ?? secondary.postprocessPercent),
     progress: mergeReaderProgress(secondary.progress, primary.progress, {
       trustStartPosition: readerProgressAllowsStartPosition(primary.progress),
     }),
@@ -1181,10 +1229,12 @@ export function upsertReaderBookshelfItems(items = []) {
         localFingerprint:
           item.localFingerprint || previous?.localFingerprint || null,
         thumbnailDataUrl: item.thumbnailDataUrl || previous?.thumbnailDataUrl,
-        categoryStatus: item.categoryStatus || previous?.categoryStatus,
-        categoryStage: item.categoryStage || previous?.categoryStage,
-        categoryReason: item.categoryReason || previous?.categoryReason,
-        category: item.category || previous?.category,
+        ...mergeReaderCategoryFields(item, previous),
+        postprocessPercent:
+          item.postprocess?.status === "complete" ||
+          previous?.postprocess?.status === "complete"
+            ? null
+            : (item.postprocessPercent ?? previous?.postprocessPercent),
         progress: mergeReaderProgress(previous?.progress, item.progress, {
           trustStartPosition: readerProgressAllowsStartPosition(item.progress),
         }),

@@ -9,8 +9,6 @@ const cheerio = require("cheerio");
 const ExcelJS = require("exceljs");
 const PQueue = require("p-queue").default;
 const sharp = require("sharp");
-const { markdownToPdf } = require("@mintplex-labs/mdpdf");
-const { NodeHtmlMarkdown } = require("node-html-markdown");
 const { Document } = require("../models/documents");
 const { validateReadPath } = require("../utils/fileAccessPolicy");
 const { fileData, isWithin, normalizePath } = require("../utils/files");
@@ -88,6 +86,12 @@ const readerDocumentsPath = storagePath("reader-documents");
 const DOCX_PREVIEW_NAME = "preview.pdf";
 const DOCX_PREVIEW_TIMEOUT_MS = 45_000;
 const docxPreviewJobs = new Map();
+const READER_PREVIEW_REQUIRED_FONTS = [
+  "Noto Sans CJK SC",
+  "Noto Serif CJK SC",
+  "Noto Color Emoji",
+  "Liberation Serif",
+];
 const READER_THUMBNAIL_NAME = "thumbnail.jpg";
 const READER_DELETE_MARKER_NAME = "delete-marker.json";
 const READER_POSTPROCESS_STATUS_NAME = "postprocess.json";
@@ -381,6 +385,20 @@ function isUsableLibreOfficeBinary(filePath) {
   }
 }
 
+function executableVersion(filePath, args = ["--version"]) {
+  if (!filePath || !fileExists(filePath)) return null;
+  try {
+    return String(
+      execFileSync(filePath, args, {
+        timeout: 3_000,
+        stdio: "pipe",
+      })
+    ).trim();
+  } catch {
+    return null;
+  }
+}
+
 function findOnPath(binary) {
   const paths = String(process.env.PATH || "")
     .split(path.delimiter)
@@ -406,10 +424,79 @@ function findLibreOfficeBinary() {
   );
 }
 
-function findTextutilBinary() {
-  return fileExists("/usr/bin/textutil")
-    ? "/usr/bin/textutil"
-    : findOnPath("textutil");
+function fontStatusForPreview() {
+  const fcMatch = findOnPath("fc-match");
+  if (!fcMatch) {
+    return {
+      available: false,
+      checker: null,
+      required: READER_PREVIEW_REQUIRED_FONTS.map((font) => ({
+        font,
+        available: false,
+      })),
+    };
+  }
+  const required = READER_PREVIEW_REQUIRED_FONTS.map((font) => {
+    try {
+      const output = String(
+        execFileSync(fcMatch, [font], {
+          timeout: 2_000,
+          stdio: "pipe",
+        })
+      ).trim();
+      return {
+        font,
+        available: Boolean(output),
+        matched: output.split("\n")[0] || null,
+      };
+    } catch {
+      return { font, available: false, matched: null };
+    }
+  });
+  return {
+    available: required.some((item) => item.available),
+    checker: fcMatch,
+    required,
+  };
+}
+
+function readerPreviewEngineStatus() {
+  const libreOfficeBinary = findLibreOfficeBinary();
+  let markdownAvailable = false;
+  let markdownError = null;
+  try {
+    require.resolve("@mintplex-labs/mdpdf");
+    markdownAvailable = true;
+  } catch (error) {
+    markdownError = error.message || "Markdown PDF preview engine unavailable.";
+  }
+  return {
+    docx: {
+      engine: "libreoffice",
+      available: Boolean(libreOfficeBinary),
+      binary: libreOfficeBinary,
+      version: libreOfficeBinary ? executableVersion(libreOfficeBinary) : null,
+      timeoutMs: DOCX_PREVIEW_TIMEOUT_MS,
+      lastError: libreOfficeBinary ? null : "LibreOffice is not available.",
+    },
+    markdown: {
+      engine: "mdpdf",
+      available: markdownAvailable,
+      version: null,
+      lastError: markdownError,
+    },
+    fonts: fontStatusForPreview(),
+  };
+}
+
+function previewEngineForMetadata(metadata = {}) {
+  return metadataIsMarkdown(metadata) ? "mdpdf" : "libreoffice";
+}
+
+function previewEngineVersionForMetadata(metadata = {}) {
+  if (metadataIsMarkdown(metadata)) return null;
+  const binary = findLibreOfficeBinary();
+  return binary ? executableVersion(binary) : null;
 }
 
 function fingerprintForBuffer(buffer) {
@@ -550,6 +637,7 @@ function metadataIsDocx(metadata = {}) {
   try {
     const mimeType = String(metadata.mimeType || "").toLowerCase();
     return (
+      documentTypeFromMetadata(metadata) === "docx" ||
       mimeType ===
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
       normalizedExtension(
@@ -559,6 +647,31 @@ function metadataIsDocx(metadata = {}) {
   } catch {
     return false;
   }
+}
+
+function metadataIsMarkdown(metadata = {}) {
+  try {
+    const mimeType = String(metadata.mimeType || "").toLowerCase();
+    const ext = normalizedExtension(
+      metadata.localPath || metadata.storedName || metadata.originalName || ""
+    );
+    return (
+      documentTypeFromMetadata(metadata) === "markdown" ||
+      mimeType === "text/markdown" ||
+      ext === ".md" ||
+      ext === ".markdown"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function metadataNeedsPdfPreview(metadata = {}) {
+  return metadataIsDocx(metadata) || metadataIsMarkdown(metadata);
+}
+
+function previewDocumentLabel(metadata = {}) {
+  return metadataIsMarkdown(metadata) ? "Markdown" : "DOCX";
 }
 
 function metadataIsPdf(metadata = {}) {
@@ -754,12 +867,13 @@ function scheduleDocxPreviewMetadataUpdate({
   originalPath,
   fingerprint,
 }) {
-  if (!metadataIsDocx(metadata)) return;
+  if (!metadataNeedsPdfPreview(metadata)) return;
+  const previewLabel = previewDocumentLabel(metadata);
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
     postprocessTaskPatch(status, "preview", {
       status: "processing",
-      reason: "正在生成 DOCX 预览",
+      reason: `正在生成 ${previewLabel} 预览`,
     })
   );
   ensureDocxPreview({
@@ -776,7 +890,7 @@ function scheduleDocxPreviewMetadataUpdate({
           status: finalMetadata.previewPdfUrl ? "complete" : "failed",
           reason: finalMetadata.previewPdfUrl
             ? ""
-            : finalMetadata.previewWarning || "DOCX 预览生成失败。",
+            : finalMetadata.previewWarning || `${previewLabel} 预览生成失败。`,
         })
       );
     })
@@ -784,10 +898,10 @@ function scheduleDocxPreviewMetadataUpdate({
       updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
         postprocessTaskPatch(status, "preview", {
           status: "failed",
-          reason: error.message || "DOCX 预览生成失败。",
+          reason: error.message || `${previewLabel} 预览生成失败。`,
         })
       );
-      console.warn("[ReaderDocument] DOCX preview metadata update failed", {
+      console.warn("[ReaderDocument] PDF preview metadata update failed", {
         readerDocumentId,
         error: error.message,
       });
@@ -821,7 +935,7 @@ function execFileWithTimeout(binary, args, options = {}) {
         if (error) {
           const reason =
             error.killed || error.signal
-              ? "DOCX preview conversion timed out."
+              ? "PDF preview conversion timed out."
               : stderr || stdout || error.message;
           return reject(new Error(String(reason).trim()));
         }
@@ -878,72 +992,48 @@ async function convertDocxToPreviewWithLibreOffice({
   return { previewPath, source: "libreoffice" };
 }
 
-async function convertDocxToPreviewWithTextutil({
-  documentRoot,
-  originalPath,
-  tempDir,
-}) {
-  const textutilBinary = findTextutilBinary();
-  if (!textutilBinary) throw new Error("textutil is not available.");
-
-  const htmlPath = path.join(tempDir, "docx-preview.html");
-  await execFileWithTimeout(textutilBinary, [
-    "-convert",
-    "html",
-    "-output",
-    htmlPath,
-    originalPath,
-  ]);
-  if (!validNonEmptyFile(htmlPath))
-    throw new Error("textutil produced an empty DOCX HTML preview.");
-
-  const html = fs.readFileSync(htmlPath, "utf8");
-  const markdown = NodeHtmlMarkdown.translate(html).trim();
-  if (!markdown)
-    throw new Error("DOCX HTML preview could not be converted to Markdown.");
-
-  const pdfBuffer = await markdownToPdf(markdown);
-  if (!Buffer.isBuffer(pdfBuffer) || pdfBuffer.length === 0)
-    throw new Error("Markdown PDF fallback produced an empty PDF.");
-
-  const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
-  fs.writeFileSync(previewPath, pdfBuffer);
-  if (!validNonEmptyFile(previewPath))
-    throw new Error("DOCX preview PDF failed validation.");
-  return { previewPath, source: "textutil-mdpdf" };
-}
-
 async function convertDocxToPreview({ documentRoot, originalPath }) {
   const tempDir = fs.mkdtempSync(
     path.join(os.tmpdir(), "anythingllm-docx-preview-")
   );
-  const errors = [];
   try {
-    try {
-      return await convertDocxToPreviewWithLibreOffice({
-        documentRoot,
-        originalPath,
-        tempDir,
-      });
-    } catch (error) {
-      errors.push(`LibreOffice: ${error.message}`);
-      fs.rmSync(safeResolve(documentRoot, DOCX_PREVIEW_NAME), { force: true });
-    }
-
-    try {
-      return await convertDocxToPreviewWithTextutil({
-        documentRoot,
-        originalPath,
-        tempDir,
-      });
-    } catch (error) {
-      errors.push(`textutil/mdpdf: ${error.message}`);
-      fs.rmSync(safeResolve(documentRoot, DOCX_PREVIEW_NAME), { force: true });
-      throw new Error(errors.join(" | "));
-    }
+    return await convertDocxToPreviewWithLibreOffice({
+      documentRoot,
+      originalPath,
+      tempDir,
+    });
+  } catch (error) {
+    fs.rmSync(safeResolve(documentRoot, DOCX_PREVIEW_NAME), { force: true });
+    throw error;
   } finally {
     cleanupTempDir(tempDir);
   }
+}
+
+async function convertMarkdownToPreview({ documentRoot, originalPath }) {
+  try {
+    const { markdownToPdf } = require("@mintplex-labs/mdpdf");
+    const markdown = fs.readFileSync(originalPath, "utf8");
+    const pdfBuffer = await markdownToPdf(markdown);
+    const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
+    fs.writeFileSync(previewPath, pdfBuffer);
+    if (!validNonEmptyFile(previewPath))
+      throw new Error("Markdown preview PDF failed validation.");
+    return { previewPath, source: "mdpdf" };
+  } catch (error) {
+    fs.rmSync(safeResolve(documentRoot, DOCX_PREVIEW_NAME), { force: true });
+    throw error;
+  }
+}
+
+async function convertReaderDocumentToPreview({
+  documentRoot,
+  originalPath,
+  metadata,
+}) {
+  if (metadataIsMarkdown(metadata))
+    return await convertMarkdownToPreview({ documentRoot, originalPath });
+  return await convertDocxToPreview({ documentRoot, originalPath });
 }
 
 async function ensureDocxPreview({
@@ -953,9 +1043,11 @@ async function ensureDocxPreview({
   originalPath,
   fingerprint,
 }) {
-  if (!metadataIsDocx(metadata)) return metadata;
+  if (!metadataNeedsPdfPreview(metadata)) return metadata;
   const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
   const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
+  const attemptedAt = new Date().toISOString();
+  const nextAttemptCount = Number(metadata.previewAttemptCount || 0) + 1;
   const hasFreshPreview =
     metadata.previewFingerprint === fingerprint &&
     validNonEmptyFile(previewPath);
@@ -966,7 +1058,9 @@ async function ensureDocxPreview({
       previewPdfName: DOCX_PREVIEW_NAME,
       previewMimeType: "application/pdf",
       previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
+      previewStatus: "ready",
       previewWarning: null,
+      previewLastError: null,
     };
   }
 
@@ -975,33 +1069,45 @@ async function ensureDocxPreview({
 
   const job = (async () => {
     try {
-      const preview = await convertDocxToPreview({
+      const preview = await convertReaderDocumentToPreview({
         documentRoot,
         originalPath,
+        metadata,
       });
       return {
         ...metadata,
         previewPdfName: DOCX_PREVIEW_NAME,
         previewMimeType: "application/pdf",
         previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
+        previewStatus: "ready",
+        previewAttemptedAt: attemptedAt,
+        previewAttemptCount: nextAttemptCount,
         previewGeneratedAt: new Date().toISOString(),
         previewSource: preview.source,
+        previewEngineVersion: previewEngineVersionForMetadata(metadata),
         previewFingerprint: fingerprint,
         previewWarning: null,
+        previewLastError: null,
       };
     } catch (error) {
       fs.rmSync(previewPath, { force: true });
+      const previewError =
+        error.message ||
+        `${previewDocumentLabel(metadata)} preview conversion failed.`;
       return {
         ...metadata,
         previewPdfName: null,
         previewMimeType: null,
         previewPdfUrl: null,
+        previewStatus: "failed",
+        previewAttemptedAt: attemptedAt,
+        previewAttemptCount: nextAttemptCount,
         previewGeneratedAt: null,
-        previewSource: "libreoffice",
+        previewSource: previewEngineForMetadata(metadata),
+        previewEngineVersion: previewEngineVersionForMetadata(metadata),
         previewFingerprint: fingerprint,
-        previewWarning:
-          error.message ||
-          "DOCX preview conversion failed. HTML fallback used.",
+        previewWarning: previewError,
+        previewLastError: previewError,
       };
     }
   })();
@@ -1019,6 +1125,10 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
   const documentType = documentTypeFromMetadata(publicMetadata);
   const originalUrl = `${readerApiPrefix(workspace)}/${readerDocumentId}/original`;
   const pagePreviewUrl = `${readerApiPrefix(workspace)}/${readerDocumentId}/page-preview`;
+  const documentRoot = readerDocumentRoot(workspace, readerDocumentId);
+  const hasPreviewPdf =
+    Boolean(publicMetadata.previewPdfName) &&
+    validNonEmptyFile(safeResolve(documentRoot, DOCX_PREVIEW_NAME));
   const thumbnailUrl = existingThumbnailUrlForDocument(
     workspace,
     readerDocumentId
@@ -1034,6 +1144,19 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
     ...publicMetadata,
     documentType,
     originalName: decodeMaybeMojibakeFilename(publicMetadata.originalName),
+    ...(metadataNeedsPdfPreview(publicMetadata) && !hasPreviewPdf
+      ? {
+          previewPdfName: null,
+          previewPdfUrl: null,
+          previewMimeType: null,
+          previewStatus:
+            publicMetadata.previewStatus === "failed" ||
+            publicMetadata.previewWarning ||
+            publicMetadata.previewLastError
+              ? "failed"
+              : publicMetadata.previewStatus || "missing",
+        }
+      : {}),
     readerDocumentWorkspaceSlug: workspace?.readerStandalone
       ? null
       : workspace?.slug || publicMetadata.readerDocumentWorkspaceSlug || null,
@@ -1054,10 +1177,13 @@ function metadataWithOriginalUrl(workspace, readerDocumentId, metadata) {
           pdfManifest,
         }
       : {}),
-    ...(publicMetadata.previewPdfName
+    ...(hasPreviewPdf
       ? {
           previewPdfUrl: previewUrlForDocument(workspace, readerDocumentId),
           previewMimeType: "application/pdf",
+          previewStatus: "ready",
+          previewWarning: null,
+          previewLastError: null,
         }
       : {}),
     ...(thumbnailUrl
@@ -2911,10 +3037,14 @@ async function generateReaderDocumentThumbnail({
   if (!sourceBuffer) {
     const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
     const quickLookPath =
-      content.documentType === "docx" && validNonEmptyFile(previewPath)
+      ["docx", "markdown"].includes(content.documentType) &&
+      validNonEmptyFile(previewPath)
         ? previewPath
         : originalPath;
-    if (content.documentType === "docx" && validNonEmptyFile(previewPath)) {
+    if (
+      ["docx", "markdown"].includes(content.documentType) &&
+      validNonEmptyFile(previewPath)
+    ) {
       sourceBuffer = await pdfThumbnailBuffer(previewPath);
     }
     if (!sourceBuffer) {
@@ -2943,7 +3073,12 @@ async function generateReaderDocumentThumbnail({
 }
 
 function sanitizedPostprocessTasks(tasks = []) {
-  const allowed = new Set(["thumbnail", "classification", "pdfManifest"]);
+  const allowed = new Set([
+    "preview",
+    "thumbnail",
+    "classification",
+    "pdfManifest",
+  ]);
   const source = Array.isArray(tasks) && tasks.length ? tasks : [...allowed];
   return [...new Set(source.filter((task) => allowed.has(task)))];
 }
@@ -2994,6 +3129,109 @@ async function runReaderPostprocessJob({
       completedAt: isoNow(),
     }));
     return;
+  }
+
+  if (tasks.includes("preview")) {
+    if (readerPostprocessWasCancelled(workspace, readerDocumentId)) return;
+    const needsPdfPreview = metadataNeedsPdfPreview(metadata);
+    const previewLabel = previewDocumentLabel(metadata);
+    updateReaderPostprocessStatus(documentRoot, readerDocumentId, (status) =>
+      postprocessTaskPatch(status, "preview", {
+        status: needsPdfPreview ? "processing" : "skipped",
+        reason: needsPdfPreview
+          ? `正在生成 ${previewLabel} 版式预览`
+          : "该文档无需生成版式预览。",
+      })
+    );
+    if (needsPdfPreview) {
+      try {
+        if (!originalPath) throw new Error(`${previewLabel} 原始文件不可用。`);
+        const fingerprint =
+          metadata.originalFingerprint ||
+          fingerprintForBuffer(fs.readFileSync(originalPath));
+        const finalMetadata = await ensureDocxPreview({
+          workspace,
+          readerDocumentId,
+          metadata,
+          originalPath,
+          fingerprint,
+        });
+        metadata = finalMetadata;
+        writeReaderJsonFile(documentRoot, "metadata.json", finalMetadata);
+        updateReaderPostprocessStatus(
+          documentRoot,
+          readerDocumentId,
+          (status) =>
+            postprocessTaskPatch(status, "preview", {
+              status: finalMetadata.previewPdfUrl ? "complete" : "failed",
+              reason: finalMetadata.previewPdfUrl
+                ? ""
+                : finalMetadata.previewLastError ||
+                  finalMetadata.previewWarning ||
+                  `${previewLabel} 版式预览生成失败。`,
+              result: finalMetadata.previewPdfUrl
+                ? {
+                    previewPdfName: finalMetadata.previewPdfName,
+                    previewGeneratedAt:
+                      finalMetadata.previewGeneratedAt || null,
+                    previewSource: finalMetadata.previewSource || null,
+                    previewEngineVersion:
+                      finalMetadata.previewEngineVersion || null,
+                  }
+                : null,
+            })
+        );
+        if (finalMetadata.previewPdfUrl) {
+          publishReaderBroadcastEvent({
+            workspace,
+            userId: userId || metadata?.ownerUserId,
+            readerDocumentId,
+            type: "preview.ready",
+            eventPriority: "normal",
+            payload: {
+              previewReady: true,
+              previewGeneratedAt: finalMetadata.previewGeneratedAt || isoNow(),
+            },
+          });
+        } else {
+          publishReaderBroadcastEvent({
+            workspace,
+            userId: userId || metadata?.ownerUserId,
+            readerDocumentId,
+            type: "preview.failed",
+            eventPriority: "background",
+            payload: {
+              previewReady: false,
+              reason:
+                finalMetadata.previewLastError ||
+                finalMetadata.previewWarning ||
+                `${previewLabel} 版式预览生成失败。`,
+            },
+          });
+        }
+      } catch (error) {
+        updateReaderPostprocessStatus(
+          documentRoot,
+          readerDocumentId,
+          (status) =>
+            postprocessTaskPatch(status, "preview", {
+              status: "failed",
+              reason: error.message || `${previewLabel} 版式预览生成失败。`,
+            })
+        );
+        publishReaderBroadcastEvent({
+          workspace,
+          userId: userId || metadata?.ownerUserId,
+          readerDocumentId,
+          type: "preview.failed",
+          eventPriority: "background",
+          payload: {
+            previewReady: false,
+            reason: error.message || `${previewLabel} 版式预览生成失败。`,
+          },
+        });
+      }
+    }
   }
 
   if (tasks.includes("pdfManifest")) {
@@ -3341,6 +3579,19 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
   const status = readReaderPostprocessStatus(documentRoot, readerDocumentId);
   const classification = status.tasks?.classification?.result || null;
   const progress = readerPostprocessProgress(status);
+  let metadata = null;
+  try {
+    metadata = metadataWithOriginalUrl(
+      workspace,
+      readerDocumentId,
+      readReaderMetadata(documentRoot, {
+        readerDocumentId,
+        endpoint: "postprocess.response",
+      })
+    );
+  } catch {
+    metadata = null;
+  }
   return {
     success: true,
     status: status.status,
@@ -3353,6 +3604,7 @@ function readerPostprocessResponse(workspace, readerDocumentId) {
     },
     thumbnailUrl: existingThumbnailUrlForDocument(workspace, readerDocumentId),
     classification,
+    ...(metadata ? { metadata } : {}),
   };
 }
 
@@ -4545,7 +4797,7 @@ function workspaceReaderDocumentsEndpoints(app) {
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
             success: false,
-            error: "DOCX preview PDF not found.",
+            error: "Reader preview PDF not found.",
           });
         response.setHeader("Content-Type", "application/pdf");
         response.setHeader(
@@ -5322,7 +5574,7 @@ function workspaceReaderDocumentsEndpoints(app) {
         if (!validNonEmptyFile(previewPath))
           return response.status(404).json({
             success: false,
-            error: "DOCX preview PDF not found.",
+            error: "Reader preview PDF not found.",
           });
         response.setHeader("Content-Type", "application/pdf");
         response.setHeader(
@@ -5637,6 +5889,8 @@ module.exports = {
     extractReaderClassificationText,
     findReaderDuplicateCandidate,
     findLibreOfficeBinary,
+    readerPreviewEngineStatus,
+    metadataNeedsPdfPreview,
     generateReaderDocumentThumbnail,
     cancelReaderPostprocessJob,
     enqueueReaderPostprocessJob,

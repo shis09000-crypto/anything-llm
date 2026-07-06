@@ -464,7 +464,9 @@ class TaskScheduler {
       exclusiveReason: this.exclusive?.reason || null,
       activeIntent: activeIntentForSnapshot(activeTasks),
       oldP0StaleCount: this.counters.oldP0StaleCount,
-      recentPreemptions: [...this.recentPreemptions],
+      recentPreemptions: this.recentPreemptions.map((entry) =>
+        redactSensitiveSnapshotEntry(entry)
+      ),
       aborted: recent.filter((task) => task.status === "aborted"),
       demoted: recent.filter((task) => task.status === "demoted"),
       stale: [
@@ -481,7 +483,9 @@ class TaskScheduler {
           }
         : { active: false },
       counters: { ...this.counters },
-      timeline: [...this.timeline],
+      timeline: this.timeline.map((entry) =>
+        redactSensitiveSnapshotEntry(entry)
+      ),
       latency: latencySummary(recent),
       lanes: {
         main: this.#activeCountForLane("main"),

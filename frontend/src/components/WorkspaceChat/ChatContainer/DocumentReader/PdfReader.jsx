@@ -824,6 +824,8 @@ const PdfReader = forwardRef(function PdfReader(
   const [officialViewerReady, setOfficialViewerReady] = useState(false);
   const [jumpTargetSource, setJumpTargetSource] = useState(null);
   const url = document?.objectUrl;
+  const pdfData = document?.pdfData || null;
+  const hasPdfData = Boolean(pdfData?.byteLength);
   const sourceUrl = useMemo(() => pdfSourceUrl(url), [url]);
   const httpHeaders = useMemo(
     () => pdfHttpHeadersForUrl(sourceUrl),
@@ -1087,7 +1089,7 @@ const PdfReader = forwardRef(function PdfReader(
   }
 
   useEffect(() => {
-    if (!sourceUrl) {
+    if (!sourceUrl && !hasPdfData) {
       setPdfLoadState({ status: "idle", pdfDocument: null, error: null });
       return;
     }
@@ -1099,17 +1101,21 @@ const PdfReader = forwardRef(function PdfReader(
     const startedAt = Date.now();
     setOfficialViewerReady(false);
     setPdfLoadState({ status: "loading", pdfDocument: null, error: null });
-    const sensitiveState = readerSensitiveSessionStateForUrl(sourceUrl);
+    const sensitiveState = sourceUrl
+      ? readerSensitiveSessionStateForUrl(sourceUrl)
+      : {};
     readerPdfDebug("document-load-start", {
-      mode: pdfLoadingPolicy.mode,
-      sourceKind: /^(blob:|data:)/i.test(String(sourceUrl || ""))
-        ? "local"
-        : "http",
+      mode: hasPdfData ? "data" : pdfLoadingPolicy.mode,
+      sourceKind: hasPdfData
+        ? "bytes"
+        : /^(blob:|data:)/i.test(String(sourceUrl || ""))
+          ? "local"
+          : "http",
       sensitive: {
-        hasDescriptor: sensitiveState.hasDescriptor,
-        hasHeader: sensitiveState.hasHeader,
-        hasDirectSession: sensitiveState.hasDirectSession,
-        hasAliasSession: sensitiveState.hasAliasSession,
+        hasDescriptor: !!sensitiveState.hasDescriptor,
+        hasHeader: !!sensitiveState.hasHeader,
+        hasDirectSession: !!sensitiveState.hasDirectSession,
+        hasAliasSession: !!sensitiveState.hasAliasSession,
         namespace: sensitiveState.namespace || null,
       },
       headerNames: Object.keys(httpHeaders || {}),
@@ -1179,97 +1185,113 @@ const PdfReader = forwardRef(function PdfReader(
       });
     }
 
+    function loadPdfViaData(pdfjs) {
+      const data =
+        pdfData instanceof Uint8Array
+          ? pdfData.slice()
+          : new Uint8Array(pdfData);
+      return pdfjs.getDocument({
+        data,
+        ...pdfBlobLoadingOptions(),
+      });
+    }
+
     async function loadPdfDocument() {
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf");
       pdfjs.GlobalWorkerOptions.workerSrc = `${PDFJS_ASSET_BASE}pdf.worker.min.js`;
-      try {
-        await ensurePdfSensitiveSession("preflight");
-        if (cancelled) return;
-        loadingTask = loadPdfViaHttp(pdfjs);
+      if (hasPdfData) {
+        loadingTask = loadPdfViaData(pdfjs);
         loadedDocument = await loadingTask.promise;
-      } catch (error) {
-        loadingTask?.destroy?.();
-        loadingTask = null;
-        if (!isPdfAuthError(error) || !isProtectedHttpPdfUrl(sourceUrl)) {
-          throw error;
-        }
-
+      } else {
         try {
-          readerPdfDebug("document-auth-refresh-start", {
-            message: error?.message || String(error),
-          });
-          await ReaderDocument.refreshSensitiveSessionForUrl(sourceUrl, {
-            task: {
-              label: "reader:pdf-auth-refresh",
-              kind: "reader",
-              priority: "P0",
-              policy: "foreground",
-              resource: "network",
-              emergency: true,
-              intentRank: 0,
-              scope: {
-                route: "reader",
-                surface: "reader-open",
-                readerDocumentId:
-                  readerSensitiveSessionStateForUrl(sourceUrl)
-                    .readerDocumentId || null,
-              },
-            },
-          });
-          const refreshedState = readerSensitiveSessionStateForUrl(sourceUrl);
-          if (refreshedState.hasDescriptor && !refreshedState.hasHeader) {
-            const missingSessionError = new Error(
-              "Reader sensitive session unavailable after auth refresh."
-            );
-            missingSessionError.status = 403;
-            missingSessionError.details = {
-              stage: "pdf-auth-refresh-missing-header",
-              readerDocumentId: refreshedState.readerDocumentId || null,
-              namespace: refreshedState.namespace || null,
-              resourceId: refreshedState.resourceId || null,
-              ownerScope: refreshedState.ownerScope || null,
-            };
-            throw missingSessionError;
-          }
+          await ensurePdfSensitiveSession("preflight");
           if (cancelled) return;
           loadingTask = loadPdfViaHttp(pdfjs);
           loadedDocument = await loadingTask.promise;
-          readerPdfDebug("document-auth-refresh-retry-done", {
-            hasHeader: readerSensitiveSessionStateForUrl(sourceUrl).hasHeader,
-          });
-          return;
-        } catch (retryError) {
+        } catch (error) {
           loadingTask?.destroy?.();
           loadingTask = null;
-          readerPdfDebug("document-auth-refresh-retry-error", {
-            message: retryError?.message || String(retryError),
-            hasHeader: readerSensitiveSessionStateForUrl(sourceUrl).hasHeader,
-          });
-        }
+          if (!isPdfAuthError(error) || !isProtectedHttpPdfUrl(sourceUrl)) {
+            throw error;
+          }
 
-        if (pdfSizeBytes > PDF_FAST_STREAM_MAX_BYTES) {
-          readerPdfDebug("document-auth-fallback-skipped", {
-            size: pdfSizeBytes,
-            maxFallbackSize: PDF_FAST_STREAM_MAX_BYTES,
+          try {
+            readerPdfDebug("document-auth-refresh-start", {
+              message: error?.message || String(error),
+            });
+            await ReaderDocument.refreshSensitiveSessionForUrl(sourceUrl, {
+              task: {
+                label: "reader:pdf-auth-refresh",
+                kind: "reader",
+                priority: "P0",
+                policy: "foreground",
+                resource: "network",
+                emergency: true,
+                intentRank: 0,
+                scope: {
+                  route: "reader",
+                  surface: "reader-open",
+                  readerDocumentId:
+                    readerSensitiveSessionStateForUrl(sourceUrl)
+                      .readerDocumentId || null,
+                },
+              },
+            });
+            const refreshedState = readerSensitiveSessionStateForUrl(sourceUrl);
+            if (refreshedState.hasDescriptor && !refreshedState.hasHeader) {
+              const missingSessionError = new Error(
+                "Reader sensitive session unavailable after auth refresh."
+              );
+              missingSessionError.status = 403;
+              missingSessionError.details = {
+                stage: "pdf-auth-refresh-missing-header",
+                readerDocumentId: refreshedState.readerDocumentId || null,
+                namespace: refreshedState.namespace || null,
+                resourceId: refreshedState.resourceId || null,
+                ownerScope: refreshedState.ownerScope || null,
+              };
+              throw missingSessionError;
+            }
+            if (cancelled) return;
+            loadingTask = loadPdfViaHttp(pdfjs);
+            loadedDocument = await loadingTask.promise;
+            readerPdfDebug("document-auth-refresh-retry-done", {
+              hasHeader: readerSensitiveSessionStateForUrl(sourceUrl).hasHeader,
+            });
+            return;
+          } catch (retryError) {
+            loadingTask?.destroy?.();
+            loadingTask = null;
+            readerPdfDebug("document-auth-refresh-retry-error", {
+              message: retryError?.message || String(retryError),
+              hasHeader: readerSensitiveSessionStateForUrl(sourceUrl).hasHeader,
+            });
+          }
+
+          if (pdfSizeBytes > PDF_FAST_STREAM_MAX_BYTES) {
+            readerPdfDebug("document-auth-fallback-skipped", {
+              size: pdfSizeBytes,
+              maxFallbackSize: PDF_FAST_STREAM_MAX_BYTES,
+              message: error?.message || String(error),
+            });
+            throw error;
+          }
+
+          readerPdfDebug("document-auth-fallback-start", {
             message: error?.message || String(error),
           });
-          throw error;
+          const { blob } = await ReaderDocument.originalBlob(sourceUrl);
+          if (cancelled) return;
+          fallbackObjectUrl = URL.createObjectURL(blob);
+          loadingTask = pdfjs.getDocument({
+            url: fallbackObjectUrl,
+            ...pdfBlobLoadingOptions(),
+          });
+          loadedDocument = await loadingTask.promise;
+          readerPdfDebug("document-auth-fallback-done", {
+            size: blob?.size || null,
+          });
         }
-
-        readerPdfDebug("document-auth-fallback-start", {
-          message: error?.message || String(error),
-        });
-        const { blob } = await ReaderDocument.originalBlob(sourceUrl);
-        if (cancelled) return;
-        fallbackObjectUrl = URL.createObjectURL(blob);
-        loadingTask = pdfjs.getDocument({
-          url: fallbackObjectUrl,
-          ...pdfBlobLoadingOptions(),
-        });
-        loadedDocument = await loadingTask.promise;
-        readerPdfDebug("document-auth-fallback-done", {
-          size: blob?.size || null,
-        });
       }
       if (cancelled) {
         loadedDocument?.destroy?.();
@@ -1277,7 +1299,7 @@ const PdfReader = forwardRef(function PdfReader(
       }
       readerPdfDebug("document-load-done", {
         durationMs: Date.now() - startedAt,
-        mode: pdfLoadingPolicy.mode,
+        mode: hasPdfData ? "data" : pdfLoadingPolicy.mode,
         numPages: loadedDocument?.numPages || null,
       });
       setPdfLoadState({
@@ -1308,12 +1330,14 @@ const PdfReader = forwardRef(function PdfReader(
     };
   }, [
     httpHeaders,
+    hasPdfData,
     pdfLoadingPolicy.disableAutoFetch,
     pdfLoadingPolicy.disableRange,
     pdfLoadingPolicy.disableStream,
     pdfLoadingPolicy.mode,
     pdfLoadingPolicy.rangeChunkSize,
     pdfSizeBytes,
+    pdfData,
     sourceUrl,
   ]);
 
@@ -2356,7 +2380,7 @@ const PdfReader = forwardRef(function PdfReader(
     });
   }, []);
 
-  if (!url) {
+  if (!url && !hasPdfData) {
     return (
       <p className="text-sm text-white/50 light:text-slate-500">
         PDF 原始文件不可用，无法预览。

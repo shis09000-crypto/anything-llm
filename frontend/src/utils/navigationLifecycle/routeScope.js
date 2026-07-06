@@ -34,6 +34,9 @@ export function routeScopeFromPathname(pathname = "") {
   if (path.startsWith("/login") || path.startsWith("/auth")) {
     return { kind: "route", route: "auth", surface: "auth" };
   }
+  if (path.startsWith("/onboarding")) {
+    return { kind: "route", route: "onboarding", surface: "onboarding" };
+  }
   return { kind: "route", route: path || "global", surface: "route" };
 }
 
@@ -103,6 +106,10 @@ export function navigationReasonForScopes(
   }
   if (fromScope?.route !== toScope?.route) return "route-change";
   return "restore";
+}
+
+export function isHistoryBoundaryScope(scope = {}) {
+  return ["auth", "onboarding"].includes(scope?.route);
 }
 
 export function normalizePathname(pathname = "") {

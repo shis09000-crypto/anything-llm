@@ -70,6 +70,27 @@ test("P0 intentRank orders current navigation before chat history", async () => 
   assert.equal(scheduler.snapshot().activeIntent, null);
 });
 
+test("snapshot redacts sensitive query tokens in task labels", async () => {
+  const scheduler = new TaskScheduler({ maxConcurrent: 1 });
+  const gate = deferred();
+  const handle = scheduler.schedule(() => gate.promise, {
+    priority: "P1",
+    kind: "broadcast-websocket",
+    label:
+      "websocket:GET wss://athenallm.online/api/realtime/broadcast?token=header.payload.signature&lastEventId=event-1",
+    dedupeKey: "broadcast-websocket:test",
+    resource: "realtime",
+  });
+  await wait();
+
+  const snapshotText = JSON.stringify(scheduler.snapshot());
+  assert.ok(snapshotText.includes("token=[redacted]"));
+  assert.ok(!snapshotText.includes("header.payload.signature"));
+
+  gate.resolve();
+  await handle.promise;
+});
+
 test("emergency pauses pending low priority tasks until complete", async () => {
   const scheduler = new TaskScheduler({
     maxConcurrent: 1,

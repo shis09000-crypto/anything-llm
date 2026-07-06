@@ -122,6 +122,30 @@ function accessDescriptorSummary(workspace, readerDocumentId, metadata = {}) {
   };
 }
 
+function previewSummary(workspace, readerDocumentId, metadata = {}) {
+  const canonical = reader.metadataWithOriginalUrl(
+    workspace,
+    readerDocumentId,
+    metadata
+  );
+  return {
+    readerDocumentId,
+    workspaceSlug: workspace?.readerStandalone ? null : workspace?.slug || null,
+    documentType: metadata.documentType || canonical.documentType || null,
+    needsPreview: reader.metadataNeedsPdfPreview(metadata),
+    hasPreviewPdf: !!canonical.previewPdfUrl,
+    previewStatus: canonical.previewStatus || metadata.previewStatus || null,
+    previewSource: metadata.previewSource || null,
+    previewEngineVersion: metadata.previewEngineVersion || null,
+    previewAttemptedAt: metadata.previewAttemptedAt || null,
+    previewAttemptCount: metadata.previewAttemptCount || 0,
+    previewGeneratedAt: metadata.previewGeneratedAt || null,
+    previewLastError:
+      metadata.previewLastError || metadata.previewWarning || null,
+    postprocess: postprocessSummary(workspace, readerDocumentId),
+  };
+}
+
 async function listAllReaderDocuments({
   request,
   response,
@@ -246,6 +270,7 @@ async function readerCommand(
       };
     }
     case "reader.postprocess.status":
+    case "reader.preview.status":
     case "reader.thumbnail.status":
     case "reader.classification.status": {
       const resolved = await resolveReaderDocument({
@@ -254,7 +279,89 @@ async function readerCommand(
         scope,
         allowDeleted: true,
       });
+      if (command === "reader.preview.status") {
+        return redactDeveloperObject({
+          engine: reader.readerPreviewEngineStatus(),
+          preview: previewSummary(
+            resolved.workspace,
+            resolved.readerDocumentId,
+            resolved.metadata
+          ),
+        });
+      }
       return postprocessSummary(resolved.workspace, resolved.readerDocumentId);
+    }
+    case "reader.preview.retry": {
+      const resolved = await resolveReaderDocument({
+        request,
+        response,
+        scope,
+      });
+      const status = reader.enqueueReaderPostprocessJob({
+        workspace: resolved.workspace,
+        readerDocumentId: resolved.readerDocumentId,
+        tasks: ["preview"],
+        categories: [],
+        force: true,
+        userId: context.userId || null,
+      });
+      return redactDeveloperObject({
+        queued: true,
+        engine: reader.readerPreviewEngineStatus(),
+        preview: previewSummary(
+          resolved.workspace,
+          resolved.readerDocumentId,
+          resolved.metadata
+        ),
+        postprocess: status,
+      });
+    }
+    case "reader.preview.rebuildMissing": {
+      const { globalDocuments, workspaceDocuments, workspace } =
+        await listAllReaderDocuments({
+          request,
+          response,
+          workspaceSlug: scope.workspaceSlug || null,
+        });
+      const enqueueMissing = (documents, targetWorkspace) =>
+        documents
+          .filter((document) => {
+            const metadata = document.metadata || {};
+            return (
+              reader.metadataNeedsPdfPreview(metadata) &&
+              !reader.metadataWithOriginalUrl(
+                targetWorkspace,
+                document.readerDocumentId,
+                metadata
+              ).previewPdfUrl
+            );
+          })
+          .map((document) => ({
+            readerDocumentId: document.readerDocumentId,
+            postprocess: reader.enqueueReaderPostprocessJob({
+              workspace: targetWorkspace,
+              readerDocumentId: document.readerDocumentId,
+              tasks: ["preview"],
+              categories: [],
+              force: true,
+              userId: context.userId || null,
+            }),
+          }));
+      const globalQueued = enqueueMissing(
+        globalDocuments,
+        reader.STANDALONE_READER_SCOPE
+      );
+      const workspaceQueued = workspace
+        ? enqueueMissing(workspaceDocuments, workspace)
+        : [];
+      return redactDeveloperObject({
+        queuedCount: globalQueued.length + workspaceQueued.length,
+        engine: reader.readerPreviewEngineStatus(),
+        queued: {
+          global: globalQueued,
+          workspace: workspaceQueued,
+        },
+      });
     }
     case "reader.postprocess.retry":
     case "reader.postprocess.restart": {
@@ -513,6 +620,9 @@ function registerReaderCommands(registry) {
     "reader.memory.setPage",
     "reader.memory.clear",
     "reader.postprocess.status",
+    "reader.preview.status",
+    "reader.preview.retry",
+    "reader.preview.rebuildMissing",
     "reader.postprocess.retry",
     "reader.postprocess.restart",
     "reader.postprocess.cancel",

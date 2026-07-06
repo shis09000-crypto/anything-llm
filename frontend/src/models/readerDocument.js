@@ -522,6 +522,16 @@ const ReaderDocument = {
       return { response, blob };
     }
   },
+  previewData: async function (previewUrl, options = {}) {
+    const { response, blob } = await ReaderDocument.previewBlob(
+      previewUrl,
+      options
+    );
+    return {
+      response,
+      data: new Uint8Array(await blob.arrayBuffer()),
+    };
+  },
   refreshSensitiveSessionForUrl: refreshReaderSensitiveSessionForUrl,
   thumbnailBlob: async function (thumbnailUrl, options = {}) {
     const { response, blob } = await requestBlob(thumbnailUrl, {

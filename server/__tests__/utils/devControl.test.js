@@ -110,6 +110,19 @@ describe("Developer Control Center", () => {
     expect(registry.has("navigation.test.roundTrip")).toBe(true);
   });
 
+  test("registers reader preview control commands", () => {
+    process.env.STORAGE_DIR = process.env.STORAGE_DIR || "/tmp/anythingllm-test";
+    const {
+      registerReaderCommands,
+    } = require("../../utils/devControl/readerCommands");
+    const registry = new CommandRegistry();
+    registerReaderCommands(registry);
+
+    expect(registry.has("reader.preview.status")).toBe(true);
+    expect(registry.has("reader.preview.retry")).toBe(true);
+    expect(registry.has("reader.preview.rebuildMissing")).toBe(true);
+  });
+
   test("navigation control rejects external paths", () => {
     expect(assertLocalPath("/settings/crypto-center")).toBe(
       "/settings/crypto-center"
@@ -120,6 +133,18 @@ describe("Developer Control Center", () => {
     expect(() => assertLocalPath("//evil.example/path")).toThrow(
       /local app path/
     );
+  });
+
+  test("navigation control rejects sensitive query parameters", () => {
+    expect(assertLocalPath("/settings/interface?athenaRuntimeObserver=1")).toBe(
+      "/settings/interface?athenaRuntimeObserver=1"
+    );
+    expect(() => assertLocalPath("/settings/interface?token=secret")).toThrow(
+      /sensitive query/
+    );
+    expect(() =>
+      assertLocalPath("/workspace/example?signingSecret=secret")
+    ).toThrow(/sensitive query/);
   });
 
   test("redacts sensitive reader fields from command output", () => {

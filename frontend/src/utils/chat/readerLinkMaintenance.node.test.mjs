@@ -39,11 +39,47 @@ test("old global reader URL with workspace slug normalizes to workspace URL", ()
     normalized.metadata.thumbnailUrl,
     `/api/workspace/${WORKSPACE_SLUG}/reader-documents/${DOCUMENT_ID}/thumbnail.jpg`
   );
+  assert.equal(normalized.metadata.previewPdfUrl, undefined);
+  assert.equal(normalized.readerDocumentWorkspaceSlug, WORKSPACE_SLUG);
+});
+
+test("DOCX without confirmed preview pdf does not synthesize preview URL", () => {
+  const normalized = normalizeReaderDocumentLinks({
+    success: true,
+    readerDocumentId: DOCUMENT_ID,
+    metadata: {
+      readerDocumentId: DOCUMENT_ID,
+      readerDocumentWorkspaceSlug: WORKSPACE_SLUG,
+      originalName: "合同.docx",
+      documentType: "docx",
+      previewPdfName: null,
+      previewPdfUrl: null,
+    },
+  });
+
+  assert.equal(normalized.metadata.previewPdfUrl, null);
+  assert.equal(normalized.metadata.previewMimeType, null);
+});
+
+test("DOCX with confirmed preview pdf canonicalizes preview URL", () => {
+  const normalized = normalizeReaderDocumentLinks({
+    success: true,
+    readerDocumentId: DOCUMENT_ID,
+    metadata: {
+      readerDocumentId: DOCUMENT_ID,
+      readerDocumentWorkspaceSlug: WORKSPACE_SLUG,
+      originalName: "合同.docx",
+      documentType: "docx",
+      previewPdfName: "preview.pdf",
+      previewPdfUrl: `/api/reader-documents/${DOCUMENT_ID}/preview.pdf`,
+    },
+  });
+
   assert.equal(
     normalized.metadata.previewPdfUrl,
     `/api/workspace/${WORKSPACE_SLUG}/reader-documents/${DOCUMENT_ID}/preview.pdf`
   );
-  assert.equal(normalized.readerDocumentWorkspaceSlug, WORKSPACE_SLUG);
+  assert.equal(normalized.metadata.previewMimeType, "application/pdf");
 });
 
 test("standalone/global reader document remains on global URL namespace", () => {

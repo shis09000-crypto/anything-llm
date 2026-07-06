@@ -66,6 +66,10 @@ const BOOKSHELF_SORT_OPTIONS = [
   { value: "title", label: "书名" },
   { value: "type", label: "文件类型" },
 ];
+const DOCX_PREVIEW_PENDING_RENDER_TYPES = new Set([
+  "docx-preview-pending",
+  "docx-preview-failed",
+]);
 
 function ReaderFormatLoading({ label = "正在加载阅读器..." }) {
   return (
@@ -227,8 +231,16 @@ function ReaderHeader({ document, onUpload, onBindLocalPath, onExit }) {
   if (!document) return null;
   const parsedOnly = document.source === "workspace_parsed";
   const isDocxPreview = document.renderType === "pdf-preview";
+  const previewLabel =
+    document.documentType === "markdown" ? "Markdown" : "DOCX";
+  const isPreviewFormatDocument = ["docx", "markdown"].includes(
+    document.documentType
+  );
+  const isDocxPreviewPending =
+    isPreviewFormatDocument &&
+    DOCX_PREVIEW_PENDING_RENDER_TYPES.has(document.renderType);
   const isDocxFallback =
-    document.documentType === "docx" && document.renderType !== "pdf-preview";
+    isPreviewFormatDocument && !isDocxPreview && !isDocxPreviewPending;
   const showUpload = document.source === "local" && !document.readerDocumentId;
   return (
     <div className="border-b border-white/10 px-4 py-3 pr-14 light:border-slate-200">
@@ -252,6 +264,13 @@ function ReaderHeader({ document, onUpload, onBindLocalPath, onExit }) {
                 PDF 版式预览
               </span>
             )}
+            {isDocxPreviewPending && (
+              <span className="shrink-0 rounded bg-blue-400/15 px-2 py-0.5 text-[11px] text-blue-200 light:text-blue-700">
+                {document.renderType === "docx-preview-failed"
+                  ? "版式预览待重试"
+                  : "生成版式预览中"}
+              </span>
+            )}
             {isDocxFallback && (
               <span className="shrink-0 rounded bg-amber-400/15 px-2 py-0.5 text-[11px] text-amber-200 light:text-amber-700">
                 临时可读预览
@@ -261,6 +280,12 @@ function ReaderHeader({ document, onUpload, onBindLocalPath, onExit }) {
           {parsedOnly && (
             <p className="m-0 mt-1 text-xs text-amber-200/80 light:text-amber-700">
               该文档不是原始版式，仅展示已解析内容
+            </p>
+          )}
+          {isDocxPreviewPending && (
+            <p className="m-0 mt-1 text-xs text-blue-100/80 light:text-blue-700">
+              {previewLabel} 将以 PDF
+              版式预览打开；预览完成前不会自动切换到会打乱格式的 HTML 模式。
             </p>
           )}
           {isDocxFallback && (
@@ -308,6 +333,7 @@ const ReaderBody = forwardRef(function ReaderBody(
     readerTextSources = [],
     onFocusTextSource,
     onRemoveTextSource,
+    onRetryDocxPreview,
   },
   ref
 ) {
@@ -338,6 +364,45 @@ const ReaderBody = forwardRef(function ReaderBody(
           onRemoveTextSource={onRemoveTextSource}
         />
       </Suspense>
+    );
+  }
+  if (
+    ["docx", "markdown"].includes(document.documentType) &&
+    DOCX_PREVIEW_PENDING_RENDER_TYPES.has(document.renderType)
+  ) {
+    const failed = document.renderType === "docx-preview-failed";
+    const previewLabel =
+      document.documentType === "markdown" ? "Markdown" : "DOCX";
+    return (
+      <div className="flex h-full min-h-[260px] items-center justify-center px-6 text-center">
+        <div className="max-w-[460px] rounded-2xl border border-white/10 bg-white/5 p-6 text-white shadow-[0_18px_45px_rgba(0,0,0,0.18)] light:border-slate-200 light:bg-slate-50 light:text-slate-900">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-200 light:text-blue-600">
+            <FileText size={24} weight="bold" />
+          </div>
+          <p className="m-0 text-base font-bold">
+            {failed
+              ? `${previewLabel} 版式预览生成失败`
+              : `正在生成 ${previewLabel} 版式预览`}
+          </p>
+          <p className="m-0 mt-2 text-sm leading-6 text-white/65 light:text-slate-600">
+            {failed
+              ? document.previewWarning ||
+                "请重试生成 PDF 版式预览。系统不会自动使用会打乱 Word/WPS 版式的 HTML 预览。"
+              : document.previewWarning ||
+                "正在准备 PDF 版式预览，以保留页眉页脚、分页、表格、图片和整体布局。"}
+          </p>
+          {failed && (
+            <AppButton
+              size="sm"
+              className="mt-5"
+              leftIcon={<ArrowClockwise size={14} />}
+              onClick={onRetryDocxPreview}
+            >
+              重试生成版式预览
+            </AppButton>
+          )}
+        </div>
+      </div>
     );
   }
   if (document.documentType === "epub") {
@@ -926,6 +991,7 @@ function ReaderDrawer({
   onOpenWorkspaceDoc,
   readerHistory = [],
   readerBookshelf = [],
+  bookshelfLoading = false,
   bookshelfUploadQueue = [],
   readerCategories = [],
   onOpenHistoryDocument,
@@ -1641,6 +1707,35 @@ function ReaderDrawer({
                   </section>
                 ))}
               </div>
+            ) : showingBookshelf && bookshelfLoading ? (
+              <div className="flex h-full min-h-[320px] flex-col justify-center rounded-2xl border border-dashed border-slate-200/90 bg-white/40 px-6">
+                <div className="mx-auto w-full max-w-[520px]">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 animate-pulse rounded-2xl bg-blue-100" />
+                    <div>
+                      <p className="m-0 text-sm font-bold text-slate-800">
+                        正在同步书架
+                      </p>
+                      <p className="m-0 mt-1 text-xs font-medium text-slate-500">
+                        正在恢复本地缓存并刷新云端书籍。
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-5 grid grid-cols-[repeat(auto-fit,minmax(116px,1fr))] gap-4">
+                    {[0, 1, 2].map((item) => (
+                      <div
+                        key={item}
+                        className="min-h-[192px] rounded-2xl border border-white/70 bg-white/70 p-3 shadow-[0_16px_40px_rgba(15,23,42,0.08)]"
+                      >
+                        <div className="mx-auto h-24 w-16 animate-pulse rounded-xl bg-slate-200/80" />
+                        <div className="mt-4 h-3 animate-pulse rounded-full bg-slate-200/80" />
+                        <div className="mt-2 h-3 w-2/3 animate-pulse rounded-full bg-slate-100" />
+                        <div className="mt-4 h-1.5 animate-pulse rounded-full bg-blue-100" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
               <div className="flex h-full min-h-[320px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-white/40 px-6 text-center">
                 <Books size={34} className="text-slate-300" />
@@ -1848,6 +1943,7 @@ export default function DocumentReaderPanel({
     focusReaderTextSource,
     removePendingReaderTextSource,
     readerBookshelf,
+    bookshelfLoading,
     bookshelfUploadQueue,
     openBookshelfDocument,
     addHistoryItemsToBookshelf,
@@ -2091,6 +2187,23 @@ export default function DocumentReaderPanel({
     exitCurrentDocument?.(latestReadingProgress());
   }
 
+  function handleRetryDocxPreview() {
+    if (!currentDocument?.readerDocumentId) return;
+    openBookshelfDocument?.({
+      ...currentDocument,
+      readerDocumentId: currentDocument.readerDocumentId,
+      backupReaderDocumentId:
+        currentDocument.backupReaderDocumentId ||
+        currentDocument.readerDocumentId,
+      documentType: currentDocument.documentType || "docx",
+      title: currentDocument.title,
+      source: currentDocument.source || "reader_upload",
+      progress: currentDocument.progress,
+      readerDocumentWorkspaceSlug:
+        currentDocument.readerDocumentWorkspaceSlug || null,
+    });
+  }
+
   async function handleBindLocalPath() {
     const absolutePath = window.prompt("请输入该文档在本机的绝对路径");
     if (!absolutePath?.trim()) return;
@@ -2129,6 +2242,7 @@ export default function DocumentReaderPanel({
             onOpenWorkspaceDoc={openWorkspaceParsedDocument}
             readerHistory={readerHistory}
             readerBookshelf={readerBookshelf}
+            bookshelfLoading={bookshelfLoading}
             bookshelfUploadQueue={bookshelfUploadQueue}
             readerCategories={readerCategories}
             onOpenHistoryDocument={openHistoryDocument}
@@ -2171,6 +2285,7 @@ export default function DocumentReaderPanel({
               readerTextSources={pendingReaderTextSources}
               onFocusTextSource={focusReaderTextSource}
               onRemoveTextSource={removePendingReaderTextSource}
+              onRetryDocxPreview={handleRetryDocxPreview}
             />
           </div>
         )}

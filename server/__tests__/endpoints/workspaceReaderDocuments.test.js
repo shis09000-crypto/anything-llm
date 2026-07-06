@@ -24,6 +24,11 @@ function loadEndpoint(storageDir, helpersMock = null) {
   jest.doMock("exceljs", () => ({
     Workbook: jest.fn(),
   }));
+  jest.doMock("@mintplex-labs/mdpdf", () => ({
+    markdownToPdf: jest.fn(async () =>
+      Buffer.from("%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n")
+    ),
+  }));
   jest.doMock("../../utils/middleware/multiUserProtected", () => ({
     flexUserRoleValid: () => (_request, _response, next) => next(),
     ROLES: { all: "all" },
@@ -239,6 +244,94 @@ describe("workspace reader documents", () => {
     expect(metadata).not.toHaveProperty("ownerScopeVersion");
     expect(metadata).not.toHaveProperty("ownerUserId");
     expect(metadata).not.toHaveProperty("ownerAuthUserId");
+  });
+
+  it("does not expose stale DOCX preview URL when preview.pdf is missing", () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    fs.mkdirSync(api.readerDocumentRoot(workspace, readerDocumentId), {
+      recursive: true,
+    });
+
+    const metadata = api.metadataWithOriginalUrl(workspace, readerDocumentId, {
+      readerDocumentId,
+      originalName: "合同.docx",
+      storedName: "original.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      documentType: "docx",
+      size: 1024,
+      previewPdfName: "preview.pdf",
+      previewPdfUrl: "/api/reader-documents/stale/preview.pdf",
+    });
+
+    expect(metadata.previewPdfName).toBeNull();
+    expect(metadata.previewPdfUrl).toBeNull();
+    expect(metadata.previewMimeType).toBeNull();
+    expect(metadata.previewStatus).toBe("missing");
+  });
+
+  it("exposes DOCX preview URL only when preview.pdf exists", () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    const documentRoot = api.readerDocumentRoot(workspace, readerDocumentId);
+    fs.mkdirSync(documentRoot, { recursive: true });
+    fs.writeFileSync(path.join(documentRoot, "preview.pdf"), "%PDF-1.7\n");
+
+    const metadata = api.metadataWithOriginalUrl(workspace, readerDocumentId, {
+      readerDocumentId,
+      originalName: "合同.docx",
+      storedName: "original.docx",
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      documentType: "docx",
+      size: 1024,
+      previewPdfName: "preview.pdf",
+    });
+
+    expect(metadata.previewPdfUrl).toBe(
+      "/api/workspace/workspace-a/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/preview.pdf"
+    );
+    expect(metadata.previewMimeType).toBe("application/pdf");
+    expect(metadata.previewStatus).toBe("ready");
+  });
+
+  it("exposes Markdown preview URL only when preview.pdf exists", () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const readerDocumentId = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";
+    const documentRoot = api.readerDocumentRoot(workspace, readerDocumentId);
+    fs.mkdirSync(documentRoot, { recursive: true });
+    fs.writeFileSync(path.join(documentRoot, "preview.pdf"), "%PDF-1.7\n");
+
+    const metadata = api.metadataWithOriginalUrl(workspace, readerDocumentId, {
+      readerDocumentId,
+      originalName: "笔记.md",
+      storedName: "original.md",
+      mimeType: "text/markdown",
+      documentType: "markdown",
+      size: 1024,
+      previewPdfName: "preview.pdf",
+    });
+
+    expect(metadata.previewPdfUrl).toBe(
+      "/api/workspace/workspace-a/reader-documents/2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a/preview.pdf"
+    );
+    expect(metadata.previewMimeType).toBe("application/pdf");
+    expect(metadata.previewStatus).toBe("ready");
+  });
+
+  it("reports reader preview engine status without exposing document content", () => {
+    const api = loadEndpoint(storageDir);
+    const status = api.readerPreviewEngineStatus();
+
+    expect(status.docx.engine).toBe("libreoffice");
+    expect(typeof status.docx.available).toBe("boolean");
+    expect(status.markdown.engine).toBe("mdpdf");
+    expect(status.markdown.available).toBe(true);
+    expect(Array.isArray(status.fonts.required)).toBe(true);
   });
 
   it("lists PDF reader documents when a legacy manifest is missing", async () => {
@@ -523,6 +616,7 @@ describe("workspace reader documents", () => {
       sanitizedPostprocessTasks(["thumbnail", "bad", "classification"])
     ).toEqual(["thumbnail", "classification"]);
     expect(sanitizedPostprocessTasks([])).toEqual([
+      "preview",
       "thumbnail",
       "classification",
       "pdfManifest",
@@ -551,6 +645,77 @@ describe("workspace reader documents", () => {
     expect(["queued", "processing"]).toContain(second.status);
     expect(second.requestedTasks).toEqual(["classification"]);
     await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+
+  it("generates Markdown preview PDF during preview postprocess", async () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const { readerDocumentId, documentRoot } = writeMarkdownReaderDocument(
+      api,
+      workspace
+    );
+
+    const queued = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["preview"],
+      categories: [],
+      force: true,
+    });
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const status = api.readReaderPostprocessStatus(
+      documentRoot,
+      readerDocumentId
+    );
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(documentRoot, "metadata.json"), "utf8")
+    );
+    expect(status.tasks.preview.status).toBe("complete");
+    expect(metadata.previewPdfName).toBe("preview.pdf");
+    expect(metadata.previewStatus).toBe("ready");
+    expect(metadata.previewSource).toBe("mdpdf");
+    expect(metadata.previewAttemptCount).toBe(1);
+    expect(metadata.previewLastError).toBeNull();
+    expect(fs.existsSync(path.join(documentRoot, "preview.pdf"))).toBe(true);
+  });
+
+  it("retries old failed Markdown preview metadata when forced", async () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = { id: 1, slug: "workspace-a" };
+    const { readerDocumentId, documentRoot } = writeMarkdownReaderDocument(
+      api,
+      workspace,
+      {
+        metadata: {
+          previewStatus: "failed",
+          previewWarning: "mdpdf was unavailable",
+          previewLastError: "mdpdf was unavailable",
+          previewAttemptCount: 3,
+          previewFingerprint: "old-fingerprint",
+        },
+      }
+    );
+
+    const queued = api.enqueueReaderPostprocessJob({
+      workspace,
+      readerDocumentId,
+      tasks: ["preview"],
+      categories: [],
+      force: true,
+    });
+    expect(queued.status).toBe("queued");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(documentRoot, "metadata.json"), "utf8")
+    );
+    expect(metadata.previewStatus).toBe("ready");
+    expect(metadata.previewPdfName).toBe("preview.pdf");
+    expect(metadata.previewWarning).toBeNull();
+    expect(metadata.previewLastError).toBeNull();
+    expect(metadata.previewAttemptCount).toBe(4);
   });
 
   it("reuses completed postprocess results unless forced", () => {

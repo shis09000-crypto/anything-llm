@@ -53,6 +53,30 @@ function canonicalReaderUrls(readerDocumentId, workspaceSlug = null) {
   };
 }
 
+function readerDocumentLooksDocx(documentData = {}, metadata = {}) {
+  const documentType =
+    documentData.documentType ||
+    documentData.content?.documentType ||
+    documentData.contentSummary?.documentType ||
+    metadata.documentType ||
+    metadata.stream?.documentType ||
+    "";
+  if (String(documentType).toLowerCase() === "docx") return true;
+  const name = String(
+    metadata.originalName || metadata.storedName || documentData.title || ""
+  );
+  return /\.docx$/i.test(name);
+}
+
+function canonicalPreviewPdfUrlForDocument(documentData, metadata, descriptor) {
+  if (!descriptor?.previewPdfUrl) return undefined;
+  if (metadata.previewPdfName) return descriptor.previewPdfUrl;
+  if (metadata.previewPdfName === null || metadata.previewPdfUrl === null)
+    return null;
+  if (readerDocumentLooksDocx(documentData, metadata)) return null;
+  return metadata.previewPdfUrl ? descriptor.previewPdfUrl : undefined;
+}
+
 function workspaceSlugFromDocument(documentData = {}) {
   const metadata =
     documentData?.metadata && typeof documentData.metadata === "object"
@@ -199,15 +223,25 @@ export function normalizeReaderDocumentLinks(documentData = {}, options = {}) {
     options.readerDocumentId
   );
   if (!descriptor) return documentData;
+  const previewPdfUrl = canonicalPreviewPdfUrlForDocument(
+    documentData,
+    metadata,
+    descriptor
+  );
   const nextMetadata = {
     ...metadata,
     readerDocumentId: descriptor.readerDocumentId,
     readerDocumentWorkspaceSlug: descriptor.workspaceSlug || null,
     originalUrl: descriptor.originalUrl,
     pagePreviewUrl: descriptor.pagePreviewUrl,
-    previewPdfUrl: descriptor.previewPdfUrl,
     thumbnailUrl: descriptor.thumbnailUrl,
     stream: descriptor.stream,
+    ...(previewPdfUrl !== undefined
+      ? {
+          previewPdfUrl,
+          previewMimeType: previewPdfUrl ? "application/pdf" : null,
+        }
+      : {}),
   };
   return {
     ...documentData,

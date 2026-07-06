@@ -190,6 +190,37 @@ function readerOpenTask(label, workspaceSlug = null, scope = {}) {
   };
 }
 
+function readerPostprocessNetworkTask({
+  scheduleOptions,
+  label,
+  workspaceSlug = null,
+  readerDocumentId = null,
+  foreground = false,
+}) {
+  return {
+    label,
+    kind: "reader",
+    priority: scheduleOptions.priority,
+    policy: scheduleOptions.policy,
+    resource: "network",
+    emergency: scheduleOptions.emergency,
+    intentRank: scheduleOptions.intentRank,
+    protected: foreground,
+    abortable: !foreground,
+    dedupeKey: `${scheduleOptions.dedupeKey}:${label}`,
+    scope: {
+      route: "workspace-chat",
+      workspaceSlug: workspaceSlug || null,
+      readerDocumentId,
+      surface: "reader-postprocess",
+    },
+  };
+}
+
+function readerPdfPreviewLabel(documentType = "docx") {
+  return documentType === "markdown" ? "Markdown" : "DOCX";
+}
+
 function readerLibraryReconcileDebug(detail = {}) {
   if (typeof window === "undefined") return;
   const payload = {
@@ -372,8 +403,24 @@ function lightweightPdfContent(readerDocumentId) {
   };
 }
 
+function lightweightDocxPreviewContent(
+  readerDocumentId,
+  status = "pending",
+  documentType = "docx"
+) {
+  return {
+    schemaVersion: 1,
+    readerDocumentId,
+    documentType,
+    blocks: [],
+    previewMode: "pdf-preview-required",
+    previewStatus: status,
+  };
+}
+
 function loadingMessageForDocumentType(documentType) {
-  if (documentType === "docx") return "正在生成版式预览";
+  if (documentType === "docx" || documentType === "markdown")
+    return "正在生成版式预览";
   if (documentType === "epub") return "正在准备 EPUB 阅读器...";
   return "正在上传并准备阅读...";
 }
@@ -588,9 +635,18 @@ export function DocumentReaderProvider({
   const [pendingReaderTextSources, setPendingReaderTextSources] = useState([]);
   const [focusedReaderTextSource, setFocusedReaderTextSource] = useState(null);
   const [sourcesByTurn, setSourcesByTurn] = useState({});
-  const [readerHistory, setReaderHistory] = useState([]);
-  const [readerBookshelf, setReaderBookshelf] = useState([]);
-  const [readerCategories, setReaderCategories] = useState([]);
+  const [readerHistory, setReaderHistory] = useState(() => {
+    repairReaderStoredLinks(workspace?.slug || null);
+    return readReaderHistory();
+  });
+  const [readerBookshelf, setReaderBookshelf] = useState(() => {
+    repairReaderStoredLinks(workspace?.slug || null);
+    return readReaderBookshelf();
+  });
+  const [readerCategories, setReaderCategories] = useState(() =>
+    readReaderBookshelfCategories()
+  );
+  const [bookshelfLoading, setBookshelfLoading] = useState(false);
   const [bookshelfUploadQueue, setBookshelfUploadQueue] = useState([]);
   const [drawerInitialSection, setDrawerInitialSection] = useState(
     initialDrawerState.section
@@ -602,7 +658,7 @@ export function DocumentReaderProvider({
   const readerClosingRef = useRef(false);
   const readerCloseSuppressionUntilRef = useRef(0);
   const readerCloseSuppressionTimerRef = useRef(null);
-  const postprocessQueueRef = useRef(new Set());
+  const postprocessQueueRef = useRef(new Map());
   const uploadAbortControllersRef = useRef(new Map());
   const pendingSelectionsRef = useRef([]);
   const pendingReaderTextSourcesRef = useRef([]);
@@ -613,6 +669,7 @@ export function DocumentReaderProvider({
   const readerOpenSeqRef = useRef(0);
   const readerOpenAbortRef = useRef(null);
   const readerBookshelfServerSyncSeqRef = useRef(0);
+  const readerLibraryVisibleRefreshCountRef = useRef(0);
   const readerRouteKeyRef = useRef(
     `${workspace?.slug || ""}:${threadSlug || ""}`
   );
@@ -852,6 +909,15 @@ export function DocumentReaderProvider({
       normalizedData.contentSummary?.documentType ||
       readerDocumentTypeFromMetadata(normalizedData.metadata);
     if (!documentType) return null;
+    const classificationResult =
+      normalizedData.postprocess?.tasks?.classification?.result ||
+      normalizedData.classification ||
+      null;
+    const categoryPatch = classificationResult?.category
+      ? normalizeReaderCategoryPatch(classificationResult)
+      : {};
+    const postprocessComplete =
+      normalizedData.postprocess?.status === "complete";
     return {
       source: normalizedData.metadata.source || "reader_upload",
       title,
@@ -874,11 +940,11 @@ export function DocumentReaderProvider({
       thumbnailUrl: normalizedData.metadata.thumbnailUrl || null,
       thumbnailDataUrl: normalizedData.metadata.thumbnailDataUrl || null,
       uploaded: true,
+      ...categoryPatch,
       category:
-        normalizedData.postprocess?.tasks?.classification?.result?.category ||
-        normalizedData.classification?.category ||
-        null,
+        categoryPatch.category || classificationResult?.category || null,
       postprocess: normalizedData.postprocess || null,
+      postprocessPercent: postprocessComplete ? null : undefined,
       addedAt:
         normalizedData.metadata.createdAt ||
         normalizedData.metadata.updatedAt ||
@@ -1021,34 +1087,55 @@ export function DocumentReaderProvider({
         "drawer-open",
         "drawer-open-empty-retry",
       ].includes(reason);
-      return await requestPriorityQueue.schedule(
-        async () => {
-          refreshLocalReaderLibraryState();
-          try {
-            await hydrateReaderLibraryNow();
-          } catch {}
-          if (signal?.aborted) return readReaderBookshelf();
-          refreshLocalReaderLibraryState();
-          const bookshelf = await syncAllServerBookshelves(signal);
-          if (signal?.aborted) return bookshelf;
-          refreshLocalReaderLibraryState();
-          return bookshelf;
-        },
-        {
-          priority: visibleRefresh ? "P1" : "P4",
-          label: "reader:library-refresh",
-          kind: "reader",
-          scope: {
-            route: "workspace-chat",
-            workspaceSlug: workspace?.slug || null,
-            surface: "reader-library",
+      if (visibleRefresh) {
+        readerLibraryVisibleRefreshCountRef.current += 1;
+        setBookshelfLoading(true);
+      }
+      try {
+        return await requestPriorityQueue.schedule(
+          async () => {
+            refreshLocalReaderLibraryState();
+            try {
+              await hydrateReaderLibraryNow();
+            } catch {}
+            if (signal?.aborted) return readReaderBookshelf();
+            refreshLocalReaderLibraryState();
+            const bookshelf = await syncAllServerBookshelves(signal);
+            if (signal?.aborted) return bookshelf;
+            refreshLocalReaderLibraryState();
+            return bookshelf;
           },
-          policy: visibleRefresh ? "visible" : "maintenance",
-          intentRank: visibleRefresh ? 3 : undefined,
-          signal,
-          dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}:${visibleRefresh ? "visible" : "maintenance"}`,
+          {
+            priority: visibleRefresh ? "P0" : "P4",
+            label: "reader:library-refresh",
+            kind: "reader",
+            scope: {
+              route: "workspace-chat",
+              workspaceSlug: workspace?.slug || null,
+              surface: "reader-library",
+            },
+            policy: visibleRefresh ? "foreground" : "maintenance",
+            intentRank: visibleRefresh ? 1 : undefined,
+            emergency: visibleRefresh,
+            resource: visibleRefresh ? "network" : "idle",
+            communicationScene: visibleRefresh
+              ? "reader-visible"
+              : "reader-maintenance",
+            signal,
+            dedupeKey: `reader:library-refresh:${workspace?.slug || "global"}:${visibleRefresh ? "visible" : "maintenance"}`,
+          }
+        );
+      } finally {
+        if (visibleRefresh) {
+          readerLibraryVisibleRefreshCountRef.current = Math.max(
+            0,
+            readerLibraryVisibleRefreshCountRef.current - 1
+          );
+          if (readerLibraryVisibleRefreshCountRef.current === 0) {
+            setBookshelfLoading(false);
+          }
         }
-      );
+      }
     },
     [refreshLocalReaderLibraryState, syncAllServerBookshelves, workspace?.slug]
   );
@@ -1184,10 +1271,17 @@ export function DocumentReaderProvider({
       const readerDocumentId =
         item.readerDocumentId || item.backupReaderDocumentId || null;
       if (!readerDocumentId) return;
+      const baseTasks = Array.isArray(tasks) ? tasks : [];
+      const previewCapable = ["docx", "markdown"].includes(item.documentType);
       const requestedTasks =
         item.documentType === "pdf"
-          ? [...new Set([...(tasks || []), "pdfManifest"])]
-          : tasks;
+          ? [...new Set([...baseTasks, "pdfManifest"])]
+          : previewCapable &&
+              (intent === "upload" ||
+                intent === "open" ||
+                baseTasks.includes("thumbnail"))
+            ? [...new Set(["preview", ...baseTasks])]
+            : baseTasks;
       const workspaceCandidates = readerDocumentWorkspaceCandidates(
         item,
         workspace?.slug
@@ -1202,8 +1296,23 @@ export function DocumentReaderProvider({
         workspaceSlug: workspaceSlugForTask,
         readerDocumentId,
       });
-      if (postprocessQueueRef.current.has(key)) return;
-      postprocessQueueRef.current.add(key);
+      const foreground = readerPostprocessIsForeground(intent);
+      const existingEntry = postprocessQueueRef.current.get(key);
+      if (existingEntry) {
+        if (!foreground || existingEntry.foreground)
+          return existingEntry.promise;
+        existingEntry.superseded = true;
+        postprocessQueueRef.current.delete(key);
+      }
+      const queueEntry = {
+        foreground,
+        intent,
+        promise: null,
+        superseded: false,
+      };
+      postprocessQueueRef.current.set(key, queueEntry);
+      const queueEntryIsCurrent = () =>
+        postprocessQueueRef.current.get(key) === queueEntry;
       if (uploadEntryId) {
         patchBookshelfUpload(uploadEntryId, {
           status: "postprocessing",
@@ -1212,11 +1321,10 @@ export function DocumentReaderProvider({
           speedBps: 0,
         });
       }
-      return await requestPriorityQueue.schedule(
+      const queuePromise = requestPriorityQueue.schedule(
         async ({ signal }) => {
           try {
             const bookshelfKey = item.key || `${item.bookKey}:main`;
-            const foreground = readerPostprocessIsForeground(intent);
             const categoryTasks = requestedTasks.includes("classification");
             const keepClassificationPending = (
               reason = "后台自动分类仍在处理中"
@@ -1275,7 +1383,13 @@ export function DocumentReaderProvider({
                   communicationScene: foreground
                     ? "reader-visible"
                     : "reader-maintenance",
-                  task: false,
+                  task: readerPostprocessNetworkTask({
+                    scheduleOptions,
+                    label: `${scheduleOptions.label}:start`,
+                    workspaceSlug: candidateWorkspaceSlug,
+                    readerDocumentId,
+                    foreground,
+                  }),
                 }
               );
               if (postprocessResult?.response?.ok) {
@@ -1286,6 +1400,7 @@ export function DocumentReaderProvider({
             }
             const { response, data } = postprocessResult || {};
             if (signal.aborted) return;
+            if (!queueEntryIsCurrent()) return;
             if (!response?.ok) {
               if (categoryTasks) failClassification("后台分类启动失败。");
               return;
@@ -1303,6 +1418,7 @@ export function DocumentReaderProvider({
                 window.setTimeout(resolve, delayMs)
               );
               if (signal.aborted) break;
+              if (!queueEntryIsCurrent()) return;
               const { response: statusResponse, data } =
                 await ReaderDocument.postprocessStatus(
                   activePostprocessWorkspaceSlug,
@@ -1312,10 +1428,17 @@ export function DocumentReaderProvider({
                     communicationScene: foreground
                       ? "reader-visible"
                       : "reader-maintenance",
-                    task: false,
+                    task: readerPostprocessNetworkTask({
+                      scheduleOptions,
+                      label: `${scheduleOptions.label}:status`,
+                      workspaceSlug: activePostprocessWorkspaceSlug,
+                      readerDocumentId,
+                      foreground,
+                    }),
                   }
                 );
               if (signal.aborted) break;
+              if (!queueEntryIsCurrent()) return;
               if (!statusResponse.ok || !data?.success) {
                 if (categoryTasks) failClassification("后台分类状态读取失败。");
                 break;
@@ -1362,7 +1485,8 @@ export function DocumentReaderProvider({
               });
             }
           } finally {
-            postprocessQueueRef.current.delete(key);
+            if (postprocessQueueRef.current.get(key) === queueEntry)
+              postprocessQueueRef.current.delete(key);
           }
         },
         {
@@ -1379,10 +1503,17 @@ export function DocumentReaderProvider({
           resource: scheduleOptions.resource,
           emergency: scheduleOptions.emergency,
           intentRank: scheduleOptions.intentRank,
+          protected: foreground,
+          abortable: !foreground,
           dedupeKey: scheduleOptions.dedupeKey,
-          onAbort: () => postprocessQueueRef.current.delete(key),
+          onAbort: () => {
+            if (postprocessQueueRef.current.get(key) === queueEntry)
+              postprocessQueueRef.current.delete(key);
+          },
         }
       );
+      queueEntry.promise = queuePromise;
+      return await queuePromise;
     },
     [
       applyPostprocessResult,
@@ -1653,7 +1784,9 @@ export function DocumentReaderProvider({
         data.content ||
         (documentType === "pdf" && readerPdfStreamUrl(data.metadata)
           ? lightweightPdfContent(readerDocumentId)
-          : null);
+          : documentType === "docx"
+            ? lightweightDocxPreviewContent(readerDocumentId, "pending")
+            : null);
       if (!content) {
         readerOpenDebug("server-data-missing-content", {
           readerDocumentId,
@@ -1701,34 +1834,201 @@ export function DocumentReaderProvider({
       });
       let parsedContent = content;
       let objectUrl = null;
+      let pdfData = null;
       let renderType = null;
       let previewWarning = data.warning || data.metadata.previewWarning || null;
       setReaderObjectUrl(null);
-      if (content.documentType === "docx" && data.metadata?.previewPdfUrl) {
-        const { response: previewResponse, blob: previewBlob } =
-          await ReaderDocument.previewBlob(data.metadata.previewPdfUrl, {
-            signal: openContext.signal,
-            task: readerOpenTask(
-              "reader:preview-blob",
-              progressItem?.readerDocumentWorkspaceSlug ||
-                workspace?.slug ||
-                null,
-              { readerDocumentId }
-            ),
-          });
-        if (!isCurrentOpen()) return null;
-        if (previewResponse.ok && previewBlob.size > 0) {
-          objectUrl = URL.createObjectURL(previewBlob);
-          setReaderObjectUrl(objectUrl);
-          renderType = "pdf-preview";
-          parsedContent = { ...data.content, previewMode: "pdf-preview" };
-          previewWarning = null;
-        } else {
+      const isPdfPreviewDocument = ["docx", "markdown"].includes(
+        content.documentType
+      );
+      const previewLabel = readerPdfPreviewLabel(content.documentType);
+      const previewWorkspaceSlug =
+        progressItem?.readerDocumentWorkspaceSlug || workspace?.slug || null;
+
+      const loadPdfPreviewData = async (previewPdfUrl) => {
+        if (!previewPdfUrl) return false;
+        try {
+          const { response: previewResponse, data: previewBytes } =
+            await ReaderDocument.previewData(previewPdfUrl, {
+              signal: openContext.signal,
+              task: readerOpenTask(
+                "reader:preview-data",
+                previewWorkspaceSlug,
+                { readerDocumentId }
+              ),
+            });
+          if (!isCurrentOpen()) return false;
+          if (previewResponse.ok && previewBytes?.byteLength > 0) {
+            pdfData = previewBytes;
+            renderType = "pdf-preview";
+            parsedContent = { ...content, previewMode: "pdf-preview" };
+            previewWarning = null;
+            return true;
+          }
           previewWarning =
-            previewWarning || "版式预览生成失败，已切换为临时可读预览。";
+            previewWarning ||
+            `${previewLabel} 版式预览文件暂不可用，正在重新生成。`;
+          return false;
+        } catch (error) {
+          if (error?.name === "AbortError") throw error;
+          readerOpenDebug("pdf-preview-data-failed", {
+            readerDocumentId,
+            documentType: content.documentType,
+            status: error?.status || error?.response?.status || null,
+            code: error?.code || null,
+            message: error?.message || String(error),
+          });
+          previewWarning =
+            previewWarning ||
+            `${previewLabel} 版式预览暂不可用，正在重新生成。`;
+          return false;
+        }
+      };
+
+      const ensurePdfPreviewForOpen = async () => {
+        if (!isPdfPreviewDocument) return null;
+        setDocxPreviewStatus({
+          fileName: data.metadata.originalName,
+          message: `正在生成 ${previewLabel} 版式预览`,
+        });
+        try {
+          const startResult = await ReaderDocument.postprocess(
+            previewWorkspaceSlug,
+            readerDocumentId,
+            {
+              tasks: ["preview"],
+              intent: "open",
+              force: true,
+            },
+            {
+              signal: openContext.signal,
+              communicationScene: "reader-visible",
+              task: readerOpenTask(
+                "reader:docx-preview-start",
+                previewWorkspaceSlug,
+                { readerDocumentId }
+              ),
+            }
+          );
+          if (!isCurrentOpen()) return null;
+          if (!startResult?.response?.ok || !startResult?.data?.success) {
+            previewWarning =
+              startResult?.data?.error ||
+              startResult?.data?.progress?.error ||
+              startResult?.data?.metadata?.previewLastError ||
+              startResult?.data?.metadata?.previewWarning ||
+              previewWarning ||
+              `${previewLabel} 版式预览生成启动失败。`;
+            return null;
+          }
+          if (startResult?.data?.metadata?.previewPdfUrl)
+            return startResult.data.metadata;
+
+          const startedAt = Date.now();
+          const pollTimeoutMs = readerPostprocessPollTimeoutMs({
+            foreground: true,
+            serverTimeoutMs:
+              startResult?.data?.postprocessConfig?.autoPollTimeoutMs,
+          });
+          let delayMs = 700;
+          while (
+            !openContext.signal.aborted &&
+            Date.now() - startedAt < pollTimeoutMs
+          ) {
+            await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+            if (!isCurrentOpen()) return null;
+            const { response, data: statusData } =
+              await ReaderDocument.postprocessStatus(
+                previewWorkspaceSlug,
+                readerDocumentId,
+                {
+                  signal: openContext.signal,
+                  communicationScene: "reader-visible",
+                  task: readerOpenTask(
+                    "reader:docx-preview-status",
+                    previewWorkspaceSlug,
+                    { readerDocumentId }
+                  ),
+                }
+              );
+            if (!isCurrentOpen()) return null;
+            if (!response.ok || !statusData?.success) {
+              previewWarning =
+                statusData?.error ||
+                statusData?.metadata?.previewLastError ||
+                statusData?.metadata?.previewWarning ||
+                previewWarning ||
+                `${previewLabel} 版式预览状态读取失败。`;
+              return null;
+            }
+            if (statusData?.metadata?.previewPdfUrl) return statusData.metadata;
+            const previewTask = statusData?.tasks?.preview;
+            if (previewTask?.status === "failed") {
+              previewWarning =
+                previewTask?.error ||
+                previewTask?.reason ||
+                statusData?.metadata?.previewLastError ||
+                statusData?.metadata?.previewWarning ||
+                statusData?.progress?.error ||
+                previewWarning ||
+                `${previewLabel} 版式预览生成失败。`;
+              return null;
+            }
+            if (statusData.status === "complete") break;
+            delayMs = nextReaderPostprocessDelay(delayMs, {
+              foreground: true,
+              hidden:
+                typeof document !== "undefined" &&
+                document.visibilityState === "hidden",
+            });
+          }
+          previewWarning =
+            previewWarning ||
+            `${previewLabel} 版式预览仍在生成中，请稍后重试。`;
+          return null;
+        } catch (error) {
+          if (error?.name === "AbortError") throw error;
+          previewWarning =
+            error?.message ||
+            previewWarning ||
+            `${previewLabel} 版式预览生成失败。`;
+          readerOpenDebug("pdf-preview-generation-failed", {
+            readerDocumentId,
+            documentType: content.documentType,
+            status: error?.status || error?.response?.status || null,
+            code: error?.code || null,
+            message: error?.message || String(error),
+          });
+          return null;
+        }
+      };
+
+      if (isPdfPreviewDocument) {
+        await loadPdfPreviewData(data.metadata?.previewPdfUrl);
+        if (!renderType) {
+          const previewMetadata = await ensurePdfPreviewForOpen();
+          if (previewMetadata?.previewPdfUrl) {
+            data.metadata = {
+              ...data.metadata,
+              ...previewMetadata,
+            };
+            await loadPdfPreviewData(data.metadata.previewPdfUrl);
+          }
+        }
+        if (!renderType) {
+          const failed = Boolean(previewWarning);
+          parsedContent = lightweightDocxPreviewContent(
+            readerDocumentId,
+            failed ? "failed" : "pending",
+            content.documentType
+          );
+          renderType = failed ? "docx-preview-failed" : "docx-preview-pending";
+          previewWarning =
+            previewWarning || `正在生成 ${previewLabel} 版式预览，请稍后重试。`;
         }
       }
-      if (!renderType && data.metadata?.originalUrl) {
+
+      if (!renderType && !isPdfPreviewDocument && data.metadata?.originalUrl) {
         if (content.documentType === "pdf") {
           objectUrl = readerPdfStreamUrl(data.metadata);
           renderType = "pdf-stream";
@@ -1738,9 +2038,7 @@ export function DocumentReaderProvider({
               signal: openContext.signal,
               task: readerOpenTask(
                 "reader:original-blob",
-                progressItem?.readerDocumentWorkspaceSlug ||
-                  workspace?.slug ||
-                  null,
+                previewWorkspaceSlug,
                 { readerDocumentId }
               ),
             });
@@ -1779,6 +2077,7 @@ export function DocumentReaderProvider({
         metadata: data.metadata,
         content: parsedContent,
         objectUrl,
+        pdfData,
         initialTargetSource: historyItem?.initialTargetSource || null,
         localPath: data.metadata.localPath || progressItem?.localPath || null,
         progress: normalizedReaderProgress(progressItem?.progress),
@@ -1838,8 +2137,9 @@ export function DocumentReaderProvider({
         };
       }
 
-      const objectUrl = URL.createObjectURL(file);
-      setReaderObjectUrl(objectUrl);
+      let objectUrl = null;
+      let renderType = null;
+      let previewWarning = null;
       const progressItem = readerItemWithLatestBookMemory({
         ...historyItem,
         documentType: historyItem.documentType || validation.documentType,
@@ -1853,12 +2153,23 @@ export function DocumentReaderProvider({
         historyItem.readerDocumentId ||
         historyItem.backupReaderDocumentId ||
         historyItem.localSourceId;
-      const content = await parseFileByType(
-        file,
-        readerDocumentId,
-        validation.documentType
-      );
+      const content =
+        validation.documentType === "docx"
+          ? lightweightDocxPreviewContent(readerDocumentId, "failed")
+          : await parseFileByType(
+              file,
+              readerDocumentId,
+              validation.documentType
+            );
       if (!isCurrentOpen()) return { ok: false, reason: "aborted" };
+      if (validation.documentType === "docx") {
+        previewWarning =
+          "本地 DOCX 需要生成 PDF 版式预览后打开，请重新上传或重试云端打开。";
+        renderType = "docx-preview-failed";
+      } else {
+        objectUrl = URL.createObjectURL(file);
+        setReaderObjectUrl(objectUrl);
+      }
       const doc = {
         source: historyItem.source || "reader_upload",
         readerDocumentId: historyItem.readerDocumentId || null,
@@ -1900,10 +2211,12 @@ export function DocumentReaderProvider({
             null,
         },
         content,
+        renderType,
         objectUrl,
         file,
         progress: normalizedReaderProgress(progressItem?.progress),
         thumbnailDataUrl: progressItem?.thumbnailDataUrl || null,
+        previewWarning,
       };
 
       clearReaderCloseSuppression();
@@ -3108,21 +3421,35 @@ export function DocumentReaderProvider({
       } catch (error) {
         if (error?.name === "AbortError" || !isCurrentOpen()) return;
         showToast(
-          `${error.message || "自动上传失败"}，已临时本地预览。`,
+          validation.documentType === "docx"
+            ? `${error.message || "自动上传失败"}，请重试生成 DOCX 版式预览。`
+            : `${error.message || "自动上传失败"}，已临时本地预览。`,
           "warning"
         );
       } finally {
         setDocxPreviewStatus(null);
       }
       if (!isCurrentOpen()) return;
-      const objectUrl = URL.createObjectURL(file);
-      setReaderObjectUrl(objectUrl);
-      const content = await parseFileByType(
-        file,
-        localDocumentId,
-        validation.documentType
-      );
+      let objectUrl = null;
+      let renderType = null;
+      let previewWarning = null;
+      const content =
+        validation.documentType === "docx"
+          ? lightweightDocxPreviewContent(localDocumentId, "failed")
+          : await parseFileByType(
+              file,
+              localDocumentId,
+              validation.documentType
+            );
       if (!isCurrentOpen()) return;
+      if (validation.documentType === "docx") {
+        renderType = "docx-preview-failed";
+        previewWarning =
+          "DOCX 需要生成 PDF 版式预览后打开。系统不会自动使用会打乱格式的 HTML 预览。";
+      } else {
+        objectUrl = URL.createObjectURL(file);
+        setReaderObjectUrl(objectUrl);
+      }
       const progressItem = readerItemWithLatestBookMemory({
         source: "local",
         title: file.name,
@@ -3149,9 +3476,11 @@ export function DocumentReaderProvider({
           createdAt: new Date().toISOString(),
         },
         content,
+        renderType,
         objectUrl,
         file,
         progress: normalizedReaderProgress(progressItem?.progress),
+        previewWarning,
       };
       if (!isCurrentOpen()) return;
       clearReaderCloseSuppression();
@@ -4499,6 +4828,7 @@ export function DocumentReaderProvider({
       backupCurrentDocumentProgress,
       readerHistory,
       readerBookshelf,
+      bookshelfLoading,
       bookshelfUploadQueue,
       readerCategories,
       drawerInitialSection,
@@ -4555,6 +4885,7 @@ export function DocumentReaderProvider({
       recordCurrentProgress,
       readerHistory,
       readerBookshelf,
+      bookshelfLoading,
       bookshelfUploadQueue,
       readerCategories,
       reclassifyBookshelfItem,

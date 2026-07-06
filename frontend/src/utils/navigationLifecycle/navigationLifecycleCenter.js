@@ -126,6 +126,11 @@ export class NavigationLifecycleCenter {
       uiSwappedAt: null,
       restoredAt: null,
       finishedAt: null,
+      restoreSource: null,
+      restoreCacheHit: false,
+      restoreFailed: false,
+      oldTasksCancelled: 0,
+      oldTasksStaled: 0,
     };
     this.transitions.push(transition);
     if (this.transitions.length > 80)
@@ -139,12 +144,14 @@ export class NavigationLifecycleCenter {
     });
 
     if (fromScope && !sameRouteScope(fromScope, toScope)) {
-      this.leave(fromScope, {
+      const release = this.leave(fromScope, {
         reason: transitionReason,
         saveSnapshot,
         deferredCleanup,
         extraScopes: extraExitScopes,
       });
+      transition.oldTasksCancelled = release.cancelled || 0;
+      transition.oldTasksStaled = release.staled || 0;
     } else if (typeof saveSnapshot === "function") {
       this.#saveSnapshot(fromScope, saveSnapshot, transitionReason);
     }
@@ -164,8 +171,22 @@ export class NavigationLifecycleCenter {
       preferCache,
       restoreTarget,
       transition,
+    }).finally(() => {
+      transition.finishedAt = nowMs();
+      markTaskPerformance("navigation_transition_finished", {
+        reason: transitionReason,
+        toScope,
+        durationMs: Math.round(transition.finishedAt - startedAt),
+        uiSwapMs: transition.uiSwappedAt
+          ? Math.round(transition.uiSwappedAt - startedAt)
+          : null,
+        restoredMs: transition.restoredAt
+          ? Math.round(transition.restoredAt - startedAt)
+          : null,
+        restoreSource: transition.restoreSource,
+        restoreCacheHit: transition.restoreCacheHit,
+      });
     });
-    transition.finishedAt = nowMs();
     return {
       transition,
       restorePromise,
@@ -250,6 +271,12 @@ export class NavigationLifecycleCenter {
       )
       .then((result) => {
         options.transition && (options.transition.restoredAt = nowMs());
+        if (options.transition) {
+          options.transition.restoreSource = result?.source || "unknown";
+          options.transition.restoreCacheHit = Boolean(
+            result?.source === "cache" || result?.cacheHit
+          );
+        }
         if (result?.source === "cache" || result?.cacheHit) {
           markTaskPerformance("navigation_restore_from_cache", {
             scope,
@@ -260,6 +287,11 @@ export class NavigationLifecycleCenter {
         return result;
       })
       .catch((error) => {
+        if (options.transition) {
+          options.transition.restoredAt = nowMs();
+          options.transition.restoreSource = "error";
+          options.transition.restoreFailed = true;
+        }
         this.counters.restoreFailures += 1;
         this.recovery.handle(error, {
           source: "navigation",
@@ -399,6 +431,15 @@ export class NavigationLifecycleCenter {
           transition.restoredAt && transition.startedAt
             ? Math.round(transition.restoredAt - transition.startedAt)
             : null,
+        finishedMs:
+          transition.finishedAt && transition.startedAt
+            ? Math.round(transition.finishedAt - transition.startedAt)
+            : null,
+        restoreSource: transition.restoreSource,
+        restoreCacheHit: transition.restoreCacheHit,
+        restoreFailed: transition.restoreFailed,
+        oldTasksCancelled: transition.oldTasksCancelled || 0,
+        oldTasksStaled: transition.oldTasksStaled || 0,
       })),
       snapshots: this.snapshots.snapshot(),
       deferredCleanup: this.cleanupQueue.snapshot(),

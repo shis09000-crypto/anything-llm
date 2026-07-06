@@ -45,6 +45,18 @@ function assertLocalPath(path, { prefix = null } = {}) {
     error.status = 400;
     throw error;
   }
+  if (
+    /(?:^|[?&])(?:token|auth|authorization|access_token|refresh_token|secret|key|apikey|api_key|signature|signingSecret|signing_secret|sensitiveSession|sensitive_session)=/i.test(
+      value
+    )
+  ) {
+    const error = new Error(
+      "Navigation command path contains sensitive query."
+    );
+    error.code = "developer_navigation_sensitive_query";
+    error.status = 400;
+    throw error;
+  }
   return value;
 }
 
@@ -162,7 +174,7 @@ function publishNavigationCommand({
         commandId: context.commandId,
         requestId: context.requestId,
         scope: normalizeScope(scope),
-        params: redactDeveloperObject(normalized.params),
+        params: normalized.params,
         issuedAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60_000).toISOString(),
       },
@@ -181,7 +193,7 @@ function publishNavigationCommand({
     scope,
     metadata: {
       command: normalized.command,
-      params: normalized.params,
+      params: redactDeveloperObject(normalized.params),
       eventId: event?.eventId || null,
     },
   });
