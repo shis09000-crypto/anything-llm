@@ -7,7 +7,7 @@ const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
 const { Invite } = require("../models/invite");
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const {
@@ -64,6 +64,7 @@ const {
   authSessionFingerprintFromRequest,
 } = require("../utils/authz/vaultAccessGrants");
 const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
+const SystemSettings = DataAccessCenter.adminSystem;
 
 const DEFAULT_ADMIN_PAGE_LIMIT = 50;
 const MAX_ADMIN_PAGE_LIMIT = 200;

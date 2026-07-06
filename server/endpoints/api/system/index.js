@@ -1,13 +1,14 @@
 const {
   EventLogRepository: EventLogs,
 } = require("../../../repositories/eventLogRepository");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
 const { purgeDocument } = require("../../../utils/files/purgeDocument");
 const { getVectorDbClass } = require("../../../utils/helpers");
 const { exportChatsAsType } = require("../../../utils/helpers/chat/convertTo");
 const { dumpENV, updateENV } = require("../../../utils/helpers/updateENV");
 const { reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
+const SystemSettings = DataAccessCenter.adminSystem;
 
 function apiSystemEndpoints(app) {
   if (!app) return;

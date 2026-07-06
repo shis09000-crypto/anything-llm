@@ -2,7 +2,7 @@ const {
   EventLogRepository: EventLogs,
 } = require("../../../repositories/eventLogRepository");
 const { Invite } = require("../../../models/invite");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
 const { User } = require("../../../models/user");
 const {
   WorkspaceRepository: Workspace,
@@ -15,6 +15,7 @@ const { canModifyAdmin } = require("../../../utils/helpers/admin");
 const { ROLES, normalizeRole } = require("../../../utils/authz/accountRoles");
 const { multiUserMode, reqBody } = require("../../../utils/http");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
+const SystemSettings = DataAccessCenter.adminSystem;
 
 function apiAdminEndpoints(app) {
   if (!app) return;

@@ -7,6 +7,8 @@
 const fs = require("fs");
 const path = require("path");
 const cheerio = require("cheerio");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 
 const DEFAULT_PAGE_TITLE = "Athena | 知识操作系统";
 const DEFAULT_FAVICON_PATH = "/athena-mark.svg";
@@ -253,7 +255,6 @@ class MetaGenerator {
 
   async #fetchConfg() {
     this.#log(`fetching custom meta tag settings...`);
-    const { SystemSettings } = require("../../models/systemSettings");
     const customTitle = await SystemSettings.getValueOrFallback(
       { label: "meta_page_title" },
       null
@@ -379,7 +380,6 @@ class MetaGenerator {
    */
   async generateManifest(response) {
     try {
-      const { SystemSettings } = require("../../models/systemSettings");
       const manifestName = await SystemSettings.getValueOrFallback(
         { label: "meta_page_title" },
         DEFAULT_PAGE_TITLE

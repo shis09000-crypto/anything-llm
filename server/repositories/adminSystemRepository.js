@@ -33,6 +33,10 @@ const AdminSystemRepository = {
     return SystemSettings.saneDefaultSystemPrompt;
   },
 
+  get publicFields() {
+    return SystemSettings.publicFields;
+  },
+
   diagnosticSummary() {
     return sanitizeValue(diagnosticSummary());
   },
@@ -47,6 +51,46 @@ const AdminSystemRepository = {
 
   async getValueOrFallback(clause = {}, fallback = null) {
     return SystemSettings.getValueOrFallback(clause, fallback);
+  },
+
+  async currentSettings() {
+    return SystemSettings.currentSettings();
+  },
+
+  async currentSettingsForSections(sections = []) {
+    return SystemSettings.currentSettingsForSections(sections);
+  },
+
+  async isOnboardingComplete() {
+    return SystemSettings.isOnboardingComplete();
+  },
+
+  async markOnboardingComplete() {
+    return SystemSettings.markOnboardingComplete();
+  },
+
+  async allowPublicRegistration() {
+    return SystemSettings.allowPublicRegistration();
+  },
+
+  async currentLogoFilename() {
+    return SystemSettings.currentLogoFilename();
+  },
+
+  async agent_sql_connections() {
+    return SystemSettings.agent_sql_connections();
+  },
+
+  async getFeatureFlags() {
+    return SystemSettings.getFeatureFlags();
+  },
+
+  effectiveDefaultSystemPrompt(prompt) {
+    return SystemSettings.effectiveDefaultSystemPrompt(prompt);
+  },
+
+  async syncDefaultSystemPromptToWorkspaces(options = {}) {
+    return SystemSettings.syncDefaultSystemPromptToWorkspaces(options);
   },
 
   async getSettingValue({ label, fallback = null } = {}) {

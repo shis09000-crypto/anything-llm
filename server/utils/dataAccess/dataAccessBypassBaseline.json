@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "generatedAt": "2026-07-06T17:44:13.438Z",
+  "generatedAt": "2026-07-06T18:13:06.225Z",
   "mode": "observe",
   "scannedFiles": 595,
-  "blocked": 154,
+  "blocked": 142,
   "findings": [
     {
       "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/apiKeys\")|apiKeys",
@@ -30,15 +30,6 @@
       "domain": "adminSystem",
       "match": "require(\"../models/invite\")",
       "detail": "invite",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/admin.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "endpoints/admin.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/systemSettings\")",
-      "detail": "systemSettings",
       "count": 1
     },
     {
@@ -96,15 +87,6 @@
       "count": 1
     },
     {
-      "key": "direct-model-import|endpoints/api/admin/index.js|adminSystem|require(\"../../../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "endpoints/api/admin/index.js",
-      "domain": "adminSystem",
-      "match": "require(\"../../../models/systemSettings\")",
-      "detail": "systemSettings",
-      "count": 1
-    },
-    {
       "key": "direct-model-import|endpoints/api/admin/index.js|adminSystem|require(\"../../../models/user\")|user",
       "type": "direct-model-import",
       "file": "endpoints/api/admin/index.js",
@@ -138,15 +120,6 @@
       "domain": "workspaceChat",
       "match": "require(\"../../../models/embedChats\")",
       "detail": "embedChats",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/api/system/index.js|adminSystem|require(\"../../../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "endpoints/api/system/index.js",
-      "domain": "adminSystem",
-      "match": "require(\"../../../models/systemSettings\")",
-      "detail": "systemSettings",
       "count": 1
     },
     {
@@ -456,15 +429,6 @@
       "count": 1
     },
     {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/agentSkillWhitelist\")|agentSkillWhitelist",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/agentSkillWhitelist\")",
-      "detail": "agentSkillWhitelist",
-      "count": 1
-    },
-    {
       "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/apiKeys\")|apiKeys",
       "type": "direct-model-import",
       "file": "endpoints/system.js",
@@ -501,42 +465,6 @@
       "count": 1
     },
     {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/embeddingBatchJob\")|embeddingBatchJob",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/embeddingBatchJob\")",
-      "detail": "embeddingBatchJob",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/slashCommandsPresets\")|slashCommandsPresets",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/slashCommandsPresets\")",
-      "detail": "slashCommandsPresets",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/systemPromptVariables\")|systemPromptVariables",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/systemPromptVariables\")",
-      "detail": "systemPromptVariables",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/systemSettings\")",
-      "detail": "systemSettings",
-      "count": 1
-    },
-    {
       "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/temporaryAuthToken\")|temporaryAuthToken",
       "type": "direct-model-import",
       "file": "endpoints/system.js",
@@ -552,15 +480,6 @@
       "domain": "adminSystem",
       "match": "require(\"../models/user\")",
       "detail": "user",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|endpoints/system.js|adminSystem|require(\"../models/userMemory\")|userMemory",
-      "type": "direct-model-import",
-      "file": "endpoints/system.js",
-      "domain": "adminSystem",
-      "match": "require(\"../models/userMemory\")",
-      "detail": "userMemory",
       "count": 1
     },
     {
@@ -714,24 +633,6 @@
       "domain": "unknown",
       "match": "require(\"../../models/scheduledJobRun\")",
       "detail": "scheduledJobRun",
-      "count": 2
-    },
-    {
-      "key": "direct-model-import|utils/boot/markOnboarded.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "utils/boot/markOnboarded.js",
-      "domain": "adminSystem",
-      "match": "require(\"../../models/systemSettings\")",
-      "detail": "systemSettings",
-      "count": 1
-    },
-    {
-      "key": "direct-model-import|utils/boot/MetaGenerator.js|adminSystem|require(\"../../models/systemSettings\")|systemSettings",
-      "type": "direct-model-import",
-      "file": "utils/boot/MetaGenerator.js",
-      "domain": "adminSystem",
-      "match": "require(\"../../models/systemSettings\")",
-      "detail": "systemSettings",
       "count": 2
     },
     {

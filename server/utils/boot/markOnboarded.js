@@ -1,4 +1,5 @@
-const { SystemSettings } = require("../../models/systemSettings");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const SystemSettings = lazyDataAccessFacade("adminSystem");
 
 /**
  * Mark the onboarding as completed for legacy users prior to this change where onboarding is now a flag in the DB.

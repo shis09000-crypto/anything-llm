@@ -1223,8 +1223,17 @@ const adminSystem = {
       getValueOrFallback: "read",
       getSettingValue: "read",
       listSettings: "read",
+      currentSettings: "read",
+      currentSettingsForSections: "read",
+      isOnboardingComplete: "read",
+      markOnboardingComplete: "write",
+      allowPublicRegistration: "read",
+      currentLogoFilename: "read",
+      agent_sql_connections: "read",
+      getFeatureFlags: "read",
       updateSettings: "write",
       _updateSettings: "write",
+      syncDefaultSystemPromptToWorkspaces: "write",
       isMultiUserMode: "read",
       deleteSetting: "write",
       eventLogs: "read",
@@ -1241,6 +1250,12 @@ const adminSystem = {
   ),
   get saneDefaultSystemPrompt() {
     return repositoryObject("adminSystem").saneDefaultSystemPrompt;
+  },
+  get publicFields() {
+    return repositoryObject("adminSystem").publicFields;
+  },
+  effectiveDefaultSystemPrompt(prompt) {
+    return repositoryObject("adminSystem").effectiveDefaultSystemPrompt(prompt);
   },
 };
 

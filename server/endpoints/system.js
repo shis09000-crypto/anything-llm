@@ -29,7 +29,16 @@ const {
 } = require("../utils/sessionIdle");
 const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
+const SystemSettings = DataAccessCenter.adminSystem;
+const AgentSkillWhitelist = DataAccessCenter.agentSkillWhitelist;
+const SlashCommandPresets = DataAccessCenter.slashCommandPreset;
+const SystemPromptVariables = DataAccessCenter.systemPromptVariable;
+const UserMemory = DataAccessCenter.userMemory;
+const MEMORY_OWNER_REQUIRED_ERROR = UserMemory.ownerRequiredError;
+const MEMORY_SCHEMA_INIT_ERROR = UserMemory.schemaInitError;
+const isMemorySchemaMissingError = (error) =>
+  UserMemory.isMemorySchemaMissingError(error);
 const { User } = require("../models/user");
 const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -74,9 +83,9 @@ const { exportChatsAsType } = require("../utils/helpers/chat/convertTo");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const { DataAccessCenter } = require("../utils/dataAccess");
 const { publishBroadcastEvent } = require("../utils/broadcast");
-const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
+const EmbeddingBatchJob =
+  DataAccessCenter.documentEmbeddingBatch.embeddingBatchJob;
 const { CollectorApi } = require("../utils/collectorApi");
 const {
   confirmAuthenticatedEmailVerification,
@@ -204,7 +213,6 @@ const {
   maskedEmail,
   sendVerificationCode,
 } = require("../utils/email/mailer");
-const { SlashCommandPresets } = require("../models/slashCommandsPresets");
 const { EncryptionManager } = require("../utils/EncryptionManager");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const { AccountDeletionService } = require("../utils/accountDeletion");
@@ -232,15 +240,7 @@ const {
   validateUserStateScope,
 } = require("../utils/userStatePreferencePolicy");
 const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
-const { SystemPromptVariables } = require("../models/systemPromptVariables");
 const { VALID_COMMANDS } = require("../utils/chats");
-const { AgentSkillWhitelist } = require("../models/agentSkillWhitelist");
-const {
-  UserMemory,
-  MEMORY_OWNER_REQUIRED_ERROR,
-  MEMORY_SCHEMA_INIT_ERROR,
-  isMemorySchemaMissingError,
-} = require("../models/userMemory");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
 const {
