@@ -1,9 +1,4 @@
-const {
-  getGateConfigStatus,
-  cryptoGateEventBuffer,
-} = require("../utils/cryptoGate");
-const { cryptoDataHub } = require("../utils/cryptoHub");
-const { sanitizeValue } = require("../utils/dataAccess/dataAccessPolicy");
+const { CryptoRuntime } = require("../modules/crypto");
 
 function safeCall(fn, fallback) {
   try {
@@ -22,7 +17,7 @@ const CryptoRepository = {
   repositoryName: "CryptoRepository",
 
   configStatus() {
-    return safeCall(() => getGateConfigStatus(), {
+    return safeCall(() => CryptoRuntime.config.status(), {
       enabled: false,
       hasApiKey: false,
       hasApiSecret: false,
@@ -30,24 +25,21 @@ const CryptoRepository = {
   },
 
   hubStatus() {
-    return safeCall(() => cryptoDataHub.getStatus(), {
+    return safeCall(() => CryptoRuntime.hub.status(), {
       status: "unavailable",
       connectionStatus: "disconnected",
     });
   },
 
   loadingProgress() {
-    return safeCall(() => cryptoDataHub.getLoadingProgress(), {
+    return safeCall(() => CryptoRuntime.hub.loadingProgress(), {
       status: "unavailable",
       progress: 0,
     });
   },
 
   recentEvents({ limit = 100 } = {}) {
-    const boundedLimit = Math.max(1, Math.min(Number(limit) || 100, 500));
-    return cryptoGateEventBuffer
-      .recent(boundedLimit)
-      .map((event) => sanitizeValue(event));
+    return CryptoRuntime.gate.recentEvents({ limit });
   },
 
   snapshot() {

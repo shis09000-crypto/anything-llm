@@ -160,10 +160,8 @@ class BackgroundService {
 
   async #startCryptoHubBackgroundRuntime() {
     try {
-      const {
-        startCryptoHubBackgroundRuntime,
-      } = require("../cryptoHub/backgroundRuntime");
-      const runtime = await startCryptoHubBackgroundRuntime({
+      const { CryptoRuntime } = require("../../modules/crypto");
+      const runtime = await CryptoRuntime.background.start({
         logger: this.logger,
       });
       this.#cryptoHubBackgroundRuntime = runtime;
@@ -201,8 +199,8 @@ class BackgroundService {
     this.#log("Stopping...");
     if (this.#cryptoHubBackgroundRuntime?.started) {
       try {
-        const { cryptoDataHub } = require("../cryptoHub");
-        cryptoDataHub.stopBackgroundRefresh();
+        const { CryptoRuntime } = require("../../modules/crypto");
+        CryptoRuntime.background.stop();
       } catch (error) {
         this.logger.warn(
           `Failed to stop Crypto Hub background equity refresh: ${error.message}`,

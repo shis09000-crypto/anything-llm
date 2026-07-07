@@ -102,6 +102,7 @@ const { clientIdentityMiddleware } = require("./utils/clientIdentity");
 const {
   communicationMetricsMiddleware,
 } = require("./middleware/communicationMetrics");
+const { apiOnlyMode } = require("./utils/runtimeRole");
 const app = express();
 const apiRouter = express.Router();
 const FILE_LIMIT = "3GB";
@@ -206,7 +207,7 @@ resumeActiveBatchJobs().catch((error) =>
   console.error("[EmbeddingBatch] Failed to resume active jobs.", error.message)
 );
 
-if (process.env.NODE_ENV !== "development") {
+if (process.env.NODE_ENV !== "development" && !apiOnlyMode()) {
   const { MetaGenerator } = require("./utils/boot/MetaGenerator");
   const IndexPage = new MetaGenerator();
   const publicDir = path.resolve(__dirname, "public");
@@ -263,6 +264,14 @@ if (process.env.NODE_ENV !== "development") {
     setBrowserSecurityHeaders(response);
     IndexPage.generate(response);
     return;
+  });
+} else if (apiOnlyMode()) {
+  app.get("/", function (_, response) {
+    response.status(200).json({
+      success: true,
+      role: "api",
+      staticFrontend: false,
+    });
   });
 } else {
   // Debug route for development connections to vectorDBs

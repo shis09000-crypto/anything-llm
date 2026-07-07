@@ -31,8 +31,8 @@ import { useIsAgentSessionActive } from "@/lib/communication/agentWebSocketClien
 import { debugChatTurn } from "@/utils/chat/debug";
 import FileAccessPolicy from "@/models/fileAccessPolicy";
 import { nFormatter } from "@/utils/numbers";
-import ReaderTextSourceCards from "../DocumentReader/ReaderTextSourceCards";
-import { useDocumentReader } from "../DocumentReader/Provider";
+import ReaderTextSourceCards from "@/modules/reader/ReaderTextSourceCards";
+import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";

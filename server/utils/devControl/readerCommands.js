@@ -1,9 +1,7 @@
 const fs = require("fs");
 const { getAuthorizedWorkspace } = require("../authz/resourceAccess");
 const { publishBroadcastEvent } = require("../broadcast");
-const {
-  _private: reader,
-} = require("../../endpoints/workspaceReaderDocuments");
+const { ReaderRuntime } = require("../../modules/reader");
 const {
   ReaderDocumentStorageProvider,
 } = require("../../providers/readerDocumentStorageProvider");
@@ -20,6 +18,17 @@ const {
   readerDebugAccessGrantSnapshot,
   revokeReaderDebugAccessGrant,
 } = require("./readerDebugAccess");
+
+const reader = {
+  ...ReaderRuntime.documents,
+  ...ReaderRuntime.access,
+  ...ReaderRuntime.preview,
+  ...ReaderRuntime.postprocess,
+  ...ReaderRuntime.media,
+  ...ReaderRuntime.classification,
+  ...ReaderRuntime.ocr,
+  ...ReaderRuntime.epub,
+};
 
 function currentUserId(response) {
   return Number(response?.locals?.user?.id || 0) || null;
@@ -282,13 +291,14 @@ async function readerCommand(
         response,
         scope,
       });
-      const status = reader.enqueueReaderPostprocessJob({
+      const status = await reader.enqueueReaderPostprocessJob({
         workspace: resolved.workspace,
         readerDocumentId: resolved.readerDocumentId,
         tasks: ["preview"],
         categories: [],
         force: true,
         userId: context.userId || null,
+        intent: "manual",
       });
       return redactDeveloperObject({
         queued: true,
@@ -308,36 +318,39 @@ async function readerCommand(
           response,
           workspaceSlug: scope.workspaceSlug || null,
         });
-      const enqueueMissing = (documents, targetWorkspace) =>
-        documents
-          .filter((document) => {
-            const metadata = document.metadata || {};
-            return (
-              reader.metadataNeedsPdfPreview(metadata) &&
-              !reader.metadataWithOriginalUrl(
-                targetWorkspace,
-                document.readerDocumentId,
-                metadata
-              ).previewPdfUrl
-            );
-          })
-          .map((document) => ({
-            readerDocumentId: document.readerDocumentId,
-            postprocess: reader.enqueueReaderPostprocessJob({
-              workspace: targetWorkspace,
+      const enqueueMissing = async (documents, targetWorkspace) =>
+        Promise.all(
+          documents
+            .filter((document) => {
+              const metadata = document.metadata || {};
+              return (
+                reader.metadataNeedsPdfPreview(metadata) &&
+                !reader.metadataWithOriginalUrl(
+                  targetWorkspace,
+                  document.readerDocumentId,
+                  metadata
+                ).previewPdfUrl
+              );
+            })
+            .map(async (document) => ({
               readerDocumentId: document.readerDocumentId,
-              tasks: ["preview"],
-              categories: [],
-              force: true,
-              userId: context.userId || null,
-            }),
-          }));
-      const globalQueued = enqueueMissing(
+              postprocess: await reader.enqueueReaderPostprocessJob({
+                workspace: targetWorkspace,
+                readerDocumentId: document.readerDocumentId,
+                tasks: ["preview"],
+                categories: [],
+                force: true,
+                userId: context.userId || null,
+                intent: "manual",
+              }),
+            }))
+        );
+      const globalQueued = await enqueueMissing(
         globalDocuments,
         reader.STANDALONE_READER_SCOPE
       );
       const workspaceQueued = workspace
-        ? enqueueMissing(workspaceDocuments, workspace)
+        ? await enqueueMissing(workspaceDocuments, workspace)
         : [];
       return redactDeveloperObject({
         queuedCount: globalQueued.length + workspaceQueued.length,
@@ -355,13 +368,14 @@ async function readerCommand(
         response,
         scope,
       });
-      const status = reader.enqueueReaderPostprocessJob({
+      const status = await reader.enqueueReaderPostprocessJob({
         workspace: resolved.workspace,
         readerDocumentId: resolved.readerDocumentId,
         tasks: params.tasks,
         categories: params.categories,
         force: true,
         userId: context.userId || null,
+        intent: "manual",
       });
       return {
         queued: true,
@@ -394,12 +408,13 @@ async function readerCommand(
       return {
         queued: true,
         postprocess: redactDeveloperObject(
-          reader.enqueueReaderPostprocessJob({
+          await reader.enqueueReaderPostprocessJob({
             workspace: resolved.workspace,
             readerDocumentId: resolved.readerDocumentId,
             tasks: ["thumbnail"],
             force: true,
             userId: context.userId || null,
+            intent: "manual",
           })
         ),
       };
@@ -414,13 +429,14 @@ async function readerCommand(
       return {
         queued: true,
         postprocess: redactDeveloperObject(
-          reader.enqueueReaderPostprocessJob({
+          await reader.enqueueReaderPostprocessJob({
             workspace: resolved.workspace,
             readerDocumentId: resolved.readerDocumentId,
             tasks: ["classification"],
             categories: params.categories,
             force: true,
             userId: context.userId || null,
+            intent: "manual",
           })
         ),
       };

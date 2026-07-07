@@ -1,0 +1,9 @@
+services:
+  anything-llm-api:
+    environment:
+      ATHENA_READER_WORKER_QUEUE: "true"
+
+  anything-llm-reader-worker:
+    profiles: []
+    environment:
+      ATHENA_READER_WORKER_QUEUE: "true"

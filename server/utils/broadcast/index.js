@@ -1,5 +1,9 @@
 const EventEmitter = require("events");
 const { v4: uuidv4 } = require("uuid");
+const {
+  broadcastTransportSummary,
+  ensureBroadcastTransportSupported,
+} = require("./transportRegistry");
 
 const BROADCAST_EVENT = "athenaBroadcastEvent";
 const DEFAULT_COALESCE_MS = 150;
@@ -32,7 +36,9 @@ const counters = {
   syncRequired: 0,
   acked: 0,
   droppedSensitive: 0,
+  transportErrors: 0,
 };
+let lastTransportWarningAt = 0;
 
 function normalizeNumber(value = null) {
   if (value === null || value === undefined || value === "") return null;
@@ -389,6 +395,17 @@ function flushCoalesced(key) {
 }
 
 function publishBroadcastEvent(event = {}, options = {}) {
+  const transport = ensureBroadcastTransportSupported();
+  if (!transport.ok) {
+    counters.transportErrors += 1;
+    const now = Date.now();
+    if (now - lastTransportWarningAt > 30_000) {
+      lastTransportWarningAt = now;
+      console.warn(`[BroadcastCenter] ${transport.code}: ${transport.warning}`);
+    }
+    return null;
+  }
+
   const normalized = normalizeBroadcastEvent(event);
   if (!normalized) return null;
   const coalesceMs = Number(options.coalesceMs ?? DEFAULT_COALESCE_MS);
@@ -546,6 +563,7 @@ const broadcastCenter = {
 
   snapshot() {
     return {
+      transport: broadcastTransportSummary(),
       connections: connections.size,
       eventStoreSize: eventStore.length,
       pendingCoalesced: pendingCoalesced.size,
@@ -579,5 +597,6 @@ module.exports = {
     eventStore,
     connections,
     connectionSubscribedToEvent,
+    broadcastTransportSummary,
   },
 };

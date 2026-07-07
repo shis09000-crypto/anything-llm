@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Athena P0 module boundary map. These boundaries preserve the current monolith runtime while making future Web/API/Reader Worker splits auditable.",
+  "description": "Athena module boundary map. These boundaries preserve the current monolith runtime while making future Web/API/Reader Worker/Background Worker/Realtime Gateway splits auditable.",
   "modules": [
     {
       "id": "frontend-web",
@@ -30,7 +30,22 @@
         "frontend/src/components/WorkspaceChat/ChatContainer/DocumentReader/",
         "frontend/src/models/readerDocument.js",
         "frontend/src/models/readerLibrary.js",
+        "frontend/src/modules/reader/",
         "frontend/src/utils/chat/reader"
+      ],
+      "runtime": "browser",
+      "futureSplit": "web"
+    },
+    {
+      "id": "crypto-ui",
+      "owner": "Crypto UI",
+      "paths": [
+        "frontend/src/modules/crypto/",
+        "frontend/src/pages/Admin/CryptoCenter/",
+        "frontend/src/pages/GeneralSettings/Settings/CryptoComponentExperiment/",
+        "frontend/src/hooks/cryptoHub/",
+        "frontend/src/lib/communication/crypto/",
+        "frontend/src/utils/serverState/cryptoServerStateStore.js"
       ],
       "runtime": "browser",
       "futureSplit": "web"
@@ -62,6 +77,7 @@
       "paths": [
         "server/endpoints/workspaceReaderDocuments.js",
         "server/endpoints/readerLibrary.js",
+        "server/modules/reader/",
         "server/services/readerLibraryService.js",
         "server/models/readerDataAuthority.js",
         "server/providers/readerDocumentStorageProvider.js"
@@ -70,9 +86,54 @@
       "futureSplit": "reader-worker"
     },
     {
+      "id": "crypto-backend",
+      "owner": "Crypto API and runtime",
+      "paths": [
+        "server/endpoints/cryptoCenter.js",
+        "server/endpoints/cryptoHub.js",
+        "server/endpoints/cryptoGateProbe.js",
+        "server/modules/crypto/",
+        "server/utils/cryptoCenter/",
+        "server/utils/cryptoGate/",
+        "server/utils/cryptoHub/",
+        "server/repositories/cryptoRepository.js"
+      ],
+      "runtime": "node",
+      "futureSplit": "background-worker"
+    },
+    {
+      "id": "reader-worker",
+      "owner": "Reader Worker boundary",
+      "paths": [
+        "server/reader-worker.js",
+        "server/utils/readerWorker/",
+        "server/utils/readerDocumentRuntime/"
+      ],
+      "runtime": "node",
+      "futureSplit": "reader-worker"
+    },
+    {
+      "id": "background-worker",
+      "owner": "Background Worker boundary",
+      "paths": ["server/background-worker.js", "server/utils/backgroundWorker/"],
+      "runtime": "node",
+      "futureSplit": "background-worker"
+    },
+    {
       "id": "realtime",
       "owner": "Realtime Broadcast Center",
-      "paths": ["server/utils/broadcast/", "server/utils/syncCenter/"],
+      "paths": [
+        "server/endpoints/syncCenter.js",
+        "server/utils/broadcast/",
+        "server/utils/syncCenter/"
+      ],
+      "runtime": "node",
+      "futureSplit": "realtime-gateway"
+    },
+    {
+      "id": "realtime-gateway",
+      "owner": "Realtime Gateway runtime",
+      "paths": ["server/realtime-gateway.js", "server/utils/realtimeGateway/"],
       "runtime": "node",
       "futureSplit": "realtime-gateway"
     },
@@ -89,6 +150,13 @@
       "paths": ["collector/"],
       "runtime": "node",
       "futureSplit": "collector"
+    },
+    {
+      "id": "runtime-role",
+      "owner": "Runtime role selection",
+      "paths": ["server/utils/runtimeRole/"],
+      "runtime": "node",
+      "futureSplit": "api-worker-shared"
     }
   ],
   "rules": [
@@ -123,13 +191,35 @@
     {
       "id": "realtime-cannot-import-heavy-business-endpoints",
       "severity": "warn",
-      "from": ["server/utils/broadcast/", "server/utils/syncCenter/"],
+      "from": [
+        "server/realtime-gateway.js",
+        "server/endpoints/syncCenter.js",
+        "server/utils/broadcast/",
+        "server/utils/syncCenter/",
+        "server/utils/realtimeGateway/"
+      ],
       "deny": [
         "server/endpoints/workspaceReaderDocuments.js",
         "server/endpoints/chat.js",
         "server/endpoints/cryptoCenter.js"
       ],
       "reason": "Broadcast should stay a small event center; data loading belongs to API + cache refresh."
+    },
+    {
+      "id": "crypto-runtime-cannot-import-endpoints",
+      "severity": "error",
+      "from": [
+        "server/modules/crypto/",
+        "server/utils/cryptoCenter/",
+        "server/utils/cryptoGate/",
+        "server/utils/cryptoHub/"
+      ],
+      "deny": [
+        "server/endpoints/cryptoCenter.js",
+        "server/endpoints/cryptoHub.js",
+        "server/endpoints/cryptoGateProbe.js"
+      ],
+      "reason": "Crypto runtime must stay reusable by API and future workers without depending on HTTP endpoint adapters."
     }
   ]
 }

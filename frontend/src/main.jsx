@@ -79,7 +79,7 @@ const AdminLogs = React.lazy(() => import("@/pages/Admin/Logging"));
 const SystemPatrol = React.lazy(
   () => import("@/pages/GeneralSettings/SystemPatrol")
 );
-const CryptoCenter = React.lazy(() => import("@/pages/Admin/CryptoCenter"));
+const CryptoCenter = React.lazy(() => import("@/modules/crypto/CryptoCenter"));
 const ChatEmbedWidgets = React.lazy(
   () => import("@/pages/GeneralSettings/ChatEmbedWidgets")
 );

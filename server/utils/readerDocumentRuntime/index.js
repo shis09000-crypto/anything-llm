@@ -1,10 +1,18 @@
-const readerDocuments = require("../../endpoints/workspaceReaderDocuments");
+const { ReaderRuntime } = require("../../modules/reader");
 
-// P0 modularization adapter:
-// keep endpoint-private Reader runtime helpers behind one import boundary so
-// storage providers and future workers do not depend on API endpoint modules
-// directly. The implementation can later be replaced by worker/RPC contracts.
-const runtime = readerDocuments._private;
+// Reader runtime compatibility facade. Keep the flat API for current worker,
+// provider, and dev-control callers while the implementation lives behind the
+// server/modules/reader boundary.
+const runtime = {
+  ...ReaderRuntime.documents,
+  ...ReaderRuntime.access,
+  ...ReaderRuntime.preview,
+  ...ReaderRuntime.postprocess,
+  ...ReaderRuntime.media,
+  ...ReaderRuntime.classification,
+  ...ReaderRuntime.ocr,
+  ...ReaderRuntime.epub,
+};
 
 module.exports = {
   assertReaderDocumentId: runtime.assertReaderDocumentId,
@@ -13,4 +21,7 @@ module.exports = {
   readerDocumentIsDeleted: runtime.readerDocumentIsDeleted,
   readerDocumentRoot: runtime.readerDocumentRoot,
   readerPostprocessResponse: runtime.readerPostprocessResponse,
+  readerPreviewEngineStatus: runtime.readerPreviewEngineStatus,
+  runReaderPostprocessJob: runtime.runReaderPostprocessJob,
+  STANDALONE_READER_SCOPE: runtime.STANDALONE_READER_SCOPE,
 };

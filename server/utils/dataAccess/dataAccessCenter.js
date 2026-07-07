@@ -51,6 +51,8 @@ const repositoryLoaders = {
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
   quiz: () => require("../../repositories/quizRepository"),
   readerLibrary: () => require("../../repositories/readerLibraryRepository"),
+  readerWorkerJob: () =>
+    require("../../repositories/readerWorkerJobRepository"),
   requestSigning: () => require("../../repositories/requestSigningRepository"),
   scheduledJob: () => require("../../repositories/scheduledJobRepository"),
   sensitiveData: () => require("../../repositories/sensitiveDataRepository"),
@@ -111,6 +113,7 @@ const repositoryExports = {
   nodeSupplement: "NodeSupplementRepository",
   quiz: "QuizRepository",
   readerLibrary: "ReaderLibraryRepository",
+  readerWorkerJob: "ReaderWorkerJobRepository",
   requestSigning: "RequestSigningRepository",
   scheduledJob: "ScheduledJobRepository",
   sensitiveData: "SensitiveDataRepository",
@@ -730,6 +733,21 @@ function sensitiveDataScopeFromArgs(method, args = []) {
   };
 }
 
+function readerWorkerJobScopeFromArgs(method, args = []) {
+  const options = args[0] || {};
+  if (method === "complete" || method === "fail") return { jobId: args[0] };
+  if (method === "cancel") return clauseScope(options);
+  return {
+    jobId: options.jobId,
+    task: options.task,
+    status: options.status,
+    workspaceSlug: options.workspaceSlug,
+    readerDocumentId: options.readerDocumentId,
+    userId: options.userId,
+    workerId: options.workerId,
+  };
+}
+
 function makeRepositoryMethod({
   domain,
   method,
@@ -879,6 +897,22 @@ const readerLibrary = {
     });
   },
 };
+
+const readerWorkerJob = makeRepositoryFacade(
+  "readerWorkerJob",
+  {
+    enabled: "read",
+    enqueue: "write",
+    get: "read",
+    where: "read",
+    claimNext: "write",
+    complete: "write",
+    fail: "write",
+    cancel: "write",
+    snapshot: "read",
+  },
+  readerWorkerJobScopeFromArgs
+);
 
 const workspace = makeRepositoryFacade(
   "workspace",
@@ -1711,6 +1745,7 @@ const DataAccessCenter = {
   nodeSupplement,
   quiz,
   readerLibrary,
+  readerWorkerJob,
   requestSigning,
   scheduledJob,
   sensitiveData,

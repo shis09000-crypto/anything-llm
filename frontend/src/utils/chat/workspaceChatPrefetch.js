@@ -51,7 +51,7 @@ const SETTINGS_ROUTE_PREFETCHERS = {
   "/settings/embed-chat-widgets": () =>
     import("@/pages/GeneralSettings/ChatEmbedWidgets"),
   "/settings/event-logs": () => import("@/pages/Admin/Logging"),
-  "/settings/crypto-center": () => import("@/pages/Admin/CryptoCenter"),
+  "/settings/crypto-center": () => import("@/modules/crypto/CryptoCenter"),
   "/settings/scheduled-jobs": () =>
     import("@/pages/GeneralSettings/ScheduledJobs"),
   "/settings/api-keys": () => import("@/pages/GeneralSettings/ApiKeys"),

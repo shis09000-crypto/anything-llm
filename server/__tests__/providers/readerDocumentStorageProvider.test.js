@@ -32,8 +32,19 @@ const mockReader = {
   readerDocumentIsDeleted: jest.fn(() => false),
 };
 
-jest.mock("../../endpoints/workspaceReaderDocuments", () => ({
-  _private: mockReader,
+jest.mock("../../modules/reader", () => ({
+  ReaderRuntime: {
+    documents: mockReader,
+    access: {},
+    preview: {},
+    postprocess: {
+      readerPostprocessResponse: mockReader.readerPostprocessResponse,
+    },
+    media: {},
+    classification: {},
+    ocr: {},
+    epub: {},
+  },
 }));
 
 const {

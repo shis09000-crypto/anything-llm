@@ -32,12 +32,12 @@ import SuggestedMessages from "@/components/lib/SuggestedMessages";
 import WorkspaceModelPicker from "./WorkspaceModelPicker";
 import { SourcesSidebarProvider } from "./SourcesSidebar/context";
 import TopRightActionZone from "./TopRightActionZone";
-import { DocumentReaderProvider } from "./DocumentReader/Provider";
+import { DocumentReaderProvider } from "@/modules/reader/DocumentReaderProvider";
 import {
   promptWithTempTextSources,
   READER_EVENT_CONSUME_TEXT_SOURCES,
   READER_EVENT_OPEN_DRAWER,
-} from "./DocumentReader/storage";
+} from "@/modules/reader/storage";
 import {
   draftNeedsServerHistoryRefresh,
   useChatDraft,
@@ -85,7 +85,9 @@ const MEMORY_COMPACTION_ERROR_MS = 4_500;
 const DUAL_THREAD_RESUME_PROMPT =
   "检测到上一次双线程分支。\n点击“确定”继续上一次线程，点击“取消”开启全新线程。";
 
-const DocumentReaderPanel = lazy(() => import("./DocumentReader/Panel"));
+const DocumentReaderPanel = lazy(
+  () => import("@/modules/reader/DocumentReaderPanel")
+);
 const MindMapPanel = lazy(() => import("./MindMapPanel"));
 const SourcesSidebar = lazy(() => import("./SourcesSidebar"));
 const WorkspaceOverview = lazy(() => import("./WorkspaceOverview"));

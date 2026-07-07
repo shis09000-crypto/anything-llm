@@ -30,8 +30,8 @@ import HistoricalClarifyingQuestions from "./HistoricalClarifyingQuestions";
 import { openImageLightbox } from "@/components/ImageLightbox";
 import ReaderTextSourceCards, {
   readerSourcesForTurn,
-} from "../../DocumentReader/ReaderTextSourceCards";
-import { useDocumentReader } from "../../DocumentReader/Provider";
+} from "@/modules/reader/ReaderTextSourceCards";
+import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { GlassCard } from "@developer-hub/liquid-glass";
 

@@ -1,0 +1,153 @@
+name: anythingllm-modular
+
+networks:
+  anything-llm:
+    driver: bridge
+
+services:
+  anything-llm-api:
+    container_name: anythingllm-api
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: api-production-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    depends_on:
+      - anything-llm-collector
+    cap_add:
+      - SYS_ADMIN
+    volumes:
+      - "./.env:/app/server/.env"
+      - "../server/storage:/app/server/storage"
+      - "../collector/hotdir/:/app/collector/hotdir"
+      - "../collector/outputs/:/app/collector/outputs"
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "3001:3001"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: api
+      ATHENA_API_ONLY: "true"
+      ATHENA_COLLECTOR_INLINE: "false"
+      ATHENA_BACKGROUND_INLINE: "false"
+      COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
+    networks:
+      - anything-llm
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  anything-llm-web:
+    container_name: anythingllm-web
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: web-production-build
+    depends_on:
+      - anything-llm-api
+    ports:
+      - "3000:3000"
+    environment:
+      ATHENA_WEB_PORT: 3000
+      ATHENA_API_UPSTREAM: http://anything-llm-api:3001
+      ATHENA_REALTIME_UPSTREAM: ${ATHENA_REALTIME_UPSTREAM:-http://anything-llm-api:3001}
+    networks:
+      - anything-llm
+
+  anything-llm-realtime-gateway:
+    container_name: anythingllm-realtime-gateway
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: realtime-gateway-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - realtime-gateway
+    volumes:
+      - "./.env:/app/server/.env"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: realtime-gateway
+      REALTIME_GATEWAY_PORT: 3013
+      ATHENA_BROADCAST_TRANSPORT: ${ATHENA_BROADCAST_TRANSPORT:-memory}
+    networks:
+      - anything-llm
+
+  anything-llm-reader-worker:
+    container_name: anythingllm-reader-worker
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: reader-worker-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    profiles:
+      - reader-worker
+    volumes:
+      - "./.env:/app/server/.env"
+      - "../server/storage:/app/server/storage"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: reader-worker
+      READER_WORKER_PORT: 3011
+    networks:
+      - anything-llm
+
+  anything-llm-background-worker:
+    container_name: anythingllm-background-worker
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: background-worker-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    depends_on:
+      - anything-llm-collector
+    volumes:
+      - "./.env:/app/server/.env"
+      - "../server/storage:/app/server/storage"
+      - "../collector/hotdir/:/app/collector/hotdir"
+      - "../collector/outputs/:/app/collector/outputs"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: background-worker
+      ATHENA_BACKGROUND_INLINE: "false"
+      COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
+      BACKGROUND_WORKER_PORT: 3012
+    networks:
+      - anything-llm
+
+  anything-llm-collector:
+    container_name: anythingllm-collector
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: collector-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    volumes:
+      - "./.env:/app/server/.env"
+      - "../collector/hotdir/:/app/collector/hotdir"
+      - "../collector/outputs/:/app/collector/outputs"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: collector
+      COLLECTOR_PORT: 8888
+    networks:
+      - anything-llm

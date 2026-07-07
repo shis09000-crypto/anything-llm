@@ -10,8 +10,21 @@ const markOnboarded = require("./markOnboarded");
 const { PushNotifications } = require("../PushNotifications");
 const { TelegramBotService } = require("../telegramBot");
 const { cleanupOpenClawWeixinLoginChild } = require("../openclawWeixin");
+const { backgroundInlineEnabled } = require("../runtimeRole");
 
 let shutdownHooksRegistered = false;
+
+function bootBackgroundService() {
+  if (!backgroundInlineEnabled()) {
+    console.log(
+      "\x1b[36m[BackgroundWorkerService]\x1b[0m Inline background workers disabled for this runtime role."
+    );
+    return null;
+  }
+  const service = new BackgroundService();
+  service.boot();
+  return service;
+}
 
 // TLS 1.3 cipher suites are selected by Node/OpenSSL automatically. The
 // explicit cipher list below constrains TLS 1.2 to modern AEAD suites.
@@ -65,7 +78,7 @@ function bootSSL(app, port = 3001) {
         await setupTelemetry();
         new CommunicationKey(true);
         new EncryptionManager();
-        new BackgroundService().boot();
+        bootBackgroundService();
         await eagerLoadContextWindows();
         await PushNotifications.setupPushNotificationService();
         await TelegramBotService.bootIfActive();
@@ -112,7 +125,7 @@ function bootHTTP(app, port = 3001) {
       await setupTelemetry();
       new CommunicationKey(true);
       new EncryptionManager();
-      new BackgroundService().boot();
+      bootBackgroundService();
       await eagerLoadContextWindows();
       await PushNotifications.setupPushNotificationService();
       await TelegramBotService.bootIfActive();
@@ -149,6 +162,7 @@ function catchSigTerms() {
 }
 
 module.exports = {
+  bootBackgroundService,
   bootHTTP,
   bootSSL,
   httpsServerOptions,

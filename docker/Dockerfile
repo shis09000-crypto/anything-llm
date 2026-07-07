@@ -185,3 +185,75 @@ HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
 # Run the server
 # CMD ["sh", "-c", "tail -f /dev/null"] # For development: keep container open
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS api-production-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=api
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
+  CMD /bin/bash /usr/local/bin/docker-healthcheck.sh || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS background-worker-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=background-worker
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV BACKGROUND_WORKER_PORT=3012
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
+  CMD curl --silent --fail "http://localhost:${BACKGROUND_WORKER_PORT}/health" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS realtime-gateway-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=realtime-gateway
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV ATHENA_BACKGROUND_INLINE=false
+ENV REALTIME_GATEWAY_PORT=3013
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
+  CMD curl --silent --fail "http://localhost:${REALTIME_GATEWAY_PORT}/health" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS reader-worker-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=reader-worker
+ENV ATHENA_API_ONLY=true
+ENV ATHENA_COLLECTOR_INLINE=false
+ENV READER_WORKER_PORT=3011
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
+  CMD curl --silent --fail "http://localhost:${READER_WORKER_PORT}/health" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM backend-build AS collector-build
+WORKDIR /app
+ENV NODE_ENV=production
+ENV ANYTHING_LLM_RUNTIME=docker
+ENV ATHENA_RUNTIME_ROLE=collector
+ENV COLLECTOR_PORT=8888
+ENV DEPLOYMENT_VERSION=2.1.1
+HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
+  CMD curl --silent --fail "http://localhost:${COLLECTOR_PORT}/accepts" || exit 1
+ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
+
+FROM nginx:1.27-alpine AS web-production-build
+ENV ATHENA_WEB_PORT=3000
+ENV ATHENA_API_UPSTREAM=http://anything-llm-api:3001
+ENV ATHENA_REALTIME_UPSTREAM=http://anything-llm-api:3001
+COPY ./docker/nginx-web.conf.template /etc/nginx/templates/default.conf.template
+COPY --from=frontend-build /app/frontend/dist /usr/share/nginx/html

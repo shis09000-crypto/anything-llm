@@ -74,7 +74,17 @@ function loadEndpoint(storageDir, helpersMock = null) {
         getLLMProvider: jest.fn(),
       }
   );
-  return require("../../endpoints/workspaceReaderDocuments")._private;
+  const { ReaderRuntime } = require("../../modules/reader/runtime");
+  return {
+    ...ReaderRuntime.documents,
+    ...ReaderRuntime.access,
+    ...ReaderRuntime.preview,
+    ...ReaderRuntime.postprocess,
+    ...ReaderRuntime.media,
+    ...ReaderRuntime.classification,
+    ...ReaderRuntime.ocr,
+    ...ReaderRuntime.epub,
+  };
 }
 
 const TEST_READER_DOCUMENT_ID = "2f3291ca-5c2b-4a89-90fd-e8ff4de55b4a";

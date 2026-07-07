@@ -1,4 +1,5 @@
 const READER_WORKER_TASKS = Object.freeze({
+  POSTPROCESS: "postprocess",
   PREVIEW: "preview",
   THUMBNAIL: "thumbnail",
   CLASSIFICATION: "classification",

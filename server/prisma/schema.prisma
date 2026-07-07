@@ -823,6 +823,37 @@ model reader_library_categories {
   @@index([userId, deletedAt])
 }
 
+model reader_worker_jobs {
+  id               Int       @id @default(autoincrement())
+  jobId            String    @unique
+  queue            String    @default("reader")
+  task             String
+  status           String    @default("queued")
+  priority         String    @default("P4")
+  intent           String    @default("maintenance")
+  userId           Int?
+  workspaceSlug    String?
+  readerDocumentId String
+  payloadJson      String    @default("{}")
+  resultJson       String?
+  error            String?
+  attempts         Int       @default(0)
+  maxAttempts      Int       @default(3)
+  lockedBy         String?
+  lockedAt         DateTime?
+  runAfter         DateTime  @default(now())
+  startedAt        DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+
+  @@index([status, runAfter])
+  @@index([readerDocumentId])
+  @@index([workspaceSlug])
+  @@index([priority])
+  @@index([lockedAt])
+}
+
 model ZkLoginAttempt {
   id               String    @id
   userId           Int

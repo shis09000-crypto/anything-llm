@@ -18,7 +18,7 @@ import MarkdownOutput from "./MarkdownOutput";
 import ThoughtTimeline from "./ThoughtTimeline";
 import ToolEvent from "./ToolEvent";
 import { debugChatTurn } from "@/utils/chat/debug";
-import DocumentSourceChips from "../../DocumentReader/DocumentSourceChips";
+import DocumentSourceChips from "@/modules/reader/DocumentSourceChips";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 
 function AssistantTurn({
