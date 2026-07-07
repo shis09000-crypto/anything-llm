@@ -9,9 +9,7 @@ const authPrisma = require("../utils/authPrisma");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const { SystemSettings } = require("../models/systemSettings");
-const { User } = require("../models/user");
-const { AuthIdentity } = require("../models/authIdentity");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const {
@@ -19,6 +17,9 @@ const {
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const { getClientContext } = require("../utils/clientIdentity");
+const SystemSettings = DataAccessCenter.adminSystem;
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const User = DataAccessCenter.authIdentity.shadowUser;
 
 const RP_NAME = process.env.PASSKEY_RP_NAME || "Athena";
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;

@@ -1,17 +1,8 @@
-const {
-  ExternalCommunicationConnector,
-} = require("../models/externalCommunicationConnector");
 const crypto = require("crypto");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody } = require("../utils/http");
-const {
-  WorkspaceRepository: Workspace,
-} = require("../repositories/workspaceRepository");
-const {
-  WorkspaceThreadRepository: WorkspaceThread,
-} = require("../repositories/workspaceThreadRepository");
-const { WeChatGatewayThread } = require("../models/wechatGatewayThread");
 const { ApiChatHandler } = require("../utils/chats/apiChatHandler");
 const { decryptSecret } = require("./advancedGateway");
 const {
@@ -29,6 +20,11 @@ const MAX_TEXT_CONTENT_LENGTH = 8_000;
 const SIGNATURE_WINDOW_MS = 5 * 60 * 1_000;
 const VALID_STATUSES = ["disconnected", "pending_scan", "connected", "expired"];
 const VALID_QR_STATUSES = ["placeholder", "pending", "pending_scan", "expired"];
+
+const ExternalCommunicationConnector = DataAccessCenter.externalCommunication;
+const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
 
 const DEFAULT_PROFILE = {
   nickname: null,

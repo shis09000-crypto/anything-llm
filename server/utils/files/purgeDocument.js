@@ -1,12 +1,13 @@
-const fs = require("fs");
 const path = require("path");
 const {
   purgeVectorCache,
   purgeSourceDocument,
   normalizePath,
-  isWithin,
   documentsPath,
 } = require(".");
+const {
+  FileStorageProvider,
+} = require("../../providers/storage/fileStorageProvider");
 const { DataAccessCenter } = require("../dataAccess");
 
 async function purgeDocument(filename = null) {
@@ -43,31 +44,33 @@ async function purgeWorkspaceDocument(workspace = null, filename = null) {
 async function purgeFolder(folderName = null) {
   if (!folderName) return;
   const subFolder = normalizePath(folderName);
-  const subFolderPath = path.resolve(documentsPath, subFolder);
-  const validRemovableSubFolders = fs
-    .readdirSync(documentsPath)
+  const subFolderPath = FileStorageProvider.resolvePath(subFolder, {
+    base: documentsPath,
+  });
+  const validRemovableSubFolders = FileStorageProvider.readDirPath(
+    documentsPath
+  )
     .map((folder) => {
       // Filter out any results which are not folders or
       // are the protected custom-documents folder.
       if (folder === "custom-documents") return null;
-      const subfolderPath = path.resolve(documentsPath, folder);
-      if (!fs.lstatSync(subfolderPath).isDirectory()) return null;
+      const subfolderPath = FileStorageProvider.resolvePath(folder, {
+        base: documentsPath,
+      });
+      if (!FileStorageProvider.isDirectoryPath(subfolderPath)) return null;
       return folder;
     })
     .filter((subFolder) => !!subFolder);
 
   if (
     !validRemovableSubFolders.includes(subFolder) ||
-    !fs.existsSync(subFolderPath) ||
-    !isWithin(documentsPath, subFolderPath)
+    !FileStorageProvider.isDirectoryPath(subFolderPath)
   )
     return;
 
-  const filenames = fs
-    .readdirSync(subFolderPath)
-    .map((file) =>
-      path.join(subFolderPath, file).replace(documentsPath + "/", "")
-    );
+  const filenames = FileStorageProvider.readDirPath(subFolderPath).map((file) =>
+    path.join(subFolder, file)
+  );
   const workspaces = await DataAccessCenter.workspace.where();
 
   const purgePromises = [];
@@ -92,7 +95,7 @@ async function purgeFolder(folderName = null) {
   }
 
   await Promise.all(purgePromises.flat().map((f) => f()));
-  fs.rmSync(subFolderPath, { recursive: true }); // Delete target document-folder and source files.
+  FileStorageProvider.deletePath(subFolderPath, { recursive: true }); // Delete target document-folder and source files.
 
   return;
 }

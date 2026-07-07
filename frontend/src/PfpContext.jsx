@@ -31,6 +31,36 @@ export function PfpProvider({ children }) {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!user?.id) return;
+    let active = true;
+
+    async function refreshPfp(event) {
+      const detail = event?.detail || {};
+      const changedFields = Array.isArray(detail.changedFields)
+        ? detail.changedFields
+        : [];
+      if (!changedFields.includes("pfpFilename")) return;
+      if (detail.userId && String(detail.userId) !== String(user.id)) return;
+
+      try {
+        const pfpUrl = await System.fetchPfp(user.id);
+        if (!active) return;
+        setPfp(pfpUrl);
+      } catch (err) {
+        if (!active) return;
+        setPfp(null);
+        console.error("Failed to refresh pfp:", err);
+      }
+    }
+
+    window.addEventListener("athena-user-profile-refresh", refreshPfp);
+    return () => {
+      active = false;
+      window.removeEventListener("athena-user-profile-refresh", refreshPfp);
+    };
+  }, [user?.id]);
+
   return (
     <PfpContext.Provider value={{ pfp, setPfp }}>
       {children}

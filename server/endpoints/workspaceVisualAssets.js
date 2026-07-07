@@ -8,11 +8,13 @@ const {
 } = require("../utils/middleware/multiUserProtected");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { userFromSession } = require("../utils/http");
-const { WorkspaceVisualAsset } = require("../models/workspaceVisualAsset");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { isStableNodeKey } = require("../utils/knowledgeGraph/nodeIdentity");
 const {
   invalidateWorkspaceOverviewCache,
 } = require("../utils/workspaceOverview");
+
+const WorkspaceVisualAsset = DataAccessCenter.workspaceVisualAsset;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -154,11 +156,7 @@ function workspaceVisualAssetEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/visual-assets/:id",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

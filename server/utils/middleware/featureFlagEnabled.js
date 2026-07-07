@@ -1,4 +1,6 @@
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 // Explicitly check that a specific feature flag is enabled.
 // This should match the key in the SystemSetting label.

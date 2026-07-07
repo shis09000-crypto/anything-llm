@@ -1,15 +1,13 @@
-const fs = require("fs");
 const path = require("path");
-const readerModule = require("../endpoints/workspaceReaderDocuments");
+const { FileStorageProvider } = require("./storage/fileStorageProvider");
 const { sanitizeValue } = require("../utils/dataAccess/dataAccessPolicy");
-
-const reader = readerModule._private;
+const reader = require("../utils/readerDocumentRuntime");
 
 function nonEmptyFile(filePath = null) {
   if (!filePath) return false;
   try {
-    const stat = fs.statSync(filePath);
-    return stat.isFile() && stat.size > 0;
+    const stat = FileStorageProvider.statPath(filePath);
+    return stat?.isFile === true && stat.size > 0;
   } catch {
     return false;
   }

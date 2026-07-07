@@ -4,14 +4,11 @@ const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
 } = require("@simplewebauthn/server");
-const prisma = require("../utils/prisma");
 const authPrisma = require("../utils/authPrisma");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const { SystemSettings } = require("../models/systemSettings");
-const { User } = require("../models/user");
-const { AuthIdentity } = require("../models/authIdentity");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const {
@@ -26,6 +23,10 @@ const {
   validateReauthToken,
   consumeReauthToken,
 } = require("../utils/authz/reauthTokens");
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const AuthIdentityDb = DataAccessCenter.authIdentity.localDb;
+const SystemSettings = DataAccessCenter.adminSystem;
+const User = DataAccessCenter.authIdentity.shadowUser;
 
 const OPAQUE_ATTEMPT_TTL_MS = 5 * 60 * 1000;
 const LOCK_FAILURE_LIMIT = 5;
@@ -830,7 +831,7 @@ async function opaqueServerSetup() {
   if (process.env.OPAQUE_SERVER_SETUP) return process.env.OPAQUE_SERVER_SETUP;
   if (cachedOpaqueServerSetup) return cachedOpaqueServerSetup;
 
-  const storedSetup = await prisma.system_settings.findFirst({
+  const storedSetup = await AuthIdentityDb.systemSettings.findFirst({
     where: { label: OPAQUE_SERVER_SETUP_SETTING },
   });
   if (storedSetup?.value) {
@@ -844,7 +845,7 @@ async function opaqueServerSetup() {
 
   const opaque = await opaqueApi();
   cachedOpaqueServerSetup = opaque.server.createSetup();
-  await prisma.system_settings.upsert({
+  await AuthIdentityDb.systemSettings.upsert({
     where: { label: OPAQUE_SERVER_SETUP_SETTING },
     update: { value: saveSecret(cachedOpaqueServerSetup) },
     create: {
@@ -1043,7 +1044,7 @@ async function findTrustedLoginDeviceForLogin({
   const primary = await trustedLoginDeviceByUserId(requestedUserId, deviceId);
   if (primary) return primary;
 
-  const shadow = await prisma.users.findUnique({
+  const shadow = await AuthIdentityDb.users.findUnique({
     where: { id: requestedUserId },
     select: { authUserId: true },
   });

@@ -111,6 +111,32 @@ function writeMarkdownReaderDocument(api, workspace, overrides = {}) {
   return { readerDocumentId, documentRoot };
 }
 
+function readerContentRequest(headers = {}) {
+  const normalized = Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
+  );
+  return {
+    headers: normalized,
+    path: "/api/reader-documents/test/original",
+    route: { path: "/api/reader-documents/:readerDocumentId/original" },
+    clientContext: {
+      clientId: normalized["x-athena-client-id"] || "client-a",
+      requestId: "request-a",
+    },
+    header(name) {
+      return this.headers[String(name).toLowerCase()];
+    },
+  };
+}
+
+function readerContentResponse(userId = 7) {
+  return {
+    locals: {
+      user: { id: userId },
+    },
+  };
+}
+
 describe("workspace reader documents", () => {
   const originalEnv = { ...process.env };
   let storageDir;
@@ -507,6 +533,78 @@ describe("workspace reader documents", () => {
       "Content-Type": "application/pdf",
       ETag: '"reader-abc123"',
       "X-Reader-Stream": "range",
+    });
+  });
+
+  it("requires sensitive session or dev-control grant for reader content", () => {
+    const api = loadEndpoint(storageDir);
+    const workspace = api.STANDALONE_READER_SCOPE;
+    const readerDocumentId = TEST_READER_DOCUMENT_ID;
+    const response = readerContentResponse(7);
+
+    expect(
+      api.validateReaderContentAccess({
+        request: readerContentRequest({
+          "x-athena-client-id": "client-a",
+        }),
+        response,
+        workspace,
+        readerDocumentId,
+        endpoint: "original",
+      })
+    ).toMatchObject({
+      ok: false,
+      error: "sensitive_session_required",
+    });
+
+    const sessionRequest = readerContentRequest({
+      "x-athena-client-id": "client-a",
+    });
+    const session = api.readerSensitiveSessionForResponse(
+      sessionRequest,
+      response,
+      workspace,
+      readerDocumentId
+    );
+    const sessionAccess = api.validateReaderContentAccess({
+      request: readerContentRequest({
+        "x-athena-client-id": "client-a",
+        "x-athena-sensitive-session": session.token,
+      }),
+      response,
+      workspace,
+      readerDocumentId,
+      endpoint: "original",
+    });
+    expect(sessionAccess).toMatchObject({
+      ok: true,
+      via: "sensitive-session",
+    });
+
+    const {
+      issueReaderDebugAccessGrant,
+      READER_DEBUG_ACCESS_HEADER,
+    } = require("../../utils/devControl/readerDebugAccess");
+    const grant = issueReaderDebugAccessGrant({
+      userId: 7,
+      clientId: "client-a",
+      workspaceSlug: null,
+      readerDocumentId,
+      endpoints: ["original"],
+    });
+    const grantAccess = api.validateReaderContentAccess({
+      request: readerContentRequest({
+        "x-athena-client-id": "client-a",
+        [READER_DEBUG_ACCESS_HEADER]: grant.debugGrantId,
+      }),
+      response,
+      workspace,
+      readerDocumentId,
+      endpoint: "original",
+    });
+    expect(grantAccess).toMatchObject({
+      ok: true,
+      via: "dev-control-debug-grant",
     });
   });
 

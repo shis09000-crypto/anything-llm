@@ -6,7 +6,7 @@ const {
 } = require("../utils/middleware/multiUserProtected");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { handleFileUpload } = require("../utils/files/multer");
-const { NodeSupplement } = require("../models/nodeSupplement");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const {
   ingestUploadedSupplementFile,
   ingestTextSupplement,
@@ -18,6 +18,7 @@ const {
 const {
   invalidateWorkspaceOverviewCache,
 } = require("../utils/workspaceOverview");
+const NodeSupplement = DataAccessCenter.nodeSupplement.model;
 
 function nodeMetadata(body = {}) {
   return {
@@ -80,11 +81,7 @@ function nodeSupplementEndpoints(app) {
 
   app.post(
     "/workspace/:slug/node-supplements",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -177,11 +174,7 @@ function nodeSupplementEndpoints(app) {
 
   app.post(
     "/workspace/:slug/node-supplements/text",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -240,11 +233,7 @@ function nodeSupplementEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/node-supplements/:id",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

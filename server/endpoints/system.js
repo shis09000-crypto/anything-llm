@@ -32,15 +32,23 @@ const { v4 } = require("uuid");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const SystemSettings = DataAccessCenter.adminSystem;
 const AgentSkillWhitelist = DataAccessCenter.agentSkillWhitelist;
+const ApiKey = DataAccessCenter.adminSystem.apiKey;
+const AuthIdentity = DataAccessCenter.adminSystem.authIdentity;
+const BrowserExtensionApiKey =
+  DataAccessCenter.adminSystem.browserExtensionApiKey;
+const EmailVerificationCode =
+  DataAccessCenter.adminSystem.emailVerificationCode;
+const EmailVerificationRateLimit =
+  DataAccessCenter.adminSystem.emailVerificationRateLimit;
 const SlashCommandPresets = DataAccessCenter.slashCommandPreset;
 const SystemPromptVariables = DataAccessCenter.systemPromptVariable;
+const TemporaryAuthToken = DataAccessCenter.adminSystem.temporaryAuthToken;
+const User = DataAccessCenter.adminSystem.user;
 const UserMemory = DataAccessCenter.userMemory;
 const MEMORY_OWNER_REQUIRED_ERROR = UserMemory.ownerRequiredError;
 const MEMORY_SCHEMA_INIT_ERROR = UserMemory.schemaInitError;
 const isMemorySchemaMissingError = (error) =>
   UserMemory.isMemorySchemaMissingError(error);
-const { User } = require("../models/user");
-const { AuthIdentity } = require("../models/authIdentity");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { getClientContext } = require("../utils/clientIdentity");
 const {
@@ -62,7 +70,6 @@ const {
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
-const { ApiKey } = require("../models/apiKeys");
 const { getCustomModels } = require("../utils/helpers/customModels");
 const {
   WorkspaceChatRepository: WorkspaceChats,
@@ -98,10 +105,6 @@ const {
   resetPassword,
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
-const {
-  EmailVerificationCode,
-  EmailVerificationRateLimit,
-} = require("../models/emailVerification");
 
 const SETTINGS_BOOTSTRAP_MATCHERS = {
   llm: [
@@ -183,6 +186,31 @@ const SETTINGS_BOOTSTRAP_MATCHERS = {
   transcription: ["whisper", "openai"],
 };
 
+function publishUserProfileUpdatedEvent({
+  request,
+  user,
+  changedFields = [],
+  reason = "profile-updated",
+} = {}) {
+  if (!user?.id || !Array.isArray(changedFields) || !changedFields.length)
+    return null;
+  const context = getClientContext(request, { user });
+  return publishBroadcastEvent({
+    namespace: "user",
+    type: "profile.updated",
+    eventPriority: "normal",
+    visibility: "user",
+    scope: { userId: Number(user.id) },
+    sourceClientId: context?.clientId || null,
+    resource: { kind: "user-profile", id: Number(user.id) },
+    payload: {
+      changedFields,
+      reason,
+    },
+    coalesceKey: `user.profile.updated:${user.id}`,
+  });
+}
+
 function filterSettingsBySections(settings = {}, sections = []) {
   const normalized = sections.map((section) => String(section).toLowerCase());
   if (
@@ -214,7 +242,6 @@ const {
   sendVerificationCode,
 } = require("../utils/email/mailer");
 const { EncryptionManager } = require("../utils/EncryptionManager");
-const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const { AccountDeletionService } = require("../utils/accountDeletion");
 const {
   issueReauthToken,
@@ -239,7 +266,6 @@ const {
   validateUserStateInput,
   validateUserStateScope,
 } = require("../utils/userStatePreferencePolicy");
-const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
 const { VALID_COMMANDS } = require("../utils/chats");
 const { runtimeSummary } = require("../utils/desktopRuntime");
 const { submitFeedback } = require("../utils/feedback");
@@ -2193,6 +2219,14 @@ function systemEndpoints(app) {
         const { success, error } = await User.update(user.id, {
           pfpFilename: uploadedFileName,
         });
+        if (success) {
+          publishUserProfileUpdatedEvent({
+            request,
+            user,
+            changedFields: ["pfpFilename"],
+            reason: "avatar-uploaded",
+          });
+        }
 
         return response.status(success ? 200 : 500).json({
           message: success
@@ -2312,6 +2346,14 @@ function systemEndpoints(app) {
         const { success, error } = await User.update(user.id, {
           pfpFilename: null,
         });
+        if (success) {
+          publishUserProfileUpdatedEvent({
+            request,
+            user,
+            changedFields: ["pfpFilename"],
+            reason: "avatar-removed",
+          });
+        }
 
         return response.status(success ? 200 : 500).json({
           message: success
@@ -3075,6 +3117,8 @@ function systemEndpoints(app) {
       const updates = {};
       if (Object.prototype.hasOwnProperty.call(body, "displayName"))
         updates.displayName = User.validations.displayName(displayName);
+      if (Object.prototype.hasOwnProperty.call(body, "username"))
+        updates.username = body.username;
       if (password) {
         if (!currentPassword) {
           response.status(400).json({
@@ -3110,6 +3154,17 @@ function systemEndpoints(app) {
       }
 
       const { success, error } = await User.update(id, updates);
+      if (success) {
+        const changedFields = Object.keys(updates).filter(
+          (field) => field !== "password"
+        );
+        publishUserProfileUpdatedEvent({
+          request,
+          user: sessionUser,
+          changedFields,
+          reason: "profile-updated",
+        });
+      }
       response.status(200).json({ success, error });
     } catch (e) {
       console.error(e);

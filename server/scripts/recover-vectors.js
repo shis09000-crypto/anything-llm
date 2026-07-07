@@ -22,7 +22,9 @@ const BATCH_DIR = storagePath("embedding-batches");
 
 // ── Load batch jobs from SQLite via Prisma ─────────────────────────────────
 async function getBatchJobs() {
-  const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
+  const { DataAccessCenter } = require("../utils/dataAccess");
+  const EmbeddingBatchJob =
+    DataAccessCenter.documentEmbeddingBatch.embeddingBatchJob;
   return await EmbeddingBatchJob.where({ status: "completed" });
 }
 
@@ -71,8 +73,9 @@ async function recover() {
   const vectorDb = new LanceDb();
   const { client } = await vectorDb.connect();
 
-  // Load prisma for SQLite writes
-  const prisma = require("../utils/prisma");
+  const { DataAccessCenter } = require("../utils/dataAccess");
+  const Document = DataAccessCenter.document;
+  const DocumentVector = DataAccessCenter.documentVector;
 
   let totalVectorsInserted = 0;
   let totalDocVectorsCreated = 0;
@@ -118,25 +121,21 @@ async function recover() {
 
     // Ensure workspace_documents exist for each document
     for (const docId of job.documentIds) {
-      const existing = await prisma.workspace_documents.findFirst({
-        where: { docId },
-      });
+      const existing = await Document.get({ docId });
       if (!existing) {
         const meta = docMetaByDocId[docId] || {};
         const docPath =
           meta.docpath ||
           job.documentPaths[0] ||
           "custom-documents/unknown.json";
-        await prisma.workspace_documents.create({
-          data: {
-            docId,
-            filename: meta.title || docId,
-            docpath: docPath,
-            workspaceId: job.workspaceId,
-            metadata: JSON.stringify(meta),
-            embeddingStatus: "completed",
-            embeddingBatchJobId: job.jobId,
-          },
+        await Document.create({
+          docId,
+          filename: meta.title || docId,
+          docpath: docPath,
+          workspaceId: job.workspaceId,
+          metadata: JSON.stringify(meta),
+          embeddingStatus: "completed",
+          embeddingBatchJobId: job.jobId,
         });
         totalWorkspaceDocsCreated++;
         console.log(`  ✓ Created workspace_document for ${docId}`);
@@ -217,16 +216,12 @@ async function recover() {
 
     // Create document_vectors records (skip duplicates)
     for (const record of docVectorRecords) {
-      const existing = await prisma.document_vectors.findFirst({
-        where: { vectorId: record.vectorId },
-      });
+      const [existing] = await DocumentVector.where(
+        { vectorId: record.vectorId },
+        1
+      );
       if (!existing) {
-        await prisma.document_vectors.create({
-          data: {
-            docId: record.docId,
-            vectorId: record.vectorId,
-          },
-        });
+        await DocumentVector.bulkInsert([record]);
         totalDocVectorsCreated++;
       }
     }

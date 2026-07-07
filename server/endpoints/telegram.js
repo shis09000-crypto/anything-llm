@@ -1,6 +1,4 @@
-const {
-  ExternalCommunicationConnector,
-} = require("../models/externalCommunicationConnector");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
@@ -11,13 +9,11 @@ const { reqBody } = require("../utils/http");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const {
-  WorkspaceRepository: Workspace,
-} = require("../repositories/workspaceRepository");
-const {
-  WorkspaceThreadRepository: WorkspaceThread,
-} = require("../repositories/workspaceThreadRepository");
 const { encryptToken } = require("../utils/telegramBot/utils");
+
+const ExternalCommunicationConnector = DataAccessCenter.externalCommunication;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
 
 function telegramEndpoints(app) {
   if (!app) return;

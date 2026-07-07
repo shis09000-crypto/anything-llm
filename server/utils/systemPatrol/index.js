@@ -6,6 +6,8 @@ const { PrismaClient } = require("@prisma/client");
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const SystemPatrolData = lazyDataAccessFacade("systemPatrol");
 const systemPatrolDb = SystemPatrolData.db;
+const Document = lazyDataAccessFacade("document");
+const DocumentVectors = lazyDataAccessFacade("documentVector");
 const {
   appEnvironment,
   authDatabasePath,
@@ -18,12 +20,6 @@ const {
   vectorNamespacePrefix,
 } = require("../environment");
 const Workspace = SystemPatrolData.workspace;
-const {
-  DocumentRepository: Document,
-} = require("../../repositories/documentRepository");
-const {
-  DocumentVectorRepository: DocumentVectors,
-} = require("../../repositories/documentVectorRepository");
 const {
   auditSharedAuthIdentity,
 } = require("../../scripts/audit-shared-auth-identity");

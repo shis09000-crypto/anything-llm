@@ -2,18 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const truncate = require("truncate");
-const { WorkspaceChats } = require("../../models/workspaceChats");
-const { WorkspaceMindMaps } = require("../../models/workspaceMindMaps");
-const { WorkspaceThread } = require("../../models/workspaceThread");
-const {
-  DocumentRepository: Document,
-} = require("../../repositories/documentRepository");
-const {
-  DocumentIndexStatusRepository: DocumentIndexStatus,
-} = require("../../repositories/documentIndexStatusRepository");
-const {
-  WorkspaceParsedFileRepository: WorkspaceParsedFiles,
-} = require("../../repositories/workspaceParsedFileRepository");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const { getBaseLLMProviderModel } = require("../helpers");
 const { getTaskConnector } = require("../llmTasks");
 const { safeJsonParse } = require("../http");
@@ -29,6 +18,13 @@ const {
   normalizeMindMapSchema,
   mindMapToMarkdown,
 } = require("./schema");
+
+const WorkspaceChats = lazyDataAccessFacade("workspaceChat");
+const WorkspaceMindMaps = lazyDataAccessFacade("workspaceMindMap");
+const WorkspaceThread = lazyDataAccessFacade("workspaceThread");
+const Document = lazyDataAccessFacade("document");
+const DocumentIndexStatus = lazyDataAccessFacade("documentIndexStatus");
+const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
 
 const MIND_MAP_LLM_RETRY_DELAYS_MS = [800, 1600];
 const TRANSIENT_LLM_ERROR_PATTERNS = [

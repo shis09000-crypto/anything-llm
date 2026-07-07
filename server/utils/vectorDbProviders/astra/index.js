@@ -1,6 +1,6 @@
 const { AstraDB: AstraClient } = require("@datastax/astra-db-ts");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
@@ -19,6 +19,8 @@ const sanitizeNamespace = (namespace) => {
   // Remove any invalid characters, ensure starts with letter
   return `ns_${namespace.replace(/[^a-zA-Z0-9_]/g, "_")}`;
 };
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 // Add this helper method to check if collection exists more reliably
 const collectionExists = async function (client, namespace) {

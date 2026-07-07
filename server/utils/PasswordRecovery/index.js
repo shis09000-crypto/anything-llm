@@ -1,26 +1,26 @@
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { v4, validate } = require("uuid");
-const { User } = require("../../models/user");
-const { AuthIdentity } = require("../../models/authIdentity");
+const { DataAccessCenter } = require("../dataAccess");
 const {
   EventLogRepository: EventLogs,
 } = require("../../repositories/eventLogRepository");
-const {
-  RecoveryCode,
-  PasswordResetToken,
-} = require("../../models/passwordRecovery");
-const {
-  EmailVerificationCode,
-  EmailVerificationGrant,
-  EmailVerificationRateLimit,
-} = require("../../models/emailVerification");
 const {
   isConfigured: emailSmtpConfigured,
   maskedEmail,
   sendSecurityNotification,
   sendVerificationCode,
 } = require("../email/mailer");
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const User = DataAccessCenter.authIdentity.shadowUser;
+const RecoveryCode = DataAccessCenter.adminSystem.recoveryCode;
+const PasswordResetToken = DataAccessCenter.adminSystem.passwordResetToken;
+const EmailVerificationCode =
+  DataAccessCenter.adminSystem.emailVerificationCode;
+const EmailVerificationGrant =
+  DataAccessCenter.adminSystem.emailVerificationGrant;
+const EmailVerificationRateLimit =
+  DataAccessCenter.adminSystem.emailVerificationRateLimit;
 
 const EMAIL_PURPOSES = {
   bindEmail: "bind_email",

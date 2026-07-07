@@ -1,10 +1,12 @@
 // Helpers that convert workspace chats to some supported format
 // for external use by the user.
 
-const { WorkspaceChats } = require("../../../models/workspaceChats");
-const { EmbedChats } = require("../../../models/embedChats");
 const { safeJsonParse } = require("../../http");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
+
+const WorkspaceChats = DataAccessCenter.workspaceChat;
+const EmbedChats = DataAccessCenter.embedChat;
+const SystemSettings = DataAccessCenter.adminSystem;
 
 async function convertToCSV(preparedData) {
   const headers = new Set(["id", "workspace", "prompt", "response", "sent_at"]);

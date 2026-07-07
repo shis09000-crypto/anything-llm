@@ -142,6 +142,44 @@ export function AuthProvider(props) {
 
   useEffect(() => {
     if (!store.authToken || isCodexDevAuthBypassEnabled()) return;
+    let active = true;
+
+    async function handleUserProfileRefresh(event) {
+      const userId = event?.detail?.userId;
+      if (
+        userId &&
+        store.user?.id &&
+        String(userId) !== String(store.user.id)
+      ) {
+        return;
+      }
+
+      const refreshResult = await System.refreshUser();
+      if (!active) return;
+      if (!refreshResult?.success || !refreshResult.user) return;
+
+      setStoredAuthUser(refreshResult.user);
+      setStore((prev) => ({
+        ...prev,
+        user: refreshResult.user,
+      }));
+    }
+
+    window.addEventListener(
+      "athena-user-profile-refresh",
+      handleUserProfileRefresh
+    );
+    return () => {
+      active = false;
+      window.removeEventListener(
+        "athena-user-profile-refresh",
+        handleUserProfileRefresh
+      );
+    };
+  }, [store.authToken, store.user?.id]);
+
+  useEffect(() => {
+    if (!store.authToken || isCodexDevAuthBypassEnabled()) return;
 
     function clearWhenIdleVisible() {
       if (document.visibilityState === "hidden") return;

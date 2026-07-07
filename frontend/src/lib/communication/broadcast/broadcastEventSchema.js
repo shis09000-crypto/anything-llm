@@ -12,6 +12,7 @@ const BACKGROUND_TYPES = new Set([
 
 export function broadcastDottedType(event = {}) {
   if (event.broadcastType) return String(event.broadcastType);
+  if (event.namespace && event.type) return `${event.namespace}.${event.type}`;
   if (event.type && String(event.type).includes(".")) return String(event.type);
   const namespace = event.namespace || "event";
   const type = event.shortType || event.eventType || event.type || "unknown";

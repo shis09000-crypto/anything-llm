@@ -17,5 +17,8 @@ test("redacts sensitive websocket URL query params in diagnostic strings", () =>
   assert.match(entry.label, /resume=1/);
   assert.match(entry.dedupeKey, /access_token=\[redacted\]/);
   assert.match(entry.scope.path, /signature=\[redacted\]/);
-  assert.doesNotMatch(JSON.stringify(entry), /secret-token|secret-access|secret-signature/);
+  assert.doesNotMatch(
+    JSON.stringify(entry),
+    /secret-token|secret-access|secret-signature/
+  );
 });

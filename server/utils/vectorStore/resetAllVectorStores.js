@@ -1,15 +1,13 @@
-const { Workspace } = require("../../models/workspace");
-const {
-  DocumentRepository: Document,
-} = require("../../repositories/documentRepository");
-const {
-  DocumentVectorRepository: DocumentVectors,
-} = require("../../repositories/documentVectorRepository");
+const { DataAccessCenter } = require("../dataAccess");
 const {
   EventLogRepository: EventLogs,
 } = require("../../repositories/eventLogRepository");
 const { purgeEntireVectorCache } = require("../files");
 const { getVectorDbClass } = require("../helpers");
+
+const Workspace = DataAccessCenter.workspace;
+const Document = DataAccessCenter.document;
+const DocumentVectors = DataAccessCenter.documentVector;
 
 /**
  * Resets all vector database and associated content:

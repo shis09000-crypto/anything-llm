@@ -7,8 +7,7 @@ const {
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { handleFileUpload } = require("../utils/files/multer");
 const { fileData } = require("../utils/files");
-const prisma = require("../utils/prisma");
-const { WorkspaceSupplement } = require("../models/workspaceSupplement");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const {
   WORKSPACE_SUPPLEMENT_PROMPT_TEMPLATE,
   WORKSPACE_SUPPLEMENT_KIND_LABELS,
@@ -30,6 +29,10 @@ const {
   listWorkspaceSupplementsWithToolFields,
   resolveWorkspaceSupplementToolManifest,
 } = require("../utils/knowledgeGraph/workspaceSupplementToolManifest");
+const WorkspaceSupplement = DataAccessCenter.workspaceSupplement.model;
+const WorkspaceSupplementRepository = DataAccessCenter.repositoryObject(
+  "workspaceSupplement"
+);
 
 function bool(value) {
   return value === true || value === "true" || value === 1 || value === "1";
@@ -148,11 +151,7 @@ function workspaceSupplementEndpoints(app) {
 
   app.post(
     "/workspace/:slug/workspace-supplements/bind",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -160,14 +159,10 @@ function workspaceSupplementEndpoints(app) {
         const supplementKind = normalizeSupplementKind(
           body?.supplementKind || "other"
         );
-        const document = (
-          await prisma.$queryRawUnsafe(
-            `SELECT "docId", "filename", "docpath" FROM "workspace_documents"
-            WHERE "workspaceId" = ? AND "docId" = ? LIMIT 1`,
-            Number(workspace.id),
-            String(body?.documentId || "")
-          )
-        )?.[0];
+        const document = await WorkspaceSupplementRepository.documentByDocId({
+          workspaceId: workspace.id,
+          documentId: body?.documentId,
+        });
         if (!document) {
           response
             .status(400)
@@ -275,11 +270,7 @@ function workspaceSupplementEndpoints(app) {
 
   app.post(
     "/workspace/:slug/workspace-supplements/text",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;
@@ -330,11 +321,7 @@ function workspaceSupplementEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/workspace-supplements/:id",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const workspace = response.locals.workspace;

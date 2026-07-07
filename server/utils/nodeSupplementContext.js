@@ -1,6 +1,7 @@
-const prisma = require("./prisma");
-const { NodeSupplement } = require("../models/nodeSupplement");
+const { DataAccessCenter } = require("./dataAccess");
 const { chunksForDocument } = require("./knowledgeGraph/chunks");
+const NodeSupplement = DataAccessCenter.nodeSupplement.model;
+const NodeSupplementDb = DataAccessCenter.nodeSupplement.db;
 
 function tokenize(value = "") {
   return [
@@ -53,7 +54,7 @@ async function retrieveNodeSupplementContext({
   });
   if (supplements.length === 0) return { contextTexts: [], sources: [] };
 
-  const documents = await prisma.workspace_documents.findMany({
+  const documents = await NodeSupplementDb.workspaceDocuments.findMany({
     where: {
       workspaceId: Number(workspace.id),
       docId: { in: supplements.map((item) => item.documentId) },

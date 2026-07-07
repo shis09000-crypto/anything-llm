@@ -3,13 +3,15 @@ const path = require("path");
 const os = require("os");
 const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
 const {
   EventLogRepository: EventLogs,
 } = require("../../repositories/eventLogRepository");
 const { safeJsonParse } = require("../http");
 const { documentsPath, directUploadsPath } = require("../files");
 const { storageRoot } = require("../environment");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 const MODES = {
   sandbox: "sandbox",

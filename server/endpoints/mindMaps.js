@@ -5,9 +5,11 @@ const {
   flexUserRoleValid,
 } = require("../utils/middleware/multiUserProtected");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
-const { WorkspaceMindMaps } = require("../models/workspaceMindMaps");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { generateMindMap, listMindMaps } = require("../utils/mindMap");
 const { graphMindMapFromConcept } = require("../utils/mindMap/graph");
+
+const WorkspaceMindMaps = DataAccessCenter.workspaceMindMap;
 
 function mindMapEndpoints(app) {
   if (!app) return;

@@ -1,8 +1,10 @@
 const { log, conclude } = require("./helpers/index.js");
-const { WorkspaceChats } = require("../models/workspaceChats.js");
-const { ScheduledJobRun } = require("../models/scheduledJobRun.js");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const createFilesLib = require("../utils/agents/aibitat/plugins/create-files/lib.js");
 const { safeJsonParse } = require("../utils/http/index.js");
+
+const WorkspaceChats = DataAccessCenter.workspaceChat;
+const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
 (async () => {
   try {

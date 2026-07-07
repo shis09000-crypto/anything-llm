@@ -1,8 +1,10 @@
 const { v4: uuidv4, validate } = require("uuid");
 const { VALID_CHAT_MODE } = require("../chats/stream");
-const { EmbedChats } = require("../../models/embedChats");
-const { EmbedConfig } = require("../../models/embedConfig");
+const { DataAccessCenter } = require("../dataAccess");
 const { reqBody } = require("../http");
+
+const EmbedChats = DataAccessCenter.embedChat;
+const EmbedConfig = DataAccessCenter.embedConfig;
 
 // Finds or Aborts request for a /:embedId/ url. This should always
 // be the first middleware and the :embedID should be in the URL.

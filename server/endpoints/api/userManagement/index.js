@@ -1,10 +1,12 @@
-const { User } = require("../../../models/user");
-const { TemporaryAuthToken } = require("../../../models/temporaryAuthToken");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
 const { multiUserMode } = require("../../../utils/http");
 const {
   simpleSSOEnabled,
 } = require("../../../utils/middleware/simpleSSOEnabled");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
+
+const User = DataAccessCenter.user;
+const SystemAccess = DataAccessCenter.adminSystem;
 
 function apiUserManagementEndpoints(app) {
   if (!app) return;
@@ -106,7 +108,8 @@ function apiUserManagementEndpoints(app) {
         if (!user)
           return response.status(404).json({ error: "User not found" });
 
-        const { token, error } = await TemporaryAuthToken.issue(userId);
+        const { token, error } =
+          await SystemAccess.issueTemporaryAuthToken(userId);
         if (error) return response.status(500).json({ error: error });
 
         response.status(200).json({

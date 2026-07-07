@@ -21,11 +21,13 @@
  */
 
 const { v4: uuidv4 } = require("uuid");
-const prisma = require("../utils/prisma");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { getVectorDbClass } = require("../utils/helpers");
 const { fileData } = require("../utils/files");
-const { Telemetry } = require("../models/telemetry");
-const { DocumentIndexStatus } = require("../models/documentIndexStatus");
+
+const Document = DataAccessCenter.document;
+const Telemetry = DataAccessCenter.telemetry;
+const DocumentIndexStatus = DataAccessCenter.documentIndexStatus;
 
 const queue = [];
 const cancelled = new Set();
@@ -144,9 +146,7 @@ async function processQueue() {
     }
 
     try {
-      const createdDocument = await prisma.workspace_documents.create({
-        data: newDoc,
-      });
+      const createdDocument = await Document.create(newDoc);
       await DocumentIndexStatus.markIndexed({
         workspaceId,
         docId,

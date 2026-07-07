@@ -6,8 +6,10 @@ const {
   SCHEDULED_JOB_TIMEOUT_MS,
   sendWebPushNotification,
 } = require("./helpers/scheduled-job-helper.js");
-const { ScheduledJob } = require("../models/scheduledJob.js");
-const { ScheduledJobRun } = require("../models/scheduledJobRun.js");
+const { DataAccessCenter } = require("../utils/dataAccess");
+
+const ScheduledJob = DataAccessCenter.scheduledJob.job;
+const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
 /** Status of the scheduled job run @type {'success' | 'failed' | 'timed_out' | 'not_found' | 'killed' | undefined} */
 let status;

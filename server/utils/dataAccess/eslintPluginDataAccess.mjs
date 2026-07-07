@@ -9,7 +9,10 @@ const baselinePath = path.join(__dirname, "dataAccessBypassBaseline.json");
 
 const DIRECT_ACCESS_ALLOWLIST = Object.freeze([
   /^utils\/prisma\/index\.js$/,
+  /^utils\/authPrisma\/index\.js$/,
   /^utils\/database\/index\.js$/,
+  /^utils\/accountDeletion\.js$/,
+  /^utils\/systemPatrol\/index\.js$/,
   /^utils\/dataAccess\//,
   /^utils\/security\//,
   /^utils\/authz\/sensitiveSessions\.js$/,
@@ -21,7 +24,7 @@ function relativeServerPath(filePath = "") {
 }
 
 function isScopedPath(relativePath = "") {
-  return /^(endpoints|services|utils)\//.test(relativePath);
+  return /^(endpoints|services|utils|jobs)\//.test(relativePath);
 }
 
 function isAllowedPath(relativePath = "") {

@@ -14,6 +14,12 @@ const {
   safeReaderMetadataSummary,
 } = require("./redactor");
 const { appendLog } = require("./logCollector");
+const {
+  issueReaderDebugAccessGrant,
+  normalizeReaderDebugAccessEndpoints,
+  readerDebugAccessGrantSnapshot,
+  revokeReaderDebugAccessGrant,
+} = require("./readerDebugAccess");
 
 function currentUserId(response) {
   return Number(response?.locals?.user?.id || 0) || null;
@@ -118,6 +124,10 @@ function previewSummary(workspace, readerDocumentId, metadata = {}) {
       metadata.previewLastError || metadata.previewWarning || null,
     postprocess: postprocessSummary(workspace, readerDocumentId),
   };
+}
+
+function workspaceSlugForDebugGrant(workspace) {
+  return workspace?.readerStandalone ? null : workspace?.slug || null;
 }
 
 async function listAllReaderDocuments({
@@ -599,6 +609,84 @@ async function readerCommand(
         scope: normalizeScope(scope),
       };
     }
+    case "reader.debug.grantAccess": {
+      const { workspace, readerDocumentId } = await resolveReaderDocument({
+        request,
+        response,
+        scope,
+      });
+      const endpoints = normalizeReaderDebugAccessEndpoints(params.endpoints);
+      const grant = issueReaderDebugAccessGrant({
+        request,
+        userId: currentUserId(response),
+        clientId: context.clientId,
+        workspaceSlug: workspaceSlugForDebugGrant(workspace),
+        readerDocumentId,
+        endpoints,
+        ttlMs: params.ttlMs,
+        requestId: context.requestId,
+        commandId: context.commandId,
+      });
+      appendLog({
+        level: "info",
+        source: "reader",
+        message: "Reader debug access grant issued.",
+        commandId: context.commandId,
+        requestId: context.requestId,
+        sessionId: context.sessionId,
+        clientId: context.clientId,
+        scope,
+        metadata: {
+          readerDocumentId,
+          workspaceSlug: workspaceSlugForDebugGrant(workspace),
+          endpoints,
+          expiresAt: grant.expiresAt,
+        },
+      });
+      return {
+        debugGrantId: grant.debugGrantId,
+        headerName: grant.headerName,
+        expiresAt: grant.expiresAt,
+        ttlMs: grant.ttlMs,
+        endpoints: grant.endpoints,
+        readerDocumentId: grant.readerDocumentId,
+        workspaceSlug: grant.workspaceSlug,
+      };
+    }
+    case "reader.debug.revokeAccess": {
+      const debugGrantId =
+        params.debugGrantId || params.readerDebugGrantId || params.grantId;
+      const revoked = revokeReaderDebugAccessGrant({
+        debugGrantId,
+        userId: currentUserId(response),
+        clientId: context.clientId,
+      });
+      appendLog({
+        level: revoked ? "info" : "warn",
+        source: "reader",
+        message: revoked
+          ? "Reader debug access grant revoked."
+          : "Reader debug access grant revoke missed.",
+        commandId: context.commandId,
+        requestId: context.requestId,
+        sessionId: context.sessionId,
+        clientId: context.clientId,
+        scope,
+        metadata: { revoked },
+      });
+      return { revoked };
+    }
+    case "reader.debug.accessStatus": {
+      return redactDeveloperObject({
+        grants: readerDebugAccessGrantSnapshot({
+          userId: currentUserId(response),
+          clientId: context.clientId,
+          readerDocumentId: scope.readerDocumentId || null,
+          workspaceSlug:
+            scope.workspaceSlug === undefined ? undefined : scope.workspaceSlug,
+        }),
+      });
+    }
     default: {
       if (command.startsWith("reader.ui.")) {
         return {
@@ -620,6 +708,9 @@ function registerReaderCommands(registry) {
     "reader.document.status",
     "reader.document.metadata",
     "reader.debug.trace",
+    "reader.debug.grantAccess",
+    "reader.debug.revokeAccess",
+    "reader.debug.accessStatus",
     "reader.logs.query",
     "reader.library.reconcile",
     "reader.library.refresh",

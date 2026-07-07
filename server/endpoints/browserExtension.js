@@ -1,7 +1,7 @@
 const {
   WorkspaceRepository: Workspace,
 } = require("../repositories/workspaceRepository");
-const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const {
   DocumentRepository: Document,
 } = require("../repositories/documentRepository");
@@ -23,6 +23,9 @@ const {
   authSessionFingerprintFromRequest,
 } = require("../utils/authz/vaultAccessGrants");
 const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
+
+const BrowserExtensionApiKey =
+  DataAccessCenter.adminSystem.browserExtensionApiKey;
 
 function browserExtensionEndpoints(app) {
   if (!app) return;

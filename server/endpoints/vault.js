@@ -1,7 +1,6 @@
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const { User } = require("../models/user");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody } = require("../utils/http");
 const { getClientContext } = require("../utils/clientIdentity");
@@ -20,6 +19,8 @@ const {
   revokeSensitiveSessions,
 } = require("../utils/authz/sensitiveSessions");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+
+const User = DataAccessCenter.user;
 
 function currentUserId(response) {
   const id = Number(response?.locals?.user?.id);

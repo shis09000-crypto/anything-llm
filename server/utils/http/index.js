@@ -2,13 +2,15 @@ process.env.NODE_ENV === "development"
   ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
   : require("dotenv").config();
 const JWT = require("jsonwebtoken");
-const { User } = require("../../models/user");
+const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const { jsonrepair } = require("jsonrepair");
 const extract = require("extract-json-from-string");
 const {
   codexDevAuthUser,
   isCodexDevAuthBypassEnabled,
 } = require("../codexDevAuthBypass");
+
+const User = lazyDataAccessFacade("user");
 
 function reqBody(request) {
   return typeof request.body === "string"

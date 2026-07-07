@@ -5,7 +5,7 @@ const {
   MilvusClient,
 } = require("@zilliz/milvus2-sdk-node");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { v4: uuidv4 } = require("uuid");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
@@ -17,6 +17,8 @@ const {
   encryptVectorMetadataText,
   encryptVectorText,
 } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 class Milvus extends VectorDatabase {
   constructor() {

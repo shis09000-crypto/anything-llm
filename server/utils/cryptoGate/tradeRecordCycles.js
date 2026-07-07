@@ -1,5 +1,7 @@
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
 const { readSecret, saveSecret } = require("../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 const TRADE_RECORDS_CYCLE_MEMORY_KEY =
   "anythingllm_crypto_trade_records_cycle_memory_v1";

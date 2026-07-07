@@ -1,4 +1,3 @@
-const { User } = require("../models/user");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { decodeJWT, reqBody, safeJsonParse } = require("../utils/http");
 const {
@@ -24,6 +23,7 @@ const OPEN_FUTURES_POSITIONS_CONFIG_KEY =
   "anythingllm_crypto_open_futures_positions_config_v1";
 const TRADE_RECORDS_CONFIG_KEY = "anythingllm_crypto_trade_records_config_v1";
 const CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER = "x-crypto-center-dev-auth-bypass";
+const User = DataAccessCenter.user;
 
 function isCryptoCenterDevAuthBypassEnabled(request) {
   if (process.env.NODE_ENV === "production") return false;

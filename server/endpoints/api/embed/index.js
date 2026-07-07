@@ -1,10 +1,10 @@
-const { EmbedConfig } = require("../../../models/embedConfig");
-const { EmbedChats } = require("../../../models/embedChats");
 const { validApiKey } = require("../../../utils/middleware/validApiKey");
 const { reqBody } = require("../../../utils/http");
-const {
-  WorkspaceRepository: Workspace,
-} = require("../../../repositories/workspaceRepository");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
+
+const EmbedConfig = DataAccessCenter.embedConfig;
+const EmbedChats = DataAccessCenter.embedChat;
+const Workspace = DataAccessCenter.workspace;
 
 function apiEmbedEndpoints(app) {
   if (!app) return;

@@ -52,6 +52,10 @@ const {
   sensitiveSessionTokenFromRequest,
   validateSensitiveSessionForRequest,
 } = require("../utils/authz/sensitiveSessions");
+const {
+  readerDebugGrantIdFromRequest,
+  validateReaderDebugAccessGrantForRequest,
+} = require("../utils/devControl/readerDebugAccess");
 const { publishBroadcastEvent } = require("../utils/broadcast");
 const { userFromSession } = require("../utils/http");
 
@@ -1252,15 +1256,14 @@ function readerSensitiveSessionForResponse(
   });
 }
 
-function validateReaderSensitiveSessionIfPresent({
+function validateReaderContentAccess({
   request,
   response,
   workspace,
   readerDocumentId,
+  endpoint,
 }) {
   const token = sensitiveSessionTokenFromRequest(request);
-  if (!token) return { ok: true, present: false };
-
   const userId = Number(response?.locals?.user?.id || 0);
   const context = getClientContext(request);
   const expectedResourceId = readerSensitiveResourceId(
@@ -1268,41 +1271,64 @@ function validateReaderSensitiveSessionIfPresent({
     readerDocumentId
   );
   const expectedOwnerScope = readerSensitiveOwnerScope(workspace);
-  const result = validateSensitiveSessionForRequest(request, {
-    userId,
-    clientId: context?.clientId,
-    resourceType: "reader_document",
-    resourceId: expectedResourceId,
-    ownerScope: expectedOwnerScope,
-    heartbeat: true,
-  });
-  if (!result.ok) {
-    console.warn("[ReaderSensitiveSession] denied", {
-      reason: result.reason || result.error || "unknown",
-      route: request?.path || request?.originalUrl || null,
-      readerDocumentId,
-      workspaceSlug: workspace?.readerStandalone
-        ? null
-        : workspace?.slug || null,
-      standalone: workspace?.readerStandalone === true,
-      expectedResourceId,
-      expectedOwnerScope,
-      tokenPresent: !!token,
-      sessionPresent: result.present === true,
-      userId: userId || null,
-      clientIdPresent: !!context?.clientId,
-      requestId:
-        request?.signedRequest?.requestId ||
-        context?.requestId ||
-        request?.communicationRequestId ||
-        null,
+  if (token) {
+    const result = validateSensitiveSessionForRequest(request, {
+      userId,
+      clientId: context?.clientId,
+      resourceType: "reader_document",
+      resourceId: expectedResourceId,
+      ownerScope: expectedOwnerScope,
+      heartbeat: true,
     });
+    if (result.ok)
+      return { ...result, via: "sensitive-session", present: true };
   }
-  return { ...result, present: true };
+
+  const debugGrant = validateReaderDebugAccessGrantForRequest(
+    request,
+    response,
+    {
+      workspaceSlug: workspace?.readerStandalone ? null : workspace?.slug,
+      readerDocumentId,
+      endpoint,
+    }
+  );
+  if (debugGrant.ok)
+    return { ...debugGrant, via: "dev-control-debug-grant", present: true };
+
+  const reason = token
+    ? "invalid_sensitive_session"
+    : debugGrant.present
+      ? debugGrant.reason || "invalid_debug_grant"
+      : "missing_reader_content_access";
+  console.warn("[ReaderSensitiveGate] denied", {
+    reason,
+    endpoint,
+    route: request?.route?.path || request?.path || null,
+    readerDocumentId,
+    workspaceSlug: workspace?.readerStandalone ? null : workspace?.slug || null,
+    standalone: workspace?.readerStandalone === true,
+    tokenPresent: !!token,
+    debugGrantPresent: !!readerDebugGrantIdFromRequest(request),
+    userId: userId || null,
+    clientIdPresent: !!context?.clientId,
+    requestId:
+      request?.signedRequest?.requestId ||
+      context?.requestId ||
+      request?.communicationRequestId ||
+      null,
+  });
+  return {
+    ok: false,
+    error: "sensitive_session_required",
+    reason,
+    present: false,
+  };
 }
 
 function readerStreamCacheControlForRequest(request) {
-  return sensitiveSessionTokenFromRequest(request)
+  return sensitiveSessionTokenFromRequest(request) ||
+    readerDebugGrantIdFromRequest(request)
     ? READER_SENSITIVE_STREAM_CACHE_CONTROL
     : READER_STREAM_CACHE_CONTROL;
 }
@@ -4784,16 +4810,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "preview"
         );
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "preview.pdf",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
@@ -4883,16 +4912,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "page-preview"
         );
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "page-preview",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         if (!metadataIsPdf(metadata))
           return response.status(400).json({
@@ -4942,16 +4974,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           readerDocumentId,
           "original"
         );
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "original",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         const originalPath = await originalPathForReaderDocument({
           documentRoot,
@@ -5561,16 +5596,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "preview.pdf",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         const previewPath = safeResolve(documentRoot, DOCX_PREVIEW_NAME);
         if (!validNonEmptyFile(previewPath))
@@ -5666,16 +5704,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "page-preview",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         if (!metadataIsPdf(metadata))
           return response.status(400).json({
@@ -5728,16 +5769,19 @@ function workspaceReaderDocumentsEndpoints(app) {
           }
         );
         assertReaderDocumentVisible(documentRoot, metadata);
-        const sensitiveSession = validateReaderSensitiveSessionIfPresent({
+        const contentAccess = validateReaderContentAccess({
           request,
           response,
           workspace,
           readerDocumentId,
+          endpoint: "original",
         });
-        if (!sensitiveSession.ok)
+        if (!contentAccess.ok)
           return response.status(403).json({
             success: false,
-            error: "Sensitive reader session is invalid or expired.",
+            error: contentAccess.error || "sensitive_session_required",
+            code: contentAccess.error || "sensitive_session_required",
+            reason: contentAccess.reason || "reader_content_access_denied",
           });
         const originalPath = await originalPathForReaderDocument({
           documentRoot,
@@ -5919,6 +5963,9 @@ module.exports = {
     readReaderJsonFile,
     readReaderMetadata,
     writeReaderJsonFile,
+    readerSensitiveSessionForResponse,
+    validateReaderContentAccess,
+    readerStreamCacheControlForRequest,
     readerPostprocessResponse,
     readerContentSummary,
     recognizeReaderScreenshot,

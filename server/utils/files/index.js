@@ -1,8 +1,10 @@
-const fs = require("fs");
 const path = require("path");
 const { v5: uuidv5 } = require("uuid");
-const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
+const {
+  FileStorageProvider,
+} = require("../../providers/storage/fileStorageProvider");
 const { storagePath } = require("../environment");
+const { isWithin, normalizePath } = require("./pathSafety");
 const {
   parseDocumentStoreJson,
   stringifyDocumentStoreJson,
@@ -19,19 +21,25 @@ function getDataAccessCenter() {
   return require("../dataAccess").DataAccessCenter;
 }
 
+function getDocumentSyncQueue() {
+  return getDataAccessCenter().documentSyncQueue;
+}
+
 // Should take in a folder that is a subfolder of documents
 // eg: youtube-subject/video-123.json
 async function fileData(filePath = null) {
   if (!filePath) throw new Error("No docPath provided in request");
-  const fullFilePath = path.resolve(documentsPath, normalizePath(filePath));
-  if (!fs.existsSync(fullFilePath) || !isWithin(documentsPath, fullFilePath))
-    return null;
+  const fullFilePath = FileStorageProvider.resolvePath(filePath, {
+    base: documentsPath,
+  });
+  if (!FileStorageProvider.isFilePath(fullFilePath)) return null;
 
   return readDocumentJsonFile(fullFilePath);
 }
 
 async function viewLocalFiles() {
-  if (!fs.existsSync(documentsPath)) fs.mkdirSync(documentsPath);
+  FileStorageProvider.ensureDirPath(documentsPath);
+  const DocumentSyncQueue = getDocumentSyncQueue();
   const liveSyncAvailable = await DocumentSyncQueue.enabled();
   const directory = {
     name: "documents",
@@ -39,10 +47,12 @@ async function viewLocalFiles() {
     items: [],
   };
 
-  for (const file of fs.readdirSync(documentsPath)) {
+  for (const file of FileStorageProvider.readDirPath(documentsPath)) {
     if (path.extname(file) === ".md") continue;
-    const folderPath = path.resolve(documentsPath, file);
-    const isFolder = fs.lstatSync(folderPath).isDirectory();
+    const folderPath = FileStorageProvider.resolvePath(file, {
+      base: documentsPath,
+    });
+    const isFolder = FileStorageProvider.isDirectoryPath(folderPath);
     if (isFolder) {
       const subdocs = {
         name: file,
@@ -50,7 +60,7 @@ async function viewLocalFiles() {
         items: [],
       };
 
-      const subfiles = fs.readdirSync(folderPath);
+      const subfiles = FileStorageProvider.readDirPath(folderPath);
       const filenames = {};
       const filePromises = [];
 
@@ -118,8 +128,7 @@ async function getDocumentsByFolder(folderName = "") {
   const folderPath = path.resolve(documentsPath, normalizePath(folderName));
   if (
     !isWithin(documentsPath, folderPath) ||
-    !fs.existsSync(folderPath) ||
-    !fs.lstatSync(folderPath).isDirectory()
+    !FileStorageProvider.isDirectoryPath(folderPath)
   ) {
     return {
       folder: folderName,
@@ -131,7 +140,7 @@ async function getDocumentsByFolder(folderName = "") {
 
   const documents = [];
   const filenames = {};
-  const files = fs.readdirSync(folderPath);
+  const files = FileStorageProvider.readDirPath(folderPath);
   for (const file of files) {
     if (path.extname(file) !== ".json") continue;
     const filePath = path.join(folderPath, file);
@@ -177,8 +186,10 @@ async function cachedVectorInformation(filename = null, checkOnly = false) {
   if (!filename) return checkOnly ? false : { exists: false, chunks: [] };
 
   const digest = uuidv5(filename, uuidv5.URL);
-  const file = path.resolve(vectorCachePath, `${digest}.json`);
-  const exists = fs.existsSync(file);
+  const file = FileStorageProvider.resolvePath(`${digest}.json`, {
+    base: vectorCachePath,
+  });
+  const exists = FileStorageProvider.existsPath(file);
 
   if (checkOnly) return exists;
   if (!exists) return { exists, chunks: [] };
@@ -196,10 +207,12 @@ async function storeVectorResult(vectorData = [], filename = null) {
   console.log(
     `Caching vectorized results of ${filename} to prevent duplicated embedding.`
   );
-  if (!fs.existsSync(vectorCachePath)) fs.mkdirSync(vectorCachePath);
+  FileStorageProvider.ensureDirPath(vectorCachePath);
 
   const digest = uuidv5(filename, uuidv5.URL);
-  const writeTo = path.resolve(vectorCachePath, `${digest}.json`);
+  const writeTo = FileStorageProvider.resolvePath(`${digest}.json`, {
+    base: vectorCachePath,
+  });
   writeVectorCacheJsonFile(writeTo, vectorData);
   return;
 }
@@ -207,17 +220,14 @@ async function storeVectorResult(vectorData = [], filename = null) {
 // Purges a file from the documents/ folder.
 async function purgeSourceDocument(filename = null) {
   if (!filename) return;
-  const filePath = path.resolve(documentsPath, normalizePath(filename));
+  const filePath = FileStorageProvider.resolvePath(filename, {
+    base: documentsPath,
+  });
 
-  if (
-    !fs.existsSync(filePath) ||
-    !isWithin(documentsPath, filePath) ||
-    !fs.lstatSync(filePath).isFile()
-  )
-    return;
+  if (!FileStorageProvider.isFilePath(filePath)) return;
 
   console.log(`Purging source document of ${filename}.`);
-  fs.rmSync(filePath);
+  FileStorageProvider.deletePath(filePath);
   return;
 }
 
@@ -225,11 +235,13 @@ async function purgeSourceDocument(filename = null) {
 async function purgeVectorCache(filename = null) {
   if (!filename) return;
   const digest = uuidv5(filename, uuidv5.URL);
-  const filePath = path.resolve(vectorCachePath, `${digest}.json`);
+  const filePath = FileStorageProvider.resolvePath(`${digest}.json`, {
+    base: vectorCachePath,
+  });
 
-  if (!fs.existsSync(filePath) || !fs.lstatSync(filePath).isFile()) return;
+  if (!FileStorageProvider.isFilePath(filePath)) return;
   console.log(`Purging vector-cache of ${filename}.`);
-  fs.rmSync(filePath);
+  FileStorageProvider.deletePath(filePath);
   return;
 }
 
@@ -237,20 +249,19 @@ async function purgeVectorCache(filename = null) {
 // folder via iteration of all folders and checking if the expected file exists.
 async function findDocumentInDocuments(documentName = null) {
   if (!documentName) return null;
-  for (const folder of fs.readdirSync(documentsPath)) {
-    const isFolder = fs
-      .lstatSync(path.join(documentsPath, folder))
-      .isDirectory();
+  for (const folder of FileStorageProvider.readDirPath(documentsPath)) {
+    const folderPath = FileStorageProvider.resolvePath(folder, {
+      base: documentsPath,
+    });
+    const isFolder = FileStorageProvider.isDirectoryPath(folderPath);
     if (!isFolder) continue;
 
     const targetFilename = normalizePath(documentName);
-    const targetFileLocation = path.join(documentsPath, folder, targetFilename);
+    const targetFileLocation = FileStorageProvider.resolvePath(targetFilename, {
+      base: folderPath,
+    });
 
-    if (
-      !fs.existsSync(targetFileLocation) ||
-      !isWithin(documentsPath, targetFileLocation)
-    )
-      continue;
+    if (!FileStorageProvider.isFilePath(targetFileLocation)) continue;
 
     const cachefilename = `${folder}/${targetFilename}`;
     const { pageContent: _pageContent, ...metadata } =
@@ -266,52 +277,37 @@ async function findDocumentInDocuments(documentName = null) {
   return null;
 }
 
-/**
- * Checks if a given path is within another path.
- * @param {string} outer - The outer path (should be resolved).
- * @param {string} inner - The inner path (should be resolved).
- * @returns {boolean} - Returns true if the inner path is within the outer path, false otherwise.
- */
-function isWithin(outer, inner) {
-  if (outer === inner) return false;
-  const rel = path.relative(outer, inner);
-  return !rel.startsWith("../") && rel !== "..";
-}
-
-function normalizePath(filepath = "") {
-  const result = path
-    .normalize(filepath.trim())
-    .replace(/^(\.\.(\/|\\|$))+/, "")
-    .trim();
-  if (["..", ".", "/"].includes(result)) throw new Error("Invalid path.");
-  return result;
-}
-
 function readDocumentJsonFile(filePath) {
-  return parseDocumentStoreJson(fs.readFileSync(filePath, "utf8"), {
-    domain: "source-document",
-  });
+  return parseDocumentStoreJson(
+    FileStorageProvider.readFilePath(filePath, "utf8"),
+    {
+      domain: "source-document",
+    }
+  );
 }
 
 function writeDocumentJsonFile(filePath, payload) {
-  fs.writeFileSync(
+  FileStorageProvider.writeFilePath(
     filePath,
     stringifyDocumentStoreJson(payload, { domain: "source-document" }),
-    "utf8"
+    { encoding: "utf8" }
   );
 }
 
 function readVectorCacheJsonFile(filePath) {
-  return parseDocumentStoreJson(fs.readFileSync(filePath, "utf8"), {
-    domain: "vector-cache",
-  });
+  return parseDocumentStoreJson(
+    FileStorageProvider.readFilePath(filePath, "utf8"),
+    {
+      domain: "vector-cache",
+    }
+  );
 }
 
 function writeVectorCacheJsonFile(filePath, payload) {
-  fs.writeFileSync(
+  FileStorageProvider.writeFilePath(
     filePath,
     stringifyDocumentStoreJson(payload, { domain: "vector-cache" }),
-    "utf8"
+    { encoding: "utf8" }
   );
 }
 
@@ -336,8 +332,9 @@ function sanitizeFileName(fileName) {
 function hasVectorCachedFiles() {
   try {
     return (
-      fs.readdirSync(vectorCachePath)?.filter((name) => name.endsWith(".json"))
-        .length !== 0
+      FileStorageProvider.readDirPath(vectorCachePath)?.filter((name) =>
+        name.endsWith(".json")
+      ).length !== 0
     );
   } catch {}
   return false;
@@ -463,8 +460,11 @@ async function getEmbeddingStatusesByDocument(filenames = []) {
  * @returns {void}
  */
 function purgeEntireVectorCache() {
-  fs.rmSync(vectorCachePath, { recursive: true, force: true });
-  fs.mkdirSync(vectorCachePath);
+  FileStorageProvider.deletePath(vectorCachePath, {
+    recursive: true,
+    force: true,
+  });
+  FileStorageProvider.ensureDirPath(vectorCachePath);
   return;
 }
 
@@ -490,12 +490,13 @@ async function fileToPickerData({
   liveSyncAvailable = false,
   cachefilename = null,
 }) {
+  const DocumentSyncQueue = liveSyncAvailable ? getDocumentSyncQueue() : null;
   let metadata = {};
   const filename = path.basename(pathToFile);
-  const fileStats = fs.statSync(pathToFile);
+  const fileStats = FileStorageProvider.statPath(pathToFile);
   const cachedStatus = await cachedVectorInformation(cachefilename, true);
 
-  if (fileStats.size < FILE_READ_SIZE_THRESHOLD) {
+  if (fileStats?.size < FILE_READ_SIZE_THRESHOLD) {
     try {
       metadata = readDocumentJsonFile(pathToFile);
       // Remove the pageContent field from the metadata - it is large and not needed for the picker

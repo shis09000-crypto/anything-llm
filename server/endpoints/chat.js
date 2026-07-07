@@ -20,7 +20,7 @@ const {
   validWorkspaceSlug,
 } = require("../utils/middleware/validWorkspace");
 const { writeResponseChunk } = require("../utils/helpers/chat/responses");
-const { User } = require("../models/user");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { getModelTag } = require("./utils");
 const { respondToChatToolApproval } = require("../utils/chats/toolApproval");
 const {
@@ -33,6 +33,8 @@ const {
 const {
   publishWorkspaceSyncEvent,
 } = require("../utils/chats/workspaceSyncEvents");
+
+const User = DataAccessCenter.user;
 
 function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
   if (!workspace?.id || !thread?.id) return () => {};

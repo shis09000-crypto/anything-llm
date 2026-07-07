@@ -1,5 +1,7 @@
-const { CommunityHub } = require("../../models/communityHub");
+const { DataAccessCenter } = require("../dataAccess");
 const { reqBody } = require("../http");
+
+const CommunityHub = DataAccessCenter.communityHub;
 
 /**
  * ### Must be called after `communityHubItem`

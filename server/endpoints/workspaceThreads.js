@@ -17,7 +17,6 @@ const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
 const { DataAccessCenter } = require("../utils/dataAccess");
-const { WeChatGatewayThread } = require("../models/wechatGatewayThread");
 const {
   validWorkspaceSlug,
   validWorkspaceAndThreadSlug,
@@ -51,6 +50,7 @@ const { getClientContext } = require("../utils/clientIdentity");
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
+const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);

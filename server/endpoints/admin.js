@@ -1,15 +1,16 @@
 const crypto = require("crypto");
-const { ApiKey } = require("../models/apiKeys");
 const {
   DocumentRepository: Document,
 } = require("../repositories/documentRepository");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const { Invite } = require("../models/invite");
 const { DataAccessCenter } = require("../utils/dataAccess");
-const { User } = require("../models/user");
-const { AuthIdentity } = require("../models/authIdentity");
+const ApiKey = DataAccessCenter.adminSystem.apiKey;
+const AuthIdentity = DataAccessCenter.adminSystem.authIdentity;
+const Invite = DataAccessCenter.adminSystem.invite;
+const User = DataAccessCenter.adminSystem.user;
+const AdminUserRecords = DataAccessCenter.adminSystem.userRecords;
 const {
   DocumentVectorRepository: DocumentVectors,
 } = require("../repositories/documentVectorRepository");
@@ -19,7 +20,6 @@ const {
 const {
   WorkspaceChatRepository: WorkspaceChats,
 } = require("../repositories/workspaceChatRepository");
-const prisma = require("../utils/prisma");
 const {
   getVectorDbClass,
   getEmbeddingEngineSelection,
@@ -394,7 +394,7 @@ function adminEndpoints(app) {
           where: { id: targetAuth.id },
           data: disabled,
         });
-        await prisma.users.update({
+        await AdminUserRecords.update({
           where: { id: target.id },
           data: disabled,
         });
@@ -466,7 +466,7 @@ function adminEndpoints(app) {
           where: { id: targetAuth.id },
           data: restored,
         });
-        await prisma.users.update({
+        await AdminUserRecords.update({
           where: { id: target.id },
           data: restored,
         });

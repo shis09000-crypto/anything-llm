@@ -13,7 +13,6 @@ const {
   writeResponseChunk,
   convertToChatHistory,
 } = require("../../../utils/helpers/chat/responses");
-const { User } = require("../../../models/user");
 const { ApiChatHandler } = require("../../../utils/chats/apiChatHandler");
 const { getModelTag } = require("../../utils");
 const { compactThread } = require("../../../utils/chats/threadCompaction");
@@ -24,6 +23,7 @@ const {
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
+const User = DataAccessCenter.user;
 
 function nullableUserId(value) {
   if (value === null || value === undefined || value === "" || value === "null")

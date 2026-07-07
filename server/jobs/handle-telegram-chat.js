@@ -3,9 +3,11 @@
 process.env.NTBA_FIX_350 = 1;
 const TelegramBot = require("node-telegram-bot-api");
 const { log, conclude } = require("./helpers/index.js");
-const { Workspace } = require("../models/workspace");
-const { WorkspaceThread } = require("../models/workspaceThread");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { streamResponse } = require("../utils/telegramBot/chat/stream");
+
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
 
 process.on("message", async (payload) => {
   // Ignore tool approval responses - these are handled by http-socket plugin

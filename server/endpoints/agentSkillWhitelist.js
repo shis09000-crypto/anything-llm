@@ -1,10 +1,12 @@
-const { AgentSkillWhitelist } = require("../models/agentSkillWhitelist");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
+
+const AgentSkillWhitelist = DataAccessCenter.agentSkillWhitelist;
 
 function agentSkillWhitelistEndpoints(app) {
   if (!app) return;

@@ -2,13 +2,7 @@ const crypto = require("crypto");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const {
-  EmailVerificationCode,
-  EmailVerificationRateLimit,
-} = require("../models/emailVerification");
-const { Invite } = require("../models/invite");
-const { User } = require("../models/user");
-const { AuthIdentity } = require("../models/authIdentity");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody } = require("../utils/http");
 const { generateRecoveryCodes } = require("../utils/PasswordRecovery");
 const {
@@ -25,6 +19,13 @@ const {
 const {
   simpleSSOLoginDisabledMiddleware,
 } = require("../utils/middleware/simpleSSOEnabled");
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const User = DataAccessCenter.authIdentity.shadowUser;
+const EmailVerificationCode =
+  DataAccessCenter.adminSystem.emailVerificationCode;
+const EmailVerificationRateLimit =
+  DataAccessCenter.adminSystem.emailVerificationRateLimit;
+const Invite = DataAccessCenter.adminSystem.invite;
 
 const INVITE_REGISTER_PURPOSE = "register";
 const INVITE_RATE_LIMIT_PURPOSE = "invite_register";

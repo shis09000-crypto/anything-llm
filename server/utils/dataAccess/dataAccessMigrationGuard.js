@@ -7,7 +7,7 @@ const DATA_ACCESS_MODES = Object.freeze({
   enforce: "enforce",
 });
 
-const SCAN_ROOTS = Object.freeze(["endpoints", "services", "utils"]);
+const SCAN_ROOTS = Object.freeze(["endpoints", "services", "utils", "jobs"]);
 const MAX_FINDINGS = 500;
 const MODEL_REQUIRE_PATTERN = /require\(["'](?:\.\.\/)+models\/([^"']+)["']\)/g;
 const PRISMA_CLIENT_REQUIRE_PATTERN = /require\(["']@prisma\/client["']\)/g;
@@ -23,8 +23,21 @@ const DIRECT_ACCESS_ALLOWLIST = Object.freeze([
     reason: "Prisma client construction boundary.",
   },
   {
+    pattern: /^utils\/authPrisma\/index\.js$/,
+    reason: "Shared auth Prisma client construction boundary.",
+  },
+  {
     pattern: /^utils\/database\/index\.js$/,
     reason: "Database bootstrap and migration boundary.",
+  },
+  {
+    pattern: /^utils\/accountDeletion\.js$/,
+    reason:
+      "Account deletion maintenance boundary for cross-environment shadow-user checks.",
+  },
+  {
+    pattern: /^utils\/systemPatrol\/index\.js$/,
+    reason: "System patrol maintenance boundary for isolated health checks.",
   },
   {
     pattern: /^utils\/dataAccess\//,
@@ -41,6 +54,121 @@ const DIRECT_ACCESS_ALLOWLIST = Object.freeze([
   {
     pattern: /^utils\/environment\/index\.js$/,
     reason: "Storage and database path configuration boundary.",
+  },
+]);
+
+const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
+  {
+    pattern: /^scripts\/audit-encryption-coverage\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "Encryption coverage audit intentionally introspects encrypted tables and columns.",
+    action: "keep-script-boundary",
+  },
+  {
+    pattern: /^scripts\/audit-shared-auth-identity\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "Shared-auth identity audit reads the shared auth database with a separate Prisma client.",
+    action: "keep-script-boundary",
+  },
+  {
+    pattern: /^scripts\/backfillKnowledgeGraph\.js$/,
+    category: "maintenance",
+    risk: "internal-write",
+    reason:
+      "Knowledge graph backfill runs existing knowledgeGraph maintenance utilities from CLI.",
+    action: "prefer-data-access-where-available",
+  },
+  {
+    pattern: /^scripts\/diagnose-deepseek-cache\.js$/,
+    category: "diagnostic",
+    risk: "internal-read",
+    reason:
+      "Provider cache diagnosis queries model/cache settings for support.",
+    action: "keep-script-boundary",
+  },
+  {
+    pattern: /^scripts\/encrypt-workspace-chat-history\.js$/,
+    category: "migration",
+    risk: "sensitive-write",
+    reason:
+      "One-time workspace chat encryption migration needs raw encrypted row inspection.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/maintain-local-auth\.js$/,
+    category: "bootstrap",
+    risk: "sensitive-write",
+    reason:
+      "Local auth maintenance reconciles shared auth and local shadow users for repair.",
+    action: "prefer-auth-identity-repository",
+  },
+  {
+    pattern: /^scripts\/migrate-chat-history-serial-encryption\.js$/,
+    category: "migration",
+    risk: "sensitive-write",
+    reason:
+      "Serial encryption migration scans and rewrites chat rows in controlled batches.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-high-risk-encryption\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "High-risk encryption migration intentionally wraps secret-bearing tables.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-request-signing-secrets\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "Request-signing secret migration needs raw rows to encrypt legacy values.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-shared-auth-db\.js$/,
+    category: "migration",
+    risk: "sensitive-write",
+    reason:
+      "Shared-auth DB migration constructs and copies auth identities across databases.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/qa-account-delete-ban-devprod\.js$/,
+    category: "qa",
+    risk: "sensitive-write",
+    reason:
+      "Manual QA script validates account-deletion ban behavior across environments.",
+    action: "keep-script-boundary",
+  },
+  {
+    pattern: /^scripts\/recomputeKnowledgeNodeMetrics\.js$/,
+    category: "maintenance",
+    risk: "user-write",
+    reason:
+      "CLI recompute operation marks graph metrics stale and reruns metric jobs.",
+    action: "prefer-data-access-where-available",
+  },
+  {
+    pattern: /^scripts\/recover-vectors\.js$/,
+    category: "recovery",
+    risk: "user-write",
+    reason:
+      "Vector recovery rebuilds workspace_documents/document_vectors from batch files.",
+    action: "prefer-maintenance-repository",
+  },
+  {
+    pattern: /^scripts\/rotate-encryption-master-key\.js$/,
+    category: "migration",
+    risk: "secret-write",
+    reason:
+      "Encryption master key rotation must rewrap encrypted rows in a controlled script.",
+    action: "keep-migration-boundary",
   },
 ]);
 
@@ -85,6 +213,12 @@ function lineColumnFor(content = "", index = 0) {
 
 function allowlistMatch(relativePath = "") {
   return DIRECT_ACCESS_ALLOWLIST.find((entry) =>
+    entry.pattern.test(relativePath)
+  );
+}
+
+function scriptAllowlistMatch(relativePath = "") {
+  return SCRIPT_ACCESS_ALLOWLIST.find((entry) =>
     entry.pattern.test(relativePath)
   );
 }
@@ -354,6 +488,67 @@ function scanBypassAccess({
   };
 }
 
+function summarizeScriptFindings(findings = []) {
+  return findings.reduce(
+    (summary, item) => {
+      summary.byType[item.type] = (summary.byType[item.type] || 0) + 1;
+      summary.byDomain[item.domain] = (summary.byDomain[item.domain] || 0) + 1;
+      summary.byCategory[item.scriptCategory] =
+        (summary.byCategory[item.scriptCategory] || 0) + 1;
+      summary.byRisk[item.scriptRisk] =
+        (summary.byRisk[item.scriptRisk] || 0) + 1;
+      if (item.scriptAllowed) summary.classified += 1;
+      else summary.unclassified += 1;
+      return summary;
+    },
+    {
+      byType: {},
+      byDomain: {},
+      byCategory: {},
+      byRisk: {},
+      classified: 0,
+      unclassified: 0,
+    }
+  );
+}
+
+function scanScriptAccess({
+  roots = ["scripts"],
+  includeClassified = true,
+  limit = MAX_FINDINGS,
+} = {}) {
+  const files = roots.flatMap((root) =>
+    walkFiles(path.join(serverRoot(), root))
+  );
+  const allFindings = files.flatMap((filePath) =>
+    scanFile(filePath).map((item) => {
+      const scriptEntry = scriptAllowlistMatch(item.file);
+      return {
+        ...item,
+        scriptAllowed: Boolean(scriptEntry),
+        scriptCategory: scriptEntry?.category || "unclassified",
+        scriptRisk: scriptEntry?.risk || "review-required",
+        scriptReason: scriptEntry?.reason || null,
+        recommendedAction: scriptEntry?.action || "classify-or-migrate",
+      };
+    })
+  );
+  const visibleFindings = includeClassified
+    ? allFindings
+    : allFindings.filter((item) => !item.scriptAllowed);
+  const summary = summarizeScriptFindings(allFindings);
+  return {
+    mode: dataAccessMode(),
+    scannedAt: new Date().toISOString(),
+    scannedFiles: files.length,
+    findingsCount: allFindings.length,
+    visibleFindingsCount: visibleFindings.length,
+    ...summary,
+    findings: visibleFindings.slice(0, limit),
+    truncated: visibleFindings.length > limit,
+  };
+}
+
 function recordBypassAccess({
   domain = "unknown",
   caller = null,
@@ -421,6 +616,7 @@ function resetForTests() {
 module.exports = {
   DATA_ACCESS_MODES,
   DIRECT_ACCESS_ALLOWLIST,
+  SCRIPT_ACCESS_ALLOWLIST,
   assertMigrationCompliance,
   buildBypassBaseline,
   compareFindingsToBaseline,
@@ -431,5 +627,6 @@ module.exports = {
   resetForTests,
   runtimeBypassSnapshot,
   scanBypassAccess,
+  scanScriptAccess,
   writeBypassBaseline,
 };

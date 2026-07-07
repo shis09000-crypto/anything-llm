@@ -1,16 +1,16 @@
 const {
   EventLogRepository: EventLogs,
 } = require("../../../repositories/eventLogRepository");
-const { Invite } = require("../../../models/invite");
 const { DataAccessCenter } = require("../../../utils/dataAccess");
-const { User } = require("../../../models/user");
+const Invite = DataAccessCenter.adminSystem.invite;
+const User = DataAccessCenter.adminSystem.user;
 const {
   WorkspaceRepository: Workspace,
 } = require("../../../repositories/workspaceRepository");
 const {
   WorkspaceChatRepository: WorkspaceChats,
 } = require("../../../repositories/workspaceChatRepository");
-const { WorkspaceUser } = require("../../../models/workspaceUsers");
+const WorkspaceUser = DataAccessCenter.adminSystem.workspaceUser;
 const { canModifyAdmin } = require("../../../utils/helpers/admin");
 const { ROLES, normalizeRole } = require("../../../utils/authz/accountRoles");
 const { multiUserMode, reqBody } = require("../../../utils/http");

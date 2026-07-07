@@ -13,6 +13,7 @@ const {
   resetForTests,
   runtimeBypassSnapshot,
   scanBypassAccess,
+  scanScriptAccess,
   writeBypassBaseline,
 } = require("../../utils/dataAccess/dataAccessMigrationGuard");
 
@@ -90,14 +91,21 @@ describe("dataAccessMigrationGuard", () => {
     writeBypassBaseline({ baselinePath, audit });
     expect(() => assertMigrationCompliance({ limit: Infinity })).not.toThrow();
 
-    const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
-    baseline.findings = [];
-    baseline.blocked = 0;
-    fs.writeFileSync(baselinePath, JSON.stringify(baseline, null, 2));
-
-    expect(() => assertMigrationCompliance({ limit: Infinity })).toThrow(
-      /new direct data access signatures/
+    const serverRoot = path.resolve(__dirname, "../..");
+    const fixtureRoot = `tmp-data-access-${Date.now()}`;
+    const fixtureDir = path.join(serverRoot, fixtureRoot);
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fixtureDir, "legacyEndpoint.js"),
+      'const { Workspace } = require("../models/workspace");\nmodule.exports = Workspace;\n'
     );
+    try {
+      expect(() =>
+        assertMigrationCompliance({ roots: [fixtureRoot], limit: Infinity })
+      ).toThrow(/new direct data access signatures/);
+    } finally {
+      fs.rmSync(fixtureDir, { recursive: true, force: true });
+    }
   });
 
   test("full enforce mode fails while historical bypasses remain", () => {
@@ -107,9 +115,34 @@ describe("dataAccessMigrationGuard", () => {
     process.env.DATA_ACCESS_MODE = "enforce";
     process.env.DATA_ACCESS_ENFORCE_FULL = "true";
 
-    writeBypassBaseline({ baselinePath });
-    expect(() => assertMigrationCompliance({ limit: Infinity })).toThrow(
-      /direct data access sites/
+    const serverRoot = path.resolve(__dirname, "../..");
+    const fixtureRoot = `tmp-data-access-full-${Date.now()}`;
+    const fixtureDir = path.join(serverRoot, fixtureRoot);
+    fs.mkdirSync(fixtureDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fixtureDir, "legacyEndpoint.js"),
+      'const prisma = require("../utils/prisma");\nmodule.exports = () => prisma.users.findMany();\n'
     );
+    try {
+      const audit = scanBypassAccess({
+        roots: [fixtureRoot],
+        limit: Infinity,
+      });
+      writeBypassBaseline({ baselinePath, audit });
+      expect(() =>
+        assertMigrationCompliance({ roots: [fixtureRoot], limit: Infinity })
+      ).toThrow(/direct data access sites/);
+    } finally {
+      fs.rmSync(fixtureDir, { recursive: true, force: true });
+    }
+  });
+
+  test("script access report classifies current maintenance scripts", () => {
+    const report = scanScriptAccess({ limit: Infinity });
+
+    expect(report.findingsCount).toBeGreaterThan(0);
+    expect(report.unclassified).toBe(0);
+    expect(report.byCategory.migration).toBeGreaterThan(0);
+    expect(report.byRisk["secret-write"]).toBeGreaterThan(0);
   });
 });

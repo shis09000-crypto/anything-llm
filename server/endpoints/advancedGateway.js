@@ -1,6 +1,4 @@
-const {
-  ExternalCommunicationConnector,
-} = require("../models/externalCommunicationConnector");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody, isValidUrl } = require("../utils/http");
@@ -20,6 +18,8 @@ const DEFAULT_CONFIG = {
   api_key: null,
   api_secret: null,
 };
+
+const ExternalCommunicationConnector = DataAccessCenter.externalCommunication;
 
 function encryptSecret(secret = null) {
   return saveSecret(secret);

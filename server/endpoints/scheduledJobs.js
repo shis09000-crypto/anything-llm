@@ -1,5 +1,4 @@
-const { ScheduledJob } = require("../models/scheduledJob");
-const { ScheduledJobRun } = require("../models/scheduledJobRun");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
 const { reqBody, safeJsonParse } = require("../utils/http");
@@ -7,6 +6,8 @@ const { BackgroundService } = require("../utils/BackgroundWorkers");
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
+const ScheduledJob = DataAccessCenter.scheduledJob.job;
+const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
 // BackgroundService is a singleton, so `new BackgroundService()` anywhere in
 // the codebase returns the same instance that `server/index.js` booted. We

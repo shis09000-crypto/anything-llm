@@ -1,5 +1,7 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
+
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
+const KnowledgeGraphDb = lazyDataAccessProperty("knowledgeGraph", "db");
 
 const CACHE_TTL_MS = 30_000;
 const REFRESH_COOLDOWN_MS = 30_000;
@@ -94,7 +96,7 @@ function freshnessFrom(timestamp) {
 
 async function optionalQuery(query, ...params) {
   try {
-    return await prisma.$queryRawUnsafe(query, ...params);
+    return await KnowledgeGraphDb.$queryRawUnsafe(query, ...params);
   } catch {
     return [];
   }

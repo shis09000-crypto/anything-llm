@@ -1,0 +1,135 @@
+{
+  "version": 1,
+  "description": "Athena P0 module boundary map. These boundaries preserve the current monolith runtime while making future Web/API/Reader Worker splits auditable.",
+  "modules": [
+    {
+      "id": "frontend-web",
+      "owner": "Web UI",
+      "paths": ["frontend/src/"],
+      "runtime": "browser",
+      "futureSplit": "web"
+    },
+    {
+      "id": "frontend-centers",
+      "owner": "Client runtime centers",
+      "paths": [
+        "frontend/src/utils/tasks/",
+        "frontend/src/utils/serverState/",
+        "frontend/src/utils/recovery/",
+        "frontend/src/utils/optimistic/",
+        "frontend/src/utils/navigationLifecycle/",
+        "frontend/src/lib/communication/"
+      ],
+      "runtime": "browser",
+      "futureSplit": "web"
+    },
+    {
+      "id": "reader-ui",
+      "owner": "Reader UI",
+      "paths": [
+        "frontend/src/components/WorkspaceChat/ChatContainer/DocumentReader/",
+        "frontend/src/models/readerDocument.js",
+        "frontend/src/models/readerLibrary.js",
+        "frontend/src/utils/chat/reader"
+      ],
+      "runtime": "browser",
+      "futureSplit": "web"
+    },
+    {
+      "id": "api-monolith",
+      "owner": "Backend API",
+      "paths": ["server/index.js", "server/endpoints/"],
+      "runtime": "node",
+      "futureSplit": "api"
+    },
+    {
+      "id": "data-access",
+      "owner": "Data Access Center",
+      "paths": ["server/utils/dataAccess/", "server/repositories/"],
+      "runtime": "node",
+      "futureSplit": "api"
+    },
+    {
+      "id": "storage-providers",
+      "owner": "Storage providers",
+      "paths": ["server/providers/"],
+      "runtime": "node",
+      "futureSplit": "api-worker-shared"
+    },
+    {
+      "id": "reader-backend",
+      "owner": "Reader API and processing",
+      "paths": [
+        "server/endpoints/workspaceReaderDocuments.js",
+        "server/endpoints/readerLibrary.js",
+        "server/services/readerLibraryService.js",
+        "server/models/readerDataAuthority.js",
+        "server/providers/readerDocumentStorageProvider.js"
+      ],
+      "runtime": "node",
+      "futureSplit": "reader-worker"
+    },
+    {
+      "id": "realtime",
+      "owner": "Realtime Broadcast Center",
+      "paths": ["server/utils/broadcast/", "server/utils/syncCenter/"],
+      "runtime": "node",
+      "futureSplit": "realtime-gateway"
+    },
+    {
+      "id": "developer-control",
+      "owner": "Developer Control Center",
+      "paths": ["server/endpoints/devControl.js", "server/utils/devControl/"],
+      "runtime": "node",
+      "futureSplit": "api"
+    },
+    {
+      "id": "collector",
+      "owner": "Collector",
+      "paths": ["collector/"],
+      "runtime": "node",
+      "futureSplit": "collector"
+    }
+  ],
+  "rules": [
+    {
+      "id": "frontend-cannot-import-server-or-collector",
+      "severity": "error",
+      "from": ["frontend/"],
+      "deny": ["server/", "collector/"],
+      "reason": "The Web bundle must remain deployable as a standalone static artifact."
+    },
+    {
+      "id": "collector-cannot-import-app-internals",
+      "severity": "error",
+      "from": ["collector/"],
+      "deny": ["frontend/", "server/endpoints/", "server/utils/dataAccess/"],
+      "reason": "Collector must stay independently deployable and communicate through API/file contracts."
+    },
+    {
+      "id": "data-access-cannot-depend-on-endpoints",
+      "severity": "error",
+      "from": ["server/utils/dataAccess/", "server/repositories/"],
+      "deny": ["server/endpoints/"],
+      "reason": "DataAccessCenter and repositories are below the API layer."
+    },
+    {
+      "id": "providers-cannot-depend-on-api-or-devcontrol",
+      "severity": "error",
+      "from": ["server/providers/"],
+      "deny": ["server/endpoints/", "server/utils/devControl/", "server/utils/broadcast/"],
+      "reason": "Storage providers must be reusable by API and future workers without reverse dependencies."
+    },
+    {
+      "id": "realtime-cannot-import-heavy-business-endpoints",
+      "severity": "warn",
+      "from": ["server/utils/broadcast/", "server/utils/syncCenter/"],
+      "deny": [
+        "server/endpoints/workspaceReaderDocuments.js",
+        "server/endpoints/chat.js",
+        "server/endpoints/cryptoCenter.js"
+      ],
+      "reason": "Broadcast should stay a small event center; data loading belongs to API + cache refresh."
+    }
+  ]
+}

@@ -52,6 +52,8 @@ jest.mock("../../repositories/eventLogRepository", () => ({
 }));
 jest.mock("../../utils/systemPatrol", () => mockSystemPatrol);
 jest.mock("../../utils/environment", () => ({
+  authDatabaseUrl: jest.fn(() => "file:/tmp/anythingllm/auth.db"),
+  databasePath: jest.fn(() => "/tmp/anythingllm/anythingllm.db"),
   diagnosticSummary: jest.fn(() => ({
     storageRoot: "/tmp/anythingllm",
     paths: { documents: "/tmp/anythingllm/documents" },

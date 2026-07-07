@@ -1,11 +1,13 @@
-const { Document } = require("../models/documents.js");
-const { DocumentSyncQueue } = require("../models/documentSyncQueue.js");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { CollectorApi } = require("../utils/collectorApi");
 const { fileData } = require("../utils/files");
 const { log, conclude, updateSourceDocument } = require("./helpers/index.js");
 const { getVectorDbClass } = require("../utils/helpers/index.js");
-const { DocumentSyncRun } = require("../models/documentSyncRun.js");
-const { DocumentIndexStatus } = require("../models/documentIndexStatus.js");
+
+const Document = DataAccessCenter.document;
+const DocumentSyncQueue = DataAccessCenter.documentSyncQueue;
+const DocumentSyncRun = DataAccessCenter.documentSyncRun;
+const DocumentIndexStatus = DataAccessCenter.documentIndexStatus;
 
 (async () => {
   try {

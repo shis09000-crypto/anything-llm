@@ -175,7 +175,8 @@ function outlookAgentEndpoints(app) {
     async (_request, response) => {
       try {
         const outlookLib = require("../../utils/agents/aibitat/plugins/outlook/lib");
-        const { SystemSettings } = require("../../models/systemSettings");
+        const { DataAccessCenter } = require("../../utils/dataAccess");
+        const SystemSettings = DataAccessCenter.adminSystem;
         await SystemSettings.delete({ label: "outlook_agent_config" });
         outlookLib.reset();
         return response.status(200).json({ success: true });

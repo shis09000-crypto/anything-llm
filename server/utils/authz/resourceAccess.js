@@ -1,28 +1,19 @@
 const crypto = require("crypto");
-const { AuthIdentity } = require("../../models/authIdentity");
-const { SystemSettings } = require("../../models/systemSettings");
-const { User } = require("../../models/user");
-const {
-  WorkspaceRepository: Workspace,
-} = require("../../repositories/workspaceRepository");
-const {
-  WorkspaceAgentInvocation,
-} = require("../../models/workspaceAgentInvocation");
-const {
-  WorkspaceChatRepository: WorkspaceChats,
-} = require("../../repositories/workspaceChatRepository");
-const {
-  WorkspaceParsedFileRepository: WorkspaceParsedFiles,
-} = require("../../repositories/workspaceParsedFileRepository");
-const {
-  WorkspaceThreadRepository: WorkspaceThread,
-} = require("../../repositories/workspaceThreadRepository");
+const { DataAccessCenter } = require("../dataAccess");
 const {
   codexDevAuthUser,
   isCodexDevAuthBypassEnabled,
 } = require("../codexDevAuthBypass");
 const { decodeJWT } = require("../http");
 const { jwtIdleState } = require("../sessionIdle");
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const SystemSettings = DataAccessCenter.adminSystem;
+const User = DataAccessCenter.authIdentity.shadowUser;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
+const WorkspaceParsedFiles = DataAccessCenter.workspaceParsedFile;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
 
 const FILE_OWNER_SCOPE_VERSION = 1;
 

@@ -1,5 +1,7 @@
-const { ApiKey } = require("../../models/apiKeys");
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
+
+const ApiKey = DataAccessCenter.adminSystem.apiKey;
+const SystemSettings = DataAccessCenter.adminSystem;
 
 async function validApiKey(request, response, next) {
   const multiUserMode = await SystemSettings.isMultiUserMode();

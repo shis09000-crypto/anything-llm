@@ -30,7 +30,10 @@ test("default workspace path falls back to overview thread", () => {
 });
 
 test("default workspace path keeps root when no threads exist", () => {
-  assert.equal(defaultWorkspacePath("workspace-a", []), "/workspace/workspace-a");
+  assert.equal(
+    defaultWorkspacePath("workspace-a", []),
+    "/workspace/workspace-a"
+  );
 });
 
 test("workspace entry path prefers a valid last visited thread", () => {
@@ -40,11 +43,7 @@ test("workspace entry path prefers a valid last visited thread", () => {
   ];
 
   assert.equal(
-    resolveWorkspaceEntryPath(
-      "workspace-a",
-      threads,
-      "last-visited-thread"
-    ),
+    resolveWorkspaceEntryPath("workspace-a", threads, "last-visited-thread"),
     "/workspace/workspace-a/t/last-visited-thread"
   );
 });

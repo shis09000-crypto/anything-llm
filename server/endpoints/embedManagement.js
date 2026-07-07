@@ -1,8 +1,7 @@
-const { EmbedChats } = require("../models/embedChats");
-const { EmbedConfig } = require("../models/embedConfig");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody, userFromSession } = require("../utils/http");
 const { validEmbedConfigId } = require("../utils/middleware/embedMiddleware");
 const {
@@ -13,6 +12,9 @@ const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const {
   chatHistoryViewable,
 } = require("../utils/middleware/chatHistoryViewable");
+
+const EmbedChats = DataAccessCenter.embedChat;
+const EmbedConfig = DataAccessCenter.embedConfig;
 
 function embedManagementEndpoints(app) {
   if (!app) return;

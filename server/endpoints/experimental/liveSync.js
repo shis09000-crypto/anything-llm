@@ -1,11 +1,7 @@
-const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
-const {
-  DocumentRepository: Document,
-} = require("../../repositories/documentRepository");
 const {
   EventLogRepository: EventLogs,
 } = require("../../repositories/eventLogRepository");
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../../utils/dataAccess");
 const {
   TelemetryRepository: Telemetry,
 } = require("../../repositories/telemetryRepository");
@@ -19,6 +15,10 @@ const {
 } = require("../../utils/middleware/multiUserProtected");
 const { validWorkspaceSlug } = require("../../utils/middleware/validWorkspace");
 const { validatedRequest } = require("../../utils/middleware/validatedRequest");
+
+const DocumentSyncQueue = DataAccessCenter.documentSyncQueue;
+const Document = DataAccessCenter.document;
+const SystemSettings = DataAccessCenter.adminSystem;
 
 function liveSyncEndpoints(app) {
   if (!app) return;

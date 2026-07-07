@@ -320,7 +320,12 @@ function ShowWorkspaceChat() {
             dedupeKey: `workspace-detail-extras:${slug}`,
           }
         )
-        .then(([suggestedMessages, { showAgentCommand } = {}] = []) => {
+        .then((extras = []) => {
+          const [suggestedMessages, { showAgentCommand } = {}] = Array.isArray(
+            extras
+          )
+            ? extras
+            : [];
           if (!isCurrent()) return;
           setWorkspace((current) => {
             if (current?.slug !== slug) return current;

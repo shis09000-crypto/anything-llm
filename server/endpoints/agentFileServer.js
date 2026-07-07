@@ -14,12 +14,13 @@ const {
 const {
   WorkspaceRepository: Workspace,
 } = require("../repositories/workspaceRepository");
-const { ScheduledJobRun } = require("../models/scheduledJobRun");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const createFilesLib = require("../utils/agents/aibitat/plugins/create-files/lib");
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
 const { getAuthorizedWorkspace } = require("../utils/authz/resourceAccess");
+const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
 /**
  * Endpoints for serving agent-generated files (PPTX, etc.) with authentication

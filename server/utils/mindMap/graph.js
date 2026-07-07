@@ -1,5 +1,4 @@
-const prisma = require("../prisma");
-const { KnowledgeGraph } = require("../../models/knowledgeGraph");
+const { lazyDataAccessProperty } = require("../dataAccess/lazyFacade");
 const {
   relatedConcepts,
   boundedTraversalOptions,
@@ -13,6 +12,9 @@ const {
   enqueueChineseNodeBackfill,
 } = require("../knowledgeGraph/chineseBackfill");
 const { buildNodeKey } = require("../knowledgeGraph/nodeKey");
+
+const KnowledgeGraph = lazyDataAccessProperty("knowledgeGraph", "model");
+const KnowledgeGraphDb = lazyDataAccessProperty("knowledgeGraph", "db");
 
 const GRAPH_THEME = "napkin";
 const DEFAULT_GRAPH_LAYOUT = "tree";
@@ -89,7 +91,7 @@ function nodeDisplayName(node = {}) {
 
 async function fullNodesById({ workspaceId, nodeIds = [] }) {
   if (!nodeIds.length) return new Map();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await KnowledgeGraphDb.$queryRawUnsafe(
     `SELECT "id", "canonicalName", "canonicalKey", "aliases", "entityType",
       "displayNameZh", "displayNameEn", "summary", "globalImportanceScore",
       "workspaceImportanceScore", "recentImportanceScore"
@@ -140,7 +142,7 @@ function normalizeGraphAliases(aliases = []) {
 
 async function nodeEvidenceCounts({ workspaceId, nodeIds = [] }) {
   if (!nodeIds.length) return new Map();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await KnowledgeGraphDb.$queryRawUnsafe(
     `SELECT nodeId, COUNT(*) AS count FROM (
       SELECT e."sourceNodeId" AS nodeId, ev."id" AS evidenceId
       FROM "KnowledgeEdge" e
@@ -168,7 +170,7 @@ async function nodeEvidenceCounts({ workspaceId, nodeIds = [] }) {
 
 async function edgeEvidenceStats({ workspaceId, edgeIds = [] }) {
   if (!edgeIds.length) return new Map();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await KnowledgeGraphDb.$queryRawUnsafe(
     `SELECT "edgeId",
       COUNT(*) AS evidenceCount,
       COUNT(DISTINCT "documentId") AS documentCount,
@@ -197,7 +199,7 @@ async function edgeEvidenceStats({ workspaceId, edgeIds = [] }) {
 
 async function topChunksByNode({ workspaceId, nodeIds = [] }) {
   if (!nodeIds.length) return new Map();
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await KnowledgeGraphDb.$queryRawUnsafe(
     `SELECT c."nodeId", c."chunkId", c."documentId", c."relevanceScore",
       d."filename", d."docpath"
     FROM "ConceptChunkMap" c

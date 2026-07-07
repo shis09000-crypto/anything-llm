@@ -1,6 +1,7 @@
-const prisma = require("../utils/prisma");
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const AuthIdentityDb = DataAccessCenter.authIdentity.localDb;
+const SystemSettings = DataAccessCenter.adminSystem;
 
 const TRUSTED_DEVICE_UNAVAILABLE = "可信设备快速登录将在后续版本开放。";
 
@@ -15,7 +16,7 @@ function authTrustedDeviceEndpoints(app) {
         }
 
         const user = response.locals.user;
-        const devices = await prisma.trustedLoginDevice.findMany({
+        const devices = await AuthIdentityDb.trustedLoginDevice.findMany({
           where: {
             userId: user.id,
             revokedAt: null,

@@ -1,13 +1,22 @@
-const path = require("path");
-const fs = require("fs");
 const { getType } = require("mime");
-const { User } = require("../../models/user");
-const { normalizePath, isWithin } = require(".");
-const { Workspace } = require("../../models/workspace");
+const {
+  FileStorageProvider,
+} = require("../../providers/storage/fileStorageProvider");
+const { DataAccessCenter } = require("../dataAccess");
 const { storagePath } = require("../environment");
 
+const User = DataAccessCenter.user;
+const Workspace = DataAccessCenter.workspace;
+
 function fetchPfp(pfpPath) {
-  if (!fs.existsSync(pfpPath)) {
+  let exists = false;
+  try {
+    exists = !!pfpPath && FileStorageProvider.existsPath(pfpPath);
+  } catch {
+    exists = false;
+  }
+
+  if (!exists) {
     return {
       found: false,
       buffer: null,
@@ -17,7 +26,7 @@ function fetchPfp(pfpPath) {
   }
 
   const mime = getType(pfpPath);
-  const buffer = fs.readFileSync(pfpPath);
+  const buffer = FileStorageProvider.readFilePath(pfpPath);
   return {
     found: true,
     buffer,
@@ -33,10 +42,15 @@ async function determinePfpFilepath(id) {
   if (!pfpFilename) return null;
 
   const basePath = storagePath("assets", "pfp");
-  const pfpFilepath = path.join(basePath, normalizePath(pfpFilename));
-
-  if (!isWithin(path.resolve(basePath), path.resolve(pfpFilepath))) return null;
-  if (!fs.existsSync(pfpFilepath)) return null;
+  let pfpFilepath = null;
+  try {
+    pfpFilepath = FileStorageProvider.resolvePath(pfpFilename, {
+      base: basePath,
+    });
+  } catch {
+    return null;
+  }
+  if (!FileStorageProvider.existsPath(pfpFilepath)) return null;
   return pfpFilepath;
 }
 
@@ -46,10 +60,15 @@ async function determineWorkspacePfpFilepath(slug) {
   if (!pfpFilename) return null;
 
   const basePath = storagePath("assets", "pfp");
-  const pfpFilepath = path.join(basePath, normalizePath(pfpFilename));
-
-  if (!isWithin(path.resolve(basePath), path.resolve(pfpFilepath))) return null;
-  if (!fs.existsSync(pfpFilepath)) return null;
+  let pfpFilepath = null;
+  try {
+    pfpFilepath = FileStorageProvider.resolvePath(pfpFilename, {
+      base: basePath,
+    });
+  } catch {
+    return null;
+  }
+  if (!FileStorageProvider.existsPath(pfpFilepath)) return null;
   return pfpFilepath;
 }
 

@@ -3,8 +3,8 @@ const { reqBody, multiUserMode } = require("../../utils/http");
 const {
   TelemetryRepository: Telemetry,
 } = require("../../repositories/telemetryRepository");
+const { DataAccessCenter } = require("../../utils/dataAccess");
 const { streamChatWithForEmbed } = require("../../utils/chats/embed");
-const { EmbedChats } = require("../../models/embedChats");
 const {
   validEmbedConfig,
   canRespond,
@@ -17,6 +17,8 @@ const {
 const {
   setSseTransportHeaders,
 } = require("../../utils/security/transportSecurity");
+
+const EmbedChats = DataAccessCenter.embedChat;
 
 function embeddedEndpoints(app) {
   if (!app) return;

@@ -4,6 +4,7 @@ const path = require("path");
 
 const {
   assertMigrationCompliance,
+  scanScriptAccess,
   scanBypassAccess,
   writeBypassBaseline,
 } = require("../utils/dataAccess/dataAccessMigrationGuard");
@@ -11,6 +12,7 @@ const {
 function printUsage() {
   console.log(`Usage:
   node scripts/data-access-bypass-check.js [--update-baseline]
+  node scripts/data-access-bypass-check.js --scripts-report [--unclassified-only]
 
 Environment:
   DATA_ACCESS_MODE=observe|warn|enforce
@@ -38,6 +40,43 @@ function main() {
   const args = new Set(process.argv.slice(2));
   if (args.has("--help") || args.has("-h")) {
     printUsage();
+    return;
+  }
+
+  if (args.has("--scripts-report")) {
+    const report = scanScriptAccess({
+      includeClassified: !args.has("--unclassified-only"),
+      limit: Infinity,
+    });
+    console.log(
+      JSON.stringify(
+        {
+          ok: report.unclassified === 0,
+          type: "scripts-report",
+          scannedFiles: report.scannedFiles,
+          findingsCount: report.findingsCount,
+          classified: report.classified,
+          unclassified: report.unclassified,
+          byCategory: report.byCategory,
+          byRisk: report.byRisk,
+          byDomain: report.byDomain,
+          findings: report.findings.map((finding) => ({
+            file: finding.file,
+            line: finding.line,
+            type: finding.type,
+            domain: finding.domain,
+            category: finding.scriptCategory,
+            risk: finding.scriptRisk,
+            reason: finding.scriptReason,
+            recommendedAction: finding.recommendedAction,
+            classified: finding.scriptAllowed,
+          })),
+        },
+        null,
+        2
+      )
+    );
+    if (report.unclassified > 0) process.exitCode = 1;
     return;
   }
 

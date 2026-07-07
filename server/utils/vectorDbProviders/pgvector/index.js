@@ -5,12 +5,15 @@ const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { appEnvironment } = require("../../environment");
+const { DataAccessCenter } = require("../../dataAccess");
 const {
   decryptVectorMetadataText,
   decryptVectorText,
   encryptVectorMetadataText,
   encryptVectorText,
 } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 /*
  Embedding Table Schema (table name defined by user)
@@ -607,7 +610,6 @@ class PGVector extends VectorDatabase {
       // We have to do this manually as opposed to using LangChains `xyz.fromDocuments`
       // because we then cannot atomically control our namespace to granularly find/remove documents
       // from vectordb.
-      const { SystemSettings } = require("../../../models/systemSettings");
       const EmbedderEngine = getEmbeddingEngineSelection();
       const textSplitter = new TextSplitter({
         chunkSize: TextSplitter.determineMaxChunkSize(

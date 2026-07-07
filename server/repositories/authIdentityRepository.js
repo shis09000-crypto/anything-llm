@@ -1,5 +1,6 @@
 const { AuthIdentity } = require("../models/authIdentity");
 const { User } = require("../models/user");
+const prisma = require("../utils/prisma");
 const { appEnvironment } = require("../utils/environment");
 const {
   normalizeAllowedEnvs,
@@ -71,6 +72,29 @@ function compactShadowUser(user = null) {
 const AuthIdentityRepository = {
   dataDomain: "auth-identity",
   repositoryName: "AuthIdentityRepository",
+
+  get model() {
+    return AuthIdentity;
+  },
+
+  get shadowUser() {
+    return User;
+  },
+
+  get localDb() {
+    return {
+      systemSettings: {
+        findFirst: (options) => prisma.system_settings.findFirst(options),
+        upsert: (options) => prisma.system_settings.upsert(options),
+      },
+      users: {
+        findUnique: (options) => prisma.users.findUnique(options),
+      },
+      trustedLoginDevice: {
+        findMany: (options) => prisma.trustedLoginDevice.findMany(options),
+      },
+    };
+  },
 
   describeSyncPolicy() {
     return {

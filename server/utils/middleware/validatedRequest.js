@@ -1,10 +1,8 @@
-const { SystemSettings } = require("../../models/systemSettings");
-const { User } = require("../../models/user");
 const { EncryptionManager } = require("../EncryptionManager");
 const { decodeJWT } = require("../http");
 const { applyCodexDevAuthBypass } = require("../codexDevAuthBypass");
 const { jwtIdleState, sessionClientIdFromToken } = require("../sessionIdle");
-const { AuthIdentity } = require("../../models/authIdentity");
+const { DataAccessCenter } = require("../dataAccess");
 const {
   attachAuthenticatedClientContext,
   getClientRecord,
@@ -13,6 +11,9 @@ const {
   CLIENT_REVOKED_ERROR,
   requireSignedHighRiskRequest,
 } = require("../requestSigning");
+const SystemSettings = DataAccessCenter.adminSystem;
+const AuthIdentity = DataAccessCenter.authIdentity.model;
+const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
 
 async function validatedRequest(request, response, next) {

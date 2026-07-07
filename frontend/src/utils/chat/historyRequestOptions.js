@@ -52,7 +52,10 @@ function detectionWindow(windowLike = null, navigatorLike = null) {
   };
 }
 
-export function navigatorReportsMobile(navigatorLike = null, windowLike = null) {
+export function navigatorReportsMobile(
+  navigatorLike = null,
+  windowLike = null
+) {
   const targetNavigator = safeNavigator(navigatorLike);
   if (!targetNavigator) return false;
   const win = detectionWindow(windowLike, targetNavigator);

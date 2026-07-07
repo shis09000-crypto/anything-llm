@@ -115,6 +115,7 @@ const READER_CLOSE_SUPPRESSION_MS = 1_200;
 const READER_VISIBLE_THUMBNAIL_COUNT = 6;
 const READER_DEV_CONTROL_EVENT = "athena-dev-control-reader-command";
 const READER_DEV_CONTROL_RESULT_EVENT = "athena-dev-control-reader-result";
+const READER_DEBUG_ACCESS_HEADER = "X-Athena-Reader-Debug-Grant";
 const READER_DEV_CONTROL_ALLOWED_COMMANDS = new Set([
   "reader.ui.openDrawer",
   "reader.ui.openDocument",
@@ -268,6 +269,12 @@ function readerDevPage(params = {}) {
   const raw = params.page || params.currentPage || params.pageNumber;
   const page = Math.max(1, Math.round(Number(raw) || 0));
   return Number.isFinite(page) && page > 0 ? page : null;
+}
+
+function readerDevDebugGrantHeaders(params = {}) {
+  const debugGrantId =
+    params.debugGrantId || params.readerDebugGrantId || params.grantId || null;
+  return debugGrantId ? { [READER_DEBUG_ACCESS_HEADER]: debugGrantId } : null;
 }
 
 function readerDevJumpSource(document = {}, page = null, params = {}) {
@@ -1855,6 +1862,7 @@ export function DocumentReaderProvider({
       const previewLabel = readerPdfPreviewLabel(content.documentType);
       const previewWorkspaceSlug =
         progressItem?.readerDocumentWorkspaceSlug || workspace?.slug || null;
+      const readerDebugHeaders = options.readerDebugHeaders || null;
 
       const loadPdfPreviewData = async (previewPdfUrl) => {
         if (!previewPdfUrl) return false;
@@ -1862,6 +1870,7 @@ export function DocumentReaderProvider({
           const { response: previewResponse, data: previewBytes } =
             await ReaderDocument.previewData(previewPdfUrl, {
               signal: openContext.signal,
+              headers: readerDebugHeaders,
               task: readerOpenTask(
                 "reader:preview-data",
                 previewWorkspaceSlug,
@@ -2047,6 +2056,7 @@ export function DocumentReaderProvider({
           const { response: blobResponse, blob } =
             await ReaderDocument.originalBlob(data.metadata.originalUrl, {
               signal: openContext.signal,
+              headers: readerDebugHeaders,
               task: readerOpenTask(
                 "reader:original-blob",
                 previewWorkspaceSlug,
@@ -2089,6 +2099,7 @@ export function DocumentReaderProvider({
         content: parsedContent,
         objectUrl,
         pdfData,
+        pdfHeaders: readerDebugHeaders,
         initialTargetSource: historyItem?.initialTargetSource || null,
         localPath: data.metadata.localPath || progressItem?.localPath || null,
         progress: normalizedReaderProgress(progressItem?.progress),
@@ -4366,6 +4377,7 @@ export function DocumentReaderProvider({
           const opened = await openReaderDocument(readerDocumentId, item, {
             returnStatus: true,
             suppressTerminalToast: true,
+            readerDebugHeaders: readerDevDebugGrantHeaders(params),
           });
           if (!opened?.ok) {
             return respond({

@@ -1,4 +1,6 @@
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 /**
  * Checks if simple SSO is enabled for issuance of temporary auth tokens.

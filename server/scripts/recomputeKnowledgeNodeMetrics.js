@@ -23,8 +23,9 @@ function parseArgs(argv = []) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const { Workspace } = require("../models/workspace");
-  const { KnowledgeGraph } = require("../models/knowledgeGraph");
+  const { DataAccessCenter } = require("../utils/dataAccess");
+  const Workspace = DataAccessCenter.workspace;
+  const KnowledgeGraph = DataAccessCenter.knowledgeGraph.model;
   const {
     recomputeNodeMetrics,
     recomputeStaleNodeMetrics,

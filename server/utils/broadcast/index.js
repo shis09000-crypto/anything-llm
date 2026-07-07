@@ -53,12 +53,13 @@ function compactString(value, maxLength = 512) {
 }
 
 function splitEventType(event = {}) {
-  if (event.type && String(event.type).includes(".")) {
+  const namespace = String(event.namespace || "").trim();
+  const type = String(event.type || "").trim();
+  if (namespace && type) return { namespace, type };
+  if (type && type.includes(".")) {
     const [namespace, ...rest] = String(event.type).split(".");
     return { namespace, type: rest.join(".") };
   }
-  const namespace = String(event.namespace || "").trim();
-  const type = String(event.type || "").trim();
   return { namespace, type };
 }
 
@@ -104,7 +105,9 @@ function normalizeScope(scope = {}) {
     userId: normalizeNumber(source.userId),
     workspaceId: normalizeNumber(source.workspaceId),
     threadId: normalizeNumber(source.threadId),
-    ...(source.workspaceSlug ? { workspaceSlug: String(source.workspaceSlug) } : {}),
+    ...(source.workspaceSlug
+      ? { workspaceSlug: String(source.workspaceSlug) }
+      : {}),
     ...(source.threadSlug ? { threadSlug: String(source.threadSlug) } : {}),
     ...(source.readerDocumentId
       ? { readerDocumentId: String(source.readerDocumentId) }
@@ -146,7 +149,8 @@ function redactPayload(value, depth = 0) {
   if (value === null || value === undefined) return value;
   if (typeof value === "string") return compactString(value);
   if (typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.slice(0, 20).map((item) => redactPayload(item, depth + 1));
+  if (Array.isArray(value))
+    return value.slice(0, 20).map((item) => redactPayload(item, depth + 1));
 
   return Object.fromEntries(
     Object.entries(value)
@@ -211,10 +215,16 @@ function normalizeBroadcastEvent(event = {}) {
       event.sourceClientId || event.origin?.clientId || event.clientId || null,
     sourceActionId: event.sourceActionId || event.origin?.actionId || null,
     sourceRequestId:
-      event.sourceRequestId || event.origin?.requestId || event.requestId || null,
+      event.sourceRequestId ||
+      event.origin?.requestId ||
+      event.requestId ||
+      null,
     origin: {
       clientId:
-        event.sourceClientId || event.origin?.clientId || event.clientId || null,
+        event.sourceClientId ||
+        event.origin?.clientId ||
+        event.clientId ||
+        null,
       requestId:
         event.sourceRequestId ||
         event.origin?.requestId ||
@@ -246,7 +256,8 @@ function legacyShape(event = {}) {
 function mergeEvents(previous, next) {
   const previousRank = PRIORITY_RANK[previous.eventPriority] ?? 1;
   const nextRank = PRIORITY_RANK[next.eventPriority] ?? 1;
-  const highestPriority = nextRank < previousRank ? next.eventPriority : previous.eventPriority;
+  const highestPriority =
+    nextRank < previousRank ? next.eventPriority : previous.eventPriority;
   const previousVersion = Number(previous.version || 0);
   const nextVersion = Number(next.version || 0);
   const winner = nextVersion >= previousVersion ? next : previous;
@@ -259,10 +270,9 @@ function mergeEvents(previous, next) {
       ...(next.payload || {}),
     },
     version: Math.max(previousVersion, nextVersion),
-    revision: Math.max(
-      Number(previous.revision || 0),
-      Number(next.revision || 0)
-    ) || null,
+    revision:
+      Math.max(Number(previous.revision || 0), Number(next.revision || 0)) ||
+      null,
     createdAt: next.createdAt || previous.createdAt,
     coalescedCount: (previous.coalescedCount || 0) + 1,
   };
@@ -334,7 +344,9 @@ function defaultSubscriptions(connection = {}) {
 function userCanSeeEvent(event = {}, connection = {}) {
   if (event.visibility === "client") {
     const targetClientId = event.scope?.clientId || event.payload?.clientId;
-    return !!targetClientId && String(targetClientId) === String(connection.clientId);
+    return (
+      !!targetClientId && String(targetClientId) === String(connection.clientId)
+    );
   }
   const eventUserId = normalizeNumber(event.scope?.userId);
   const connectionUserId = normalizeNumber(connection.userId);
@@ -410,7 +422,10 @@ function subscribeToBroadcastEvents(handler) {
   return () => broadcastEvents.off(BROADCAST_EVENT, handler);
 }
 
-function syncRequiredEvent({ userId = null, reason = "replay-window-missed" } = {}) {
+function syncRequiredEvent({
+  userId = null,
+  reason = "replay-window-missed",
+} = {}) {
   counters.syncRequired += 1;
   return normalizeBroadcastEvent({
     namespace: "sync",

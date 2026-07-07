@@ -3,6 +3,11 @@ const os = require("os");
 const path = require("path");
 
 let tempRoot;
+let tempBase;
+let previousStorageBase;
+let previousStorageDir;
+let previousStorageApplied;
+let previousAppEnv;
 
 const mockReader = {
   assertReaderDocumentId: jest.fn((id) => id),
@@ -37,7 +42,16 @@ const {
 
 describe("ReaderDocumentStorageProvider", () => {
   beforeEach(() => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "reader-provider-"));
+    previousStorageBase = process.env.ANYTHINGLLM_STORAGE_BASE_DIR;
+    previousStorageDir = process.env.STORAGE_DIR;
+    previousStorageApplied = process.env.ANYTHINGLLM_ENV_STORAGE_APPLIED;
+    previousAppEnv = process.env.APP_ENV;
+    tempBase = fs.mkdtempSync(path.join(os.tmpdir(), "reader-provider-"));
+    tempRoot = path.join(tempBase, "development");
+    process.env.ANYTHINGLLM_STORAGE_BASE_DIR = tempBase;
+    process.env.APP_ENV = "development";
+    delete process.env.ANYTHINGLLM_ENV_STORAGE_APPLIED;
+    fs.mkdirSync(tempRoot, { recursive: true });
     fs.writeFileSync(path.join(tempRoot, "original.docx"), "docx");
     fs.writeFileSync(path.join(tempRoot, "preview.pdf"), "pdf");
     fs.writeFileSync(path.join(tempRoot, "thumbnail.jpg"), "jpg");
@@ -45,7 +59,17 @@ describe("ReaderDocumentStorageProvider", () => {
   });
 
   afterEach(() => {
-    fs.rmSync(tempRoot, { recursive: true, force: true });
+    fs.rmSync(tempBase, { recursive: true, force: true });
+    if (previousStorageBase === undefined)
+      delete process.env.ANYTHINGLLM_STORAGE_BASE_DIR;
+    else process.env.ANYTHINGLLM_STORAGE_BASE_DIR = previousStorageBase;
+    if (previousStorageDir === undefined) delete process.env.STORAGE_DIR;
+    else process.env.STORAGE_DIR = previousStorageDir;
+    if (previousStorageApplied === undefined)
+      delete process.env.ANYTHINGLLM_ENV_STORAGE_APPLIED;
+    else process.env.ANYTHINGLLM_ENV_STORAGE_APPLIED = previousStorageApplied;
+    if (previousAppEnv === undefined) delete process.env.APP_ENV;
+    else process.env.APP_ENV = previousAppEnv;
   });
 
   test("returns a redacted reader storage status", () => {

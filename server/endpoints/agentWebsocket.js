@@ -1,9 +1,7 @@
 const {
   TelemetryRepository: Telemetry,
 } = require("../repositories/telemetryRepository");
-const {
-  WorkspaceAgentInvocation,
-} = require("../models/workspaceAgentInvocation");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { AgentHandler } = require("../utils/agents");
 const {
   WEBSOCKET_BAIL_COMMANDS,
@@ -33,6 +31,7 @@ const {
   verifySignedWebSocketMessage,
 } = require("../utils/requestSigning");
 
+const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
 const activeAgentSessions = new Map();
 
 function agentSilencePolicy(provider = null, model = null) {

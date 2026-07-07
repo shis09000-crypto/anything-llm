@@ -29,21 +29,30 @@ const repositoryLoaders = {
     require("../../repositories/accountDeletionRepository"),
   authIdentity: () => require("../../repositories/authIdentityRepository"),
   clientIdentity: () => require("../../repositories/clientIdentityRepository"),
+  communityHub: () => require("../../repositories/communityHubRepository"),
   crypto: () => require("../../repositories/cryptoRepository"),
   document: () => require("../../repositories/documentRepository"),
   documentEmbeddingBatch: () =>
     require("../../repositories/documentEmbeddingBatchRepository"),
+  embedConfig: () => require("../../repositories/embedConfigRepository"),
   documentIndexStatus: () =>
     require("../../repositories/documentIndexStatusRepository"),
+  documentSyncQueue: () =>
+    require("../../repositories/documentSyncQueueRepository"),
+  documentSyncRun: () =>
+    require("../../repositories/documentSyncRunRepository"),
   documentVector: () => require("../../repositories/documentVectorRepository"),
   embedChat: () => require("../../repositories/embedChatRepository"),
   eventLog: () => require("../../repositories/eventLogRepository"),
   externalCommunication: () =>
     require("../../repositories/externalCommunicationRepository"),
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
+  mobile: () => require("../../repositories/mobileRepository"),
+  nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
   quiz: () => require("../../repositories/quizRepository"),
   readerLibrary: () => require("../../repositories/readerLibraryRepository"),
   requestSigning: () => require("../../repositories/requestSigningRepository"),
+  scheduledJob: () => require("../../repositories/scheduledJobRepository"),
   sensitiveData: () => require("../../repositories/sensitiveDataRepository"),
   slashCommandPreset: () =>
     require("../../repositories/slashCommandPresetRepository"),
@@ -54,16 +63,26 @@ const repositoryLoaders = {
   user: () => require("../../repositories/userRepository"),
   userMemory: () => require("../../repositories/userMemoryRepository"),
   userState: () => require("../../repositories/userStateRepository"),
+  wechatGatewayThread: () =>
+    require("../../repositories/wechatGatewayThreadRepository"),
   workspace: () => require("../../repositories/workspaceRepository"),
   workspaceAgentInvocation: () =>
     require("../../repositories/workspaceAgentInvocationRepository"),
   workspaceChat: () => require("../../repositories/workspaceChatRepository"),
   workspaceChatCompaction: () =>
     require("../../repositories/workspaceChatCompactionRepository"),
+  workspaceMindMap: () =>
+    require("../../repositories/workspaceMindMapRepository"),
   workspaceOverview: () =>
     require("../../repositories/workspaceOverviewRepository"),
   workspaceParsedFile: () =>
     require("../../repositories/workspaceParsedFileRepository"),
+  workspaceSuggestedMessage: () =>
+    require("../../repositories/workspaceSuggestedMessageRepository"),
+  workspaceSupplement: () =>
+    require("../../repositories/workspaceSupplementRepository"),
+  workspaceVisualAsset: () =>
+    require("../../repositories/workspaceVisualAssetRepository"),
   workspaceThread: () =>
     require("../../repositories/workspaceThreadRepository"),
   vault: () => require("../../repositories/vaultRepository"),
@@ -75,18 +94,25 @@ const repositoryExports = {
   accountDeletion: "AccountDeletionRepository",
   authIdentity: "AuthIdentityRepository",
   clientIdentity: "ClientIdentityRepository",
+  communityHub: "CommunityHubRepository",
   crypto: "CryptoRepository",
   document: "DocumentRepository",
   documentEmbeddingBatch: "DocumentEmbeddingBatchRepository",
+  embedConfig: "EmbedConfigRepository",
   documentIndexStatus: "DocumentIndexStatusRepository",
+  documentSyncQueue: "DocumentSyncQueueRepository",
+  documentSyncRun: "DocumentSyncRunRepository",
   documentVector: "DocumentVectorRepository",
   embedChat: "EmbedChatRepository",
   eventLog: "EventLogRepository",
   externalCommunication: "ExternalCommunicationRepository",
   knowledgeGraph: "KnowledgeGraphRepository",
+  mobile: "MobileRepository",
+  nodeSupplement: "NodeSupplementRepository",
   quiz: "QuizRepository",
   readerLibrary: "ReaderLibraryRepository",
   requestSigning: "RequestSigningRepository",
+  scheduledJob: "ScheduledJobRepository",
   sensitiveData: "SensitiveDataRepository",
   slashCommandPreset: "SlashCommandPresetRepository",
   systemPromptVariable: "SystemPromptVariableRepository",
@@ -95,12 +121,17 @@ const repositoryExports = {
   user: "UserRepository",
   userMemory: "UserMemoryRepository",
   userState: "UserStateRepository",
+  wechatGatewayThread: "WeChatGatewayThreadRepository",
   workspace: "WorkspaceRepository",
   workspaceAgentInvocation: "WorkspaceAgentInvocationRepository",
   workspaceChat: "WorkspaceChatRepository",
   workspaceChatCompaction: "WorkspaceChatCompactionRepository",
+  workspaceMindMap: "WorkspaceMindMapRepository",
   workspaceOverview: "WorkspaceOverviewRepository",
   workspaceParsedFile: "WorkspaceParsedFileRepository",
+  workspaceSuggestedMessage: "WorkspaceSuggestedMessageRepository",
+  workspaceSupplement: "WorkspaceSupplementRepository",
+  workspaceVisualAsset: "WorkspaceVisualAssetRepository",
   workspaceThread: "WorkspaceThreadRepository",
   vault: "VaultRepository",
 };
@@ -391,6 +422,27 @@ function documentIndexStatusScopeFromArgs(method, args = []) {
   return clauseScope(args[0]);
 }
 
+function documentSyncQueueScopeFromArgs(method, args = []) {
+  if (method === "watch" || method === "unwatch") {
+    return { workspaceDocId: args[0]?.id, filename: args[0]?.filename };
+  }
+  if (method === "_update") return { queueId: args[0] };
+  if (method === "saveRun") return { queueId: args[0], status: args[1] };
+  if (method === "toggleWatchStatus") {
+    return {
+      workspaceDocId: args[0]?.id,
+      filename: args[0]?.filename,
+      watchStatus: args[1],
+    };
+  }
+  return clauseScope(args[0]);
+}
+
+function documentSyncRunScopeFromArgs(method, args = []) {
+  if (method === "save") return { queueId: args[0], status: args[1] };
+  return clauseScope(args[0]);
+}
+
 function parsedFileScopeFromArgs(method, args = []) {
   if (method === "moveToDocumentsAndEmbed") {
     return {
@@ -493,8 +545,104 @@ function embedChatScopeFromArgs(method, args = []) {
   return clauseScope(args[0]);
 }
 
+function embedConfigScopeFromArgs(method, args = []) {
+  if (method === "new") {
+    return { workspaceId: args[0]?.workspace_id, creatorId: args[1] };
+  }
+  if (method === "update") return { embedId: args[0] };
+  return clauseScope(args[0]);
+}
+
+function communityHubScopeFromArgs(method, args = []) {
+  if (method === "validateImportId" || method === "getBundleItem") {
+    return { importId: args[0] };
+  }
+  if (method === "applyItem") {
+    return {
+      itemType: args[0]?.itemType,
+      workspaceSlug: args[1]?.workspaceSlug,
+      userId: args[1]?.currentUser?.id,
+    };
+  }
+  if (method === "importBundleItem") {
+    return { itemType: args[0]?.item?.itemType };
+  }
+  if (method === "fetchUserItems") {
+    return { hasConnectionKey: Boolean(args[0]) };
+  }
+  if (method === "createStaticItem") {
+    return { itemType: args[0], hasConnectionKey: Boolean(args[2]) };
+  }
+  return { operation: method };
+}
+
 function externalCommunicationScopeFromArgs(method, args = []) {
   return { type: args[0], operation: method };
+}
+
+function wechatGatewayThreadScopeFromArgs(method, args = []) {
+  if (method === "getByWxid") return { wxid: args[0] };
+  if (method === "getByThreadSlug") return { threadSlug: args[0] };
+  if (method === "upsert") {
+    const options = args[0] || {};
+    return {
+      wxid: options.wxid,
+      workspaceSlug: options.workspaceSlug,
+      threadSlug: options.threadSlug,
+    };
+  }
+  return { operation: method };
+}
+
+function workspaceMindMapScopeFromArgs(method, args = []) {
+  if (method === "findCached") {
+    const options = args[0] || {};
+    return {
+      workspaceId: options.workspaceId,
+      userId: options.user?.id,
+      sourceHash: options.sourceHash,
+    };
+  }
+  if (method === "create") {
+    const data = args[0] || {};
+    return {
+      workspaceId: data.workspaceId,
+      userId: data.user?.id,
+      threadId: data.threadId,
+      sourceHash: data.sourceHash,
+    };
+  }
+  if (method === "updateViewport") {
+    const options = args[0] || {};
+    return {
+      id: options.id,
+      workspaceId: options.workspaceId,
+      userId: options.user?.id,
+    };
+  }
+  return clauseScope(args[0]);
+}
+
+function workspaceSuggestedMessageScopeFromArgs(method, args = []) {
+  if (method === "saveAll") {
+    return {
+      workspaceSlug: args[1],
+      count: Array.isArray(args[0]) ? args[0].length : 0,
+    };
+  }
+  if (method === "getMessages") return { workspaceSlug: args[0] };
+  return clauseScope(args[0]);
+}
+
+function workspaceVisualAssetScopeFromArgs(method, args = []) {
+  const options = args[0] || {};
+  return {
+    workspaceId: options.workspaceId,
+    workspaceSlug: options.workspaceSlug,
+    scopeType: options.scopeType,
+    nodeKey: options.nodeKey,
+    id: options.id,
+  };
 }
 
 function repositoryBoundaryScopeFromArgs(method, args = []) {
@@ -555,6 +703,7 @@ function adminSystemScopeFromArgs(method, args = []) {
     return { event: args[0]?.event, userId: args[0]?.userId };
   if (method === "deleteEventLogs") return clauseScope(args[0]);
   if (method === "patrolRun") return { mode: args[0]?.mode };
+  if (method === "issueTemporaryAuthToken") return { userId: args[0] };
   return clauseScope(args[0]);
 }
 
@@ -816,6 +965,8 @@ const workspaceChat = makeRepositoryFacade(
     whereMetadata: "read",
     count: "read",
     whereWithData: "read",
+    publicIdColumnExists: "read",
+    backfillMissingPublicIds: "maintenance",
     new: "write",
     markHistoryInvalid: "write",
     markThreadHistoryInvalid: "write",
@@ -838,6 +989,7 @@ const document = makeRepositoryFacade(
     count: "read",
     content: "read",
     contentByDocPath: "read",
+    create: "write",
     addDocuments: "write",
     removeDocuments: "write",
     update: "write",
@@ -880,6 +1032,63 @@ const documentIndexStatus = {
   },
   get validStatuses() {
     return repositoryObject("documentIndexStatus").validStatuses;
+  },
+};
+
+const documentSyncQueue = {
+  ...makeRepositoryFacade(
+    "documentSyncQueue",
+    {
+      enabled: "read",
+      watch: "write",
+      unwatch: "write",
+      _update: "write",
+      get: "read",
+      where: "read",
+      count: "read",
+      delete: "write",
+      staleDocumentQueues: "read",
+      saveRun: "write",
+      toggleWatchStatus: "write",
+      bootWorkers: "maintenance",
+      killWorkers: "maintenance",
+    },
+    documentSyncQueueScopeFromArgs
+  ),
+  get featureKey() {
+    return repositoryObject("documentSyncQueue").featureKey;
+  },
+  get validFileTypes() {
+    return repositoryObject("documentSyncQueue").validFileTypes;
+  },
+  get defaultStaleAfter() {
+    return repositoryObject("documentSyncQueue").defaultStaleAfter;
+  },
+  get maxRepeatFailures() {
+    return repositoryObject("documentSyncQueue").maxRepeatFailures;
+  },
+  canWatch(metadata = {}) {
+    return repositoryObject("documentSyncQueue").canWatch(metadata);
+  },
+  calcNextSync(queueRecord = null) {
+    return repositoryObject("documentSyncQueue").calcNextSync(queueRecord);
+  },
+};
+
+const documentSyncRun = {
+  ...makeRepositoryFacade(
+    "documentSyncRun",
+    {
+      save: "write",
+      get: "read",
+      where: "read",
+      count: "read",
+      delete: "write",
+    },
+    documentSyncRunScopeFromArgs
+  ),
+  get statuses() {
+    return repositoryObject("documentSyncRun").statuses;
   },
 };
 
@@ -1092,6 +1301,39 @@ const embedChat = {
   },
 };
 
+const embedConfig = {
+  ...makeRepositoryFacade(
+    "embedConfig",
+    {
+      new: "write",
+      update: "write",
+      get: "read",
+      getWithWorkspace: "read",
+      delete: "write",
+      where: "read",
+      whereWithWorkspace: "read",
+    },
+    embedConfigScopeFromArgs
+  ),
+  parseAllowedHosts(embed = null) {
+    return repositoryObject("embedConfig").parseAllowedHosts(embed);
+  },
+};
+
+const communityHub = makeRepositoryFacade(
+  "communityHub",
+  {
+    validateImportId: "read",
+    fetchExploreItems: "read",
+    getBundleItem: "read",
+    applyItem: "write",
+    importBundleItem: "write",
+    fetchUserItems: "read",
+    createStaticItem: "write",
+  },
+  communityHubScopeFromArgs
+);
+
 const externalCommunication = {
   ...makeRepositoryFacade(
     "externalCommunication",
@@ -1108,6 +1350,78 @@ const externalCommunication = {
   },
 };
 
+const wechatGatewayThread = makeRepositoryFacade(
+  "wechatGatewayThread",
+  {
+    ensureTable: "maintenance",
+    getByWxid: "read",
+    getByThreadSlug: "read",
+    upsert: "write",
+  },
+  wechatGatewayThreadScopeFromArgs
+);
+
+const workspaceMindMap = {
+  ...makeRepositoryFacade(
+    "workspaceMindMap",
+    {
+      ensureTable: "maintenance",
+      get: "read",
+      where: "read",
+      findCached: "read",
+      create: "write",
+      updateViewport: "write",
+    },
+    workspaceMindMapScopeFromArgs
+  ),
+  cacheUserKey(user = null) {
+    return repositoryObject("workspaceMindMap").cacheUserKey(user);
+  },
+  toPayload(record = null) {
+    return repositoryObject("workspaceMindMap").toPayload(record);
+  },
+};
+
+const workspaceSuggestedMessage = makeRepositoryFacade(
+  "workspaceSuggestedMessage",
+  {
+    get: "read",
+    where: "read",
+    getMessages: "read",
+    saveAll: "write",
+  },
+  workspaceSuggestedMessageScopeFromArgs
+);
+
+const workspaceVisualAsset = {
+  ...makeRepositoryFacade(
+    "workspaceVisualAsset",
+    {
+      ensureTable: "maintenance",
+      list: "read",
+      forWorkspace: "read",
+      forNode: "read",
+      upsertFromUpload: "write",
+      get: "read",
+      fileFor: "read",
+      delete: "write",
+    },
+    workspaceVisualAssetScopeFromArgs
+  ),
+  get DEFAULT_ROLE() {
+    return repositoryObject("workspaceVisualAsset").DEFAULT_ROLE;
+  },
+  assetsRoot() {
+    return repositoryObject("workspaceVisualAsset").assetsRoot();
+  },
+  normalizeRow(...args) {
+    return repositoryObject("workspaceVisualAsset").normalizeRow(...args);
+  },
+  publicUrl(...args) {
+    return repositoryObject("workspaceVisualAsset").publicUrl(...args);
+  },
+};
+
 function repositoryBoundaryFacade(domain) {
   return {
     get db() {
@@ -1115,6 +1429,12 @@ function repositoryBoundaryFacade(domain) {
     },
     get model() {
       return repositoryObject(domain).model;
+    },
+    get job() {
+      return repositoryObject(domain).job;
+    },
+    get run() {
+      return repositoryObject(domain).run;
     },
     get workspace() {
       return repositoryObject(domain).workspace;
@@ -1173,10 +1493,14 @@ const documentEmbeddingBatch = repositoryBoundaryFacade(
   "documentEmbeddingBatch"
 );
 const knowledgeGraph = repositoryBoundaryFacade("knowledgeGraph");
+const mobile = repositoryBoundaryFacade("mobile");
+const nodeSupplement = repositoryBoundaryFacade("nodeSupplement");
 const quiz = repositoryBoundaryFacade("quiz");
 const requestSigning = repositoryBoundaryFacade("requestSigning");
+const scheduledJob = repositoryBoundaryFacade("scheduledJob");
 const systemPatrol = repositoryBoundaryFacade("systemPatrol");
 const workspaceOverview = repositoryBoundaryFacade("workspaceOverview");
+const workspaceSupplement = repositoryBoundaryFacade("workspaceSupplement");
 
 const userState = {
   ...makeRepositoryFacade(
@@ -1211,6 +1535,15 @@ const authIdentity = {
     },
     authIdentityScopeFromArgs
   ),
+  get model() {
+    return repositoryObject("authIdentity").model;
+  },
+  get shadowUser() {
+    return repositoryObject("authIdentity").shadowUser;
+  },
+  get localDb() {
+    return repositoryObject("authIdentity").localDb;
+  },
 };
 
 const adminSystem = {
@@ -1231,10 +1564,13 @@ const adminSystem = {
       currentLogoFilename: "read",
       agent_sql_connections: "read",
       getFeatureFlags: "read",
+      hubSettings: "read",
+      issueTemporaryAuthToken: "write",
       updateSettings: "write",
       _updateSettings: "write",
       syncDefaultSystemPromptToWorkspaces: "write",
       isMultiUserMode: "read",
+      delete: "write",
       deleteSetting: "write",
       eventLogs: "read",
       eventLogCount: "read",
@@ -1253,6 +1589,48 @@ const adminSystem = {
   },
   get publicFields() {
     return repositoryObject("adminSystem").publicFields;
+  },
+  get validations() {
+    return repositoryObject("adminSystem").validations;
+  },
+  get apiKey() {
+    return repositoryObject("adminSystem").apiKey;
+  },
+  get authIdentity() {
+    return repositoryObject("adminSystem").authIdentity;
+  },
+  get browserExtensionApiKey() {
+    return repositoryObject("adminSystem").browserExtensionApiKey;
+  },
+  get emailVerificationCode() {
+    return repositoryObject("adminSystem").emailVerificationCode;
+  },
+  get emailVerificationGrant() {
+    return repositoryObject("adminSystem").emailVerificationGrant;
+  },
+  get emailVerificationRateLimit() {
+    return repositoryObject("adminSystem").emailVerificationRateLimit;
+  },
+  get invite() {
+    return repositoryObject("adminSystem").invite;
+  },
+  get recoveryCode() {
+    return repositoryObject("adminSystem").recoveryCode;
+  },
+  get passwordResetToken() {
+    return repositoryObject("adminSystem").passwordResetToken;
+  },
+  get temporaryAuthToken() {
+    return repositoryObject("adminSystem").temporaryAuthToken;
+  },
+  get user() {
+    return repositoryObject("adminSystem").user;
+  },
+  get userRecords() {
+    return repositoryObject("adminSystem").userRecords;
+  },
+  get workspaceUser() {
+    return repositoryObject("adminSystem").workspaceUser;
   },
   effectiveDefaultSystemPrompt(prompt) {
     return repositoryObject("adminSystem").effectiveDefaultSystemPrompt(prompt);
@@ -1298,6 +1676,18 @@ const sensitiveData = makeRepositoryFacade(
   sensitiveDataScopeFromArgs
 );
 
+const telemetry = makeRepositoryFacade(
+  "telemetry",
+  {
+    sendTelemetry: "write",
+    flush: "maintenance",
+    setUid: "write",
+    findOrCreateId: "write",
+    id: "read",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const DataAccessCenter = {
   domains: Object.freeze(Object.keys(repositoryLoaders).sort()),
   adminSystem,
@@ -1305,17 +1695,24 @@ const DataAccessCenter = {
   accountDeletion,
   authIdentity,
   clientIdentity,
+  communityHub,
   crypto,
   document,
   documentEmbeddingBatch,
   documentIndexStatus,
+  documentSyncQueue,
+  documentSyncRun,
   documentVector,
+  embedConfig,
   embedChat,
   externalCommunication,
   knowledgeGraph,
+  mobile,
+  nodeSupplement,
   quiz,
   readerLibrary,
   requestSigning,
+  scheduledJob,
   sensitiveData,
   slashCommandPreset,
   get storage() {
@@ -1323,16 +1720,22 @@ const DataAccessCenter = {
   },
   systemPromptVariable,
   systemPatrol,
+  telemetry,
   user,
   userMemory,
   userState,
   vault,
+  wechatGatewayThread,
   workspace,
   workspaceAgentInvocation,
   workspaceChat,
   workspaceChatCompaction,
+  workspaceMindMap,
   workspaceOverview,
   workspaceParsedFile,
+  workspaceSuggestedMessage,
+  workspaceSupplement,
+  workspaceVisualAsset,
   workspaceThread,
   ownerScopes: {
     readerLibrary: readerOwnerScope,

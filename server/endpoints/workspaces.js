@@ -22,9 +22,6 @@ const {
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
-const {
-  WorkspaceSuggestedMessages,
-} = require("../models/workspacesSuggestedMessages");
 const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { convertToChatHistory } = require("../utils/helpers/chat/responses");
 const { CollectorApi } = require("../utils/collectorApi");
@@ -71,6 +68,7 @@ const Document = DataAccessCenter.document;
 const DocumentVectors = DataAccessCenter.documentVector;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
+const WorkspaceSuggestedMessages = DataAccessCenter.workspaceSuggestedMessage;
 const {
   DocumentVectorConsistencyService,
 } = require("../services/documentVectorConsistencyService");

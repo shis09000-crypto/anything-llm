@@ -55,6 +55,7 @@ function isStale(event) {
 
 function scopeForCache(event = {}) {
   return {
+    ...(event.scope?.userId ? { userId: event.scope.userId } : {}),
     ...(event.payload?.workspaceSlug
       ? { workspaceSlug: event.payload.workspaceSlug }
       : {}),
@@ -121,6 +122,28 @@ function invalidateReader(event) {
 function invalidateUserState(event) {
   serverStateCache.invalidatePrefix("user-state:");
   invalidateScope(event, "broadcast-user-state");
+}
+
+function refreshUserProfile(event) {
+  serverStateCache.invalidatePrefix("account.avatar:");
+  serverStateCache.invalidatePrefix("account.profile:");
+  invalidateScope(event, "broadcast-user-profile");
+  if (typeof window === "undefined") return { action: "user-profile-refresh" };
+  window.dispatchEvent(
+    new CustomEvent("athena-user-profile-refresh", {
+      detail: {
+        eventId: event.eventId,
+        userId: event.scope?.userId || null,
+        changedFields: Array.isArray(event.payload?.changedFields)
+          ? event.payload.changedFields
+          : [],
+        reason: event.payload?.reason || "profile-updated",
+        sourceClientId: event.sourceClientId || null,
+        sourceActionId: event.sourceActionId || null,
+      },
+    })
+  );
+  return { action: "user-profile-refresh" };
 }
 
 function dispatchDeveloperReaderCommand(event) {
@@ -243,6 +266,8 @@ function reduceNormalized(event) {
     case "userState.deleted":
       invalidateUserState(event);
       return { action: "user-state-invalidate" };
+    case "user.profile.updated":
+      return refreshUserProfile(event);
     case "settings.updated":
       invalidateScope(event, "broadcast-settings");
       return { action: "settings-invalidate" };

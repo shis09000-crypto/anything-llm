@@ -5,6 +5,8 @@ const { PrismaClient } = require("@prisma/client");
 const { lazyDataAccessFacade } = require("./dataAccess/lazyFacade");
 const AccountDeletionData = lazyDataAccessFacade("accountDeletion");
 const accountDeletionDb = AccountDeletionData.db;
+const Document = lazyDataAccessFacade("document");
+const DocumentVectors = lazyDataAccessFacade("documentVector");
 const authPrisma = require("./authPrisma");
 const {
   appEnvironment,
@@ -18,12 +20,6 @@ const {
 } = require("../repositories/eventLogRepository");
 const Workspace = AccountDeletionData.workspace;
 const WorkspaceChats = AccountDeletionData.workspaceChats;
-const {
-  DocumentRepository: Document,
-} = require("../repositories/documentRepository");
-const {
-  DocumentVectorRepository: DocumentVectors,
-} = require("../repositories/documentVectorRepository");
 const AuthIdentity = AccountDeletionData.authIdentity;
 const {
   assertDeleteAllowed,

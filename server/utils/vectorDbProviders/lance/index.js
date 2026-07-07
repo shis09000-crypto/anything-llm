@@ -1,7 +1,7 @@
 const lancedb = require("@lancedb/lancedb");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { sourceIdentifier } = require("../../chats");
@@ -14,6 +14,8 @@ const {
   encryptVectorMetadataText,
   encryptVectorText,
 } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 /**
  * LancedDB Client connection object

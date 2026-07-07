@@ -1,10 +1,14 @@
 const path = require("path");
-const fs = require("fs");
 const { getType } = require("mime");
 const { v4 } = require("uuid");
-const { SystemSettings } = require("../../models/systemSettings");
-const { normalizePath, isWithin } = require(".");
+const { DataAccessCenter } = require("../dataAccess");
+const {
+  FileStorageProvider,
+} = require("../../providers/storage/fileStorageProvider");
 const { storagePath } = require("../environment");
+
+const SystemSettings = DataAccessCenter.adminSystem;
+
 const LOGO_FILENAME = "anything-llm.png";
 const LOGO_FILENAME_DARK = "anything-llm-dark.png";
 
@@ -34,23 +38,36 @@ function getDefaultFilename(darkMode = true) {
 async function determineLogoFilepath(defaultFilename = LOGO_FILENAME) {
   const currentLogoFilename = await SystemSettings.currentLogoFilename();
   const basePath = storagePath("assets");
-  const defaultFilepath = path.join(basePath, defaultFilename);
+  const defaultFilepath = FileStorageProvider.resolvePath(defaultFilename, {
+    base: basePath,
+  });
 
   if (currentLogoFilename && validFilename(currentLogoFilename)) {
-    const customLogoPath = path.join(
-      basePath,
-      normalizePath(currentLogoFilename)
-    );
-    if (!isWithin(path.resolve(basePath), path.resolve(customLogoPath)))
+    let customLogoPath = null;
+    try {
+      customLogoPath = FileStorageProvider.resolvePath(currentLogoFilename, {
+        base: basePath,
+      });
+    } catch {
       return defaultFilepath;
-    return fs.existsSync(customLogoPath) ? customLogoPath : defaultFilepath;
+    }
+    return FileStorageProvider.existsPath(customLogoPath)
+      ? customLogoPath
+      : defaultFilepath;
   }
 
   return defaultFilepath;
 }
 
 function fetchLogo(logoPath) {
-  if (!fs.existsSync(logoPath)) {
+  let exists = false;
+  try {
+    exists = !!logoPath && FileStorageProvider.existsPath(logoPath);
+  } catch {
+    exists = false;
+  }
+
+  if (!exists) {
     return {
       found: false,
       buffer: null,
@@ -60,7 +77,7 @@ function fetchLogo(logoPath) {
   }
 
   const mime = getType(logoPath);
-  const buffer = fs.readFileSync(logoPath);
+  const buffer = FileStorageProvider.readFilePath(logoPath);
   return {
     found: true,
     buffer,
@@ -73,20 +90,16 @@ async function renameLogoFile(originalFilename = null) {
   const extname = path.extname(originalFilename) || ".png";
   const newFilename = `${v4()}${extname}`;
   const assetsDirectory = storagePath("assets");
-  const originalFilepath = path.join(
-    assetsDirectory,
-    normalizePath(originalFilename)
-  );
-  if (!isWithin(path.resolve(assetsDirectory), path.resolve(originalFilepath)))
-    throw new Error("Invalid file path.");
+  const originalFilepath = FileStorageProvider.resolvePath(originalFilename, {
+    base: assetsDirectory,
+  });
 
   // The output always uses a random filename.
-  const outputFilepath = path.join(
-    storagePath("assets"),
-    normalizePath(newFilename)
-  );
+  const outputFilepath = FileStorageProvider.resolvePath(newFilename, {
+    base: assetsDirectory,
+  });
 
-  fs.renameSync(originalFilepath, outputFilepath);
+  FileStorageProvider.renamePath(originalFilepath, outputFilepath);
   return newFilename;
 }
 
@@ -94,10 +107,10 @@ async function removeCustomLogo(logoFilename = LOGO_FILENAME) {
   if (!logoFilename || !validFilename(logoFilename)) return false;
   const assetsDirectory = storagePath("assets");
 
-  const logoPath = path.join(assetsDirectory, normalizePath(logoFilename));
-  if (!isWithin(path.resolve(assetsDirectory), path.resolve(logoPath)))
-    throw new Error("Invalid file path.");
-  if (fs.existsSync(logoPath)) fs.unlinkSync(logoPath);
+  const logoPath = FileStorageProvider.resolvePath(logoFilename, {
+    base: assetsDirectory,
+  });
+  FileStorageProvider.deletePath(logoPath, { force: true });
   return true;
 }
 

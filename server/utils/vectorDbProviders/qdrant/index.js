@@ -1,6 +1,6 @@
 const { QdrantClient } = require("@qdrant/js-client-rest");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
@@ -12,6 +12,8 @@ const {
   encryptVectorMetadataText,
   encryptVectorText,
 } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 class QDrant extends VectorDatabase {
   constructor() {

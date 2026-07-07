@@ -1,4 +1,6 @@
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 function utilEndpoints(app) {
   if (!app) return;

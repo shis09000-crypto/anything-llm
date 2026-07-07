@@ -2,8 +2,10 @@ const fs = require("fs");
 const path = require("path");
 const { default: slugify } = require("slugify");
 const { log, conclude } = require("./helpers/index.js");
-const { WorkspaceParsedFiles } = require("../models/workspaceParsedFiles.js");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { directUploadsPath } = require("../utils/files");
+
+const WorkspaceParsedFiles = DataAccessCenter.workspaceParsedFile;
 
 async function batchDeleteFiles(filesToDelete, batchSize = 500) {
   let deletedCount = 0;

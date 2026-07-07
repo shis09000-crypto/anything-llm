@@ -1,6 +1,8 @@
-const { Workspace } = require("../../models/workspace");
-const { WorkspaceThread } = require("../../models/workspaceThread");
+const { DataAccessCenter } = require("../dataAccess");
 const fastLevenshtein = require("fast-levenshtein");
+
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
 
 // allow a pretty loose levenshtein distance for the search
 // since we would rather show a few more results than less

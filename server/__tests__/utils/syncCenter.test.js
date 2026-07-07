@@ -95,6 +95,40 @@ describe("information sync center", () => {
     expect(received[0].version).toBe(2);
   });
 
+  it("publishes user profile updates without leaking sensitive payload fields", () => {
+    const received = [];
+    const unsubscribe = subscribeToSyncEvents((event) => received.push(event));
+
+    const event = publishSyncEvent({
+      namespace: "user",
+      type: "profile.updated",
+      eventPriority: "normal",
+      visibility: "user",
+      scope: { userId: 7 },
+      resource: { kind: "user-profile", id: 7 },
+      payload: {
+        changedFields: ["username", "pfpFilename"],
+        token: "must-not-broadcast",
+        password: "must-not-broadcast",
+        reason: "profile-updated",
+      },
+      coalesceKey: "user.profile.updated:7",
+    });
+    _internals.flushCoalesced(event.coalesceKey);
+
+    unsubscribe();
+    expect(received).toHaveLength(1);
+    expect(received[0].type).toBe("profile.updated");
+    expect(received[0].namespace).toBe("user");
+    expect(received[0].visibility).toBe("user");
+    expect(received[0].payload.changedFields).toEqual([
+      "username",
+      "pfpFilename",
+    ]);
+    expect(received[0].payload.token).toBeUndefined();
+    expect(received[0].payload.password).toBeUndefined();
+  });
+
   it("filters events by scoped user id", () => {
     expect(syncEventVisibleToUser({ scope: { userId: 3 } }, 3)).toBe(true);
     expect(syncEventVisibleToUser({ scope: { userId: 3 } }, 4)).toBe(false);

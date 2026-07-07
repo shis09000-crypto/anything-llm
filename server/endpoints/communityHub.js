@@ -1,7 +1,6 @@
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
-const { CommunityHub } = require("../models/communityHub");
 const {
   communityHubDownloadsEnabled,
   communityHubItem,
@@ -16,6 +15,9 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../utils/middleware/multiUserProtected");
+
+const SystemSettings = DataAccessCenter.adminSystem;
+const CommunityHub = DataAccessCenter.communityHub;
 
 function communityHubEndpoints(app) {
   if (!app) return;

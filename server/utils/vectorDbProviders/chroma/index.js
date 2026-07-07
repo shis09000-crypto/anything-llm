@@ -1,6 +1,6 @@
 const { ChromaClient } = require("chromadb");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
@@ -12,6 +12,8 @@ const {
   decryptVectorText,
   encryptVectorText,
 } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 const COLLECTION_REGEX = new RegExp(
   /^(?!\d+\.\d+\.\d+\.\d+$)(?!.*\.\.)(?=^[a-zA-Z0-9][a-zA-Z0-9_-]{1,61}[a-zA-Z0-9]$).{3,63}$/
 );

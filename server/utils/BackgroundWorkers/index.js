@@ -22,7 +22,7 @@ class BackgroundService {
   // Tracks in-flight worker processes per scheduled jobId so we can kill any
   // active runs when the job is deleted. Without this, a running worker
   // outlives the cascade-delete of its scheduled_job_runs row and throws when
-  // it tries to write the result back (prisma.update on a missing row).
+  // it tries to write the result back against a missing run row.
   #scheduledJobWorkers = new Map();
 
   #alwaysRunJobs = [
@@ -111,8 +111,9 @@ class BackgroundService {
   }
 
   async boot() {
-    const { DocumentSyncQueue } = require("../../models/documentSyncQueue");
-    const { ScheduledJobRun } = require("../../models/scheduledJobRun");
+    const { DataAccessCenter } = require("../dataAccess");
+    const DocumentSyncQueue = DataAccessCenter.documentSyncQueue;
+    const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
     this.documentSyncEnabled = await DocumentSyncQueue.enabled();
 
@@ -303,7 +304,8 @@ class BackgroundService {
    * Register cron timers for all enabled scheduled jobs on startup.
    */
   async #bootScheduledJobs() {
-    const { ScheduledJob } = require("../../models/scheduledJob");
+    const { DataAccessCenter } = require("../dataAccess");
+    const ScheduledJob = DataAccessCenter.scheduledJob.job;
     const enabledJobs = await ScheduledJob.allEnabled();
 
     for (const job of enabledJobs) {
@@ -364,7 +366,8 @@ class BackgroundService {
    * @param {number} jobId - scheduled_jobs.id
    */
   async syncScheduledJob(jobId) {
-    const { ScheduledJob } = require("../../models/scheduledJob");
+    const { DataAccessCenter } = require("../dataAccess");
+    const ScheduledJob = DataAccessCenter.scheduledJob.job;
     this.removeScheduledJob(jobId);
     const job = await ScheduledJob.get({ id: Number(jobId) });
     if (job && job.enabled) {
@@ -408,7 +411,8 @@ class BackgroundService {
    *   because a run is already in flight for this job.
    */
   async enqueueScheduledJob(jobId) {
-    const { ScheduledJobRun } = require("../../models/scheduledJobRun");
+    const { DataAccessCenter } = require("../dataAccess");
+    const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
 
     const run = await ScheduledJobRun.start(jobId);
     // if start returns null, skip enqueuing, schueduled job already has a run in flight

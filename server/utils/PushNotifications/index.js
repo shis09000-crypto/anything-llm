@@ -1,10 +1,12 @@
 const webpush = require("web-push");
 const fs = require("fs");
 const path = require("path");
-const { User } = require("../../models/user");
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
 const { safeJsonParse } = require("../http");
 const { storagePath } = require("../environment");
+
+const User = DataAccessCenter.user;
+const SystemSettings = DataAccessCenter.adminSystem;
 
 /**
  * For more options, see:

@@ -1,5 +1,5 @@
 const { validatedRequest } = require("../../utils/middleware/validatedRequest");
-const { MobileDevice } = require("../../models/mobileDevice");
+const { DataAccessCenter } = require("../../utils/dataAccess");
 const { handleMobileCommand } = require("./utils");
 const { validDeviceToken, validRegistrationToken } = require("./middleware");
 const { reqBody } = require("../../utils/http");
@@ -7,6 +7,7 @@ const {
   flexUserRoleValid,
   ROLES,
 } = require("../../utils/middleware/multiUserProtected");
+const MobileDevice = DataAccessCenter.mobile.model;
 
 function mobileEndpoints(app) {
   if (!app) return;

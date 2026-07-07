@@ -72,6 +72,7 @@ const PDF_FAST_PREVIEW_CONCURRENCY = 3;
 const PDF_SELECTION_CLEANUP_DELAY_MS = 120;
 const PDF_RENDERING_STATE_FINISHED = 3;
 const PDF_PAGE_KEEPALIVE_PATCH_KEY = "__athenaPdfPageKeepalive";
+const EMPTY_PDF_HEADERS = Object.freeze({});
 
 const EMPTY_SCREENSHOT_DRAG_STATE = {
   isDragging: false,
@@ -93,6 +94,7 @@ function cleanPdfHeaders(headers = {}) {
 
 function pdfSourceUrl(url) {
   if (!url) return url;
+  if (String(url).startsWith("/api/")) return url;
   try {
     return downloadUrl(url);
   } catch {
@@ -100,11 +102,12 @@ function pdfSourceUrl(url) {
   }
 }
 
-function pdfHttpHeadersForUrl(url) {
+function pdfHttpHeadersForUrl(url, extraHeaders = {}) {
   if (!url || /^(blob:|data:)/i.test(String(url))) return undefined;
   const headers = cleanPdfHeaders({
     ...baseHeaders(),
     ...readerSensitiveHeadersForUrl(url),
+    ...extraHeaders,
   });
   const nextHeaders = shouldAttachClientIdentityToUrl(url)
     ? withClientIdentityHeaders(headers, {
@@ -112,6 +115,12 @@ function pdfHttpHeadersForUrl(url) {
       })
     : headers;
   return Object.keys(nextHeaders).length > 0 ? nextHeaders : undefined;
+}
+
+function hasReaderDebugGrantHeader(headers = {}) {
+  return Object.keys(headers || {}).some(
+    (key) => String(key).toLowerCase() === "x-athena-reader-debug-grant"
+  );
 }
 
 function isPdfAuthError(error) {
@@ -126,8 +135,19 @@ function isPdfAuthError(error) {
   );
 }
 
+function isPdfNetworkLoadError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("load failed")
+  );
+}
+
 function isProtectedHttpPdfUrl(url) {
-  return !!url && /^https?:/i.test(String(url));
+  if (!url) return false;
+  const value = String(url);
+  return /^https?:/i.test(value) || value.startsWith("/api/");
 }
 
 function pdfBaseLoadingOptions(pdfLoadingPolicy) {
@@ -827,9 +847,14 @@ const PdfReader = forwardRef(function PdfReader(
   const pdfData = document?.pdfData || null;
   const hasPdfData = Boolean(pdfData?.byteLength);
   const sourceUrl = useMemo(() => pdfSourceUrl(url), [url]);
+  const extraPdfHeaders = document?.pdfHeaders || EMPTY_PDF_HEADERS;
   const httpHeaders = useMemo(
-    () => pdfHttpHeadersForUrl(sourceUrl),
-    [sourceUrl]
+    () => pdfHttpHeadersForUrl(sourceUrl, extraPdfHeaders),
+    [sourceUrl, extraPdfHeaders]
+  );
+  const hasDebugGrantHeader = useMemo(
+    () => hasReaderDebugGrantHeader(extraPdfHeaders),
+    [extraPdfHeaders]
   );
   const useRangeLoading =
     document?.renderType === "pdf-stream" ||
@@ -1124,6 +1149,7 @@ const PdfReader = forwardRef(function PdfReader(
     async function ensurePdfSensitiveSession(reason = "preflight") {
       if (!isProtectedHttpPdfUrl(sourceUrl)) return null;
       const before = readerSensitiveSessionStateForUrl(sourceUrl);
+      if (hasDebugGrantHeader) return before;
       if (!before.hasDescriptor || before.hasHeader) return before;
       readerPdfDebug("document-sensitive-refresh-start", {
         reason,
@@ -1179,7 +1205,7 @@ const PdfReader = forwardRef(function PdfReader(
     function loadPdfViaHttp(pdfjs) {
       return pdfjs.getDocument({
         url: sourceUrl,
-        httpHeaders: pdfHttpHeadersForUrl(sourceUrl),
+        httpHeaders,
         withCredentials: true,
         ...pdfBaseLoadingOptions(pdfLoadingPolicy),
       });
@@ -1211,7 +1237,10 @@ const PdfReader = forwardRef(function PdfReader(
         } catch (error) {
           loadingTask?.destroy?.();
           loadingTask = null;
-          if (!isPdfAuthError(error) || !isProtectedHttpPdfUrl(sourceUrl)) {
+          const shouldUseBlobFallback =
+            isProtectedHttpPdfUrl(sourceUrl) &&
+            (isPdfAuthError(error) || isPdfNetworkLoadError(error));
+          if (!shouldUseBlobFallback) {
             throw error;
           }
 
@@ -1238,7 +1267,11 @@ const PdfReader = forwardRef(function PdfReader(
               },
             });
             const refreshedState = readerSensitiveSessionStateForUrl(sourceUrl);
-            if (refreshedState.hasDescriptor && !refreshedState.hasHeader) {
+            if (
+              refreshedState.hasDescriptor &&
+              !refreshedState.hasHeader &&
+              !hasDebugGrantHeader
+            ) {
               const missingSessionError = new Error(
                 "Reader sensitive session unavailable after auth refresh."
               );
@@ -1280,7 +1313,9 @@ const PdfReader = forwardRef(function PdfReader(
           readerPdfDebug("document-auth-fallback-start", {
             message: error?.message || String(error),
           });
-          const { blob } = await ReaderDocument.originalBlob(sourceUrl);
+          const { blob } = await ReaderDocument.originalBlob(sourceUrl, {
+            headers: extraPdfHeaders,
+          });
           if (cancelled) return;
           fallbackObjectUrl = URL.createObjectURL(blob);
           loadingTask = pdfjs.getDocument({
@@ -1330,6 +1365,7 @@ const PdfReader = forwardRef(function PdfReader(
     };
   }, [
     httpHeaders,
+    hasDebugGrantHeader,
     hasPdfData,
     pdfLoadingPolicy.disableAutoFetch,
     pdfLoadingPolicy.disableRange,
@@ -1338,6 +1374,7 @@ const PdfReader = forwardRef(function PdfReader(
     pdfLoadingPolicy.rangeChunkSize,
     pdfSizeBytes,
     pdfData,
+    extraPdfHeaders,
     sourceUrl,
   ]);
 

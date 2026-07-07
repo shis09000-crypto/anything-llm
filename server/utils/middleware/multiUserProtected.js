@@ -1,6 +1,8 @@
-const { SystemSettings } = require("../../models/systemSettings");
+const { DataAccessCenter } = require("../dataAccess");
 const { userFromSession } = require("../http");
 const { ROLES, normalizeRole } = require("../authz/accountRoles");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 const DEFAULT_ROLES = [ROLES.admin, ROLES.owner];
 
 function rolePermitted(userRole, allowedRoles = DEFAULT_ROLES) {

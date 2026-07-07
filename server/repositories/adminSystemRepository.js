@@ -1,4 +1,21 @@
+const prisma = require("../utils/prisma");
+const { ApiKey } = require("../models/apiKeys");
+const { AuthIdentity } = require("../models/authIdentity");
+const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
+const {
+  EmailVerificationCode,
+  EmailVerificationGrant,
+  EmailVerificationRateLimit,
+} = require("../models/emailVerification");
+const { Invite } = require("../models/invite");
+const {
+  RecoveryCode,
+  PasswordResetToken,
+} = require("../models/passwordRecovery");
 const { SystemSettings } = require("../models/systemSettings");
+const { TemporaryAuthToken } = require("../models/temporaryAuthToken");
+const { User } = require("../models/user");
+const { WorkspaceUser } = require("../models/workspaceUsers");
 const { EventLogRepository: EventLogs } = require("./eventLogRepository");
 const { diagnosticSummary } = require("../utils/environment");
 const {
@@ -35,6 +52,64 @@ const AdminSystemRepository = {
 
   get publicFields() {
     return SystemSettings.publicFields;
+  },
+
+  get validations() {
+    return SystemSettings.validations;
+  },
+
+  get apiKey() {
+    return ApiKey;
+  },
+
+  get authIdentity() {
+    return AuthIdentity;
+  },
+
+  get browserExtensionApiKey() {
+    return BrowserExtensionApiKey;
+  },
+
+  get emailVerificationCode() {
+    return EmailVerificationCode;
+  },
+
+  get emailVerificationGrant() {
+    return EmailVerificationGrant;
+  },
+
+  get emailVerificationRateLimit() {
+    return EmailVerificationRateLimit;
+  },
+
+  get invite() {
+    return Invite;
+  },
+
+  get recoveryCode() {
+    return RecoveryCode;
+  },
+
+  get passwordResetToken() {
+    return PasswordResetToken;
+  },
+
+  get temporaryAuthToken() {
+    return TemporaryAuthToken;
+  },
+
+  get user() {
+    return User;
+  },
+
+  get userRecords() {
+    return {
+      update: (options = {}) => prisma.users.update(options),
+    };
+  },
+
+  get workspaceUser() {
+    return WorkspaceUser;
   },
 
   diagnosticSummary() {
@@ -85,6 +160,14 @@ const AdminSystemRepository = {
     return SystemSettings.getFeatureFlags();
   },
 
+  async hubSettings() {
+    return SystemSettings.hubSettings();
+  },
+
+  async issueTemporaryAuthToken(userId) {
+    return TemporaryAuthToken.issue(userId);
+  },
+
   effectiveDefaultSystemPrompt(prompt) {
     return SystemSettings.effectiveDefaultSystemPrompt(prompt);
   },
@@ -119,6 +202,10 @@ const AdminSystemRepository = {
 
   async deleteSetting({ label } = {}) {
     return SystemSettings.delete({ label });
+  },
+
+  async delete(clause = {}) {
+    return SystemSettings.delete(clause);
   },
 
   async eventLogs({

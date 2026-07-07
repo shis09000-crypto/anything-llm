@@ -1,5 +1,5 @@
 const { userFromSession } = require("../utils/http");
-const { SystemSettings } = require("../models/systemSettings");
+const { DataAccessCenter } = require("../utils/dataAccess");
 const {
   flexUserRoleValid,
   ROLES,
@@ -13,12 +13,8 @@ const {
   subscribeToSyncEvents,
   syncEventVisibleToUser,
 } = require("../utils/syncCenter");
-const {
-  broadcastCenter,
-} = require("../utils/broadcast");
-const {
-  getClientContext,
-} = require("../utils/clientIdentity");
+const { broadcastCenter } = require("../utils/broadcast");
+const { getClientContext } = require("../utils/clientIdentity");
 const {
   ensureSecureWebSocketRequest,
 } = require("../utils/security/transportSecurity");
@@ -27,6 +23,8 @@ const {
   signingErrorCode,
   signingWarnOnly,
 } = require("../utils/requestSigning");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 function sendSocket(socket, payload) {
   if (!socket || socket.readyState !== 1) return false;

@@ -1,6 +1,6 @@
 const { default: weaviate } = require("weaviate-ts-client");
 const { TextSplitter } = require("../../TextSplitter");
-const { SystemSettings } = require("../../../models/systemSettings");
+const { DataAccessCenter } = require("../../dataAccess");
 const { storeVectorResult, cachedVectorInformation } = require("../../files");
 const { v4: uuidv4 } = require("uuid");
 const { toChunks, getEmbeddingEngineSelection } = require("../../helpers");
@@ -8,6 +8,8 @@ const { camelCase } = require("../../helpers/camelcase");
 const { sourceIdentifier } = require("../../chats");
 const { VectorDatabase } = require("../base");
 const { decryptVectorText, encryptVectorText } = require("../../security");
+
+const SystemSettings = DataAccessCenter.adminSystem;
 
 class Weaviate extends VectorDatabase {
   constructor() {

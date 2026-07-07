@@ -1,6 +1,7 @@
-const { MobileDevice } = require("../../../models/mobileDevice");
-const { SystemSettings } = require("../../../models/systemSettings");
-const { User } = require("../../../models/user");
+const { DataAccessCenter } = require("../../../utils/dataAccess");
+const MobileDevice = DataAccessCenter.mobile.model;
+const SystemSettings = DataAccessCenter.adminSystem;
+const User = DataAccessCenter.authIdentity.shadowUser;
 
 /**
  * Validates the device id from the request headers by checking if the device
