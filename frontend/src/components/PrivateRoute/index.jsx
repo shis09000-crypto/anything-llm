@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { FullScreenLoader } from "../Preloader";
-import validateSessionTokenForUser from "@/utils/session";
+import { validateSessionTokenForUserDetailed } from "@/utils/session";
 import paths from "@/utils/paths";
 import { userFromStorage } from "@/utils/request";
 import { getAuthToken } from "@/utils/authTokenStorage";
@@ -104,6 +104,7 @@ async function validateRouteAuthState() {
   if (!MultiUserMode && RequiresAuth) {
     const localAuthToken = getAuthToken();
     if (!localAuthToken) {
+      markRouteAuthLoginRedirect("single-password", "missing-token");
       return authResult({
         isAuthd: false,
         multiUserMode: false,
@@ -112,8 +113,23 @@ async function validateRouteAuthState() {
       });
     }
 
-    const isValid = await validateSessionTokenForUser();
-    if (!isValid) clearRouteAuthCache();
+    const validation = await validateSessionTokenForUserDetailed();
+    if (validation.transient) {
+      markRouteAuthTransientPreserved("single-password");
+      return authResult({
+        isAuthd: true,
+        multiUserMode: false,
+        mode: "single-password-transient",
+        success: true,
+        cacheable: false,
+      });
+    }
+
+    const isValid = validation.valid;
+    if (!isValid) {
+      clearRouteAuthCache();
+      markRouteAuthExplicitInvalid("single-password", validation.reason);
+    }
     return authResult({
       isAuthd: isValid,
       multiUserMode: false,
@@ -126,6 +142,7 @@ async function validateRouteAuthState() {
   const localUser = hasStoredAuthUser();
   const localAuthToken = getAuthToken();
   if (!localUser || !localAuthToken) {
+    markRouteAuthLoginRedirect("multi", "missing-local-auth");
     return authResult({
       isAuthd: false,
       multiUserMode: true,
@@ -137,6 +154,7 @@ async function validateRouteAuthState() {
   if (localIdleExpired()) {
     clearRouteAuthCache();
     clearSensitiveClientSession();
+    markRouteAuthLoginRedirect("multi-idle-expired", "idle-expired");
     return authResult({
       isAuthd: false,
       multiUserMode: true,
@@ -146,10 +164,23 @@ async function validateRouteAuthState() {
     });
   }
 
-  const isValid = await validateSessionTokenForUser();
+  const validation = await validateSessionTokenForUserDetailed();
+  if (validation.transient) {
+    markRouteAuthTransientPreserved("multi");
+    return authResult({
+      isAuthd: true,
+      multiUserMode: true,
+      mode: "multi-transient",
+      success: true,
+      cacheable: false,
+    });
+  }
+
+  const isValid = validation.valid;
   if (!isValid) {
     clearRouteAuthCache();
     clearSensitiveClientSession();
+    markRouteAuthExplicitInvalid("multi", validation.reason);
   }
 
   return authResult({
@@ -176,6 +207,18 @@ function markRouteAuthValidated(result = {}) {
   if (typeof result.success === "boolean") payload.success = result.success;
   if (result.cached) payload.cached = true;
   markLoginBoot("private_route_validated", payload);
+}
+
+function markRouteAuthTransientPreserved(mode) {
+  markLoginBoot("route_auth_transient_preserved", { mode });
+}
+
+function markRouteAuthExplicitInvalid(mode, reason = "invalid-session") {
+  markLoginBoot("route_auth_explicit_invalid", { mode, reason });
+}
+
+function markRouteAuthLoginRedirect(mode, reason = "not-authenticated") {
+  markLoginBoot("route_auth_login_redirect", { mode, reason });
 }
 
 // Used only for Multi-user mode only as we permission specific pages based on auth role.

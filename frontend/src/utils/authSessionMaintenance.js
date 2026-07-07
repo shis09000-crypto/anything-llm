@@ -59,11 +59,7 @@ export function classifyAuthRefreshResult(result = {}) {
 }
 
 export function shouldPreserveLocalAuthOnFailure(source = {}) {
-  return (
-    isDevelopmentAuthMaintenanceEnabled() &&
-    !isExplicitAuthFailure(source) &&
-    isTransientAuthFailure(source)
-  );
+  return !isExplicitAuthFailure(source) && isTransientAuthFailure(source);
 }
 
 export function authMaintenanceRetryDelayMs(attempt = 0) {

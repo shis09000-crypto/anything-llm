@@ -44,7 +44,7 @@ test("classifies successful and explicit auth refresh failures", async () => {
   );
 });
 
-test("preserves local auth only for development transient failures", async () => {
+test("preserves local auth for transient failures in production and development", async () => {
   const devMod = await loadAuthSessionMaintenance({ dev: true });
   const prodMod = await loadAuthSessionMaintenance({ dev: false });
 
@@ -74,6 +74,21 @@ test("preserves local auth only for development transient failures", async () =>
     prodMod.shouldPreserveLocalAuthOnFailure({
       status: 500,
       message: "Request failed with status 500.",
+    }),
+    true
+  );
+  assert.equal(
+    prodMod.shouldPreserveLocalAuthOnFailure({
+      status: 0,
+      code: "API_TIMEOUT_ERROR",
+      message: "Request timed out after 8000ms.",
+    }),
+    true
+  );
+  assert.equal(
+    prodMod.shouldPreserveLocalAuthOnFailure({
+      status: 401,
+      message: "Invalid auth token.",
     }),
     false
   );

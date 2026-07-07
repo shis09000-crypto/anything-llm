@@ -359,7 +359,7 @@ const System = {
         return false;
       });
 
-    window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
+    if (valid) window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
     return valid;
   },
   requestToken: async function (body) {

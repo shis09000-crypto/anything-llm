@@ -3,6 +3,11 @@ import { AUTH_TIMESTAMP } from "@/utils/constants";
 import { shouldPreserveLocalAuthOnFailure } from "@/utils/authSessionMaintenance";
 
 const SESSION_VALIDATION_TTL_MS = 60 * 5 * 1000;
+export const SESSION_VALIDATION_STATE = {
+  VALID: "valid",
+  TRANSIENT: "transient",
+  INVALID: "invalid",
+};
 
 function hasRecentSessionValidation() {
   if (typeof window === "undefined") return false;
@@ -14,18 +19,59 @@ function hasRecentSessionValidation() {
 }
 
 // Checks current localstorage and validates the session based on that.
-export default async function validateSessionTokenForUser() {
-  if (hasRecentSessionValidation()) return true;
-
-  const isValidSession = await checkSessionToken()
-    .then(({ response }) => response.status === 200)
-    .catch((error) => {
-      if (shouldPreserveLocalAuthOnFailure(error)) return true;
-      return false;
-    });
-
-  if (isValidSession) {
-    window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
+export async function validateSessionTokenForUserDetailed() {
+  if (hasRecentSessionValidation()) {
+    return {
+      state: SESSION_VALIDATION_STATE.VALID,
+      valid: true,
+      transient: false,
+      reason: "recent",
+    };
   }
-  return isValidSession;
+
+  try {
+    const { response } = await checkSessionToken({
+      timeoutMs: 8_000,
+      communicationScene: "auth-bootstrap",
+    });
+    const isValid = response.status === 200;
+
+    if (isValid) {
+      window.localStorage.setItem(AUTH_TIMESTAMP, Number(new Date()));
+      return {
+        state: SESSION_VALIDATION_STATE.VALID,
+        valid: true,
+        transient: false,
+        reason: "server",
+      };
+    }
+
+    return {
+      state: SESSION_VALIDATION_STATE.INVALID,
+      valid: false,
+      transient: false,
+      reason: `status:${response.status}`,
+    };
+  } catch (error) {
+    if (shouldPreserveLocalAuthOnFailure(error)) {
+      return {
+        state: SESSION_VALIDATION_STATE.TRANSIENT,
+        valid: true,
+        transient: true,
+        reason: "transient",
+      };
+    }
+
+    return {
+      state: SESSION_VALIDATION_STATE.INVALID,
+      valid: false,
+      transient: false,
+      reason: "error",
+    };
+  }
+}
+
+export default async function validateSessionTokenForUser() {
+  const result = await validateSessionTokenForUserDetailed();
+  return result.valid;
 }
