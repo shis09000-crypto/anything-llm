@@ -40,10 +40,17 @@ const SYSTEM_KEYS_TIMEOUT_MS = 20_000;
 const SYSTEM_KEYS_RETRY_DELAYS_MS = [0, 750, 1_500];
 const LOGO_CACHE_TTL_MS = 1000 * 60 * 10;
 const ACCOUNT_AVATAR_CACHE_TTL_MS = 1000 * 60 * 10;
+const CUSTOM_MODELS_CACHE_TTL_MS = 1000 * 60;
 const logoCache = new Map();
 const logoInflight = new Map();
 const accountAvatarInflight = new Map();
+const customModelsCache = new Map();
+const customModelsInflight = new Map();
 const LOGO_SESSION_CACHE_PREFIX = "athena_logo_cache_v1:";
+
+function customModelsCacheKey(provider) {
+  return `custom-models:${provider || "unknown"}`;
+}
 
 function logoSessionCacheKey(cacheKey) {
   try {
@@ -946,43 +953,52 @@ const System = {
     logoInflight.set(cacheKey, request);
     return await request;
   },
-  fetchPfp: async function (id) {
+  fetchPfp: async function (id, options = {}) {
     if (!id) return null;
     const cacheKey = `account.avatar:${id}`;
     if (accountAvatarInflight.has(cacheKey)) {
       return await accountAvatarInflight.get(cacheKey);
     }
-    const request = serverStateTaskBridge
-      .ensure({
-        key: cacheKey,
-        ttlMs: ACCOUNT_AVATAR_CACHE_TTL_MS,
-        ownerScope: `${getAppEnvironment()}:account-avatar:${id}`,
-        scope: {
-          route: "workspace-chat",
-          surface: "account-avatar",
-          userId: id,
-        },
-        priority: "P0",
-        intentRank: 3,
-        policy: "foreground",
-        resource: "network",
-        kind: "account-avatar",
-        label: "account:avatar",
-        staleWhileRevalidate: true,
-        dedupeKey: `server-state:${cacheKey}`,
-        fetcher: async ({ signal }) => {
-          const { response, blob } = await requestBlob(`/system/pfp/${id}`, {
-            signal,
-            cache: "default",
-            blobKind: BLOB_KINDS.avatar,
-            communicationScene: "account-avatar-current",
-            task: false,
-          });
-          return response.status !== 204 && blob
-            ? await blobToDataUrl(blob)
-            : null;
-        },
-      })
+    const task = options.task || {};
+    const scope = task.scope || options.scope || {};
+    const requestOptions = {
+      key: cacheKey,
+      ttlMs: ACCOUNT_AVATAR_CACHE_TTL_MS,
+      ownerScope: `${getAppEnvironment()}:account-avatar:${id}`,
+      scope: {
+        route: "workspace-chat",
+        surface: "account-avatar",
+        userId: id,
+        ...scope,
+      },
+      priority: task.priority || options.priority || "P0",
+      intentRank: task.intentRank ?? options.intentRank ?? 3,
+      policy: task.policy || options.policy || "foreground",
+      resource: task.resource || options.resource || "network",
+      kind: task.kind || options.kind || "account-avatar",
+      label: task.label || options.label || "account:avatar",
+      staleWhileRevalidate: options.staleWhileRevalidate ?? true,
+      dedupeKey:
+        task.dedupeKey || options.dedupeKey || `server-state:${cacheKey}`,
+      fetcher: async ({ signal }) => {
+        const { response, blob } = await requestBlob(`/system/pfp/${id}`, {
+          signal,
+          cache: "default",
+          blobKind: BLOB_KINDS.avatar,
+          communicationScene:
+            options.communicationScene || "account-avatar-current",
+          task: false,
+        });
+        return response.status !== 204 && blob
+          ? await blobToDataUrl(blob)
+          : null;
+      },
+    };
+    const request = (
+      options.force
+        ? serverStateTaskBridge.refresh(requestOptions)
+        : serverStateTaskBridge.ensure(requestOptions)
+    )
       .catch(() => {
         return null;
       })
@@ -1079,7 +1095,23 @@ const System = {
     timeout = null,
     options = {}
   ) {
-    return postJson(
+    const canCache = options.cache !== false && !apiKey && !basePath;
+    const cacheKey = canCache ? customModelsCacheKey(provider) : null;
+    if (canCache && !options.force) {
+      const cached = customModelsCache.get(cacheKey);
+      if (
+        cached &&
+        Date.now() - cached.updatedAt <
+          (options.cacheTtlMs || CUSTOM_MODELS_CACHE_TTL_MS)
+      ) {
+        return cached.value;
+      }
+      if (customModelsInflight.has(cacheKey)) {
+        return await customModelsInflight.get(cacheKey);
+      }
+    }
+
+    const request = postJson(
       "/system/custom-models",
       {
         provider,
@@ -1093,7 +1125,15 @@ const System = {
         task: options.task,
       }
     )
-      .then(({ data }) => data)
+      .then(({ data }) => {
+        if (canCache) {
+          customModelsCache.set(cacheKey, {
+            value: data,
+            updatedAt: Date.now(),
+          });
+        }
+        return data;
+      })
       .catch((e) => {
         if (e?.name === "AbortError") throw e;
         console.error(e);
@@ -1101,7 +1141,14 @@ const System = {
           models: [],
           error: responseError(e, "Error finding custom models."),
         };
+      })
+      .finally(() => {
+        if (cacheKey && customModelsInflight.get(cacheKey) === request) {
+          customModelsInflight.delete(cacheKey);
+        }
       });
+    if (cacheKey) customModelsInflight.set(cacheKey, request);
+    return await request;
   },
   chats: async (offset = 0, limit = 20) => {
     const cacheKey = adminSystemStateStore.keys.systemChats({ offset, limit });

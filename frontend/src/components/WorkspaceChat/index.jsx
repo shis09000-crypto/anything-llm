@@ -22,6 +22,7 @@ import { debugChatTurn } from "@/utils/chat/debug";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "@/utils/chat/performanceBudget";
+import { dispatchChatSecondaryPreload } from "@/utils/chat/chatSecondaryPreload";
 import {
   findChatHistoryOrderIssue,
   normalizeChatHistoryOrder,
@@ -786,6 +787,13 @@ export default function WorkspaceChat({ loading, workspace }) {
         `${key}:shell`,
         "lastFiveReadableMs"
       );
+      dispatchChatSecondaryPreload({
+        key,
+        workspaceSlug: workspace.slug,
+        threadSlug: threadSlug || null,
+        historySeq: seq,
+        historyLength: chatHistory.length,
+      });
 
       if (effectiveRestoreChatId && currentPage?.anchorFound === true) {
         const newerAfterChatId =

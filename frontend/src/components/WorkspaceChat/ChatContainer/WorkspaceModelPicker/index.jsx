@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useRef, useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import useUser from "@/hooks/useUser";
@@ -10,15 +10,26 @@ import {
   PROVIDER_SETUP_EVENT,
 } from "../PromptInput/LLMSelector/action";
 import Workspace from "@/models/workspace";
+import System from "@/models/system";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";
 import { canSeeAdmin } from "@/utils/authz";
 import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
+import {
+  CHAT_SECONDARY_PRELOAD_EVENT,
+  chatSecondaryTask,
+} from "@/utils/chat/chatSecondaryPreload";
 
-function fetchModelName(slug, setModelName) {
-  if (!slug) return;
-  Workspace.bySlug(slug).then((workspace) => {
+function fetchModelName(slug, setModelName, options = {}) {
+  if (!slug) return Promise.resolve(null);
+  return Workspace.bySlug(slug, options).then((workspace) => {
     setModelName(workspace?.chatModel || "");
+    return workspace;
   });
+}
+
+function markModelLabelVisible() {
+  if (typeof performance === "undefined") return;
+  performance.mark?.("athena:model_label_visible");
 }
 
 export default function WorkspaceModelPicker({
@@ -38,10 +49,12 @@ export default function WorkspaceModelPicker({
   } = useModal();
   const [config, setConfig] = useState({ settings: {}, provider: null });
   const [refreshKey, setRefreshKey] = useState(0);
+  const modelLabelMarkedRef = useRef(false);
   const [sidebarOpen, setSidebarOpen] = useState(
     () => window.localStorage.getItem("anythingllm_sidebar_toggle") !== "closed"
   );
   const isMobileShell = mobileShellRuntimeActive();
+  const canUseModelPicker = !!user && canSeeAdmin(user);
 
   useEffect(() => {
     const handleToggle = (e) => setSidebarOpen(e.detail.open);
@@ -58,6 +71,85 @@ export default function WorkspaceModelPicker({
     }
     fetchModelName(slug, setModelName);
   }, [slug, initialModelName]);
+
+  useEffect(() => {
+    if (!modelName || modelLabelMarkedRef.current) return;
+    modelLabelMarkedRef.current = true;
+    markModelLabelVisible();
+  }, [modelName]);
+
+  useEffect(() => {
+    if (!slug || isMobileShell || !canUseModelPicker) return;
+    let active = true;
+    const controller = new AbortController();
+
+    async function preloadModelChrome(event) {
+      const detail = event?.detail || {};
+      if (detail.workspaceSlug && detail.workspaceSlug !== slug) return;
+      const scope = {
+        workspaceSlug: slug,
+        threadSlug: detail.threadSlug || undefined,
+        surface: "llm-selector",
+      };
+
+      try {
+        const [workspace, settingsResponse] = await Promise.all([
+          Workspace.bySlug(slug, {
+            signal: controller.signal,
+            communicationScene: "llm-model-chrome-preload",
+            task: chatSecondaryTask("llm-selector:model-chrome-workspace", {
+              ...scope,
+              surface: "llm-selector-workspace",
+            }),
+          }),
+          System.settingsBootstrap({
+            sections: ["llm"],
+            signal: controller.signal,
+            communicationScene: "llm-model-chrome-preload",
+            task: chatSecondaryTask("llm-selector:model-chrome-settings", {
+              ...scope,
+              surface: "llm-selector-settings",
+            }),
+          }),
+        ]);
+        if (!active || controller.signal.aborted) return;
+
+        const settings = settingsResponse?.settings || {};
+        const resolvedModel = workspace?.chatModel || settings.LLMModel || "";
+        if (resolvedModel) {
+          setModelName(resolvedModel);
+          markModelLabelVisible();
+        }
+
+        const provider = workspace?.chatProvider || settings.LLMProvider;
+        if (provider) {
+          void System.customModels(provider, null, null, null, {
+            signal: controller.signal,
+            cache: true,
+            communicationScene: "llm-model-chrome-preload",
+            task: chatSecondaryTask("llm-selector:model-chrome-preload", {
+              ...scope,
+              provider,
+            }),
+          }).catch((error) => {
+            if (error?.name !== "AbortError") console.error(error);
+          });
+        }
+      } catch (error) {
+        if (error?.name !== "AbortError" && active) console.error(error);
+      }
+    }
+
+    window.addEventListener(CHAT_SECONDARY_PRELOAD_EVENT, preloadModelChrome);
+    return () => {
+      active = false;
+      controller.abort();
+      window.removeEventListener(
+        CHAT_SECONDARY_PRELOAD_EVENT,
+        preloadModelChrome
+      );
+    };
+  }, [slug, isMobileShell, canUseModelPicker]);
 
   // Close selector and refresh model name when model is saved
   useEffect(() => {
@@ -83,7 +175,7 @@ export default function WorkspaceModelPicker({
   }, []);
 
   // This feature is disabled for multi-user instances where the user is not an admin
-  if (!!user && !canSeeAdmin(user)) return null;
+  if (!!user && !canUseModelPicker) return null;
   if (!slug || isMobileShell) return null;
 
   return (
