@@ -28,10 +28,14 @@ const {
     clearVerifyFailures,
     consumeChallenge,
     markVerifyFailure,
+    nativeWebHandoffFromQuery,
+    nativeWebPasskeyPage,
     normalizeBase64Url,
     providerMetadata,
     resetRateLimits,
     sanitizePasskey,
+    safeOpaqueEqual,
+    sha256Base64Url,
     userHandleMatches,
     verifyCooldown,
   },
@@ -63,6 +67,30 @@ describe("passkey security helpers", () => {
     );
 
     expect(challengeFromClientData(clientDataJSON)).toBe(challenge);
+  });
+
+  it("validates the native web handoff and binds it to PKCE", () => {
+    const verifier = "v".repeat(48);
+    const codeChallenge = sha256Base64Url(verifier);
+    expect(
+      nativeWebHandoffFromQuery({
+        state: "s".repeat(32),
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      })
+    ).toEqual({ state: "s".repeat(32), codeChallenge });
+    expect(safeOpaqueEqual(sha256Base64Url(verifier), codeChallenge)).toBe(
+      true
+    );
+  });
+
+  it("returns failed passkey ceremonies to the native callback", () => {
+    const page = nativeWebPasskeyPage({
+      state: "s".repeat(32),
+      codeChallenge: "c".repeat(43),
+    });
+    expect(page).toContain('error:"passkey_failed"');
+    expect(page).toContain('window.location.replace("athena://auth/callback?"');
   });
 
   it("deletes a valid challenge immediately when consumed", async () => {
