@@ -23,7 +23,8 @@ const MAX_RECENT_OPERATIONS = 80;
 
 const repositoryLoaders = {
   adminSystem: () => require("../../repositories/adminSystemRepository"),
-  athenaMutationReceipt: () => require("../../repositories/athenaMutationReceiptRepository"),
+  athenaMutationReceipt: () =>
+    require("../../repositories/athenaMutationReceiptRepository"),
   agentSkillWhitelist: () =>
     require("../../repositories/agentSkillWhitelistRepository"),
   accountDeletion: () =>
@@ -975,6 +976,16 @@ const workspace = makeRepositoryFacade(
   workspaceScopeFromArgs
 );
 
+const athenaMutationReceipt = makeRepositoryFacade(
+  "athenaMutationReceipt",
+  {
+    reserve: "write",
+    complete: "write",
+    fail: "write",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const workspaceThread = {
   ...makeRepositoryFacade(
     "workspaceThread",
@@ -1780,6 +1791,7 @@ const telemetry = makeRepositoryFacade(
 const DataAccessCenter = {
   domains: Object.freeze(Object.keys(repositoryLoaders).sort()),
   adminSystem,
+  athenaMutationReceipt,
   agentSkillWhitelist,
   accountDeletion,
   authIdentity,
