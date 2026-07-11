@@ -22,6 +22,9 @@ const {
   validWorkspaceAndThreadSlug,
 } = require("../utils/middleware/validWorkspace");
 const {
+  getAuthorizedWorkspaceThread,
+} = require("../utils/authz/resourceAccess");
+const {
   convertToChatHistory,
   writeResponseChunk,
 } = require("../utils/helpers/chat/responses");
@@ -54,6 +57,7 @@ const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
 const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
+const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
 
 function compactActionId(value = null) {
   const normalized = String(value || "").trim();
@@ -406,28 +410,6 @@ function workspaceThreadEndpoints(app) {
           response.status(400).json({ thread: null, message });
           return;
         }
-        if (!replayed)
-          await Telemetry.sendTelemetry(
-            "workspace_thread_created",
-            {
-              multiUserMode: multiUserMode(response),
-              LLMSelection: process.env.LLM_PROVIDER || "openai",
-              Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-              VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-              TTSSelection: process.env.TTS_PROVIDER || "native",
-              LLMModel: getModelTag(),
-            },
-            user?.id
-          );
-
-        if (!replayed)
-          await EventLogs.logEvent(
-            "workspace_thread_created",
-            {
-              workspaceName: workspace?.name || "Unknown Workspace",
-            },
-            user?.id
-          );
         if (!replayed) {
           const clientContext = getClientContext(request, { user });
           publishWorkspaceSyncEvent({
@@ -444,8 +426,34 @@ function workspaceThreadEndpoints(app) {
             senderClientId: clientContext.clientId,
             sourceActionId,
           });
+          void Promise.allSettled([
+            Telemetry.sendTelemetry(
+              "workspace_thread_created",
+              {
+                multiUserMode: multiUserMode(response),
+                LLMSelection: process.env.LLM_PROVIDER || "openai",
+                Embedder: process.env.EMBEDDING_ENGINE || "inherit",
+                VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+                TTSSelection: process.env.TTS_PROVIDER || "native",
+                LLMModel: getModelTag(),
+              },
+              user?.id
+            ),
+            EventLogs.logEvent(
+              "workspace_thread_created",
+              {
+                workspaceName: workspace?.name || "Unknown Workspace",
+              },
+              user?.id
+            ),
+          ]);
         }
-        response.status(200).json({ thread, message, replayed });
+        response.status(200).json({
+          thread,
+          message,
+          replayed,
+          sourceActionId,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -584,22 +592,78 @@ function workspaceThreadEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/thread/:threadSlug",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceAndThreadSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const thread = response.locals.thread;
+        const sourceActionId = compactActionId(
+          (reqBody(request) || {}).sourceActionId
+        );
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: "thread.delete",
+            workspaceId: workspace.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                error: reservation.receipt.errorCode || "thread_delete_failed",
+              });
+            }
+            return response.status(200).json({
+              success: true,
+              replayed: true,
+              pending: reservation.receipt?.status !== "completed",
+            });
+          }
+        }
+
+        const { thread } = await getAuthorizedWorkspaceThread({
+          request,
+          response,
+          workspaceSlug: workspace.slug,
+          threadSlug: request.params.threadSlug,
+        });
+        if (!thread) {
+          if (sourceActionId) {
+            await MutationReceipt.fail({
+              userId: user?.id,
+              sourceActionId,
+              errorCode: "thread_not_found",
+            });
+          }
+          return response
+            .status(404)
+            .json({ error: "Workspace thread does not exist." });
+        }
         if (WorkspaceThread.isOverviewThread(thread)) {
+          if (sourceActionId) {
+            await MutationReceipt.fail({
+              userId: user?.id,
+              sourceActionId,
+              errorCode: "overview_thread_protected",
+            });
+          }
           return response
             .status(400)
             .json({ error: "Overview thread cannot be deleted." });
         }
         await WorkspaceThread.delete({ id: thread.id });
+        if (sourceActionId) {
+          await MutationReceipt.complete({
+            userId: user?.id,
+            sourceActionId,
+            resource: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              threadId: thread.id,
+              threadSlug: thread.slug,
+            },
+          });
+        }
         const clientContext = getClientContext(request, { user });
         publishWorkspaceSyncEvent({
           type: "thread_deleted",
@@ -609,8 +673,13 @@ function workspaceThreadEndpoints(app) {
           threadId: thread.id,
           threadSlug: thread.slug,
           senderClientId: clientContext.clientId,
+          sourceActionId,
         });
-        response.sendStatus(200).end();
+        response.status(200).json({
+          success: true,
+          sourceActionId,
+          threadSlug: thread.slug,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -886,7 +955,16 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const data = reqBody(request);
+        const requestData = reqBody(request) || {};
+        const sourceActionId = compactActionId(requestData.sourceActionId);
+        const data = { ...requestData };
+        delete data.sourceActionId;
+        const mutationAction = Object.prototype.hasOwnProperty.call(
+          data,
+          "chatModel"
+        )
+          ? "thread.model.update"
+          : "thread.rename";
         if (
           Object.prototype.hasOwnProperty.call(data, "chatModel") &&
           !isSupportedThreadChatModel(data.chatModel)
@@ -897,11 +975,47 @@ function workspaceThreadEndpoints(app) {
           });
         }
         const currentThread = response.locals.thread;
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: mutationAction,
+            workspaceId: workspace.id,
+            threadId: currentThread.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                thread: currentThread,
+                message:
+                  reservation.receipt.errorCode || "thread_update_failed",
+              });
+            }
+            return response.status(200).json({
+              thread: currentThread,
+              message: null,
+              replayed: true,
+              pending: reservation.receipt?.status !== "completed",
+            });
+          }
+        }
         const { thread, message } = await WorkspaceThread.update(
           currentThread,
           data
         );
         if (thread) {
+          if (sourceActionId) {
+            await MutationReceipt.complete({
+              userId: user?.id,
+              sourceActionId,
+              resource: {
+                workspaceId: workspace.id,
+                workspaceSlug: workspace.slug,
+                threadId: thread.id,
+                threadSlug: thread.slug,
+              },
+            });
+          }
           const clientContext = getClientContext(request, { user });
           publishWorkspaceSyncEvent({
             type: "thread_updated",
@@ -915,6 +1029,7 @@ function workspaceThreadEndpoints(app) {
             threadType: thread.thread_type,
             chatModel: thread.chatModel,
             senderClientId: clientContext.clientId,
+            sourceActionId,
           });
         }
         response.status(200).json({ thread, message });

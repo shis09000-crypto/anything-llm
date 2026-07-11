@@ -13,6 +13,7 @@ const DATA_ACCESS_CLASSIFICATIONS = Object.freeze({
 const DOMAIN_CLASSIFICATIONS = Object.freeze({
   accountDeletion: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   adminSystem: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  athenaMutationReceipt: DATA_ACCESS_CLASSIFICATIONS.user,
   agentSkillWhitelist: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   authIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   clientIdentity: DATA_ACCESS_CLASSIFICATIONS.sensitive,
@@ -95,6 +96,11 @@ const USER_STATE_NAMESPACE_POLICIES = Object.freeze({
   "crypto.ui": {
     authority: "preference",
     description: "Crypto UI preferences only.",
+  },
+  "ios.drawer.pins": {
+    authority: "preference",
+    description:
+      "Pinned workspace and thread references for iOS and iPadOS only.",
   },
 });
 

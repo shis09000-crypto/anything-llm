@@ -347,6 +347,7 @@ model users {
   athena_clients               athena_clients[]
   athena_sync_events           athena_sync_events[]
   athena_ios_push_tokens       athena_ios_push_tokens[]
+  athena_mutation_receipts     athena_mutation_receipts[]
   user_state_preferences       user_state_preferences[]
   reader_library_items         reader_library_items[]
   reader_library_categories    reader_library_categories[]
@@ -1340,6 +1341,26 @@ model athena_ios_push_tokens {
   @@unique([userId, clientId, environment, bundleId])
   @@index([userId, revokedAt])
   @@index([tokenFingerprint])
+}
+
+model athena_mutation_receipts {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  sourceActionId String
+  action         String
+  workspaceId    Int?
+  threadId       Int?
+  status         String    @default("pending")
+  resourceJson   String    @default("{}")
+  errorCode      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now())
+  user           users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sourceActionId])
+  @@index([userId, status])
+  @@index([workspaceId])
+  @@index([threadId])
 }
 
 model workspace_suggested_messages {

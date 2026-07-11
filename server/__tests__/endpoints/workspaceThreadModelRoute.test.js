@@ -1,11 +1,21 @@
 const mockThreadUpdate = jest.fn();
+const mockThreadDelete = jest.fn();
 const mockPublishWorkspaceSyncEvent = jest.fn();
 
 jest.mock("../../models/workspaceThread", () => ({
   WorkspaceThread: {
     THREAD_TYPES: { chat: "chat", overview: "overview" },
     update: (...args) => mockThreadUpdate(...args),
+    delete: (...args) => mockThreadDelete(...args),
+    isOverviewThread: (thread) => thread?.thread_type === "overview",
   },
+}));
+
+jest.mock("../../utils/authz/resourceAccess", () => ({
+  getAuthorizedWorkspaceThread: async ({ response }) => ({
+    workspace: response.locals.workspace,
+    thread: response.locals.thread,
+  }),
 }));
 
 jest.mock("../../utils/middleware/validatedRequest", () => ({
@@ -25,11 +35,27 @@ function updateRoute() {
       routes[path] = handler;
     },
     get: jest.fn(),
-    delete: jest.fn(),
+    delete: (path, _middleware, handler) => {
+      routes[path] = handler;
+    },
   };
   const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
   workspaceThreadEndpoints(app);
   return routes["/workspace/:slug/thread/:threadSlug/update"];
+}
+
+function deleteRoute() {
+  const routes = {};
+  const app = {
+    post: jest.fn(),
+    get: jest.fn(),
+    delete: (path, _middleware, handler) => {
+      routes[path] = handler;
+    },
+  };
+  const { workspaceThreadEndpoints } = require("../../endpoints/workspaceThreads");
+  workspaceThreadEndpoints(app);
+  return routes["/workspace/:slug/thread/:threadSlug"];
 }
 
 function response() {
@@ -56,6 +82,32 @@ describe("workspace thread model update route", () => {
   beforeEach(() => {
     jest.resetModules();
     jest.clearAllMocks();
+  });
+
+  it("returns a JSON success contract after deleting a thread", async () => {
+    mockThreadDelete.mockResolvedValue(undefined);
+    const route = deleteRoute();
+    const res = response();
+    const request = {
+      params: { slug: "alpha", threadSlug: "thread-a" },
+      body: {},
+    };
+
+    await route(request, res);
+
+    expect(mockThreadDelete).toHaveBeenCalledWith({ id: 11 });
+    expect(mockPublishWorkspaceSyncEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "thread_deleted",
+        threadSlug: "thread-a",
+      })
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.status.mock.results[0].value.json).toHaveBeenCalledWith({
+      success: true,
+      sourceActionId: null,
+      threadSlug: "thread-a",
+    });
   });
 
   it("rejects unsupported model identifiers before writing", async () => {

@@ -69,6 +69,7 @@ const Workspace = DataAccessCenter.workspace;
 const Document = DataAccessCenter.document;
 const DocumentVectors = DataAccessCenter.documentVector;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
+const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceSuggestedMessages = DataAccessCenter.workspaceSuggestedMessage;
 const {
@@ -164,6 +165,16 @@ function runWorkspaceDeleteJob({
       await DocumentVectors.deleteForWorkspace(workspace.id);
       await Document.delete({ workspaceId: Number(workspace.id) });
       await Workspace.delete({ id: Number(workspace.id) });
+      if (sourceActionId) {
+        await MutationReceipt.complete({
+          userId: eventUser?.id,
+          sourceActionId,
+          resource: {
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+          },
+        });
+      }
 
       await EventLogs.logEvent(
         "workspace_deleted",
@@ -187,10 +198,19 @@ function runWorkspaceDeleteJob({
         workspaceSlug: workspace.slug,
         userId: eventUser?.id ?? null,
         senderClientId: clientContext?.clientId,
+        sourceActionId,
+        deleteIntentId,
       });
       deleteVectorNamespaceInBackground(VectorDb, slug);
     } catch (error) {
       console.error(error.message, error);
+      if (sourceActionId) {
+        await MutationReceipt.fail({
+          userId: eventUser?.id,
+          sourceActionId,
+          errorCode: workspaceDeleteErrorCode(error),
+        });
+      }
       publishWorkspaceDeleteBroadcast({
         type: "delete.failed",
         workspace,
@@ -199,6 +219,16 @@ function runWorkspaceDeleteJob({
         deleteIntentId,
         sourceActionId,
         errorCode: workspaceDeleteErrorCode(error),
+      });
+      publishWorkspaceSyncEvent({
+        type: "workspace_delete_failed",
+        workspaceId: workspace.id,
+        workspaceSlug: workspace.slug,
+        userId: eventUser?.id ?? null,
+        senderClientId: clientContext?.clientId,
+        sourceActionId,
+        deleteIntentId,
+        error: workspaceDeleteErrorCode(error),
       });
     }
   });
@@ -656,7 +686,19 @@ function workspaceEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const { slug = null } = request.params;
-        const data = reqBody(request);
+        const requestData = reqBody(request) || {};
+        const sourceActionId = compactIdentifier(
+          requestData.sourceActionId,
+          null
+        );
+        const data = { ...requestData };
+        delete data.sourceActionId;
+        const mutationAction = Object.prototype.hasOwnProperty.call(
+          data,
+          "chatModel"
+        )
+          ? "workspace.model.update"
+          : "workspace.rename";
         const currWorkspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
           : await Workspace.get({ slug });
@@ -666,20 +708,56 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: mutationAction,
+            workspaceId: currWorkspace.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                workspace: currWorkspace,
+                message:
+                  reservation.receipt.errorCode || "Workspace update failed.",
+              });
+            }
+            return response.status(200).json({
+              workspace: currWorkspace,
+              message: null,
+              replayed: true,
+              pending: reservation.receipt?.status !== "completed",
+            });
+          }
+        }
+
         await Workspace.trackChange(currWorkspace, data, user);
         const { workspace, message } = await Workspace.update(
           currWorkspace.id,
           data
         );
         if (workspace) {
+          if (sourceActionId) {
+            await MutationReceipt.complete({
+              userId: user?.id,
+              sourceActionId,
+              resource: {
+                workspaceId: workspace.id,
+                workspaceSlug: workspace.slug,
+              },
+            });
+          }
           const clientContext = getClientContext(request, { user });
           publishWorkspaceSyncEvent({
             type: "workspace_updated",
             workspaceId: workspace.id,
             workspaceSlug: workspace.slug,
             workspaceName: workspace.name,
+            chatModel: workspace.chatModel,
             userId: user?.id ?? null,
             senderClientId: clientContext.clientId,
+            sourceActionId,
           });
         }
         response.status(200).json({ workspace, message });
@@ -966,6 +1044,30 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: "workspace.delete",
+            workspaceId: workspace.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                success: false,
+                error:
+                  reservation.receipt.errorCode || "workspace_delete_failed",
+              });
+            }
+            return response.status(200).json({
+              success: true,
+              accepted: reservation.receipt?.status !== "completed",
+              replayed: true,
+              deleteIntentId,
+            });
+          }
+        }
+
         void recordClientTrustCheckpoint(request, {
           action: "workspace_delete",
           resourceType: "workspace",
@@ -980,6 +1082,15 @@ function workspaceEndpoints(app) {
           clientContext,
           deleteIntentId,
           sourceActionId,
+        });
+        publishWorkspaceSyncEvent({
+          type: "workspace_delete_requested",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          senderClientId: clientContext?.clientId,
+          sourceActionId,
+          deleteIntentId,
         });
         runWorkspaceDeleteJob({
           workspace,
@@ -1202,6 +1313,7 @@ function workspaceEndpoints(app) {
             id: workspace.id,
             name: workspace.name,
             slug: workspace.slug,
+            chatModel: workspace.chatModel,
           },
           thread: null,
           history: convertToChatHistory(orderedHistory, { lightChatIds }),

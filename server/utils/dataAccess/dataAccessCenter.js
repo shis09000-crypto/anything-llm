@@ -23,6 +23,7 @@ const MAX_RECENT_OPERATIONS = 80;
 
 const repositoryLoaders = {
   adminSystem: () => require("../../repositories/adminSystemRepository"),
+  athenaMutationReceipt: () => require("../../repositories/athenaMutationReceiptRepository"),
   agentSkillWhitelist: () =>
     require("../../repositories/agentSkillWhitelistRepository"),
   accountDeletion: () =>
@@ -94,6 +95,7 @@ const repositoryLoaders = {
 
 const repositoryExports = {
   adminSystem: "AdminSystemRepository",
+  athenaMutationReceipt: "AthenaMutationReceiptRepository",
   agentSkillWhitelist: "AgentSkillWhitelistRepository",
   accountDeletion: "AccountDeletionRepository",
   authIdentity: "AuthIdentityRepository",
