@@ -345,6 +345,8 @@ model users {
   workspace_parsed_files       workspace_parsed_files[]
   workspace_mind_maps          workspace_mind_maps[]
   athena_clients               athena_clients[]
+  athena_sync_events           athena_sync_events[]
+  athena_ios_push_tokens       athena_ios_push_tokens[]
   user_state_preferences       user_state_preferences[]
   reader_library_items         reader_library_items[]
   reader_library_categories    reader_library_categories[]
@@ -1232,6 +1234,7 @@ model WorkspaceOverviewRecommendationUsage {
 
 model workspaces {
   id                           Int                            @id @default(autoincrement())
+  sourceActionId               String?                        @unique
   name                         String
   slug                         String                         @unique
   vectorTag                    String?
@@ -1264,6 +1267,7 @@ model workspaces {
 
 model workspace_threads {
   id                     Int                      @id @default(autoincrement())
+  sourceActionId         String?                  @unique
   name                   String
   title                  String?
   titleSource            String?
@@ -1277,6 +1281,8 @@ model workspace_threads {
   user_id                Int?
   parent_thread_id       Int?
   thread_type            String?
+  chatModel              String?
+  historyRevision        Int                      @default(0)
   created_from           String?
   forked_at_message_id   Int?
   forked_at              DateTime?
@@ -1288,6 +1294,52 @@ model workspace_threads {
 
   @@index([workspace_id])
   @@index([user_id])
+}
+
+model athena_sync_events {
+  id             Int       @id @default(autoincrement())
+  eventId        String    @unique
+  userId         Int?
+  targetClientId String?
+  namespace      String
+  eventType      String
+  visibility     String
+  priority       String    @default("normal")
+  version        String?
+  revision       String?
+  scopeJson      String    @default("{}")
+  resourceJson   String    @default("{}")
+  payloadJson    String    @default("{}")
+  originJson     String    @default("{}")
+  sourceClientId String?
+  requiresAck    Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  user           users?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, id])
+  @@index([targetClientId, id])
+  @@index([expiresAt])
+}
+
+model athena_ios_push_tokens {
+  id                   Int       @id @default(autoincrement())
+  userId               Int
+  clientId             String
+  environment          String
+  bundleId             String
+  tokenEncrypted       String
+  tokenFingerprint     String
+  appVersion           String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now())
+  lastSeenAt           DateTime  @default(now())
+  revokedAt            DateTime?
+  user                 users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId, environment, bundleId])
+  @@index([userId, revokedAt])
+  @@index([tokenFingerprint])
 }
 
 model workspace_suggested_messages {
@@ -1305,6 +1357,7 @@ model workspace_suggested_messages {
 model workspace_chats {
   id                  Int      @id @default(autoincrement())
   public_id           String?  @unique
+  clientTurnId        String?  @unique
   workspaceId         Int
   prompt              String
   response            String

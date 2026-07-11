@@ -128,7 +128,9 @@ const WorkspaceThread = {
       if (error) return { thread: null, error };
       if (!payload?.thread?.slug)
         return { thread: null, error: "Invalid thread response" };
-      workspaceNavigationCache.updateThread(workspaceSlug, payload.thread);
+      if (!options.skipCacheUpdate) {
+        workspaceNavigationCache.updateThread(workspaceSlug, payload.thread);
+      }
       return { thread: payload.thread, error: null };
     } catch (e) {
       return { thread: null, error: failureMessage(e) };
@@ -215,7 +217,9 @@ const WorkspaceThread = {
     )
       .then(() => {
         threadHistoryCache.invalidateThread(workspaceSlug, threadSlug);
-        workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
+        if (!options.skipCacheUpdate) {
+          workspaceNavigationCache.removeThread(workspaceSlug, threadSlug);
+        }
         return true;
       })
       .catch(() => false);
@@ -235,7 +239,11 @@ const WorkspaceThread = {
         threadSlugs.forEach((threadSlug) =>
           threadHistoryCache.invalidateThread(workspaceSlug, threadSlug)
         );
-        workspaceNavigationCache.invalidateThreads(workspaceSlug);
+        if (!options.skipCacheUpdate) {
+          threadSlugs.forEach((threadSlug) =>
+            workspaceNavigationCache.removeThread(workspaceSlug, threadSlug)
+          );
+        }
         return true;
       })
       .catch(() => false);

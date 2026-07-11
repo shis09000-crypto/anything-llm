@@ -1,6 +1,9 @@
 {
   "signed": [
+    ["POST", "/workspace/new"],
+    ["POST", "/workspace/demo/thread/new"],
     ["POST", "/workspace/demo/tool-approval"],
+    ["POST", "/workspace/demo/thread/thread-a/update"],
     ["DELETE", "/api/workspace/demo/remove-and-unembed"],
     ["POST", "/auth/passkeys/register/options"],
     ["POST", "/auth/passkeys/register/verify"],

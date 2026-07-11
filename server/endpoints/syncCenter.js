@@ -15,6 +15,10 @@ const {
 } = require("../utils/syncCenter");
 const { broadcastCenter } = require("../utils/broadcast");
 const { getClientContext } = require("../utils/clientIdentity");
+const { reqBody, multiUserMode } = require("../utils/http");
+const {
+  configuration: apnsConfiguration,
+} = require("../utils/nativePush/apnsProvider");
 const {
   ensureSecureWebSocketRequest,
 } = require("../utils/security/transportSecurity");
@@ -25,6 +29,133 @@ const {
 } = require("../utils/requestSigning");
 
 const SystemSettings = DataAccessCenter.adminSystem;
+const Workspace = DataAccessCenter.workspace;
+const WorkspaceThread = DataAccessCenter.workspaceThread;
+const IOSPushToken = DataAccessCenter.iosPushToken;
+const SyncEvent = DataAccessCenter.syncEvent;
+
+function asyncEndpoint(handler) {
+  return async (request, response) => {
+    try {
+      await handler(request, response);
+    } catch (error) {
+      console.error("[SyncCenter] endpoint failed", {
+        path: request.path,
+        code: error?.code || "sync_endpoint_failed",
+      });
+      if (!response.headersSent) {
+        response.status(500).json({ success: false, error: "sync_failed" });
+      }
+    }
+  };
+}
+
+function requireNativeSignedRequest(request, response) {
+  const clientContext = getClientContext(request, {
+    user: response.locals?.user || null,
+  });
+  if (
+    !clientContext?.clientId ||
+    clientContext.legacy ||
+    !request.signedRequest
+  ) {
+    response.status(401).json({
+      success: false,
+      error: "native_signed_request_required",
+    });
+    return null;
+  }
+  return clientContext;
+}
+
+function normalizeFingerprintRequests(value = []) {
+  if (!Array.isArray(value)) return null;
+  const normalized = value
+    .slice(0, 31)
+    .map((item) => ({
+      workspaceSlug: String(item?.workspaceSlug || "").trim(),
+      threadSlug: String(item?.threadSlug || "").trim(),
+      fingerprint: item?.fingerprint
+        ? String(item.fingerprint).trim().slice(0, 128)
+        : null,
+    }))
+    .filter((item) => item.workspaceSlug && item.threadSlug);
+  if (normalized.length > 30 || normalized.length !== value.length) return null;
+  return normalized;
+}
+
+async function fingerprintManifestForRequest(response, user, requests) {
+  const workspaceSlugs = [
+    ...new Set(requests.map((item) => item.workspaceSlug)),
+  ];
+  const workspaces = [];
+  for (const slug of workspaceSlugs) {
+    const workspace = multiUserMode(response)
+      ? await Workspace.getWithUser(user, { slug })
+      : await Workspace.get({ slug });
+    if (workspace) workspaces.push(workspace);
+  }
+  const workspaceBySlug = new Map(
+    workspaces.map((workspace) => [workspace.slug, workspace])
+  );
+  const foundThreads = [];
+  for (const workspace of workspaces) {
+    const threadSlugs = requests
+      .filter((item) => item.workspaceSlug === workspace.slug)
+      .map((item) => item.threadSlug);
+    const threads = await WorkspaceThread.where({
+      workspace_id: workspace.id,
+      user_id: user?.id || null,
+      slug: { in: threadSlugs },
+    });
+    foundThreads.push(...threads);
+  }
+  const fingerprintRows = await WorkspaceThread.historyFingerprintManifest({
+    threads: foundThreads,
+    userId: user?.id || null,
+  });
+  const fingerprintByThreadId = new Map(
+    fingerprintRows.map((row) => [Number(row.threadId), row])
+  );
+  const threadByKey = new Map(
+    foundThreads.map((thread) => [
+      `${thread.workspace_id}:${thread.slug}`,
+      thread,
+    ])
+  );
+
+  return requests.map((requested) => {
+    const workspace = workspaceBySlug.get(requested.workspaceSlug);
+    const thread = workspace
+      ? threadByKey.get(`${workspace.id}:${requested.threadSlug}`)
+      : null;
+    const fingerprint = thread
+      ? fingerprintByThreadId.get(Number(thread.id))
+      : null;
+    if (!workspace || !thread || !fingerprint) {
+      return {
+        workspaceSlug: requested.workspaceSlug,
+        threadSlug: requested.threadSlug,
+        status: "unavailable",
+      };
+    }
+    return {
+      workspaceSlug: requested.workspaceSlug,
+      threadSlug: requested.threadSlug,
+      status:
+        requested.fingerprint === fingerprint.historyFingerprint
+          ? "unchanged"
+          : "changed",
+      historyFingerprint: fingerprint.historyFingerprint,
+      historyRevision: fingerprint.historyRevision,
+      latestChatId: fingerprint.latestChatId,
+      latestChatAt:
+        fingerprint.latestChatAt?.toISOString?.() ||
+        fingerprint.latestChatAt ||
+        null,
+    };
+  });
+}
 
 function sendSocket(socket, payload) {
   if (!socket || socket.readyState !== 1) return false;
@@ -126,6 +257,108 @@ function syncCenterEndpoints(app) {
   if (!app) return;
 
   app.get(
+    "/sync/events/replay",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const user = await userFromSession(request, response);
+      const clientContext = requireNativeSignedRequest(request, response);
+      if (!clientContext) return;
+      const replay = await SyncEvent.replay({
+        userId: user?.id ?? null,
+        clientId: clientContext.clientId,
+        afterEventId: request.query?.afterEventId || null,
+        limit: request.query?.limit,
+      });
+      response.status(200).json({ success: true, ...replay });
+    })
+  );
+
+  app.post(
+    "/sync/thread-fingerprints",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const user = await userFromSession(request, response);
+      if (!requireNativeSignedRequest(request, response)) return;
+      const requests = normalizeFingerprintRequests(reqBody(request)?.threads);
+      if (!requests) {
+        return response.status(400).json({
+          success: false,
+          error: "invalid_thread_fingerprint_request",
+        });
+      }
+      const threads = await fingerprintManifestForRequest(
+        response,
+        user,
+        requests
+      );
+      response.status(200).json({
+        success: true,
+        checkedAt: new Date().toISOString(),
+        threads,
+      });
+    })
+  );
+
+  app.post(
+    "/native-app/push-token",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const user = await userFromSession(request, response);
+      const clientContext = requireNativeSignedRequest(request, response);
+      if (!clientContext) return;
+      if (!user?.id) {
+        return response.status(409).json({
+          success: false,
+          error: "push_requires_user_identity",
+        });
+      }
+      const config = apnsConfiguration();
+      if (!config.bundleId) {
+        return response.status(503).json({
+          success: false,
+          error: "apns_bundle_not_configured",
+        });
+      }
+      try {
+        await IOSPushToken.register({
+          userId: user.id,
+          clientId: clientContext.clientId,
+          deviceToken: reqBody(request)?.deviceToken,
+          environment: config.environment,
+          bundleId: config.bundleId,
+          appVersion: request.header("X-Athena-App-Version"),
+        });
+      } catch (error) {
+        if (error?.message === "invalid_device_token") {
+          return response.status(400).json({
+            success: false,
+            error: "invalid_device_token",
+          });
+        }
+        throw error;
+      }
+      response.status(200).json({ success: true });
+    })
+  );
+
+  app.delete(
+    "/native-app/push-token",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const user = await userFromSession(request, response);
+      const clientContext = requireNativeSignedRequest(request, response);
+      if (!clientContext) return;
+      if (user?.id) {
+        await IOSPushToken.revoke({
+          userId: user.id,
+          clientId: clientContext.clientId,
+        });
+      }
+      response.status(200).json({ success: true });
+    })
+  );
+
+  app.get(
     "/sync/events",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
     async (request, response) => {
@@ -185,7 +418,7 @@ function syncCenterEndpoints(app) {
       ? request.query.lastEventId[0]
       : request.query?.lastEventId;
     if (queryLastEventId) {
-      const replay = broadcastCenter.replay({
+      const replay = await broadcastCenter.replayDurable({
         userId: connection.userId,
         clientId: connection.clientId,
         lastEventId: queryLastEventId,
@@ -207,7 +440,7 @@ function syncCenterEndpoints(app) {
             broadcastCenter.subscribe(connection, subscriptions);
           }
           if (payload.lastEventId) {
-            const replay = broadcastCenter.replay({
+            const replay = await broadcastCenter.replayDurable({
               userId: connection.userId,
               clientId: connection.clientId,
               lastEventId: payload.lastEventId,

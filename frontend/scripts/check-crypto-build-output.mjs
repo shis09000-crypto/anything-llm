@@ -106,6 +106,13 @@ function classifyAcceptedEvalRisk(file, content) {
   ) {
     accepted.push("echarts geoJSON parser fallback");
   }
+  if (
+    content.includes("serenity") &&
+    content.includes("opaque") &&
+    content.includes("__wbg_new_no_args_1c7c842f08d00ebb")
+  ) {
+    accepted.push("@serenity-kit/opaque wasm-bindgen runtime");
+  }
   return accepted;
 }
 

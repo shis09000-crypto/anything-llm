@@ -49,6 +49,7 @@ import {
 } from "@/utils/chat/persistedTurn";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { storageKeys } from "@/utils/appEnvironment";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
@@ -71,7 +72,6 @@ const MAX_SOURCE_FIELD_CHARS = 300;
 const MAX_RETAINED_INACTIVE_DRAFTS = 4;
 const MAX_COMPACT_INACTIVE_ITEMS = 40;
 const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
-const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const MAX_AGENT_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_AGENT_SILENCE_TIMEOUT_MS = 90_000;
 const AGENT_SOCKET_STARTUP_TIMEOUT_MS = 15_000;
@@ -3631,10 +3631,9 @@ export function ChatThreadDraftProvider({ children }) {
         if (threadSlug) {
           [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
             setTimeout(() => {
-              window.dispatchEvent(
-                new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-                  detail: { workspaceSlug },
-                })
+              workspaceNavigationCache.markThreadsStale(
+                workspaceSlug,
+                "chat-stream-complete-soft-stale"
               );
             }, delay);
           });

@@ -18,13 +18,76 @@ import {
   CHAT_SECONDARY_PRELOAD_EVENT,
   chatSecondaryTask,
 } from "@/utils/chat/chatSecondaryPreload";
+import { resolveModelChromeState } from "@/utils/chat/modelChromeState";
 
-function fetchModelName(slug, setModelName, options = {}) {
-  if (!slug) return Promise.resolve(null);
-  return Workspace.bySlug(slug, options).then((workspace) => {
-    setModelName(workspace?.chatModel || "");
-    return workspace;
-  });
+function modelChromeRequestOptions(labelPrefix, slug, scope, signal) {
+  return {
+    workspace: {
+      signal,
+      communicationScene: "llm-model-chrome-preload",
+      task: chatSecondaryTask(`${labelPrefix}:workspace`, {
+        workspaceSlug: slug,
+        ...scope,
+        surface: "llm-selector-workspace",
+      }),
+    },
+    settings: {
+      sections: ["llm"],
+      signal,
+      communicationScene: "llm-model-chrome-preload",
+      task: chatSecondaryTask(`${labelPrefix}:settings`, {
+        workspaceSlug: slug,
+        ...scope,
+        surface: "llm-selector-settings",
+      }),
+    },
+  };
+}
+
+async function fetchModelChrome(
+  slug,
+  { labelPrefix, signal, scope = {} } = {}
+) {
+  if (!slug) {
+    return {
+      workspace: null,
+      settings: {},
+      modelName: "",
+      provider: "",
+      hasResolvedSource: false,
+    };
+  }
+  const options = modelChromeRequestOptions(
+    labelPrefix || "llm-selector:model-label-bootstrap",
+    slug,
+    scope,
+    signal
+  );
+
+  const [workspace, settingsResponse] = await Promise.all([
+    Workspace.bySlug(slug, options.workspace).catch((error) => {
+      if (error?.name === "AbortError") throw error;
+      console.error(error);
+      return null;
+    }),
+    System.settingsBootstrap(options.settings).catch((error) => {
+      if (error?.name === "AbortError") throw error;
+      console.error(error);
+      return null;
+    }),
+  ]);
+  const settings = settingsResponse?.settings || {};
+  const resolved = resolveModelChromeState({ workspace, settings });
+  const workspaceHasModel =
+    typeof workspace?.chatModel === "string" && workspace.chatModel.trim();
+  const settingsResolved = !!settingsResponse?.settings;
+  return {
+    workspace,
+    settings,
+    ...resolved,
+    hasResolvedSource:
+      !!resolved.modelName || settingsResolved || !!workspaceHasModel,
+  };
 }
 
 function markModelLabelVisible() {
@@ -37,7 +100,7 @@ export default function WorkspaceModelPicker({
   modelName: initialModelName = "",
 }) {
   const { t } = useTranslation();
-  const { slug: urlSlug } = useParams();
+  const { slug: urlSlug, threadSlug = null } = useParams();
   const slug = urlSlug ?? workspaceSlug;
   const { user } = useUser();
   const [showSelector, setShowSelector] = useState(false);
@@ -62,21 +125,60 @@ export default function WorkspaceModelPicker({
     return () => window.removeEventListener(SIDEBAR_TOGGLE_EVENT, handleToggle);
   }, []);
 
-  // Use the workspace payload already loaded for chat first paint. Only fetch
-  // when embedded elsewhere without a model value.
+  // Use the workspace payload already loaded for chat first paint. If the
+  // workspace has no model override, fall back to the system LLM setting.
   useEffect(() => {
     if (initialModelName) {
       setModelName(initialModelName);
       return;
     }
-    fetchModelName(slug, setModelName);
-  }, [slug, initialModelName]);
+    if (!slug || isMobileShell || !canUseModelPicker) return;
+
+    let active = true;
+    const controller = new AbortController();
+    fetchModelChrome(slug, {
+      signal: controller.signal,
+      labelPrefix: "llm-selector:model-label-bootstrap",
+      scope: { surface: "llm-selector" },
+    })
+      .then(({ modelName: resolvedModel, hasResolvedSource }) => {
+        if (!active || controller.signal.aborted) return;
+        if (!hasResolvedSource) return;
+        setModelName(resolvedModel || "");
+      })
+      .catch((error) => {
+        if (error?.name !== "AbortError" && active) console.error(error);
+      });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [slug, initialModelName, isMobileShell, canUseModelPicker]);
 
   useEffect(() => {
     if (!modelName || modelLabelMarkedRef.current) return;
     modelLabelMarkedRef.current = true;
     markModelLabelVisible();
   }, [modelName]);
+
+  useEffect(() => {
+    function handleThreadModelUpdated(event) {
+      const detail = event?.detail || {};
+      if (detail.workspaceSlug !== slug || detail.threadSlug !== threadSlug)
+        return;
+      if (detail.chatModel) setModelName(detail.chatModel);
+    }
+    window.addEventListener(
+      "athena-thread-model-updated",
+      handleThreadModelUpdated
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-thread-model-updated",
+        handleThreadModelUpdated
+      );
+  }, [slug, threadSlug]);
 
   useEffect(() => {
     if (!slug || isMobileShell || !canUseModelPicker) return;
@@ -93,35 +195,21 @@ export default function WorkspaceModelPicker({
       };
 
       try {
-        const [workspace, settingsResponse] = await Promise.all([
-          Workspace.bySlug(slug, {
+        const { modelName: resolvedModel, provider } = await fetchModelChrome(
+          slug,
+          {
             signal: controller.signal,
-            communicationScene: "llm-model-chrome-preload",
-            task: chatSecondaryTask("llm-selector:model-chrome-workspace", {
-              ...scope,
-              surface: "llm-selector-workspace",
-            }),
-          }),
-          System.settingsBootstrap({
-            sections: ["llm"],
-            signal: controller.signal,
-            communicationScene: "llm-model-chrome-preload",
-            task: chatSecondaryTask("llm-selector:model-chrome-settings", {
-              ...scope,
-              surface: "llm-selector-settings",
-            }),
-          }),
-        ]);
+            labelPrefix: "llm-selector:model-chrome",
+            scope,
+          }
+        );
         if (!active || controller.signal.aborted) return;
 
-        const settings = settingsResponse?.settings || {};
-        const resolvedModel = workspace?.chatModel || settings.LLMModel || "";
         if (resolvedModel) {
           setModelName(resolvedModel);
           markModelLabelVisible();
         }
 
-        const provider = workspace?.chatProvider || settings.LLMProvider;
         if (provider) {
           void System.customModels(provider, null, null, null, {
             signal: controller.signal,
@@ -153,13 +241,47 @@ export default function WorkspaceModelPicker({
 
   // Close selector and refresh model name when model is saved
   useEffect(() => {
-    function handleSave() {
+    let active = true;
+    const controllers = new Set();
+
+    function handleSave(event) {
       setShowSelector(false);
-      fetchModelName(slug, setModelName);
+      const detail = event?.detail || {};
+      if (
+        detail.workspaceSlug === slug &&
+        detail.threadSlug === threadSlug &&
+        detail.chatModel
+      ) {
+        setModelName(detail.chatModel);
+        return;
+      }
+      if (!slug) return;
+      const controller = new AbortController();
+      controllers.add(controller);
+      fetchModelChrome(slug, {
+        signal: controller.signal,
+        labelPrefix: "llm-selector:model-label-save",
+        scope: { surface: "llm-selector" },
+      })
+        .then(({ modelName: resolvedModel, hasResolvedSource }) => {
+          if (!active || controller.signal.aborted) return;
+          if (!hasResolvedSource) return;
+          setModelName(resolvedModel || "");
+        })
+        .catch((error) => {
+          if (error?.name !== "AbortError" && active) console.error(error);
+        })
+        .finally(() => {
+          controllers.delete(controller);
+        });
     }
     window.addEventListener(SAVE_LLM_SELECTOR_EVENT, handleSave);
-    return () =>
+    return () => {
+      active = false;
+      controllers.forEach((controller) => controller.abort());
+      controllers.clear();
       window.removeEventListener(SAVE_LLM_SELECTOR_EVENT, handleSave);
+    };
   }, [slug]);
 
   // Handle provider setup request
@@ -214,6 +336,8 @@ export default function WorkspaceModelPicker({
             <LLMSelectorModal
               key={refreshKey}
               workspaceSlug={slug}
+              threadSlug={threadSlug}
+              initialModel={modelName}
               initialProvider={config.provider?.value}
             />
           </div>

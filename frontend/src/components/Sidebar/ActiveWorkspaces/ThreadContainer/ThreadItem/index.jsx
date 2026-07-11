@@ -10,9 +10,10 @@ import {
   Trash,
   X,
 } from "@phosphor-icons/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { prefetchThreadHistory } from "@/utils/chat/workspaceChatPrefetch";
 import { clearLastVisitedThread } from "@/utils/lastVisitedWorkspace";
@@ -22,6 +23,14 @@ import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache"
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 
 const THREAD_CALLOUT_DETAIL_WIDTH = 26;
+const THREAD_MENU_MIN_WIDTH = 128;
+const THREAD_MENU_GAP = 4;
+const THREAD_MENU_VIEWPORT_PADDING = 8;
+
+function clampMenuPosition(value, min, max) {
+  if (max < min) return min;
+  return Math.min(Math.max(value, min), max);
+}
 
 function displayBranchThreadName(thread = {}, t = null) {
   const name = thread.title || thread.name || "";
@@ -45,15 +54,17 @@ export default function ThreadItem({
   workspace,
   thread,
   onRemove,
+  onRestore,
   toggleMarkForDeletion,
   hasNext,
   activity = null,
   ctrlPressed = false,
   dragProvided = null,
   isDragging = false,
+  isCreatingVisual = false,
+  isDeletingVisual = false,
 }) {
   const { slug: urlSlug, threadSlug = null } = useParams();
-  const navigate = useNavigate();
   const { t } = useTranslation();
   const workspaceSlug = workspace?.slug ?? urlSlug;
   const optionsContainer = useRef(null);
@@ -93,9 +104,13 @@ export default function ThreadItem({
       ref={dragProvided?.innerRef}
       {...(dragProvided?.draggableProps || {})}
       {...(dragProvided?.dragHandleProps || {})}
-      className={`w-full relative flex h-[38px] items-center border-none rounded-lg ${
-        isDragging ? "opacity-80" : ""
-      }`}
+      className={`w-full relative flex h-[38px] items-center border-none rounded-lg transition-[max-height,opacity,transform] duration-200 ease-out ${
+        isDeletingVisual
+          ? "overflow-hidden max-h-0 scale-x-0 scale-y-75 -translate-y-1 opacity-0 pointer-events-none"
+          : isCreatingVisual
+            ? "overflow-hidden max-h-0 scale-95 translate-y-1 opacity-0"
+            : "overflow-visible max-h-[38px] scale-100 translate-y-0 opacity-100"
+      } ${isDragging ? "opacity-80" : ""}`}
       role="listitem"
       style={dragProvided?.draggableProps?.style}
     >
@@ -164,8 +179,12 @@ export default function ThreadItem({
             onFocus={() =>
               prefetchThreadHistory(workspaceSlug, thread.slug || null)
             }
-            data-tooltip-id="workspace-thread-name"
-            data-tooltip-content={threadStatusLabel(threadName, activity, t)}
+            data-tooltip-id={showOptions ? undefined : "workspace-thread-name"}
+            data-tooltip-content={
+              showOptions
+                ? undefined
+                : threadStatusLabel(threadName, activity, t)
+            }
             className="w-full pl-2 py-1 overflow-hidden"
             aria-current={isActive ? "page" : ""}
             state={{ userSelectedThread: true }}
@@ -224,9 +243,9 @@ export default function ThreadItem({
                   workspace={workspace}
                   thread={thread}
                   onRemove={onRemove}
+                  onRestore={onRestore}
                   close={() => setShowOptions(false)}
                   currentThreadSlug={threadSlug}
-                  navigate={navigate}
                 />
               )}
             </div>
@@ -275,43 +294,90 @@ function OptionsMenu({
   workspace,
   thread,
   onRemove,
+  onRestore,
   close,
   currentThreadSlug,
-  navigate,
 }) {
   const menuRef = useRef(null);
-
-  // Ref menu options
-  const outsideClick = (e) => {
-    if (!menuRef.current) return false;
-    if (
-      !menuRef.current?.contains(e.target) &&
-      !containerRef.current?.contains(e.target)
-    )
-      close();
-    return false;
-  };
-
-  const isEsc = (e) => {
-    if (e.key === "Escape" || e.key === "Esc") close();
-  };
-
-  function cleanupListeners() {
-    window.removeEventListener("click", outsideClick);
-    window.removeEventListener("keyup", isEsc);
-  }
-  // end Ref menu options
+  const [menuPosition, setMenuPosition] = useState({
+    left: 0,
+    top: 0,
+    ready: false,
+  });
 
   useEffect(() => {
-    function setListeners() {
-      if (!menuRef?.current || !containerRef.current) return false;
-      window.document.addEventListener("click", outsideClick);
-      window.document.addEventListener("keyup", isEsc);
-    }
+    const outsideClick = (e) => {
+      const menu = menuRef.current;
+      const anchor = containerRef.current;
+      if (!menu || !anchor) return;
+      if (!menu.contains(e.target) && !anchor.contains(e.target)) close();
+    };
 
-    setListeners();
-    return cleanupListeners;
-  }, []);
+    const isEsc = (e) => {
+      if (e.key === "Escape" || e.key === "Esc") close();
+    };
+
+    window.document.addEventListener("mousedown", outsideClick, true);
+    window.document.addEventListener("keyup", isEsc);
+    return () => {
+      window.document.removeEventListener("mousedown", outsideClick, true);
+      window.document.removeEventListener("keyup", isEsc);
+    };
+  }, [close, containerRef]);
+
+  useLayoutEffect(() => {
+    let frameId = null;
+
+    const updatePosition = () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      frameId = window.requestAnimationFrame(() => {
+        const anchor = containerRef.current;
+        const menu = menuRef.current;
+        if (!anchor || !menu) return;
+
+        const anchorRect = anchor.getBoundingClientRect();
+        const menuRect = menu.getBoundingClientRect();
+        const menuWidth = menuRect.width || THREAD_MENU_MIN_WIDTH;
+        const menuHeight = menuRect.height || 88;
+        const viewportWidth =
+          window.innerWidth || document.documentElement.clientWidth;
+        const viewportHeight =
+          window.innerHeight || document.documentElement.clientHeight;
+        const maxLeft =
+          viewportWidth - menuWidth - THREAD_MENU_VIEWPORT_PADDING;
+        const left = clampMenuPosition(
+          anchorRect.right - menuWidth,
+          THREAD_MENU_VIEWPORT_PADDING,
+          maxLeft
+        );
+        const preferredTop = anchorRect.bottom + THREAD_MENU_GAP;
+        const bottomAlignedTop = anchorRect.top - menuHeight - THREAD_MENU_GAP;
+        const top =
+          preferredTop + menuHeight <=
+          viewportHeight - THREAD_MENU_VIEWPORT_PADDING
+            ? preferredTop
+            : clampMenuPosition(
+                bottomAlignedTop,
+                THREAD_MENU_VIEWPORT_PADDING,
+                viewportHeight - menuHeight - THREAD_MENU_VIEWPORT_PADDING
+              );
+
+        setMenuPosition((prev) => {
+          if (prev.ready && prev.left === left && prev.top === top) return prev;
+          return { left, top, ready: true };
+        });
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [containerRef]);
 
   const renameThread = async () => {
     const name = window.prompt("请输入新的线程名称")?.trim();
@@ -425,16 +491,13 @@ function OptionsMenu({
       label: "optimistic:thread-delete",
       dedupeKey: `optimistic:thread-delete:${workspace.slug}:${thread.slug}`,
       optimisticPatch: () => {
-        workspaceNavigationCache.removeThread(workspace.slug, thread.slug);
-        onRemove(thread.id);
+        onRemove(thread, {
+          navigateAfter: currentThreadSlug === thread.slug,
+        });
       },
       rollbackPatch: () => {
         workspaceNavigationCache.updateThread(workspace.slug, previousThread);
-        window.dispatchEvent(
-          new CustomEvent("workspaceThreadsRefresh", {
-            detail: { workspaceSlug: workspace.slug, force: true },
-          })
-        );
+        onRestore?.(previousThread);
       },
       serverCall: async ({ signal }) => {
         const success = await Workspace.threads.delete(
@@ -444,6 +507,7 @@ function OptionsMenu({
             signal,
             communicationScene: "workspace-navigation",
             task: false,
+            skipCacheUpdate: true,
           }
         );
         if (!success) throw new Error("delete failed");
@@ -458,16 +522,17 @@ function OptionsMenu({
 
     showToast("线程已删除。", "success", { clear: true });
     clearLastVisitedThread(workspace.slug, thread.slug);
-    // Redirect if deleting the active thread
-    if (currentThreadSlug === thread.slug) {
-      navigate(paths.workspace.chat(workspace.slug));
-    }
   };
 
-  return (
+  const menu = (
     <div
       ref={menuRef}
-      className="absolute w-fit z-[20] top-[25px] right-[10px] bg-zinc-900 light:bg-theme-bg-sidebar light:border-[1px] light:border-theme-sidebar-border rounded-lg p-1"
+      style={{
+        left: `${menuPosition.left}px`,
+        top: `${menuPosition.top}px`,
+        visibility: menuPosition.ready ? "visible" : "hidden",
+      }}
+      className="fixed z-[9999] min-w-[128px] bg-zinc-900 light:bg-theme-bg-sidebar light:border-[1px] light:border-theme-sidebar-border rounded-lg p-1 shadow-xl"
     >
       <button
         onClick={renameThread}
@@ -487,4 +552,7 @@ function OptionsMenu({
       </button>
     </div>
   );
+
+  if (typeof document === "undefined") return null;
+  return createPortal(menu, document.body);
 }

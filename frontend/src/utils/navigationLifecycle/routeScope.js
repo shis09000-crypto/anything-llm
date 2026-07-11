@@ -28,6 +28,13 @@ export function routeScopeFromPathname(pathname = "") {
       surface: "crypto-center",
     };
   }
+  if (path.startsWith("/settings/account")) {
+    return {
+      kind: "route",
+      route: "account-settings",
+      surface: "account-settings",
+    };
+  }
   if (path.startsWith("/settings")) {
     return { kind: "route", route: "settings", surface: "settings" };
   }
@@ -80,6 +87,16 @@ export function navigationReasonForScopes(
     toScope?.route === "crypto-center"
   )
     return "open-crypto";
+  if (
+    fromScope?.route === "account-settings" &&
+    toScope?.route !== "account-settings"
+  )
+    return "close-account";
+  if (
+    fromScope?.route !== "account-settings" &&
+    toScope?.route === "account-settings"
+  )
+    return "open-account";
   if (
     fromScope?.route?.includes("settings") &&
     toScope?.route === "workspace-chat"

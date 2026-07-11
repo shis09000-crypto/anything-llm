@@ -26,6 +26,7 @@ import {
 import { openImageLightbox } from "@/components/ImageLightbox";
 import { AuthContext } from "@/AuthContext";
 import paths from "@/utils/paths";
+import { guardGlobalRefresh } from "@/utils/globalRefreshPolicy";
 import { confirmSignOut } from "@/utils/authSignOutConfirm";
 import MemoryBlocksCard from "@/pages/UserSettings/AccountSettings/MemoryBlocksCard";
 import ContactMethodsCard from "@/pages/UserSettings/AccountSettings/ContactMethodsCard";
@@ -3392,6 +3393,12 @@ export function MobilePageExperimentContent({
     if (!productionMode || !activeThread?.workspaceSlug) return;
 
     async function refreshMobileWorkspaceThreads(event) {
+      const guard = guardGlobalRefresh({
+        detail: event?.detail || {},
+        path: "workspaceThreadsRefresh",
+        source: "mobile-page-experiment",
+      });
+      if (!guard.allowed) return;
       const workspaceSlug = event?.detail?.workspaceSlug;
       if (!workspaceSlug || workspaceSlug !== activeThread.workspaceSlug)
         return;

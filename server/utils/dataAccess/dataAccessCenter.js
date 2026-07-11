@@ -47,6 +47,7 @@ const repositoryLoaders = {
   externalCommunication: () =>
     require("../../repositories/externalCommunicationRepository"),
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
+  iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
   quiz: () => require("../../repositories/quizRepository"),
@@ -61,6 +62,7 @@ const repositoryLoaders = {
   systemPromptVariable: () =>
     require("../../repositories/systemPromptVariableRepository"),
   systemPatrol: () => require("../../repositories/systemPatrolRepository"),
+  syncEvent: () => require("../../repositories/syncEventRepository"),
   telemetry: () => require("../../repositories/telemetryRepository"),
   user: () => require("../../repositories/userRepository"),
   userMemory: () => require("../../repositories/userMemoryRepository"),
@@ -109,6 +111,7 @@ const repositoryExports = {
   eventLog: "EventLogRepository",
   externalCommunication: "ExternalCommunicationRepository",
   knowledgeGraph: "KnowledgeGraphRepository",
+  iosPushToken: "IOSPushTokenRepository",
   mobile: "MobileRepository",
   nodeSupplement: "NodeSupplementRepository",
   quiz: "QuizRepository",
@@ -120,6 +123,7 @@ const repositoryExports = {
   slashCommandPreset: "SlashCommandPresetRepository",
   systemPromptVariable: "SystemPromptVariableRepository",
   systemPatrol: "SystemPatrolRepository",
+  syncEvent: "SyncEventRepository",
   telemetry: "TelemetryRepository",
   user: "UserRepository",
   userMemory: "UserMemoryRepository",
@@ -329,6 +333,33 @@ function workspaceThreadScopeFromArgs(method, args = []) {
     return { threadId: args[0]?.threadId, workspaceId: args[0]?.workspaceId };
   }
   return clauseScope(args[0]);
+}
+
+function syncEventScopeFromArgs(method, args = []) {
+  const options = args[0] || {};
+  if (method === "persist") {
+    return {
+      userId: options.scope?.userId,
+      eventId: options.eventId,
+      visibility: options.visibility,
+    };
+  }
+  return {
+    userId: options.userId,
+    clientId: options.clientId,
+    afterEventId: options.afterEventId,
+  };
+}
+
+function iosPushTokenScopeFromArgs(method, args = []) {
+  if (method === "activeForUser") {
+    return { userId: args[0], excludeClientId: args[1] };
+  }
+  if (method === "revokeById") return { tokenId: args[0] };
+  return {
+    userId: args[0]?.userId,
+    clientId: args[0]?.clientId,
+  };
 }
 
 function documentScopeFromArgs(method, args = []) {
@@ -947,6 +978,7 @@ const workspaceThread = {
     "workspaceThread",
     {
       withLastChatActivity: "read",
+      historyFingerprintManifest: "read",
       ensureDefaultThreads: "write",
       ensureOverviewThread: "write",
       get: "read",
@@ -987,6 +1019,27 @@ const workspaceThread = {
     return repositoryObject("workspaceThread").sortForDisplay(threads);
   },
 };
+
+const syncEvent = makeRepositoryFacade(
+  "syncEvent",
+  {
+    persist: "write",
+    replay: "read",
+    pruneIfNeeded: "maintenance",
+  },
+  syncEventScopeFromArgs
+);
+
+const iosPushToken = makeRepositoryFacade(
+  "iosPushToken",
+  {
+    register: "write",
+    revoke: "write",
+    revokeById: "write",
+    activeForUser: "read",
+  },
+  iosPushTokenScopeFromArgs
+);
 
 const workspaceChat = makeRepositoryFacade(
   "workspaceChat",
@@ -1741,6 +1794,7 @@ const DataAccessCenter = {
   embedChat,
   externalCommunication,
   knowledgeGraph,
+  iosPushToken,
   mobile,
   nodeSupplement,
   quiz,
@@ -1755,6 +1809,7 @@ const DataAccessCenter = {
   },
   systemPromptVariable,
   systemPatrol,
+  syncEvent,
   telemetry,
   user,
   userMemory,

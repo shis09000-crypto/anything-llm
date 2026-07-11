@@ -46,11 +46,19 @@ const {
   setSseTransportHeaders,
 } = require("../utils/security/transportSecurity");
 const { getClientContext } = require("../utils/clientIdentity");
+const {
+  isSupportedThreadChatModel,
+} = require("../utils/chats/threadChatModel");
 
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
 const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
+
+function compactActionId(value = null) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, 160) : null;
+}
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -77,6 +85,40 @@ function parseHistoryQuery(request) {
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
   };
+}
+
+async function threadHistorySyncMetadata(thread, user = null) {
+  const [metadata] = await WorkspaceThread.historyFingerprintManifest({
+    threads: [thread],
+    userId: user?.id || null,
+  });
+  return (
+    metadata || {
+      historyRevision: Number(thread?.historyRevision || 0),
+      historyFingerprint: null,
+      latestChatId: null,
+      latestChatAt: null,
+    }
+  );
+}
+
+function historyETag(fingerprint = null) {
+  return fingerprint ? `"${fingerprint}"` : null;
+}
+
+function requestMatchesHistoryETag(request, fingerprint = null) {
+  const tag = historyETag(fingerprint);
+  if (!tag) return false;
+  return String(request.header("If-None-Match") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .includes(tag);
+}
+
+function attachHistorySyncHeaders(response, metadata = {}) {
+  const tag = historyETag(metadata.historyFingerprint);
+  if (tag) response.setHeader("ETag", tag);
+  response.setHeader("Cache-Control", "private, no-cache");
 }
 
 function nullableUserId(value) {
@@ -314,42 +356,96 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const { thread, message } = await WorkspaceThread.new(
-          workspace,
-          user?.id,
-          { thread_type: WorkspaceThread.THREAD_TYPES.chat }
+        const sourceActionId = compactActionId(
+          (reqBody(request) || {}).sourceActionId
         );
-        await Telemetry.sendTelemetry(
-          "workspace_thread_created",
-          {
-            multiUserMode: multiUserMode(response),
-            LLMSelection: process.env.LLM_PROVIDER || "openai",
-            Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-            VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-            TTSSelection: process.env.TTS_PROVIDER || "native",
-            LLMModel: getModelTag(),
-          },
-          user?.id
-        );
+        let thread = sourceActionId
+          ? await WorkspaceThread.get({ sourceActionId })
+          : null;
+        let message = null;
+        let replayed = false;
+        if (thread) {
+          const ownsThread =
+            Number(thread.workspace_id) === Number(workspace.id) &&
+            (!multiUserMode(response) ||
+              thread.user_id === null ||
+              Number(thread.user_id) === Number(user?.id));
+          if (!ownsThread) {
+            response.status(409).json({
+              thread: null,
+              message: "sourceActionId is already in use",
+            });
+            return;
+          }
+          replayed = true;
+        } else {
+          ({ thread, message } = await WorkspaceThread.new(
+            workspace,
+            user?.id,
+            {
+              thread_type: WorkspaceThread.THREAD_TYPES.chat,
+              sourceActionId,
+            }
+          ));
+          if (!thread && sourceActionId) {
+            const candidate = await WorkspaceThread.get({ sourceActionId });
+            if (
+              candidate &&
+              Number(candidate.workspace_id) === Number(workspace.id) &&
+              (!multiUserMode(response) ||
+                candidate.user_id === null ||
+                Number(candidate.user_id) === Number(user?.id))
+            ) {
+              thread = candidate;
+              message = null;
+              replayed = true;
+            }
+          }
+        }
+        if (!thread) {
+          response.status(400).json({ thread: null, message });
+          return;
+        }
+        if (!replayed)
+          await Telemetry.sendTelemetry(
+            "workspace_thread_created",
+            {
+              multiUserMode: multiUserMode(response),
+              LLMSelection: process.env.LLM_PROVIDER || "openai",
+              Embedder: process.env.EMBEDDING_ENGINE || "inherit",
+              VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+              TTSSelection: process.env.TTS_PROVIDER || "native",
+              LLMModel: getModelTag(),
+            },
+            user?.id
+          );
 
-        await EventLogs.logEvent(
-          "workspace_thread_created",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
-          user?.id
-        );
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "thread_created",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          senderClientId: clientContext.clientId,
-        });
-        response.status(200).json({ thread, message });
+        if (!replayed)
+          await EventLogs.logEvent(
+            "workspace_thread_created",
+            {
+              workspaceName: workspace?.name || "Unknown Workspace",
+            },
+            user?.id
+          );
+        if (!replayed) {
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "thread_created",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: thread.id,
+            threadSlug: thread.slug,
+            threadName: thread.name,
+            title: thread.title || thread.name,
+            threadType: thread.thread_type,
+            chatModel: thread.chatModel,
+            senderClientId: clientContext.clientId,
+            sourceActionId,
+          });
+        }
+        response.status(200).json({ thread, message, replayed });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -588,6 +684,16 @@ function workspaceThreadEndpoints(app) {
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
         const historyOptions = parseHistoryQuery(request);
+        const syncMetadata = await threadHistorySyncMetadata(thread, user);
+        attachHistorySyncHeaders(response, syncMetadata);
+        if (
+          !historyOptions.beforeChatId &&
+          !historyOptions.afterChatId &&
+          !historyOptions.anchorChatId &&
+          requestMatchesHistoryETag(request, syncMetadata.historyFingerprint)
+        ) {
+          return response.status(304).end();
+        }
         const baseClause = {
           workspaceId: workspace.id,
           user_id: user?.id || null,
@@ -621,6 +727,8 @@ function workspaceThreadEndpoints(app) {
 
         response.status(200).json({
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          historyFingerprint: syncMetadata.historyFingerprint,
+          historyRevision: syncMetadata.historyRevision,
           ...(page
             ? { page: { ...page, lightChatIds: [...lightChatIds] } }
             : {}),
@@ -644,6 +752,13 @@ function workspaceThreadEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
+        const syncMetadata = await threadHistorySyncMetadata(thread, user);
+        attachHistorySyncHeaders(response, syncMetadata);
+        if (
+          requestMatchesHistoryETag(request, syncMetadata.historyFingerprint)
+        ) {
+          return response.status(304).end();
+        }
         const historyOptions = {
           ...parseHistoryQuery(request),
           enabled: true,
@@ -685,8 +800,14 @@ function workspaceThreadEndpoints(app) {
             name: workspace.name,
             slug: workspace.slug,
           },
-          thread,
+          thread: {
+            ...thread,
+            historyFingerprint: syncMetadata.historyFingerprint,
+            historyRevision: syncMetadata.historyRevision,
+          },
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          historyFingerprint: syncMetadata.historyFingerprint,
+          historyRevision: syncMetadata.historyRevision,
           page: { ...page, lightChatIds: [...lightChatIds] },
         });
       } catch (e) {
@@ -766,6 +887,15 @@ function workspaceThreadEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const data = reqBody(request);
+        if (
+          Object.prototype.hasOwnProperty.call(data, "chatModel") &&
+          !isSupportedThreadChatModel(data.chatModel)
+        ) {
+          return response.status(400).json({
+            thread: null,
+            message: "Unsupported thread chat model.",
+          });
+        }
         const currentThread = response.locals.thread;
         const { thread, message } = await WorkspaceThread.update(
           currentThread,
@@ -780,6 +910,10 @@ function workspaceThreadEndpoints(app) {
             userId: user?.id ?? null,
             threadId: thread.id,
             threadSlug: thread.slug,
+            threadName: thread.name,
+            title: thread.title || thread.name,
+            threadType: thread.thread_type,
+            chatModel: thread.chatModel,
             senderClientId: clientContext.clientId,
           });
         }
@@ -904,6 +1038,10 @@ function workspaceThreadEndpoints(app) {
           userId: user?.id ?? null,
           threadId: movedThread.id,
           threadSlug: movedThread.slug,
+          threadName: movedThread.name,
+          title: movedThread.title || movedThread.name,
+          threadType: movedThread.thread_type,
+          chatModel: movedThread.chatModel,
           senderClientId: clientContext.clientId,
         });
 

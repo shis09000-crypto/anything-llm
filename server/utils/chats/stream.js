@@ -299,6 +299,7 @@ async function streamChatWithWorkspace(
       threadId: thread?.id || null,
       include: false,
       user,
+      clientTurnId: options.clientTurnId || null,
     });
     if (syncEvent) {
       publishWorkspaceSyncEvent({
@@ -508,6 +509,7 @@ async function streamChatWithWorkspace(
       threadId: thread?.id || null,
       include: false,
       user,
+      clientTurnId: options.clientTurnId || null,
     });
     return;
   }
@@ -668,6 +670,7 @@ async function streamChatWithWorkspace(
       },
       threadId: thread?.id || null,
       user,
+      clientTurnId: options.clientTurnId || null,
     }).catch((error) => {
       logRecoverableChatError("chat_history_save", error, {
         workspaceSlug: workspace.slug,

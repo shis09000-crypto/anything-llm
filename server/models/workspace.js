@@ -207,6 +207,9 @@ const Workspace = {
         data: {
           name: this.validations.name(name),
           chatMode: "automatic",
+          ...(additionalFields.sourceActionId
+            ? { sourceActionId: String(additionalFields.sourceActionId) }
+            : {}),
           ...this.validateFields(additionalFields),
           slug,
         },

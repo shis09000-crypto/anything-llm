@@ -171,6 +171,13 @@ export const workspaceNavigationCache = {
   upsertWorkspace(workspace = null) {
     workspaceNavigationStore.upsertWorkspace(workspace);
   },
+  removeWorkspace(workspaceSlug = null) {
+    workspaceNavigationStore.removeWorkspace(workspaceSlug);
+    recordNavigationCache("remove", {
+      path: "workspaces",
+      workspaceSlug,
+    });
+  },
   invalidateWorkspaces() {
     workspaceNavigationStore.invalidateWorkspaces();
     recordNavigationCache("invalidate", { path: "workspaces" });

@@ -33,6 +33,9 @@ const {
 const {
   publishWorkspaceSyncEvent,
 } = require("../utils/chats/workspaceSyncEvents");
+const {
+  workspaceWithThreadChatModel,
+} = require("../utils/chats/threadChatModel");
 
 const User = DataAccessCenter.user;
 
@@ -248,6 +251,10 @@ function chatEndpoints(app) {
         } = reqBody(request);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
+        const effectiveWorkspace = workspaceWithThreadChatModel(
+          workspace,
+          thread
+        );
 
         if (typeof message !== "string" || message.trim().length === 0) {
           response.status(400).json({
@@ -298,7 +305,7 @@ function chatEndpoints(app) {
 
         await streamChatWithWorkspace(
           response,
-          workspace,
+          effectiveWorkspace,
           message,
           workspace?.chatMode,
           user,
@@ -335,7 +342,7 @@ function chatEndpoints(app) {
           {
             workspaceName: workspace.name,
             thread: thread.name,
-            chatModel: workspace?.chatModel || "System Default",
+            chatModel: effectiveWorkspace.chatModel,
           },
           user?.id
         );

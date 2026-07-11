@@ -4,7 +4,10 @@ import { TaskScheduler } from "../tasks/taskScheduler.js";
 import { DeferredCleanupQueue } from "./deferredCleanupQueue.js";
 import { NavigationSnapshotStore } from "./navigationSnapshot.js";
 import { NavigationLifecycleCenter } from "./navigationLifecycleCenter.js";
-import { routeScopeFromPathname } from "./routeScope.js";
+import {
+  navigationReasonForScopes,
+  routeScopeFromPathname,
+} from "./routeScope.js";
 
 const wait = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -254,6 +257,25 @@ test("route scope parser classifies first batch lifecycle routes", () => {
     route: "crypto-center",
     surface: "crypto-center",
   });
+  assert.deepEqual(routeScopeFromPathname("/settings/account#profile"), {
+    kind: "route",
+    route: "account-settings",
+    surface: "account-settings",
+  });
+  assert.equal(
+    navigationReasonForScopes(
+      routeScopeFromPathname("/workspace/ws-a/t/thread-b"),
+      routeScopeFromPathname("/settings/account#profile")
+    ),
+    "open-account"
+  );
+  assert.equal(
+    navigationReasonForScopes(
+      routeScopeFromPathname("/settings/account#profile"),
+      routeScopeFromPathname("/workspace/ws-a/t/thread-b")
+    ),
+    "close-account"
+  );
   assert.deepEqual(routeScopeFromPathname("/workspace/ws-a/t/thread-b"), {
     kind: "route",
     route: "workspace-chat",

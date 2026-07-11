@@ -22,7 +22,7 @@ import WorkspaceThread from "@/models/workspaceThread";
 import { v4 } from "uuid";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
-import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { dispatchWorkspacePatchVisual } from "@/utils/workspaceEvents";
 
 function workspaceTask({
   label,
@@ -162,9 +162,11 @@ const Workspace = {
       });
 
     if (workspace?.slug) {
-      workspaceNavigationCache.invalidateWorkspaceDetail(workspace.slug);
-      workspaceNavigationCache.upsertWorkspace(workspace);
-      dispatchWorkspacesRefresh(workspace);
+      workspaceNavigationCache.setWorkspaceDetail(workspace.slug, workspace);
+      dispatchWorkspacePatchVisual({
+        workspace,
+        source: "workspace-model-update",
+      });
     }
 
     return { workspace, message };
@@ -398,7 +400,15 @@ const Workspace = {
     return workspace;
   },
   delete: async function (slug, options = {}) {
+    const body =
+      options.deleteIntentId || options.sourceActionId
+        ? {
+            deleteIntentId: options.deleteIntentId,
+            sourceActionId: options.sourceActionId,
+          }
+        : undefined;
     const result = await deleteJson(`/workspace/${slug}`, {
+      body,
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-navigation",
       task:

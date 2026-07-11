@@ -62,6 +62,11 @@ import {
   readReaderSplitPercent,
 } from "@/utils/layout/workspaceLayoutState";
 import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import {
+  dispatchThreadCreateVisual,
+  dispatchThreadDeleteVisual,
+} from "@/utils/workspaceEvents";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -73,7 +78,6 @@ const NON_QUIZ_TEST_PATTERN =
   /(测试连接|测试接口|测试功能|测试代码|test connection|unit test|integration test|e2e test|jest|vitest|pytest)/i;
 const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
 const BRANCH_PROMPT_INPUT_ID = "branch-prompt-input";
-const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const SELECTION_COPY_MIN_LENGTH = 8;
 const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 104;
 const CHAT_HISTORY_INPUT_GAP = 8;
@@ -696,7 +700,11 @@ export default function ChatContainer({
         workspaceSlug: workspace.slug,
         threadSlug: dualThreadFork.branchThreadSlug,
       });
-      refreshWorkspaceThreads();
+      dispatchThreadDeleteVisual({
+        workspaceSlug: workspace.slug,
+        threadSlug: dualThreadFork.branchThreadSlug,
+        source: "dual-thread-dispose",
+      });
       showToast("未改动的分支线程已自动取消", "success");
     } else {
       showToast("未改动的分支线程取消失败", "error");
@@ -1037,12 +1045,19 @@ export default function ChatContainer({
       : await Workspace.chatHistory(workspace.slug);
   }
 
-  function refreshWorkspaceThreads() {
-    window.dispatchEvent(
-      new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-        detail: { workspaceSlug: workspace.slug },
-      })
-    );
+  function showThreadInSidebar(thread, options = {}) {
+    if (!workspace?.slug || !thread?.slug) return;
+    dispatchThreadCreateVisual({
+      workspaceSlug: workspace.slug,
+      thread: {
+        ...thread,
+        name: thread.name || thread.title || "新线程",
+        title: thread.title || thread.name || "",
+        thread_type: thread.thread_type || "chat",
+      },
+      animate: options.animate !== false,
+      source: options.source || "workspace-chat",
+    });
   }
 
   async function createMobileWorkspaceThread() {
@@ -1076,7 +1091,11 @@ export default function ChatContainer({
         return;
       }
 
-      refreshWorkspaceThreads();
+      dispatchThreadCreateVisual({
+        workspaceSlug: workspace.slug,
+        thread,
+        source: "mobile-thread-create",
+      });
       navigateIfChanged(paths.workspace.thread(workspace.slug, thread.slug), {
         state: { userSelectedThread: true },
       });
@@ -1161,7 +1180,10 @@ export default function ChatContainer({
       branchPanelVisible: true,
     });
     dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
-    refreshWorkspaceThreads();
+    showThreadInSidebar(branchThread, {
+      animate: false,
+      source: "dual-thread-open",
+    });
   }
 
   async function startDualThreadFork() {
@@ -1176,7 +1198,10 @@ export default function ChatContainer({
 
     setDualThreadLoading(true);
     try {
-      const { threads = [] } = await Workspace.threads.all(workspace.slug);
+      const threads =
+        workspaceNavigationCache.getThreads(workspace.slug, {
+          allowStale: true,
+        }) || [];
       const sourceThread = threadSlug
         ? threads.find((thread) => thread.slug === threadSlug)
         : null;
@@ -1238,7 +1263,10 @@ export default function ChatContainer({
         branchPanelVisible: true,
       });
       dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
-      refreshWorkspaceThreads();
+      showThreadInSidebar(result?.newThread || { slug: branchThreadSlug }, {
+        animate: true,
+        source: "dual-thread-create",
+      });
     } catch (error) {
       resetDualThreadFork();
       const message =
@@ -1743,7 +1771,7 @@ export default function ChatContainer({
             {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <Suspense fallback={<LazyPanelFallback />}>
@@ -1796,7 +1824,7 @@ export default function ChatContainer({
             {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -1955,7 +1983,7 @@ export default function ChatContainer({
                 )}
                 <WorkspaceModelPicker
                   workspaceSlug={workspace.slug}
-                  modelName={workspace.chatModel}
+                  modelName={activeThread?.chatModel || workspace.chatModel}
                 />
                 <DnDFileUploaderWrapper>
                   <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -2056,7 +2084,7 @@ export default function ChatContainer({
               />
               <WorkspaceModelPicker
                 workspaceSlug={workspace.slug}
-                modelName={workspace.chatModel}
+                modelName={activeThread?.chatModel || workspace.chatModel}
               />
               <DnDFileUploaderWrapper>
                 <div className="flex flex-col h-full w-full">
@@ -2150,7 +2178,7 @@ export default function ChatContainer({
             )}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">

@@ -235,6 +235,18 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
       methods: ["POST"],
       pattern: /^\/sensitive-sessions\/(?:heartbeat|revoke|revoke-scope)$/,
     },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
+    },
   ];
   if (
     highRiskRoutes.some(

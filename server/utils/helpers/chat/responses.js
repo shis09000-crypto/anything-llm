@@ -141,6 +141,7 @@ function convertToChatHistory(history = [], options = {}) {
       feedbackScore = null,
       id,
       public_id = null,
+      clientTurnId = null,
     } = record;
     const isLight = lightChatIds.has(id);
     const data = isLight ? { text: "" } : JSON.parse(response);
@@ -167,6 +168,7 @@ function convertToChatHistory(history = [], options = {}) {
         attachments: isLight ? [] : data?.attachments ?? [],
         chatId: id,
         publicChatId: public_id,
+        clientTurnId,
         ...(isLight ? { hydrationStatus: "light" } : {}),
       },
       {
@@ -176,6 +178,7 @@ function convertToChatHistory(history = [], options = {}) {
         sources: isLight ? [] : data.sources || [],
         chatId: id,
         publicChatId: public_id,
+        clientTurnId,
         sentAt: moment(createdAt).unix(),
         feedbackScore,
         metrics: isLight ? {} : data?.metrics || {},

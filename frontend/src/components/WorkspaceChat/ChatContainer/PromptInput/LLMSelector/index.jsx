@@ -14,10 +14,13 @@ import LLMSelectorSidePanel from "./LLMSelector";
 import { NoSetupWarning } from "./SetupProvider";
 import showToast from "@/utils/toast";
 import Workspace from "@/models/workspace";
+import WorkspaceThread from "@/models/workspaceThread";
 import System from "@/models/system";
 
 export default function LLMSelectorModal({
   workspaceSlug = null,
+  threadSlug = null,
+  initialModel = null,
   initialProvider = null,
 }) {
   const { slug: urlSlug } = useParams();
@@ -77,7 +80,8 @@ export default function LLMSelectorModal({
         if (stale || controller.signal.aborted) return;
         const savedProvider =
           workspace.chatProvider ?? systemSettings.LLMProvider;
-        const savedModel = workspace.chatModel ?? systemSettings.LLMModel;
+        const savedModel =
+          initialModel ?? workspace.chatModel ?? systemSettings.LLMModel;
         const providerToSelect = initialProvider ?? savedProvider;
 
         setSettings(systemSettings);
@@ -102,7 +106,7 @@ export default function LLMSelectorModal({
       stale = true;
       controller.abort();
     };
-  }, [slug]);
+  }, [slug, initialModel]);
 
   function handleSearch(e) {
     const searchTerm = e.target.value.toLowerCase();
@@ -128,33 +132,57 @@ export default function LLMSelectorModal({
       const validatedModel = validatedModelSelection(selectedLLMModel);
       if (!validatedModel) throw new Error("Invalid model selection");
 
-      const { message } = await Workspace.update(
-        slug,
-        {
-          chatProvider: selectedLLMProvider,
-          chatModel: validatedModel,
-        },
-        {
-          communicationScene: "llm-model-selector-visible",
-          task: {
-            label: "llm-selector:save",
-            kind: "settings",
-            priority: "P0",
-            policy: "foreground",
-            protected: true,
-            abortable: false,
-            intentRank: 1,
-            scope: {
-              route: "workspace-chat",
-              surface: "llm-selector",
-              workspaceSlug: slug,
-            },
+      const supportedThreadModel = [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+      ].includes(validatedModel);
+      if (threadSlug && !supportedThreadModel) {
+        throw new Error("This thread supports DeepSeek V4 Flash or Pro only.");
+      }
+      const requestOptions = {
+        communicationScene: "llm-model-selector-visible",
+        task: {
+          label: "llm-selector:save",
+          kind: "settings",
+          priority: "P0",
+          policy: "foreground",
+          protected: true,
+          abortable: false,
+          intentRank: 1,
+          scope: {
+            route: "workspace-chat",
+            surface: "llm-selector",
+            workspaceSlug: slug,
+            ...(threadSlug ? { threadSlug } : {}),
           },
-        }
-      );
+        },
+      };
+      const { message } = threadSlug
+        ? await WorkspaceThread.update(
+            slug,
+            threadSlug,
+            { chatModel: validatedModel },
+            requestOptions
+          )
+        : await Workspace.update(
+            slug,
+            {
+              chatProvider: selectedLLMProvider,
+              chatModel: validatedModel,
+            },
+            requestOptions
+          );
 
       if (!!message) throw new Error(message);
-      window.dispatchEvent(new Event(SAVE_LLM_SELECTOR_EVENT));
+      window.dispatchEvent(
+        new CustomEvent(SAVE_LLM_SELECTOR_EVENT, {
+          detail: {
+            workspaceSlug: slug,
+            threadSlug,
+            chatModel: validatedModel,
+          },
+        })
+      );
     } catch (error) {
       console.error(error);
       showToast(error.message, "error", { clear: true });

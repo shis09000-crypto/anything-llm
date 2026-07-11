@@ -48,6 +48,7 @@ const {
   workspaceReaderDocumentsEndpoints,
 } = require("./workspaceReaderDocuments");
 const { safeFileMove } = require("../utils/safety");
+const { v4: uuidv4 } = require("uuid");
 const { storagePath: environmentStoragePath } = require("../utils/environment");
 const {
   redactSensitiveText,
@@ -60,6 +61,7 @@ const {
 const {
   publishWorkspaceSyncEvent,
 } = require("../utils/chats/workspaceSyncEvents");
+const { publishBroadcastEvent } = require("../utils/broadcast");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath = environmentStoragePath("documents");
@@ -72,6 +74,135 @@ const WorkspaceSuggestedMessages = DataAccessCenter.workspaceSuggestedMessage;
 const {
   DocumentVectorConsistencyService,
 } = require("../services/documentVectorConsistencyService");
+
+function compactIdentifier(value = null, fallback = "") {
+  const normalized = String(value || "").trim();
+  if (!normalized) return fallback;
+  return normalized.slice(0, 160);
+}
+
+function workspaceDeleteErrorCode(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("not found")) return "workspace_delete_not_found";
+  if (message.includes("permission") || message.includes("forbidden"))
+    return "workspace_delete_forbidden";
+  return "workspace_delete_failed";
+}
+
+function publishWorkspaceDeleteBroadcast({
+  type,
+  workspace,
+  user,
+  clientContext,
+  deleteIntentId,
+  sourceActionId,
+  errorCode,
+} = {}) {
+  const userId = Number(user?.id || 0) || null;
+  if (!workspace?.id || !workspace?.slug || !userId) return null;
+  const normalizedType = compactIdentifier(type);
+  if (!normalizedType) return null;
+  return publishBroadcastEvent(
+    {
+      namespace: "workspace",
+      type: normalizedType,
+      eventPriority: "normal",
+      visibility: "user",
+      scope: {
+        userId,
+        workspaceId: Number(workspace.id),
+        workspaceSlug: workspace.slug,
+      },
+      resource: {
+        kind: "workspace",
+        id: Number(workspace.id),
+      },
+      origin: {
+        clientId: clientContext?.clientId || null,
+        requestId: clientContext?.requestId || null,
+        actionId: compactIdentifier(sourceActionId, null),
+      },
+      payload: {
+        workspaceSlug: workspace.slug,
+        deleteIntentId: compactIdentifier(deleteIntentId, null),
+        ...(errorCode ? { errorCode: compactIdentifier(errorCode) } : {}),
+      },
+      coalesceKey: `workspace.${normalizedType}:${workspace.id}:${compactIdentifier(
+        deleteIntentId,
+        "unknown"
+      )}`,
+    },
+    { coalesce: false }
+  );
+}
+
+function deleteVectorNamespaceInBackground(VectorDb, slug = "") {
+  if (!VectorDb || !slug) return;
+  setImmediate(async () => {
+    try {
+      await VectorDb["delete-namespace"]({ namespace: slug });
+    } catch (e) {
+      console.error(e.message);
+    }
+  });
+}
+
+function runWorkspaceDeleteJob({
+  workspace,
+  slug,
+  user,
+  clientContext,
+  deleteIntentId,
+  sourceActionId,
+  VectorDb,
+  responseUserId,
+} = {}) {
+  setImmediate(async () => {
+    const eventUser = user || (responseUserId ? { id: responseUserId } : null);
+    try {
+      await WorkspaceChats.delete({ workspaceId: Number(workspace.id) });
+      await DocumentVectors.deleteForWorkspace(workspace.id);
+      await Document.delete({ workspaceId: Number(workspace.id) });
+      await Workspace.delete({ id: Number(workspace.id) });
+
+      await EventLogs.logEvent(
+        "workspace_deleted",
+        {
+          workspaceName: workspace?.name || "Unknown Workspace",
+        },
+        responseUserId ?? eventUser?.id
+      );
+
+      publishWorkspaceDeleteBroadcast({
+        type: "deleted",
+        workspace,
+        user: eventUser,
+        clientContext,
+        deleteIntentId,
+        sourceActionId,
+      });
+      publishWorkspaceSyncEvent({
+        type: "workspace_deleted",
+        workspaceId: workspace.id,
+        workspaceSlug: workspace.slug,
+        userId: eventUser?.id ?? null,
+        senderClientId: clientContext?.clientId,
+      });
+      deleteVectorNamespaceInBackground(VectorDb, slug);
+    } catch (error) {
+      console.error(error.message, error);
+      publishWorkspaceDeleteBroadcast({
+        type: "delete.failed",
+        workspace,
+        user: eventUser,
+        clientContext,
+        deleteIntentId,
+        sourceActionId,
+        errorCode: workspaceDeleteErrorCode(error),
+      });
+    }
+  });
+}
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -423,42 +554,94 @@ function workspaceEndpoints(app) {
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        const { name = null } = reqBody(request);
-        const { workspace, message } = await Workspace.new(name, user?.id);
+        const body = reqBody(request) || {};
+        const { name = null } = body;
+        const sourceActionId = compactIdentifier(body.sourceActionId, null);
+        let workspace = sourceActionId
+          ? await Workspace.get({ sourceActionId })
+          : null;
+        let message = null;
+        let replayed = false;
+
+        if (
+          workspace &&
+          multiUserMode(response) &&
+          user?.role !== ROLES.admin
+        ) {
+          workspace = await Workspace.getWithUser(user, { id: workspace.id });
+          if (!workspace) {
+            response.status(409).json({
+              workspace: null,
+              message: "sourceActionId is already in use",
+            });
+            return;
+          }
+        }
+
+        if (workspace) {
+          replayed = true;
+        } else {
+          ({ workspace, message } = await Workspace.new(name, user?.id, {
+            sourceActionId,
+          }));
+          if (!workspace && sourceActionId) {
+            const candidate = await Workspace.get({ sourceActionId });
+            if (candidate) {
+              workspace =
+                multiUserMode(response) && user?.role !== ROLES.admin
+                  ? await Workspace.getWithUser(user, { id: candidate.id })
+                  : candidate;
+              if (workspace) {
+                replayed = true;
+                message = null;
+              }
+            }
+          }
+        }
         const defaultThreads = workspace
           ? await WorkspaceThread.ensureDefaultThreads(workspace, user?.id)
           : null;
-        await Telemetry.sendTelemetry(
-          "workspace_created",
-          {
-            multiUserMode: multiUserMode(response),
-            LLMSelection: process.env.LLM_PROVIDER || "openai",
-            Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-            VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-            TTSSelection: process.env.TTS_PROVIDER || "native",
-            LLMModel: getModelTag(),
-          },
-          user?.id
-        );
+        if (!workspace) {
+          response.status(400).json({ workspace: null, message });
+          return;
+        }
+        if (!replayed)
+          await Telemetry.sendTelemetry(
+            "workspace_created",
+            {
+              multiUserMode: multiUserMode(response),
+              LLMSelection: process.env.LLM_PROVIDER || "openai",
+              Embedder: process.env.EMBEDDING_ENGINE || "inherit",
+              VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+              TTSSelection: process.env.TTS_PROVIDER || "native",
+              LLMModel: getModelTag(),
+            },
+            user?.id
+          );
 
-        await EventLogs.logEvent(
-          "workspace_created",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
-          user?.id
-        );
-        if (workspace) {
+        if (!replayed)
+          await EventLogs.logEvent(
+            "workspace_created",
+            {
+              workspaceName: workspace?.name || "Unknown Workspace",
+            },
+            user?.id
+          );
+        if (!replayed) {
           const clientContext = getClientContext(request, { user });
           publishWorkspaceSyncEvent({
             type: "workspace_created",
             workspaceId: workspace.id,
             workspaceSlug: workspace.slug,
+            workspaceName: workspace.name,
             userId: user?.id ?? null,
             senderClientId: clientContext.clientId,
+            sourceActionId,
           });
         }
-        response.status(200).json({ workspace, message, defaultThreads });
+        response
+          .status(200)
+          .json({ workspace, message, defaultThreads, replayed });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -494,6 +677,7 @@ function workspaceEndpoints(app) {
             type: "workspace_updated",
             workspaceId: workspace.id,
             workspaceSlug: workspace.slug,
+            workspaceName: workspace.name,
             userId: user?.id ?? null,
             senderClientId: clientContext.clientId,
           });
@@ -766,6 +950,12 @@ function workspaceEndpoints(app) {
       try {
         const { slug = "" } = request.params;
         const user = await userFromSession(request, response);
+        const body = reqBody(request) || {};
+        const deleteIntentId = compactIdentifier(
+          body.deleteIntentId,
+          `workspace-delete:${uuidv4()}`
+        );
+        const sourceActionId = compactIdentifier(body.sourceActionId, null);
         const VectorDb = getVectorDbClass();
         const workspace = multiUserMode(response)
           ? await Workspace.getWithUser(user, { slug })
@@ -782,33 +972,30 @@ function workspaceEndpoints(app) {
           resourceId: workspace.id,
           outcome: "received",
         });
-        await WorkspaceChats.delete({ workspaceId: Number(workspace.id) });
-        await DocumentVectors.deleteForWorkspace(workspace.id);
-        await Document.delete({ workspaceId: Number(workspace.id) });
-        await Workspace.delete({ id: Number(workspace.id) });
-
-        await EventLogs.logEvent(
-          "workspace_deleted",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
-          response.locals?.user?.id
-        );
-
-        try {
-          await VectorDb["delete-namespace"]({ namespace: slug });
-        } catch (e) {
-          console.error(e.message);
-        }
         const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "workspace_deleted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          senderClientId: clientContext.clientId,
+        publishWorkspaceDeleteBroadcast({
+          type: "delete.requested",
+          workspace,
+          user,
+          clientContext,
+          deleteIntentId,
+          sourceActionId,
         });
-        response.sendStatus(200).end();
+        runWorkspaceDeleteJob({
+          workspace,
+          slug,
+          user,
+          clientContext,
+          deleteIntentId,
+          sourceActionId,
+          VectorDb,
+          responseUserId: response.locals?.user?.id,
+        });
+        response.status(200).json({
+          success: true,
+          accepted: true,
+          deleteIntentId,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();

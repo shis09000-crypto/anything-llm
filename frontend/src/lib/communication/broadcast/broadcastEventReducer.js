@@ -8,6 +8,19 @@ import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClie
 import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 import {
+  dispatchThreadCreateVisual,
+  dispatchThreadDeleteVisual,
+  dispatchThreadMoveVisual,
+  dispatchThreadPatchVisual,
+  dispatchWorkspacePatchVisual,
+} from "@/utils/workspaceEvents";
+import {
+  confirmWorkspaceDelete,
+  failWorkspaceDelete,
+  handleWorkspaceCreated,
+  handleWorkspaceDeleteRequested,
+} from "@/utils/workspaceOptimisticController";
+import {
   broadcastResourceKey,
   broadcastScopeSummary,
   normalizeBroadcastEvent,
@@ -81,12 +94,54 @@ function invalidateScope(event, reason = "broadcast") {
 function invalidateWorkspace(event) {
   const workspaceSlug =
     event.payload?.workspaceSlug || event.scope?.workspaceSlug;
-  if (workspaceSlug) {
-    workspaceNavigationCache.invalidateWorkspaceDetail(workspaceSlug);
-    workspaceNavigationCache.invalidateThreads(workspaceSlug);
+  const workspace = workspaceSlug
+    ? {
+        id: event.scope?.workspaceId || event.resource?.id || workspaceSlug,
+        slug: workspaceSlug,
+        ...(event.payload?.workspaceName || event.payload?.name
+          ? { name: event.payload.workspaceName || event.payload.name }
+          : {}),
+        ...(event.createdAt ? { lastUpdatedAt: event.createdAt } : {}),
+      }
+    : null;
+  if (workspace?.slug && (workspace.name || workspace.id)) {
+    workspaceNavigationCache.upsertWorkspace(workspace);
+    dispatchWorkspacePatchVisual({
+      workspace,
+      source: "broadcast",
+      eventId: event.eventId,
+    });
   }
-  workspaceNavigationCache.invalidateWorkspaces();
-  invalidateScope(event, "broadcast-workspace");
+  if (workspaceSlug) {
+    workspaceNavigationCache.markWorkspaceDetailStale(
+      workspaceSlug,
+      "broadcast-workspace-soft-stale"
+    );
+  }
+  workspaceNavigationCache.markWorkspacesStale(
+    "broadcast-workspace-soft-stale"
+  );
+  counters.invalidated += 1;
+  serverStateTaskBridge.markScopeStale(
+    scopeForCache(event),
+    "broadcast-workspace-soft-stale"
+  );
+}
+
+function requestWorkspaceCreate(event) {
+  handleWorkspaceCreated(event);
+}
+
+function requestWorkspaceDelete(event) {
+  handleWorkspaceDeleteRequested(event);
+}
+
+function confirmWorkspaceDeleteEvent(event) {
+  confirmWorkspaceDelete(event);
+}
+
+function failWorkspaceDeleteEvent(event) {
+  failWorkspaceDelete(event);
 }
 
 function invalidateThread(event) {
@@ -103,6 +158,148 @@ function invalidateThread(event) {
     scopeForCache(event),
     "broadcast-thread"
   );
+}
+
+function patchThread(event) {
+  const workspaceSlug =
+    event.payload?.workspaceSlug || event.scope?.workspaceSlug;
+  const threadSlug = event.payload?.threadSlug || event.scope?.threadSlug;
+  if (!workspaceSlug || !threadSlug) {
+    invalidateThread(event);
+    return;
+  }
+  const thread = {
+    id: event.scope?.threadId || event.resource?.id || threadSlug,
+    slug: threadSlug,
+    ...(event.payload?.threadName || event.payload?.name || event.payload?.title
+      ? {
+          name:
+            event.payload?.threadName ||
+            event.payload?.name ||
+            event.payload?.title,
+          title:
+            event.payload?.title ||
+            event.payload?.threadName ||
+            event.payload?.name ||
+            "",
+        }
+      : {}),
+    ...(event.payload?.threadType
+      ? { thread_type: event.payload.threadType }
+      : {}),
+    ...(event.payload?.chatModel ? { chatModel: event.payload.chatModel } : {}),
+    ...(event.createdAt ? { lastUpdatedAt: event.createdAt } : {}),
+  };
+  const currentThreads = workspaceNavigationCache.getThreads(workspaceSlug, {
+    allowStale: true,
+  });
+  if (Array.isArray(currentThreads)) {
+    let found = false;
+    const nextThreads = currentThreads.map((currentThread) => {
+      if (currentThread.slug !== threadSlug) return currentThread;
+      found = true;
+      return { ...currentThread, ...thread };
+    });
+    if (found) workspaceNavigationCache.setThreads(workspaceSlug, nextThreads);
+  }
+  workspaceNavigationCache.markThreadsStale(
+    workspaceSlug,
+    "broadcast-thread-soft-stale"
+  );
+  serverStateTaskBridge.markScopeStale(
+    scopeForCache(event),
+    "broadcast-thread-soft-stale"
+  );
+  dispatchThreadPatchVisual({
+    workspaceSlug,
+    thread,
+    threadSlug,
+    source: "broadcast",
+    eventId: event.eventId,
+  });
+  if (event.payload?.chatModel && typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent("athena-thread-model-updated", {
+        detail: {
+          workspaceSlug,
+          threadSlug,
+          chatModel: event.payload.chatModel,
+        },
+      })
+    );
+  }
+}
+
+function requestThreadCreate(event) {
+  const workspaceSlug =
+    event.payload?.workspaceSlug || event.scope?.workspaceSlug;
+  const threadSlug = event.payload?.threadSlug || event.scope?.threadSlug;
+  if (!workspaceSlug || !threadSlug) {
+    invalidateThread(event);
+    return;
+  }
+  dispatchThreadCreateVisual({
+    workspaceSlug,
+    thread: {
+      id: event.scope?.threadId || event.resource?.id || threadSlug,
+      slug: threadSlug,
+      name:
+        event.payload?.threadName ||
+        event.payload?.name ||
+        event.payload?.title ||
+        "新线程",
+      title: event.payload?.title || event.payload?.threadName || "",
+      thread_type: event.payload?.threadType || "chat",
+      createdAt: event.createdAt,
+      lastUpdatedAt: event.createdAt,
+    },
+    source: "broadcast",
+    eventId: event.eventId,
+  });
+}
+
+function requestThreadDelete(event) {
+  const workspaceSlug =
+    event.payload?.workspaceSlug || event.scope?.workspaceSlug;
+  const threadSlug = event.payload?.threadSlug || event.scope?.threadSlug;
+  if (!workspaceSlug || !threadSlug) {
+    invalidateThread(event);
+    return;
+  }
+  dispatchThreadDeleteVisual({
+    workspaceSlug,
+    threadSlug,
+    source: "broadcast",
+    eventId: event.eventId,
+  });
+}
+
+function requestThreadMove(event) {
+  const threadSlug = event.payload?.threadSlug || event.scope?.threadSlug;
+  const sourceWorkspaceSlug =
+    event.payload?.sourceWorkspaceSlug || event.scope?.workspaceSlug;
+  const targetWorkspaceSlug = event.payload?.targetWorkspaceSlug || null;
+  if (!threadSlug || (!sourceWorkspaceSlug && !targetWorkspaceSlug)) {
+    invalidateThread(event);
+    return;
+  }
+  dispatchThreadMoveVisual({
+    threadSlug,
+    sourceWorkspaceSlug,
+    targetWorkspaceSlug,
+    thread: event.payload?.thread || null,
+    source: "broadcast",
+    eventId: event.eventId,
+  });
+  if (sourceWorkspaceSlug) {
+    workspaceNavigationCache.removeThread(sourceWorkspaceSlug, threadSlug);
+  }
+  if (targetWorkspaceSlug && event.payload?.thread?.slug) {
+    workspaceNavigationCache.updateThread(
+      targetWorkspaceSlug,
+      event.payload.thread
+    );
+  }
 }
 
 function invalidateReader(event) {
@@ -210,6 +407,15 @@ function handleCritical(event) {
 }
 
 function confirmOptimistic(event) {
+  if (
+    [
+      "workspace.delete.requested",
+      "workspace.deleted",
+      "workspace.workspace_deleted",
+      "workspace.delete.failed",
+    ].includes(event.broadcastType)
+  )
+    return;
   if (!event.sourceActionId) return;
   const result = optimisticActionCenter.confirmFromBroadcast?.({
     actionId: event.sourceActionId,
@@ -228,22 +434,41 @@ function reduceNormalized(event) {
       invalidateScope(event, "broadcast-sync-required");
       return { action: "sync-required" };
     case "workspace.created":
+    case "workspace.workspace_created":
+      requestWorkspaceCreate(event);
+      return { action: "workspace-create-requested" };
     case "workspace.updated":
-    case "workspace.deleted":
+    case "workspace.workspace_updated":
       invalidateWorkspace(event);
-      return { action: "workspace-invalidate" };
+      return { action: "workspace-soft-stale" };
+    case "workspace.delete.requested":
+      requestWorkspaceDelete(event);
+      return { action: "workspace-delete-requested" };
+    case "workspace.delete.failed":
+      failWorkspaceDeleteEvent(event);
+      return { action: "workspace-delete-failed" };
+    case "workspace.deleted":
+    case "workspace.workspace_deleted":
+      confirmWorkspaceDeleteEvent(event);
+      return { action: "workspace-delete-confirmed" };
     case "thread.created":
+      requestThreadCreate(event);
+      return { action: "thread-create-requested" };
     case "thread.updated":
     case "thread.renamed":
-    case "thread.deleted":
+      patchThread(event);
+      return { action: "thread-patch" };
     case "thread.moved":
-      invalidateThread(event);
-      return { action: "thread-invalidate" };
+      requestThreadMove(event);
+      return { action: "thread-move" };
+    case "thread.deleted":
+      requestThreadDelete(event);
+      return { action: "thread-delete-requested" };
     case "chat.finalized":
     case "chat.updated":
     case "chat.deleted":
       invalidateThread(event);
-      return { action: "chat-invalidate" };
+      return { action: "chat-soft-stale" };
     case "reader.document.added":
     case "reader.document.removed":
     case "reader.library.bootstrapped":

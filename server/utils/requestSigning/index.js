@@ -308,6 +308,12 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   ) {
     return true;
   }
+  if (
+    normalizedMethod === "GET" &&
+    /^\/sync\/events\/replay$/.test(comparablePath)
+  ) {
+    return true;
+  }
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
 
   const highRiskRoutes = [
@@ -410,6 +416,26 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/sensitive-sessions\/(?:heartbeat|revoke|revoke-scope)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/sync\/thread-fingerprints$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/new$/,
+    },
+    {
+      methods: ["POST", "DELETE"],
+      pattern: /^\/native-app\/push-token$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
     },
   ];
   if (

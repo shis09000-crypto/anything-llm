@@ -263,6 +263,18 @@ export const workspaceNavigationStore = {
     );
   },
 
+  removeWorkspace(workspaceSlug = null) {
+    if (!workspaceSlug) return;
+    const current = this.getWorkspaces({ allowStale: true });
+    if (Array.isArray(current)) {
+      this.setWorkspaces(
+        current.filter((workspace) => workspace?.slug !== workspaceSlug)
+      );
+    }
+    this.invalidateWorkspaceDetail(workspaceSlug);
+    this.invalidateThreads(workspaceSlug);
+  },
+
   invalidateWorkspaces() {
     serverStateCache.invalidate(WORKSPACE_NAVIGATION_KEYS.workspaces, {
       ownerScope: currentUserScope(),

@@ -115,8 +115,31 @@ const WorkspaceChats = {
     threadId = null,
     include = true,
     apiSessionId = null,
+    clientTurnId = null,
   }) {
     try {
+      const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
+      const idempotencyScope = {
+        workspaceId,
+        user_id: user?.id || null,
+        thread_id: threadId,
+        api_session_id: apiSessionId,
+      };
+      if (normalizedClientTurnId) {
+        const existing = await prisma.workspace_chats.findFirst({
+          where: {
+            clientTurnId: normalizedClientTurnId,
+            ...idempotencyScope,
+          },
+        });
+        if (existing) {
+          return {
+            chat: await decryptWorkspaceChatRecordAsync(existing),
+            message: null,
+            replayed: true,
+          };
+        }
+      }
       response = await responseWithDeepSeekCacheDiagnosis({
         workspaceId,
         threadId,
@@ -132,6 +155,7 @@ const WorkspaceChats = {
       const chat = await prisma.workspace_chats.create({
         data: {
           public_id: newPublicChatId(),
+          clientTurnId: normalizedClientTurnId,
           workspaceId,
           prompt: await encryptWorkspaceChatFieldAsync(prompt, scope),
           response: await encryptWorkspaceChatFieldAsync(
@@ -162,8 +186,27 @@ const WorkspaceChats = {
       return {
         chat: await decryptWorkspaceChatRecordAsync(chat),
         message: null,
+        replayed: false,
       };
     } catch (error) {
+      if (clientTurnId && error?.code === "P2002") {
+        const existing = await prisma.workspace_chats.findFirst({
+          where: {
+            clientTurnId: String(clientTurnId).trim(),
+            workspaceId,
+            user_id: user?.id || null,
+            thread_id: threadId,
+            api_session_id: apiSessionId,
+          },
+        });
+        if (existing) {
+          return {
+            chat: await decryptWorkspaceChatRecordAsync(existing),
+            message: null,
+            replayed: true,
+          };
+        }
+      }
       console.error(error.message);
       return { chat: null, message: error.message };
     }

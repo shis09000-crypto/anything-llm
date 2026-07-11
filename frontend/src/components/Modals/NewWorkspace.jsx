@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FloppyDisk } from "@phosphor-icons/react";
-import Workspace from "@/models/workspace";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import AppButton from "@/components/lib/AppButton";
 import AppIcon from "@/components/lib/AppIcon";
-import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
+import { requestWorkspaceCreate } from "@/utils/workspaceOptimisticController";
 import { defaultWorkspacePath } from "@/utils/workspaceThreads";
 
 const noop = () => false;
@@ -32,15 +31,18 @@ export default function NewWorkspaceModal({ hideModal = noop }) {
     const data = {};
     const form = new FormData(formEl.current);
     for (var [key, value] of form.entries()) data[key] = value;
-    const { workspace, message, defaultThreads } = await Workspace.new(data);
+    const action = requestWorkspaceCreate(data);
+    const outcome = await action?.handle?.promise;
     setCreating(false);
+    const { workspace, message, defaultThreads } = outcome?.result || {};
     if (!!workspace) {
-      dispatchWorkspacesRefresh(workspace);
       navigate(defaultWorkspacePath(workspace.slug, defaultThreads?.threads));
       hideModal();
       return;
     }
-    setError(message);
+    setError(
+      message || outcome?.error?.message || "Failed to create workspace"
+    );
   };
 
   if (typeof document === "undefined") return null;
