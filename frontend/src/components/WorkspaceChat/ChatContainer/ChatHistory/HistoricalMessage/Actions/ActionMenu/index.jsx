@@ -59,7 +59,9 @@ function ActionMenu({
 
   const handleDelete = () => {
     window.dispatchEvent(
-      new CustomEvent("delete-message", { detail: { chatId } })
+      new CustomEvent("delete-message", {
+        detail: { chatId, publicChatId, role },
+      })
     );
     setOpen(false);
   };

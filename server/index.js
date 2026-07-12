@@ -67,6 +67,10 @@ const { communityHubEndpoints } = require("./endpoints/communityHub");
 const { agentFlowEndpoints } = require("./endpoints/agentFlows");
 const { mcpServersEndpoints } = require("./endpoints/mcpServers");
 const { mobileEndpoints } = require("./endpoints/mobile");
+const {
+  nativeAppEndpoints,
+  nativeAppPublicEndpoints,
+} = require("./endpoints/nativeApp");
 const { webPushEndpoints } = require("./endpoints/webPush");
 const { telegramEndpoints } = require("./endpoints/telegram");
 const { wechatEndpoints } = require("./endpoints/wechat");
@@ -146,6 +150,7 @@ if (!!process.env.ENABLE_HTTPS) {
   require("@mintplex-labs/express-ws").default(app); // load WebSockets in non-SSL mode.
 }
 
+nativeAppPublicEndpoints(app);
 app.use("/api", apiRouter);
 apiRouter.use(communicationMetricsMiddleware);
 systemEndpoints(apiRouter);
@@ -184,6 +189,7 @@ developerEndpoints(app, apiRouter);
 communityHubEndpoints(apiRouter);
 agentFlowEndpoints(apiRouter);
 mcpServersEndpoints(apiRouter);
+nativeAppEndpoints(apiRouter);
 mobileEndpoints(apiRouter);
 webPushEndpoints(apiRouter);
 telegramEndpoints(apiRouter);

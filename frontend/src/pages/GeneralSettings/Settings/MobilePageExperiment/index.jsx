@@ -26,6 +26,7 @@ import {
 import { openImageLightbox } from "@/components/ImageLightbox";
 import { AuthContext } from "@/AuthContext";
 import paths from "@/utils/paths";
+import { guardGlobalRefresh } from "@/utils/globalRefreshPolicy";
 import { confirmSignOut } from "@/utils/authSignOutConfirm";
 import MemoryBlocksCard from "@/pages/UserSettings/AccountSettings/MemoryBlocksCard";
 import ContactMethodsCard from "@/pages/UserSettings/AccountSettings/ContactMethodsCard";
@@ -1722,8 +1723,8 @@ export function MobilePageExperimentContent({
   const [memoryStatus, setMemoryStatus] = useState(null);
   const [memoryLoading, setMemoryLoading] = useState(false);
   const [memoryUnavailable, setMemoryUnavailable] = useState(true);
-  const [editingMessageId, setEditingMessageId] = useState(null);
-  const [editingText, setEditingText] = useState("");
+  const [chatEditSession, setChatEditSession] = useState(null);
+  const [chatMutationView, setChatMutationView] = useState(null);
   const [messageActionBusy, setMessageActionBusy] = useState(null);
   const [copiedMessageId, setCopiedMessageId] = useState(null);
   const [speakingMessageId, setSpeakingMessageId] = useState(null);
@@ -1861,7 +1862,15 @@ export function MobilePageExperimentContent({
       }),
     [messages, draftMessages, displayPendingSubmitted]
   );
-  const displayMessages = displayMergeResult.messages;
+  const mutationCutoffChatId = Number(
+    chatEditSession?.chatId || chatMutationView?.targetChatId || 0
+  );
+  const displayMessages = mutationCutoffChatId
+    ? displayMergeResult.messages.filter((message) => {
+        const chatId = Number(message.chatId || 0);
+        return !chatId || chatId < mutationCutoffChatId;
+      })
+    : displayMergeResult.messages;
   const filteredDraftMessages = displayMergeResult.filteredDraftMessages;
   const filteredDraftMessagesKey = filteredDraftMessages
     .map(
@@ -3235,8 +3244,8 @@ export function MobilePageExperimentContent({
   }, [activeThreadIsOverview, activeThread.id]);
 
   useEffect(() => {
-    setEditingMessageId(null);
-    setEditingText("");
+    setChatEditSession(null);
+    setChatMutationView(null);
     setMessageActionBusy(null);
     setCopiedMessageId(null);
     setSpeakingMessageId(null);
@@ -3392,6 +3401,12 @@ export function MobilePageExperimentContent({
     if (!productionMode || !activeThread?.workspaceSlug) return;
 
     async function refreshMobileWorkspaceThreads(event) {
+      const guard = guardGlobalRefresh({
+        detail: event?.detail || {},
+        path: "workspaceThreadsRefresh",
+        source: "mobile-page-experiment",
+      });
+      if (!guard.allowed) return;
       const workspaceSlug = event?.detail?.workspaceSlug;
       if (!workspaceSlug || workspaceSlug !== activeThread.workspaceSlug)
         return;
@@ -3451,6 +3466,7 @@ export function MobilePageExperimentContent({
   ]);
 
   async function switchThread(threadId) {
+    cancelEditMessage();
     const nextThread =
       visibleDrawerThreads.find((thread) => thread.id === threadId) ||
       activeThread;
@@ -3856,45 +3872,27 @@ export function MobilePageExperimentContent({
   }
 
   function startEditMessage(message) {
-    if (!canWriteMessage(message)) return;
-    setEditingMessageId(message.id);
-    setEditingText(message.text || "");
+    const chatId = Number(message?.chatId);
+    const targetIndex = messages.findIndex((item) => item.id === message.id);
+    if (!canWriteMessage(message) || chatId <= 0 || targetIndex < 0) return;
+    setChatEditSession({
+      chatId,
+      sourceMessageId: message.id,
+      originalMessages: [...messages],
+      prefixMessages: messages.slice(0, targetIndex),
+      previousDraft: input,
+      attachments: message.attachments || [],
+    });
+    setMessages(messages.slice(0, targetIndex));
+    setInput(message.text || "");
   }
 
   function cancelEditMessage() {
-    setEditingMessageId(null);
-    setEditingText("");
-  }
-
-  async function saveEditedMessage(message) {
-    const chatId = messageChatId(message);
-    const nextText = editingText.trim();
-    if (!canWriteMessage(message) || !nextText) return;
-
-    setMessageActionBusy(`${message.id}:edit`);
-    try {
-      const ok = await Workspace.updateChat(
-        activeThread.workspaceSlug,
-        activeThread.threadSlug,
-        chatId,
-        nextText,
-        "user"
-      );
-      if (!ok) throw new Error("update failed");
-      setMessages((current) =>
-        current.map((item) =>
-          item.id === message.id ? { ...item, text: nextText } : item
-        )
-      );
-      setEditingMessageId(null);
-      setEditingText("");
-      setDataError(null);
-      await loadThreadHistory(activeThread).catch(() => {});
-    } catch {
-      setActionError("编辑保存失败，真实历史未更新。");
-    } finally {
-      setMessageActionBusy(null);
-    }
+    if (!chatEditSession) return;
+    setMessages(chatEditSession.originalMessages);
+    setInput(chatEditSession.previousDraft || "");
+    setChatEditSession(null);
+    setChatMutationView(null);
   }
 
   function handleSpeakMessage(message) {
@@ -3938,53 +3936,70 @@ export function MobilePageExperimentContent({
   }
 
   async function handleRegenerateMessage(message) {
-    const chatId = messageChatId(message);
+    const chatId = Number(message?.chatId);
     const sourceUser = previousUserMessage(message.id);
-    if (!canWriteMessage(message) || !sourceUser?.text?.trim()) {
+    const latestAssistant = [...messages]
+      .reverse()
+      .find((item) => item.role === "assistant" && Number(item.chatId) > 0);
+    if (
+      !canWriteMessage(message) ||
+      chatId <= 0 ||
+      latestAssistant?.id !== message.id ||
+      !sourceUser?.text?.trim()
+    ) {
       setActionError("无法重新回应：缺少可用的真实消息记录。");
       return;
     }
 
     setMessageActionBusy(`${message.id}:regenerate`);
-    try {
-      const deleted = await Workspace.deleteChats(activeThread.workspaceSlug, [
-        chatId,
-      ]);
-      if (!deleted) throw new Error("delete failed");
-      setMessages((current) =>
-        current.filter((item) => item.id !== message.id)
-      );
-      setDataError(null);
-      await sendMessage({
-        text: sourceUser.text,
-        attachments: sourceUser.attachments || [],
-      });
-    } catch {
-      setActionError("重新回应失败，已保留当前消息。");
-    } finally {
+    const userIndex = messages.findIndex((item) => item.id === sourceUser.id);
+    if (userIndex < 0) {
       setMessageActionBusy(null);
+      setActionError("无法重新回应：原用户消息已不在当前历史中。");
+      return;
     }
+    const sourceActionId = createTurnId();
+    const mutationSession = {
+      kind: "regenerate",
+      sourceActionId,
+      originalMessages: [...messages],
+      prefixMessages: messages.slice(0, userIndex),
+    };
+    setMessages(mutationSession.prefixMessages);
+    await sendMessage({
+      text: sourceUser.text,
+      attachments: sourceUser.attachments || [],
+      regenerateContext: { targetChatId: chatId, sourceActionId },
+      mutationSession,
+    });
+    setMessageActionBusy(null);
   }
 
   async function handleDeleteMessage(message) {
-    const chatId = messageChatId(message);
+    const chatId = Number(message?.chatId);
     if (!canWriteMessage(message)) {
       setActionError("无法删除：缺少可用的真实消息记录。");
       return;
     }
 
     setMessageActionBusy(`${message.id}:delete`);
+    const snapshot = [...messages];
     try {
-      const result = await Workspace.deleteChat(chatId);
-      if (result?.success === false || result?.error) {
-        throw new Error(result?.error || "delete failed");
-      }
+      if (!window.confirm("永久删除这一轮对话？此操作无法撤销。")) return;
       setMessages((current) =>
-        current.filter((item) => item.id !== message.id)
+        current.filter((item) => Number(item.chatId) !== chatId)
       );
+      const result = await Workspace.deleteChatTurn(
+        activeThread.workspaceSlug,
+        activeThread.threadSlug,
+        message.publicChatId || chatId,
+        { sourceActionId: createTurnId() }
+      );
+      if (result?.success === false || result?.error)
+        throw new Error(result?.error || "delete failed");
       setDataError(null);
-      await loadThreadHistory(activeThread).catch(() => {});
     } catch {
+      setMessages(snapshot);
       setActionError("删除失败，真实历史未更新。");
     } finally {
       setMessageActionBusy(null);
@@ -4069,6 +4084,13 @@ export function MobilePageExperimentContent({
     let pendingSubmitted = null;
     let streamTurnScheduled = false;
     let shouldRestoreComposerOnEarlyFailure = true;
+    let mutationSession =
+      typeof options === "object" ? options?.mutationSession || null : null;
+    let editContext =
+      typeof options === "object" ? options?.editContext || null : null;
+    let regenerateContext =
+      typeof options === "object" ? options?.regenerateContext || null : null;
+    const mutationState = { committed: false, aborted: false };
 
     try {
       hasOverrideAttachments =
@@ -4084,6 +4106,25 @@ export function MobilePageExperimentContent({
       threadAtSend = activeThread;
       quizModeAtSend = quizMode;
       shouldRestoreComposerOnEarlyFailure = !overrideText;
+      if (chatEditSession && !mutationSession) {
+        const sourceActionId = createTurnId();
+        mutationSession = {
+          ...chatEditSession,
+          kind: "edit",
+          sourceActionId,
+        };
+        editContext = {
+          startingChatId: chatEditSession.chatId,
+          sourceActionId,
+        };
+      }
+      if (mutationSession) {
+        setChatMutationView({
+          kind: mutationSession.kind,
+          targetChatId:
+            mutationSession.chatId || regenerateContext?.targetChatId,
+        });
+      }
 
       const pendingAtSend = currentPendingSubmittedMessage(threadAtSend);
       const runtimeBusyAtSend =
@@ -4125,6 +4166,7 @@ export function MobilePageExperimentContent({
       clearTimeout(replyTimerRef.current);
       submittedAt = Math.floor(Date.now() / 1000);
       if (!overrideText) setInput("");
+      if (mutationSession?.kind === "edit") setChatEditSession(null);
       setStreaming(true);
       touchDrawerThreadActivity(
         threadAtSend,
@@ -4296,6 +4338,17 @@ export function MobilePageExperimentContent({
         setMobileAttachments([]);
       }
 
+      const mutationTargetChatId = Number(
+        mutationSession?.chatId || regenerateContext?.targetChatId || 0
+      );
+      const mutationDraftItems = Array.isArray(activeDraft?.items)
+        ? activeDraft.items
+        : [];
+      const mutationDraftIndex = mutationTargetChatId
+        ? mutationDraftItems.findIndex(
+            (item) => Number(item.chatId) === mutationTargetChatId
+          )
+        : -1;
       const streamResult = await chatDrafts.startStream({
         workspaceSlug: threadAtSend.workspaceSlug,
         threadSlug: threadAtSend.threadSlug,
@@ -4305,6 +4358,23 @@ export function MobilePageExperimentContent({
         history: [],
         parseAttachments: mobileParseAttachmentsRef.current,
         clientGeneratedTurnId: clientTurnId,
+        editContext,
+        regenerateContext,
+        onMutationEvent: (streamEvent) => {
+          if (
+            streamEvent?.type === "editHistoryTruncated" ||
+            streamEvent?.type === "regenerateTurnDeleted"
+          ) {
+            mutationState.committed = true;
+          }
+          if (streamEvent?.type === "abort") mutationState.aborted = true;
+        },
+        mutationBaseItems:
+          mutationDraftIndex >= 0
+            ? mutationDraftItems.slice(0, mutationDraftIndex)
+            : mutationSession
+              ? []
+              : null,
       });
       mobileChatDebug("send:start-stream-result", {
         threadId: threadAtSend.id,
@@ -4317,6 +4387,10 @@ export function MobilePageExperimentContent({
         reason: streamResult?.reason || null,
       });
       streamTurnScheduled = streamResult?.turnScheduled !== false;
+      if (mutationState.aborted && !mutationState.committed) {
+        streamTurnScheduled = false;
+        throw new Error(streamResult?.reason || "会话修改未提交。");
+      }
       if (streamResult && streamResult.ok === false && !streamTurnScheduled) {
         throw new Error(streamResult.reason || "回复生成失败。");
       }
@@ -4333,7 +4407,22 @@ export function MobilePageExperimentContent({
         turnScheduled: streamTurnScheduled,
       });
       setActionError(error?.message || "回复生成失败。");
-      if (!streamTurnScheduled) {
+      if (mutationSession && !mutationState.committed) {
+        setMessages(mutationSession.originalMessages || []);
+        if (pendingSubmitted?.clientTurnId) {
+          chatDrafts.clearConfirmedLocalTurn({
+            workspaceSlug: threadAtSend.workspaceSlug,
+            threadSlug: threadAtSend.threadSlug,
+            turnId: pendingSubmitted.clientTurnId,
+          });
+        }
+        clearLocalRuntimeActivity(threadAtSend);
+        if (mutationSession.kind === "edit") {
+          setChatEditSession(mutationSession);
+          setInput(text);
+        }
+        if (pendingSubmitted) clearPendingSubmittedMessage(threadAtSend);
+      } else if (!streamTurnScheduled) {
         if (shouldRestoreComposerOnEarlyFailure) setInput(text);
         if (pendingSubmitted) clearPendingSubmittedMessage(threadAtSend);
         if (optimisticMessageId) {
@@ -4358,6 +4447,7 @@ export function MobilePageExperimentContent({
         schedulePendingHistoryRefresh(threadAtSend, 900);
       }
     } finally {
+      setChatMutationView(null);
       setStreaming(false);
       sendInFlightRef.current = false;
     }
@@ -4493,7 +4583,10 @@ export function MobilePageExperimentContent({
               />
               <PhoneTopBar
                 activeThread={activeThread}
-                onOpenMenu={() => setMenuOpen(true)}
+                onOpenMenu={() => {
+                  cancelEditMessage();
+                  setMenuOpen(true);
+                }}
                 onNewConversation={createThreadInCurrentWorkspace}
                 moreButtonRef={moreButtonRef}
                 onOpenMore={() => setMoreMenuOpen((current) => !current)}
@@ -4513,17 +4606,17 @@ export function MobilePageExperimentContent({
                   messagesEndRef={messagesEndRef}
                   onQuizUpdate={handleQuizMessageUpdate}
                   copiedMessageId={copiedMessageId}
-                  editingMessageId={editingMessageId}
-                  editingText={editingText}
+                  editingMessageId={null}
+                  editingText=""
                   messageActionBusy={messageActionBusy}
                   speakingMessageId={speakingMessageId}
                   onCancelEdit={cancelEditMessage}
-                  onChangeEdit={setEditingText}
+                  onChangeEdit={() => {}}
                   onCopyMessage={handleCopyMessage}
                   onDeleteMessage={handleDeleteMessage}
                   onForkMessage={handleForkMessage}
                   onRegenerateMessage={handleRegenerateMessage}
-                  onSaveEdit={saveEditedMessage}
+                  onSaveEdit={() => {}}
                   onSpeakMessage={handleSpeakMessage}
                   onStartEdit={startEditMessage}
                 />
@@ -4571,6 +4664,8 @@ export function MobilePageExperimentContent({
                   memoryLoading={memoryLoading}
                   memoryUnavailable={memoryUnavailable}
                   showExperimentalActions={false}
+                  editMode={!!chatEditSession}
+                  onCancelEdit={cancelEditMessage}
                 />
               )}
             </DnDFileUploaderProvider>
@@ -4665,7 +4760,10 @@ export function MobilePageExperimentContent({
             dataError={dataError}
             productionMode={productionMode}
             onReset={resetConversation}
-            onOpenMenu={() => setMenuOpen(true)}
+            onOpenMenu={() => {
+              cancelEditMessage();
+              setMenuOpen(true);
+            }}
           />
 
           <div className="min-w-0 overflow-x-auto pb-6">
@@ -4698,7 +4796,10 @@ export function MobilePageExperimentContent({
                         />
                         <PhoneTopBar
                           activeThread={activeThread}
-                          onOpenMenu={() => setMenuOpen(true)}
+                          onOpenMenu={() => {
+                            cancelEditMessage();
+                            setMenuOpen(true);
+                          }}
                           onNewConversation={createThreadInCurrentWorkspace}
                           moreButtonRef={moreButtonRef}
                           onOpenMore={() =>
@@ -4721,17 +4822,17 @@ export function MobilePageExperimentContent({
                             messagesEndRef={messagesEndRef}
                             onQuizUpdate={handleQuizMessageUpdate}
                             copiedMessageId={copiedMessageId}
-                            editingMessageId={editingMessageId}
-                            editingText={editingText}
+                            editingMessageId={null}
+                            editingText=""
                             messageActionBusy={messageActionBusy}
                             speakingMessageId={speakingMessageId}
                             onCancelEdit={cancelEditMessage}
-                            onChangeEdit={setEditingText}
+                            onChangeEdit={() => {}}
                             onCopyMessage={handleCopyMessage}
                             onDeleteMessage={handleDeleteMessage}
                             onForkMessage={handleForkMessage}
                             onRegenerateMessage={handleRegenerateMessage}
-                            onSaveEdit={saveEditedMessage}
+                            onSaveEdit={() => {}}
                             onSpeakMessage={handleSpeakMessage}
                             onStartEdit={startEditMessage}
                           />
@@ -4784,6 +4885,8 @@ export function MobilePageExperimentContent({
                             memoryLoading={memoryLoading}
                             memoryUnavailable={memoryUnavailable}
                             showExperimentalActions
+                            editMode={!!chatEditSession}
+                            onCancelEdit={cancelEditMessage}
                           />
                         )}
                       </>
@@ -7118,6 +7221,8 @@ function MobileComposer({
   onToggleRecording,
   onSend,
   showExperimentalActions = true,
+  editMode = false,
+  onCancelEdit = null,
 }) {
   const inputPlaceholder =
     disabledReason === "overview"
@@ -7365,6 +7470,22 @@ function MobileComposer({
           onBlur={handleComposerBlur}
           onPointerDownCapture={handleComposerPointerDown}
         >
+          {editMode && (
+            <div className="mx-1 mb-1 flex items-center justify-between rounded-2xl border border-white/50 px-3 py-2 text-sm font-semibold text-slate-700">
+              <span className="flex items-center gap-2">
+                <PencilSimple size={17} />
+                编辑消息
+              </span>
+              <button
+                type="button"
+                onClick={onCancelEdit}
+                className="flex h-7 w-7 items-center justify-center rounded-full text-slate-600 transition hover:bg-white/50"
+                aria-label="取消编辑"
+              >
+                <X size={16} />
+              </button>
+            </div>
+          )}
           <MobileAttachmentPreview
             attachments={attachments}
             disabled={disabled && disabledReason !== "attachments"}

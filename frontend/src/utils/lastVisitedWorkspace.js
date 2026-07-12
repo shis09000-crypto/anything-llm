@@ -97,6 +97,24 @@ export function rememberLastVisitedWorkspace(workspace, threadSlug = null) {
   persistRecentNavigation();
 }
 
+export function clearLastVisitedWorkspace(workspaceSlug = null) {
+  if (!workspaceSlug) return;
+  const currentWorkspace = safeJsonParse(
+    localStorage.getItem(LAST_VISITED_WORKSPACE),
+    null
+  );
+  if (currentWorkspace?.slug === workspaceSlug) {
+    localStorage.removeItem(LAST_VISITED_WORKSPACE);
+  }
+
+  const threadMap = readThreadMap();
+  if (Object.prototype.hasOwnProperty.call(threadMap, workspaceSlug)) {
+    delete threadMap[workspaceSlug];
+    writeThreadMap(threadMap);
+  }
+  persistRecentNavigation();
+}
+
 export function getLastVisitedThreadSlug(workspaceSlug) {
   syncRecentNavigation();
   if (!workspaceSlug) return null;

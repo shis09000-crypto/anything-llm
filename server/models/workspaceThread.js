@@ -4,6 +4,10 @@ const {
 } = require("../utils/security/chatHistorySerialEncryption");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
+const { resolveThreadChatModel } = require("../utils/chats/threadChatModel");
+const {
+  threadHistoryFingerprint,
+} = require("../utils/chats/threadHistoryFingerprint");
 
 const THREAD_TYPES = {
   chat: "chat",
@@ -117,6 +121,7 @@ const WorkspaceThread = {
     "name",
     "parent_thread_id",
     "thread_type",
+    "chatModel",
     "created_from",
     "forked_at_message_id",
     "forked_at",
@@ -173,6 +178,12 @@ const WorkspaceThread = {
         ...thread,
         lastChatAt: latestByThreadId.get(thread.id)?.lastChatAt || null,
         lastChatId: latestByThreadId.get(thread.id)?.lastChatId || null,
+        historyFingerprint: threadHistoryFingerprint({
+          threadId: thread.id,
+          historyRevision: thread.historyRevision,
+          latestChatAt: latestByThreadId.get(thread.id)?.lastChatAt || null,
+          latestChatId: latestByThreadId.get(thread.id)?.lastChatId || null,
+        }),
       }));
     } catch (error) {
       console.error(error.message);
@@ -180,8 +191,54 @@ const WorkspaceThread = {
         ...thread,
         lastChatAt: null,
         lastChatId: null,
+        historyFingerprint: threadHistoryFingerprint({
+          threadId: thread.id,
+          historyRevision: thread.historyRevision,
+        }),
       }));
     }
+  },
+
+  historyFingerprintManifest: async function ({
+    threads = [],
+    userId = null,
+  } = {}) {
+    const normalizedThreads = threads
+      .filter((thread) => Number.isFinite(Number(thread?.id)))
+      .map((thread) => ({ ...thread, id: Number(thread.id) }));
+    if (!normalizedThreads.length) return [];
+
+    const activity = await prisma.workspace_chats.groupBy({
+      by: ["thread_id"],
+      where: {
+        thread_id: { in: normalizedThreads.map((thread) => thread.id) },
+        user_id: userId ? Number(userId) : null,
+        api_session_id: null,
+        include: true,
+      },
+      _max: { id: true, lastUpdatedAt: true },
+    });
+    const activityByThread = new Map(
+      activity.map((row) => [Number(row.thread_id), row._max])
+    );
+    return normalizedThreads.map((thread) => {
+      const latest = activityByThread.get(thread.id) || {};
+      const historyRevision = Math.max(0, Number(thread.historyRevision) || 0);
+      const latestChatId = latest.id || null;
+      const latestChatAt = latest.lastUpdatedAt || null;
+      return {
+        threadId: thread.id,
+        historyRevision,
+        latestChatId,
+        latestChatAt,
+        historyFingerprint: threadHistoryFingerprint({
+          threadId: thread.id,
+          historyRevision,
+          latestChatId,
+          latestChatAt,
+        }),
+      };
+    });
   },
 
   isOverviewThread: function (thread = null) {
@@ -234,12 +291,16 @@ const WorkspaceThread = {
     try {
       const thread = await prisma.workspace_threads.create({
         data: {
+          ...(data.sourceActionId
+            ? { sourceActionId: String(data.sourceActionId) }
+            : {}),
           name: data.name ? String(data.name) : this.defaultName,
           slug: data.slug
             ? this.slugify(data.slug, { lowercase: true })
             : uuidv4(),
           user_id: userId ? Number(userId) : null,
           workspace_id: workspace.id,
+          chatModel: resolveThreadChatModel(workspace, data),
           ...(data.parent_thread_id
             ? { parent_thread_id: Number(data.parent_thread_id) }
             : {}),

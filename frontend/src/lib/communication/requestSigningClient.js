@@ -148,6 +148,34 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
       pattern: /^\/agent-invocation\/[^/]+\/clarification-response$/,
     },
     {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/tool-approval-response$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/stop$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?update-chat$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?delete-edited-chats$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?chat\/[^/]+$/,
+    },
+    {
+      methods: ["PUT"],
+      pattern: /^\/workspace\/workspace-chats\/[^/]+$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/fork$/,
+    },
+    {
       methods: ["DELETE"],
       pattern: /^\/auth\/passkeys\/[^/]+$/,
     },
@@ -234,6 +262,18 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/sensitive-sessions\/(?:heartbeat|revoke|revoke-scope)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
     },
   ];
   if (

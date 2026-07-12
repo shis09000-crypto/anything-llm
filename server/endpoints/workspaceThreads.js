@@ -2,7 +2,6 @@ const {
   multiUserMode,
   userFromSession,
   reqBody,
-  safeJsonParse,
   queryParams,
 } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -21,6 +20,9 @@ const {
   validWorkspaceSlug,
   validWorkspaceAndThreadSlug,
 } = require("../utils/middleware/validWorkspace");
+const {
+  getAuthorizedWorkspaceThread,
+} = require("../utils/authz/resourceAccess");
 const {
   convertToChatHistory,
   writeResponseChunk,
@@ -46,11 +48,24 @@ const {
   setSseTransportHeaders,
 } = require("../utils/security/transportSecurity");
 const { getClientContext } = require("../utils/clientIdentity");
+const {
+  isSupportedThreadChatModel,
+} = require("../utils/chats/threadChatModel");
+const {
+  chatMutationHTTPStatus,
+  deleteChatTurnAndPublish,
+} = require("../utils/chats/chatTurnMutations");
 
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
 const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
+const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
+
+function compactActionId(value = null) {
+  const normalized = String(value || "").trim();
+  return normalized ? normalized.slice(0, 160) : null;
+}
 
 function parseHistoryQuery(request) {
   const query = queryParams(request);
@@ -77,6 +92,40 @@ function parseHistoryQuery(request) {
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
   };
+}
+
+async function threadHistorySyncMetadata(thread, user = null) {
+  const [metadata] = await WorkspaceThread.historyFingerprintManifest({
+    threads: [thread],
+    userId: user?.id || null,
+  });
+  return (
+    metadata || {
+      historyRevision: Number(thread?.historyRevision || 0),
+      historyFingerprint: null,
+      latestChatId: null,
+      latestChatAt: null,
+    }
+  );
+}
+
+function historyETag(fingerprint = null) {
+  return fingerprint ? `"${fingerprint}"` : null;
+}
+
+function requestMatchesHistoryETag(request, fingerprint = null) {
+  const tag = historyETag(fingerprint);
+  if (!tag) return false;
+  return String(request.header("If-None-Match") || "")
+    .split(",")
+    .map((value) => value.trim())
+    .includes(tag);
+}
+
+function attachHistorySyncHeaders(response, metadata = {}) {
+  const tag = historyETag(metadata.historyFingerprint);
+  if (tag) response.setHeader("ETag", tag);
+  response.setHeader("Cache-Control", "private, no-cache");
 }
 
 function nullableUserId(value) {
@@ -314,42 +363,100 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const { thread, message } = await WorkspaceThread.new(
-          workspace,
-          user?.id,
-          { thread_type: WorkspaceThread.THREAD_TYPES.chat }
+        const sourceActionId = compactActionId(
+          (reqBody(request) || {}).sourceActionId
         );
-        await Telemetry.sendTelemetry(
-          "workspace_thread_created",
-          {
-            multiUserMode: multiUserMode(response),
-            LLMSelection: process.env.LLM_PROVIDER || "openai",
-            Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-            VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-            TTSSelection: process.env.TTS_PROVIDER || "native",
-            LLMModel: getModelTag(),
-          },
-          user?.id
-        );
-
-        await EventLogs.logEvent(
-          "workspace_thread_created",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-          },
-          user?.id
-        );
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "thread_created",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          senderClientId: clientContext.clientId,
+        let thread = sourceActionId
+          ? await WorkspaceThread.get({ sourceActionId })
+          : null;
+        let message = null;
+        let replayed = false;
+        if (thread) {
+          const ownsThread =
+            Number(thread.workspace_id) === Number(workspace.id) &&
+            (!multiUserMode(response) ||
+              thread.user_id === null ||
+              Number(thread.user_id) === Number(user?.id));
+          if (!ownsThread) {
+            response.status(409).json({
+              thread: null,
+              message: "sourceActionId is already in use",
+            });
+            return;
+          }
+          replayed = true;
+        } else {
+          ({ thread, message } = await WorkspaceThread.new(
+            workspace,
+            user?.id,
+            {
+              thread_type: WorkspaceThread.THREAD_TYPES.chat,
+              sourceActionId,
+            }
+          ));
+          if (!thread && sourceActionId) {
+            const candidate = await WorkspaceThread.get({ sourceActionId });
+            if (
+              candidate &&
+              Number(candidate.workspace_id) === Number(workspace.id) &&
+              (!multiUserMode(response) ||
+                candidate.user_id === null ||
+                Number(candidate.user_id) === Number(user?.id))
+            ) {
+              thread = candidate;
+              message = null;
+              replayed = true;
+            }
+          }
+        }
+        if (!thread) {
+          response.status(400).json({ thread: null, message });
+          return;
+        }
+        if (!replayed) {
+          const clientContext = getClientContext(request, { user });
+          publishWorkspaceSyncEvent({
+            type: "thread_created",
+            workspaceId: workspace.id,
+            workspaceSlug: workspace.slug,
+            userId: user?.id ?? null,
+            threadId: thread.id,
+            threadSlug: thread.slug,
+            threadName: thread.name,
+            title: thread.title || thread.name,
+            threadType: thread.thread_type,
+            chatModel: thread.chatModel,
+            senderClientId: clientContext.clientId,
+            sourceActionId,
+          });
+          void Promise.allSettled([
+            Telemetry.sendTelemetry(
+              "workspace_thread_created",
+              {
+                multiUserMode: multiUserMode(response),
+                LLMSelection: process.env.LLM_PROVIDER || "openai",
+                Embedder: process.env.EMBEDDING_ENGINE || "inherit",
+                VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+                TTSSelection: process.env.TTS_PROVIDER || "native",
+                LLMModel: getModelTag(),
+              },
+              user?.id
+            ),
+            EventLogs.logEvent(
+              "workspace_thread_created",
+              {
+                workspaceName: workspace?.name || "Unknown Workspace",
+              },
+              user?.id
+            ),
+          ]);
+        }
+        response.status(200).json({
+          thread,
+          message,
+          replayed,
+          sourceActionId,
         });
-        response.status(200).json({ thread, message });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -488,22 +595,78 @@ function workspaceThreadEndpoints(app) {
 
   app.delete(
     "/workspace/:slug/thread/:threadSlug",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceAndThreadSlug,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const thread = response.locals.thread;
+        const sourceActionId = compactActionId(
+          (reqBody(request) || {}).sourceActionId
+        );
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: "thread.delete",
+            workspaceId: workspace.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                error: reservation.receipt.errorCode || "thread_delete_failed",
+              });
+            }
+            return response.status(200).json({
+              success: true,
+              replayed: true,
+              pending: reservation.receipt?.status !== "completed",
+            });
+          }
+        }
+
+        const { thread } = await getAuthorizedWorkspaceThread({
+          request,
+          response,
+          workspaceSlug: workspace.slug,
+          threadSlug: request.params.threadSlug,
+        });
+        if (!thread) {
+          if (sourceActionId) {
+            await MutationReceipt.fail({
+              userId: user?.id,
+              sourceActionId,
+              errorCode: "thread_not_found",
+            });
+          }
+          return response
+            .status(404)
+            .json({ error: "Workspace thread does not exist." });
+        }
         if (WorkspaceThread.isOverviewThread(thread)) {
+          if (sourceActionId) {
+            await MutationReceipt.fail({
+              userId: user?.id,
+              sourceActionId,
+              errorCode: "overview_thread_protected",
+            });
+          }
           return response
             .status(400)
             .json({ error: "Overview thread cannot be deleted." });
         }
         await WorkspaceThread.delete({ id: thread.id });
+        if (sourceActionId) {
+          await MutationReceipt.complete({
+            userId: user?.id,
+            sourceActionId,
+            resource: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              threadId: thread.id,
+              threadSlug: thread.slug,
+            },
+          });
+        }
         const clientContext = getClientContext(request, { user });
         publishWorkspaceSyncEvent({
           type: "thread_deleted",
@@ -513,8 +676,13 @@ function workspaceThreadEndpoints(app) {
           threadId: thread.id,
           threadSlug: thread.slug,
           senderClientId: clientContext.clientId,
+          sourceActionId,
         });
-        response.sendStatus(200).end();
+        response.status(200).json({
+          success: true,
+          sourceActionId,
+          threadSlug: thread.slug,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -588,6 +756,16 @@ function workspaceThreadEndpoints(app) {
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
         const historyOptions = parseHistoryQuery(request);
+        const syncMetadata = await threadHistorySyncMetadata(thread, user);
+        attachHistorySyncHeaders(response, syncMetadata);
+        if (
+          !historyOptions.beforeChatId &&
+          !historyOptions.afterChatId &&
+          !historyOptions.anchorChatId &&
+          requestMatchesHistoryETag(request, syncMetadata.historyFingerprint)
+        ) {
+          return response.status(304).end();
+        }
         const baseClause = {
           workspaceId: workspace.id,
           user_id: user?.id || null,
@@ -621,6 +799,8 @@ function workspaceThreadEndpoints(app) {
 
         response.status(200).json({
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          historyFingerprint: syncMetadata.historyFingerprint,
+          historyRevision: syncMetadata.historyRevision,
           ...(page
             ? { page: { ...page, lightChatIds: [...lightChatIds] } }
             : {}),
@@ -644,6 +824,13 @@ function workspaceThreadEndpoints(app) {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
+        const syncMetadata = await threadHistorySyncMetadata(thread, user);
+        attachHistorySyncHeaders(response, syncMetadata);
+        if (
+          requestMatchesHistoryETag(request, syncMetadata.historyFingerprint)
+        ) {
+          return response.status(304).end();
+        }
         const historyOptions = {
           ...parseHistoryQuery(request),
           enabled: true,
@@ -685,8 +872,14 @@ function workspaceThreadEndpoints(app) {
             name: workspace.name,
             slug: workspace.slug,
           },
-          thread,
+          thread: {
+            ...thread,
+            historyFingerprint: syncMetadata.historyFingerprint,
+            historyRevision: syncMetadata.historyRevision,
+          },
           history: convertToChatHistory(orderedHistory, { lightChatIds }),
+          historyFingerprint: syncMetadata.historyFingerprint,
+          historyRevision: syncMetadata.historyRevision,
           page: { ...page, lightChatIds: [...lightChatIds] },
         });
       } catch (e) {
@@ -765,13 +958,67 @@ function workspaceThreadEndpoints(app) {
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-        const data = reqBody(request);
+        const requestData = reqBody(request) || {};
+        const sourceActionId = compactActionId(requestData.sourceActionId);
+        const data = { ...requestData };
+        delete data.sourceActionId;
+        const mutationAction = Object.prototype.hasOwnProperty.call(
+          data,
+          "chatModel"
+        )
+          ? "thread.model.update"
+          : "thread.rename";
+        if (
+          Object.prototype.hasOwnProperty.call(data, "chatModel") &&
+          !isSupportedThreadChatModel(data.chatModel)
+        ) {
+          return response.status(400).json({
+            thread: null,
+            message: "Unsupported thread chat model.",
+          });
+        }
         const currentThread = response.locals.thread;
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: mutationAction,
+            workspaceId: workspace.id,
+            threadId: currentThread.id,
+          });
+          if (!reservation.created) {
+            if (reservation.receipt?.status === "failed") {
+              return response.status(409).json({
+                thread: currentThread,
+                message:
+                  reservation.receipt.errorCode || "thread_update_failed",
+              });
+            }
+            return response.status(200).json({
+              thread: currentThread,
+              message: null,
+              replayed: true,
+              pending: reservation.receipt?.status !== "completed",
+            });
+          }
+        }
         const { thread, message } = await WorkspaceThread.update(
           currentThread,
           data
         );
         if (thread) {
+          if (sourceActionId) {
+            await MutationReceipt.complete({
+              userId: user?.id,
+              sourceActionId,
+              resource: {
+                workspaceId: workspace.id,
+                workspaceSlug: workspace.slug,
+                threadId: thread.id,
+                threadSlug: thread.slug,
+              },
+            });
+          }
           const clientContext = getClientContext(request, { user });
           publishWorkspaceSyncEvent({
             type: "thread_updated",
@@ -780,7 +1027,12 @@ function workspaceThreadEndpoints(app) {
             userId: user?.id ?? null,
             threadId: thread.id,
             threadSlug: thread.slug,
+            threadName: thread.name,
+            title: thread.title || thread.name,
+            threadType: thread.thread_type,
+            chatModel: thread.chatModel,
             senderClientId: clientContext.clientId,
+            sourceActionId,
           });
         }
         response.status(200).json({ thread, message });
@@ -904,6 +1156,10 @@ function workspaceThreadEndpoints(app) {
           userId: user?.id ?? null,
           threadId: movedThread.id,
           threadSlug: movedThread.slug,
+          threadName: movedThread.name,
+          title: movedThread.title || movedThread.name,
+          threadType: movedThread.thread_type,
+          chatModel: movedThread.chatModel,
           senderClientId: clientContext.clientId,
         });
 
@@ -1060,35 +1316,66 @@ function workspaceThreadEndpoints(app) {
       flexUserRoleValid([ROLES.all]),
       validWorkspaceAndThreadSlug,
     ],
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
+    }
+  );
+
+  app.delete(
+    "/workspace/:slug/thread/:threadSlug/chat/:identity",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
     async (request, response) => {
       try {
-        const { startingId } = reqBody(request);
-        const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
-
-        await WorkspaceChats.delete({
-          workspaceId: Number(workspace.id),
-          thread_id: Number(thread.id),
-          user_id: user?.id,
-          id: { gte: Number(startingId) },
+        const user = await userFromSession(request, response);
+        const sourceActionId = compactActionId(
+          reqBody(request)?.sourceActionId
+        );
+        if (!sourceActionId) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "chat_mutation_missing_source_action",
+          });
+        }
+        const identityWhere = chatIdentityFromRequest({
+          id: request.params.identity,
         });
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_deleted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          senderClientId: clientContext.clientId,
+        if (!identityWhere) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "delete_invalid_target_chat",
+          });
+        }
+        const result = await deleteChatTurnAndPublish({
+          workspace,
+          thread,
+          user,
+          clientContext: getClientContext(request, { user }),
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          sourceActionId,
         });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
+        return response.status(200).json({
+          success: true,
+          sourceActionId,
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          replayed: result.replayed,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(chatMutationHTTPStatus(error)).json({
+          success: false,
+          errorCode: error.code || "chat_delete_failed",
+        });
       }
     }
   );
@@ -1100,66 +1387,11 @@ function workspaceThreadEndpoints(app) {
       flexUserRoleValid([ROLES.all]),
       validWorkspaceAndThreadSlug,
     ],
-    async (request, response) => {
-      try {
-        const {
-          chatId,
-          publicChatId = null,
-          newText = null,
-          role = "assistant",
-        } = reqBody(request);
-        if (!newText || !String(newText).trim())
-          throw new Error("Cannot save empty edit");
-
-        const user = await userFromSession(request, response);
-        const workspace = response.locals.workspace;
-        const thread = response.locals.thread;
-        const identifierWhere = chatIdentityFromRequest({
-          chatId,
-          publicChatId,
-        });
-        if (!identifierWhere) throw new Error("Invalid chat.");
-        const existingChat = await WorkspaceChats.get({
-          workspaceId: workspace.id,
-          thread_id: thread.id,
-          user_id: user?.id,
-          ...identifierWhere,
-        });
-        if (!existingChat) throw new Error("Invalid chat.");
-
-        if (role === "user") {
-          await WorkspaceChats._update(existingChat.id, {
-            prompt: String(newText),
-          });
-        } else {
-          const chatResponse = safeJsonParse(existingChat.response, null);
-          if (!chatResponse) throw new Error("Failed to parse chat response");
-          await WorkspaceChats._update(existingChat.id, {
-            response: JSON.stringify({
-              ...chatResponse,
-              text: String(newText),
-            }),
-          });
-        }
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_updated",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          chatId: existingChat.id,
-          publicChatId: existingChat.public_id || null,
-          senderClientId: clientContext.clientId,
-        });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
-      }
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
     }
   );
 }

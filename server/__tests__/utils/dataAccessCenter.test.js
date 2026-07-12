@@ -58,6 +58,14 @@ describe("DataAccessCenter", () => {
     expect(DataAccessCenter.domains).toContain("documentVector");
     expect(DataAccessCenter.domains).toContain("authIdentity");
     expect(DataAccessCenter.domains).toContain("adminSystem");
+    expect(DataAccessCenter.domains).toContain("athenaMutationReceipt");
+    expect(typeof DataAccessCenter.athenaMutationReceipt.reserve).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.athenaMutationReceipt.complete).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.athenaMutationReceipt.fail).toBe("function");
     expect(DataAccessCenter.domains).toContain("crypto");
     expect(DataAccessCenter.domains).toContain("sensitiveData");
     expect(DataAccessCenter.domains).toContain("vault");

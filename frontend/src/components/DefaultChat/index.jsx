@@ -9,6 +9,7 @@ import { LAST_VISITED_WORKSPACE } from "@/utils/constants";
 import { useTranslation } from "react-i18next";
 import { safeJsonParse } from "@/utils/request";
 import { pathForLastVisitedThread } from "@/utils/lastVisitedWorkspace";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 
 export default function DefaultChatContainer() {
   const { t } = useTranslation();
@@ -21,8 +22,36 @@ export default function DefaultChatContainer() {
   });
 
   useEffect(() => {
+    let mounted = true;
     async function fetchWorkspaces() {
-      const availableWorkspaces = await Workspace.all();
+      const cachedWorkspaces = workspaceNavigationCache.getWorkspaces({
+        allowStale: true,
+      });
+      if (Array.isArray(cachedWorkspaces) && cachedWorkspaces.length) {
+        setWorkspaces({ workspaces: cachedWorkspaces, loading: false });
+      }
+
+      const availableWorkspaces =
+        (await workspaceNavigationCache.runInFlight(
+          "workspaces",
+          ({ signal } = {}) =>
+            Workspace.all({
+              signal,
+              communicationScene: "workspace-navigation",
+              task: false,
+            }),
+          {
+            priority: "P0",
+            label: "default-chat:workspaces",
+            scope: { route: "default-chat", surface: "workspaces" },
+            policy: "foreground",
+            emergency: true,
+            intentRank: 0,
+            dedupeKey: "navigation:workspaces",
+          }
+        )) || [];
+      if (!mounted) return;
+      workspaceNavigationCache.setWorkspaces(availableWorkspaces);
       const serializedLastVisitedWorkspace = localStorage.getItem(
         LAST_VISITED_WORKSPACE
       );
@@ -50,6 +79,9 @@ export default function DefaultChatContainer() {
       }
     }
     fetchWorkspaces();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   if (loading) {

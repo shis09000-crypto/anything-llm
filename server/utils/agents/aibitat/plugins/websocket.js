@@ -167,6 +167,8 @@ function eventFromSocketPayload(type, content = {}) {
       type: "final_message",
       uuid: content.uuid,
       chatId: content.chatId,
+      publicChatId: content.publicChatId,
+      clientTurnId: content.clientTurnId,
       content: "",
     };
   }
@@ -363,6 +365,7 @@ const websocket = {
                   return;
 
                 delete socket.handleToolApproval;
+                delete socket.activeToolApprovalRequest;
                 clearTimeout(timeoutId);
                 recordAgentEvent(aibitat, {
                   type: "approval_result",
@@ -370,6 +373,13 @@ const websocket = {
                   skillName,
                   approved: !!data.approved,
                 });
+                socket.send(
+                  JSON.stringify({
+                    type: "toolApprovalResolved",
+                    requestId,
+                    approved: !!data.approved,
+                  })
+                );
 
                 if (data.approved) {
                   return resolve({
@@ -397,6 +407,12 @@ const websocket = {
               timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
               requestedAt: Date.now(),
             });
+            const requestedAt = Date.now();
+            socket.activeToolApprovalRequest = {
+              requestId,
+              requestedAt,
+              timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+            };
             socket.send(
               JSON.stringify({
                 type: "toolApprovalRequest",
@@ -406,11 +422,13 @@ const websocket = {
                 description,
                 allowAlwaysAllow,
                 timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                requestedAt,
               })
             );
 
             timeoutId = setTimeout(() => {
               delete socket.handleToolApproval;
+              delete socket.activeToolApprovalRequest;
               recordAgentEvent(aibitat, {
                 type: "approval_result",
                 requestId,
@@ -536,6 +554,7 @@ const websocket = {
                 questions,
                 allowSkip,
                 timeoutMs,
+                requestedAt: socket.activeClarificationRequest.requestedAt,
               })
             );
 

@@ -49,6 +49,7 @@ import {
 } from "@/utils/chat/persistedTurn";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { storageKeys } from "@/utils/appEnvironment";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
@@ -71,7 +72,6 @@ const MAX_SOURCE_FIELD_CHARS = 300;
 const MAX_RETAINED_INACTIVE_DRAFTS = 4;
 const MAX_COMPACT_INACTIVE_ITEMS = 40;
 const MAX_COMPACT_FINAL_CONTENT_CHARS = 2_000;
-const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const MAX_AGENT_RECONNECT_ATTEMPTS = 5;
 const DEFAULT_AGENT_SILENCE_TIMEOUT_MS = 90_000;
 const AGENT_SOCKET_STARTUP_TIMEOUT_MS = 15_000;
@@ -3367,6 +3367,10 @@ export function ChatThreadDraftProvider({ children }) {
       parseAttachments = () => [],
       sendToExistingAgent = false,
       clientGeneratedTurnId = null,
+      editContext = null,
+      regenerateContext = null,
+      onMutationEvent = null,
+      mutationBaseItems = null,
     }) => {
       const chatKey = ensureDraft({
         workspaceSlug,
@@ -3440,7 +3444,12 @@ export function ChatThreadDraftProvider({ children }) {
 
       updateDraft(chatKey, (draft) => ({
         ...draft,
-        items: [...(draft.items || []), ...turnItems],
+        items: [
+          ...(Array.isArray(mutationBaseItems)
+            ? mutationBaseItems
+            : draft.items || []),
+          ...turnItems,
+        ],
         activeTurnId: turnId,
         pendingApproval: null,
         pendingClarification: null,
@@ -3537,6 +3546,8 @@ export function ChatThreadDraftProvider({ children }) {
                 fileAccessMode,
                 nodeContext,
                 clientTurnId: turnId,
+                editContext,
+                regenerateContext,
               }),
               onOpen: () => {
                 streamTask?.completeExclusive?.("chat-stream-open");
@@ -3550,6 +3561,17 @@ export function ChatThreadDraftProvider({ children }) {
                 });
               },
               onEvent: (event, protocolEvent, rawEvent) => {
+                if (
+                  [
+                    "editSessionReady",
+                    "editHistoryTruncated",
+                    "regenerateSessionReady",
+                    "regenerateTurnDeleted",
+                    "abort",
+                  ].includes(rawEvent?.type)
+                ) {
+                  onMutationEvent?.(rawEvent);
+                }
                 debugChatTurn("sse:event", {
                   chatKey,
                   turnId,
@@ -3631,10 +3653,9 @@ export function ChatThreadDraftProvider({ children }) {
         if (threadSlug) {
           [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
             setTimeout(() => {
-              window.dispatchEvent(
-                new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-                  detail: { workspaceSlug },
-                })
+              workspaceNavigationCache.markThreadsStale(
+                workspaceSlug,
+                "chat-stream-complete-soft-stale"
               );
             }, delay);
           });
@@ -4028,6 +4049,16 @@ export function ChatThreadDraftProvider({ children }) {
     [updateDraft]
   );
 
+  const replaceDraftItems = useCallback(
+    (chatKey, items = []) => {
+      updateDraft(chatKey, (draft) => ({
+        ...draft,
+        items: normalizeTurnItems(items),
+      }));
+    },
+    [updateDraft]
+  );
+
   const value = useMemo(
     () => ({
       getDraft,
@@ -4058,6 +4089,7 @@ export function ChatThreadDraftProvider({ children }) {
       restoreRunningTurnSnapshot,
       getAssistantTurnByChatId,
       updateUserItem,
+      replaceDraftItems,
       clearThreadActivity,
       clearConfirmedLocalTurn,
       getThreadPath,
@@ -4093,6 +4125,7 @@ export function ChatThreadDraftProvider({ children }) {
       subscribeThreadActivity,
       updateAssistantTurn,
       updateUserItem,
+      replaceDraftItems,
     ]
   );
 

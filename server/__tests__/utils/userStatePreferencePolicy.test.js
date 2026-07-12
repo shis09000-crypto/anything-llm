@@ -64,6 +64,34 @@ describe("user state preference policy", () => {
     });
   });
 
+  it("limits iOS drawer pins to iOS and iPad client identities", async () => {
+    await expect(
+      validateUserStateInput({
+        request: { clientContext: { platform: "ios" } },
+        state: {
+          namespace: "ios.drawer.pins",
+          scope: "global",
+          value: { pins: [] },
+        },
+      })
+    ).resolves.toMatchObject({ ok: true });
+
+    await expect(
+      validateUserStateInput({
+        request: { clientContext: { platform: "web" } },
+        state: {
+          namespace: "ios.drawer.pins",
+          scope: "global",
+          value: { pins: [] },
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      status: 404,
+      error: "state_namespace_unavailable",
+    });
+  });
+
   it("rejects unknown namespaces and over-large drafts", async () => {
     await expect(
       validateUserStateInput({

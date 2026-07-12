@@ -8,8 +8,10 @@ import {
   CaretDown,
   CircleNotch,
   ClockCounterClockwise,
+  PencilSimple,
   Question,
   Shield,
+  X,
 } from "@phosphor-icons/react";
 import StopGenerationButton from "./StopGenerationButton";
 import SpeechToText from "./SpeechToText";
@@ -62,6 +64,8 @@ const FILE_ACCESS_MODE_OPTIONS = [
  * @param {boolean} [props.quizModeActive] - next submission generates a quiz
  * @param {function} [props.onToggleQuizMode] - toggles quiz mode
  * @param {Object|null} [props.memoryCompaction] - cached thread compaction status and actions
+ * @param {boolean} [props.editMode] - indicates an atomic chat edit is active
+ * @param {function} [props.onCancelEdit] - cancels the active chat edit
  */
 export default function PromptInput({
   workspace = {},
@@ -81,6 +85,8 @@ export default function PromptInput({
   quizModeActive = false,
   onToggleQuizMode,
   memoryCompaction = null,
+  editMode = false,
+  onCancelEdit = null,
 }) {
   const { t } = useTranslation();
   const readerContext = useDocumentReader();
@@ -525,6 +531,22 @@ export default function PromptInput({
               highlightedIndexRef={toolsHighlightRef}
             />
             <PromptInputGlassShell glass={glass}>
+              {editMode && (
+                <div className="mx-1 mt-2 flex items-center justify-between rounded-xl border border-white/10 px-3 py-2 text-sm text-white/75 light:border-slate-200 light:text-slate-600">
+                  <div className="flex items-center gap-2">
+                    <PencilSimple size={17} aria-hidden="true" />
+                    <span>编辑消息</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onCancelEdit}
+                    className="rounded-full border-none p-1 text-current motion-hover hover:bg-white/10 light:hover:bg-slate-100"
+                    aria-label="取消编辑"
+                  >
+                    <X size={17} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
               <AttachmentManager attachments={attachments} />
               <ReaderTextSourceCards
                 sources={readerContext?.pendingReaderTextSources || []}

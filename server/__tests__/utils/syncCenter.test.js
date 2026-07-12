@@ -199,6 +199,23 @@ describe("information sync center", () => {
     expect(rawEvent.visibility).toBe("workspace");
   });
 
+  it("normalizes workspace lifecycle events for durable native replay", () => {
+    const event = publishWorkspaceSyncEvent({
+      type: "workspace_deleted",
+      workspaceId: 2,
+      workspaceSlug: "ws",
+      userId: 7,
+      senderClientId: "client_a",
+      sourceActionId: "action_123",
+    });
+    const pendingKey = _internals.pendingCoalesced.keys().next().value;
+    const rawEvent = _internals.flushCoalesced(pendingKey);
+
+    expect(event.type).toBe("workspace_deleted");
+    expect(rawEvent.broadcastType || rawEvent.type).toBe("workspace.deleted");
+    expect(rawEvent.origin.actionId).toBe("action_123");
+  });
+
   it("converts generic sync events back to workspace sync events", () => {
     const event = workspaceEventFromSyncEvent({
       eventId: "evt",

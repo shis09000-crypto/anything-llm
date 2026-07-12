@@ -1,16 +1,18 @@
-import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
-import Workspace from "@/models/workspace";
-import paths from "@/utils/paths";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import showToast from "@/utils/toast";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import { requestWorkspaceDelete } from "@/utils/workspaceDeleteOptimisticController";
 
 export default function DeleteWorkspace({ workspace }) {
-  const { slug } = useParams();
-  const navigate = useNavigate();
   const [deleting, setDeleting] = useState(false);
+  const mountedRef = useRef(true);
   const { t } = useTranslation();
+
+  useEffect(() => {
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const deleteWorkspace = async () => {
     if (
@@ -26,14 +28,10 @@ export default function DeleteWorkspace({ workspace }) {
       return false;
 
     setDeleting(true);
-    const success = await Workspace.delete(workspace.slug);
-    if (!success) {
-      showToast("Workspace could not be deleted!", "error", { clear: true });
-      setDeleting(false);
-      return;
-    }
-
-    workspace.slug === slug ? navigate(paths.home()) : window.location.reload();
+    const action = requestWorkspaceDelete({ workspace });
+    void action?.promise?.then((outcome) => {
+      if (!outcome.ok && mountedRef.current) setDeleting(false);
+    });
   };
   return (
     <div className="flex flex-col mt-10">

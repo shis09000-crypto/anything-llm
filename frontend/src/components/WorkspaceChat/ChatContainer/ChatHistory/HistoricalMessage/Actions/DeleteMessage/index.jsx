@@ -1,16 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { Trash } from "@phosphor-icons/react";
-import Workspace from "@/models/workspace";
 import {
   useMessageActionsContext,
   DELETE_EVENT,
 } from "@/components/WorkspaceChat/ChatContainer/ChatHistory/MessageActionsContext";
 
-export function useWatchDeleteMessage({
-  chatId = null,
-  publicChatId = null,
-  role = "user",
-}) {
+export function useWatchDeleteMessage({ chatId = null }) {
   const context = useMessageActionsContext();
   const [completeDelete, setCompleteDelete] = useState(false);
   const deleteCalled = useRef(false);
@@ -19,11 +14,8 @@ export function useWatchDeleteMessage({
   useEffect(() => {
     if (isDeleted && !deleteCalled.current) {
       deleteCalled.current = true;
-      if (role === "assistant") {
-        Workspace.deleteChat(publicChatId || chatId);
-      }
     }
-  }, [isDeleted, chatId, role]);
+  }, [isDeleted, chatId]);
 
   function onEndAnimation() {
     if (!isDeleted) return;
@@ -33,11 +25,20 @@ export function useWatchDeleteMessage({
   return { isDeleted, completeDelete, onEndAnimation };
 }
 
-export function DeleteMessage({ chatId, isEditing, role }) {
+export function DeleteMessage({
+  chatId,
+  publicChatId = null,
+  isEditing,
+  role,
+}) {
   if (!chatId || isEditing || role === "user") return null;
 
   function emitDeleteEvent() {
-    window.dispatchEvent(new CustomEvent(DELETE_EVENT, { detail: { chatId } }));
+    window.dispatchEvent(
+      new CustomEvent(DELETE_EVENT, {
+        detail: { chatId, publicChatId, role },
+      })
+    );
   }
 
   return (

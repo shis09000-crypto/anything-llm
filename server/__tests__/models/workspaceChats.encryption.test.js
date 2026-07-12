@@ -171,6 +171,7 @@ describe("WorkspaceChats chat history encryption", () => {
       user: { id: 2 },
       threadId: 3,
       apiSessionId: "api-session",
+      clientTurnId: "turn-native-1",
     });
     const saved = mockPrisma.workspace_chats.create.mock.calls[0][0].data;
 
@@ -179,12 +180,42 @@ describe("WorkspaceChats chat history encryption", () => {
     expect(workspaceChatFieldIsEncrypted(saved.response)).toBe(true);
     expect(saved.prompt.startsWith("chat:v2:")).toBe(true);
     expect(saved.response.startsWith("chat:v2:")).toBe(true);
+    expect(saved.clientTurnId).toBe("turn-native-1");
     expect(JSON.stringify(saved)).not.toContain("hello private chat");
     expect(JSON.stringify(saved)).not.toContain("secret assistant response");
     expect(chat.prompt).toBe("hello private chat");
     expect(JSON.parse(chat.response)).toEqual({
       text: "secret assistant response",
     });
+  });
+
+  it("replays an existing client turn without creating a duplicate chat", async () => {
+    mockPrisma.workspace_chats.findFirst.mockResolvedValue({
+      id: 9,
+      public_id: "chat-existing",
+      clientTurnId: "turn-existing",
+      workspaceId: 10,
+      prompt: "existing prompt",
+      response: JSON.stringify({ text: "existing response" }),
+      user_id: 2,
+      thread_id: 3,
+      api_session_id: null,
+      include: true,
+    });
+
+    const { WorkspaceChats } = require("../../models/workspaceChats");
+    const result = await WorkspaceChats.new({
+      workspaceId: 10,
+      prompt: "retry prompt",
+      response: { text: "retry response" },
+      user: { id: 2 },
+      threadId: 3,
+      clientTurnId: "turn-existing",
+    });
+
+    expect(result.replayed).toBe(true);
+    expect(result.chat.id).toBe(9);
+    expect(mockPrisma.workspace_chats.create).not.toHaveBeenCalled();
   });
 
   it("decrypts encrypted rows and keeps legacy plaintext readable", async () => {

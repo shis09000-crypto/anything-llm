@@ -39,10 +39,10 @@ import {
   getLastVisitedWorkspace,
   pathForLastVisitedThread,
 } from "@/utils/lastVisitedWorkspace";
-import { dispatchWorkspacesRefresh } from "@/utils/workspaceEvents";
 import { mobileRuntimeActive } from "@/utils/mobileRuntime";
 import { defaultWorkspacePath } from "@/utils/workspaceThreads";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { requestWorkspaceCreate } from "@/utils/workspaceOptimisticController";
 
 async function getWorkspaceFromCacheOrNetwork(slug) {
   if (!slug) return null;
@@ -160,14 +160,18 @@ async function getTargetWorkspace() {
 }
 
 async function createDefaultWorkspace(workspaceName = "My Workspace") {
-  const { workspace, message: errorMsg } = await Workspace.new({
+  const action = requestWorkspaceCreate({
     name: workspaceName,
   });
+  const outcome = await action?.handle?.promise;
+  const { workspace, message: errorMsg } = outcome?.result || {};
   if (!workspace) {
-    showToast(errorMsg || "Failed to create workspace", "error");
+    showToast(
+      errorMsg || outcome?.error?.message || "Failed to create workspace",
+      "error"
+    );
     return null;
   }
-  dispatchWorkspacesRefresh(workspace);
   return workspace;
 }
 

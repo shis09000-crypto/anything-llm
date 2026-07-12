@@ -80,6 +80,7 @@ class ResumableAgentSocket {
     this.__clientStopped = false;
     this.handleFeedback = null;
     this.handleToolApproval = null;
+    this.activeToolApprovalRequest = null;
     this.handleClarificationResponse = null;
     this.activeClarificationRequest = null;
   }
@@ -149,12 +150,35 @@ class ResumableAgentSocket {
     }
 
     const result = this.handleClarificationResponse(JSON.stringify(payload));
-    if (result?.ok) return result;
+    if (result?.ok) {
+      this.send(
+        JSON.stringify({
+          type: "clarificationResolved",
+          requestId: payload.requestId,
+          skipped: !!payload.skipped,
+        })
+      );
+      return result;
+    }
     return {
       ok: false,
       reason: result?.reason || "clarification_not_waiting",
       error: result?.error,
     };
+  }
+
+  receiveToolApprovalResponse(payload = {}) {
+    if (!payload?.requestId) {
+      return { ok: false, reason: "missing_request_id" };
+    }
+    if (!this.handleToolApproval || !this.activeToolApprovalRequest) {
+      return { ok: false, reason: "approval_not_waiting" };
+    }
+    if (this.activeToolApprovalRequest.requestId !== payload.requestId) {
+      return { ok: false, reason: "request_id_mismatch" };
+    }
+    this.handleToolApproval(JSON.stringify(payload));
+    return { ok: true };
   }
 }
 
@@ -189,6 +213,14 @@ function clarificationResponsePayload(body = {}) {
     requestId: body.requestId,
     skipped: !!body.skipped,
     answers: Array.isArray(body.answers) ? body.answers : [],
+  };
+}
+
+function toolApprovalResponsePayload(body = {}) {
+  return {
+    type: "toolApprovalResponse",
+    requestId: body.requestId,
+    approved: !!body.approved,
   };
 }
 
@@ -238,6 +270,57 @@ function agentWebsocket(app) {
           closed: !!invocation.closed,
           retryable: !invocation.closed,
         },
+      });
+    }
+  );
+
+  app.post(
+    "/agent-invocation/:uuid/tool-approval-response",
+    [validatedRequest],
+    async function (request, response) {
+      const uuid = String(request.params.uuid);
+      const authorized = await getAuthorizedAgentInvocation({
+        request,
+        response,
+        uuid,
+      });
+      if (!authorized) {
+        return response.status(404).json({
+          success: false,
+          error: "agent_invocation_not_found",
+        });
+      }
+
+      await attachAuthenticatedClientContext({
+        request,
+        user: authorized.user,
+      });
+      const session = activeAgentSessions.get(uuid);
+      if (!session?.bridge) {
+        return response.status(409).json({
+          success: false,
+          error: "agent_session_not_active",
+        });
+      }
+
+      const payload = toolApprovalResponsePayload(request.body || {});
+      const result = session.bridge.receiveToolApprovalResponse(payload);
+      if (!result?.ok) {
+        return response.status(409).json({
+          success: false,
+          error: result?.reason || "approval_not_waiting",
+        });
+      }
+      void recordClientTrustCheckpoint(request, {
+        action: "agent_approval",
+        resourceType: "agent_invocation",
+        resourceId: uuid,
+        outcome: "received",
+        metadata: { transport: "http_fallback" },
+      });
+      return response.status(200).json({
+        success: true,
+        requestId: payload.requestId,
       });
     }
   );
@@ -296,6 +379,69 @@ function agentWebsocket(app) {
       return response.status(200).json({
         success: true,
         requestId: payload.requestId,
+      });
+    }
+  );
+
+  app.post(
+    "/agent-invocation/:uuid/stop",
+    [validatedRequest],
+    async function (request, response) {
+      const uuid = String(request.params.uuid);
+      const authorized = await getAuthorizedAgentInvocation({
+        request,
+        response,
+        uuid,
+      });
+      if (!authorized) {
+        return response.status(404).json({
+          success: false,
+          error: "agent_invocation_not_found",
+        });
+      }
+
+      await attachAuthenticatedClientContext({
+        request,
+        user: authorized.user,
+      });
+
+      const invocationClosed = await WorkspaceAgentInvocation.close(uuid);
+      if (!invocationClosed) {
+        return response.status(500).json({
+          success: false,
+          error: "agent_stop_persist_failed",
+        });
+      }
+
+      const session = activeAgentSessions.get(uuid);
+      if (session?.bridge) {
+        session.bridge.__clientStopped = true;
+        session.agentHandler?.log?.(
+          "User invoked the authenticated HTTP stop fallback. Closing session now."
+        );
+        session.agentHandler?.aibitat?.abort?.();
+        session.bridge.close();
+      }
+
+      clearInvocationFileAccess(uuid);
+      markAgentSessionState(uuid, {
+        status: "stopped",
+        closed: true,
+        retryable: false,
+        closedAt: Date.now(),
+      });
+      activeAgentSessions.delete(uuid);
+
+      void recordClientTrustCheckpoint(request, {
+        action: "agent_stop",
+        resourceType: "agent_invocation",
+        resourceId: uuid,
+        outcome: "confirmed",
+        metadata: { transport: "http_fallback" },
+      });
+      return response.status(200).json({
+        success: true,
+        closed: true,
       });
     }
   );

@@ -4,6 +4,10 @@ const {
   broadcastTransportSummary,
   ensureBroadcastTransportSupported,
 } = require("./transportRegistry");
+const { DataAccessCenter } = require("../dataAccess");
+const { enqueueSyncPush } = require("../nativePush/apnsProvider");
+
+const SyncEvent = DataAccessCenter.syncEvent;
 
 const BROADCAST_EVENT = "athenaBroadcastEvent";
 const DEFAULT_COALESCE_MS = 150;
@@ -37,8 +41,10 @@ const counters = {
   acked: 0,
   droppedSensitive: 0,
   transportErrors: 0,
+  persistenceErrors: 0,
 };
 let lastTransportWarningAt = 0;
+let durableCommitQueue = Promise.resolve();
 
 function normalizeNumber(value = null) {
   if (value === null || value === undefined || value === "") return null;
@@ -241,6 +247,9 @@ function normalizeBroadcastEvent(event = {}) {
     resource,
     payload,
     sensitive: Boolean(event.sensitive),
+    audience: Array.isArray(event.audience)
+      ? [...new Set(event.audience.map((item) => String(item).toLowerCase()))]
+      : null,
     requiresAck: event.requiresAck !== false,
     coalesceKey: null,
     coalescedCount: Number(event.coalescedCount || 0) || 0,
@@ -348,6 +357,13 @@ function defaultSubscriptions(connection = {}) {
 }
 
 function userCanSeeEvent(event = {}, connection = {}) {
+  const audience = Array.isArray(event.audience) ? event.audience : null;
+  if (
+    audience?.length &&
+    !audience.includes(String(connection.platform || ""))
+  ) {
+    return false;
+  }
   if (event.visibility === "client") {
     const targetClientId = event.scope?.clientId || event.payload?.clientId;
     return (
@@ -377,13 +393,41 @@ function fanout(event) {
   }
 }
 
-function commitEvent(event) {
+function commitLiveEvent(event) {
   pruneEventStore();
   eventStore.push(event);
   counters.published += 1;
   broadcastEvents.emit(BROADCAST_EVENT, legacyShape(event));
   fanout(event);
+  enqueueSyncPush(event);
   return event;
+}
+
+function commitEvent(event) {
+  if (
+    process.env.NODE_ENV === "test" &&
+    process.env.ATHENA_SYNC_EVENT_TEST_PERSIST !== "true"
+  ) {
+    return commitLiveEvent(event);
+  }
+  durableCommitQueue = durableCommitQueue
+    .then(async () => {
+      const persisted = await SyncEvent.persist(event);
+      commitLiveEvent(persisted || event);
+    })
+    .catch((error) => {
+      counters.persistenceErrors += 1;
+      console.error("[BroadcastCenter] durable event persistence failed", {
+        eventId: event.eventId,
+        type: event.type,
+        code: error?.code || "persistence_failed",
+      });
+    });
+  return event;
+}
+
+async function flushDurableCommits() {
+  await durableCommitQueue;
 }
 
 function flushCoalesced(key) {
@@ -484,6 +528,44 @@ function replayBroadcastEvents({
   return events;
 }
 
+async function replayDurableBroadcastEvents({
+  userId = null,
+  clientId = null,
+  platform = null,
+  lastEventId = null,
+  subscriptions = [],
+  limit = 200,
+} = {}) {
+  const result = await SyncEvent.replay({
+    userId,
+    clientId,
+    platform,
+    afterEventId: lastEventId,
+    limit,
+  });
+  if (result.requiresFullSync) {
+    const required = syncRequiredEvent({ userId });
+    required.payload.checkpointEventId = result.checkpointEventId;
+    return [required];
+  }
+  const connection = {
+    userId,
+    clientId,
+    platform: platform ? String(platform).toLowerCase() : null,
+    subscriptions: new Map(
+      subscriptions
+        .map(normalizeSubscription)
+        .filter(Boolean)
+        .map((subscription, index) => [String(index), subscription])
+    ),
+  };
+  const events = result.events.filter((event) =>
+    connectionSubscribedToEvent(event, connection)
+  );
+  counters.replayed += events.length;
+  return events;
+}
+
 function connectionId() {
   return `broadcast:${uuidv4()}`;
 }
@@ -492,13 +574,19 @@ function subscriptionKey(subscription = {}) {
   return JSON.stringify(subscription);
 }
 
-function registerConnection({ socket, userId = null, clientId = null } = {}) {
+function registerConnection({
+  socket,
+  userId = null,
+  clientId = null,
+  platform = null,
+} = {}) {
   const id = connectionId();
   const connection = {
     id,
     socket,
     userId,
     clientId,
+    platform: platform ? String(platform).toLowerCase() : null,
     subscriptions: new Map(
       defaultSubscriptions({ clientId }).map((subscription) => [
         subscriptionKey(subscription),
@@ -558,6 +646,10 @@ const broadcastCenter = {
     return replayBroadcastEvents(options);
   },
 
+  replayDurable(options = {}) {
+    return replayDurableBroadcastEvents(options);
+  },
+
   registerConnection,
   removeConnection,
 
@@ -585,6 +677,7 @@ module.exports = {
   publishBroadcastEvent,
   subscribeToBroadcastEvents,
   replayBroadcastEvents,
+  replayDurableBroadcastEvents,
   broadcastCenter,
   _internals: {
     BROADCAST_EVENT,
@@ -592,6 +685,8 @@ module.exports = {
     normalizeBroadcastEvent,
     mergeEvents,
     flushCoalesced,
+    flushDurableCommits,
+    commitLiveEvent,
     broadcastEvents,
     pendingCoalesced,
     eventStore,

@@ -26,9 +26,11 @@ const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 const OPTIONS_LIMIT_PER_MINUTE = 20;
 const VERIFY_FAILURE_LIMIT = 5;
 const VERIFY_COOLDOWN_MS = 5 * 60 * 1000;
+const NATIVE_WEB_HANDOFF_TTL_MS = 90 * 1000;
 
 const optionRequestsByIp = new Map();
 const verifyFailuresByIp = new Map();
+const nativeWebHandoffs = new Map();
 const APPLE_PASSKEY_AAGUIDS = new Map([
   ["00000000-0000-0000-0000-000000000000", "Apple iCloud Keychain"],
   ["fbfc3007-154e-4ecc-8c0b-6e020557d7bd", "Apple Passwords"],
@@ -40,6 +42,96 @@ const GOOGLE_PASSKEY_AAGUIDS = new Map([
 ]);
 
 function authPasskeyEndpoints(app) {
+  // A minimal P0 web-auth surface for the temporary native App handoff. It
+  // intentionally avoids loading the web workspace or its navigation tasks.
+  app.get("/auth/passkeys/native-web", async (request, response) => {
+    try {
+      if (!(await SystemSettings.isMultiUserMode())) {
+        return response.status(404).send("Not found");
+      }
+
+      const handoff = nativeWebHandoffFromQuery(request.query || {});
+      response.set({
+        "Cache-Control": "no-store",
+        "Content-Security-Policy":
+          "default-src 'none'; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+      });
+      return response
+        .status(200)
+        .type("html")
+        .send(
+          nativeWebPasskeyPage({
+            state: handoff.state,
+            codeChallenge: handoff.codeChallenge,
+          })
+        );
+    } catch {
+      return response
+        .status(400)
+        .send("Invalid native authentication request.");
+    }
+  });
+
+  app.post("/auth/passkeys/native-web/exchange", async (request, response) => {
+    try {
+      const body = reqBody(request);
+      const code = normalizeOpaqueHandoffValue(body?.code, 32, 256);
+      const codeVerifier = normalizeOpaqueHandoffValue(
+        body?.codeVerifier,
+        43,
+        128
+      );
+      const key = nativeWebHandoffKey(code);
+      const handoff = nativeWebHandoffs.get(key);
+      if (!handoff || handoff.expiresAt <= Date.now()) {
+        nativeWebHandoffs.delete(key);
+        return response.status(401).json(nativeWebExchangeFailure());
+      }
+
+      if (
+        !safeOpaqueEqual(sha256Base64Url(codeVerifier), handoff.codeChallenge)
+      ) {
+        return response.status(401).json(nativeWebExchangeFailure());
+      }
+      nativeWebHandoffs.delete(key);
+
+      const shadowUser = await User._get({ id: handoff.shadowUserId });
+      if (!shadowUser)
+        return response.status(401).json(nativeWebExchangeFailure());
+
+      let authUser = shadowUser.authUserId
+        ? await AuthIdentity.findById(shadowUser.authUserId)
+        : null;
+      if (!authUser) {
+        authUser = await AuthIdentity.bootstrapAuthUserFromShadow(shadowUser);
+      }
+      if (
+        !authUser ||
+        !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))
+      ) {
+        return response.status(401).json(nativeWebExchangeFailure());
+      }
+
+      const localUser = await AuthIdentity.ensureShadowUser(authUser);
+      if (!localUser)
+        return response.status(401).json(nativeWebExchangeFailure());
+
+      const token = issueUserSessionToken(localUser, {
+        ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+      });
+      return response.status(200).json({
+        valid: true,
+        user: User.filterFields(localUser),
+        token,
+        message: null,
+      });
+    } catch {
+      return response.status(401).json(nativeWebExchangeFailure());
+    }
+  });
+
   app.post(
     "/auth/passkeys/register/options",
     [validatedRequest],
@@ -407,6 +499,21 @@ function authPasskeyEndpoints(app) {
         }),
         localUser.id
       );
+
+      const nativeHandoff = nativeWebHandoffFromRequest(body);
+      if (nativeHandoff) {
+        const handoffCode = issueNativeWebHandoff({
+          shadowUserId: localUser.id,
+          codeChallenge: nativeHandoff.codeChallenge,
+        });
+        return response.status(200).json({
+          valid: true,
+          user: User.filterFields(localUser),
+          token: null,
+          nativeHandoffCode: handoffCode,
+          message: null,
+        });
+      }
 
       const sessionToken = issueUserSessionToken(localUser, {
         ...sessionTokenOptionsFromClientContext(getClientContext(request)),
@@ -896,6 +1003,100 @@ async function recordPasskeyLoginFailure(request, metadata = {}) {
   );
 }
 
+function nativeWebHandoffFromQuery(query) {
+  const state = normalizeOpaqueHandoffValue(query?.state, 32, 128);
+  const codeChallenge = normalizeOpaqueHandoffValue(
+    query?.code_challenge,
+    43,
+    128
+  );
+  if (query?.code_challenge_method !== "S256") {
+    throw new Error("Unsupported native handoff method");
+  }
+  return { state, codeChallenge };
+}
+
+function nativeWebHandoffFromRequest(body) {
+  if (!body?.nativeHandoff) return null;
+  return {
+    codeChallenge: normalizeOpaqueHandoffValue(
+      body.nativeHandoff.codeChallenge,
+      43,
+      128
+    ),
+  };
+}
+
+function normalizeOpaqueHandoffValue(value, minLength, maxLength) {
+  const normalized = String(value || "").trim();
+  if (
+    normalized.length < minLength ||
+    normalized.length > maxLength ||
+    !/^[A-Za-z0-9._~-]+$/.test(normalized)
+  ) {
+    throw new Error("Invalid native handoff value");
+  }
+  return normalized;
+}
+
+function issueNativeWebHandoff({ shadowUserId, codeChallenge }) {
+  pruneNativeWebHandoffs();
+  const code = crypto.randomBytes(32).toString("base64url");
+  nativeWebHandoffs.set(nativeWebHandoffKey(code), {
+    shadowUserId,
+    codeChallenge,
+    expiresAt: Date.now() + NATIVE_WEB_HANDOFF_TTL_MS,
+  });
+  return code;
+}
+
+function nativeWebHandoffKey(code) {
+  return sha256Base64Url(code);
+}
+
+function sha256Base64Url(value) {
+  return crypto.createHash("sha256").update(value).digest("base64url");
+}
+
+function safeOpaqueEqual(left, right) {
+  const leftData = Buffer.from(String(left));
+  const rightData = Buffer.from(String(right));
+  return (
+    leftData.length === rightData.length &&
+    crypto.timingSafeEqual(leftData, rightData)
+  );
+}
+
+function pruneNativeWebHandoffs() {
+  const now = Date.now();
+  for (const [key, value] of nativeWebHandoffs.entries()) {
+    if (value.expiresAt <= now) nativeWebHandoffs.delete(key);
+  }
+}
+
+function nativeWebExchangeFailure() {
+  return {
+    valid: false,
+    user: null,
+    token: null,
+    message: "通行密钥登录已过期，请重新验证。",
+  };
+}
+
+function nativeWebPasskeyPage({ state, codeChallenge }) {
+  const context = JSON.stringify({ state, codeChallenge });
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Athena 通行密钥登录</title>
+<style>body{margin:0;background:#f7f7f8;color:#111;font:17px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box}section{text-align:center}h1{font-size:24px;margin:0 0 12px}p{color:#6b6b73;margin:0;line-height:1.5}progress{width:124px;height:4px;margin-top:24px}</style></head>
+<body><main><section><h1>Athena</h1><p id="status">正在请求通行密钥...</p><progress></progress></section></main>
+<script>const context=${context};const status=document.getElementById("status");
+const toBytes=value=>{const base=value.replace(/-/g,"+").replace(/_/g,"/");const padded=base+"=".repeat((4-base.length%4)%4);const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));};
+const toBase64URL=value=>{const bytes=new Uint8Array(value);let raw="";bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,"");};
+const serialize=credential=>({id:credential.id,rawId:toBase64URL(credential.rawId),type:credential.type,response:{clientDataJSON:toBase64URL(credential.response.clientDataJSON),authenticatorData:toBase64URL(credential.response.authenticatorData),signature:toBase64URL(credential.response.signature),userHandle:credential.response.userHandle?toBase64URL(credential.response.userHandle):null}});
+async function authenticate(){try{const optionsResponse=await fetch("/api/auth/passkeys/login/options",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:"{}"});const optionsPayload=await optionsResponse.json();if(!optionsPayload.success)throw new Error(optionsPayload.error||"无法请求通行密钥。");const publicKey=optionsPayload.options;publicKey.challenge=toBytes(publicKey.challenge);publicKey.allowCredentials=(publicKey.allowCredentials||[]).map(item=>({...item,id:toBytes(item.id)}));status.textContent="请使用通行密钥验证";const credential=await navigator.credentials.get({publicKey});status.textContent="正在安全验证...";const verifyResponse=await fetch("/api/auth/passkeys/login/verify",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:JSON.stringify({response:serialize(credential),nativeHandoff:{codeChallenge:context.codeChallenge}})});const result=await verifyResponse.json();if(!result.valid||!result.nativeHandoffCode)throw new Error(result.message||"通行密钥验证失败。");const params=new URLSearchParams({code:result.nativeHandoffCode,state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}catch(error){const params=new URLSearchParams({error:"passkey_failed",state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}}
+authenticate();</script></body></html>`;
+}
+
 module.exports = {
   authPasskeyEndpoints,
   _passkeyTestUtils: {
@@ -906,9 +1107,13 @@ module.exports = {
     clearVerifyFailures,
     consumeChallenge,
     markVerifyFailure,
+    nativeWebHandoffFromQuery,
+    nativeWebPasskeyPage,
     normalizeBase64Url,
     providerMetadata,
     sanitizePasskey,
+    safeOpaqueEqual,
+    sha256Base64Url,
     resetRateLimits: () => {
       optionRequestsByIp.clear();
       verifyFailuresByIp.clear();

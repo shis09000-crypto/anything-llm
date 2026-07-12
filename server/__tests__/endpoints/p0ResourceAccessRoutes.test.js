@@ -8,6 +8,9 @@ const mockSendTelemetry = jest.fn();
 const mockLogEvent = jest.fn();
 const mockGetAgentSessionState = jest.fn();
 const mockAgentHandlerInit = jest.fn();
+const mockWorkspaceAgentClose = jest.fn();
+const mockMarkAgentSessionState = jest.fn();
+const mockClearInvocationFileAccess = jest.fn();
 
 function captureApp() {
   const routes = { get: {}, patch: {}, post: {}, ws: {} };
@@ -54,7 +57,9 @@ function loadDocumentIndexStatusRoute() {
     Document: { get: jest.fn() },
   }));
   jest.doMock("../../models/documentIndexStatus", () => ({
-    DocumentIndexStatus: { where: (...args) => mockDocumentIndexWhere(...args) },
+    DocumentIndexStatus: {
+      where: (...args) => mockDocumentIndexWhere(...args),
+    },
   }));
   jest.doMock("../../utils/files", () => ({
     normalizePath: (value) => value,
@@ -130,7 +135,9 @@ function loadParsedEmbedRoute() {
   }));
 
   const app = captureApp();
-  const { workspaceParsedFilesEndpoints } = require("../../endpoints/workspacesParsedFiles");
+  const {
+    workspaceParsedFilesEndpoints,
+  } = require("../../endpoints/workspacesParsedFiles");
   workspaceParsedFilesEndpoints(app);
   return app.routes.post["/workspace/:slug/embed-parsed-file/:fileId"];
 }
@@ -142,7 +149,7 @@ function loadAgentRoutes() {
   }));
   jest.doMock("../../models/workspaceAgentInvocation", () => ({
     WorkspaceAgentInvocation: {
-      close: jest.fn(),
+      close: (...args) => mockWorkspaceAgentClose(...args),
     },
   }));
   jest.doMock("../../utils/agents", () => ({
@@ -163,11 +170,12 @@ function loadAgentRoutes() {
     },
   }));
   jest.doMock("../../utils/chats/agents", () => ({
-    clearInvocationFileAccess: jest.fn(),
+    clearInvocationFileAccess: (...args) =>
+      mockClearInvocationFileAccess(...args),
   }));
   jest.doMock("../../utils/agents/agentSessionLedger", () => ({
     getAgentSessionState: (...args) => mockGetAgentSessionState(...args),
-    markAgentSessionState: jest.fn(),
+    markAgentSessionState: (...args) => mockMarkAgentSessionState(...args),
     readAgentSessionEvents: jest.fn(() => []),
     recordAgentSessionEvent: jest.fn(),
   }));
@@ -191,8 +199,11 @@ function loadAgentRoutes() {
   agentWebsocket(app);
   return {
     stateRoute: app.routes.get["/agent-invocation/:uuid/state"],
+    approvalRoute:
+      app.routes.post["/agent-invocation/:uuid/tool-approval-response"],
     clarificationRoute:
       app.routes.post["/agent-invocation/:uuid/clarification-response"],
+    stopRoute: app.routes.post["/agent-invocation/:uuid/stop"],
     socketRoute: app.routes.ws["/agent-invocation/:uuid"],
   };
 }
@@ -200,6 +211,7 @@ function loadAgentRoutes() {
 describe("P0 resource access route guards", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWorkspaceAgentClose.mockResolvedValue(true);
   });
 
   it("does not allow document index status without a workspace scope", async () => {
@@ -230,10 +242,13 @@ describe("P0 resource access route guards", () => {
     const route = loadDocumentIndexStatusRoute();
     const res = response();
 
-    await route({
-      query: { workspaceSlug: "workspace-a", filePath: "doc.md" },
-      body: {},
-    }, res);
+    await route(
+      {
+        query: { workspaceSlug: "workspace-a", filePath: "doc.md" },
+        body: {},
+      },
+      res
+    );
 
     expect(mockDocumentIndexWhere).toHaveBeenCalledWith({
       workspaceId: 22,
@@ -309,6 +324,26 @@ describe("P0 resource access route guards", () => {
 
     await clarificationRoute(
       { params: { uuid: "agent-uuid" }, body: { requestId: "r1" } },
+      res
+    );
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: "agent_invocation_not_found",
+    });
+  });
+
+  it("hides tool approval fallback when the invocation is not authorized", async () => {
+    mockGetAuthorizedAgentInvocation.mockResolvedValue(null);
+    const { approvalRoute } = loadAgentRoutes();
+    const res = response();
+
+    await approvalRoute(
+      {
+        params: { uuid: "agent-uuid" },
+        body: { requestId: "r1", approved: true },
+      },
       res
     );
 
@@ -416,6 +451,154 @@ describe("P0 resource access route guards", () => {
         requestId: "r1",
         skipped: false,
         answers: [{ answer: "yes" }],
+      },
+    ]);
+    expect(socket.send).toHaveBeenCalledWith(
+      JSON.stringify({
+        type: "clarificationResolved",
+        requestId: "r1",
+        skipped: false,
+      })
+    );
+  });
+
+  it("hides the agent stop fallback when the invocation is not authorized", async () => {
+    mockGetAuthorizedAgentInvocation.mockResolvedValue(null);
+    const { stopRoute } = loadAgentRoutes();
+    const res = response();
+
+    await stopRoute({ params: { uuid: "agent-uuid" }, body: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
+    expect(mockWorkspaceAgentClose).not.toHaveBeenCalled();
+  });
+
+  it("confirms an authenticated HTTP agent stop and closes the active session", async () => {
+    const abort = jest.fn();
+    const closeAlert = jest.fn();
+    mockGetAuthorizedAgentInvocation.mockResolvedValue({
+      invocation: { uuid: "agent-uuid", closed: false },
+      user: { id: 10 },
+    });
+    mockAgentHandlerInit.mockResolvedValue({
+      invocation: { uuid: "agent-uuid" },
+      provider: "debug",
+      model: "debug-model",
+      createAIbitat: jest.fn(),
+      startAgentCluster: jest.fn(),
+      closeAlert,
+      log: jest.fn(),
+      aibitat: { abort },
+    });
+    const { socketRoute, stopRoute } = loadAgentRoutes();
+    const socketHandlers = {};
+    const socket = {
+      readyState: 1,
+      send: jest.fn(),
+      close: jest.fn(() => socketHandlers.close?.()),
+      on: jest.fn((event, handler) => {
+        socketHandlers[event] = handler;
+      }),
+    };
+    await socketRoute(socket, { params: { uuid: "agent-uuid" }, query: {} });
+
+    const res = response();
+    await stopRoute({ params: { uuid: "agent-uuid" }, body: {} }, res);
+
+    expect(abort).toHaveBeenCalledTimes(1);
+    expect(mockWorkspaceAgentClose).toHaveBeenCalledWith("agent-uuid");
+    expect(mockClearInvocationFileAccess).toHaveBeenCalledWith("agent-uuid");
+    expect(mockMarkAgentSessionState).toHaveBeenCalledWith(
+      "agent-uuid",
+      expect.objectContaining({
+        status: "stopped",
+        closed: true,
+        retryable: false,
+      })
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({ success: true, closed: true });
+  });
+
+  it("does not claim an agent stopped when the close state cannot be persisted", async () => {
+    mockGetAuthorizedAgentInvocation.mockResolvedValue({
+      invocation: { uuid: "agent-uuid", closed: false },
+      user: { id: 10 },
+    });
+    mockWorkspaceAgentClose.mockResolvedValue(false);
+    const { stopRoute } = loadAgentRoutes();
+    const res = response();
+
+    await stopRoute({ params: { uuid: "agent-uuid" }, body: {} }, res);
+
+    expect(res.status).toHaveBeenCalledWith(500);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: "agent_stop_persist_failed",
+    });
+    expect(mockMarkAgentSessionState).not.toHaveBeenCalled();
+  });
+
+  it("relays tool approval fallback only to the active matching request", async () => {
+    let activeBridge = null;
+    const handledMessages = [];
+    mockGetAuthorizedAgentInvocation.mockResolvedValue({
+      invocation: { uuid: "agent-uuid", closed: false },
+      user: { id: 10 },
+    });
+    mockAgentHandlerInit.mockResolvedValue({
+      invocation: { uuid: "agent-uuid" },
+      provider: "debug",
+      model: "debug-model",
+      createAIbitat: jest.fn(async ({ socket }) => {
+        activeBridge = socket;
+        socket.activeToolApprovalRequest = { requestId: "approval-1" };
+        socket.handleToolApproval = (message) => {
+          handledMessages.push(JSON.parse(message));
+          delete socket.activeToolApprovalRequest;
+          delete socket.handleToolApproval;
+        };
+      }),
+      startAgentCluster: jest.fn(),
+      closeAlert: jest.fn(),
+      log: jest.fn(),
+      aibitat: { abort: jest.fn() },
+    });
+    const { approvalRoute, socketRoute } = loadAgentRoutes();
+    const socket = {
+      readyState: 1,
+      send: jest.fn(),
+      close: jest.fn(),
+      on: jest.fn(),
+    };
+
+    await socketRoute(socket, { params: { uuid: "agent-uuid" }, query: {} });
+    expect(activeBridge).toBeTruthy();
+
+    const mismatchRes = response();
+    await approvalRoute(
+      {
+        params: { uuid: "agent-uuid" },
+        body: { requestId: "other", approved: true },
+      },
+      mismatchRes
+    );
+    expect(mismatchRes.status).toHaveBeenCalledWith(409);
+
+    const successRes = response();
+    await approvalRoute(
+      {
+        params: { uuid: "agent-uuid" },
+        body: { requestId: "approval-1", approved: true },
+      },
+      successRes
+    );
+    expect(successRes.status).toHaveBeenCalledWith(200);
+    expect(handledMessages).toEqual([
+      {
+        type: "toolApprovalResponse",
+        requestId: "approval-1",
+        approved: true,
       },
     ]);
   });

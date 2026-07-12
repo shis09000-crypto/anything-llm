@@ -62,6 +62,12 @@ import {
   readReaderSplitPercent,
 } from "@/utils/layout/workspaceLayoutState";
 import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
+import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import {
+  dispatchThreadCreateVisual,
+  dispatchThreadDeleteVisual,
+} from "@/utils/workspaceEvents";
+import { COMPOSER_EDIT_EVENT } from "./ChatHistory/MessageActionsContext";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -73,7 +79,6 @@ const NON_QUIZ_TEST_PATTERN =
   /(测试连接|测试接口|测试功能|测试代码|test connection|unit test|integration test|e2e test|jest|vitest|pytest)/i;
 const DUAL_THREAD_FORK_MODE = "dual_thread_fork_mode";
 const BRANCH_PROMPT_INPUT_ID = "branch-prompt-input";
-const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const SELECTION_COPY_MIN_LENGTH = 8;
 const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 104;
 const CHAT_HISTORY_INPUT_GAP = 8;
@@ -140,6 +145,7 @@ export default function ChatContainer({
     failAssistantTurn,
     respondToApproval,
     respondToClarification,
+    replaceDraftItems,
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
@@ -156,6 +162,11 @@ export default function ChatContainer({
     [knownHistory, chatKey]
   );
   const chatItems = draft?.items || knownItems;
+  const [chatEditSession, setChatEditSession] = useState(null);
+  const mutationCommitRef = useRef(new Map());
+  const visibleChatItems = chatEditSession
+    ? chatEditSession.prefixItems
+    : chatItems;
   const loadingResponse = !!draft?.isStreaming;
   const latestAssistantTurn = lastAssistantTurn(chatItems);
   const [mindMapRequest, setMindMapRequest] = useState(null);
@@ -696,7 +707,11 @@ export default function ChatContainer({
         workspaceSlug: workspace.slug,
         threadSlug: dualThreadFork.branchThreadSlug,
       });
-      refreshWorkspaceThreads();
+      dispatchThreadDeleteVisual({
+        workspaceSlug: workspace.slug,
+        threadSlug: dualThreadFork.branchThreadSlug,
+        source: "dual-thread-dispose",
+      });
       showToast("未改动的分支线程已自动取消", "success");
     } else {
       showToast("未改动的分支线程取消失败", "error");
@@ -721,6 +736,53 @@ export default function ChatContainer({
       })
     );
   }
+
+  const cancelChatEdit = useCallback(() => {
+    setChatEditSession((session) => {
+      if (!session) return null;
+      setMessageEmit(session.previousDraft || "");
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleComposerEdit = (event) => {
+      const requestedChatId = Number(event.detail?.chatId);
+      if (!Number.isInteger(requestedChatId) || requestedChatId <= 0) return;
+      const targetIndex = chatItems.findIndex(
+        (item) =>
+          item.type === "user" && Number(item.chatId) === requestedChatId
+      );
+      if (targetIndex < 0) return;
+      const target = chatItems[targetIndex];
+      const previousDraft =
+        document.getElementById(PROMPT_INPUT_ID)?.value || "";
+      setChatEditSession({
+        chatId: requestedChatId,
+        publicChatId: target.publicChatId || null,
+        content: target.content || "",
+        attachments: target.attachments || [],
+        previousDraft,
+        originalItems: [...chatItems],
+        prefixItems: chatItems.slice(0, targetIndex),
+      });
+      setMessageEmit(target.content || "");
+      window.requestAnimationFrame(() => {
+        const input = document.getElementById(PROMPT_INPUT_ID);
+        input?.focus();
+        const end = input?.value?.length || 0;
+        input?.setSelectionRange?.(end, end);
+      });
+    };
+    window.addEventListener(COMPOSER_EDIT_EVENT, handleComposerEdit);
+    return () =>
+      window.removeEventListener(COMPOSER_EDIT_EVENT, handleComposerEdit);
+  }, [chatItems]);
+
+  useEffect(() => {
+    setChatEditSession(null);
+    mutationCommitRef.current.clear();
+  }, [chatKey]);
 
   function openMindMap(body = {}) {
     beginChatLayoutTransition("mind-map-open");
@@ -1037,12 +1099,19 @@ export default function ChatContainer({
       : await Workspace.chatHistory(workspace.slug);
   }
 
-  function refreshWorkspaceThreads() {
-    window.dispatchEvent(
-      new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-        detail: { workspaceSlug: workspace.slug },
-      })
-    );
+  function showThreadInSidebar(thread, options = {}) {
+    if (!workspace?.slug || !thread?.slug) return;
+    dispatchThreadCreateVisual({
+      workspaceSlug: workspace.slug,
+      thread: {
+        ...thread,
+        name: thread.name || thread.title || "新线程",
+        title: thread.title || thread.name || "",
+        thread_type: thread.thread_type || "chat",
+      },
+      animate: options.animate !== false,
+      source: options.source || "workspace-chat",
+    });
   }
 
   async function createMobileWorkspaceThread() {
@@ -1076,7 +1145,11 @@ export default function ChatContainer({
         return;
       }
 
-      refreshWorkspaceThreads();
+      dispatchThreadCreateVisual({
+        workspaceSlug: workspace.slug,
+        thread,
+        source: "mobile-thread-create",
+      });
       navigateIfChanged(paths.workspace.thread(workspace.slug, thread.slug), {
         state: { userSelectedThread: true },
       });
@@ -1161,7 +1234,10 @@ export default function ChatContainer({
       branchPanelVisible: true,
     });
     dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
-    refreshWorkspaceThreads();
+    showThreadInSidebar(branchThread, {
+      animate: false,
+      source: "dual-thread-open",
+    });
   }
 
   async function startDualThreadFork() {
@@ -1176,7 +1252,10 @@ export default function ChatContainer({
 
     setDualThreadLoading(true);
     try {
-      const { threads = [] } = await Workspace.threads.all(workspace.slug);
+      const threads =
+        workspaceNavigationCache.getThreads(workspace.slug, {
+          allowStale: true,
+        }) || [];
       const sourceThread = threadSlug
         ? threads.find((thread) => thread.slug === threadSlug)
         : null;
@@ -1238,7 +1317,10 @@ export default function ChatContainer({
         branchPanelVisible: true,
       });
       dispatchLayoutEvent?.({ type: "DUAL_THREAD_OPENED" });
-      refreshWorkspaceThreads();
+      showThreadInSidebar(result?.newThread || { slug: branchThreadSlug }, {
+        animate: true,
+        source: "dual-thread-create",
+      });
     } catch (error) {
       resetDualThreadFork();
       const message =
@@ -1466,11 +1548,84 @@ export default function ChatContainer({
     };
   }, [dualThreadFork.enabled, dualThreadFork.branchThreadSlug]);
 
+  const runAtomicChatMutation = useCallback(
+    async ({ session, prompt, kind }) => {
+      const sourceActionId = createTurnId();
+      const clientTurnId = createTurnId();
+      const mutationState = { committed: false, aborted: false };
+      mutationCommitRef.current.set(sourceActionId, mutationState);
+      replaceDraftItems(chatKey, session.prefixItems);
+      setChatEditSession(null);
+      clearPromptInputDraft(threadSlug ?? workspace.slug, {
+        workspaceSlug: workspace.slug,
+        threadSlug,
+      });
+      setMessageEmit("");
+
+      const result = await startStream({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        prompt,
+        displayPrompt: prompt,
+        attachments: session.attachments || [],
+        clientGeneratedTurnId: clientTurnId,
+        history: [],
+        parseAttachments,
+        editContext:
+          kind === "edit"
+            ? { startingChatId: session.chatId, sourceActionId }
+            : null,
+        regenerateContext:
+          kind === "regenerate"
+            ? { targetChatId: session.chatId, sourceActionId }
+            : null,
+        onMutationEvent: (streamEvent) => {
+          if (
+            streamEvent?.type === "editHistoryTruncated" ||
+            streamEvent?.type === "regenerateTurnDeleted"
+          ) {
+            mutationState.committed = true;
+          }
+          if (streamEvent?.type === "abort") mutationState.aborted = true;
+        },
+        mutationBaseItems: session.prefixItems,
+      });
+      mutationCommitRef.current.delete(sourceActionId);
+
+      if ((!result?.ok || mutationState.aborted) && !mutationState.committed) {
+        replaceDraftItems(chatKey, session.originalItems);
+        if (kind === "edit") {
+          setChatEditSession({ ...session, content: prompt });
+          setMessageEmit(prompt);
+        }
+      }
+      requestSendScrollToBottom();
+      return result;
+    },
+    [
+      chatKey,
+      parseAttachments,
+      replaceDraftItems,
+      startStream,
+      threadSlug,
+      workspace.slug,
+    ]
+  );
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     const currentMessage =
       document.getElementById(PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage) return false;
+
+    if (chatEditSession) {
+      void runAtomicChatMutation({
+        session: chatEditSession,
+        prompt: currentMessage,
+        kind: "edit",
+      });
+      return false;
+    }
 
     if (
       await submitPendingClarificationFromInput({
@@ -1544,26 +1699,32 @@ export default function ChatContainer({
     resetTranscript();
   }
 
-  const regenerateAssistantMessage = (chatId, publicChatId = null) => {
+  const regenerateAssistantMessage = (chatId) => {
     const assistantIdx = chatItems.findIndex(
       (item) => item.type === "assistant_turn" && item.chatId === chatId
     );
     const assistantTurn = chatItems[assistantIdx];
+    const latestAssistant = lastAssistantTurn(chatItems);
+    if (!assistantTurn || latestAssistant?.id !== assistantTurn.id) return;
     const lastUserMessage = chatItems.find(
       (item) => item.id === assistantTurn?.userMessageId
     );
     if (!lastUserMessage?.content) return;
-    Workspace.deleteChats(workspace.slug, [publicChatId || chatId])
-      .then(() =>
-        sendCommand({
-          text: lastUserMessage.content,
-          autoSubmit: true,
-          history: knownHistory,
-          attachments: lastUserMessage?.attachments,
-          includeReaderTempTextSources: false,
-        })
-      )
-      .catch((e) => console.error(e));
+    const userIndex = chatItems.findIndex(
+      (item) => item.id === lastUserMessage.id
+    );
+    if (userIndex < 0) return;
+    void runAtomicChatMutation({
+      session: {
+        chatId: Number(chatId),
+        content: lastUserMessage.content,
+        attachments: lastUserMessage.attachments || [],
+        originalItems: [...chatItems],
+        prefixItems: chatItems.slice(0, userIndex),
+      },
+      prompt: lastUserMessage.content,
+      kind: "regenerate",
+    });
   };
 
   /**
@@ -1743,7 +1904,7 @@ export default function ChatContainer({
             {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <Suspense fallback={<LazyPanelFallback />}>
@@ -1796,7 +1957,7 @@ export default function ChatContainer({
             {isMobileShell && renderMobileHeader()}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -1955,7 +2116,7 @@ export default function ChatContainer({
                 )}
                 <WorkspaceModelPicker
                   workspaceSlug={workspace.slug}
-                  modelName={workspace.chatModel}
+                  modelName={activeThread?.chatModel || workspace.chatModel}
                 />
                 <DnDFileUploaderWrapper>
                   <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -1963,7 +2124,7 @@ export default function ChatContainer({
                       <MetricsProvider>
                         <ChatHistory
                           ref={chatHistoryRef}
-                          items={chatItems}
+                          items={visibleChatItems}
                           workspace={workspace}
                           sendCommand={sendCommand}
                           regenerateAssistantMessage={
@@ -2004,6 +2165,8 @@ export default function ChatContainer({
                           setQuizModeActive((active) => !active)
                         }
                         memoryCompaction={memoryCompactionControl}
+                        editMode={!!chatEditSession}
+                        onCancelEdit={cancelChatEdit}
                       />
                       <QuizIntentConfirmation
                         prompt={quizIntentPrompt}
@@ -2056,7 +2219,7 @@ export default function ChatContainer({
               />
               <WorkspaceModelPicker
                 workspaceSlug={workspace.slug}
-                modelName={workspace.chatModel}
+                modelName={activeThread?.chatModel || workspace.chatModel}
               />
               <DnDFileUploaderWrapper>
                 <div className="flex flex-col h-full w-full">
@@ -2079,6 +2242,8 @@ export default function ChatContainer({
                           setQuizModeActive((active) => !active)
                         }
                         memoryCompaction={memoryCompactionControl}
+                        editMode={!!chatEditSession}
+                        onCancelEdit={cancelChatEdit}
                       />
                       <QuizIntentConfirmation
                         prompt={quizIntentPrompt}
@@ -2150,7 +2315,7 @@ export default function ChatContainer({
             )}
             <WorkspaceModelPicker
               workspaceSlug={workspace.slug}
-              modelName={workspace.chatModel}
+              modelName={activeThread?.chatModel || workspace.chatModel}
             />
             <DnDFileUploaderWrapper>
               <div className="flex flex-col h-full w-full pb-20 md:pb-0">
@@ -2158,7 +2323,7 @@ export default function ChatContainer({
                   <MetricsProvider>
                     <ChatHistory
                       ref={chatHistoryRef}
-                      items={chatItems}
+                      items={visibleChatItems}
                       workspace={workspace}
                       sendCommand={sendCommand}
                       regenerateAssistantMessage={regenerateAssistantMessage}
@@ -2199,6 +2364,8 @@ export default function ChatContainer({
                       setQuizModeActive((active) => !active)
                     }
                     memoryCompaction={memoryCompactionControl}
+                    editMode={!!chatEditSession}
+                    onCancelEdit={cancelChatEdit}
                   />
                   <QuizIntentConfirmation
                     prompt={quizIntentPrompt}

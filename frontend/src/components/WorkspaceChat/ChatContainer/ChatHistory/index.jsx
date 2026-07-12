@@ -23,7 +23,7 @@ import Appearance from "@/models/appearance";
 import useTextSize from "@/hooks/useTextSize";
 import useChatHistoryScrollHandle from "@/hooks/useChatHistoryScrollHandle";
 import { ThoughtExpansionProvider } from "./ThoughtContainer";
-import { MessageActionsProvider } from "./MessageActionsContext";
+import { DELETE_EVENT, MessageActionsProvider } from "./MessageActionsContext";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 import {
@@ -98,7 +98,6 @@ export default forwardRef(function (
   {
     items = [],
     workspace,
-    sendCommand,
     regenerateAssistantMessage,
     chatKey = null,
     approvalState = null,
@@ -209,7 +208,7 @@ export default forwardRef(function (
           fontSize: `${Math.min(24, Math.max(17, textSizePx + 1))}px`,
         }
       : textSizeStyle;
-  const { updateAssistantTurn, updateUserItem } = useChatThreadDrafts();
+  const { replaceDraftItems } = useChatThreadDrafts();
   const baseShouldVirtualize = items.length > 80;
   const [layoutFallbackActive, setLayoutFallbackActive] = useState(false);
   const shouldVirtualize = baseShouldVirtualize && !layoutFallbackActive;
@@ -2055,61 +2054,45 @@ export default forwardRef(function (
     textSizeFontSize,
   ]);
 
-  const saveEditedMessage = async ({
-    editedMessage,
-    chatId,
-    publicChatId = null,
-    role,
-    attachments = [],
-    saveOnly = false,
-  }) => {
-    if (!editedMessage || !chatKey) return;
-    const actionChatId = publicChatId || chatId;
+  useEffect(() => {
+    if (!chatKey || readOnly) return;
+    const handleDelete = async (event) => {
+      const requestedChatId = Number(event.detail?.chatId);
+      if (!Number.isInteger(requestedChatId) || requestedChatId <= 0) return;
+      const currentItems = itemsRef.current || [];
+      if (!currentItems.some((item) => Number(item.chatId) === requestedChatId))
+        return;
+      if (!window.confirm("永久删除这一轮对话？此操作无法撤销。")) return;
 
-    if (role === "user" && saveOnly) {
-      updateUserItem(chatKey, chatId, { content: editedMessage });
-      await Workspace.updateChat(
-        workspace.slug,
-        effectiveThreadSlug,
-        actionChatId,
-        editedMessage,
-        "user"
+      const snapshot = [...currentItems];
+      const optimisticItems = currentItems.filter(
+        (item) => Number(item.chatId) !== requestedChatId
       );
-      return;
-    }
-
-    if (role === "user") {
-      updateUserItem(chatKey, chatId, { content: editedMessage });
-      await Workspace.deleteEditedChats(
-        workspace.slug,
-        effectiveThreadSlug,
-        chatId
-      );
-      sendCommand({
-        text: editedMessage,
-        autoSubmit: true,
-        history: [],
-        attachments,
-      });
-      return;
-    }
-
-    if (role === "assistant") {
-      const target = items.find(
-        (item) => item.type === "assistant_turn" && item.chatId === chatId
-      );
-      if (!target) return;
-      updateAssistantTurn(chatKey, target.turnId, {
-        finalContent: editedMessage,
-      });
-      await Workspace.updateChat(
-        workspace.slug,
-        effectiveThreadSlug,
-        actionChatId,
-        editedMessage
-      );
-    }
-  };
+      replaceDraftItems(chatKey, optimisticItems);
+      const sourceActionId =
+        globalThis.crypto?.randomUUID?.() ||
+        `chat-delete-${Date.now()}-${requestedChatId}`;
+      try {
+        await Workspace.deleteChatTurn(
+          workspace.slug,
+          effectiveThreadSlug,
+          event.detail?.publicChatId || requestedChatId,
+          { sourceActionId }
+        );
+      } catch (error) {
+        replaceDraftItems(chatKey, snapshot);
+        window.alert(error?.message || "删除失败，请稍后重试。");
+      }
+    };
+    window.addEventListener(DELETE_EVENT, handleDelete);
+    return () => window.removeEventListener(DELETE_EVENT, handleDelete);
+  }, [
+    chatKey,
+    effectiveThreadSlug,
+    readOnly,
+    replaceDraftItems,
+    workspace.slug,
+  ]);
 
   const forkThread = async (chatId, publicChatId = null) => {
     const newThreadSlug = await Workspace.forkThread(
@@ -2146,7 +2129,7 @@ export default forwardRef(function (
         onToolApprovalResponse={onToolApprovalResponse}
         onGenerateMindMap={onGenerateMindMap}
         regenerateAssistantMessage={regenerateAssistantMessage}
-        saveEditedMessage={saveEditedMessage}
+        saveEditedMessage={null}
         forkThread={forkThread}
         readOnly={readOnly}
         isLastAssistantTurn={item.id === lastAssistantTurnId}
@@ -2173,7 +2156,6 @@ export default forwardRef(function (
       onToolApprovalResponse,
       readOnly,
       regenerateAssistantMessage,
-      saveEditedMessage,
       workspace,
     ]
   );

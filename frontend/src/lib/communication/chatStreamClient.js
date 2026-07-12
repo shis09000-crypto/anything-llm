@@ -13,6 +13,8 @@ function chatStreamBody({
   fileAccessMode,
   nodeContext,
   clientTurnId,
+  editContext = null,
+  regenerateContext = null,
 }) {
   return {
     message,
@@ -21,6 +23,8 @@ function chatStreamBody({
     fileAccess: { mode: fileAccessMode },
     nodeContext,
     clientTurnId,
+    ...(editContext ? { editContext } : {}),
+    ...(regenerateContext ? { regenerateContext } : {}),
   };
 }
 
@@ -197,6 +201,8 @@ export function buildChatStreamBody({
   fileAccessMode = null,
   nodeContext = null,
   clientTurnId = null,
+  editContext = null,
+  regenerateContext = null,
 }) {
   return chatStreamBody({
     message,
@@ -205,5 +211,7 @@ export function buildChatStreamBody({
     fileAccessMode,
     nodeContext,
     clientTurnId,
+    editContext,
+    regenerateContext,
   });
 }

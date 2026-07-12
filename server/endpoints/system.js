@@ -263,6 +263,7 @@ const {
 } = require("../utils/fileAccessPolicy");
 const {
   parseNamespaceFilter,
+  requiresAppleNativeAudience,
   validateUserStateInput,
   validateUserStateScope,
 } = require("../utils/userStatePreferencePolicy");
@@ -2954,7 +2955,17 @@ function systemEndpoints(app) {
           return;
         }
 
+        const context = getClientContext(request, { user: sessionUser });
         const namespaces = parseNamespaceFilter(request.query?.namespaces);
+        if (
+          namespaces?.some(requiresAppleNativeAudience) &&
+          !["ios", "ipad"].includes(context?.platform)
+        ) {
+          response
+            .status(404)
+            .json({ success: false, error: "state_namespace_unavailable" });
+          return;
+        }
         const states = await DataAccessCenter.userState.where({
           userId: sessionUser.id,
           namespaces,
@@ -2981,6 +2992,7 @@ function systemEndpoints(app) {
           return;
         }
 
+        getClientContext(request, { user: sessionUser });
         const { states = [] } = reqBody(request) || {};
         if (!Array.isArray(states)) {
           response
@@ -3026,6 +3038,11 @@ function systemEndpoints(app) {
             scopes: validatedStates.map((state) => state.scope || "global"),
             count: saved.length,
           },
+          audience: validatedStates.some((state) =>
+            requiresAppleNativeAudience(state.namespace)
+          )
+            ? ["ios", "ipad"]
+            : null,
           coalesceKey: `userState.updated:${sessionUser.id}`,
         });
         response.status(200).json({ success: true, states: saved });
@@ -3050,6 +3067,7 @@ function systemEndpoints(app) {
           return;
         }
 
+        getClientContext(request, { user: sessionUser });
         const { namespace, scope = null } = reqBody(request) || {};
         const result = await validateUserStateScope({
           request,
@@ -3083,6 +3101,9 @@ function systemEndpoints(app) {
             scope: scope || "global",
             deletedCount: deleted.count,
           },
+          audience: requiresAppleNativeAudience(namespace)
+            ? ["ios", "ipad"]
+            : null,
           coalesceKey: `userState.deleted:${sessionUser.id}:${namespace}:${
             scope || "global"
           }`,

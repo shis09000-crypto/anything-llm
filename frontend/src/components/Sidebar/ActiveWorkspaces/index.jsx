@@ -15,9 +15,7 @@ import {
   UploadSimple,
   DotsSixVertical,
 } from "@phosphor-icons/react";
-import ThreadContainer, {
-  WORKSPACE_THREADS_REFRESH_EVENT,
-} from "./ThreadContainer";
+import ThreadContainer from "./ThreadContainer";
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
 import showToast from "@/utils/toast";
 import {
@@ -26,8 +24,17 @@ import {
   pathForLastVisitedThread,
   rememberLastVisitedWorkspace,
 } from "@/utils/lastVisitedWorkspace";
-import { WORKSPACES_REFRESH_EVENT } from "@/utils/workspaceEvents";
+import {
+  dispatchThreadMoveVisual,
+  WORKSPACE_CREATE_VISUAL_EVENT,
+  WORKSPACE_DELETE_ANIMATION_MS,
+  WORKSPACE_DELETE_VISUAL_EVENT,
+  WORKSPACE_PATCH_VISUAL_EVENT,
+  WORKSPACES_RESTORE_VISUAL_EVENT,
+  WORKSPACES_REFRESH_EVENT,
+} from "@/utils/workspaceEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { guardGlobalRefresh } from "@/utils/globalRefreshPolicy";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
@@ -56,15 +63,6 @@ function parseWorkspaceDropId(droppableId = "") {
   return droppableId.slice(WORKSPACE_DROP_PREFIX.length) || null;
 }
 
-function refreshWorkspaceThreads(workspaceSlug) {
-  if (!workspaceSlug) return;
-  window.dispatchEvent(
-    new CustomEvent(WORKSPACE_THREADS_REFRESH_EVENT, {
-      detail: { workspaceSlug },
-    })
-  );
-}
-
 export default function ActiveWorkspaces() {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -72,6 +70,8 @@ export default function ActiveWorkspaces() {
   const [loading, setLoading] = useState(true);
   const [workspaces, setWorkspaces] = useState([]);
   const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
+  const [creatingWorkspaces, setCreatingWorkspaces] = useState({});
+  const [deletingWorkspaces, setDeletingWorkspaces] = useState({});
   const [selectedWs, setSelectedWs] = useState(null);
   const [draggingThread, setDraggingThread] = useState(null);
   const { showing, showModal, hideModal } = useManageWorkspaceModal();
@@ -80,6 +80,7 @@ export default function ActiveWorkspaces() {
   const refreshInFlightRef = useRef(null);
   const pendingForceRefreshRef = useRef(false);
   const pendingRefreshTimerRef = useRef(null);
+  const deleteAnimationTimersRef = useRef(new Map());
   const bootCoalesceUntilRef = useRef(
     typeof window === "undefined"
       ? 0
@@ -202,7 +203,190 @@ export default function ActiveWorkspaces() {
   }, []);
 
   useEffect(() => {
+    const clearDeleteAnimationTimer = (workspaceSlug) => {
+      const timer = deleteAnimationTimersRef.current.get(workspaceSlug);
+      if (!timer) return;
+      window.clearTimeout(timer);
+      deleteAnimationTimersRef.current.delete(workspaceSlug);
+    };
+
+    const removeWorkspaceFromState = (workspaceSlug) => {
+      workspaceNavigationCache.removeWorkspace(workspaceSlug);
+      setWorkspaces((prevWorkspaces) =>
+        prevWorkspaces.filter((workspace) => workspace.slug !== workspaceSlug)
+      );
+      setDeletingWorkspaces((prev) => {
+        if (!prev[workspaceSlug]) return prev;
+        const next = { ...prev };
+        delete next[workspaceSlug];
+        return next;
+      });
+    };
+
+    const upsertWorkspaceInState = (
+      workspace,
+      { animate = true, replaceSlug = null } = {}
+    ) => {
+      if (!workspace?.slug) return;
+      setWorkspaces((prevWorkspaces) => {
+        const nextWorkspaces = [
+          workspace,
+          ...prevWorkspaces.filter(
+            (existingWorkspace) =>
+              existingWorkspace.slug !== workspace.slug &&
+              existingWorkspace.slug !== replaceSlug &&
+              existingWorkspace.id !== workspace.id
+          ),
+        ];
+        workspaceNavigationCache.setWorkspaces(nextWorkspaces);
+        return nextWorkspaces;
+      });
+      if (!animate) return;
+      setCreatingWorkspaces((prev) => ({
+        ...prev,
+        [workspace.slug]: true,
+      }));
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setCreatingWorkspaces((prev) => {
+            if (!prev[workspace.slug]) return prev;
+            const next = { ...prev };
+            delete next[workspace.slug];
+            return next;
+          });
+        });
+      });
+    };
+
+    const patchWorkspaceInState = (workspace) => {
+      if (!workspace?.slug) return;
+      setWorkspaces((prevWorkspaces) => {
+        let found = false;
+        const nextWorkspaces = prevWorkspaces.map((existingWorkspace) => {
+          const isMatch =
+            existingWorkspace.slug === workspace.slug ||
+            (workspace.id && existingWorkspace.id === workspace.id);
+          if (!isMatch) return existingWorkspace;
+          found = true;
+          return { ...existingWorkspace, ...workspace };
+        });
+        const resolvedWorkspaces = found
+          ? nextWorkspaces
+          : [workspace, ...prevWorkspaces];
+        workspaceNavigationCache.setWorkspaces(resolvedWorkspaces);
+        return resolvedWorkspaces;
+      });
+      const detail = workspaceNavigationCache.getWorkspaceDetail(
+        workspace.slug,
+        { allowStale: true }
+      );
+      workspaceNavigationCache.setWorkspaceDetail(workspace.slug, {
+        ...(detail || {}),
+        ...workspace,
+      });
+    };
+
+    const scheduleWorkspaceRemoval = (
+      workspaceSlug,
+      { animate = true, navigateAfter = false } = {}
+    ) => {
+      if (!workspaceSlug) return;
+      clearDeleteAnimationTimer(workspaceSlug);
+      if (!animate) {
+        removeWorkspaceFromState(workspaceSlug);
+        if (navigateAfter) navigate(paths.home(), { replace: true });
+        return;
+      }
+      setDeletingWorkspaces((prev) => ({ ...prev, [workspaceSlug]: true }));
+      const timer = window.setTimeout(() => {
+        deleteAnimationTimersRef.current.delete(workspaceSlug);
+        removeWorkspaceFromState(workspaceSlug);
+        if (navigateAfter) navigate(paths.home(), { replace: true });
+      }, WORKSPACE_DELETE_ANIMATION_MS);
+      deleteAnimationTimersRef.current.set(workspaceSlug, timer);
+    };
+
+    const handleWorkspaceDeleteVisual = (event) => {
+      const workspaceSlug = event.detail?.workspaceSlug;
+      if (!workspaceSlug) return;
+      scheduleWorkspaceRemoval(workspaceSlug, {
+        animate: event.detail?.animate !== false,
+        navigateAfter: workspaceSlug === slug,
+      });
+    };
+
+    const handleWorkspaceCreateVisual = (event) => {
+      const workspace = event.detail?.workspace;
+      if (!workspace?.slug) return;
+      upsertWorkspaceInState(workspace, {
+        animate: event.detail?.animate !== false,
+        replaceSlug: event.detail?.replaceSlug || null,
+      });
+    };
+
+    const handleWorkspacePatchVisual = (event) => {
+      const workspace =
+        event.detail?.workspace ||
+        (event.detail?.workspaceSlug
+          ? {
+              slug: event.detail.workspaceSlug,
+              name: event.detail.workspaceName,
+            }
+          : null);
+      if (!workspace?.slug) return;
+      patchWorkspaceInState(workspace);
+    };
+
+    const handleWorkspacesRestoreVisual = (event) => {
+      const restoredWorkspaces = event.detail?.workspaces;
+      if (!Array.isArray(restoredWorkspaces)) return;
+      const restoredWorkspaceSlug = event.detail?.restoredWorkspaceSlug;
+      if (restoredWorkspaceSlug) {
+        clearDeleteAnimationTimer(restoredWorkspaceSlug);
+        setDeletingWorkspaces((prev) => {
+          if (!prev[restoredWorkspaceSlug]) return prev;
+          const next = { ...prev };
+          delete next[restoredWorkspaceSlug];
+          return next;
+        });
+      }
+      workspaceNavigationCache.setWorkspaces(restoredWorkspaces);
+      setWorkspaces(Workspace.orderWorkspaces(restoredWorkspaces));
+      const restoredWorkspace = event.detail?.workspace;
+      if (restoredWorkspace?.slug) {
+        workspaceNavigationCache.setWorkspaceDetail(
+          restoredWorkspace.slug,
+          restoredWorkspace
+        );
+      }
+    };
+
     const handleWorkspacesRefresh = (event) => {
+      const detail = event?.detail || {};
+      const restoredWorkspaces = event.detail?.restoredWorkspaces;
+      const restoredWorkspaceSlug = event.detail?.restoredWorkspaceSlug;
+      if (restoredWorkspaceSlug) {
+        clearDeleteAnimationTimer(restoredWorkspaceSlug);
+        setDeletingWorkspaces((prev) => {
+          if (!prev[restoredWorkspaceSlug]) return prev;
+          const next = { ...prev };
+          delete next[restoredWorkspaceSlug];
+          return next;
+        });
+      }
+      if (Array.isArray(restoredWorkspaces)) {
+        setWorkspaces(Workspace.orderWorkspaces(restoredWorkspaces));
+        if (event.detail?.skipRefresh) return;
+      }
+
+      const deletedWorkspaceSlug = event.detail?.deletedWorkspaceSlug;
+      if (deletedWorkspaceSlug) {
+        scheduleWorkspaceRemoval(deletedWorkspaceSlug, {
+          animate: event.detail?.animate !== false,
+          navigateAfter: deletedWorkspaceSlug === slug,
+        });
+      }
+
       const workspace = event.detail?.workspace;
       if (workspace?.id) {
         if (workspace.slug)
@@ -225,22 +409,65 @@ export default function ActiveWorkspaces() {
           return nextWorkspaces;
         });
       }
+      if (event.detail?.skipRefresh) return;
+      const guard = guardGlobalRefresh({
+        detail,
+        path: WORKSPACES_REFRESH_EVENT,
+        source: "active-workspaces",
+      });
+      if (!guard.allowed) return;
       refreshWorkspaces({ force: !!event.detail?.force });
     };
 
     refreshWorkspaces();
+    window.addEventListener(
+      WORKSPACE_CREATE_VISUAL_EVENT,
+      handleWorkspaceCreateVisual
+    );
+    window.addEventListener(
+      WORKSPACE_PATCH_VISUAL_EVENT,
+      handleWorkspacePatchVisual
+    );
     window.addEventListener(WORKSPACES_REFRESH_EVENT, handleWorkspacesRefresh);
+    window.addEventListener(
+      WORKSPACES_RESTORE_VISUAL_EVENT,
+      handleWorkspacesRestoreVisual
+    );
+    window.addEventListener(
+      WORKSPACE_DELETE_VISUAL_EVENT,
+      handleWorkspaceDeleteVisual
+    );
     return () => {
       if (pendingRefreshTimerRef.current) {
         window.clearTimeout(pendingRefreshTimerRef.current);
         pendingRefreshTimerRef.current = null;
       }
+      for (const timer of deleteAnimationTimersRef.current.values()) {
+        window.clearTimeout(timer);
+      }
+      deleteAnimationTimersRef.current.clear();
       window.removeEventListener(
         WORKSPACES_REFRESH_EVENT,
         handleWorkspacesRefresh
       );
+      window.removeEventListener(
+        WORKSPACES_RESTORE_VISUAL_EVENT,
+        handleWorkspacesRestoreVisual
+      );
+      window.removeEventListener(
+        WORKSPACE_CREATE_VISUAL_EVENT,
+        handleWorkspaceCreateVisual
+      );
+      window.removeEventListener(
+        WORKSPACE_PATCH_VISUAL_EVENT,
+        handleWorkspacePatchVisual
+      );
+      window.removeEventListener(
+        WORKSPACE_DELETE_VISUAL_EVENT,
+        handleWorkspaceDeleteVisual
+      );
     };
-  }, [refreshWorkspaces]);
+  }, [navigate, refreshWorkspaces, slug]);
 
   if (loading) {
     return (
@@ -373,8 +600,13 @@ export default function ActiveWorkspaces() {
             (thread) => thread?.slug !== draggedThread.threadSlug
           ),
         ]);
-        refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
-        refreshWorkspaceThreads(targetWorkspaceSlug);
+        dispatchThreadMoveVisual({
+          threadSlug: draggedThread.threadSlug,
+          sourceWorkspaceSlug: draggedThread.sourceWorkspaceSlug,
+          targetWorkspaceSlug,
+          thread: threadToMove,
+          source: "local",
+        });
       },
       rollbackPatch: () => {
         workspaceNavigationCache.setThreads(
@@ -385,8 +617,13 @@ export default function ActiveWorkspaces() {
           targetWorkspaceSlug,
           targetThreadsBefore
         );
-        refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
-        refreshWorkspaceThreads(targetWorkspaceSlug);
+        dispatchThreadMoveVisual({
+          threadSlug: draggedThread.threadSlug,
+          sourceWorkspaceSlug: targetWorkspaceSlug,
+          targetWorkspaceSlug: draggedThread.sourceWorkspaceSlug,
+          thread: threadToMove,
+          source: "local-rollback",
+        });
       },
       confirmPatch: ({ result }) => {
         if (result?.thread?.slug)
@@ -422,8 +659,6 @@ export default function ActiveWorkspaces() {
         "error",
         { clear: true }
       );
-      refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
-      refreshWorkspaceThreads(targetWorkspaceSlug);
       return;
     }
 
@@ -432,8 +667,6 @@ export default function ActiveWorkspaces() {
       draggedThread.threadSlug
     );
     rememberLastVisitedWorkspace(targetWorkspace, draggedThread.threadSlug);
-    refreshWorkspaceThreads(draggedThread.sourceWorkspaceSlug);
-    refreshWorkspaceThreads(targetWorkspaceSlug);
     navigate(
       paths.workspace.thread(targetWorkspaceSlug, draggedThread.threadSlug),
       {
@@ -488,6 +721,8 @@ export default function ActiveWorkspaces() {
               const isVirtuallyActive = workspace.slug === virtualActiveSlug;
               const isActive = workspace.slug === slug || isVirtuallyActive;
               const isCollapsed = !!collapsedWorkspaces[workspace.slug];
+              const isCreating = !!creatingWorkspaces[workspace.slug];
+              const isDeleting = !!deletingWorkspaces[workspace.slug];
               return (
                 <Draggable
                   key={workspace.id}
@@ -498,9 +733,13 @@ export default function ActiveWorkspaces() {
                     <div
                       ref={provided.innerRef}
                       {...provided.draggableProps}
-                      className={`flex flex-col w-full group ${
-                        snapshot.isDragging ? "opacity-50" : ""
-                      }`}
+                      className={`flex flex-col w-full group origin-center transition-[opacity,max-height,transform,margin] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] ${
+                        isDeleting
+                          ? "overflow-hidden opacity-0 max-h-0 scale-x-0 scale-y-75 -translate-y-1 pointer-events-none"
+                          : isCreating
+                            ? "overflow-hidden opacity-0 max-h-0 scale-95 translate-y-1"
+                            : "overflow-visible opacity-100 max-h-[999px] scale-x-100 scale-y-100 translate-y-0"
+                      } ${snapshot.isDragging ? "opacity-50" : ""}`}
                       role="listitem"
                     >
                       <Droppable

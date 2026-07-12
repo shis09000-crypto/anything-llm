@@ -191,6 +191,7 @@ class AIbitat {
       uuid,
       chatId: this.trackedChatId,
       publicChatId: this.trackedPublicChatId,
+      clientTurnId: this.handlerProps?.invocation?.clientTurnId || null,
     });
   }
 

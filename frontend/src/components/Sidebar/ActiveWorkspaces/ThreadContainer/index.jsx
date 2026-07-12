@@ -33,6 +33,15 @@ import { recordCommunicationEvent } from "@/lib/communication/communicationMetri
 import { markTaskPerformance } from "@/utils/tasks/taskScheduler";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
+import {
+  THREAD_CREATE_VISUAL_EVENT,
+  THREAD_CREATE_ANIMATION_MS,
+  THREAD_DELETE_VISUAL_EVENT,
+  THREAD_DELETE_ANIMATION_MS,
+  THREAD_MOVE_VISUAL_EVENT,
+  THREAD_PATCH_VISUAL_EVENT,
+} from "@/utils/workspaceEvents";
+import { guardGlobalRefresh } from "@/utils/globalRefreshPolicy";
 export const THREAD_RENAME_EVENT = "renameThread";
 export const WORKSPACE_THREADS_REFRESH_EVENT = "workspaceThreadsRefresh";
 const THREAD_DUPLICATE_REUSE_MS = 1_500;
@@ -110,6 +119,8 @@ export default function ThreadContainer({
   const [loading, setLoading] = useState(
     () => initialThreadStateRef.current.loading
   );
+  const [creatingThreads, setCreatingThreads] = useState({});
+  const [deletingThreads, setDeletingThreads] = useState({});
   const [ctrlPressed, setCtrlPressed] = useState(false);
   const [showAllThreads, setShowAllThreads] = useState(false);
   const titleAnimationTimers = useRef(new Map());
@@ -120,6 +131,8 @@ export default function ThreadContainer({
   const threadFetchSeqRef = useRef(0);
   const threadFetchAbortRef = useRef(null);
   const threadsRef = useRef([]);
+  const threadVisualTimers = useRef(new Map());
+  const deletedThreadSnapshots = useRef(new Map());
   const { t, i18n } = useTranslation();
   const { hasThreadActivity, clearThreadActivity } = useChatThreadDrafts();
   useThreadActivitySnapshot();
@@ -127,6 +140,14 @@ export default function ThreadContainer({
   useEffect(() => {
     threadsRef.current = threads;
   }, [threads]);
+
+  useEffect(() => {
+    return () => {
+      threadVisualTimers.current.forEach((timer) => clearTimeout(timer));
+      threadVisualTimers.current.clear();
+      deletedThreadSnapshots.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (loading || !workspace?.slug || !Array.isArray(threads)) return;
@@ -425,6 +446,12 @@ export default function ThreadContainer({
         source: event?.detail?.source || null,
         replayed: !!event?.detail?.replayed,
       });
+      const guard = guardGlobalRefresh({
+        detail: event?.detail || {},
+        path: WORKSPACE_THREADS_REFRESH_EVENT,
+        source: "thread-container",
+      });
+      if (!guard.allowed) return;
       if (threadFetchInFlightRef.current) {
         pendingThreadRefreshRef.current = {
           workspaceSlug: workspace.slug,
@@ -574,6 +601,114 @@ export default function ThreadContainer({
     );
   };
 
+  const markThreadCreating = useCallback((threadSlugToMark) => {
+    if (!threadSlugToMark) return;
+    setCreatingThreads((prev) => ({ ...prev, [threadSlugToMark]: true }));
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setCreatingThreads((prev) => {
+          if (!prev[threadSlugToMark]) return prev;
+          const next = { ...prev };
+          delete next[threadSlugToMark];
+          return next;
+        });
+      });
+    });
+    const timer = setTimeout(() => {
+      threadVisualTimers.current.delete(`create:${threadSlugToMark}`);
+      setCreatingThreads((prev) => {
+        if (!prev[threadSlugToMark]) return prev;
+        const next = { ...prev };
+        delete next[threadSlugToMark];
+        return next;
+      });
+    }, THREAD_CREATE_ANIMATION_MS + 80);
+    threadVisualTimers.current.set(`create:${threadSlugToMark}`, timer);
+  }, []);
+
+  const clearThreadDeleteTimer = useCallback((threadSlugToClear) => {
+    const timerKey = `delete:${threadSlugToClear}`;
+    const timer = threadVisualTimers.current.get(timerKey);
+    if (timer) {
+      clearTimeout(timer);
+      threadVisualTimers.current.delete(timerKey);
+    }
+  }, []);
+
+  const restoreThreadSnapshot = useCallback(
+    (thread) => {
+      const threadSlugToRestore = thread?.slug;
+      if (!threadSlugToRestore) return;
+      clearThreadDeleteTimer(threadSlugToRestore);
+      const snapshot =
+        deletedThreadSnapshots.current.get(threadSlugToRestore) || null;
+      deletedThreadSnapshots.current.delete(threadSlugToRestore);
+      setDeletingThreads((prev) => {
+        if (!prev[threadSlugToRestore]) return prev;
+        const next = { ...prev };
+        delete next[threadSlugToRestore];
+        return next;
+      });
+      setThreads((prev) => {
+        const nextThreads = Array.isArray(snapshot)
+          ? snapshot
+          : [
+              thread,
+              ...prev.filter(
+                (existing) => existing.slug !== threadSlugToRestore
+              ),
+            ];
+        cacheWorkspaceThreads(workspace.slug, nextThreads);
+        return nextThreads;
+      });
+      markThreadCreating(threadSlugToRestore);
+    },
+    [clearThreadDeleteTimer, markThreadCreating, workspace.slug]
+  );
+
+  const removeThread = useCallback(
+    (threadOrSlug, options = {}) => {
+      const threadSlugToRemove =
+        typeof threadOrSlug === "string" ? threadOrSlug : threadOrSlug?.slug;
+      if (!threadSlugToRemove) return;
+      clearThreadDeleteTimer(threadSlugToRemove);
+      deletedThreadSnapshots.current.set(
+        threadSlugToRemove,
+        threadsRef.current
+      );
+      setDeletingThreads((prev) => ({
+        ...prev,
+        [threadSlugToRemove]: true,
+      }));
+      const timer = setTimeout(() => {
+        threadVisualTimers.current.delete(`delete:${threadSlugToRemove}`);
+        deletedThreadSnapshots.current.delete(threadSlugToRemove);
+        setThreads((prev) => {
+          const nextThreads = prev.filter(
+            (thread) => thread.slug !== threadSlugToRemove
+          );
+          cacheWorkspaceThreads(workspace.slug, nextThreads);
+          return nextThreads;
+        });
+        setDeletingThreads((prev) => {
+          if (!prev[threadSlugToRemove]) return prev;
+          const next = { ...prev };
+          delete next[threadSlugToRemove];
+          return next;
+        });
+        clearLastVisitedThread(workspace.slug, threadSlugToRemove);
+        if (options.navigateAfter) {
+          navigate(paths.workspace.chat(workspace.slug), {
+            replace: true,
+            state: { deletedThreadSlug: threadSlugToRemove },
+          });
+        }
+      }, THREAD_DELETE_ANIMATION_MS);
+      threadVisualTimers.current.set(`delete:${threadSlugToRemove}`, timer);
+    },
+    [clearThreadDeleteTimer, navigate, workspace.slug]
+  );
+
   const handleDeleteAll = async () => {
     const slugs = threads
       .filter((t) => t.deleted === true && !isOverviewThread(t))
@@ -596,15 +731,17 @@ export default function ThreadContainer({
       label: "optimistic:thread-delete-bulk",
       dedupeKey: `optimistic:thread-delete-bulk:${workspace.slug}:${slugs.join(",")}`,
       optimisticPatch: () => {
-        setThreads((prev) => {
-          const nextThreads = prev.filter((t) => !slugs.includes(t.slug));
-          cacheWorkspaceThreads(workspace.slug, nextThreads);
-          return nextThreads;
-        });
+        slugs.forEach((slug) =>
+          removeThread(slug, { navigateAfter: slug === threadSlug })
+        );
       },
       rollbackPatch: () => {
+        slugs.forEach((slug) => clearThreadDeleteTimer(slug));
+        deletedThreadSnapshots.current.clear();
+        setDeletingThreads({});
         setThreads(previousThreads);
         cacheWorkspaceThreads(workspace.slug, previousThreads);
+        slugs.forEach((slug) => markThreadCreating(slug));
       },
       serverCall: async ({ signal }) => {
         const success = await Workspace.threads.deleteBulk(
@@ -614,6 +751,7 @@ export default function ThreadContainer({
             signal,
             communicationScene: "workspace-navigation",
             task: false,
+            skipCacheUpdate: true,
           }
         );
         if (!success) throw new Error("bulk delete failed");
@@ -626,31 +764,7 @@ export default function ThreadContainer({
       return;
     }
     slugs.forEach((slug) => clearLastVisitedThread(workspace.slug, slug));
-
-    // Only redirect if current thread is being deleted
-    if (slugs.includes(threadSlug)) {
-      navigate(paths.workspace.chat(workspace.slug));
-    }
   };
-
-  function removeThread(threadId) {
-    setThreads((prev) =>
-      prev.map((_t) => {
-        if (_t.id !== threadId) return _t;
-        return { ..._t, deleted: true };
-      })
-    );
-
-    // Show thread was deleted, but then remove from threads entirely so it will
-    // not appear in bulk-selection.
-    setTimeout(() => {
-      setThreads((prev) => {
-        const nextThreads = prev.filter((t) => !t.deleted);
-        cacheWorkspaceThreads(workspace.slug, nextThreads);
-        return nextThreads;
-      });
-    }, 500);
-  }
 
   function handleThreadCreated(thread, options = {}) {
     if (!thread?.slug) return;
@@ -666,17 +780,31 @@ export default function ThreadContainer({
       cacheWorkspaceThreads(workspace.slug, nextThreads);
       return nextThreads;
     });
+    if (options.animate !== false) markThreadCreating(thread.slug);
+  }
+
+  function handleThreadPatched(threadPatch, options = {}) {
+    const threadSlugToPatch = threadPatch?.slug || options.threadSlug;
+    if (!threadSlugToPatch) return;
+    clearTitleAnimation(threadSlugToPatch);
+    setThreads((prev) => {
+      let found = false;
+      const nextThreads = prev.map((thread) => {
+        if (thread.slug !== threadSlugToPatch) return thread;
+        found = true;
+        return { ...thread, ...threadPatch, slug: threadSlugToPatch };
+      });
+      const resolvedThreads =
+        found || options.insertIfMissing !== true
+          ? nextThreads
+          : [{ ...threadPatch, slug: threadSlugToPatch }, ...prev];
+      cacheWorkspaceThreads(workspace.slug, resolvedThreads);
+      return resolvedThreads;
+    });
   }
 
   function handleThreadRemoved(threadSlugToRemove) {
-    if (!threadSlugToRemove) return;
-    setThreads((prev) => {
-      const nextThreads = prev.filter(
-        (existing) => existing.slug !== threadSlugToRemove
-      );
-      cacheWorkspaceThreads(workspace.slug, nextThreads);
-      return nextThreads;
-    });
+    removeThread(threadSlugToRemove);
   }
 
   function handleThreadCreateFailed(threadSlugToRemove) {
@@ -695,7 +823,10 @@ export default function ThreadContainer({
 
   function handleThreadCreateResolved(optimisticSlug, thread) {
     if (!thread?.slug) return;
-    handleThreadCreated(thread, { replaceSlug: optimisticSlug });
+    handleThreadCreated(thread, {
+      replaceSlug: optimisticSlug,
+      animate: false,
+    });
     if (
       typeof window !== "undefined" &&
       window.location.pathname ===
@@ -707,6 +838,100 @@ export default function ThreadContainer({
       });
     }
   }
+
+  useEffect(() => {
+    const handleThreadCreateVisual = (event) => {
+      const detail = event?.detail || {};
+      if (detail.workspaceSlug !== workspace.slug || !detail.thread?.slug)
+        return;
+      handleThreadCreated(detail.thread, {
+        replaceSlug: detail.replaceSlug || null,
+        animate: detail.animate !== false,
+      });
+    };
+
+    const handleThreadDeleteVisual = (event) => {
+      const detail = event?.detail || {};
+      if (detail.workspaceSlug !== workspace.slug || !detail.threadSlug) return;
+      removeThread(detail.threadSlug, {
+        navigateAfter: detail.threadSlug === threadSlug,
+      });
+    };
+
+    const handleThreadPatchVisual = (event) => {
+      const detail = event?.detail || {};
+      if (detail.workspaceSlug !== workspace.slug) return;
+      const thread =
+        detail.thread ||
+        (detail.threadSlug
+          ? {
+              slug: detail.threadSlug,
+              ...(detail.threadName ? { name: detail.threadName } : {}),
+              ...(detail.title || detail.threadName
+                ? { title: detail.title || detail.threadName }
+                : {}),
+            }
+          : null);
+      if (!thread?.slug) return;
+      handleThreadPatched(thread, {
+        insertIfMissing: !!detail.insertIfMissing,
+        threadSlug: detail.threadSlug,
+      });
+    };
+
+    const handleThreadMoveVisual = (event) => {
+      const detail = event?.detail || {};
+      if (detail.sourceWorkspaceSlug === workspace.slug && detail.threadSlug) {
+        removeThread(detail.threadSlug, {
+          navigateAfter: detail.threadSlug === threadSlug,
+        });
+      }
+      if (
+        detail.targetWorkspaceSlug === workspace.slug &&
+        detail.thread?.slug
+      ) {
+        handleThreadCreated(detail.thread, {
+          animate: detail.animate !== false,
+        });
+      }
+    };
+
+    window.addEventListener(
+      THREAD_CREATE_VISUAL_EVENT,
+      handleThreadCreateVisual
+    );
+    window.addEventListener(THREAD_PATCH_VISUAL_EVENT, handleThreadPatchVisual);
+    window.addEventListener(THREAD_MOVE_VISUAL_EVENT, handleThreadMoveVisual);
+    window.addEventListener(
+      THREAD_DELETE_VISUAL_EVENT,
+      handleThreadDeleteVisual
+    );
+    return () => {
+      window.removeEventListener(
+        THREAD_CREATE_VISUAL_EVENT,
+        handleThreadCreateVisual
+      );
+      window.removeEventListener(
+        THREAD_PATCH_VISUAL_EVENT,
+        handleThreadPatchVisual
+      );
+      window.removeEventListener(
+        THREAD_MOVE_VISUAL_EVENT,
+        handleThreadMoveVisual
+      );
+      window.removeEventListener(
+        THREAD_DELETE_VISUAL_EVENT,
+        handleThreadDeleteVisual
+      );
+    };
+  }, [
+    clearTitleAnimation,
+    handleThreadCreated,
+    handleThreadPatched,
+    removeThread,
+    threadSlug,
+    workspace.slug,
+  ]);
 
   useEffect(() => {
     const currentActivity = hasThreadActivity(workspace.slug, threadSlug);
@@ -799,9 +1024,12 @@ export default function ThreadContainer({
                     isActive={isActiveThread}
                     workspace={workspace}
                     onRemove={removeThread}
+                    onRestore={restoreThreadSnapshot}
                     thread={thread}
                     activity={rowActivity}
                     hasNext={i !== threadRows.length - 1 || isVirtualThread}
+                    isCreatingVisual={!!creatingThreads[thread.slug]}
+                    isDeletingVisual={!!deletingThreads[thread.slug]}
                   />
                 )}
               </Draggable>
@@ -910,16 +1138,6 @@ function NewThreadButton({
       workspace.slug,
       t("common.newThread")
     );
-    onThreadCreated?.(optimisticThread);
-    navigate(paths.workspace.thread(workspace.slug, optimisticThread.slug), {
-      state: {
-        userSelectedThread: true,
-        optimisticNewThread: {
-          slug: optimisticThread.slug,
-          workspaceSlug: workspace.slug,
-        },
-      },
-    });
 
     setLoading(true);
     const action = optimisticActionCenter.run({
@@ -938,6 +1156,7 @@ function NewThreadButton({
       emergency: true,
       label: "optimistic:thread-create",
       dedupeKey: `optimistic:thread-create:${workspace.slug}:${optimisticThread.slug}`,
+      optimisticPatch: () => onThreadCreated?.(optimisticThread),
       rollbackPatch: () => onThreadCreateFailed?.(optimisticThread.slug),
       confirmPatch: ({ result }) => {
         if (result?.thread?.slug)
@@ -948,11 +1167,21 @@ function NewThreadButton({
           signal,
           communicationScene: "workspace-navigation",
           task: false,
+          skipCacheUpdate: true,
         });
         if (result?.error || !result?.thread?.slug) {
           throw new Error(result?.error || "Invalid thread response");
         }
         return result;
+      },
+    });
+    navigate(paths.workspace.thread(workspace.slug, optimisticThread.slug), {
+      state: {
+        userSelectedThread: true,
+        optimisticNewThread: {
+          slug: optimisticThread.slug,
+          workspaceSlug: workspace.slug,
+        },
       },
     });
     const outcome = await action.promise;

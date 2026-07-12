@@ -81,6 +81,7 @@ async function grepAgents({
   displayPrompt = null,
   visionAnalysisContext = null,
   fileAccess = {},
+  clientTurnId = null,
 }) {
   let nativeToolingEnabled = false;
 
@@ -96,6 +97,7 @@ async function grepAgents({
       workspace: workspace,
       user: user,
       thread: thread,
+      clientTurnId,
     });
 
     if (!newInvocation) {

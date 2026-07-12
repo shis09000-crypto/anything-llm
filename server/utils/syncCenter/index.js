@@ -12,8 +12,8 @@ function normalizeNumber(value = null) {
   return Number.isFinite(number) ? number : null;
 }
 
-function publishSyncEvent(event = {}) {
-  const payload = publishBroadcastEvent(event);
+function publishSyncEvent(event = {}, options = {}) {
+  const payload = publishBroadcastEvent(event, options);
   return payload
     ? {
         ...payload,

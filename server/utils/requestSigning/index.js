@@ -308,6 +308,12 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   ) {
     return true;
   }
+  if (
+    normalizedMethod === "GET" &&
+    /^\/sync\/events\/replay$/.test(comparablePath)
+  ) {
+    return true;
+  }
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
 
   const highRiskRoutes = [
@@ -322,6 +328,34 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/agent-invocation\/[^/]+\/clarification-response$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/tool-approval-response$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/stop$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?update-chat$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?delete-edited-chats$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?chat\/[^/]+$/,
+    },
+    {
+      methods: ["PUT"],
+      pattern: /^\/workspace\/workspace-chats\/[^/]+$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/fork$/,
     },
     {
       methods: ["DELETE"],
@@ -410,6 +444,26 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/sensitive-sessions\/(?:heartbeat|revoke|revoke-scope)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/sync\/thread-fingerprints$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/new$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/new$/,
+    },
+    {
+      methods: ["POST", "DELETE"],
+      pattern: /^\/native-app\/push-token$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
     },
   ];
   if (
