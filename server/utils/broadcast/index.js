@@ -247,6 +247,9 @@ function normalizeBroadcastEvent(event = {}) {
     resource,
     payload,
     sensitive: Boolean(event.sensitive),
+    audience: Array.isArray(event.audience)
+      ? [...new Set(event.audience.map((item) => String(item).toLowerCase()))]
+      : null,
     requiresAck: event.requiresAck !== false,
     coalesceKey: null,
     coalescedCount: Number(event.coalescedCount || 0) || 0,
@@ -354,6 +357,13 @@ function defaultSubscriptions(connection = {}) {
 }
 
 function userCanSeeEvent(event = {}, connection = {}) {
+  const audience = Array.isArray(event.audience) ? event.audience : null;
+  if (
+    audience?.length &&
+    !audience.includes(String(connection.platform || ""))
+  ) {
+    return false;
+  }
   if (event.visibility === "client") {
     const targetClientId = event.scope?.clientId || event.payload?.clientId;
     return (
@@ -521,6 +531,7 @@ function replayBroadcastEvents({
 async function replayDurableBroadcastEvents({
   userId = null,
   clientId = null,
+  platform = null,
   lastEventId = null,
   subscriptions = [],
   limit = 200,
@@ -528,6 +539,7 @@ async function replayDurableBroadcastEvents({
   const result = await SyncEvent.replay({
     userId,
     clientId,
+    platform,
     afterEventId: lastEventId,
     limit,
   });
@@ -539,6 +551,7 @@ async function replayDurableBroadcastEvents({
   const connection = {
     userId,
     clientId,
+    platform: platform ? String(platform).toLowerCase() : null,
     subscriptions: new Map(
       subscriptions
         .map(normalizeSubscription)
@@ -561,13 +574,19 @@ function subscriptionKey(subscription = {}) {
   return JSON.stringify(subscription);
 }
 
-function registerConnection({ socket, userId = null, clientId = null } = {}) {
+function registerConnection({
+  socket,
+  userId = null,
+  clientId = null,
+  platform = null,
+} = {}) {
   const id = connectionId();
   const connection = {
     id,
     socket,
     userId,
     clientId,
+    platform: platform ? String(platform).toLowerCase() : null,
     subscriptions: new Map(
       defaultSubscriptions({ clientId }).map((subscription) => [
         subscriptionKey(subscription),

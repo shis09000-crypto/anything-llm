@@ -731,6 +731,30 @@ const Workspace = {
         return rawOrFallback(e, { success: false, error: e.message });
       });
   },
+  deleteChatTurn: async function (
+    workspaceSlug = "",
+    threadSlug = null,
+    chatId,
+    { sourceActionId, signal } = {}
+  ) {
+    const identity = encodeURIComponent(String(chatId || ""));
+    const path = threadSlug
+      ? `/workspace/${workspaceSlug}/thread/${threadSlug}/chat/${identity}`
+      : `/workspace/${workspaceSlug}/chat/${identity}`;
+    return await deleteJson(path, {
+      body: { sourceActionId },
+      signal,
+      communicationScene: "workspace-chat",
+      task: workspaceUserActionTask(
+        "workspace:delete-chat-turn",
+        workspaceSlug,
+        "chat-edit"
+      ),
+    }).then(({ data }) => {
+      threadHistoryCache.invalidateThread(workspaceSlug, threadSlug || null);
+      return data;
+    });
+  },
   forkThread: async function (
     slug = "",
     threadSlug = null,

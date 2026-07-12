@@ -78,7 +78,9 @@ describe("durable sync event cursor", () => {
   });
 
   it("does not accept an unavailable or cross-account cursor", async () => {
-    mockFindFirst.mockResolvedValueOnce(row(8, "evt-8")).mockResolvedValueOnce(null);
+    mockFindFirst
+      .mockResolvedValueOnce(row(8, "evt-8"))
+      .mockResolvedValueOnce(null);
     const result = await SyncEvent.replay({
       userId: 7,
       clientId: "ios",
@@ -87,5 +89,26 @@ describe("durable sync event cursor", () => {
     expect(result.requiresFullSync).toBe(true);
     expect(result.checkpointEventId).toBe("evt-8");
     expect(mockFindMany).not.toHaveBeenCalled();
+  });
+
+  it("filters iOS-only replay events for non-Apple-native clients", async () => {
+    const iOSOnly = row(2, "evt-ios-only");
+    iOSOnly.scopeJson = JSON.stringify({
+      userId: 7,
+      audience: ["ios", "ipad"],
+    });
+    mockFindFirst
+      .mockResolvedValueOnce(row(3, "evt-3"))
+      .mockResolvedValueOnce(row(1, "evt-1"));
+    mockFindMany.mockResolvedValueOnce([iOSOnly]);
+
+    const result = await SyncEvent.replay({
+      userId: 7,
+      clientId: "android-client",
+      platform: "android",
+      afterEventId: "evt-1",
+    });
+
+    expect(result.events).toEqual([]);
   });
 });

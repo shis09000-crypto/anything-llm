@@ -44,6 +44,7 @@ async function publishAgentChatFinalized(aibitat, chatId = null) {
     threadSlug: thread?.slug || null,
     chatId,
     publicChatId: aibitat?.trackedPublicChatId || null,
+    clientTurnId: invocation.clientTurnId || null,
   });
 }
 
@@ -107,6 +108,8 @@ const chatHistory = {
                 displayPrompt: aibitat.handlerProps?.displayPrompt,
               }),
               response: {},
+              clientTurnId:
+                aibitat.handlerProps.invocation.clientTurnId || null,
             });
             if (chat) aibitat.registerChatId(chat.id, chat.public_id || null);
           })().finally(() => {
@@ -213,6 +216,7 @@ const chatHistory = {
           user: { id: invocation?.user_id || null },
           threadId: invocation?.thread_id || null,
           include: true,
+          clientTurnId: invocation?.clientTurnId || null,
         });
         await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 
@@ -265,6 +269,7 @@ const chatHistory = {
           user: { id: invocation?.user_id || null },
           threadId: invocation?.thread_id || null,
           include: true,
+          clientTurnId: invocation?.clientTurnId || null,
         });
         await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 

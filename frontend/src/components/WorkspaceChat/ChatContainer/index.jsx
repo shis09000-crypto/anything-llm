@@ -67,6 +67,7 @@ import {
   dispatchThreadCreateVisual,
   dispatchThreadDeleteVisual,
 } from "@/utils/workspaceEvents";
+import { COMPOSER_EDIT_EVENT } from "./ChatHistory/MessageActionsContext";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -144,6 +145,7 @@ export default function ChatContainer({
     failAssistantTurn,
     respondToApproval,
     respondToClarification,
+    replaceDraftItems,
     getChatKey,
   } = useChatThreadDrafts();
   const chatKey = getChatKey(workspace?.slug, threadSlug);
@@ -160,6 +162,11 @@ export default function ChatContainer({
     [knownHistory, chatKey]
   );
   const chatItems = draft?.items || knownItems;
+  const [chatEditSession, setChatEditSession] = useState(null);
+  const mutationCommitRef = useRef(new Map());
+  const visibleChatItems = chatEditSession
+    ? chatEditSession.prefixItems
+    : chatItems;
   const loadingResponse = !!draft?.isStreaming;
   const latestAssistantTurn = lastAssistantTurn(chatItems);
   const [mindMapRequest, setMindMapRequest] = useState(null);
@@ -729,6 +736,53 @@ export default function ChatContainer({
       })
     );
   }
+
+  const cancelChatEdit = useCallback(() => {
+    setChatEditSession((session) => {
+      if (!session) return null;
+      setMessageEmit(session.previousDraft || "");
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleComposerEdit = (event) => {
+      const requestedChatId = Number(event.detail?.chatId);
+      if (!Number.isInteger(requestedChatId) || requestedChatId <= 0) return;
+      const targetIndex = chatItems.findIndex(
+        (item) =>
+          item.type === "user" && Number(item.chatId) === requestedChatId
+      );
+      if (targetIndex < 0) return;
+      const target = chatItems[targetIndex];
+      const previousDraft =
+        document.getElementById(PROMPT_INPUT_ID)?.value || "";
+      setChatEditSession({
+        chatId: requestedChatId,
+        publicChatId: target.publicChatId || null,
+        content: target.content || "",
+        attachments: target.attachments || [],
+        previousDraft,
+        originalItems: [...chatItems],
+        prefixItems: chatItems.slice(0, targetIndex),
+      });
+      setMessageEmit(target.content || "");
+      window.requestAnimationFrame(() => {
+        const input = document.getElementById(PROMPT_INPUT_ID);
+        input?.focus();
+        const end = input?.value?.length || 0;
+        input?.setSelectionRange?.(end, end);
+      });
+    };
+    window.addEventListener(COMPOSER_EDIT_EVENT, handleComposerEdit);
+    return () =>
+      window.removeEventListener(COMPOSER_EDIT_EVENT, handleComposerEdit);
+  }, [chatItems]);
+
+  useEffect(() => {
+    setChatEditSession(null);
+    mutationCommitRef.current.clear();
+  }, [chatKey]);
 
   function openMindMap(body = {}) {
     beginChatLayoutTransition("mind-map-open");
@@ -1494,11 +1548,84 @@ export default function ChatContainer({
     };
   }, [dualThreadFork.enabled, dualThreadFork.branchThreadSlug]);
 
+  const runAtomicChatMutation = useCallback(
+    async ({ session, prompt, kind }) => {
+      const sourceActionId = createTurnId();
+      const clientTurnId = createTurnId();
+      const mutationState = { committed: false, aborted: false };
+      mutationCommitRef.current.set(sourceActionId, mutationState);
+      replaceDraftItems(chatKey, session.prefixItems);
+      setChatEditSession(null);
+      clearPromptInputDraft(threadSlug ?? workspace.slug, {
+        workspaceSlug: workspace.slug,
+        threadSlug,
+      });
+      setMessageEmit("");
+
+      const result = await startStream({
+        workspaceSlug: workspace.slug,
+        threadSlug,
+        prompt,
+        displayPrompt: prompt,
+        attachments: session.attachments || [],
+        clientGeneratedTurnId: clientTurnId,
+        history: [],
+        parseAttachments,
+        editContext:
+          kind === "edit"
+            ? { startingChatId: session.chatId, sourceActionId }
+            : null,
+        regenerateContext:
+          kind === "regenerate"
+            ? { targetChatId: session.chatId, sourceActionId }
+            : null,
+        onMutationEvent: (streamEvent) => {
+          if (
+            streamEvent?.type === "editHistoryTruncated" ||
+            streamEvent?.type === "regenerateTurnDeleted"
+          ) {
+            mutationState.committed = true;
+          }
+          if (streamEvent?.type === "abort") mutationState.aborted = true;
+        },
+        mutationBaseItems: session.prefixItems,
+      });
+      mutationCommitRef.current.delete(sourceActionId);
+
+      if ((!result?.ok || mutationState.aborted) && !mutationState.committed) {
+        replaceDraftItems(chatKey, session.originalItems);
+        if (kind === "edit") {
+          setChatEditSession({ ...session, content: prompt });
+          setMessageEmit(prompt);
+        }
+      }
+      requestSendScrollToBottom();
+      return result;
+    },
+    [
+      chatKey,
+      parseAttachments,
+      replaceDraftItems,
+      startStream,
+      threadSlug,
+      workspace.slug,
+    ]
+  );
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     const currentMessage =
       document.getElementById(PROMPT_INPUT_ID)?.value || "";
     if (!currentMessage) return false;
+
+    if (chatEditSession) {
+      void runAtomicChatMutation({
+        session: chatEditSession,
+        prompt: currentMessage,
+        kind: "edit",
+      });
+      return false;
+    }
 
     if (
       await submitPendingClarificationFromInput({
@@ -1572,26 +1699,32 @@ export default function ChatContainer({
     resetTranscript();
   }
 
-  const regenerateAssistantMessage = (chatId, publicChatId = null) => {
+  const regenerateAssistantMessage = (chatId) => {
     const assistantIdx = chatItems.findIndex(
       (item) => item.type === "assistant_turn" && item.chatId === chatId
     );
     const assistantTurn = chatItems[assistantIdx];
+    const latestAssistant = lastAssistantTurn(chatItems);
+    if (!assistantTurn || latestAssistant?.id !== assistantTurn.id) return;
     const lastUserMessage = chatItems.find(
       (item) => item.id === assistantTurn?.userMessageId
     );
     if (!lastUserMessage?.content) return;
-    Workspace.deleteChats(workspace.slug, [publicChatId || chatId])
-      .then(() =>
-        sendCommand({
-          text: lastUserMessage.content,
-          autoSubmit: true,
-          history: knownHistory,
-          attachments: lastUserMessage?.attachments,
-          includeReaderTempTextSources: false,
-        })
-      )
-      .catch((e) => console.error(e));
+    const userIndex = chatItems.findIndex(
+      (item) => item.id === lastUserMessage.id
+    );
+    if (userIndex < 0) return;
+    void runAtomicChatMutation({
+      session: {
+        chatId: Number(chatId),
+        content: lastUserMessage.content,
+        attachments: lastUserMessage.attachments || [],
+        originalItems: [...chatItems],
+        prefixItems: chatItems.slice(0, userIndex),
+      },
+      prompt: lastUserMessage.content,
+      kind: "regenerate",
+    });
   };
 
   /**
@@ -1991,7 +2124,7 @@ export default function ChatContainer({
                       <MetricsProvider>
                         <ChatHistory
                           ref={chatHistoryRef}
-                          items={chatItems}
+                          items={visibleChatItems}
                           workspace={workspace}
                           sendCommand={sendCommand}
                           regenerateAssistantMessage={
@@ -2032,6 +2165,8 @@ export default function ChatContainer({
                           setQuizModeActive((active) => !active)
                         }
                         memoryCompaction={memoryCompactionControl}
+                        editMode={!!chatEditSession}
+                        onCancelEdit={cancelChatEdit}
                       />
                       <QuizIntentConfirmation
                         prompt={quizIntentPrompt}
@@ -2107,6 +2242,8 @@ export default function ChatContainer({
                           setQuizModeActive((active) => !active)
                         }
                         memoryCompaction={memoryCompactionControl}
+                        editMode={!!chatEditSession}
+                        onCancelEdit={cancelChatEdit}
                       />
                       <QuizIntentConfirmation
                         prompt={quizIntentPrompt}
@@ -2186,7 +2323,7 @@ export default function ChatContainer({
                   <MetricsProvider>
                     <ChatHistory
                       ref={chatHistoryRef}
-                      items={chatItems}
+                      items={visibleChatItems}
                       workspace={workspace}
                       sendCommand={sendCommand}
                       regenerateAssistantMessage={regenerateAssistantMessage}
@@ -2227,6 +2364,8 @@ export default function ChatContainer({
                       setQuizModeActive((active) => !active)
                     }
                     memoryCompaction={memoryCompactionControl}
+                    editMode={!!chatEditSession}
+                    onCancelEdit={cancelChatEdit}
                   />
                   <QuizIntentConfirmation
                     prompt={quizIntentPrompt}

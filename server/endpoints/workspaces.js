@@ -62,6 +62,10 @@ const {
   publishWorkspaceSyncEvent,
 } = require("../utils/chats/workspaceSyncEvents");
 const { publishBroadcastEvent } = require("../utils/broadcast");
+const {
+  chatMutationHTTPStatus,
+  deleteChatTurnAndPublish,
+} = require("../utils/chats/chatTurnMutations");
 
 const DEFAULT_UPLOAD_FOLDER = "custom-documents";
 const documentsPath = environmentStoragePath("documents");
@@ -1395,35 +1399,38 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        // This works for both workspace and threads.
-        // we simplify this by just looking at workspace<>user overlap
-        // since they are all on the same table.
-        const identifierWhere = chatIdentifiersWhere(
-          chatIdentifierPayload({ chatIds, publicChatIds })
+        const identities = [...chatIds, ...(publicChatIds || [])].filter(
+          Boolean
         );
-        if (!identifierWhere) {
-          response.status(200).end();
-          return;
+        const deleted = new Set();
+        for (const identity of identities) {
+          const identityWhere = chatIdentityFromRequest({ id: identity });
+          if (!identityWhere) continue;
+          const target = await WorkspaceChats.get({
+            ...identityWhere,
+            user_id: user?.id ?? null,
+            workspaceId: workspace.id,
+            include: true,
+          });
+          if (!target || deleted.has(target.id)) continue;
+          const thread = target.thread_id
+            ? await WorkspaceThread.get({ id: target.thread_id })
+            : null;
+          await deleteChatTurnAndPublish({
+            workspace,
+            thread,
+            user,
+            clientContext: getClientContext(request, { user }),
+            chatId: target.id,
+            publicChatId: target.public_id || null,
+            sourceActionId: `legacy-chat-delete:${uuidv4()}`,
+          });
+          deleted.add(target.id);
         }
 
-        await WorkspaceChats.delete({
-          ...identifierWhere,
-          user_id: user?.id ?? null,
-          workspaceId: workspace.id,
-        });
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_deleted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: null,
-          threadSlug: null,
-          senderClientId: clientContext.clientId,
-        });
-
-        response.sendStatus(200).end();
+        response
+          .status(200)
+          .json({ success: true, deletedCount: deleted.size });
       } catch (e) {
         console.error(e.message, e);
         response.sendStatus(500).end();
@@ -1432,102 +1439,75 @@ function workspaceEndpoints(app) {
   );
 
   app.delete(
-    "/workspace/:slug/delete-edited-chats",
+    "/workspace/:slug/chat/:identity",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
       try {
-        const { startingId } = reqBody(request);
-        const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
-
-        await WorkspaceChats.delete({
-          workspaceId: workspace.id,
-          thread_id: null,
-          user_id: user?.id,
-          id: { gte: Number(startingId) },
+        const user = await userFromSession(request, response);
+        const sourceActionId = compactIdentifier(
+          reqBody(request)?.sourceActionId,
+          null
+        );
+        if (!sourceActionId) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "chat_mutation_missing_source_action",
+          });
+        }
+        const identityWhere = chatIdentityFromRequest({
+          id: request.params.identity,
         });
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_deleted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: null,
-          threadSlug: null,
-          senderClientId: clientContext.clientId,
+        if (!identityWhere) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "delete_invalid_target_chat",
+          });
+        }
+        const result = await deleteChatTurnAndPublish({
+          workspace,
+          user,
+          clientContext: getClientContext(request, { user }),
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          sourceActionId,
         });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
+        return response.status(200).json({
+          success: true,
+          sourceActionId,
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          replayed: result.replayed,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(chatMutationHTTPStatus(error)).json({
+          success: false,
+          errorCode: error.code || "chat_delete_failed",
+        });
       }
+    }
+  );
+
+  app.delete(
+    "/workspace/:slug/delete-edited-chats",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
     }
   );
 
   app.post(
     "/workspace/:slug/update-chat",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
-    async (request, response) => {
-      try {
-        const {
-          chatId,
-          publicChatId = null,
-          newText = null,
-          role = "assistant",
-        } = reqBody(request);
-        if (!newText || !String(newText).trim())
-          throw new Error("Cannot save empty edit");
-
-        const user = await userFromSession(request, response);
-        const workspace = response.locals.workspace;
-        const identifierWhere = chatIdentityFromRequest({
-          chatId,
-          publicChatId,
-        });
-        if (!identifierWhere) throw new Error("Invalid chat.");
-        const existingChat = await WorkspaceChats.get({
-          workspaceId: workspace.id,
-          thread_id: null,
-          user_id: user?.id,
-          ...identifierWhere,
-        });
-        if (!existingChat) throw new Error("Invalid chat.");
-
-        if (role === "user") {
-          await WorkspaceChats._update(existingChat.id, {
-            prompt: String(newText),
-          });
-        } else {
-          const chatResponse = safeJsonParse(existingChat.response, null);
-          if (!chatResponse) throw new Error("Failed to parse chat response");
-          await WorkspaceChats._update(existingChat.id, {
-            response: JSON.stringify({
-              ...chatResponse,
-              text: String(newText),
-            }),
-          });
-        }
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_updated",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: null,
-          threadSlug: null,
-          chatId: existingChat.id,
-          publicChatId: existingChat.public_id || null,
-          senderClientId: clientContext.clientId,
-        });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
-      }
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
     }
   );
 
@@ -1826,7 +1806,9 @@ function workspaceEndpoints(app) {
           threadSlug,
           openMode = null,
           createdFrom = "thread_fork",
+          sourceActionId: rawSourceActionId = null,
         } = reqBody(request);
+        const sourceActionId = compactIdentifier(rawSourceActionId, null);
         const isDualThreadFork = openMode === DUAL_THREAD_FORK_MODE;
 
         // Get threadId we are branching from if that request body is sent
@@ -1838,6 +1820,35 @@ function workspaceEndpoints(app) {
             })
           : null;
         const threadId = sourceThread?.id ?? null;
+        if (sourceActionId) {
+          const reservation = await MutationReceipt.reserve({
+            userId: user?.id,
+            sourceActionId,
+            action: "chat.fork",
+            workspaceId: workspace.id,
+            threadId,
+          });
+          if (!reservation.created) {
+            const receipt = reservation.receipt;
+            if (
+              receipt?.status === "completed" &&
+              receipt.resource?.threadSlug
+            ) {
+              const replayedThread = await WorkspaceThread.get({
+                slug: receipt.resource.threadSlug,
+                workspace_id: workspace.id,
+              });
+              return response.status(200).json({
+                newThreadSlug: receipt.resource.threadSlug,
+                newThread: replayedThread || undefined,
+                replayed: true,
+              });
+            }
+            return response.status(409).json({
+              message: receipt?.errorCode || "chat_fork_pending",
+            });
+          }
+        }
         const baseChatClause = {
           workspaceId: workspace.id,
           user_id: user?.id,
@@ -1938,6 +1949,35 @@ function workspaceEndpoints(app) {
           },
           user?.id
         );
+        if (sourceActionId) {
+          await MutationReceipt.complete({
+            userId: user?.id,
+            sourceActionId,
+            resource: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              threadId: newThread.id,
+              threadSlug: newThread.slug,
+            },
+          });
+        }
+        const clientContext = getClientContext(request, { user });
+        publishWorkspaceSyncEvent({
+          type: "thread_created",
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: newThread.id,
+          threadSlug: newThread.slug,
+          threadName: (updatedThread || newThread).name,
+          title:
+            (updatedThread || newThread).title ||
+            (updatedThread || newThread).name,
+          threadType: (updatedThread || newThread).thread_type,
+          chatModel: (updatedThread || newThread).chatModel,
+          senderClientId: clientContext.clientId,
+          sourceActionId,
+        });
         response.status(200).json({
           newThreadSlug: newThread.slug,
           ...(isDualThreadFork
@@ -1977,8 +2017,33 @@ function workspaceEndpoints(app) {
             .status(404)
             .json({ success: false, error: "Chat not found." });
 
-        await WorkspaceChats._update(validChat.id, { include: false });
-        response.json({ success: true, error: null });
+        const sourceActionId = compactIdentifier(
+          request.headers?.["x-athena-source-action-id"],
+          `legacy-chat-delete:${uuidv4()}`
+        );
+        const workspace = await Workspace.get({ id: validChat.workspaceId });
+        const thread = validChat.thread_id
+          ? await WorkspaceThread.get({ id: validChat.thread_id })
+          : null;
+        if (!workspace)
+          return response
+            .status(404)
+            .json({ success: false, error: "Workspace not found." });
+        const result = await deleteChatTurnAndPublish({
+          workspace,
+          thread,
+          user,
+          clientContext: getClientContext(request, { user }),
+          chatId: validChat.id,
+          publicChatId: validChat.public_id || null,
+          sourceActionId,
+        });
+        response.json({
+          success: true,
+          error: null,
+          sourceActionId,
+          replayed: result.replayed,
+        });
       } catch (e) {
         console.error(e.message, e);
         response.status(500).json({ success: false, error: "Server error" });

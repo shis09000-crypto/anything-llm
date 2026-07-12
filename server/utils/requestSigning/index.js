@@ -330,6 +330,34 @@ function isHighRiskSignedRequest({ method, path } = {}) {
       pattern: /^\/agent-invocation\/[^/]+\/clarification-response$/,
     },
     {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/tool-approval-response$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/agent-invocation\/[^/]+\/stop$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?update-chat$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?delete-edited-chats$/,
+    },
+    {
+      methods: ["DELETE"],
+      pattern: /^\/workspace\/[^/]+\/(?:thread\/[^/]+\/)?chat\/[^/]+$/,
+    },
+    {
+      methods: ["PUT"],
+      pattern: /^\/workspace\/workspace-chats\/[^/]+$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/workspace\/[^/]+\/thread\/fork$/,
+    },
+    {
       methods: ["DELETE"],
       pattern: /^\/auth\/passkeys\/[^/]+$/,
     },

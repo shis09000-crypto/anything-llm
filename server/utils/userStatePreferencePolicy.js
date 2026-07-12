@@ -27,7 +27,19 @@ const GLOBAL_NAMESPACES = new Set([
   "reader.progress",
   "reader.library",
   "crypto.ui",
+  "ios.drawer.pins",
 ]);
+
+function requiresAppleNativeAudience(namespace = "") {
+  return namespace === "ios.drawer.pins";
+}
+
+function isAppleNativeClient(request, response) {
+  const context = request?.clientContext || response?.locals?.clientContext;
+  return ["ios", "ipad"].includes(
+    String(context?.platform || "").toLowerCase()
+  );
+}
 
 function valueSize(value) {
   return Buffer.byteLength(JSON.stringify(value ?? null), "utf8");
@@ -80,6 +92,13 @@ async function validateUserStateScope({
 } = {}) {
   if (!USER_STATE_NAMESPACES.has(namespace)) {
     return { ok: false, status: 400, error: "invalid_namespace" };
+  }
+
+  if (
+    requiresAppleNativeAudience(namespace) &&
+    !isAppleNativeClient(request, response)
+  ) {
+    return { ok: false, status: 404, error: "state_namespace_unavailable" };
   }
 
   const maxBytes =
@@ -172,6 +191,7 @@ module.exports = {
   USER_STATE_NAMESPACES,
   namespacePolicy,
   parseNamespaceFilter,
+  requiresAppleNativeAudience,
   validateUserStateInput,
   validateUserStateScope,
 };

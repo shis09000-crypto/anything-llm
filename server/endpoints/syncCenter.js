@@ -266,6 +266,7 @@ function syncCenterEndpoints(app) {
       const replay = await SyncEvent.replay({
         userId: user?.id ?? null,
         clientId: clientContext.clientId,
+        platform: clientContext.platform,
         afterEventId: request.query?.afterEventId || null,
         limit: request.query?.limit,
       });
@@ -406,6 +407,7 @@ function syncCenterEndpoints(app) {
       socket,
       userId: auth.userId,
       clientId: auth.clientContext?.clientId || null,
+      platform: auth.clientContext?.platform || null,
     });
 
     sendSocket(socket, {
@@ -421,6 +423,7 @@ function syncCenterEndpoints(app) {
       const replay = await broadcastCenter.replayDurable({
         userId: connection.userId,
         clientId: connection.clientId,
+        platform: connection.platform,
         lastEventId: queryLastEventId,
         subscriptions: [...connection.subscriptions.values()],
       });
@@ -443,6 +446,7 @@ function syncCenterEndpoints(app) {
             const replay = await broadcastCenter.replayDurable({
               userId: connection.userId,
               clientId: connection.clientId,
+              platform: connection.platform,
               lastEventId: payload.lastEventId,
               subscriptions: [...connection.subscriptions.values()],
             });

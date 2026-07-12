@@ -604,6 +604,7 @@ const WorkspaceChats = {
         apiSessionId: data.apiSessionId,
       };
       const payload = {
+        clientTurnId: String(data.clientTurnId || "").trim() || undefined,
         workspaceId: data.workspaceId,
         response: await encryptWorkspaceChatFieldAsync(
           safeJSONStringify(data.response),

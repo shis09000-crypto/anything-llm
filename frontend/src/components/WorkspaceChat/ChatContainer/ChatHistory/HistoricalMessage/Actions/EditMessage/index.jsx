@@ -21,7 +21,7 @@ export function EditMessageAction({ chatId = null, role, isEditing }) {
     );
   }
 
-  if (!chatId || isEditing) return null;
+  if (!chatId || isEditing || role !== "user") return null;
   return (
     <div
       className={`mt-3 relative ${

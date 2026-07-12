@@ -39,13 +39,15 @@ function hydrate(row = null) {
   const namespace = row.namespace;
   const eventType = row.eventType;
   const type = `${namespace}.${eventType}`;
+  const scope = safeJsonParse(row.scopeJson, {});
   return {
     eventId: row.eventId,
     type,
     namespace,
     eventType,
     shortType: eventType,
-    scope: safeJsonParse(row.scopeJson, {}),
+    scope,
+    audience: Array.isArray(scope.audience) ? scope.audience : null,
     visibility: row.visibility,
     eventPriority: row.priority,
     version: numericOrNull(row.version) || row.version || null,
@@ -65,7 +67,10 @@ const SyncEvent = {
     const normalizedCreatedAt = Number.isNaN(createdAt.valueOf())
       ? new Date()
       : createdAt;
-    const scope = event.scope || {};
+    const scope = {
+      ...(event.scope || {}),
+      ...(Array.isArray(event.audience) ? { audience: event.audience } : {}),
+    };
     const data = {
       eventId: String(event.eventId),
       userId: numericOrNull(scope.userId),
@@ -113,6 +118,7 @@ const SyncEvent = {
   replay: async function ({
     userId = null,
     clientId = null,
+    platform = null,
     afterEventId = null,
     limit = 100,
   } = {}) {
@@ -160,8 +166,13 @@ const SyncEvent = {
     });
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
+    const normalizedPlatform = String(platform || "").toLowerCase();
+    const events = page.map(hydrate).filter((event) => {
+      const audience = Array.isArray(event?.audience) ? event.audience : [];
+      return !audience.length || audience.includes(normalizedPlatform);
+    });
     return {
-      events: page.map(hydrate),
+      events,
       nextEventId: page.at(-1)?.eventId || cursor.eventId,
       checkpointEventId: checkpoint?.eventId || cursor.eventId,
       hasMore,

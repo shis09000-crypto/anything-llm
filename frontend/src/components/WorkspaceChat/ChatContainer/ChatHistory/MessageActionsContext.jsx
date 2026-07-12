@@ -8,6 +8,7 @@ import {
 
 const EDIT_EVENT = "toggle-message-edit";
 const DELETE_EVENT = "delete-message";
+const COMPOSER_EDIT_EVENT = "athena-chat-composer-edit";
 
 const MessageActionsContext = createContext(null);
 
@@ -22,15 +23,13 @@ export function MessageActionsProvider({ children }) {
 
   useEffect(() => {
     function handleEditEvent(e) {
-      const { chatId, role } = e.detail;
+      const { chatId, role } = e.detail || {};
       if (!chatId || !role) return;
-
-      setEditingMessage((prev) => {
-        if (prev?.chatId === chatId && prev?.role === role) {
-          return null;
-        }
-        return { chatId, role };
-      });
+      if (role !== "user") return;
+      setEditingMessage(null);
+      window.dispatchEvent(
+        new CustomEvent(COMPOSER_EDIT_EVENT, { detail: e.detail })
+      );
     }
 
     function handleDeleteEvent(e) {
@@ -84,4 +83,4 @@ export function useMessageActionsContext() {
   return useContext(MessageActionsContext);
 }
 
-export { EDIT_EVENT, DELETE_EVENT };
+export { EDIT_EVENT, DELETE_EVENT, COMPOSER_EDIT_EVENT };

@@ -246,6 +246,7 @@ async function streamChatWithWorkspace(
     displayPrompt: displayMessage,
     visionAnalysisContext: imageAnalysisText,
     fileAccess: options.fileAccess || {},
+    clientTurnId: options.clientTurnId || null,
   });
   if (isAgentChat) return;
 
@@ -283,10 +284,10 @@ async function streamChatWithWorkspace(
       textResponse,
       sources: [],
       attachments: historyAttachments,
-      close: true,
+      close: false,
       error: null,
     });
-    await WorkspaceChats.new({
+    const { chat } = await WorkspaceChats.new({
       workspaceId: workspace.id,
       prompt: displayMessage,
       response: {
@@ -305,9 +306,20 @@ async function streamChatWithWorkspace(
       publishWorkspaceSyncEvent({
         ...syncEvent,
         type: "chat_finalized",
+        chatId: chat?.id || null,
+        publicChatId: chat?.public_id || null,
         clientTurnId: options.clientTurnId || null,
       });
     }
+    writeResponseChunk(response, {
+      uuid,
+      type: "finalizeResponseStream",
+      close: true,
+      error: false,
+      chatId: chat?.id || null,
+      publicChatId: chat?.public_id || null,
+      clientTurnId: options.clientTurnId || null,
+    });
     return;
   }
 
@@ -718,6 +730,7 @@ async function streamChatWithWorkspace(
       error: false,
       chatId: chat?.id || null,
       publicChatId: chat?.public_id || null,
+      clientTurnId: options.clientTurnId || null,
       metrics,
     });
     return;
@@ -728,6 +741,7 @@ async function streamChatWithWorkspace(
     type: "finalizeResponseStream",
     close: true,
     error: false,
+    clientTurnId: options.clientTurnId || null,
     metrics,
   });
   return;

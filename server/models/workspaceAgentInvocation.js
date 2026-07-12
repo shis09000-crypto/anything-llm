@@ -10,25 +10,48 @@ const WorkspaceAgentInvocation = {
   },
 
   close: async function (uuid) {
-    if (!uuid) return;
+    if (!uuid) return false;
     try {
       await prisma.workspace_agent_invocations.update({
         where: { uuid: String(uuid) },
         data: { closed: true },
       });
+      return true;
     } catch (error) {
       console.warn("[WorkspaceAgentInvocation] close failed", {
         uuid: String(uuid),
         message: error.message,
       });
+      return false;
     }
   },
 
-  new: async function ({ prompt, workspace, user = null, thread = null }) {
+  new: async function ({
+    prompt,
+    workspace,
+    user = null,
+    thread = null,
+    clientTurnId = null,
+  }) {
     try {
+      const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
+      if (normalizedClientTurnId) {
+        const existing = await prisma.workspace_agent_invocations.findFirst({
+          where: {
+            clientTurnId: normalizedClientTurnId,
+            workspace_id: workspace.id,
+            user_id: user?.id || null,
+            thread_id: thread?.id || null,
+          },
+        });
+        if (existing) {
+          return { invocation: existing, message: null, replayed: true };
+        }
+      }
       const invocation = await prisma.workspace_agent_invocations.create({
         data: {
           uuid: uuidv4(),
+          clientTurnId: normalizedClientTurnId,
           workspace_id: workspace.id,
           prompt: String(prompt),
           user_id: user?.id,
@@ -36,10 +59,23 @@ const WorkspaceAgentInvocation = {
         },
       });
 
-      return { invocation, message: null };
+      return { invocation, message: null, replayed: false };
     } catch (error) {
+      if (clientTurnId && error?.code === "P2002") {
+        const existing = await prisma.workspace_agent_invocations.findFirst({
+          where: {
+            clientTurnId: String(clientTurnId).trim(),
+            workspace_id: workspace.id,
+            user_id: user?.id || null,
+            thread_id: thread?.id || null,
+          },
+        });
+        if (existing) {
+          return { invocation: existing, message: null, replayed: true };
+        }
+      }
       console.error(error.message);
-      return { invocation: null, message: error.message };
+      return { invocation: null, message: error.message, replayed: false };
     }
   },
 

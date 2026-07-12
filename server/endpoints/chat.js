@@ -36,8 +36,179 @@ const {
 const {
   workspaceWithThreadChatModel,
 } = require("../utils/chats/threadChatModel");
+const {
+  publishCommittedChatDeletion,
+} = require("../utils/chats/chatTurnMutations");
 
 const User = DataAccessCenter.user;
+const WorkspaceChats = DataAccessCenter.workspaceChat;
+
+function nativeEditContext(value = null) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("Invalid native chat edit context.");
+    error.code = "edit_invalid_context";
+    throw error;
+  }
+  const startingChatId = Number(value.startingChatId);
+  const sourceActionId = String(value.sourceActionId || "")
+    .trim()
+    .slice(0, 160);
+  if (!Number.isInteger(startingChatId) || startingChatId <= 0) {
+    const error = new Error("Invalid starting chat for native chat edit.");
+    error.code = "edit_invalid_starting_chat";
+    throw error;
+  }
+  if (!sourceActionId) {
+    const error = new Error("Missing source action for native chat edit.");
+    error.code = "edit_missing_source_action";
+    throw error;
+  }
+  return { startingChatId, sourceActionId };
+}
+
+function nativeRegenerateContext(value = null) {
+  if (value === null || value === undefined) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    const error = new Error("Invalid native regenerate context.");
+    error.code = "regenerate_invalid_context";
+    throw error;
+  }
+  const targetChatId = Number(value.targetChatId);
+  const sourceActionId = String(value.sourceActionId || "")
+    .trim()
+    .slice(0, 160);
+  if (!Number.isInteger(targetChatId) || targetChatId <= 0) {
+    const error = new Error("Invalid target chat for regeneration.");
+    error.code = "regenerate_invalid_target_chat";
+    throw error;
+  }
+  if (!sourceActionId) {
+    const error = new Error("Missing source action for regeneration.");
+    error.code = "regenerate_missing_source_action";
+    throw error;
+  }
+  return { targetChatId, sourceActionId };
+}
+
+function chatResponseText(chat = null) {
+  if (!chat?.response) return "";
+  if (typeof chat.response === "object")
+    return String(chat.response.text || "");
+  try {
+    return String(JSON.parse(chat.response)?.text || "");
+  } catch {
+    return "";
+  }
+}
+
+async function replayFinalizedClientTurn({
+  response,
+  workspace,
+  thread = null,
+  user = null,
+  clientTurnId = null,
+} = {}) {
+  const normalizedTurnId = String(clientTurnId || "").trim();
+  if (!normalizedTurnId) return false;
+  const chat = await WorkspaceChats.get({
+    clientTurnId: normalizedTurnId,
+    workspaceId: Number(workspace.id),
+    thread_id: thread?.id || null,
+    user_id: user?.id || null,
+    api_session_id: null,
+  });
+  if (!chat) return false;
+
+  const id = uuidv4();
+  const text = chatResponseText(chat);
+  if (text) {
+    writeResponseChunk(response, {
+      id,
+      type: "fullTextResponse",
+      textResponse: text,
+      close: false,
+      replayed: true,
+    });
+  }
+  writeResponseChunk(response, {
+    id,
+    type: "finalizeResponseStream",
+    chatId: chat.id,
+    publicChatId: chat.public_id || null,
+    clientTurnId: normalizedTurnId,
+    close: true,
+    replayed: true,
+  });
+  return true;
+}
+
+async function prepareNativeTurnMutationStream({
+  response,
+  workspace,
+  thread = null,
+  user = null,
+  clientContext,
+  editContext,
+  regenerateContext,
+  clientTurnId = null,
+} = {}) {
+  if (!editContext && !regenerateContext) return null;
+  const isEdit = !!editContext;
+  const context = editContext || regenerateContext;
+  writeResponseChunk(response, {
+    id: uuidv4(),
+    type: isEdit ? "editSessionReady" : "regenerateSessionReady",
+    sourceActionId: context.sourceActionId,
+    ...(isEdit
+      ? { startingChatId: context.startingChatId }
+      : { targetChatId: context.targetChatId }),
+    close: false,
+  });
+
+  const result = isEdit
+    ? await WorkspaceChats.truncateForNativeEdit({
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+        startingChatId: context.startingChatId,
+        sourceActionId: context.sourceActionId,
+      })
+    : await WorkspaceChats.regenerateLastTurn({
+        workspaceId: workspace.id,
+        threadId: thread?.id || null,
+        userId: user?.id || null,
+        targetChatId: context.targetChatId,
+        sourceActionId: context.sourceActionId,
+      });
+  if (!result.replayed) {
+    await publishCommittedChatDeletion({
+      workspace,
+      thread,
+      user,
+      clientContext,
+      sourceActionId: context.sourceActionId,
+      clientTurnId,
+      mutationKind: isEdit ? "edit-truncate" : "regenerate-replace",
+      ...(isEdit
+        ? { startingChatId: context.startingChatId }
+        : { targetChatId: context.targetChatId }),
+    });
+  }
+
+  writeResponseChunk(response, {
+    id: uuidv4(),
+    type: isEdit ? "editHistoryTruncated" : "regenerateTurnDeleted",
+    sourceActionId: context.sourceActionId,
+    ...(isEdit
+      ? { startingChatId: context.startingChatId }
+      : { targetChatId: context.targetChatId }),
+    replayed: result.replayed,
+    deletedCount: result.deletedCount,
+    close: false,
+  });
+  return result;
+}
 
 function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
   if (!workspace?.id || !thread?.id) return () => {};
@@ -111,8 +282,12 @@ function chatEndpoints(app) {
           fileAccess = {},
           nodeContext = null,
           clientTurnId = null,
+          editContext: rawEditContext = null,
+          regenerateContext: rawRegenerateContext = null,
         } = reqBody(request);
         const workspace = response.locals.workspace;
+        let editContext = null;
+        let regenerateContext = null;
 
         if (typeof message !== "string" || message.trim().length === 0) {
           response.status(400).json({
@@ -122,6 +297,26 @@ function chatEndpoints(app) {
             sources: [],
             close: true,
             error: "Message is empty.",
+          });
+          return;
+        }
+        try {
+          editContext = nativeEditContext(rawEditContext);
+          regenerateContext = nativeRegenerateContext(rawRegenerateContext);
+          if (editContext && regenerateContext) {
+            const error = new Error(
+              "Chat mutation contexts are mutually exclusive."
+            );
+            error.code = "chat_mutation_context_conflict";
+            throw error;
+          }
+        } catch (error) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            close: true,
+            error: error.message,
+            errorCode: error.code,
           });
           return;
         }
@@ -141,6 +336,29 @@ function chatEndpoints(app) {
             close: true,
             error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
           });
+          return;
+        }
+
+        await prepareNativeTurnMutationStream({
+          response,
+          workspace,
+          thread: null,
+          user,
+          clientContext,
+          editContext,
+          regenerateContext,
+          clientTurnId,
+        });
+        if (
+          await replayFinalizedClientTurn({
+            response,
+            workspace,
+            thread: null,
+            user,
+            clientTurnId,
+          })
+        ) {
+          response.end();
           return;
         }
 
@@ -225,6 +443,7 @@ function chatEndpoints(app) {
           sources: [],
           close: true,
           error: e.message,
+          errorCode: e.code || "chat_stream_failed",
         });
         response.end();
       }
@@ -248,9 +467,13 @@ function chatEndpoints(app) {
           fileAccess = {},
           nodeContext = null,
           clientTurnId = null,
+          editContext: rawEditContext = null,
+          regenerateContext: rawRegenerateContext = null,
         } = reqBody(request);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
+        let editContext = null;
+        let regenerateContext = null;
         const effectiveWorkspace = workspaceWithThreadChatModel(
           workspace,
           thread
@@ -264,6 +487,26 @@ function chatEndpoints(app) {
             sources: [],
             close: true,
             error: "Message is empty.",
+          });
+          return;
+        }
+        try {
+          editContext = nativeEditContext(rawEditContext);
+          regenerateContext = nativeRegenerateContext(rawRegenerateContext);
+          if (editContext && regenerateContext) {
+            const error = new Error(
+              "Chat mutation contexts are mutually exclusive."
+            );
+            error.code = "chat_mutation_context_conflict";
+            throw error;
+          }
+        } catch (error) {
+          response.status(400).json({
+            id: uuidv4(),
+            type: "abort",
+            close: true,
+            error: error.message,
+            errorCode: error.code,
           });
           return;
         }
@@ -288,6 +531,30 @@ function chatEndpoints(app) {
             error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
           });
           detachTitleUpdates();
+          return;
+        }
+
+        await prepareNativeTurnMutationStream({
+          response,
+          workspace,
+          thread,
+          user,
+          clientContext,
+          editContext,
+          regenerateContext,
+          clientTurnId,
+        });
+        if (
+          await replayFinalizedClientTurn({
+            response,
+            workspace,
+            thread,
+            user,
+            clientTurnId,
+          })
+        ) {
+          detachTitleUpdates();
+          response.end();
           return;
         }
 
@@ -375,6 +642,7 @@ function chatEndpoints(app) {
           sources: [],
           close: true,
           error: e.message,
+          errorCode: e.code || "chat_stream_failed",
         });
         response.end();
       }

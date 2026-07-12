@@ -2,6 +2,9 @@ const { WorkspaceChats } = require("../models/workspaceChats");
 const { createModelRepository } = require("./createModelRepository");
 const prisma = require("../utils/prisma");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
+const {
+  rebuildChatCryptoChainForScope,
+} = require("../utils/security/chatHistoryEncryption");
 
 const WorkspaceChatRepository = createModelRepository(WorkspaceChats, {
   domain: "workspace-chat",
@@ -50,6 +53,326 @@ WorkspaceChatRepository.backfillMissingPublicIds = async function ({
     missing: missingRows.length,
     updated,
   };
+};
+
+function normalizedMutationScope({
+  workspaceId,
+  threadId = null,
+  userId = null,
+  sourceActionId = null,
+} = {}) {
+  const normalizedWorkspaceId = Number(workspaceId);
+  const normalizedThreadId = threadId === null ? null : Number(threadId);
+  const normalizedUserId = userId === null ? null : Number(userId);
+  const normalizedActionId = String(sourceActionId || "")
+    .trim()
+    .slice(0, 160);
+
+  if (!Number.isInteger(normalizedWorkspaceId) || normalizedWorkspaceId <= 0) {
+    const error = new Error("Invalid workspace for chat mutation.");
+    error.code = "chat_mutation_invalid_workspace";
+    throw error;
+  }
+  if (!normalizedActionId) {
+    const error = new Error("Missing source action for chat mutation.");
+    error.code = "chat_mutation_missing_source_action";
+    throw error;
+  }
+  if (
+    normalizedThreadId !== null &&
+    (!Number.isInteger(normalizedThreadId) || normalizedThreadId <= 0)
+  ) {
+    const error = new Error("Invalid thread for chat mutation.");
+    error.code = "chat_mutation_invalid_thread";
+    throw error;
+  }
+  return {
+    workspaceId: normalizedWorkspaceId,
+    threadId: normalizedThreadId,
+    userId: normalizedUserId,
+    sourceActionId: normalizedActionId,
+    where: {
+      workspaceId: normalizedWorkspaceId,
+      thread_id: normalizedThreadId,
+      user_id: normalizedUserId,
+      api_session_id: null,
+    },
+    crypto: {
+      workspaceId: normalizedWorkspaceId,
+      threadId: normalizedThreadId,
+      userId: normalizedUserId,
+      apiSessionId: null,
+    },
+    compaction: {
+      workspace_id: normalizedWorkspaceId,
+      thread_id: normalizedThreadId,
+      user_id: normalizedUserId,
+      api_session_id: null,
+    },
+  };
+}
+
+function positiveChatId(value, code) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    const error = new Error("Invalid chat for chat mutation.");
+    error.code = code;
+    throw error;
+  }
+  return parsed;
+}
+
+function receiptMatches(receipt, { action, scope, resource = {} }) {
+  if (!receipt) return true;
+  let receiptResource = {};
+  try {
+    receiptResource = JSON.parse(receipt.resourceJson || "{}") || {};
+  } catch {}
+  const resourceMatches = Object.entries(resource || {}).every(
+    ([key, value]) =>
+      receiptResource[key] === undefined ||
+      String(receiptResource[key]) === String(value)
+  );
+  return (
+    receipt.action === action &&
+    Number(receipt.workspaceId) === scope.workspaceId &&
+    (receipt.threadId === null ? null : Number(receipt.threadId)) ===
+      scope.threadId &&
+    resourceMatches
+  );
+}
+
+async function permanentChatMutation({
+  scope,
+  receiptAction,
+  targetWhere,
+  deleteWhere,
+  validateTarget,
+  resource,
+} = {}) {
+  return await prisma.$transaction(async (transaction) => {
+    let receipt = null;
+    if (scope.userId) {
+      receipt = await transaction.athena_mutation_receipts.findUnique({
+        where: {
+          userId_sourceActionId: {
+            userId: scope.userId,
+            sourceActionId: scope.sourceActionId,
+          },
+        },
+      });
+      if (
+        !receiptMatches(receipt, { action: receiptAction, scope, resource })
+      ) {
+        const error = new Error(
+          "The source action is already bound to another mutation."
+        );
+        error.code = "chat_mutation_source_action_conflict";
+        throw error;
+      }
+      if (receipt?.status === "completed") {
+        let completedResource = {};
+        try {
+          completedResource = JSON.parse(receipt.resourceJson || "{}") || {};
+        } catch {}
+        return {
+          success: true,
+          replayed: true,
+          deletedCount: Number(completedResource.deletedCount || 0),
+          deletedChatIds: Array.isArray(completedResource.deletedChatIds)
+            ? completedResource.deletedChatIds
+            : [],
+          ...completedResource,
+          ...(resource || {}),
+        };
+      }
+      if (receipt?.status === "failed") {
+        const error = new Error(
+          receipt.errorCode || "Chat mutation previously failed."
+        );
+        error.code = receipt.errorCode || "chat_mutation_failed";
+        throw error;
+      }
+    }
+
+    const target = await transaction.workspace_chats.findFirst({
+      where: { ...scope.where, ...targetWhere },
+    });
+    if (!target) {
+      const error = new Error("The target chat no longer exists.");
+      error.code = "chat_mutation_target_not_found";
+      throw error;
+    }
+    if (validateTarget) {
+      await validateTarget({ transaction, target, scope });
+    }
+
+    if (scope.userId && !receipt) {
+      await transaction.athena_mutation_receipts.create({
+        data: {
+          userId: scope.userId,
+          sourceActionId: scope.sourceActionId,
+          action: receiptAction,
+          workspaceId: scope.workspaceId,
+          threadId: scope.threadId,
+          resourceJson: JSON.stringify(resource || {}),
+        },
+      });
+    }
+
+    const rows = await transaction.workspace_chats.findMany({
+      where: { ...scope.where, ...deleteWhere },
+      select: { id: true },
+      orderBy: { id: "asc" },
+    });
+    const deletedChatIds = rows.map((row) => Number(row.id));
+    const deleted = await transaction.workspace_chats.deleteMany({
+      where: { ...scope.where, ...deleteWhere },
+    });
+    await transaction.workspace_chat_compactions.deleteMany({
+      where: scope.compaction,
+    });
+    await rebuildChatCryptoChainForScope(scope.crypto, {
+      client: transaction,
+    });
+
+    const completedResource = {
+      workspaceId: scope.workspaceId,
+      threadId: scope.threadId,
+      deletedChatIds,
+      deletedCount: deleted.count,
+      ...(resource || {}),
+    };
+    if (scope.userId) {
+      await transaction.athena_mutation_receipts.update({
+        where: {
+          userId_sourceActionId: {
+            userId: scope.userId,
+            sourceActionId: scope.sourceActionId,
+          },
+        },
+        data: {
+          status: "completed",
+          resourceJson: JSON.stringify(completedResource),
+          errorCode: null,
+          updatedAt: new Date(),
+        },
+      });
+    }
+
+    return {
+      success: true,
+      replayed: false,
+      deletedCount: deleted.count,
+      deletedChatIds,
+      ...completedResource,
+    };
+  });
+}
+
+WorkspaceChatRepository.truncateForNativeEdit = async function ({
+  workspaceId,
+  threadId = null,
+  userId = null,
+  startingChatId,
+  sourceActionId = null,
+} = {}) {
+  const scope = normalizedMutationScope({
+    workspaceId,
+    threadId,
+    userId,
+    sourceActionId,
+  });
+  const normalizedStartingChatId = positiveChatId(
+    startingChatId,
+    "edit_invalid_starting_chat"
+  );
+
+  return permanentChatMutation({
+    scope,
+    receiptAction: "chat.edit.truncate-and-resend",
+    targetWhere: { id: normalizedStartingChatId, include: true },
+    deleteWhere: { id: { gte: normalizedStartingChatId } },
+    resource: { startingChatId: normalizedStartingChatId },
+  });
+};
+
+WorkspaceChatRepository.regenerateLastTurn = async function ({
+  workspaceId,
+  threadId = null,
+  userId = null,
+  targetChatId,
+  sourceActionId = null,
+} = {}) {
+  const scope = normalizedMutationScope({
+    workspaceId,
+    threadId,
+    userId,
+    sourceActionId,
+  });
+  const normalizedTargetChatId = positiveChatId(
+    targetChatId,
+    "regenerate_invalid_target_chat"
+  );
+
+  return permanentChatMutation({
+    scope,
+    receiptAction: "chat.regenerate.replace",
+    targetWhere: { id: normalizedTargetChatId, include: true },
+    deleteWhere: { id: normalizedTargetChatId },
+    validateTarget: async ({ transaction }) => {
+      const newer = await transaction.workspace_chats.findFirst({
+        where: {
+          ...scope.where,
+          include: true,
+          id: { gt: normalizedTargetChatId },
+        },
+        select: { id: true },
+      });
+      if (newer) {
+        const error = new Error(
+          "Only the latest confirmed chat can be regenerated."
+        );
+        error.code = "regenerate_target_not_latest";
+        throw error;
+      }
+    },
+    resource: { targetChatId: normalizedTargetChatId },
+  });
+};
+
+WorkspaceChatRepository.deleteTurnPermanently = async function ({
+  workspaceId,
+  threadId = null,
+  userId = null,
+  chatId = null,
+  publicChatId = null,
+  sourceActionId = null,
+} = {}) {
+  const scope = normalizedMutationScope({
+    workspaceId,
+    threadId,
+    userId,
+    sourceActionId,
+  });
+  const normalizedPublicChatId = String(publicChatId || "").trim();
+  const normalizedChatId = normalizedPublicChatId
+    ? null
+    : positiveChatId(chatId, "delete_invalid_target_chat");
+  const identity = normalizedPublicChatId
+    ? { public_id: normalizedPublicChatId }
+    : { id: normalizedChatId };
+
+  return permanentChatMutation({
+    scope,
+    receiptAction: "chat.delete.permanent",
+    targetWhere: { ...identity, include: true },
+    deleteWhere: identity,
+    resource: {
+      targetChatId: normalizedChatId,
+      targetPublicChatId: normalizedPublicChatId || null,
+    },
+  });
 };
 
 module.exports = { WorkspaceChatRepository };

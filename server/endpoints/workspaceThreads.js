@@ -2,7 +2,6 @@ const {
   multiUserMode,
   userFromSession,
   reqBody,
-  safeJsonParse,
   queryParams,
 } = require("../utils/http");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
@@ -52,6 +51,10 @@ const { getClientContext } = require("../utils/clientIdentity");
 const {
   isSupportedThreadChatModel,
 } = require("../utils/chats/threadChatModel");
+const {
+  chatMutationHTTPStatus,
+  deleteChatTurnAndPublish,
+} = require("../utils/chats/chatTurnMutations");
 
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
@@ -1313,35 +1316,66 @@ function workspaceThreadEndpoints(app) {
       flexUserRoleValid([ROLES.all]),
       validWorkspaceAndThreadSlug,
     ],
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
+    }
+  );
+
+  app.delete(
+    "/workspace/:slug/thread/:threadSlug/chat/:identity",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
     async (request, response) => {
       try {
-        const { startingId } = reqBody(request);
-        const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const thread = response.locals.thread;
-
-        await WorkspaceChats.delete({
-          workspaceId: Number(workspace.id),
-          thread_id: Number(thread.id),
-          user_id: user?.id,
-          id: { gte: Number(startingId) },
+        const user = await userFromSession(request, response);
+        const sourceActionId = compactActionId(
+          reqBody(request)?.sourceActionId
+        );
+        if (!sourceActionId) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "chat_mutation_missing_source_action",
+          });
+        }
+        const identityWhere = chatIdentityFromRequest({
+          id: request.params.identity,
         });
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_deleted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          senderClientId: clientContext.clientId,
+        if (!identityWhere) {
+          return response.status(400).json({
+            success: false,
+            errorCode: "delete_invalid_target_chat",
+          });
+        }
+        const result = await deleteChatTurnAndPublish({
+          workspace,
+          thread,
+          user,
+          clientContext: getClientContext(request, { user }),
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          sourceActionId,
         });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
+        return response.status(200).json({
+          success: true,
+          sourceActionId,
+          chatId: identityWhere.id || null,
+          publicChatId: identityWhere.public_id || null,
+          replayed: result.replayed,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(chatMutationHTTPStatus(error)).json({
+          success: false,
+          errorCode: error.code || "chat_delete_failed",
+        });
       }
     }
   );
@@ -1353,66 +1387,11 @@ function workspaceThreadEndpoints(app) {
       flexUserRoleValid([ROLES.all]),
       validWorkspaceAndThreadSlug,
     ],
-    async (request, response) => {
-      try {
-        const {
-          chatId,
-          publicChatId = null,
-          newText = null,
-          role = "assistant",
-        } = reqBody(request);
-        if (!newText || !String(newText).trim())
-          throw new Error("Cannot save empty edit");
-
-        const user = await userFromSession(request, response);
-        const workspace = response.locals.workspace;
-        const thread = response.locals.thread;
-        const identifierWhere = chatIdentityFromRequest({
-          chatId,
-          publicChatId,
-        });
-        if (!identifierWhere) throw new Error("Invalid chat.");
-        const existingChat = await WorkspaceChats.get({
-          workspaceId: workspace.id,
-          thread_id: thread.id,
-          user_id: user?.id,
-          ...identifierWhere,
-        });
-        if (!existingChat) throw new Error("Invalid chat.");
-
-        if (role === "user") {
-          await WorkspaceChats._update(existingChat.id, {
-            prompt: String(newText),
-          });
-        } else {
-          const chatResponse = safeJsonParse(existingChat.response, null);
-          if (!chatResponse) throw new Error("Failed to parse chat response");
-          await WorkspaceChats._update(existingChat.id, {
-            response: JSON.stringify({
-              ...chatResponse,
-              text: String(newText),
-            }),
-          });
-        }
-
-        const clientContext = getClientContext(request, { user });
-        publishWorkspaceSyncEvent({
-          type: "chat_updated",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          chatId: existingChat.id,
-          publicChatId: existingChat.public_id || null,
-          senderClientId: clientContext.clientId,
-        });
-
-        response.sendStatus(200).end();
-      } catch (e) {
-        console.error(e.message, e);
-        response.sendStatus(500).end();
-      }
+    (_request, response) => {
+      response.status(409).json({
+        success: false,
+        errorCode: "atomic_chat_mutation_required",
+      });
     }
   );
 }

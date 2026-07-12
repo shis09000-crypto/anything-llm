@@ -64,4 +64,31 @@ describe("workspace delete broadcast isolation", () => {
       })
     ).toBe(false);
   });
+
+  it("delivers iOS-only preference events to iOS and iPad clients only", () => {
+    const event = _internals.normalizeBroadcastEvent({
+      namespace: "userState",
+      type: "updated",
+      visibility: "user",
+      audience: ["ios", "ipad"],
+      scope: { userId: 7 },
+      resource: { kind: "user-state", id: "ios.drawer.pins" },
+      payload: { namespaces: ["ios.drawer.pins"] },
+    });
+
+    expect(
+      _internals.connectionSubscribedToEvent(event, {
+        userId: 7,
+        platform: "ios",
+        subscriptions: userSubscription(),
+      })
+    ).toBe(true);
+    expect(
+      _internals.connectionSubscribedToEvent(event, {
+        userId: 7,
+        platform: "web",
+        subscriptions: userSubscription(),
+      })
+    ).toBe(false);
+  });
 });

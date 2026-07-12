@@ -36,6 +36,19 @@ export function normalizeChatStreamEvent(raw = {}) {
     });
   }
 
+  if (
+    rawType === "editSessionReady" ||
+    rawType === "editHistoryTruncated" ||
+    rawType === "regenerateSessionReady" ||
+    rawType === "regenerateTurnDeleted"
+  ) {
+    return streamEvent("mutation_status", raw, {
+      sourceActionId: raw.sourceActionId || null,
+      startingChatId: raw.startingChatId ?? null,
+      targetChatId: raw.targetChatId ?? null,
+    });
+  }
+
   if (rawType === "textResponseChunk") {
     return streamEvent(
       raw.close && raw.chatId ? "final" : "assistant_delta",
@@ -74,6 +87,7 @@ export function normalizeChatStreamEvent(raw = {}) {
         (rawType === "wssFailure"
           ? "Websocket connection failed."
           : "Stream aborted."),
+      errorCode: raw.errorCode || null,
     });
   }
 
@@ -142,6 +156,20 @@ export function normalizeChatTurnEvent(raw = {}) {
     normalized = {
       type: "agent_socket_start",
       websocketUUID,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (
+    type === "editSessionReady" ||
+    type === "editHistoryTruncated" ||
+    type === "regenerateSessionReady" ||
+    type === "regenerateTurnDeleted"
+  ) {
+    normalized = {
+      type: "mutation_status",
+      mutationType: type,
+      sourceActionId: raw.sourceActionId || null,
+      startingChatId: raw.startingChatId ?? null,
+      targetChatId: raw.targetChatId ?? null,
       protocolEvent: normalizedStreamEvent,
     };
   } else if (type === "statusResponse") {

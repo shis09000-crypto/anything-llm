@@ -3367,6 +3367,10 @@ export function ChatThreadDraftProvider({ children }) {
       parseAttachments = () => [],
       sendToExistingAgent = false,
       clientGeneratedTurnId = null,
+      editContext = null,
+      regenerateContext = null,
+      onMutationEvent = null,
+      mutationBaseItems = null,
     }) => {
       const chatKey = ensureDraft({
         workspaceSlug,
@@ -3440,7 +3444,12 @@ export function ChatThreadDraftProvider({ children }) {
 
       updateDraft(chatKey, (draft) => ({
         ...draft,
-        items: [...(draft.items || []), ...turnItems],
+        items: [
+          ...(Array.isArray(mutationBaseItems)
+            ? mutationBaseItems
+            : draft.items || []),
+          ...turnItems,
+        ],
         activeTurnId: turnId,
         pendingApproval: null,
         pendingClarification: null,
@@ -3537,6 +3546,8 @@ export function ChatThreadDraftProvider({ children }) {
                 fileAccessMode,
                 nodeContext,
                 clientTurnId: turnId,
+                editContext,
+                regenerateContext,
               }),
               onOpen: () => {
                 streamTask?.completeExclusive?.("chat-stream-open");
@@ -3550,6 +3561,17 @@ export function ChatThreadDraftProvider({ children }) {
                 });
               },
               onEvent: (event, protocolEvent, rawEvent) => {
+                if (
+                  [
+                    "editSessionReady",
+                    "editHistoryTruncated",
+                    "regenerateSessionReady",
+                    "regenerateTurnDeleted",
+                    "abort",
+                  ].includes(rawEvent?.type)
+                ) {
+                  onMutationEvent?.(rawEvent);
+                }
                 debugChatTurn("sse:event", {
                   chatKey,
                   turnId,
@@ -4027,6 +4049,16 @@ export function ChatThreadDraftProvider({ children }) {
     [updateDraft]
   );
 
+  const replaceDraftItems = useCallback(
+    (chatKey, items = []) => {
+      updateDraft(chatKey, (draft) => ({
+        ...draft,
+        items: normalizeTurnItems(items),
+      }));
+    },
+    [updateDraft]
+  );
+
   const value = useMemo(
     () => ({
       getDraft,
@@ -4057,6 +4089,7 @@ export function ChatThreadDraftProvider({ children }) {
       restoreRunningTurnSnapshot,
       getAssistantTurnByChatId,
       updateUserItem,
+      replaceDraftItems,
       clearThreadActivity,
       clearConfirmedLocalTurn,
       getThreadPath,
@@ -4092,6 +4125,7 @@ export function ChatThreadDraftProvider({ children }) {
       subscribeThreadActivity,
       updateAssistantTurn,
       updateUserItem,
+      replaceDraftItems,
     ]
   );
 
