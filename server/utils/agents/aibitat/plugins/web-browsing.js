@@ -23,7 +23,7 @@ const webBrowsing = {
               .toString()
               .replace(/\B(?=(\d{3})+(?!\d))/g, ","),
           description:
-            "Search the internet for real-time information. Look online for current news, recent updates, latest changes, or any information not available locally. Browse the web to find answers about current events, prices, weather, or live data.",
+            "Search the internet for current news, recent updates, regulations, announcements, or information unavailable from a dedicated tool. Do not use this for cryptocurrency prices, quotes, 24-hour changes, volume, bid, ask, spread, or exchange comparisons when crypto_price or crypto_market_snapshot is available; use the specialized crypto tool first.",
           examples: [
             {
               prompt: "Look online for recent changes to AnythingLLM",

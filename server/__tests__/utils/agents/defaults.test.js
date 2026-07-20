@@ -2,7 +2,9 @@
 process.env.STORAGE_DIR = __dirname;
 process.env.NODE_ENV = "test";
 
-const { SystemPromptVariables } = require("../../../models/systemPromptVariables");
+const {
+  SystemPromptVariables,
+} = require("../../../models/systemPromptVariables");
 const Provider = require("../../../utils/agents/aibitat/providers/ai-provider");
 
 jest.mock("../../../models/systemPromptVariables");
@@ -42,27 +44,37 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
     };
     const user = { id: 1 };
     const provider = "openai";
-    const expectedPrompt = await Provider.systemPrompt({ provider, workspace, user });
+    const expectedPrompt = await Provider.systemPrompt({
+      provider,
+      workspace,
+      user,
+    });
     const definition = await WORKSPACE_AGENT.getDefinition(
       provider,
       workspace,
       user
     );
-    expect(definition.role).toBe(expectedPrompt);
-    expect(SystemPromptVariables.expandSystemPromptVariables).not.toHaveBeenCalled();
+    expect(definition.role.startsWith(expectedPrompt)).toBe(true);
+    expect(
+      SystemPromptVariables.expandSystemPromptVariables
+    ).not.toHaveBeenCalled();
   });
 
   it("should use workspace system prompt with variable expansion when openAiPrompt exists", async () => {
     const workspace = {
       id: 1,
       name: "Test Workspace",
-      openAiPrompt: "You are a helpful assistant for {workspace.name}. The current user is {user.name}.",
+      openAiPrompt:
+        "You are a helpful assistant for {workspace.name}. The current user is {user.name}.",
     };
     const user = { id: 1 };
     const provider = "openai";
 
-    const expandedPrompt = "You are a helpful assistant for Test Workspace. The current user is John Doe.";
-    SystemPromptVariables.expandSystemPromptVariables.mockResolvedValue(expandedPrompt);
+    const expandedPrompt =
+      "You are a helpful assistant for Test Workspace. The current user is John Doe.";
+    SystemPromptVariables.expandSystemPromptVariables.mockResolvedValue(
+      expandedPrompt
+    );
 
     const definition = await WORKSPACE_AGENT.getDefinition(
       provider,
@@ -70,12 +82,10 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
       user
     );
 
-    expect(SystemPromptVariables.expandSystemPromptVariables).toHaveBeenCalledWith(
-      workspace.openAiPrompt,
-      user.id,
-      workspace.id
-    );
-    expect(definition.role).toBe(expandedPrompt);
+    expect(
+      SystemPromptVariables.expandSystemPromptVariables
+    ).toHaveBeenCalledWith(workspace.openAiPrompt, user.id, workspace.id);
+    expect(definition.role.startsWith(expandedPrompt)).toBe(true);
   });
 
   it("should handle workspace system prompt without user context", async () => {
@@ -86,8 +96,11 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
     };
     const user = null;
     const provider = "lmstudio";
-    const expandedPrompt = "You are a helpful assistant. Today is January 1, 2024.";
-    SystemPromptVariables.expandSystemPromptVariables.mockResolvedValue(expandedPrompt);
+    const expandedPrompt =
+      "You are a helpful assistant. Today is January 1, 2024.";
+    SystemPromptVariables.expandSystemPromptVariables.mockResolvedValue(
+      expandedPrompt
+    );
 
     const definition = await WORKSPACE_AGENT.getDefinition(
       provider,
@@ -95,12 +108,10 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
       user
     );
 
-    expect(SystemPromptVariables.expandSystemPromptVariables).toHaveBeenCalledWith(
-      workspace.openAiPrompt,
-      null,
-      workspace.id
-    );
-    expect(definition.role).toBe(expandedPrompt);
+    expect(
+      SystemPromptVariables.expandSystemPromptVariables
+    ).toHaveBeenCalledWith(workspace.openAiPrompt, null, workspace.id);
+    expect(definition.role.startsWith(expandedPrompt)).toBe(true);
   });
 
   it("should return functions array in definition", async () => {
@@ -116,7 +127,17 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
     expect(definition).toHaveProperty("functions");
     expect(Array.isArray(definition.functions)).toBe(true);
     expect(definition.functions).toEqual(
-      expect.arrayContaining(["document-ingest-agent"])
+      expect.arrayContaining([
+        "document-ingest-agent",
+        "crypto-market-agent#crypto_price",
+        "crypto-market-agent#crypto_market_snapshot",
+      ])
+    );
+    expect(
+      definition.functions.indexOf("crypto-market-agent#crypto_price")
+    ).toBeLessThan(definition.functions.indexOf("web-browsing"));
+    expect(definition.role).toContain(
+      "you MUST use crypto_price or crypto_market_snapshot before web-browsing"
     );
   });
 
@@ -130,13 +151,17 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
       null
     );
 
-    expect(definition.role).toBe(await Provider.systemPrompt({ provider, workspace, user }));
+    expect(
+      definition.role.startsWith(
+        await Provider.systemPrompt({ provider, workspace, user })
+      )
+    ).toBe(true);
     expect(definition.role).toContain("helpful ai assistant");
   });
 
   it("sorts and deduplicates dynamic agent functions", () => {
-    expect(sortedDynamicFunctions(["@@flow_b", "@@flow_a", "@@flow_b"])).toEqual(
-      ["@@flow_a", "@@flow_b"]
-    );
+    expect(
+      sortedDynamicFunctions(["@@flow_b", "@@flow_a", "@@flow_b"])
+    ).toEqual(["@@flow_a", "@@flow_b"]);
   });
 });

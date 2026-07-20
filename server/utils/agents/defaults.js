@@ -15,6 +15,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.documentIndexStatusTool.name,
   AgentPlugins.documentIngestAgent.name,
   AgentPlugins.docSummarizer.name,
+  AgentPlugins.cryptoMarketAgent.name,
   AgentPlugins.webScraping.name,
   AgentPlugins.webBrowsing.name,
   AgentPlugins.requestUserInput.name,
@@ -54,6 +55,8 @@ const SKILL_FILTER_CONFIG = {
 const SHELL_AGENT_NAME = AgentPlugins.shellAgent.name;
 const WEB_BROWSING_NAME = AgentPlugins.webBrowsing.name;
 const REQUEST_USER_INPUT_FUNCTION = `${AgentPlugins.requestUserInput.name}#request-user-input`;
+const CRYPTO_PRICE_FUNCTION = `${AgentPlugins.cryptoMarketAgent.name}#crypto_price`;
+const CRYPTO_SNAPSHOT_FUNCTION = `${AgentPlugins.cryptoMarketAgent.name}#crypto_market_snapshot`;
 
 function uniqueFunctions(functions = []) {
   return [...new Set((functions || []).filter(Boolean))];
@@ -113,6 +116,14 @@ const WORKSPACE_AGENT = {
     if (agentFunctions.includes(AgentPlugins.saveMemory.name)) {
       basePrompt +=
         "\n\nWhen the user explicitly asks you to remember, permanently save, write into long-term memory, or keep something for future chats, you MUST call save_memory and wait for the user approval result. save_memory stores account-level long-term memory. Do not use rag-memory.store for account-level preferences, facts, projects, decisions, open topics, interests, or sensitive memories; rag-memory.store is only for this workspace's vector database.";
+    }
+
+    if (
+      agentFunctions.includes(CRYPTO_PRICE_FUNCTION) ||
+      agentFunctions.includes(CRYPTO_SNAPSHOT_FUNCTION)
+    ) {
+      basePrompt +=
+        "\n\nCryptocurrency tool routing policy: For current cryptocurrency prices, market quotes, 24-hour changes, volume, bid, ask, spread, or exchange comparison, you MUST use crypto_price or crypto_market_snapshot before web-browsing. Use web-browsing for cryptocurrency news, regulation, project announcements, or broader research, and only use it as a market-data fallback when the specialized crypto tool returns an explicit unavailable/error result. Do not call multiple unrelated tools for a simple cryptocurrency quote request.";
     }
 
     return {
