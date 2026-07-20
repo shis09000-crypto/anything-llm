@@ -21,7 +21,7 @@ run_server() {
     # Disable Prisma CLI telemetry (https://www.prisma.io/docs/orm/tools/prisma-cli#how-to-opt-out-of-data-collection)
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
-    node scripts/prisma-runtime.js migrate deploy &&
+    node scripts/prisma-runtime.js --execute migrate deploy &&
     exec node /app/server/index.js
 }
 
