@@ -1,82 +1,61 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
-
-const crypto = require("crypto");
-const fs = require("fs");
 const path = require("path");
-const { MASTER_KEY_ENV } = require("../utils/security/constants");
-
-const serverRoot = path.join(__dirname, "..");
-const DEFAULT_ENV_FILE =
-  process.env.NODE_ENV === "development"
-    ? ".env.development"
-    : process.env.DESKTOP_ENV_PATH || ".env";
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
 function hasArg(name) {
   return process.argv.includes(name);
 }
 
-function getArgValue(name, fallback = null) {
+function arg(name, fallback = null) {
   const index = process.argv.indexOf(name);
-  if (index === -1) return fallback;
-  return process.argv[index + 1] ?? fallback;
-}
-
-function parseEnvLines(content) {
-  const values = {};
-  for (const line of content.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
-    if (!match) continue;
-    values[match[1]] = match[2].replace(/^['"]|['"]$/g, "");
-  }
-  return values;
-}
-
-function isValidMasterKey(value) {
-  return typeof value === "string" && /^[a-fA-F0-9]{64}$/.test(value.trim());
-}
-
-function keyFingerprint(value) {
-  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
-}
-
-function appendEnvValue(filePath, key, value) {
-  const existing = fs.existsSync(filePath)
-    ? fs.readFileSync(filePath, "utf8")
-    : "";
-  const prefix = existing && !existing.endsWith("\n") ? "\n" : "";
-  const body = `${prefix}${key}=${value}\n`;
-  fs.appendFileSync(filePath, body, { mode: 0o600 });
-  try {
-    fs.chmodSync(filePath, 0o600);
-  } catch {}
+  return index >= 0 ? process.argv[index + 1] ?? fallback : fallback;
 }
 
 async function main() {
-  const apply = hasArg("--apply");
-  const envFile = getArgValue("--env-file", DEFAULT_ENV_FILE);
-  const envPath = path.isAbsolute(envFile)
-    ? envFile
-    : path.join(serverRoot, envFile);
-  const content = fs.existsSync(envPath)
-    ? fs.readFileSync(envPath, "utf8")
-    : "";
-  const values = parseEnvLines(content);
-  const current = values[MASTER_KEY_ENV]?.trim();
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: ["security_key_registry", "_prisma_migrations"],
+  });
 
-  if (isValidMasterKey(current)) {
+  const envFile = arg("--env-file");
+  if (envFile) {
+    const {
+      EnvFileKeyProvider,
+    } = require("../utils/security/keyCustody/providers");
+    const {
+      resetKeyProviderForTests,
+    } = require("../utils/security/keyCustody");
+    resetKeyProviderForTests(
+      new EnvFileKeyProvider({
+        env: process.env,
+        envPath: path.resolve(envFile),
+      })
+    );
+  }
+  const { health } = require("../utils/security/keyCustody");
+  const { runSecurityPreflight } = require("../utils/security/keyLifecycle");
+
+  if (!apply) {
     console.log(
       JSON.stringify(
         {
           success: true,
-          mode: apply ? "apply" : "dry-run",
-          envFile: envPath,
-          action: "unchanged",
-          keyPresent: true,
-          keyValid: true,
-          keyFingerprint: keyFingerprint(current),
+          mode: "dry-run",
+          provider: health(),
+          action: health().ok
+            ? "would-verify-existing"
+            : "would-bootstrap-only-if-no-historical-ciphertext",
+          delegatedTo: "athena-keyctl bootstrap",
+          ...(requestedApply
+            ? {
+                instruction:
+                  "Apply requires --apply --execute and APP_ENV or --env.",
+              }
+            : {}),
         },
         null,
         2
@@ -85,25 +64,17 @@ async function main() {
     return;
   }
 
-  if (current) {
-    throw new Error(
-      `${MASTER_KEY_ENV} exists in ${envPath} but is not a 64-character hex key. Refusing to overwrite it automatically.`
-    );
-  }
-
-  const generated = crypto.randomBytes(32).toString("hex");
-  if (apply) appendEnvValue(envPath, MASTER_KEY_ENV, generated);
-
+  const runtime = await runSecurityPreflight({
+    runtimeRole: "legacy-ensure-key-wrapper",
+    allowGenerate: true,
+  });
   console.log(
     JSON.stringify(
       {
-        success: true,
-        mode: apply ? "apply" : "dry-run",
-        envFile: envPath,
-        action: apply ? "created" : "would-create",
-        keyPresent: apply,
-        keyValid: apply,
-        keyFingerprint: keyFingerprint(generated),
+        success: runtime.status === "ready",
+        mode: "apply",
+        delegatedTo: "athena-keyctl bootstrap",
+        runtime,
       },
       null,
       2
@@ -114,10 +85,14 @@ async function main() {
 main().catch((error) => {
   console.error(
     JSON.stringify(
-      { success: false, error: error?.message || String(error) },
+      {
+        success: false,
+        error: error?.message || String(error),
+        recovery: "Use: node server/scripts/athena-keyctl.js status|recover",
+      },
       null,
       2
     )
   );
-  process.exit(1);
+  process.exitCode = 1;
 });

@@ -4,8 +4,10 @@ const TEST_KEY =
 let conversationKeys = [];
 let cryptoMetadata = [];
 let auditChats = [];
+let chainChats = [];
 
 const mockPrisma = {
+  $transaction: jest.fn(async (callback) => callback(mockPrisma)),
   $executeRawUnsafe: jest.fn(),
   $queryRawUnsafe: jest.fn(),
   workspace_chats: {
@@ -43,7 +45,10 @@ describe("WorkspaceChats chat history encryption", () => {
     conversationKeys = [];
     cryptoMetadata = [];
     auditChats = [];
+    chainChats = [];
     process.env.ENCRYPTION_MASTER_KEY = TEST_KEY;
+    mockPrisma.workspace_chats.findFirst.mockReset().mockResolvedValue(null);
+    mockPrisma.workspace_chats.findMany.mockReset().mockResolvedValue([]);
     mockPrisma.$executeRawUnsafe.mockImplementation((sql, ...params) => {
       if (sql.includes(`"workspace_chat_conversation_keys"`)) {
         if (sql.includes("INSERT OR IGNORE")) {
@@ -102,6 +107,48 @@ describe("WorkspaceChats chat history encryption", () => {
         }
       }
       if (sql.includes(`FROM "workspace_chat_crypto_metadata"`)) {
+        if (sql.includes(`WITH "predecessor_metadata"`)) {
+          const scopeHash = params[0];
+          const startChatId = Number(params[1]);
+          const predecessor = cryptoMetadata
+            .filter(
+              (row) =>
+                row.scope_hash === scopeHash &&
+                Number(row.chat_id) < startChatId
+            )
+            .sort(
+              (left, right) => Number(right.chat_id) - Number(left.chat_id)
+            )[0];
+          const latest = chainChats
+            .filter(
+              (row) =>
+                Number(row.workspaceId) === Number(params[2]) &&
+                (row.user_id ?? null) === (params[3] ?? null) &&
+                (row.thread_id ?? null) === (params[4] ?? null) &&
+                (row.api_session_id ?? null) === (params[5] ?? null) &&
+                Number(row.id) < Number(params[6])
+            )
+            .sort((left, right) => Number(right.id) - Number(left.id))[0];
+          return Promise.resolve([
+            {
+              chat_id: predecessor?.chat_id ?? null,
+              chain_hash: predecessor?.chain_hash ?? null,
+              latest_chat_id: latest?.id ?? null,
+            },
+          ]);
+        }
+        if (sql.includes(`WHERE "scope_hash" = ?`)) {
+          const tail = cryptoMetadata
+            .filter((row) => row.scope_hash === params[0])
+            .sort((left, right) => Number(right.chat_id) - Number(left.chat_id))[0];
+          return Promise.resolve([
+            {
+              chat_id: tail?.chat_id ?? null,
+              chain_hash: tail?.chain_hash ?? null,
+              latest_chat_id: tail?.chat_id ?? null,
+            },
+          ]);
+        }
         if (sql.includes(`WHERE "chat_id" >`)) {
           const cursor = cursorFromSql(sql, "chat_id");
           return Promise.resolve(
@@ -358,6 +405,145 @@ describe("WorkspaceChats chat history encryption", () => {
       prev_chain_hash: null,
     });
     expect(cryptoMetadata[0].chain_hash).toHaveLength(64);
+    expect(mockPrisma.workspace_chats.findMany).not.toHaveBeenCalled();
+  });
+
+  it("appends only new metadata and preserves the previous chain hash", async () => {
+    let nextId = 40;
+    mockPrisma.workspace_chats.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: nextId++, ...data })
+    );
+
+    const { WorkspaceChats } = require("../../models/workspaceChats");
+    await WorkspaceChats.new({
+      workspaceId: 10,
+      prompt: "first incremental prompt",
+      response: { text: "first incremental response" },
+      user: { id: 2 },
+      threadId: 3,
+      apiSessionId: "incremental-session",
+    });
+    const firstHash = cryptoMetadata[0].chain_hash;
+    await WorkspaceChats.new({
+      workspaceId: 10,
+      prompt: "second incremental prompt",
+      response: { text: "second incremental response" },
+      user: { id: 2 },
+      threadId: 3,
+      apiSessionId: "incremental-session",
+    });
+
+    expect(cryptoMetadata).toHaveLength(2);
+    expect(cryptoMetadata[1].prev_chain_hash).toBe(firstHash);
+    expect(mockPrisma.workspace_chats.findMany).not.toHaveBeenCalled();
+    const {
+      chatChainRuntimeMetrics,
+    } = require("../../utils/security/chatHistorySerialEncryption");
+    expect(chatChainRuntimeMetrics()).toMatchObject({
+      chat_chain_incremental_appends: 2,
+      chat_chain_rebuild_fallbacks: 0,
+    });
+  });
+
+  it("uses one chain-tail lookup for a same-scope bulk insert", async () => {
+    let nextId = 50;
+    mockPrisma.workspace_chats.create.mockImplementation(({ data }) =>
+      Promise.resolve({ id: nextId++, ...data })
+    );
+
+    const { WorkspaceChats } = require("../../models/workspaceChats");
+    const result = await WorkspaceChats.bulkCreate([
+      {
+        workspaceId: 10,
+        user_id: 2,
+        thread_id: 3,
+        api_session_id: "bulk-session",
+        prompt: "bulk prompt one",
+        response: "bulk response one",
+      },
+      {
+        workspaceId: 10,
+        user_id: 2,
+        thread_id: 3,
+        api_session_id: "bulk-session",
+        prompt: "bulk prompt two",
+        response: "bulk response two",
+      },
+    ]);
+
+    expect(result.chats).toHaveLength(2);
+    expect(cryptoMetadata).toHaveLength(2);
+    expect(cryptoMetadata[1].prev_chain_hash).toBe(
+      cryptoMetadata[0].chain_hash
+    );
+    const tailQueries = mockPrisma.$queryRawUnsafe.mock.calls.filter(([sql]) =>
+      String(sql).includes(`WITH "tail" AS`)
+    );
+    expect(tailQueries).toHaveLength(1);
+    expect(mockPrisma.workspace_chats.findMany).not.toHaveBeenCalled();
+  });
+
+  it("rebuilds only the affected chain suffix regardless of earlier history", async () => {
+    const scope = {
+      workspaceId: 10,
+      userId: 2,
+      threadId: 3,
+      apiSessionId: "suffix-session",
+    };
+    const {
+      appendChatCryptoMetadataForRows,
+      chatChainRuntimeMetrics,
+      encryptSerialChatField,
+      rebuildChatCryptoChainFromChatId,
+      resetChatChainRuntimeMetrics,
+    } = require("../../utils/security/chatHistorySerialEncryption");
+    const encryptedRow = async (id) => ({
+      id,
+      public_id: `chat-${id}`,
+      workspaceId: scope.workspaceId,
+      user_id: scope.userId,
+      thread_id: scope.threadId,
+      api_session_id: scope.apiSessionId,
+      prompt: await encryptSerialChatField(`prompt-${id}`, scope, mockPrisma),
+      response: await encryptSerialChatField(
+        `response-${id}`,
+        scope,
+        mockPrisma
+      ),
+      lastUpdatedAt: new Date("2026-07-18T00:00:00.000Z"),
+    });
+    const predecessor = await encryptedRow(999);
+    const suffix = await Promise.all(
+      [1000, 1001, 1002].map((id) => encryptedRow(id))
+    );
+    chainChats = [predecessor, ...suffix];
+    await appendChatCryptoMetadataForRows([predecessor], scope, {
+      client: mockPrisma,
+    });
+    mockPrisma.workspace_chats.findMany.mockImplementation(({ where }) =>
+      Promise.resolve(
+        chainChats.filter(
+          (row) => Number(row.id) >= Number(where?.id?.gte || 0)
+        )
+      )
+    );
+    resetChatChainRuntimeMetrics();
+
+    const result = await rebuildChatCryptoChainFromChatId(scope, 1000, {
+      client: mockPrisma,
+    });
+
+    expect(result).toMatchObject({ rebuilt: 3, fallback: false });
+    expect(mockPrisma.workspace_chats.findMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: { gte: 1000 } }),
+      orderBy: { id: "asc" },
+    });
+    expect(chatChainRuntimeMetrics()).toMatchObject({
+      chat_chain_suffix_rebuilds: 1,
+      chat_chain_suffix_rows: 3,
+      chat_chain_full_rebuilds: 0,
+      chat_chain_rebuild_fallbacks: 0,
+    });
   });
 
   it("detects tampered serial metadata during integrity audit", async () => {

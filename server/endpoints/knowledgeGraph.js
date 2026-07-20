@@ -55,7 +55,9 @@ function knowledgeGraphEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -106,7 +108,9 @@ function knowledgeGraphEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -128,7 +132,9 @@ function knowledgeGraphEndpoints(app) {
         response.status(result.success ? 200 : 409).json(result);
       } catch (error) {
         console.error("[KnowledgeGraph] resolve-node failed:", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -154,7 +160,9 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ success: true, context });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -186,7 +194,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -219,7 +227,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -236,7 +244,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ stats });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -254,7 +262,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ repair });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -276,7 +284,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ result });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -298,7 +306,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ issue });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -317,7 +325,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ concepts });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -350,7 +358,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ evidence });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -381,7 +389,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ evidence });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -405,7 +413,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ usage });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -430,7 +438,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(200).json({ metrics });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -449,7 +457,7 @@ function knowledgeGraphEndpoints(app) {
         response.status(result.queued ? 200 : 404).json({ result });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );

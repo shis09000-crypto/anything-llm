@@ -1,0 +1,80 @@
+name: P0 Security and Stability Gate
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "server/**"
+      - "collector/**"
+      - "frontend/**"
+      - "ios/**"
+      - "docker/**"
+      - ".github/workflows/**"
+
+concurrency:
+  group: p0-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: |
+            yarn.lock
+            server/yarn.lock
+            collector/yarn.lock
+            frontend/yarn.lock
+      - name: Install dependencies
+        run: |
+          yarn install --frozen-lockfile
+          yarn --cwd server install --frozen-lockfile
+          PUPPETEER_SKIP_DOWNLOAD=true yarn --cwd collector install --frozen-lockfile
+          yarn --cwd frontend install --frozen-lockfile
+      - name: Prepare databases
+        run: |
+          yarn setup:envs
+          yarn prisma:generate
+          node server/scripts/prisma-runtime.js migrate deploy
+          node server/scripts/auth-prisma-runtime.js migrate deploy
+      - name: Server and Collector tests
+        run: yarn test --runInBand --detectOpenHandles
+      - name: Frontend node tests
+        run: find frontend/src -name '*.node.test.mjs' -print0 | xargs -0 node --test
+      - name: Sync durability fault injection
+        run: >-
+          yarn test --runInBand
+          server/__tests__/endpoints/syncV2Mutations.test.js
+          server/__tests__/models/syncV2.test.js
+          server/__tests__/utils/requestBodyPolicy.test.js
+      - name: Database and custody audits
+        run: |
+          yarn --cwd server p0:db-audit
+          yarn --cwd server key-custody:audit
+          yarn --cwd server data-access:enforce
+          yarn check:maintainability
+          node scripts/p0-supply-chain-gate.js
+      - name: Lint and frontend build
+        run: |
+          yarn lint:ci
+          yarn --cwd frontend build
+      - name: Docker configuration smoke
+        run: |
+          docker compose -f docker/docker-compose.yml config >/dev/null
+          docker compose -f docker/docker-compose.modular.yml config >/dev/null
+          docker build --target collector-build -f docker/Dockerfile .
+
+  ios-gate:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Build and test Athena iOS
+        run: |
+          SIMULATOR_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; data=json.load(sys.stdin); print(next(device["udid"] for values in data["devices"].values() for device in values if device.get("isAvailable") and "iPhone" in device.get("name", "")))')
+          xcodebuild test -project ios/Athena/Athena.xcodeproj -scheme Athena -destination "id=${SIMULATOR_ID}" CODE_SIGNING_ALLOWED=NO

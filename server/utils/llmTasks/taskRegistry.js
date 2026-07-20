@@ -38,6 +38,19 @@ const TASK_REGISTRY = {
   workspace_overview_narrative: {
     dynamic: "workspace_chat_or_system",
   },
+  workspace_cognitive_extract: {
+    tier: "rough",
+  },
+  workspace_cognitive_screen: {
+    tier: "rough",
+  },
+  workspace_cognitive_refine: {
+    tier: "refined",
+    fallbackTier: "rough",
+  },
+  meeting_delegate_response: {
+    dynamic: "workspace_chat_or_system",
+  },
   mindmap_generation: {
     dynamic: "workspace_chat",
   },

@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const { v4 } = require("uuid");
 const prisma = require("../utils/prisma");
 /**
@@ -104,8 +107,7 @@ const EmbedConfig = {
 
       return embedConfig || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("embedConfig.get", error);
     }
   },
 
@@ -120,8 +122,7 @@ const EmbedConfig = {
 
       return embedConfig || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("embedConfig.getWithWorkspace", error);
     }
   },
 
@@ -132,8 +133,7 @@ const EmbedConfig = {
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("embedConfig.delete", error);
     }
   },
 
@@ -146,8 +146,7 @@ const EmbedConfig = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embedConfig.where", error);
     }
   },
 
@@ -170,8 +169,7 @@ const EmbedConfig = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embedConfig.whereWithWorkspace", error);
     }
   },
 

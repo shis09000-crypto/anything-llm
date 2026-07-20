@@ -23,7 +23,7 @@ function mcpServersEndpoints(app) {
         });
       } catch (error) {
         console.error("Error force reloading MCP servers:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
           servers: [],
@@ -44,7 +44,7 @@ function mcpServersEndpoints(app) {
         });
       } catch (error) {
         console.error("Error listing MCP servers:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -67,7 +67,7 @@ function mcpServersEndpoints(app) {
         });
       } catch (error) {
         console.error("Error toggling MCP server:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -88,7 +88,7 @@ function mcpServersEndpoints(app) {
         });
       } catch (error) {
         console.error("Error deleting MCP server:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -114,7 +114,7 @@ function mcpServersEndpoints(app) {
         });
       } catch (error) {
         console.error("Error toggling MCP tool:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
           suppressedTools: [],

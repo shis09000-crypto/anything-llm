@@ -18,6 +18,22 @@ export default function SessionsDevicesCard() {
     refreshSessions();
   }, [refreshSessions]);
 
+  useEffect(() => {
+    function refreshVerifiedSessions(event) {
+      if (["sessions", "clients"].includes(event.detail?.kind))
+        refreshSessions();
+    }
+    window.addEventListener(
+      "athena-sync-v2-security-refresh",
+      refreshVerifiedSessions
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-sync-v2-security-refresh",
+        refreshVerifiedSessions
+      );
+  }, [refreshSessions]);
+
   async function signOutOthers() {
     const confirmed = await showAppConfirm({
       tone: "warning",
@@ -27,7 +43,11 @@ export default function SessionsDevicesCard() {
       cancelText: "取消",
     });
     if (!confirmed) return;
-    await AccountSettingsApi.signOutOtherSessions();
+    const result = await AccountSettingsApi.signOutOtherSessions();
+    if (!result?.success) {
+      showToast(result?.error || "退出其它会话失败。", "error");
+      return;
+    }
     await refreshSessions();
     showToast("其它设备已退出。", "success");
   }
@@ -60,13 +80,19 @@ export default function SessionsDevicesCard() {
       cancelText: "取消",
     });
     if (!confirmed) return;
-    const result = await AccountSettingsApi.signOutSession(session.clientId);
+    const result = await AccountSettingsApi.signOutSession(
+      session.sessionId || session.clientId
+    );
     if (!result?.success) {
       showToast(result?.error || "退出设备失败。", "error");
       return;
     }
+    if (session.current) {
+      window.location.assign("/login");
+      return;
+    }
     await refreshSessions();
-    showToast("设备已退出。", "success");
+    showToast("会话已退出。", "success");
   }
 
   return (
@@ -97,6 +123,11 @@ export default function SessionsDevicesCard() {
         </div>
       </div>
       <div className="mt-2 grid gap-3">
+        {!sessions.length && (
+          <div className="rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-500">
+            暂无可用登录会话。
+          </div>
+        )}
         {sessions.map((session) => (
           <div
             key={session.id}
@@ -136,7 +167,7 @@ export default function SessionsDevicesCard() {
                 {formatDateTime(session.lastActiveAt)}
               </div>
             </div>
-            {!session.current && !session.revokedAt && (
+            {!session.revokedAt && (
               <AppButton
                 type="button"
                 size="sm"

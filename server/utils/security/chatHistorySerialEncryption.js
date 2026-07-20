@@ -5,7 +5,7 @@ const {
   encryptSecret,
   isEncryptedSecret,
 } = require("./encryption");
-const { MASTER_KEY_ENV } = require("./constants");
+const { resolveActiveKey } = require("./keyCustody");
 
 const CHAT_HISTORY_CRYPTO_VERSION = "athena-chat-history:v2";
 const CHAT_HISTORY_KEY_CRYPTO_VERSION = "athena-chat-key:v1";
@@ -14,10 +14,21 @@ const CHAT_HISTORY_V2_PREFIX = "chat:v2:";
 const CHAT_HISTORY_V2_FORMAT = "chat:v2";
 const CHAT_HISTORY_SERIAL_REQUIRED_ENV =
   "CHAT_HISTORY_SERIAL_ENCRYPTION_REQUIRED";
+const CHAT_HISTORY_INCREMENTAL_CHAIN_APPEND_ENV =
+  "CHAT_HISTORY_INCREMENTAL_CHAIN_APPEND";
+const CHAT_HISTORY_SUFFIX_CHAIN_REBUILD_ENV =
+  "CHAT_HISTORY_SUFFIX_CHAIN_REBUILD";
 const CONVERSATION_KEY_BYTES = 32;
 
 let tablesReady = false;
 const keyCache = new Map();
+const chainRuntimeMetrics = {
+  chat_chain_incremental_appends: 0,
+  chat_chain_suffix_rebuilds: 0,
+  chat_chain_suffix_rows: 0,
+  chat_chain_full_rebuilds: 0,
+  chat_chain_rebuild_fallbacks: 0,
+};
 
 function chatHistorySerialEncryptionEnabled(env = process.env) {
   if (
@@ -30,12 +41,32 @@ function chatHistorySerialEncryptionEnabled(env = process.env) {
     String(env.CHAT_HISTORY_ENCRYPTION_DISABLED || "").toLowerCase() === "true"
   )
     return false;
-  return Boolean(String(env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function chatHistorySerialEncryptionRequired(env = process.env) {
   return (
     String(env[CHAT_HISTORY_SERIAL_REQUIRED_ENV] || "").toLowerCase() === "true"
+  );
+}
+
+function incrementalChatChainAppendEnabled(env = process.env) {
+  return (
+    String(
+      env[CHAT_HISTORY_INCREMENTAL_CHAIN_APPEND_ENV] || "true"
+    ).toLowerCase() !== "false"
+  );
+}
+
+function suffixChatChainRebuildEnabled(env = process.env) {
+  return (
+    String(
+      env[CHAT_HISTORY_SUFFIX_CHAIN_REBUILD_ENV] || "true"
+    ).toLowerCase() !== "false"
   );
 }
 
@@ -118,6 +149,14 @@ function keyIdForScope(scope = {}) {
 
 async function ensureSerialEncryptionTables(client = prisma) {
   if (tablesReady && client === prisma) return;
+  // The existing history index places `include` before `id`, so the chain-tail
+  // safety query cannot satisfy ORDER BY id DESC from the index and becomes
+  // history-length dependent. This additive index keeps the business tail
+  // check O(log n) without changing chat visibility semantics.
+  await client.$executeRawUnsafe(`
+    CREATE INDEX IF NOT EXISTS "workspace_chats_scope_tail_idx"
+    ON "workspace_chats"("workspaceId", "user_id", "thread_id", "api_session_id", "id")
+  `);
   await client.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_chat_conversation_keys" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -439,6 +478,7 @@ async function rebuildChatCryptoChainForScope(
   { client = prisma, reencrypt = false } = {}
 ) {
   if (!chatHistorySerialEncryptionEnabled()) return { rebuilt: 0 };
+  chainRuntimeMetrics.chat_chain_full_rebuilds += 1;
   await ensureSerialEncryptionTables(client);
   const scoped = whereForScope(scope);
   const rows = await client.workspace_chats.findMany({
@@ -496,6 +536,245 @@ async function rebuildChatCryptoChainForScope(
   }
 
   return { rebuilt, reencrypted };
+}
+
+async function rebuildChatCryptoChainFromChatId(
+  scope,
+  startChatId,
+  { client = prisma, reencrypt = false } = {}
+) {
+  if (!chatHistorySerialEncryptionEnabled()) {
+    return { rebuilt: 0, reencrypted: 0, fallback: false };
+  }
+  const normalizedStartChatId = Number(startChatId);
+  if (!Number.isInteger(normalizedStartChatId) || normalizedStartChatId <= 0) {
+    throw new Error("chat_history_suffix_start_required");
+  }
+  if (!suffixChatChainRebuildEnabled()) {
+    const rebuilt = await rebuildChatCryptoChainForScope(scope, {
+      client,
+      reencrypt,
+    });
+    return { ...rebuilt, fallback: false };
+  }
+
+  await ensureSerialEncryptionTables(client);
+  const scoped = whereForScope(scope);
+  const expectedScopeHash = scopeHash(scoped.normalized);
+  const predecessorRows = await client.$queryRawUnsafe(
+    `WITH "predecessor_metadata" AS (
+       SELECT "chat_id", "chain_hash"
+         FROM "workspace_chat_crypto_metadata"
+        WHERE "scope_hash" = ?
+          AND "chat_id" < ?
+        ORDER BY "chat_id" DESC
+        LIMIT 1
+     )
+     SELECT "predecessor_metadata"."chat_id",
+            "predecessor_metadata"."chain_hash",
+            (
+              SELECT "id"
+                FROM "workspace_chats"
+               WHERE "workspaceId" = ?
+                 AND "user_id" IS ?
+                 AND "thread_id" IS ?
+                 AND "api_session_id" IS ?
+                 AND "id" < ?
+               ORDER BY "id" DESC
+               LIMIT 1
+            ) AS "latest_chat_id"
+       FROM (SELECT 1) AS "seed"
+       LEFT JOIN "predecessor_metadata" ON 1 = 1`,
+    expectedScopeHash,
+    normalizedStartChatId,
+    scoped.normalized.workspaceId,
+    scoped.normalized.userId,
+    scoped.normalized.threadId,
+    scoped.normalized.apiSessionId,
+    normalizedStartChatId
+  );
+  const predecessor = predecessorRows?.[0] || null;
+  const metadataChatId =
+    predecessor?.chat_id == null ? null : Number(predecessor.chat_id);
+  const latestChatId =
+    predecessor?.latest_chat_id == null
+      ? null
+      : Number(predecessor.latest_chat_id);
+
+  if (metadataChatId !== latestChatId) {
+    chainRuntimeMetrics.chat_chain_rebuild_fallbacks += 1;
+    const rebuilt = await rebuildChatCryptoChainForScope(scope, {
+      client,
+      reencrypt,
+    });
+    return { ...rebuilt, fallback: true };
+  }
+
+  const rows = await client.workspace_chats.findMany({
+    where: {
+      ...scoped.where,
+      id: { gte: normalizedStartChatId },
+    },
+    orderBy: { id: "asc" },
+  });
+  let previousHash = predecessor?.chain_hash || null;
+  let rebuilt = 0;
+  let reencrypted = 0;
+
+  for (const row of rows) {
+    let chat = row;
+    if (
+      reencrypt ||
+      !isSerialEncryptedChatField(row.prompt) ||
+      !isSerialEncryptedChatField(row.response)
+    ) {
+      const prompt = await decryptChatFieldCompat(row.prompt, client);
+      const response = await decryptChatFieldCompat(row.response, client);
+      const encryptedPrompt = await encryptSerialChatField(
+        prompt,
+        scoped.normalized,
+        client
+      );
+      const encryptedResponse = await encryptSerialChatField(
+        response,
+        scoped.normalized,
+        client
+      );
+      if (
+        encryptedPrompt !== row.prompt ||
+        encryptedResponse !== row.response
+      ) {
+        chat = await client.workspace_chats.update({
+          where: { id: Number(row.id) },
+          data: {
+            prompt: encryptedPrompt,
+            response: encryptedResponse,
+            lastUpdatedAt: row.lastUpdatedAt,
+          },
+        });
+        reencrypted += 1;
+      } else {
+        chat = { ...row, prompt: encryptedPrompt, response: encryptedResponse };
+      }
+    }
+
+    const metadata = await upsertChatCryptoMetadata(chat, previousHash, client);
+    if (!metadata) {
+      chainRuntimeMetrics.chat_chain_rebuild_fallbacks += 1;
+      const fallback = await rebuildChatCryptoChainForScope(scope, {
+        client,
+        reencrypt,
+      });
+      return { ...fallback, fallback: true };
+    }
+    previousHash = metadata.chainHash;
+    rebuilt += 1;
+  }
+
+  chainRuntimeMetrics.chat_chain_suffix_rebuilds += 1;
+  chainRuntimeMetrics.chat_chain_suffix_rows += rebuilt;
+  return {
+    rebuilt,
+    reencrypted,
+    startChatId: normalizedStartChatId,
+    fallback: false,
+  };
+}
+
+async function appendChatCryptoMetadataForRows(
+  rows = [],
+  scope,
+  { client = prisma } = {}
+) {
+  if (!chatHistorySerialEncryptionEnabled()) {
+    return { appended: 0, rebuilt: 0, fallback: false };
+  }
+
+  const chats = [...(Array.isArray(rows) ? rows : [rows])]
+    .filter(Boolean)
+    .sort((left, right) => Number(left.id) - Number(right.id));
+  if (!chats.length) return { appended: 0, rebuilt: 0, fallback: false };
+
+  if (!incrementalChatChainAppendEnabled()) {
+    const rebuilt = await rebuildChatCryptoChainForScope(scope, { client });
+    return { appended: 0, ...rebuilt, fallback: false };
+  }
+
+  await ensureSerialEncryptionTables(client);
+  const scoped = whereForScope(scope);
+  const expectedScopeHash = scopeHash(scoped.normalized);
+  const firstId = Number(chats[0].id);
+  const invalidScope = chats.some(
+    (chat) => scopeHash(scopeFromChat(chat)) !== expectedScopeHash
+  );
+  const tailRows = await client.$queryRawUnsafe(
+    `WITH "tail" AS (
+       SELECT "chat_id", "chain_hash"
+         FROM "workspace_chat_crypto_metadata"
+        WHERE "scope_hash" = ?
+        ORDER BY "chat_id" DESC
+        LIMIT 1
+     )
+     SELECT "tail"."chat_id",
+            "tail"."chain_hash",
+            (
+              SELECT "id"
+                FROM "workspace_chats"
+               WHERE "workspaceId" = ?
+                 AND "user_id" IS ?
+                 AND "thread_id" IS ?
+                 AND "api_session_id" IS ?
+                 AND "id" < ?
+               ORDER BY "id" DESC
+               LIMIT 1
+            ) AS "latest_chat_id"
+       FROM (SELECT 1) AS "seed"
+       LEFT JOIN "tail" ON 1 = 1`,
+    expectedScopeHash,
+    scoped.normalized.workspaceId,
+    scoped.normalized.userId,
+    scoped.normalized.threadId,
+    scoped.normalized.apiSessionId,
+    firstId
+  );
+  const tail = tailRows?.[0] || null;
+  const tailId = tail?.chat_id == null ? null : Number(tail.chat_id);
+  const latestChatId =
+    tail?.latest_chat_id == null ? null : Number(tail.latest_chat_id);
+
+  let requiresRepair =
+    invalidScope ||
+    (tailId !== null && tailId >= firstId) ||
+    latestChatId !== tailId;
+
+  if (requiresRepair) {
+    chainRuntimeMetrics.chat_chain_rebuild_fallbacks += 1;
+    const rebuilt = await rebuildChatCryptoChainForScope(scope, { client });
+    return { appended: 0, ...rebuilt, fallback: true };
+  }
+
+  let previousHash = tailId === null ? null : tail?.chain_hash || null;
+  for (const chat of chats) {
+    const metadata = await upsertChatCryptoMetadata(chat, previousHash, client);
+    if (!metadata) {
+      chainRuntimeMetrics.chat_chain_rebuild_fallbacks += 1;
+      const rebuilt = await rebuildChatCryptoChainForScope(scope, { client });
+      return { appended: 0, ...rebuilt, fallback: true };
+    }
+    previousHash = metadata.chainHash;
+  }
+  chainRuntimeMetrics.chat_chain_incremental_appends += chats.length;
+  return { appended: chats.length, rebuilt: 0, fallback: false };
+}
+
+function chatChainRuntimeMetrics() {
+  return { ...chainRuntimeMetrics };
+}
+
+function resetChatChainRuntimeMetrics() {
+  for (const key of Object.keys(chainRuntimeMetrics)) {
+    chainRuntimeMetrics[key] = 0;
+  }
 }
 
 async function decryptChatFieldCompat(value, client = prisma) {
@@ -701,9 +980,13 @@ module.exports = {
   CHAT_HISTORY_ALGORITHM,
   CHAT_HISTORY_CRYPTO_VERSION,
   CHAT_HISTORY_KEY_CRYPTO_VERSION,
+  CHAT_HISTORY_INCREMENTAL_CHAIN_APPEND_ENV,
   CHAT_HISTORY_SERIAL_REQUIRED_ENV,
+  CHAT_HISTORY_SUFFIX_CHAIN_REBUILD_ENV,
   CHAT_HISTORY_V2_PREFIX,
   auditWorkspaceChatSerialIntegrity,
+  appendChatCryptoMetadataForRows,
+  chatChainRuntimeMetrics,
   chatHistorySerialEncryptionEnabled,
   chatHistorySerialEncryptionRequired,
   decryptChatFieldCompat,
@@ -714,8 +997,12 @@ module.exports = {
   getOrCreateConversationKey,
   isAnyEncryptedChatField,
   isSerialEncryptedChatField,
+  incrementalChatChainAppendEnabled,
   normalizeChatScope,
   rebuildChatCryptoChainForScope,
+  rebuildChatCryptoChainFromChatId,
   scopeFromChat,
+  resetChatChainRuntimeMetrics,
+  suffixChatChainRebuildEnabled,
   upsertChatCryptoMetadata,
 };

@@ -16,7 +16,6 @@ import {
   installFontDiagnostics,
   installFontPlatformScope,
 } from "@/utils/fontPlatform";
-import { SoftSettingsOutletLayout } from "@/components/SoftSettings";
 
 const isDev = import.meta.env.DEV;
 const REACTWRAP = isDev ? React.Fragment : React.StrictMode;
@@ -144,11 +143,76 @@ const router = createBrowserRouter([
     element: <App />,
     children: [
       {
-        path: "/",
         lazy: async () => {
-          const { default: Main } = await import("@/pages/Main");
-          return { element: <PrivateRoute Component={Main} /> };
+          const { default: WorkspaceApplicationRuntime } = await import(
+            "@/contexts/WorkspaceApplicationRuntime"
+          );
+          return { element: <WorkspaceApplicationRuntime /> };
         },
+        children: [
+          {
+            index: true,
+            lazy: async () => {
+              const { default: Main } = await import("@/pages/Main");
+              return { element: <PrivateRoute Component={Main} /> };
+            },
+          },
+          {
+            path: "/workspace/:slug",
+            lazy: async () => {
+              const { default: WorkspaceShell } = await import(
+                "@/pages/WorkspaceShell"
+              );
+              return { element: <PrivateRoute Component={WorkspaceShell} /> };
+            },
+            children: [
+              {
+                index: true,
+                lazy: async () => {
+                  const { default: WorkspaceChat } = await import(
+                    "@/pages/WorkspaceChat"
+                  );
+                  return { element: <WorkspaceChat /> };
+                },
+              },
+              {
+                path: "t/:threadSlug",
+                lazy: async () => {
+                  const { default: WorkspaceChat } = await import(
+                    "@/pages/WorkspaceChat"
+                  );
+                  return { element: <WorkspaceChat /> };
+                },
+              },
+              {
+                path: "settings",
+                lazy: async () => {
+                  const { default: WorkspaceSettings } = await import(
+                    "@/pages/WorkspaceSettings"
+                  );
+                  return { element: <WorkspaceSettings /> };
+                },
+                children: [
+                  {
+                    index: true,
+                    lazy: async () => {
+                      const { WorkspaceSettingsDefaultRedirect } = await import(
+                        "@/pages/WorkspaceSettings"
+                      );
+                      return {
+                        element: <WorkspaceSettingsDefaultRedirect />,
+                      };
+                    },
+                  },
+                  {
+                    path: ":tab",
+                    element: <React.Fragment />,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
       },
       {
         path: "/login",
@@ -165,59 +229,6 @@ const router = createBrowserRouter([
           );
           return { element: <SimpleSSOPassthrough /> };
         },
-      },
-      {
-        path: "/workspace/:slug",
-        lazy: async () => {
-          const { default: WorkspaceShell } = await import(
-            "@/pages/WorkspaceShell"
-          );
-          return { element: <PrivateRoute Component={WorkspaceShell} /> };
-        },
-        children: [
-          {
-            index: true,
-            lazy: async () => {
-              const { default: WorkspaceChat } = await import(
-                "@/pages/WorkspaceChat"
-              );
-              return { element: <WorkspaceChat /> };
-            },
-          },
-          {
-            path: "t/:threadSlug",
-            lazy: async () => {
-              const { default: WorkspaceChat } = await import(
-                "@/pages/WorkspaceChat"
-              );
-              return { element: <WorkspaceChat /> };
-            },
-          },
-          {
-            path: "settings",
-            lazy: async () => {
-              const { default: WorkspaceSettings } = await import(
-                "@/pages/WorkspaceSettings"
-              );
-              return { element: <WorkspaceSettings /> };
-            },
-            children: [
-              {
-                index: true,
-                lazy: async () => {
-                  const { WorkspaceSettingsDefaultRedirect } = await import(
-                    "@/pages/WorkspaceSettings"
-                  );
-                  return { element: <WorkspaceSettingsDefaultRedirect /> };
-                },
-              },
-              {
-                path: ":tab",
-                element: <React.Fragment />,
-              },
-            ],
-          },
-        ],
       },
       {
         path: "/accept-invite/:code",
@@ -245,7 +256,12 @@ const router = createBrowserRouter([
       // Admin routes
       {
         path: "/settings",
-        element: <SoftSettingsOutletLayout />,
+        lazy: async () => {
+          const { SoftSettingsOutletLayout } = await import(
+            "@/components/SoftSettings"
+          );
+          return { element: <SoftSettingsOutletLayout /> };
+        },
         children: [
           {
             path: "llm-preference",

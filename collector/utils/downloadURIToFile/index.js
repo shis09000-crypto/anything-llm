@@ -2,9 +2,14 @@ const { WATCH_DIRECTORY, ACCEPTED_MIMES } = require("../constants");
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
+const { Readable, Transform } = require("stream");
 const { validURL } = require("../url");
 const { default: slugify } = require("slugify");
 const { redactUrl } = require("../security/redaction");
+const { safeFetch } = require("../networkGuard");
+const { currentTaskDirectory, currentTaskSignal } = require("../taskContext");
+
+const MAX_FILE_BYTES = 500 * 1_024 * 1_024;
 
 // Add a custom slugify extension for slashing to handle URLs with paths.
 slugify.extend({ "/": "-" });
@@ -28,26 +33,19 @@ function mimeToExtension(mimeType) {
  * @param {number} maxTimeout - The maximum timeout in milliseconds
  * @returns {Promise<{success: boolean, fileLocation: string|null, reason: string|null}>} - The path to the downloaded file
  */
-async function downloadURIToFile(url, maxTimeout = 10_000) {
+async function downloadURIToFile(url, maxTimeout = 5 * 60_000) {
   if (!url || typeof url !== "string" || !validURL(url))
     return { success: false, reason: "Not a valid URL.", fileLocation: null };
 
   try {
-    const abortController = new AbortController();
-    const timeout = setTimeout(() => {
-      abortController.abort();
-      console.error(
-        `Timeout ${maxTimeout}ms reached while downloading file for URL:`,
-        redactUrl(url.toString())
-      );
-    }, maxTimeout);
-
-    const res = await fetch(url, { signal: abortController.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-        return res;
-      })
-      .finally(() => clearTimeout(timeout));
+    const res = await safeFetch(url, {
+      signal: currentTaskSignal(),
+      timeoutMs: maxTimeout,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const declaredBytes = Number(res.headers.get("content-length"));
+    if (Number.isFinite(declaredBytes) && declaredBytes > MAX_FILE_BYTES)
+      throw new Error("Remote file exceeds the 500 MiB download limit.");
 
     const urlObj = new URL(url);
     const sluggedPath = slugify(urlObj.pathname, { lower: true });
@@ -74,12 +72,32 @@ async function downloadURIToFile(url, maxTimeout = 10_000) {
     }
 
     const localFilePath = path.join(WATCH_DIRECTORY, filename);
-    const writeStream = fs.createWriteStream(localFilePath);
-    await pipeline(res.body, writeStream);
+    const taskDirectory = currentTaskDirectory();
+    if (!taskDirectory)
+      throw new Error("Collector task isolation context is unavailable.");
+    const partialPath = path.join(taskDirectory, `${filename}.part`);
+    let bytes = 0;
+    const byteLimit = new Transform({
+      transform(chunk, _encoding, callback) {
+        bytes += chunk.length;
+        if (bytes > MAX_FILE_BYTES)
+          return callback(
+            new Error("Remote file exceeds the 500 MiB download limit.")
+          );
+        callback(null, chunk);
+      },
+    });
+    await pipeline(
+      Readable.fromWeb(res.body),
+      byteLimit,
+      fs.createWriteStream(partialPath, { flags: "wx", mode: 0o600 })
+    );
+    await fs.promises.rename(partialPath, localFilePath);
 
     console.log(`[SUCCESS]: File ${localFilePath} downloaded to hotdir.`);
     return { success: true, fileLocation: localFilePath, reason: null };
   } catch (error) {
+    if (error?.code === "collector_destination_forbidden") throw error;
     console.error(
       `Error writing to hotdir: ${error} for URL: ${redactUrl(url)}`
     );
@@ -90,4 +108,5 @@ async function downloadURIToFile(url, maxTimeout = 10_000) {
 module.exports = {
   downloadURIToFile,
   mimeToExtension,
+  MAX_FILE_BYTES,
 };

@@ -1,18 +1,22 @@
-const { RealtimeGatewayRuntime } = require("../../utils/realtimeGateway/runtime");
+const {
+  RealtimeGatewayRuntime,
+} = require("../../utils/realtimeGateway/runtime");
 
 describe("RealtimeGatewayRuntime", () => {
-  test("reports realtime boundary and transport status", () => {
+  test("refuses standalone readiness with process-local memory transport", async () => {
     const runtime = new RealtimeGatewayRuntime({
       now: () => new Date("2026-07-07T00:00:00.000Z"),
     });
 
-    expect(runtime.start()).toMatchObject({
+    expect(await runtime.start()).toMatchObject({
       role: "realtime-gateway",
-      status: "running",
+      status: "not-ready",
       transport: {
         selected: "memory",
         ready: true,
+        gatewaySafe: false,
       },
+      lastError: "shared_broadcast_transport_required",
       boundary: {
         owns: ["sync.events.sse", "realtime.broadcast.websocket"],
         doesNotOwn: ["chat.sse", "agent.websocket", "crypto.websocket"],

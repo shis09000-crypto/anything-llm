@@ -6,9 +6,9 @@ import { useModal } from "@/hooks/useModal";
 import LLMSelectorModal from "../PromptInput/LLMSelector/index";
 import SetupProvider from "../PromptInput/LLMSelector/SetupProvider";
 import {
-  SAVE_LLM_SELECTOR_EVENT,
   PROVIDER_SETUP_EVENT,
-} from "../PromptInput/LLMSelector/action";
+  SAVE_LLM_SELECTOR_EVENT,
+} from "@/utils/chat/llmSelectorEvents";
 import Workspace from "@/models/workspace";
 import System from "@/models/system";
 import { SIDEBAR_TOGGLE_EVENT } from "@/components/Sidebar/SidebarToggle";

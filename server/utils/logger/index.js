@@ -110,11 +110,17 @@ class Logger {
       transports: [
         new winston.transports.Console({
           format: winston.format.combine(
-            winston.format.colorize(),
-            winston.format.printf(
-              ({ level, message, service, origin = "" }) => {
-                return `\x1b[36m[${service}]\x1b[0m${origin ? `\x1b[33m[${origin}]\x1b[0m` : ""} ${level}: ${message}`;
-              }
+            winston.format.timestamp(),
+            winston.format.printf((entry) =>
+              JSON.stringify({
+                timestamp: entry.timestamp,
+                level: entry.level,
+                service: entry.service,
+                message: entry.message,
+                requestId: entry.requestId || null,
+                traceId: entry.traceId || null,
+                spanId: entry.spanId || null,
+              })
             )
           ),
         }),
@@ -133,15 +139,24 @@ class Logger {
         .join(" ");
     }
 
-    console.log = function (...args) {
-      logger.info(formatArgs(args));
-    };
-    console.error = function (...args) {
-      logger.error(formatArgs(args));
-    };
-    console.info = function (...args) {
-      logger.warn(formatArgs(args));
-    };
+    function write(level, args) {
+      let correlation = null;
+      try {
+        correlation = require("../observability/context").currentCorrelation();
+      } catch {}
+      logger.log({
+        level,
+        message: formatArgs(args),
+        requestId: correlation?.requestId || null,
+        traceId: correlation?.traceId || null,
+        spanId: correlation?.spanId || null,
+      });
+    }
+
+    console.log = (...args) => write("info", args);
+    console.error = (...args) => write("error", args);
+    console.info = (...args) => write("info", args);
+    console.warn = (...args) => write("warn", args);
     return logger;
   }
 }

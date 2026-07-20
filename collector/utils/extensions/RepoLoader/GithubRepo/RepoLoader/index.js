@@ -1,3 +1,10 @@
+const {
+  readResponseJsonLimited,
+  safeFetch,
+} = require("../../../../networkGuard");
+
+const MAX_API_RESPONSE_BYTES = 25 * 1_024 * 1_024;
+
 /**
  * @typedef {Object} RepoLoaderArgs
  * @property {string} repo - The GitHub repository URL.
@@ -107,7 +114,7 @@ class GitHubRepoLoader {
 
   async #validateAccessToken() {
     if (!this.accessToken) return;
-    const valid = await fetch("https://api.github.com/octocat", {
+    const valid = await safeFetch("https://api.github.com/octocat", {
       method: "GET",
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -195,7 +202,7 @@ class GitHubRepoLoader {
 
     while (polling) {
       console.log(`Fetching page ${page} of branches for ${this.project}`);
-      await fetch(
+      await safeFetch(
         `https://api.github.com/repos/${this.author}/${this.project}/branches?per_page=100&page=${page}`,
         {
           method: "GET",
@@ -208,7 +215,8 @@ class GitHubRepoLoader {
         }
       )
         .then((res) => {
-          if (res.ok) return res.json();
+          if (res.ok)
+            return readResponseJsonLimited(res, MAX_API_RESPONSE_BYTES);
           throw new Error(`Invalid request to Github API: ${res.statusText}`);
         })
         .then((branchObjects) => {
@@ -233,7 +241,7 @@ class GitHubRepoLoader {
    */
   async fetchSingleFile(sourceFilePath) {
     try {
-      return fetch(
+      return safeFetch(
         `https://api.github.com/repos/${this.author}/${this.project}/contents/${sourceFilePath}?ref=${this.branch}`,
         {
           method: "GET",
@@ -247,7 +255,8 @@ class GitHubRepoLoader {
         }
       )
         .then((res) => {
-          if (res.ok) return res.json();
+          if (res.ok)
+            return readResponseJsonLimited(res, MAX_API_RESPONSE_BYTES);
           throw new Error(`Failed to fetch from Github API: ${res.statusText}`);
         })
         .then((json) => {

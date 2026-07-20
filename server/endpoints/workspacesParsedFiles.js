@@ -15,6 +15,10 @@ const { validWorkspaceSlug } = require("../utils/middleware/validWorkspace");
 const { CollectorApi } = require("../utils/collectorApi");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { getAuthorizedParsedFile } = require("../utils/authz/resourceAccess");
+const {
+  deleteDocxSource,
+  saveDocxSource,
+} = require("../utils/documentSources");
 
 function workspaceParsedFilesEndpoints(app) {
   if (!app) return;
@@ -44,7 +48,7 @@ function workspaceParsedFilesEndpoints(app) {
           .json({ files, contextWindow, currentContextTokenCount });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500).end();
+        return response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -68,7 +72,7 @@ function workspaceParsedFilesEndpoints(app) {
         return response.status(success ? 200 : 403).end();
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500).end();
+        return response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -128,7 +132,7 @@ function workspaceParsedFilesEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500).end();
+        return response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -142,11 +146,12 @@ function workspaceParsedFilesEndpoints(app) {
       validWorkspaceSlug,
     ],
     async function (request, response) {
+      let retainedDocxSource = null;
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const Collector = new CollectorApi();
-        const { originalname } = request.file;
+        const { filename, originalname } = request.file;
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
@@ -156,9 +161,17 @@ function workspaceParsedFilesEndpoints(app) {
           });
         }
 
-        const { success, reason, documents } =
-          await Collector.parseDocument(originalname);
+        retainedDocxSource = saveDocxSource(request.file.path);
+
+        const { success, reason, documents } = await Collector.parseDocument(
+          filename,
+          { displayName: originalname }
+        );
         if (!success || !documents?.[0]) {
+          if (retainedDocxSource) {
+            deleteDocxSource(retainedDocxSource);
+            retainedDocxSource = null;
+          }
           return response.status(500).json({
             success: false,
             error: reason || "No document returned from collector",
@@ -175,10 +188,16 @@ function workspaceParsedFilesEndpoints(app) {
             })
           : null;
         const files = await Promise.all(
-          documents.map(async (doc) => {
+          documents.map(async (doc, documentIndex) => {
             const metadata = { ...doc };
             // Strip out pageContent
             delete metadata.pageContent;
+            if (retainedDocxSource && documentIndex === 0) {
+              metadata.docxSource = {
+                token: retainedDocxSource,
+                originalName: originalname,
+              };
+            }
             const filename = `${originalname}-${doc.id}.json`;
             const { file, error: dbError } =
               await DataAccessCenter.workspaceParsedFile.create({
@@ -212,8 +231,9 @@ function workspaceParsedFilesEndpoints(app) {
           files,
         });
       } catch (e) {
+        if (retainedDocxSource) deleteDocxSource(retainedDocxSource);
         console.error(e.message, e);
-        return response.sendStatus(500).end();
+        return response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

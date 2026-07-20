@@ -13,8 +13,12 @@ const {
   updateENV,
 } = require("../utils/helpers/updateENV");
 const {
+  applyProviderSettingsUpdate,
+  publicProviderCatalog,
+  providerSettingsSnapshot,
+} = require("../utils/providerSettingsCatalog");
+const {
   reqBody,
-  makeJWT,
   decodeJWT,
   userFromSession,
   multiUserMode,
@@ -22,15 +26,26 @@ const {
 } = require("../utils/http");
 const {
   USER_ACTION_REFRESH_THROTTLE_MS,
+  createSingleUserSessionToken,
+  createUserSessionToken,
   isAllowedUserActionReason,
   issueUserSessionToken,
   jwtIdleState,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
+const {
+  checkLoginAllowed,
+  clearLoginSuccess,
+  dummyPasswordCompare,
+  normalizeIdentifier,
+  recordLoginFailure,
+  sendLoginRateLimited,
+} = require("../utils/authLoginRateLimit");
 const { handleAssetUpload, handlePfpUpload } = require("../utils/files/multer");
 const { v4 } = require("uuid");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const SystemSettings = DataAccessCenter.adminSystem;
+const AuthSession = DataAccessCenter.adminSystem.authSession;
 const AgentSkillWhitelist = DataAccessCenter.agentSkillWhitelist;
 const ApiKey = DataAccessCenter.adminSystem.apiKey;
 const AuthIdentity = DataAccessCenter.adminSystem.authIdentity;
@@ -54,7 +69,10 @@ const { getClientContext } = require("../utils/clientIdentity");
 const {
   authSessionFingerprintFromRequest,
 } = require("../utils/authz/vaultAccessGrants");
-const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
+const {
+  issueSensitiveSession,
+  validateSensitiveSessionForRequest,
+} = require("../utils/authz/sensitiveSessions");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -105,86 +123,10 @@ const {
   resetPassword,
   generateRecoveryCodes,
 } = require("../utils/PasswordRecovery");
-
-const SETTINGS_BOOTSTRAP_MATCHERS = {
-  llm: [
-    "llm",
-    "openai",
-    "azureopenai",
-    "anthropic",
-    "geminillm",
-    "geminisafety",
-    "lmstudio",
-    "localai",
-    "ollamallm",
-    "novitallm",
-    "togetherai",
-    "fireworksai",
-    "perplexity",
-    "openrouter",
-    "mistral",
-    "groq",
-    "huggingfacellm",
-    "koboldcpp",
-    "textgenwebui",
-    "litellm",
-    "moonshotai",
-    "genericopenai",
-    "foundry",
-    "awsbedrockllm",
-    "cohere",
-    "deepseek",
-    "apipie",
-    "xai",
-    "nvidianim",
-    "ppio",
-    "dellproaistudio",
-    "cometapi",
-    "zai",
-    "giteeai",
-    "dockermodelrunner",
-    "privatemode",
-    "sambanova",
-    "lemonade",
-  ],
-  vector: [
-    "vectordb",
-    "pinecone",
-    "chrom",
-    "weaviate",
-    "qdrant",
-    "milvus",
-    "zilliz",
-    "astradb",
-    "pgvector",
-    "hasexistingembeddings",
-  ],
-  embedding: [
-    "embedding",
-    "documentembeddingmode",
-    "hasexistingembeddings",
-    "hascachedembeddings",
-    "openai",
-    "azureopenai",
-    "geminiembedding",
-    "localai",
-    "ollamaembedding",
-    "lmstudio",
-    "cohere",
-    "voyageai",
-    "litellm",
-    "genericopenaiembedding",
-    "openrouter",
-    "mistral",
-    "lemonade",
-  ],
-  rerank: ["rerank"],
-  search: ["searchmodel"],
-  ocr: ["readerocr"],
-  vision: ["vision"],
-  audio: ["speechtotext", "texttospeech", "tts", "stt"],
-  transcription: ["whisper", "openai"],
-};
+const { apiErrorStatus: httpStatus } = require("../utils/http/apiError");
+const {
+  filterSettingsBySections,
+} = require("../utils/providerSettingsBootstrap");
 
 function publishUserProfileUpdatedEvent({
   request,
@@ -211,37 +153,41 @@ function publishUserProfileUpdatedEvent({
   });
 }
 
-function filterSettingsBySections(settings = {}, sections = []) {
-  const normalized = sections.map((section) => String(section).toLowerCase());
-  if (
-    normalized.length === 0 ||
-    normalized.includes("system") ||
-    normalized.includes("all")
-  ) {
-    return settings;
-  }
-
-  const activeMatchers = normalized.flatMap(
-    (section) => SETTINGS_BOOTSTRAP_MATCHERS[section] || []
-  );
-  const filtered = {};
-  for (const [key, value] of Object.entries(settings || {})) {
-    const lowerKey = key.toLowerCase();
-    if (
-      lowerKey === "lastupdatedat" ||
-      activeMatchers.some((matcher) => lowerKey.startsWith(matcher))
-    ) {
-      filtered[key] = value;
-    }
-  }
-  return filtered;
+function publishUserMemoryUpdatedEvent({
+  request,
+  user,
+  type,
+  memoryId = null,
+  category = null,
+  reason = null,
+} = {}) {
+  if (!user?.id || !type) return null;
+  const context = getClientContext(request, { user });
+  return publishBroadcastEvent({
+    namespace: "user",
+    type: `memory.${type}`,
+    eventPriority: "normal",
+    visibility: "user",
+    scope: { userId: Number(user.id) },
+    sourceClientId: context?.clientId || null,
+    resource: {
+      kind: "user-memory",
+      id: memoryId ? Number(memoryId) : null,
+    },
+    payload: {
+      category: category || null,
+      reason: reason || `memory-${type}`,
+      changedFields: ["longTermMemory"],
+    },
+    coalesceKey: `user.memory.${type}:${user.id}:${memoryId || "profile"}`,
+  });
 }
+
 const {
   isConfigured: emailSmtpConfigured,
   maskedEmail,
   sendVerificationCode,
 } = require("../utils/email/mailer");
-const { EncryptionManager } = require("../utils/EncryptionManager");
 const { AccountDeletionService } = require("../utils/accountDeletion");
 const {
   issueReauthToken,
@@ -554,7 +500,7 @@ function systemEndpoints(app) {
       });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({
+      response.status(httpStatus(e)).json({
         success: false,
         allowPublicRegistration: false,
       });
@@ -597,7 +543,7 @@ function systemEndpoints(app) {
     } catch (e) {
       console.error(e.message, e);
       response
-        .status(500)
+        .status(httpStatus(e))
         .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
@@ -719,7 +665,7 @@ function systemEndpoints(app) {
       } catch (error) {
         await EmailVerificationCode.consume(verification.id);
         console.error("FAILED TO SEND REGISTRATION CODE.", error.message);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: "验证码邮件发送失败，请稍后重试或联系管理员。",
         });
@@ -733,7 +679,7 @@ function systemEndpoints(app) {
     } catch (e) {
       console.error(e.message, e);
       response
-        .status(500)
+        .status(httpStatus(e))
         .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
@@ -824,7 +770,7 @@ function systemEndpoints(app) {
     } catch (e) {
       console.error(e.message, e);
       response
-        .status(500)
+        .status(httpStatus(e))
         .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
@@ -991,8 +937,9 @@ function systemEndpoints(app) {
       const sessionToken = (await AuthIdentity.canLoginInCurrentEnvAsync(
         authUser
       ))
-        ? issueUserSessionToken(user, {
+        ? await createUserSessionToken(user, {
             ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+            authMode: "password",
           })
         : null;
       response.status(200).json({
@@ -1006,7 +953,7 @@ function systemEndpoints(app) {
     } catch (e) {
       console.error(e.message, e);
       response
-        .status(500)
+        .status(httpStatus(e))
         .json({ success: false, error: REGISTER_GENERIC_ERROR });
     }
   });
@@ -1027,7 +974,7 @@ function systemEndpoints(app) {
       });
     } catch (e) {
       console.error(e.message, e);
-      response.status(500).json({ success: false, error: e.message });
+      response.status(httpStatus(e)).json({ success: false, error: e.message });
     }
   });
 
@@ -1072,7 +1019,9 @@ function systemEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1097,7 +1046,9 @@ function systemEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1121,7 +1072,9 @@ function systemEndpoints(app) {
         response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1139,7 +1092,7 @@ function systemEndpoints(app) {
       response.status(200).json({ onboardingComplete: results });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(httpStatus(e)).end();
     }
   });
 
@@ -1149,7 +1102,7 @@ function systemEndpoints(app) {
       response.sendStatus(200).end();
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(httpStatus(e)).end();
     }
   });
 
@@ -1159,7 +1112,7 @@ function systemEndpoints(app) {
       response.status(200).json({ results });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(httpStatus(e)).end();
     }
   });
 
@@ -1194,7 +1147,7 @@ function systemEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1214,16 +1167,191 @@ function systemEndpoints(app) {
           const idleState = jwtIdleState(decodeJWT(bearerToken(request)));
           response.status(200).json({
             valid: true,
+            legacyTokenUpgraded: false,
             idleExpiresAt: idleState.idleExpiresAt,
             idleRemainingMs: idleState.idleRemainingMs,
           });
           return;
         }
 
-        response.sendStatus(200).end();
+        if (response.locals.legacySingleUserToken && AuthSession.enabled()) {
+          const token = await createSingleUserSessionToken({
+            ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+            authMode: "password",
+          });
+          const session = await AuthSession.validate(decodeJWT(token).sid, {
+            authoritative: true,
+            subjectType: "instance",
+          });
+          response.status(200).json({
+            valid: true,
+            token,
+            legacyTokenUpgraded: true,
+            idleExpiresAt:
+              session.session?.idleExpiresAt?.toISOString() || null,
+          });
+          return;
+        }
+
+        const session = response.locals.authSession;
+        response.status(200).json({
+          valid: true,
+          legacyTokenUpgraded: false,
+          idleExpiresAt: session?.idleExpiresAt?.toISOString() || null,
+        });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
+      }
+    }
+  );
+
+  app.post("/system/logout", [validatedRequest], async (request, response) => {
+    try {
+      const decoded = decodeJWT(bearerToken(request));
+      const sessionId = decoded.sid || decoded.sessionId;
+      if (sessionId) await AuthSession.revoke(sessionId, "logout");
+      response.status(200).json({ success: true });
+    } catch (error) {
+      console.error(error.message, error);
+      response
+        .status(httpStatus(error))
+        .json({ success: false, error: error.message });
+    }
+  });
+
+  app.get(
+    "/system/sessions",
+    [validatedRequest],
+    async (_request, response) => {
+      try {
+        const current = response.locals.authSession;
+        if (!current || !AuthSession.enabled()) {
+          return response.status(503).json({
+            success: false,
+            error: "session_v2_unavailable",
+          });
+        }
+        const sessions = await AuthSession.listForSubject({
+          subjectType: current.subjectType,
+          authUserId: current.authUserId,
+          currentSessionId: current.sessionId,
+        });
+        return response.status(200).json({
+          success: true,
+          currentSessionId: current.sessionId,
+          sessions,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(httpStatus(error)).json({
+          success: false,
+          error: "session_list_failed",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/sessions/revoke",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const current = response.locals.authSession;
+        const { sessionId } = reqBody(request) || {};
+        if (!current || !AuthSession.enabled()) {
+          return response.status(503).json({
+            success: false,
+            error: "session_v2_unavailable",
+          });
+        }
+        if (!sessionId) {
+          return response.status(400).json({
+            success: false,
+            error: "session_id_required",
+          });
+        }
+        const result = await AuthSession.revokeForSubject({
+          subjectType: current.subjectType,
+          authUserId: current.authUserId,
+          sessionId,
+          reason: "user_session_revoked",
+        });
+        return response.status(200).json({
+          success: true,
+          revoked: result.count,
+          currentSessionRevoked: String(sessionId) === current.sessionId,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(httpStatus(error)).json({
+          success: false,
+          error: "session_revoke_failed",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/sessions/revoke-others",
+    [validatedRequest],
+    async (_request, response) => {
+      try {
+        const current = response.locals.authSession;
+        if (!current || !AuthSession.enabled()) {
+          return response.status(503).json({
+            success: false,
+            error: "session_v2_unavailable",
+          });
+        }
+        const result = await AuthSession.revokeOthersForSubject({
+          subjectType: current.subjectType,
+          authUserId: current.authUserId,
+          currentSessionId: current.sessionId,
+          reason: "user_revoked_other_sessions",
+        });
+        return response.status(200).json({
+          success: true,
+          revoked: result.count,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(httpStatus(error)).json({
+          success: false,
+          error: "session_revoke_failed",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/sessions/revoke-all",
+    [validatedRequest],
+    async (_request, response) => {
+      try {
+        const current = response.locals.authSession;
+        if (!current || !AuthSession.enabled()) {
+          return response.status(503).json({
+            success: false,
+            error: "session_v2_unavailable",
+          });
+        }
+        const result = await AuthSession.revokeAllForSubject({
+          subjectType: current.subjectType,
+          authUserId: current.authUserId,
+          reason: "user_revoked_all_sessions",
+        });
+        return response.status(200).json({
+          success: true,
+          revoked: result.count,
+          currentSessionRevoked: result.count > 0,
+        });
+      } catch (error) {
+        console.error(error.message, error);
+        return response.status(httpStatus(error)).json({
+          success: false,
+          error: "session_revoke_failed",
+        });
       }
     }
   );
@@ -1254,7 +1382,8 @@ function systemEndpoints(app) {
         }
 
         const currentToken = bearerToken(request);
-        const currentState = jwtIdleState(decodeJWT(currentToken));
+        const decodedToken = decodeJWT(currentToken);
+        const currentState = jwtIdleState(decodedToken);
         const now = Date.now();
         const throttled =
           now - Number(currentState.lastUserActionAt || 0) <
@@ -1263,15 +1392,30 @@ function systemEndpoints(app) {
           ? currentState.lastUserActionAt
           : now;
         const nextState = jwtIdleState({ lastUserActionAt });
+        if (!throttled && decodedToken.sid)
+          await AuthSession.touchUserAction(decodedToken.sid);
         const nextToken = throttled
           ? null
-          : issueUserSessionToken(user, {
-              lastUserActionAt,
-              ...sessionTokenOptionsFromClientContext(
-                getClientContext(request),
-                currentState
-              ),
-            });
+          : decodedToken.sid
+            ? issueUserSessionToken(user, {
+                lastUserActionAt,
+                ...sessionTokenOptionsFromClientContext(
+                  getClientContext(request),
+                  decodedToken
+                ),
+                sessionId: decodedToken.sid,
+                tokenVersion: decodedToken.tokenVersion || 1,
+                authMode: decodedToken.authMode || "password",
+                persistedSession: true,
+              })
+            : await createUserSessionToken(user, {
+                lastUserActionAt,
+                ...sessionTokenOptionsFromClientContext(
+                  getClientContext(request),
+                  decodedToken
+                ),
+                authMode: "legacy-upgrade",
+              });
 
         response.status(200).json({
           success: true,
@@ -1283,7 +1427,9 @@ function systemEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1325,7 +1471,7 @@ function systemEndpoints(app) {
           message: null,
         });
       } catch (e) {
-        return response.status(500).json({
+        return response.status(httpStatus(e)).json({
           success: false,
           user: null,
           message: e.message,
@@ -1352,10 +1498,19 @@ function systemEndpoints(app) {
 
         const { identifier, username, password } = reqBody(request);
         const loginIdentifier = String(identifier || username || "").trim();
+        const loginContext = {
+          ip: request.ip || "Unknown IP",
+          identifier: normalizeIdentifier(loginIdentifier),
+        };
+        const rateLimit = await checkLoginAllowed(loginContext);
+        if (!rateLimit.allowed)
+          return sendLoginRateLimited(response, rateLimit.retryAfterSeconds);
         const authUser =
           await AuthIdentity.findByLoginIdentifier(loginIdentifier);
 
         if (!authUser) {
+          await dummyPasswordCompare(password);
+          const failureLimit = await recordLoginFailure(loginContext);
           await EventLogs.logEvent(
             "failed_login_invalid_username",
             {
@@ -1364,6 +1519,11 @@ function systemEndpoints(app) {
             },
             null
           );
+          if (!failureLimit.allowed)
+            return sendLoginRateLimited(
+              response,
+              failureLimit.retryAfterSeconds
+            );
           response.status(200).json({
             user: null,
             valid: false,
@@ -1374,7 +1534,11 @@ function systemEndpoints(app) {
         }
 
         let verifiedAuthUser = authUser;
-        if (!bcrypt.compareSync(String(password), verifiedAuthUser.password)) {
+        let passwordValid = await bcrypt.compare(
+          String(password),
+          verifiedAuthUser.password
+        );
+        if (!passwordValid) {
           const repaired = await AuthIdentity.repairPasswordFromLocalShadow(
             verifiedAuthUser,
             password
@@ -1390,10 +1554,15 @@ function systemEndpoints(app) {
               },
               null
             );
+            passwordValid = await bcrypt.compare(
+              String(password),
+              verifiedAuthUser.password
+            );
           }
         }
 
-        if (!bcrypt.compareSync(String(password), verifiedAuthUser.password)) {
+        if (!passwordValid) {
+          const failureLimit = await recordLoginFailure(loginContext);
           await EventLogs.logEvent(
             "failed_login_invalid_password",
             {
@@ -1402,6 +1571,11 @@ function systemEndpoints(app) {
             },
             null
           );
+          if (!failureLimit.allowed)
+            return sendLoginRateLimited(
+              response,
+              failureLimit.retryAfterSeconds
+            );
           response.status(200).json({
             user: null,
             valid: false,
@@ -1462,6 +1636,8 @@ function systemEndpoints(app) {
           return;
         }
 
+        await clearLoginSuccess(loginContext);
+
         await Telemetry.sendTelemetry(
           "login_event",
           { multiUserMode: false },
@@ -1479,8 +1655,9 @@ function systemEndpoints(app) {
 
         // Generate a session token for the user then check if they have seen the recovery codes
         // and if not, generate recovery codes and return them to the frontend.
-        const sessionToken = issueUserSessionToken(existingUser, {
+        const sessionToken = await createUserSessionToken(existingUser, {
           ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+          authMode: "password",
         });
         if (!existingUser.seen_recovery_codes) {
           const plainTextCodes = await generateRecoveryCodes(existingUser.id);
@@ -1503,16 +1680,25 @@ function systemEndpoints(app) {
         return;
       } else {
         const { password } = reqBody(request);
-        if (
-          !bcrypt.compareSync(
-            password,
-            bcrypt.hashSync(process.env.AUTH_TOKEN, 10)
-          )
-        ) {
+        const loginContext = {
+          ip: request.ip || "Unknown IP",
+          identifier: "single-user",
+        };
+        const rateLimit = await checkLoginAllowed(loginContext);
+        if (!rateLimit.allowed)
+          return sendLoginRateLimited(response, rateLimit.retryAfterSeconds);
+        const authTokenHash = await bcrypt.hash(process.env.AUTH_TOKEN, 10);
+        if (!(await bcrypt.compare(String(password || ""), authTokenHash))) {
+          const failureLimit = await recordLoginFailure(loginContext);
           await EventLogs.logEvent("failed_login_invalid_password", {
             ip: request.ip || "Unknown IP",
             multiUserMode: false,
           });
+          if (!failureLimit.allowed)
+            return sendLoginRateLimited(
+              response,
+              failureLimit.retryAfterSeconds
+            );
           response.status(401).json({
             valid: false,
             token: null,
@@ -1521,6 +1707,8 @@ function systemEndpoints(app) {
           return;
         }
 
+        await clearLoginSuccess(loginContext);
+
         await Telemetry.sendTelemetry("login_event", { multiUserMode: false });
         await EventLogs.logEvent("login_event", {
           ip: request.ip || "Unknown IP",
@@ -1528,16 +1716,16 @@ function systemEndpoints(app) {
         });
         response.status(200).json({
           valid: true,
-          token: makeJWT(
-            { p: new EncryptionManager().encrypt(password) },
-            process.env.JWT_EXPIRY
-          ),
+          token: await createSingleUserSessionToken({
+            ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+            authMode: "password",
+          }),
           message: null,
         });
       }
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(httpStatus(e)).end();
     }
   });
 
@@ -1607,7 +1795,7 @@ function systemEndpoints(app) {
       } catch (error) {
         console.error("Error recovering account:", error);
         response
-          .status(500)
+          .status(httpStatus(error))
           .json({ success: false, message: "Internal server error" });
       }
     }
@@ -1661,7 +1849,7 @@ function systemEndpoints(app) {
       } catch (error) {
         console.error("Error confirming email password reset:", error);
         response
-          .status(500)
+          .status(httpStatus(error))
           .json({ success: false, error: "Internal server error" });
       }
     }
@@ -1686,7 +1874,9 @@ function systemEndpoints(app) {
         }
       } catch (error) {
         console.error("Error resetting password:", error);
-        response.status(500).json({ success: false, message: error.message });
+        response
+          .status(httpStatus(error))
+          .json({ success: false, message: error.message });
       }
     }
   );
@@ -1704,7 +1894,7 @@ function systemEndpoints(app) {
         response.status(200).json({ vectorCount });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1719,7 +1909,7 @@ function systemEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1734,7 +1924,7 @@ function systemEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1749,7 +1939,7 @@ function systemEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1763,7 +1953,7 @@ function systemEndpoints(app) {
         response.status(200).json({ localFiles });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1777,7 +1967,7 @@ function systemEndpoints(app) {
         response.sendStatus(online ? 200 : 503);
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1796,7 +1986,7 @@ function systemEndpoints(app) {
         response.status(200).json({ types });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -1815,7 +2005,92 @@ function systemEndpoints(app) {
         response.status(200).json({ newValues, error });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
+      }
+    }
+  );
+
+  app.get(
+    "/system/provider-settings/llm",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response).catch(() => null);
+        const canManage =
+          !multiUserMode(response) || (user ? canAccessAdmin(user) : false);
+        const settings = await SystemSettings.currentSettingsForSections([
+          "llm",
+        ]);
+        response.set("Cache-Control", "no-store");
+        response.status(200).json({
+          success: true,
+          canManage,
+          catalog: publicProviderCatalog({ includeFields: canManage }),
+          configuration: providerSettingsSnapshot(settings, { canManage }),
+          version: new Date().toISOString(),
+        });
+      } catch (error) {
+        console.error("[LLM provider settings read failed]", error.message);
+        response.status(httpStatus(error)).json({
+          success: false,
+          error: "无法读取人工智能提供商设置。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/system/provider-settings/llm",
+    [validatedRequest, flexUserRoleValid([ROLES.admin])],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response).catch(
+          () => response.locals?.user || null
+        );
+        const body = reqBody(request);
+        const result = await applyProviderSettingsUpdate({
+          providerId: body?.provider,
+          fields: body?.fields,
+          userId: user?.id || null,
+        });
+        const settings = await SystemSettings.currentSettingsForSections([
+          "llm",
+        ]);
+        const version = new Date().toISOString();
+        publishBroadcastEvent({
+          namespace: "system",
+          type: "provider.updated",
+          visibility: "user",
+          scope: { userId: user?.id || null },
+          resource: { kind: "llm-provider", publicId: result.provider },
+          origin: {
+            clientId: getClientContext(request, { user }).clientId,
+            actionId: body?.sourceActionId || null,
+          },
+          payload: {
+            provider: result.provider,
+            version,
+            changedFields: result.changedFields,
+          },
+          version,
+          requiresAck: true,
+        });
+        response.set("Cache-Control", "no-store");
+        response.status(200).json({
+          success: true,
+          canManage: true,
+          catalog: publicProviderCatalog({ includeFields: true }),
+          configuration: providerSettingsSnapshot(settings, {
+            canManage: true,
+          }),
+          version,
+        });
+      } catch (error) {
+        console.error("[LLM provider settings update failed]", error.message);
+        response.status(400).json({
+          success: false,
+          error: error.message || "无法保存人工智能提供商设置。",
+        });
       }
     }
   );
@@ -1834,7 +2109,9 @@ function systemEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1852,7 +2129,9 @@ function systemEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
         console.error(e.message);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1949,7 +2228,9 @@ function systemEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -1961,7 +2242,9 @@ function systemEndpoints(app) {
       try {
         response.status(200).json({ success: true, runtime: runtimeSummary() });
       } catch (e) {
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -2015,7 +2298,7 @@ function systemEndpoints(app) {
         response.status(200).json({ success: !error, error });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2071,7 +2354,7 @@ function systemEndpoints(app) {
         });
 
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2082,7 +2365,7 @@ function systemEndpoints(app) {
       response.status(200).json({ multiUserMode });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(httpStatus(e)).end();
     }
   });
 
@@ -2117,7 +2400,9 @@ function systemEndpoints(app) {
       return;
     } catch (error) {
       console.error("Error processing the logo request:", error);
-      response.status(500).json({ message: "Internal server error" });
+      response
+        .status(httpStatus(error))
+        .json({ message: "Internal server error" });
     }
   });
 
@@ -2129,7 +2414,9 @@ function systemEndpoints(app) {
       response.status(200).json({ footerData: footerData });
     } catch (error) {
       console.error("Error fetching footer data:", error);
-      response.status(500).json({ message: "Internal server error" });
+      response
+        .status(httpStatus(error))
+        .json({ message: "Internal server error" });
     }
   });
 
@@ -2144,7 +2431,9 @@ function systemEndpoints(app) {
       response.status(200).json({ supportEmail: supportEmail });
     } catch (error) {
       console.error("Error fetching support email:", error);
-      response.status(500).json({ message: "Internal server error" });
+      response
+        .status(httpStatus(error))
+        .json({ message: "Internal server error" });
     }
   });
 
@@ -2160,7 +2449,9 @@ function systemEndpoints(app) {
       response.status(200).json({ customAppName: customAppName });
     } catch (error) {
       console.error("Error fetching custom app name:", error);
-      response.status(500).json({ message: "Internal server error" });
+      response
+        .status(httpStatus(error))
+        .json({ message: "Internal server error" });
     }
   });
 
@@ -2188,7 +2479,9 @@ function systemEndpoints(app) {
         return;
       } catch (error) {
         console.error("Error processing the logo request:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -2236,7 +2529,9 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the profile picture upload:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -2259,7 +2554,7 @@ function systemEndpoints(app) {
       } catch (error) {
         console.error("Error fetching default system prompt:", error);
         response
-          .status(500)
+          .status(httpStatus(error))
           .json({ success: false, message: "Internal server error" });
       }
     }
@@ -2316,7 +2611,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error updating default system prompt:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           message: error.message || "Internal server error",
         });
@@ -2363,7 +2658,9 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the profile picture removal:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -2398,7 +2695,9 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the logo upload:", error);
-        response.status(500).json({ message: "Error uploading the logo." });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Error uploading the logo." });
       }
     }
   );
@@ -2411,7 +2710,9 @@ function systemEndpoints(app) {
       response.status(200).json({ isDefaultLogo });
     } catch (error) {
       console.error("Error processing the logo request:", error);
-      response.status(500).json({ message: "Internal server error" });
+      response
+        .status(httpStatus(error))
+        .json({ message: "Internal server error" });
     }
   });
 
@@ -2433,7 +2734,9 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the logo removal:", error);
-        response.status(500).json({ message: "Error removing the logo." });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Error removing the logo." });
       }
     }
   );
@@ -2451,7 +2754,7 @@ function systemEndpoints(app) {
       });
     } catch (error) {
       console.error(error);
-      response.status(500).json({
+      response.status(httpStatus(error)).json({
         apiKey: null,
         error: "Could not find an API Key.",
       });
@@ -2496,7 +2799,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           apiKey: null,
           error: "Error generating api key.",
         });
@@ -2525,7 +2828,7 @@ function systemEndpoints(app) {
         return response.status(200).end();
       } catch (error) {
         console.error(error);
-        response.status(500).end();
+        response.status(httpStatus(error)).end();
       }
     }
   );
@@ -2547,7 +2850,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).end();
+        response.status(httpStatus(error)).end();
       }
     }
   );
@@ -2567,7 +2870,7 @@ function systemEndpoints(app) {
         response.status(200).json({ logs: logs, hasPages, totalLogs });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2582,7 +2885,7 @@ function systemEndpoints(app) {
         response.status(200).json({ jobs });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2602,7 +2905,9 @@ function systemEndpoints(app) {
         response.status(200).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(httpStatus(e))
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -2621,7 +2926,7 @@ function systemEndpoints(app) {
         response.json({ success: true });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2644,7 +2949,7 @@ function systemEndpoints(app) {
         response.status(200).json({ chats: chats, hasPages, totalChats });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2661,7 +2966,7 @@ function systemEndpoints(app) {
         response.json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2685,7 +2990,7 @@ function systemEndpoints(app) {
         response.status(200).send(data);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(httpStatus(e)).end();
       }
     }
   );
@@ -2803,6 +3108,16 @@ function systemEndpoints(app) {
         const memory = isSensitive
           ? await UserMemory.createSensitiveMemory(memoryOwnerId, body)
           : await UserMemory.createCandidate(memoryOwnerId, body);
+        publishUserMemoryUpdatedEvent({
+          request,
+          user: sessionUser,
+          type: "created",
+          memoryId: memory.id,
+          category: memory.category,
+          reason: isSensitive
+            ? "sensitive-memory-created"
+            : "memory-candidate-created",
+        });
         response.status(200).json({
           success: true,
           memory: {
@@ -2831,6 +3146,12 @@ function systemEndpoints(app) {
         const memoryOwnerId =
           UserMemory.memoryOwnerIdFromSessionUser(sessionUser);
         const result = await UserMemory.rebuildUserProfile(memoryOwnerId);
+        publishUserMemoryUpdatedEvent({
+          request,
+          user: sessionUser,
+          type: "rebuilt",
+          reason: "memory-profile-rebuilt",
+        });
         response.status(200).json(result);
       } catch (e) {
         console.error(e);
@@ -2852,6 +3173,13 @@ function systemEndpoints(app) {
           request.params.id,
           reqBody(request)
         );
+        publishUserMemoryUpdatedEvent({
+          request,
+          user: sessionUser,
+          type: "updated",
+          memoryId: memory.id,
+          category: memory.category,
+        });
         response.status(200).json({ success: true, memory });
       } catch (e) {
         console.error(e);
@@ -2872,6 +3200,13 @@ function systemEndpoints(app) {
           memoryOwnerId,
           request.params.id
         );
+        publishUserMemoryUpdatedEvent({
+          request,
+          user: sessionUser,
+          type: "archived",
+          memoryId: result.memory?.id || request.params.id,
+          category: result.memory?.category,
+        });
         response.status(200).json(result);
       } catch (e) {
         console.error(e);
@@ -2894,8 +3229,17 @@ function systemEndpoints(app) {
           sessionUser.id,
           "sensitive_memory_reveal"
         );
+        const context = getClientContext(request);
+        const sensitiveGrant = validateSensitiveSessionForRequest(request, {
+          userId: sessionUser.id,
+          clientId: context?.clientId,
+          resourceType: "user_memory",
+          resourceId: request.params.id,
+          ownerScope: `user:${sessionUser.id}:memory`,
+          heartbeat: true,
+        });
 
-        if (!reauth) {
+        if (!reauth && !sensitiveGrant.ok) {
           const storedUser = await User._get({ id: Number(sessionUser.id) });
           const bcrypt = require("bcryptjs");
           if (
@@ -2917,9 +3261,8 @@ function systemEndpoints(app) {
           memoryOwnerId,
           request.params.id
         );
-        const context = getClientContext(request);
         const sensitiveSession =
-          context?.clientId && sessionUser?.id
+          !sensitiveGrant.ok && context?.clientId && sessionUser?.id
             ? issueSensitiveSession({
                 userId: sessionUser.id,
                 clientId: context.clientId,
@@ -2973,7 +3316,7 @@ function systemEndpoints(app) {
         response.status(200).json({ success: true, states });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Failed to load user state.",
         });
@@ -3017,11 +3360,15 @@ function systemEndpoints(app) {
           validatedStates.push(result.state);
         }
 
+        const context = getClientContext(request, { user: sessionUser });
         const saved = await DataAccessCenter.userState.upsertMany({
           userId: sessionUser.id,
           states: validatedStates,
+          syncContext: {
+            originClientId: context?.clientId || null,
+            mutationId: request.header("Idempotency-Key") || null,
+          },
         });
-        const context = getClientContext(request, { user: sessionUser });
         publishBroadcastEvent({
           namespace: "userState",
           type: "updated",
@@ -3048,7 +3395,16 @@ function systemEndpoints(app) {
         response.status(200).json({ success: true, states: saved });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        if (e?.code === "state_version_conflict") {
+          response.status(409).json({
+            success: false,
+            error: e.code,
+            expectedVersion: e.expectedVersion,
+            current: e.syncNode || null,
+          });
+          return;
+        }
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Failed to save user state.",
         });
@@ -3086,6 +3442,14 @@ function systemEndpoints(app) {
           userId: sessionUser.id,
           namespace,
           scope,
+          syncContext: {
+            originClientId: getClientContext(request, { user: sessionUser })
+              ?.clientId,
+            mutationId: request.header("Idempotency-Key") || null,
+            baseVersion: request.header("If-Match")
+              ? Number(String(request.header("If-Match")).replace(/\D/g, ""))
+              : null,
+          },
         });
         const context = getClientContext(request, { user: sessionUser });
         publishBroadcastEvent({
@@ -3113,7 +3477,16 @@ function systemEndpoints(app) {
           .json({ success: true, deletedCount: deleted.count });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        if (e?.code === "state_version_conflict") {
+          response.status(409).json({
+            success: false,
+            error: e.code,
+            expectedVersion: e.expectedVersion,
+            current: e.syncNode || null,
+          });
+          return;
+        }
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Failed to delete user state.",
         });
@@ -3190,7 +3563,7 @@ function systemEndpoints(app) {
     } catch (e) {
       console.error(e);
       response
-        .status(500)
+        .status(httpStatus(e))
         .json({ success: false, error: e.message || "Internal server error" });
     }
   });
@@ -3227,7 +3600,7 @@ function systemEndpoints(app) {
         const bcrypt = require("bcryptjs");
         if (
           !user ||
-          !bcrypt.compareSync(String(currentPassword || ""), user.password)
+          !(await bcrypt.compare(String(currentPassword || ""), user.password))
         ) {
           response.status(401).json({
             success: false,
@@ -3240,7 +3613,7 @@ function systemEndpoints(app) {
           reauthToken: issueReauthToken(user.id, "password", "account_delete"),
         });
       } catch (error) {
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: error.message || "无法验证当前密码。",
         });
@@ -3251,17 +3624,18 @@ function systemEndpoints(app) {
   app.delete("/system/user", [validatedRequest], async (request, response) => {
     try {
       const sessionUser = await userFromSession(request, response);
-      const { confirm, reauthToken } = reqBody(request) || {};
+      const { confirm, reauthToken, deletionRunId } = reqBody(request) || {};
       const result = await AccountDeletionService.execute({
         actor: sessionUser,
         target: sessionUser,
         confirm: Boolean(confirm),
         reauthToken,
+        deletionRunId,
         mode: "self",
       });
-      response.status(result.success ? 200 : 400).json(result);
+      response.status(result.success ? 200 : 503).json(result);
     } catch (error) {
-      response.status(500).json({
+      response.status(httpStatus(error)).json({
         success: false,
         error: error.message || "删除账户失败。",
       });
@@ -3278,7 +3652,7 @@ function systemEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Internal server error",
         });
@@ -3303,7 +3677,7 @@ function systemEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Internal server error",
         });
@@ -3329,7 +3703,7 @@ function systemEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(httpStatus(e)).json({
           success: false,
           error: e.message || "Internal server error",
         });
@@ -3347,7 +3721,9 @@ function systemEndpoints(app) {
         response.status(200).json({ presets: userPresets });
       } catch (error) {
         console.error("Error fetching slash command presets:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -3385,7 +3761,9 @@ function systemEndpoints(app) {
         response.status(201).json({ preset });
       } catch (error) {
         console.error("Error creating slash command preset:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -3431,7 +3809,9 @@ function systemEndpoints(app) {
         response.status(200).json({ preset: { ...ownsPreset, ...updates } });
       } catch (error) {
         console.error("Error updating slash command preset:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -3458,7 +3838,9 @@ function systemEndpoints(app) {
         response.sendStatus(204);
       } catch (error) {
         console.error("Error deleting slash command preset:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(httpStatus(error))
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -3473,7 +3855,7 @@ function systemEndpoints(app) {
         response.status(200).json({ variables });
       } catch (error) {
         console.error("Error fetching system prompt variables:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: `Failed to fetch system prompt variables: ${error.message}`,
         });
@@ -3509,7 +3891,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error creating system prompt variable:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: `Failed to create system prompt variable: ${error.message}`,
         });
@@ -3551,7 +3933,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error updating system prompt variable:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: `Failed to update system prompt variable: ${error.message}`,
         });
@@ -3579,7 +3961,7 @@ function systemEndpoints(app) {
         });
       } catch (error) {
         console.error("Error deleting system prompt variable:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: `Failed to delete system prompt variable: ${error.message}`,
         });
@@ -3615,7 +3997,7 @@ function systemEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error("SQL validation error:", error);
-        response.status(500).json({
+        response.status(httpStatus(error)).json({
           success: false,
           error: `Unable to connect to ${engine}. Please verify your connection details.`,
         });

@@ -6,7 +6,7 @@ const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody } = require("../utils/http");
 const { generateRecoveryCodes } = require("../utils/PasswordRecovery");
 const {
-  issueUserSessionToken,
+  createUserSessionToken,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const { getClientContext } = require("../utils/clientIdentity");
@@ -345,8 +345,9 @@ async function completeInviteRegistration({ token, body, request, response }) {
     });
   }
 
-  const sessionToken = issueUserSessionToken(user, {
+  const sessionToken = await createUserSessionToken(user, {
     ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+    authMode: "invite",
   });
   const recoveryCodes = await generateRecoveryCodes(user.id);
   return response.status(200).json({
@@ -378,7 +379,7 @@ function inviteEndpoints(app) {
       });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -484,7 +485,7 @@ function inviteEndpoints(app) {
     } catch (e) {
       console.error(e);
       response
-        .status(500)
+        .status(e.httpStatus || 500)
         .json({ success: false, error: INVITE_GENERIC_ERROR });
     }
   });
@@ -503,7 +504,7 @@ function inviteEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -522,7 +523,7 @@ function inviteEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

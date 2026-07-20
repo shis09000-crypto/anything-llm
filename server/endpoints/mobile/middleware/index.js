@@ -38,7 +38,9 @@ async function validDeviceToken(request, response, next) {
     next();
   } catch (error) {
     console.error("validDeviceToken", error);
-    response.status(500).json({ error: "Invalid middleware response" });
+    response
+      .status(error.httpStatus || 500)
+      .json({ error: "Invalid middleware response" });
   }
 }
 
@@ -86,7 +88,7 @@ async function validRegistrationToken(request, response, next) {
     next();
   } catch (error) {
     console.error("validRegistrationToken:error", error);
-    response.status(500).json({
+    response.status(error.httpStatus || 500).json({
       error: "Invalid middleware response from validRegistrationToken",
     });
   }

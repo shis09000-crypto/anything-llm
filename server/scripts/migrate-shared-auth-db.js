@@ -1,22 +1,15 @@
 #!/usr/bin/env node
 const path = require("path");
-const fs = require("fs");
-const { PrismaClient } = require("@prisma/client");
-
-const serverRoot = path.resolve(__dirname, "..");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(serverRoot, envPath) });
-
-const { storageBaseDir, authDatabaseUrl } = require("../utils/environment");
 const {
-  deriveRoleDefaults,
-  normalizeRole,
-} = require("../utils/authz/accountRoles");
-
-const dryRun = process.argv.includes("--dry-run");
+  assertDatabaseSchema,
+  bootstrapCliRuntime,
+} = require("./lib/runtimeBootstrap");
+const execute = process.argv.includes("--execute");
+const dryRun = process.argv.includes("--dry-run") || !execute;
+let deriveRoleDefaults;
+let normalizeRole;
+let PrismaClient;
+let runtime;
 
 function sqliteUrl(dbPath) {
   const url = new URL(`file:${dbPath}`);
@@ -112,8 +105,12 @@ function authDataFromEnvUser(user = {}, originEnv) {
 }
 
 async function readUsers(envName) {
-  const dbPath = path.join(storageBaseDir(), envName, "anythingllm.db");
-  if (!fs.existsSync(dbPath)) return { envName, dbPath, db: null, users: [] };
+  const dbPath = path.join(runtime.storageBase, envName, "anythingllm.db");
+  await assertDatabaseSchema({
+    databasePath: dbPath,
+    requiredTables: ["users", "_prisma_migrations"],
+    label: envName,
+  });
   const db = client(sqliteUrl(dbPath));
   const users = await db.users.findMany({ orderBy: { id: "asc" } });
   return { envName, dbPath, db, users };
@@ -370,7 +367,22 @@ function roleCounts(users = []) {
 }
 
 async function main() {
-  const authDb = client(authDatabaseUrl());
+  runtime = await bootstrapCliRuntime({
+    access: dryRun ? "read" : "write",
+    execute,
+    requiredTables: ["users", "_prisma_migrations"],
+  });
+  await assertDatabaseSchema({
+    databasePath: runtime.authDatabasePath,
+    requiredTables: ["users", "auth_sessions", "_prisma_migrations"],
+    label: "auth",
+  });
+  ({
+    deriveRoleDefaults,
+    normalizeRole,
+  } = require("../utils/authz/accountRoles"));
+  PrismaClient = require("@prisma/client").PrismaClient;
+  const authDb = client(sqliteUrl(runtime.authDatabasePath));
   const production = await readUsers("production");
   const development = await readUsers("development");
   const maps = { production: new Map(), development: new Map() };
@@ -404,13 +416,19 @@ async function main() {
           {
             success: true,
             dryRun: true,
-            authDb: authDatabaseUrl().replace(/\\/g, "/"),
+            authDb: runtime.authDatabasePath.replace(/\\/g, "/"),
             productionUsers: production.users.length,
             developmentUsers: development.users.length,
             roleCounts: roleCounts(pendingUsers),
             ownerCount: pendingUsers.filter((user) => user.role === "owner")
               .length,
             ownerProtection: pendingUsers.some((user) => user.role === "owner"),
+            ...(!execute
+              ? {
+                  instruction:
+                    "Migration requires --execute and APP_ENV or --env.",
+                }
+              : {}),
           },
           null,
           2
@@ -443,7 +461,7 @@ async function main() {
       JSON.stringify(
         {
           success: true,
-          authDb: authDatabaseUrl().replace(/\\/g, "/"),
+          authDb: runtime.authDatabasePath.replace(/\\/g, "/"),
           productionUsers: production.users.length,
           developmentUsers: development.users.length,
           productionBackfilled,

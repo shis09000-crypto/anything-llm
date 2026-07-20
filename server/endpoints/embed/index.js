@@ -90,7 +90,7 @@ function embeddedEndpoints(app) {
         response.status(200).json({ history: convertToChatHistory(history) });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -107,7 +107,7 @@ function embeddedEndpoints(app) {
         response.status(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

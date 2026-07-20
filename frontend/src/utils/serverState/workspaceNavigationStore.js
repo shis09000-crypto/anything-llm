@@ -46,6 +46,7 @@ function readSessionEntry(kind) {
     return {
       payload: clone(entry.payload),
       updatedAt: entry.updatedAt,
+      meta: clone(entry.meta || {}),
     };
   } catch {
     return null;
@@ -60,6 +61,7 @@ function writeSessionEntry(kind, entry) {
       JSON.stringify({
         payload: entry.payload,
         updatedAt: entry.updatedAt,
+        meta: entry.meta || {},
       })
     );
   } catch {}
@@ -128,6 +130,7 @@ function hydrateFromSession({ cacheKey, sessionKind, scope }) {
     updatedAt: entry.updatedAt,
     scope,
     meta: {
+      ...(entry.meta || {}),
       source: "session",
       count: Array.isArray(entry.payload) ? entry.payload.length : undefined,
     },
@@ -146,6 +149,7 @@ function writeCacheAndSession({ cacheKey, sessionKind, payload, scope, meta }) {
   writeSessionEntry(sessionKind, {
     payload: clone(payload),
     updatedAt,
+    meta: clone(meta || {}),
   });
 }
 
@@ -214,16 +218,20 @@ export const workspaceNavigationStore = {
       ageMs: meta.ageMs,
       updatedAt: meta.updatedAt,
       count: Array.isArray(workspaces) ? workspaces.length : 0,
+      syncV2: meta.meta?.syncV2 || null,
     };
   },
 
-  setWorkspaces(workspaces = []) {
+  setWorkspaces(workspaces = [], options = {}) {
     writeCacheAndSession({
       cacheKey: WORKSPACE_NAVIGATION_KEYS.workspaces,
       sessionKind: "workspaces",
       payload: workspaces,
       scope: workspaceScope({ surface: "workspaces" }),
-      meta: { count: Array.isArray(workspaces) ? workspaces.length : 0 },
+      meta: {
+        count: Array.isArray(workspaces) ? workspaces.length : 0,
+        ...(options.meta || {}),
+      },
     });
   },
 
@@ -324,10 +332,11 @@ export const workspaceNavigationStore = {
       ageMs: meta.ageMs,
       updatedAt: meta.updatedAt,
       hasDetail: meta.hasValue,
+      syncV2: meta.meta?.syncV2 || null,
     };
   },
 
-  setWorkspaceDetail(workspaceSlug, workspace = null) {
+  setWorkspaceDetail(workspaceSlug, workspace = null, options = {}) {
     if (!workspaceSlug || !workspace) return;
     writeCacheAndSession({
       cacheKey: WORKSPACE_NAVIGATION_KEYS.workspaceDetail(workspaceSlug),
@@ -337,6 +346,7 @@ export const workspaceNavigationStore = {
         surface: "workspace-detail",
         workspaceSlug,
       }),
+      meta: options.meta,
     });
     this.upsertWorkspace(workspace);
   },
@@ -430,10 +440,11 @@ export const workspaceNavigationStore = {
       ageMs: meta.ageMs,
       updatedAt: meta.updatedAt,
       count: Array.isArray(threads) ? threads.length : 0,
+      syncV2: meta.meta?.syncV2 || null,
     };
   },
 
-  setThreads(workspaceSlug, threads = []) {
+  setThreads(workspaceSlug, threads = [], options = {}) {
     if (!workspaceSlug) return;
     writeCacheAndSession({
       cacheKey: WORKSPACE_NAVIGATION_KEYS.workspaceThreads(workspaceSlug),
@@ -443,7 +454,10 @@ export const workspaceNavigationStore = {
         surface: "threads",
         workspaceSlug,
       }),
-      meta: { count: Array.isArray(threads) ? threads.length : 0 },
+      meta: {
+        count: Array.isArray(threads) ? threads.length : 0,
+        ...(options.meta || {}),
+      },
     });
   },
 

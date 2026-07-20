@@ -1,4 +1,13 @@
 const MCPHypervisor = require("./hypervisor");
+const {
+  assertToolInvocationPolicy,
+  redactForLog,
+  toolAllowed,
+} = require("../plugins/securityPolicy");
+const {
+  authorizeInvocation,
+  issueInvocationCredential,
+} = require("../plugins/capabilityBroker");
 
 class MCPCompatibilityLayer extends MCPHypervisor {
   static _instance;
@@ -40,8 +49,13 @@ class MCPCompatibilityLayer extends MCPHypervisor {
     if (!tools || !tools.length) return null;
 
     const suppressedTools = this.getSuppressedTools(name);
+    const manifest = mcp.athenaPolicy?.manifest;
     const totalTools = tools.length;
-    tools = tools.filter((tool) => !suppressedTools.includes(tool.name));
+    tools = tools.filter(
+      (tool) =>
+        !suppressedTools.includes(tool.name) &&
+        (!manifest || toolAllowed(manifest, tool.name, mcp.athenaPolicy?.mode))
+    );
     const suppressedCount = totalTools - tools.length;
 
     if (suppressedCount > 0) {
@@ -84,12 +98,43 @@ class MCPCompatibilityLayer extends MCPHypervisor {
                         `MCP server ${name} is not currently running`
                       );
 
+                    assertToolInvocationPolicy({
+                      policy: currentMcp.athenaPolicy,
+                      args,
+                    });
+
+                    // The broker credential is deliberately short lived and
+                    // bound to the exact service, tool, arguments and manifest.
+                    // It is consumed immediately before crossing the MCP trust
+                    // boundary and is never forwarded to or logged by a plugin.
+                    const manifest = currentMcp.athenaPolicy?.manifest || {};
+                    const invocation = aibitat.handlerProps?.invocation || {};
+                    const credential = issueInvocationCredential({
+                      serviceIdentity:
+                        currentMcp.athenaPolicy?.serviceIdentity ||
+                        `plugin:${name}`,
+                      tool: tool.name,
+                      args,
+                      manifest,
+                      subject: `agent:${invocation.uuid || "unknown"}`,
+                      maxCostUsd: manifest.maxCostUsd,
+                    });
+                    authorizeInvocation({
+                      credential,
+                      serviceIdentity:
+                        currentMcp.athenaPolicy?.serviceIdentity ||
+                        `plugin:${name}`,
+                      tool: tool.name,
+                      args,
+                      manifest,
+                    });
+
                     aibitat.handlerProps.log(
                       `Executing MCP server: ${name}:${tool.name} with args:`,
-                      args
+                      redactForLog(args)
                     );
                     aibitat.introspect(
-                      `Executing MCP server: ${name} with ${JSON.stringify(args, null, 2)}`
+                      `Executing MCP server: ${name} with ${JSON.stringify(redactForLog(args), null, 2)}`
                     );
                     const result = await currentMcp.callTool({
                       name: tool.name,
@@ -97,7 +142,7 @@ class MCPCompatibilityLayer extends MCPHypervisor {
                     });
                     aibitat.handlerProps.log(
                       `MCP server: ${name}:${tool.name} completed successfully`,
-                      result
+                      redactForLog(result)
                     );
                     aibitat.introspect(
                       `MCP server: ${name}:${tool.name} completed successfully`
@@ -106,7 +151,13 @@ class MCPCompatibilityLayer extends MCPHypervisor {
                   } catch (error) {
                     aibitat.handlerProps.log(
                       `MCP server: ${name}:${tool.name} failed with error:`,
-                      error
+                      {
+                        code: error?.code || null,
+                        message: String(error?.message || "tool_failed").slice(
+                          0,
+                          300
+                        ),
+                      }
                     );
                     aibitat.introspect(
                       `MCP server: ${name}:${tool.name} failed with error:`,
@@ -146,7 +197,7 @@ class MCPCompatibilityLayer extends MCPHypervisor {
       if (result.status === "failed") {
         servers.push({
           name,
-          config: config?.server || null,
+          config: config?.server ? redactForLog(config.server) : null,
           running: false,
           tools: [],
           error: result.message,
@@ -164,11 +215,20 @@ class MCPCompatibilityLayer extends MCPHypervisor {
 
       const online = !!(await mcp.ping());
       const tools = (online ? (await mcp.listTools()).tools : []).filter(
-        (tool) => !tool.name.startsWith("handle_mcp_connection_mcp_")
+        (tool) =>
+          !tool.name.startsWith("handle_mcp_connection_mcp_") &&
+          (!mcp.athenaPolicy?.manifest ||
+            toolAllowed(
+              mcp.athenaPolicy.manifest,
+              tool.name,
+              mcp.athenaPolicy.mode
+            ))
       );
       servers.push({
         name,
-        config: config?.server || null,
+        serviceIdentity: mcp.athenaPolicy?.serviceIdentity || null,
+        policyMode: mcp.athenaPolicy?.mode || null,
+        config: config?.server ? redactForLog(config.server) : null,
         running: online,
         tools,
         error: null,

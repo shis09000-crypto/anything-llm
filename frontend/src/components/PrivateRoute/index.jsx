@@ -17,7 +17,7 @@ import {
   canSeeOwnerSecurity,
 } from "@/utils/authz";
 import { markLoginBoot } from "@/utils/loginBootPerf";
-import { AuthBootstrapError } from "@/components/Modals/Password";
+import AuthBootstrapError from "@/components/Modals/Password/AuthBootstrapError";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import { hasStoredAuthUser } from "@/utils/authUserStorage";
 import {

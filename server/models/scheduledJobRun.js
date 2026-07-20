@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 
 const ScheduledJobRun = {
@@ -49,8 +52,7 @@ const ScheduledJobRun = {
         });
       });
     } catch (error) {
-      console.error("Failed to enqueue scheduled job run:", error.message);
-      return null;
+      throwModelDataAccessError("scheduledJobRun.start", error);
     }
   },
 
@@ -75,11 +77,7 @@ const ScheduledJobRun = {
       });
       return result.count > 0;
     } catch (error) {
-      console.error(
-        "Failed to transition scheduled job run to running:",
-        error.message
-      );
-      return false;
+      throwModelDataAccessError("scheduledJobRun.markRunning", error);
     }
   },
 
@@ -107,11 +105,7 @@ const ScheduledJobRun = {
       });
       return result.count > 0;
     } catch (error) {
-      console.error(
-        "Failed to conditionally fail scheduled job run:",
-        error.message
-      );
-      return false;
+      throwModelDataAccessError("scheduledJobRun.failIfNotTerminal", error);
     }
   },
 
@@ -127,8 +121,7 @@ const ScheduledJobRun = {
       });
       return run;
     } catch (error) {
-      console.error("Failed to complete scheduled job run:", error.message);
-      return null;
+      throwModelDataAccessError("scheduledJobRun.complete", error);
     }
   },
 
@@ -150,11 +143,7 @@ const ScheduledJobRun = {
       if (result.count === 0) return null;
       return await this.get({ id: Number(id) });
     } catch (error) {
-      console.error(
-        "Failed to mark scheduled job run as failed:",
-        error.message
-      );
-      return null;
+      throwModelDataAccessError("scheduledJobRun.fail", error);
     }
   },
 
@@ -176,11 +165,7 @@ const ScheduledJobRun = {
       if (result.count === 0) return null;
       return await this.get({ id: Number(id) });
     } catch (error) {
-      console.error(
-        "Failed to mark scheduled job run as timed out:",
-        error.message
-      );
-      return null;
+      throwModelDataAccessError("scheduledJobRun.timeout", error);
     }
   },
 
@@ -209,8 +194,7 @@ const ScheduledJobRun = {
       if (result.count === 0) return null;
       return await this.get({ id: Number(id) });
     } catch (error) {
-      console.error("Failed to kill scheduled job run:", error.message);
-      return null;
+      throwModelDataAccessError("scheduledJobRun.kill", error);
     }
   },
 
@@ -222,8 +206,7 @@ const ScheduledJobRun = {
       });
       return run || null;
     } catch (error) {
-      console.error("Failed to get scheduled job run:", error.message);
-      return null;
+      throwModelDataAccessError("scheduledJobRun.get", error);
     }
   },
 
@@ -246,8 +229,7 @@ const ScheduledJobRun = {
       });
       return results;
     } catch (error) {
-      console.error("Failed to query scheduled job runs:", error.message);
-      return [];
+      throwModelDataAccessError("scheduledJobRun.where", error);
     }
   },
 
@@ -259,8 +241,7 @@ const ScheduledJobRun = {
       });
       return true;
     } catch (error) {
-      console.error("Failed to mark run as read:", error.message);
-      return false;
+      throwModelDataAccessError("scheduledJobRun.markRead", error);
     }
   },
 
@@ -269,8 +250,7 @@ const ScheduledJobRun = {
       await prisma.scheduled_job_runs.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error("Failed to delete scheduled job runs:", error.message);
-      return false;
+      throwModelDataAccessError("scheduledJobRun.delete", error);
     }
   },
 
@@ -290,8 +270,7 @@ const ScheduledJobRun = {
       });
       return result.count;
     } catch (error) {
-      console.error("Failed to fail orphaned runs:", error.message);
-      return 0;
+      throwModelDataAccessError("scheduledJobRun.failOrphanedRuns", error);
     }
   },
 
@@ -332,6 +311,7 @@ const ScheduledJobRun = {
         throw new Error(threadError || "Failed to create thread");
 
       await WorkspaceChats.new({
+        sourceChannel: "bot",
         workspaceId: workspace.id,
         prompt: run.job.prompt,
         response: {

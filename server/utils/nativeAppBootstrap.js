@@ -7,6 +7,7 @@ const { getDeploymentVersion } = require("./deploymentVersion");
 const { SENSITIVE_SESSION_HEADER } = require("./authz/sensitiveSessions");
 const { transportSecurityStatus } = require("./security/transportSecurity");
 const { broadcastTransportSummary } = require("./broadcast/transportRegistry");
+const { syncV2Enabled } = require("./syncV2/config");
 
 const NATIVE_APP_PROTOCOL_VERSION = "ios-native-v1";
 const IOS_MINIMUM_OS_VERSION = "26.0";
@@ -423,6 +424,7 @@ function buildNativeAppBootstrap({
       broadcastWebSocket: true,
       broadcastDurableTransport: true,
       userStateSync: true,
+      syncV2: syncV2Enabled(env),
       nativePush: apns.available,
       webPushOnly: !apns.available,
       universalLinks: universalLinks.configured,

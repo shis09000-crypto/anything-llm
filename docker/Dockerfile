@@ -28,11 +28,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get update && \
     # Install node and yarn
     apt-get install -yq --no-install-recommends nodejs && \
-    curl -LO https://github.com/yarnpkg/yarn/releases/download/v1.22.19/yarn_1.22.19_all.deb \
+    curl -fL https://github.com/yarnpkg/yarn/releases/download/v1.22.19/yarn_1.22.19_all.deb -o yarn_1.22.19_all.deb \
+        && echo "666cc8c015bb9e36236fc355816711fbc88bbba97ce8344d3ea2a36debcf7424  yarn_1.22.19_all.deb" | sha256sum -c - \
         && dpkg -i yarn_1.22.19_all.deb \
         && rm yarn_1.22.19_all.deb && \
     # Install uvx (pinned to 0.6.10) for MCP support
-    curl -LsSf https://astral.sh/uv/0.6.10/install.sh | sh && \
+    curl -LsSf https://astral.sh/uv/0.6.10/install.sh -o /tmp/uv-install.sh && \
+        echo "16bc7443117084db0835e0fc041ba253a47f10ac6e819933ed9f80612f8c2347  /tmp/uv-install.sh" | sha256sum -c - && \
+        sh /tmp/uv-install.sh && rm /tmp/uv-install.sh && \
         mv /root/.local/bin/uv /usr/local/bin/uv && \
         mv /root/.local/bin/uvx /usr/local/bin/uvx && \
         echo "Installed uvx! $(uv --version)" && \
@@ -64,6 +67,7 @@ WORKDIR /app
 # by manually installing a compatible chromedriver.
 RUN echo "Need to patch Puppeteer x Chromium support for ARM86 - installing dep!" && \
     curl -fSL https://webassets.anythingllm.com/chromium-1088-linux-arm64.zip -o chrome-linux.zip && \
+    echo "eac918179f53579675dddf79cac7ab5ecd32f26b7f05735cd15171a2bba6a4ef  chrome-linux.zip" | sha256sum -c - && \
     unzip chrome-linux.zip && \
     rm -rf chrome-linux.zip
 
@@ -99,11 +103,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && \
     apt-get update && \
     # Install node and yarn
     apt-get install -yq --no-install-recommends nodejs && \
-    curl -LO https://github.com/yarnpkg/yarn/releases/download/v1.22.19/yarn_1.22.19_all.deb \
+    curl -fL https://github.com/yarnpkg/yarn/releases/download/v1.22.19/yarn_1.22.19_all.deb -o yarn_1.22.19_all.deb \
+        && echo "666cc8c015bb9e36236fc355816711fbc88bbba97ce8344d3ea2a36debcf7424  yarn_1.22.19_all.deb" | sha256sum -c - \
         && dpkg -i yarn_1.22.19_all.deb \
         && rm yarn_1.22.19_all.deb && \
     # Install uvx (pinned to 0.6.10) for MCP support
-    curl -LsSf https://astral.sh/uv/0.6.10/install.sh | sh && \
+    curl -LsSf https://astral.sh/uv/0.6.10/install.sh -o /tmp/uv-install.sh && \
+        echo "16bc7443117084db0835e0fc041ba253a47f10ac6e819933ed9f80612f8c2347  /tmp/uv-install.sh" | sha256sum -c - && \
+        sh /tmp/uv-install.sh && rm /tmp/uv-install.sh && \
         mv /root/.local/bin/uv /usr/local/bin/uv && \
         mv /root/.local/bin/uvx /usr/local/bin/uvx && \
         echo "Installed uvx! $(uv --version)" && \
@@ -248,7 +255,7 @@ ENV ATHENA_RUNTIME_ROLE=collector
 ENV COLLECTOR_PORT=8888
 ENV DEPLOYMENT_VERSION=2.1.1
 HEALTHCHECK --interval=1m --timeout=10s --start-period=1m \
-  CMD curl --silent --fail "http://localhost:${COLLECTOR_PORT}/accepts" || exit 1
+  CMD curl --silent --fail "http://localhost:${COLLECTOR_PORT}/health" || exit 1
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/docker-entrypoint.sh"]
 
 FROM nginx:1.27-alpine AS web-production-build

@@ -89,7 +89,7 @@ function sensitiveSessionEndpoints(app) {
             })
           : false;
       const revokedCount = revoked ? 1 : 0;
-      void EventLogs.logEvent(
+      await EventLogs.logEvent(
         "sensitive_session_revoked",
         { revokedCount },
         userId
@@ -136,7 +136,7 @@ function sensitiveSessionEndpoints(app) {
         resourceId: body.resourceId || null,
         ownerScope: body.ownerScope || null,
       });
-      void EventLogs.logEvent(
+      await EventLogs.logEvent(
         "sensitive_session_scope_revoked",
         {
           resourceType: body.resourceType || null,

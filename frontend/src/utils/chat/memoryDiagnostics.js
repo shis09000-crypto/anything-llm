@@ -3,17 +3,10 @@ import { threadHistoryCache } from "./threadHistoryCache";
 import { WorkspaceChatPerfMarks } from "./performanceBudget";
 import { getTrackedTtsBlobStats } from "@/utils/piperTTS/blobStats";
 import { storageKeys } from "@/utils/appEnvironment";
+export { estimatePayloadBytes } from "./memorySize";
 
 let draftStatsProvider = null;
 let sourcesStatsProvider = null;
-
-export function estimatePayloadBytes(value) {
-  try {
-    return new Blob([JSON.stringify(value)]).size;
-  } catch {
-    return 0;
-  }
-}
 
 export function setDraftMemoryStatsProvider(provider = null) {
   draftStatsProvider = typeof provider === "function" ? provider : null;

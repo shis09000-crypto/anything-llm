@@ -1,5 +1,8 @@
 const { MASTER_KEY_ENV } = require("./constants");
-const { assertProductionTransportConfig, envFlag } = require("./transportSecurity");
+const {
+  assertProductionTransportConfig,
+  envFlag,
+} = require("./transportSecurity");
 
 const WEAK_SECRET_VALUES = new Set([
   "secret",
@@ -29,6 +32,12 @@ function validateStrongSecret(name, value, minLength = 32) {
 }
 
 function validateMasterKey(env = process.env) {
+  if (
+    env.ATHENA_KEY_PROVIDER === "secret-file" ||
+    String(env.ATHENA_MASTER_KEY_FILE || "").trim()
+  ) {
+    return null;
+  }
   const value = present(env[MASTER_KEY_ENV]);
   if (!value) return `${MASTER_KEY_ENV} is required in production.`;
   if (!/^[a-fA-F0-9]+$/.test(value)) {
@@ -61,11 +70,21 @@ function productionSecurityFindings(env = process.env) {
   if (envFlag(env.ATHENA_SIGNING_WARN_ONLY)) {
     findings.push("ATHENA_SIGNING_WARN_ONLY cannot be true in production.");
   }
-  if (envFlag(env.VITE_CODEX_DEV_AUTH_BYPASS) || present(env.CODEX_DEV_AUTH_BYPASS_KEY)) {
-    findings.push("Codex dev auth bypass configuration must not be present in production.");
+  if (
+    envFlag(env.VITE_CODEX_DEV_AUTH_BYPASS) ||
+    present(env.CODEX_DEV_AUTH_BYPASS_KEY)
+  ) {
+    findings.push(
+      "Codex dev auth bypass configuration must not be present in production."
+    );
   }
-  if (envFlag(env.CRYPTO_CENTER_AUTH_BYPASS) || envFlag(env.VITE_CRYPTO_CENTER_AUTH_BYPASS)) {
-    findings.push("Crypto Center auth bypass must not be enabled in production.");
+  if (
+    envFlag(env.CRYPTO_CENTER_AUTH_BYPASS) ||
+    envFlag(env.VITE_CRYPTO_CENTER_AUTH_BYPASS)
+  ) {
+    findings.push(
+      "Crypto Center auth bypass must not be enabled in production."
+    );
   }
 
   return findings;

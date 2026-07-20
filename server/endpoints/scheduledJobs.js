@@ -8,6 +8,9 @@ const {
 } = require("../repositories/telemetryRepository");
 const ScheduledJob = DataAccessCenter.scheduledJob.job;
 const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
+const {
+  normalizeCapabilityManifest,
+} = require("../utils/plugins/securityPolicy");
 
 // BackgroundService is a singleton, so `new BackgroundService()` anywhere in
 // the codebase returns the same instance that `server/index.js` booted. We
@@ -27,7 +30,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ tools });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).json({ tools: [] });
+        response.sendStatus(e.httpStatus || 500).json({ tools: [] });
       }
     }
   );
@@ -57,7 +60,7 @@ function scheduledJobEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -134,7 +137,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ jobs: jobsWithStatus });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -145,7 +148,8 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const { name, prompt, tools, schedule } = reqBody(request);
+        const { name, prompt, tools, schedule, capabilityManifest } =
+          reqBody(request);
         let errorMessage = null;
 
         if (!name?.trim()) {
@@ -156,7 +160,11 @@ function scheduledJobEndpoints(app) {
           errorMessage = "Schedule is required";
         } else if (!ScheduledJob.isValidCron(schedule)) {
           errorMessage = "Invalid cron expression";
-        } else if (tools?.length > 0 && !Array.isArray(tools)) {
+        } else if (
+          tools !== undefined &&
+          tools !== null &&
+          !Array.isArray(tools)
+        ) {
           errorMessage = "Tools must be an array";
         }
         if (errorMessage)
@@ -180,6 +188,14 @@ function scheduledJobEndpoints(app) {
           prompt: prompt.trim(),
           tools: tools || null,
           schedule: schedule.trim(),
+          capabilityManifest: normalizeCapabilityManifest(
+            capabilityManifest || {
+              tools: tools || [],
+              scheduledAutoApprove: tools || [],
+              allowHighRisk: false,
+              maxToolCalls: 10,
+            }
+          ),
         });
 
         if (error) {
@@ -191,7 +207,7 @@ function scheduledJobEndpoints(app) {
         return response.status(201).json({ job, error: null });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -213,7 +229,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ job });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -224,13 +240,46 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const { name, prompt, tools, schedule, enabled } = reqBody(request);
+        const { name, prompt, tools, schedule, enabled, capabilityManifest } =
+          reqBody(request);
         const updates = {};
+        const currentJob = await ScheduledJob.get({
+          id: Number(request.params.id),
+        });
+        if (!currentJob) {
+          return response
+            .status(404)
+            .json({ job: null, error: "Job not found" });
+        }
+
+        if (tools !== undefined && tools !== null && !Array.isArray(tools)) {
+          return response
+            .status(400)
+            .json({ job: null, error: "Tools must be an array" });
+        }
 
         if (name !== undefined) updates.name = String(name).trim();
         if (prompt !== undefined) updates.prompt = String(prompt).trim();
         if (tools !== undefined) updates.tools = tools;
         if (enabled !== undefined) updates.enabled = Boolean(enabled);
+        if (capabilityManifest !== undefined) {
+          updates.capabilityManifest = normalizeCapabilityManifest(
+            capabilityManifest || {}
+          );
+        } else if (tools !== undefined) {
+          // The existing UI only edits the selected tools. Keep the capability
+          // policy in sync so a routine edit cannot silently disable a job in
+          // enforce mode. High-risk tools remain blocked unless the existing
+          // manifest explicitly opted into them.
+          const currentManifest = normalizeCapabilityManifest(
+            currentJob.capabilityManifest
+          );
+          updates.capabilityManifest = {
+            ...currentManifest,
+            tools: tools || [],
+            scheduledAutoApprove: tools || [],
+          };
+        }
         if (schedule !== undefined) {
           if (!ScheduledJob.isValidCron(schedule)) {
             return response
@@ -269,7 +318,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ job, error: null });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -286,7 +335,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ success });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -327,7 +376,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ job: updated });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -351,7 +400,7 @@ function scheduledJobEndpoints(app) {
           .json({ success: true, skipped: !run, error: null });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -370,7 +419,7 @@ function scheduledJobEndpoints(app) {
         return response.status(200).json({ runs });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );

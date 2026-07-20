@@ -6,6 +6,8 @@
   "scripts": {
     "prepare:desktop": "node prepare-desktop.cjs",
     "icon:generate": "python3 scripts/generate-icon-assets.py",
+    "test": "node --test tests/*.test.cjs",
+    "security:audit": "node scripts/security-config-audit.cjs",
     "start": "electron .",
     "dist:win": "npm run prepare:desktop && electron-builder --win nsis --x64"
   },
@@ -55,6 +57,8 @@
     ],
     "win": {
       "icon": "build/icon.ico",
+      "verifyUpdateCodeSignature": true,
+      "signAndEditExecutable": true,
       "target": [
         {
           "target": "nsis",
@@ -73,7 +77,8 @@
       "createStartMenuShortcut": true,
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "shortcutName": "向量知识库"
+      "shortcutName": "向量知识库",
+      "differentialPackage": true
     }
   }
 }

@@ -1,6 +1,7 @@
 const { FileStorageProvider } = require("./fileStorageProvider");
 const { SecretStoreProvider } = require("./secretStoreProvider");
 const { VectorStorageProvider } = require("./vectorStorageProvider");
+const { contentObjectProvider } = require("./contentObjectProvider");
 
 const RESERVED_ADAPTERS = Object.freeze({
   postgres: {
@@ -8,12 +9,6 @@ const RESERVED_ADAPTERS = Object.freeze({
     providerType: "relational-database",
     status: "reserved",
     reason: "Repository contracts are kept database-portable before migration.",
-  },
-  objectStorage: {
-    adapterName: "object-storage",
-    providerType: "blob-storage",
-    status: "reserved",
-    reason: "FileStorageProvider exposes the interface boundary first.",
   },
   redis: {
     adapterName: "redis",
@@ -27,6 +22,7 @@ const adapters = {
   file: FileStorageProvider,
   vector: VectorStorageProvider,
   secret: SecretStoreProvider,
+  objectStorage: contentObjectProvider(),
 };
 
 const StorageAdapterRegistry = {

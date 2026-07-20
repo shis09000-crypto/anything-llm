@@ -5,6 +5,7 @@ import {
   normalizeChatStreamEvent,
   normalizeChatTurnEvent,
 } from "./chatStreamProtocol";
+import { preuploadLargeChatAttachments } from "./chatAttachmentClient";
 
 function chatStreamBody({
   message,
@@ -102,9 +103,17 @@ async function streamChat({
   window.addEventListener(ABORT_STREAM_EVENT, abortStream);
 
   try {
+    const requestBody = {
+      ...body,
+      attachments: await preuploadLargeChatAttachments(
+        workspaceSlug,
+        body?.attachments || [],
+        { signal: ctrl.signal }
+      ),
+    };
     await postJsonSse({
       path,
-      body,
+      body: requestBody,
       signal: ctrl.signal,
       communicationScene: "workspace-chat",
       task: {

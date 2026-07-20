@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { SystemSettings } = require("./systemSettings");
 const { ROLES } = require("../utils/middleware/multiUserProtected");
@@ -95,8 +98,7 @@ const BrowserExtensionApiKey = {
       });
       return apiKey;
     } catch (error) {
-      console.error("FAILED TO GET BROWSER EXTENSION API KEY.", error.message);
-      return null;
+      throwModelDataAccessError("browserExtensionApiKey.get", error);
     }
   },
 
@@ -156,8 +158,7 @@ const BrowserExtensionApiKey = {
       });
       return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
-      console.error("FAILED TO GET BROWSER EXTENSION API KEYS.", error.message);
-      return [];
+      throwModelDataAccessError("browserExtensionApiKey.where", error);
     }
   },
 
@@ -191,8 +192,7 @@ const BrowserExtensionApiKey = {
       });
       return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("browserExtensionApiKey.whereWithUser", error);
     }
   },
 

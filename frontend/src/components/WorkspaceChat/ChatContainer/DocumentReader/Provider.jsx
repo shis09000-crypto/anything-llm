@@ -9,6 +9,7 @@ import {
 } from "react";
 import ReaderDocument from "@/models/readerDocument";
 import ReaderLibrary from "@/models/readerLibrary";
+import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
 import { AuthContext } from "@/AuthContext";
@@ -651,10 +652,17 @@ export function DocumentReaderProvider({
   const [drawerInitialSection, setDrawerInitialSection] = useState(
     initialDrawerState.section
   );
+  const [workspaceDocuments, setWorkspaceDocuments] = useState(() =>
+    Array.isArray(workspace?.documents) ? workspace.documents : null
+  );
+  const [workspaceDocumentsLoading, setWorkspaceDocumentsLoading] =
+    useState(false);
+  const [workspaceDocumentsError, setWorkspaceDocumentsError] = useState(null);
   const drawerSectionRef = useRef(initialDrawerState.section);
   const [localFileConflict, setLocalFileConflict] = useState(null);
   const [docxPreviewStatus, setDocxPreviewStatus] = useState(null);
   const objectUrlRef = useRef(null);
+  const currentDocumentRef = useRef(null);
   const readerClosingRef = useRef(false);
   const readerCloseSuppressionUntilRef = useRef(0);
   const readerCloseSuppressionTimerRef = useRef(null);
@@ -673,8 +681,69 @@ export function DocumentReaderProvider({
   const readerRouteKeyRef = useRef(
     `${workspace?.slug || ""}:${threadSlug || ""}`
   );
+  const workspaceDocumentsRequestRef = useRef(0);
   const workspaceLayout = useWorkspaceLayout();
   const dispatchLayoutEvent = workspaceLayout?.dispatchLayoutEvent;
+
+  useEffect(() => {
+    currentDocumentRef.current = currentDocument;
+  }, [currentDocument]);
+
+  useEffect(() => {
+    workspaceDocumentsRequestRef.current += 1;
+    setWorkspaceDocuments(
+      Array.isArray(workspace?.documents) ? workspace.documents : null
+    );
+    setWorkspaceDocumentsLoading(false);
+    setWorkspaceDocumentsError(null);
+  }, [workspace?.slug]);
+
+  useEffect(() => {
+    if (!Array.isArray(workspace?.documents)) return;
+    setWorkspaceDocuments(workspace.documents);
+    setWorkspaceDocumentsError(null);
+  }, [workspace?.documents]);
+
+  const loadWorkspaceDocuments = useCallback(async () => {
+    const workspaceSlug = workspace?.slug || null;
+    if (!workspaceSlug) return [];
+    if (Array.isArray(workspaceDocuments)) return workspaceDocuments;
+
+    const requestId = workspaceDocumentsRequestRef.current + 1;
+    workspaceDocumentsRequestRef.current = requestId;
+    setWorkspaceDocumentsLoading(true);
+    setWorkspaceDocumentsError(null);
+    try {
+      const detail = await Workspace.bySlug(workspaceSlug, {
+        communicationScene: "reader-open",
+        task: readerOpenTask(
+          "reader:hydrate-workspace-documents",
+          workspaceSlug,
+          { surface: "workspace-document-picker" }
+        ),
+      });
+      if (
+        workspaceDocumentsRequestRef.current !== requestId ||
+        workspace?.slug !== workspaceSlug
+      ) {
+        return [];
+      }
+      if (!Array.isArray(detail?.documents)) {
+        throw new Error("工作区文档列表暂时不可用");
+      }
+      setWorkspaceDocuments(detail.documents);
+      return detail.documents;
+    } catch (error) {
+      if (workspaceDocumentsRequestRef.current !== requestId) return [];
+      const message = error?.message || "工作区文档加载失败";
+      setWorkspaceDocumentsError(message);
+      return [];
+    } finally {
+      if (workspaceDocumentsRequestRef.current === requestId) {
+        setWorkspaceDocumentsLoading(false);
+      }
+    }
+  }, [workspace?.slug, workspaceDocuments]);
 
   useEffect(() => {
     if (currentDocument) {
@@ -2688,6 +2757,19 @@ export function DocumentReaderProvider({
       options = {}
     ) => {
       if (!sourceWorkspaceSlug || !docPath) return;
+      const alreadyOpen = currentDocumentRef.current;
+      if (
+        alreadyOpen?.source === "workspace_parsed" &&
+        alreadyOpen.workspaceDocPath === docPath &&
+        alreadyOpen.readerDocumentWorkspaceSlug === sourceWorkspaceSlug
+      ) {
+        return alreadyOpen;
+      }
+      readerOpenDebug("workspace-parsed-start", {
+        docPath,
+        sourceWorkspaceSlug,
+        reason: options.reason || (historyItem ? "history" : "picker"),
+      });
       const openContext = options.openContext || beginReaderOpen();
       const isCurrentOpen = () => readerOpenIsCurrent(openContext);
       if (!historyItem) setDrawerSectionPersisted("workspace");
@@ -2759,10 +2841,12 @@ export function DocumentReaderProvider({
       setReaderObjectUrl(null);
       if (!isCurrentOpen()) return;
       clearReaderCloseSuppression();
+      currentDocumentRef.current = doc;
       setCurrentDocument(doc);
       persistDocument(doc);
       rememberDocument(doc);
       setDrawerOpenPersisted(false);
+      return doc;
     },
     [
       beginReaderOpen,
@@ -4461,6 +4545,20 @@ export function DocumentReaderProvider({
       if (!historyItem) return { ok: false };
       const rememberedItem = readerItemWithLatestBookMemory(historyItem);
       setDrawerSectionPersisted(options.origin || "history");
+      if (
+        rememberedItem.source === "workspace_parsed" &&
+        rememberedItem.workspaceDocPath
+      ) {
+        const opened = await openWorkspaceParsedDocument(
+          rememberedItem.workspaceDocPath,
+          rememberedItem.readerDocumentWorkspaceSlug ||
+            rememberedItem.workspaceSlug ||
+            workspace?.slug,
+          rememberedItem,
+          { reason: "history-workspace-parsed" }
+        );
+        return { ok: !!opened };
+      }
       const hasServerBackup = hasServerReaderDocument(rememberedItem);
       let serverFailure = null;
       if (hasServerBackup) {
@@ -4491,19 +4589,6 @@ export function DocumentReaderProvider({
         });
         if (uploadedResult?.ok) return { ok: true };
         serverFailure = uploadedResult || serverFailure;
-      }
-      if (
-        rememberedItem.source === "workspace_parsed" &&
-        rememberedItem.workspaceDocPath
-      ) {
-        await openWorkspaceParsedDocument(
-          rememberedItem.workspaceDocPath,
-          rememberedItem.readerDocumentWorkspaceSlug ||
-            rememberedItem.workspaceSlug ||
-            workspace?.slug,
-          rememberedItem
-        );
-        return { ok: true };
       }
       if (hasServerBackup) {
         const failure = serverFailure || {
@@ -4975,6 +5060,9 @@ export function DocumentReaderProvider({
       deleteBookshelfCategory,
       updateBookshelfItemCategory,
       reclassifyBookshelfItem,
+      loadWorkspaceDocuments,
+      workspaceDocumentsLoading,
+      workspaceDocumentsError,
       localFileConflict,
       resolveLocalFileConflict,
       docxPreviewStatus,
@@ -4990,7 +5078,14 @@ export function DocumentReaderProvider({
       removePendingReaderTextSource,
       upsertPendingReaderTextSource,
       sourcesByTurn,
-      workspace,
+      workspace: {
+        ...workspace,
+        documents: Array.isArray(workspaceDocuments)
+          ? workspaceDocuments
+          : Array.isArray(workspace?.documents)
+            ? workspace.documents
+            : [],
+      },
       threadSlug,
     }),
     [
@@ -5020,6 +5115,9 @@ export function DocumentReaderProvider({
       bookshelfUploadQueue,
       readerCategories,
       reclassifyBookshelfItem,
+      loadWorkspaceDocuments,
+      workspaceDocumentsLoading,
+      workspaceDocumentsError,
       renameBookshelfCategory,
       retryBookshelfUpload,
       removeBookshelfUpload,
@@ -5036,6 +5134,7 @@ export function DocumentReaderProvider({
       updateCurrentDocumentThumbnail,
       updateBookshelfItemCategory,
       workspace,
+      workspaceDocuments,
       threadSlug,
     ]
   );

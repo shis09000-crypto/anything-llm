@@ -6,6 +6,7 @@ const {
   DocumentRepository: Document,
 } = require("../../repositories/documentRepository");
 const { fileData, normalizePath } = require("../../utils/files");
+const { storagePath } = require("../../utils/environment");
 const {
   fileBackedOwnerMetadata,
   requestAuthContext,
@@ -24,8 +25,14 @@ const readerLinks = require("./readerLinks");
 const SCHEMA_VERSION = 1;
 const MAX_READER_FILE_SIZE = 500 * 1024 * 1024;
 
+const uploadTempRoot = storagePath("tmp", "reader-uploads");
+fs.mkdirSync(uploadTempRoot, { recursive: true });
 const uploadMiddleware = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (_request, _file, callback) => callback(null, uploadTempRoot),
+    filename: (_request, _file, callback) =>
+      callback(null, `${crypto.randomUUID()}.upload`),
+  }),
   limits: { fileSize: MAX_READER_FILE_SIZE },
 }).single("file");
 
@@ -36,9 +43,11 @@ function includeUploadContent(request) {
 
 function sendUploadError(response, error) {
   if (error?.code === "LIMIT_FILE_SIZE") {
-    return response.status(400).json({
+    return response.status(413).json({
       success: false,
-      error: "Reader document exceeds the 500MB limit.",
+      error: "request_entity_too_large",
+      limitClass: "multipart_document",
+      maxBytes: MAX_READER_FILE_SIZE,
     });
   }
   return response.status(400).json({
@@ -95,7 +104,7 @@ async function finalizeReaderDocumentMetadata({
 }) {
   const fingerprint = buffer
     ? ingestCore.fingerprintForBuffer(buffer)
-    : ingestCore.fingerprintForBuffer(fs.readFileSync(originalPath));
+    : await ingestCore.fingerprintForFile(originalPath);
   const nextMetadata = {
     ...metadata,
     originalFingerprint: fingerprint,
@@ -189,6 +198,9 @@ function schedulePreviewMetadataUpdate({
 
 async function upload(request, response) {
   uploadMiddleware(request, response, async (uploadError) => {
+    let temporaryUploadPath = request.file?.path || null;
+    let createdDocumentRoot = null;
+    let committed = false;
     try {
       if (uploadError) return sendUploadError(response, uploadError);
       const workspace = response.locals.workspace;
@@ -203,20 +215,24 @@ async function upload(request, response) {
         workspace,
         readerDocumentId
       );
+      createdDocumentRoot = documentRoot;
       fs.mkdirSync(documentRoot, { recursive: true });
 
       const originalPath = documentsCore.safeResolve(documentRoot, storedName);
-      fs.writeFileSync(originalPath, request.file.buffer);
+      fs.renameSync(temporaryUploadPath, originalPath);
+      temporaryUploadPath = null;
 
       const content = ingestCore.contentForUpload({
         readerDocumentId,
         documentType,
-        buffer: request.file.buffer,
+        buffer:
+          documentType === "markdown" ? fs.readFileSync(originalPath) : null,
       });
+      const originalFingerprint =
+        await ingestCore.fingerprintForFile(originalPath);
       const leadText = await documentCatalog.extractReaderDuplicateLeadText({
         documentType,
         originalPath,
-        buffer: request.file.buffer,
       });
       const duplicateResult =
         await documentCatalog.findReaderDuplicateCandidate({
@@ -231,6 +247,7 @@ async function upload(request, response) {
         duplicateResult.duplicate;
       if (duplicateResult.duplicate && !continuingDuplicate) {
         fs.rmSync(documentRoot, { recursive: true, force: true });
+        createdDocumentRoot = null;
         return response.status(409).json({
           success: false,
           code: "READER_DUPLICATE",
@@ -252,9 +269,7 @@ async function upload(request, response) {
         documentType,
         mimeType: mime,
         size: request.file.size,
-        originalFingerprint: ingestCore.fingerprintForBuffer(
-          request.file.buffer
-        ),
+        originalFingerprint,
         readerDuplicate: {
           titleKey: duplicateResult.signature.titleKey,
           leadTextHash: duplicateResult.signature.leadTextHash,
@@ -280,7 +295,7 @@ async function upload(request, response) {
         readerDocumentId,
         metadata,
         originalPath,
-        buffer: request.file.buffer,
+        buffer: null,
         waitForPreview: false,
       });
       documentsCore.writeReaderJsonFile(
@@ -298,6 +313,7 @@ async function upload(request, response) {
         ? { ...finalMetadata, pdfManifest }
         : finalMetadata;
 
+      committed = true;
       return response.status(200).json({
         success: true,
         warning: finalMetadata.previewWarning || null,
@@ -321,7 +337,11 @@ async function upload(request, response) {
         ).postprocess,
       });
     } catch (error) {
+      if (!committed && createdDocumentRoot)
+        fs.rmSync(createdDocumentRoot, { recursive: true, force: true });
       return sendUploadError(response, error);
+    } finally {
+      if (temporaryUploadPath) fs.rmSync(temporaryUploadPath, { force: true });
     }
   });
 }

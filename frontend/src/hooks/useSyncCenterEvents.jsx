@@ -6,10 +6,12 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { connectBroadcast, streamSyncCenterEvents } from "@/lib/communication";
+import { connectBroadcast } from "@/lib/communication/broadcast";
+import { streamSyncCenterEvents } from "@/lib/communication/workspaceRealtimeClient";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
+import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
 
 const EVENT_CACHE_LIMIT = 500;
 const SyncCenterContext = createContext(null);
@@ -112,18 +114,22 @@ export function SyncCenterProvider({ children, enabled = true }) {
       ok: true,
     });
 
-    connectBroadcast({
-      signal: controller.signal,
-      onEvent: (event) => {
-        if (!connectedMarkedRef.current) {
-          connectedMarkedRef.current = true;
-          markLoginBoot("sync_connected", {
-            firstEvent: event?.type || null,
-          });
-        }
-        emit(event);
-      },
-    }).catch((error) => {
+    void (async () => {
+      await syncV2Runtime.bootstrap({ signal: controller.signal });
+      if (controller.signal.aborted) return;
+      await connectBroadcast({
+        signal: controller.signal,
+        onEvent: (event) => {
+          if (!connectedMarkedRef.current) {
+            connectedMarkedRef.current = true;
+            markLoginBoot("sync_connected", {
+              firstEvent: event?.type || null,
+            });
+          }
+          emit(event);
+        },
+      });
+    })().catch((error) => {
       if (controller.signal.aborted) return;
       handleSyncStreamStop(error, { surface: "broadcast-provider" });
     });

@@ -154,7 +154,8 @@ const VaultItem = {
       compactString(cryptoVersion, MAX_CRYPTO_VERSION_LENGTH) ||
       compactString(payload.cryptoVersion, MAX_CRYPTO_VERSION_LENGTH);
     if (!normalizedKeyId) throw new Error("vault_key_id_required");
-    if (!normalizedCryptoVersion) throw new Error("vault_crypto_version_required");
+    if (!normalizedCryptoVersion)
+      throw new Error("vault_crypto_version_required");
 
     const normalizedType = normalizeVaultType(itemType);
     const normalizedLabel = compactString(label, MAX_LABEL_LENGTH);

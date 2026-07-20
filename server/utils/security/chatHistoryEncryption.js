@@ -1,12 +1,14 @@
 const { decryptSecretIfNeeded, encryptSecret } = require("./encryption");
-const { MASTER_KEY_ENV } = require("./constants");
+const { resolveActiveKey } = require("./keyCustody");
 const {
+  appendChatCryptoMetadataForRows,
   chatHistorySerialEncryptionEnabled,
   decryptChatRecordCompat,
   decryptChatRecordsCompat,
   encryptSerialChatField,
   isAnyEncryptedChatField,
   rebuildChatCryptoChainForScope,
+  rebuildChatCryptoChainFromChatId,
   scopeFromChat,
 } = require("./chatHistorySerialEncryption");
 
@@ -17,7 +19,11 @@ function chatHistoryEncryptionEnabled(env = process.env) {
     String(env.CHAT_HISTORY_ENCRYPTION_DISABLED || "").toLowerCase() === "true"
   )
     return false;
-  return Boolean(String(env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function encryptWorkspaceChatField(value) {
@@ -91,6 +97,7 @@ async function encryptWorkspaceChatWriteAsync(data = {}, scope = {}) {
 }
 
 module.exports = {
+  appendChatCryptoMetadataForRows,
   chatHistoryEncryptionEnabled,
   decryptWorkspaceChatField,
   decryptWorkspaceChatRecord,
@@ -102,6 +109,7 @@ module.exports = {
   encryptWorkspaceChatWrite,
   encryptWorkspaceChatWriteAsync,
   rebuildChatCryptoChainForScope,
+  rebuildChatCryptoChainFromChatId,
   scopeFromChat,
   workspaceChatFieldIsEncrypted,
 };

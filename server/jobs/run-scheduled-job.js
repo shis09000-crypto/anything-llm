@@ -1,4 +1,5 @@
 const { log, conclude } = require("./helpers/index.js");
+require("../utils/logger")();
 const { v4: uuidv4 } = require("uuid");
 const { safeJsonParse } = require("../utils/http");
 const {
@@ -7,9 +8,16 @@ const {
   sendWebPushNotification,
 } = require("./helpers/scheduled-job-helper.js");
 const { DataAccessCenter } = require("../utils/dataAccess");
+const {
+  normalizeCapabilityManifest,
+  policyMode,
+  redactForLog,
+  scheduledApprovalDecision,
+} = require("../utils/plugins/securityPolicy");
 
 const ScheduledJob = DataAccessCenter.scheduledJob.job;
 const ScheduledJobRun = DataAccessCenter.scheduledJob.run;
+const EventLogs = DataAccessCenter.eventLog;
 
 /** Status of the scheduled job run @type {'success' | 'failed' | 'timed_out' | 'not_found' | 'killed' | undefined} */
 let status;
@@ -70,18 +78,64 @@ process.on("message", async (payload) => {
     // - Array with items: only those specific tools are loaded
     // - Empty array: no tools are loaded
     const toolOverrides = safeJsonParse(job.tools, []);
+    const jobCapabilities = normalizeCapabilityManifest(job.capabilityManifest);
+    if (policyMode() === "enforce") {
+      const deniedTools = toolOverrides.filter(
+        (tool) => !jobCapabilities.tools.includes(String(tool))
+      );
+      if (deniedTools.length) {
+        const error = new Error("SCHEDULED_JOB_CAPABILITY_DENIED");
+        error.code = "SCHEDULED_JOB_CAPABILITY_DENIED";
+        throw error;
+      }
+    }
     await agentHandler.createAIbitat({
       handler,
       toolOverrides,
     });
+    if (jobCapabilities.maxToolCalls) {
+      agentHandler.aibitat.maxToolCalls = Math.min(
+        Number(
+          agentHandler.aibitat.maxToolCalls || jobCapabilities.maxToolCalls
+        ),
+        jobCapabilities.maxToolCalls
+      );
+    }
 
-    // Auto-approve all tool invocations when running a scheduled job
-    agentHandler.aibitat.requestToolApproval = async () => {
-      log("Tool approval requested for scheduled job, auto-approving");
-      return {
-        approved: true,
-        message: "Auto-approved by scheduled job runner.",
-      };
+    // Scheduled execution has no interactive user. Only capabilities that were
+    // explicitly granted on the job may be approved; everything else fails
+    // closed and remains visible in the execution trace.
+    agentHandler.aibitat.requestToolApproval = async (request = {}) => {
+      const decision = scheduledApprovalDecision({
+        job,
+        skillName: request.skillName,
+        forceApproval: request.forceApproval === true,
+      });
+      toolCalls.push({
+        type: "capability-decision",
+        serviceIdentity: decision.serviceIdentity,
+        toolName: decision.tool,
+        approved: decision.approved,
+        highRisk: decision.highRisk,
+        policyMode: decision.policyMode,
+        timestamp: Date.now(),
+      });
+      log(
+        `Scheduled capability ${decision.approved ? "approved" : "denied"}: ${decision.tool || "unknown"}`
+      );
+      await EventLogs.logEvent(
+        "scheduled_tool_capability_decision",
+        {
+          serviceIdentity: decision.serviceIdentity,
+          tool: decision.tool,
+          approved: decision.approved,
+          highRisk: decision.highRisk,
+          policyMode: decision.policyMode,
+          runId,
+        },
+        null
+      );
+      return { approved: decision.approved, message: decision.message };
     };
 
     // Capture tool results for the execution trace
@@ -89,8 +143,8 @@ process.on("message", async (payload) => {
       ({ toolName, arguments: args, result }) => {
         toolCalls.push({
           toolName,
-          arguments: args,
-          result,
+          arguments: redactForLog(args),
+          result: redactForLog(result),
           timestamp: Date.now(),
         });
       }

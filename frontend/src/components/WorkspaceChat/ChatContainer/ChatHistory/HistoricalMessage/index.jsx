@@ -2,6 +2,7 @@ import React, {
   memo,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -34,6 +35,7 @@ import ReaderTextSourceCards, {
 import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { debugChatTurn } from "@/utils/chat/debug";
 import { GlassCard } from "@developer-hub/liquid-glass";
+import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 
 const USER_MESSAGE_GLASS_MOUSE_OFFSET = { x: 0, y: 0 };
 const USER_MESSAGE_GLASS_STYLE = {
@@ -328,19 +330,101 @@ export default memo(
  * Other attachment types may be supported here in the future.
  */
 function ChatAttachments({ attachments = [] }) {
-  if (!attachments.length) return null;
+  const containerRef = useRef(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+  const [resolvedUrls, setResolvedUrls] = useState({});
+  const imageAttachments = useMemo(
+    () =>
+      attachments.filter((attachment) =>
+        String(attachment?.mime || "").startsWith("image/")
+      ),
+    [attachments]
+  );
+  const attachmentKey = useMemo(
+    () =>
+      imageAttachments
+        .map(
+          (attachment, index) =>
+            attachment.attachmentId ||
+            attachment.contentUrl ||
+            `${attachment.name}:${index}`
+        )
+        .join("|"),
+    [imageAttachments]
+  );
+
+  useEffect(() => {
+    const node = containerRef.current;
+    if (!node || shouldLoad) return;
+    if (typeof IntersectionObserver !== "function") {
+      setShouldLoad(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        setShouldLoad(true);
+        observer.disconnect();
+      },
+      { rootMargin: "240px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [attachmentKey, shouldLoad]);
+
+  useEffect(() => {
+    if (!shouldLoad) return;
+    const controller = new AbortController();
+    const objectUrls = [];
+    Promise.all(
+      imageAttachments.map(async (attachment, index) => {
+        if (attachment.contentString) return [index, attachment.contentString];
+        if (!attachment.contentUrl) return [index, null];
+        try {
+          const { blob } = await requestBlob(attachment.contentUrl, {
+            signal: controller.signal,
+            blobKind: BLOB_KINDS.chatAttachment,
+            communicationScene: "workspace-chat-attachment",
+          });
+          const url = URL.createObjectURL(blob);
+          objectUrls.push(url);
+          return [index, url];
+        } catch (error) {
+          if (error?.name !== "AbortError")
+            console.warn("[ChatAttachment] preview load failed", {
+              attachmentId: attachment.attachmentId || null,
+            });
+          return [index, null];
+        }
+      })
+    ).then((entries) => {
+      if (!controller.signal.aborted)
+        setResolvedUrls(Object.fromEntries(entries));
+    });
+    return () => {
+      controller.abort();
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [attachmentKey, imageAttachments, shouldLoad]);
+
+  const lightboxAttachments = imageAttachments.map((attachment, index) => ({
+    ...attachment,
+    contentString: attachment.contentString || resolvedUrls[index] || null,
+  }));
+  if (!imageAttachments.length) return null;
   return (
-    <div className="flex flex-wrap gap-4 mt-4">
-      {attachments.map((item, index) => (
+    <div ref={containerRef} className="flex flex-wrap gap-4 mt-4">
+      {imageAttachments.map((item, index) => (
         <button
           type="button"
-          key={item.name}
-          onClick={() => openImageLightbox(attachments, index)}
+          key={item.attachmentId || item.contentUrl || `${item.name}:${index}`}
+          onClick={() => openImageLightbox(lightboxAttachments, index)}
+          disabled={!item.contentString && !resolvedUrls[index]}
           className="p-0 border-none bg-transparent cursor-pointer hover:opacity-80 motion-hover"
         >
           <img
             alt={`Attachment: ${item.name}`}
-            src={item.contentString}
+            src={item.contentString || resolvedUrls[index] || undefined}
             className="w-[120px] h-[120px] object-cover rounded-lg"
           />
         </button>

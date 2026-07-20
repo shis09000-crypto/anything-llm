@@ -154,6 +154,39 @@ export function AuthProvider(props) {
         return;
       }
 
+      const projection = event?.detail?.projection;
+      if (
+        event?.detail?.reason === "sync-v2" &&
+        projection &&
+        typeof projection === "object" &&
+        String(projection.id || userId || "") === String(store.user?.id || "")
+      ) {
+        const profileFields = [
+          "username",
+          "displayName",
+          "pfpFilename",
+          "email",
+          "email_verified_at",
+          "phone",
+          "phone_verified_at",
+          "bio",
+        ];
+        const safeProjection = Object.fromEntries(
+          profileFields
+            .filter((field) =>
+              Object.prototype.hasOwnProperty.call(projection, field)
+            )
+            .map((field) => [field, projection[field]])
+        );
+        const nextUser = { ...store.user, ...safeProjection };
+        setStoredAuthUser(nextUser);
+        setStore((prev) => ({
+          ...prev,
+          user: { ...prev.user, ...safeProjection },
+        }));
+        return;
+      }
+
       const refreshResult = await System.refreshUser();
       if (!active) return;
       if (!refreshResult?.success || !refreshResult.user) return;

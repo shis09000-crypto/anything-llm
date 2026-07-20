@@ -27,7 +27,7 @@ function workspaceOverviewEndpoints(app) {
         response.status(200).json({ overview });
       } catch (error) {
         console.error("[WorkspaceOverview] overview endpoint failed:", error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -57,7 +57,7 @@ function workspaceOverviewEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error("[WorkspaceOverview] usage endpoint failed:", error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );

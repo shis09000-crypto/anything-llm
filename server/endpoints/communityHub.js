@@ -31,7 +31,9 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, connectionKey });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -47,7 +49,9 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -61,7 +65,7 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, result: exploreItems });
       } catch (error) {
         console.error(error);
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           success: false,
           result: null,
           error: error.message,
@@ -82,7 +86,7 @@ function communityHubEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           success: false,
           item: null,
           error: error.message,
@@ -123,7 +127,9 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -165,7 +171,7 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (error) {
         console.error(error);
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -183,7 +189,9 @@ function communityHubEndpoints(app) {
         response.status(200).json({ success: true, ...items });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -216,7 +224,9 @@ function communityHubEndpoints(app) {
           .json({ success: true, error: null, item: { id: itemId } });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

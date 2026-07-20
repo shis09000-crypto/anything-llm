@@ -23,6 +23,7 @@ jest.mock("../../../utils/chats/workspaceSyncEvents", () => ({
 }));
 jest.mock("../../../utils/agents/toolResultStore", () => ({
   sanitizeAgentEvent: (event) => event,
+  compactAgentEvents: (events) => events,
 }));
 jest.mock("../../../utils/chats/displayPrompt", () => ({
   promptForHistory: ({ message }) => message,

@@ -316,6 +316,7 @@ class CollectorApi {
       options: {
         ...this.#attachOptions(),
         absolutePath: parseOptions.absolutePath || null,
+        displayName: parseOptions.displayName || null,
       },
     });
 

@@ -16,6 +16,14 @@ const {
 const RuntimeSettings = require("../../utils/runtimeSettings");
 const { htmlToMarkdown } = require("../helpers/htmlToMarkdown");
 const { redactUrl } = require("../../utils/security/redaction");
+const {
+  assertSafeDestination,
+  readResponseTextLimited,
+  safeFetch,
+} = require("../../utils/networkGuard");
+const { currentTaskSignal } = require("../../utils/taskContext");
+
+const MAX_PAGE_BYTES = 25 * 1_024 * 1_024;
 
 /**
  * Scrape a generic URL and return the content in the specified format
@@ -139,8 +147,9 @@ function validatedHeaders(headers = {}) {
  * @returns {Promise<string>} - The content of the page
  */
 async function getPageContent({ link, captureAs = "text", headers = {} }) {
+  let browser = null;
+  let blockedDestination = null;
   try {
-    let pageContents = [];
     const runtimeSettings = new RuntimeSettings();
 
     /** @type {import('puppeteer').PuppeteerLaunchOptions} */
@@ -163,58 +172,60 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
       launchConfig.headless = "false";
     }
 
-    const loader = new PuppeteerWebBaseLoader(link, {
-      launchOptions: {
-        headless: launchConfig.headless,
-        ignoreHTTPSErrors: true,
-        args: runtimeSettings.get("browserLaunchArgs"),
-      },
-      gotoOptions: {
-        waitUntil: "networkidle2",
-      },
-      async evaluate(page, browser) {
-        const innerHTML = await page.evaluate(
-          () => document.documentElement.innerHTML
-        );
-        await browser.close();
-        if (captureAs === "html") return innerHTML;
-        return htmlToMarkdown(innerHTML, link);
-      },
+    const { launch } = await PuppeteerWebBaseLoader.imports();
+    browser = await launch({
+      headless: launchConfig.headless,
+      defaultViewport: null,
+      ignoreDefaultArgs: ["--disable-extensions"],
+      ignoreHTTPSErrors:
+        process.env.NODE_ENV !== "production" &&
+        process.env.COLLECTOR_ALLOW_INSECURE_TLS === "true",
+      args: runtimeSettings.get("browserLaunchArgs"),
     });
-
-    // Override scrape method if headers are available
-    let overrideHeaders = validatedHeaders(headers);
-    if (Object.keys(overrideHeaders).length > 0) {
-      loader.scrape = async function () {
-        const { launch } = await PuppeteerWebBaseLoader.imports();
-        const browser = await launch({
-          headless: "new",
-          defaultViewport: null,
-          ignoreDefaultArgs: ["--disable-extensions"],
-          ...this.options?.launchOptions,
-        });
-        const page = await browser.newPage();
-        await page.setExtraHTTPHeaders(overrideHeaders);
-
-        await page.goto(this.webPath, {
-          timeout: 180000,
-          waitUntil: "networkidle2",
-          ...this.options?.gotoOptions,
-        });
-
-        const bodyHTML = this.options?.evaluate
-          ? await this.options.evaluate(page, browser)
-          : await page.evaluate(() => document.body.innerHTML);
-
-        await browser.close();
-        return bodyHTML;
-      };
+    const page = await browser.newPage();
+    const overrideHeaders = validatedHeaders(headers);
+    if (Object.keys(overrideHeaders).length > 0)
+      await page.setExtraHTTPHeaders(overrideHeaders);
+    await page.setRequestInterception(true);
+    page.on("request", async (interceptedRequest) => {
+      const requestUrl = interceptedRequest.url();
+      try {
+        const protocol = new URL(requestUrl).protocol;
+        if (["data:", "blob:"].includes(protocol)) {
+          await interceptedRequest.continue();
+          return;
+        }
+        await assertSafeDestination(requestUrl);
+        await interceptedRequest.continue();
+      } catch (error) {
+        if (error?.code === "collector_destination_forbidden")
+          blockedDestination = error;
+        await interceptedRequest.abort("blockedbyclient").catch(() => null);
+      }
+    });
+    const signal = currentTaskSignal();
+    const abortBrowser = () => browser?.close().catch(() => null);
+    signal?.addEventListener("abort", abortBrowser, { once: true });
+    try {
+      await page.goto(link, {
+        timeout: 180000,
+        waitUntil: "networkidle2",
+      });
+      const innerHTML = await page.evaluate(
+        () => document.documentElement.innerHTML
+      );
+      if (Buffer.byteLength(innerHTML, "utf8") > MAX_PAGE_BYTES)
+        throw new Error("Page content exceeds the 25 MiB limit.");
+      return captureAs === "html" ? innerHTML : htmlToMarkdown(innerHTML, link);
+    } finally {
+      signal?.removeEventListener("abort", abortBrowser);
+      await browser.close().catch(() => null);
+      browser = null;
     }
-
-    const docs = await loader.load();
-    for (const doc of docs) pageContents.push(doc.pageContent);
-    return pageContents.join(" ");
   } catch (error) {
+    await browser?.close().catch(() => null);
+    if (blockedDestination) throw blockedDestination;
+    if (error?.code === "collector_destination_forbidden") throw error;
     console.error(
       "getPageContent failed to be fetched by puppeteer - falling back to fetch!",
       error
@@ -222,7 +233,7 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
   }
 
   try {
-    const pageText = await fetch(link, {
+    const response = await safeFetch(link, {
       method: "GET",
       headers: {
         "Content-Type": "text/plain",
@@ -230,9 +241,14 @@ async function getPageContent({ link, captureAs = "text", headers = {} }) {
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.83 Safari/537.36,gzip(gfe)",
         ...validatedHeaders(headers),
       },
-    }).then((res) => res.text());
+      signal: currentTaskSignal(),
+    });
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const pageText = await readResponseTextLimited(response, MAX_PAGE_BYTES);
     return captureAs === "html" ? pageText : htmlToMarkdown(pageText, link);
   } catch (error) {
+    if (error?.code === "collector_destination_forbidden") throw error;
     console.error("getPageContent failed to be fetched by any method.", error);
   }
 

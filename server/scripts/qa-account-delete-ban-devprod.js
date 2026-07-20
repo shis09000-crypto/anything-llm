@@ -20,10 +20,28 @@ const baseUrls = {
   production: "http://localhost:3001/api",
 };
 
-const sharedAuthPath = path.join(root, "server", "storage", "shared", "auth.db");
+const sharedAuthPath = path.join(
+  root,
+  "server",
+  "storage",
+  "shared",
+  "auth.db"
+);
 const envDbPaths = {
-  development: path.join(root, "server", "storage", "development", "anythingllm.db"),
-  production: path.join(root, "server", "storage", "production", "anythingllm.db"),
+  development: path.join(
+    root,
+    "server",
+    "storage",
+    "development",
+    "anythingllm.db"
+  ),
+  production: path.join(
+    root,
+    "server",
+    "storage",
+    "production",
+    "anythingllm.db"
+  ),
 };
 
 function sqliteUrl(dbPath) {
@@ -137,7 +155,11 @@ async function promptHidden(question) {
   });
 }
 
-async function api(env, pathPart, { method = "GET", token = null, body = null } = {}) {
+async function api(
+  env,
+  pathPart,
+  { method = "GET", token = null, body = null } = {}
+) {
   const response = await fetch(`${baseUrls[env]}${pathPart}`, {
     method,
     headers: {
@@ -187,15 +209,14 @@ function roleDefaults(role, ownerType = null) {
 async function abortIfQaResidueExists() {
   const authResidue = await authDb.users.findMany({
     where: {
-      OR: [
-        { username: { contains: "qa_" } },
-        { email: { startsWith: "qa+" } },
-      ],
+      OR: [{ username: { contains: "qa_" } }, { email: { startsWith: "qa+" } }],
     },
     select: { id: true, username: true, email: true },
   });
   if (authResidue.length > 0) {
-    fail(`Existing QA auth users found; refusing to run: ${JSON.stringify(authResidue)}`);
+    fail(
+      `Existing QA auth users found; refusing to run: ${JSON.stringify(authResidue)}`
+    );
   }
 
   for (const env of envs) {
@@ -211,10 +232,7 @@ async function abortIfQaResidueExists() {
       }),
       envDb[env].workspaces.findMany({
         where: {
-          OR: [
-            { name: { contains: "qa_" } },
-            { slug: { contains: "qa-" } },
-          ],
+          OR: [{ name: { contains: "qa_" } }, { slug: { contains: "qa-" } }],
         },
         select: { id: true, name: true, slug: true },
       }),
@@ -250,7 +268,9 @@ async function abortIfQaResidueExists() {
     ]);
     const residue = { users, workspaces, threads, docs, vectors };
     if (Object.values(residue).some((rows) => rows.length > 0)) {
-      fail(`Existing QA ${env} residue found; refusing to run: ${JSON.stringify(residue)}`);
+      fail(
+        `Existing QA ${env} residue found; refusing to run: ${JSON.stringify(residue)}`
+      );
     }
   }
 }
@@ -525,11 +545,20 @@ async function login(env, identifier, password) {
 
 async function loginMustPass(env, identifier, password, label) {
   const result = await login(env, identifier, password);
-  assert(result.valid === true && result.token, `${label} login failed in ${env}`);
+  assert(
+    result.valid === true && result.token,
+    `${label} login failed in ${env}`
+  );
   return result;
 }
 
-async function loginMustFail(env, identifier, password, label, expectedMessage = null) {
+async function loginMustFail(
+  env,
+  identifier,
+  password,
+  label,
+  expectedMessage = null
+) {
   const result = await login(env, identifier, password);
   assert(result.valid === false, `${label} unexpectedly logged in to ${env}`);
   if (expectedMessage) {
@@ -544,14 +573,14 @@ async function loginMustFail(env, identifier, password, label, expectedMessage =
 async function primaryToken(env) {
   const primary = await envDb[env].users.findFirst({
     where: {
-      OR: [
-        { username: "shis500225" },
-        { email: "shis500225@gmail.com" },
-      ],
+      OR: [{ username: "shis500225" }, { email: "shis500225@gmail.com" }],
     },
   });
   assert(primary, `Primary owner shadow user not found in ${env}`);
-  assert(process.env.JWT_SECRET, "JWT_SECRET is unset; cannot mint primary owner test token");
+  assert(
+    process.env.JWT_SECRET,
+    "JWT_SECRET is unset; cannot mint primary owner test token"
+  );
   return jwt.sign(
     {
       id: primary.id,
@@ -582,7 +611,10 @@ async function reauthPassword(env, token, currentPassword) {
 
 async function expectApiSuccess(label, promise) {
   const result = await promise;
-  assert(result.json?.success === true, `${label} failed: ${JSON.stringify(result.json)}`);
+  assert(
+    result.json?.success === true,
+    `${label} failed: ${JSON.stringify(result.json)}`
+  );
   return result;
 }
 
@@ -619,7 +651,12 @@ async function deleteTargetByPrimary(env, targetKey, primaryPassword) {
 }
 
 async function selfDelete(env, key, password) {
-  const loginResult = await loginMustPass(env, state.authUsers[key].email, password, `${key} self`);
+  const loginResult = await loginMustPass(
+    env,
+    state.authUsers[key].email,
+    password,
+    `${key} self`
+  );
   await expectApiSuccess(
     `${env} ${key} self preview delete`,
     api(env, "/system/user/delete-preview", { token: loginResult.token })
@@ -645,16 +682,29 @@ async function runPermissionScenarios(primaryPassword, tempPassword) {
   };
 
   for (const env of envs) {
-    await pass(`${env}: temp user/admin/secondary owner can login`, async () => {
-      await loginMustPass(env, state.authUsers.user.email, tempPassword, "temp user");
-      await loginMustPass(env, state.authUsers.admin.email, tempPassword, "temp admin");
-      await loginMustPass(
-        env,
-        state.authUsers.secondary_owner.email,
-        tempPassword,
-        "temp secondary owner"
-      );
-    });
+    await pass(
+      `${env}: temp user/admin/secondary owner can login`,
+      async () => {
+        await loginMustPass(
+          env,
+          state.authUsers.user.email,
+          tempPassword,
+          "temp user"
+        );
+        await loginMustPass(
+          env,
+          state.authUsers.admin.email,
+          tempPassword,
+          "temp admin"
+        );
+        await loginMustPass(
+          env,
+          state.authUsers.secondary_owner.email,
+          tempPassword,
+          "temp secondary owner"
+        );
+      }
+    );
 
     const adminLogin = await loginMustPass(
       env,
@@ -697,168 +747,228 @@ async function runPermissionScenarios(primaryPassword, tempPassword) {
           },
         })
       );
-      await loginMustPass(env, state.authUsers.user.email, tempPassword, "unbanned user");
-    });
-
-    await pass(`${env}: admin cannot ban admin/owner or delete accounts`, async () => {
-      await expectApiFailure(
-        "admin ban admin",
-        api(env, `/admin/users/${state.shadowUsers[env].admin.id}/ban`, {
-          method: "POST",
-          token: adminLogin.token,
-          body: { reason: testRunId },
-        })
-      );
-      await expectApiFailure(
-        "admin delete user preview",
-        api(env, `/admin/users/${state.shadowUsers[env].user.id}/delete-preview`, {
-          token: adminLogin.token,
-        })
-      );
-      await expectApiFailure(
-        "admin ban secondary owner",
-        api(env, `/admin/users/${state.shadowUsers[env].secondary_owner.id}/ban`, {
-          method: "POST",
-          token: adminLogin.token,
-          body: { reason: testRunId },
-        })
-      );
-    });
-
-    await pass(`${env}: secondary owner cannot operate owner/primary owner`, async () => {
-      const primaryShadow = await envDb[env].users.findFirst({
-        where: { authUserId: 2 },
-      });
-      assert(primaryShadow, `${env} primary owner shadow missing`);
-      await expectApiFailure(
-        "secondary owner ban primary",
-        api(env, `/admin/users/${primaryShadow.id}/ban`, {
-          method: "POST",
-          token: secondaryLogin.token,
-          body: { reason: testRunId },
-        })
-      );
-      await expectApiFailure(
-        "secondary owner delete primary preview",
-        api(env, `/admin/users/${primaryShadow.id}/delete-preview`, {
-          token: secondaryLogin.token,
-        })
-      );
-    });
-
-    await pass(`${env}: primary owner cannot self-delete or be banned`, async () => {
-      await expectApiFailure(
-        "primary self delete preview",
-        api(env, "/system/user/delete-preview", { token: primary })
-      );
-      const primaryShadow = await envDb[env].users.findFirst({
-        where: { authUserId: 2 },
-      });
-      await expectApiFailure(
-        "secondary owner ban primary",
-        api(env, `/admin/users/${primaryShadow.id}/ban`, {
-          method: "POST",
-          token: secondaryLogin.token,
-          body: { reason: testRunId },
-        })
-      );
-    });
-
-    await pass(`${env}: primary owner can ban/unban secondary owner as owner`, async () => {
-      await expectApiSuccess(
-        "primary ban secondary owner",
-        api(env, `/admin/users/${state.shadowUsers[env].secondary_owner.id}/ban`, {
-          method: "POST",
-          token: primary,
-          body: { reason: testRunId },
-        })
-      );
-      await loginMustFail(
-        env,
-        state.authUsers.secondary_owner.email,
-        tempPassword,
-        "banned secondary owner",
-        "账号已被禁用"
-      );
-      await expectApiSuccess(
-        "primary unban secondary owner",
-        api(env, `/admin/users/${state.shadowUsers[env].secondary_owner.id}/unban`, {
-          method: "POST",
-          token: primary,
-          body: {
-            restoreRole: "owner",
-            restoreAllowedEnvs: ["production", "development"],
-          },
-        })
-      );
       await loginMustPass(
         env,
-        state.authUsers.secondary_owner.email,
+        state.authUsers.user.email,
         tempPassword,
-        "unbanned secondary owner"
+        "unbanned user"
       );
     });
+
+    await pass(
+      `${env}: admin cannot ban admin/owner or delete accounts`,
+      async () => {
+        await expectApiFailure(
+          "admin ban admin",
+          api(env, `/admin/users/${state.shadowUsers[env].admin.id}/ban`, {
+            method: "POST",
+            token: adminLogin.token,
+            body: { reason: testRunId },
+          })
+        );
+        await expectApiFailure(
+          "admin delete user preview",
+          api(
+            env,
+            `/admin/users/${state.shadowUsers[env].user.id}/delete-preview`,
+            {
+              token: adminLogin.token,
+            }
+          )
+        );
+        await expectApiFailure(
+          "admin ban secondary owner",
+          api(
+            env,
+            `/admin/users/${state.shadowUsers[env].secondary_owner.id}/ban`,
+            {
+              method: "POST",
+              token: adminLogin.token,
+              body: { reason: testRunId },
+            }
+          )
+        );
+      }
+    );
+
+    await pass(
+      `${env}: secondary owner cannot operate owner/primary owner`,
+      async () => {
+        const primaryShadow = await envDb[env].users.findFirst({
+          where: { authUserId: 2 },
+        });
+        assert(primaryShadow, `${env} primary owner shadow missing`);
+        await expectApiFailure(
+          "secondary owner ban primary",
+          api(env, `/admin/users/${primaryShadow.id}/ban`, {
+            method: "POST",
+            token: secondaryLogin.token,
+            body: { reason: testRunId },
+          })
+        );
+        await expectApiFailure(
+          "secondary owner delete primary preview",
+          api(env, `/admin/users/${primaryShadow.id}/delete-preview`, {
+            token: secondaryLogin.token,
+          })
+        );
+      }
+    );
+
+    await pass(
+      `${env}: primary owner cannot self-delete or be banned`,
+      async () => {
+        await expectApiFailure(
+          "primary self delete preview",
+          api(env, "/system/user/delete-preview", { token: primary })
+        );
+        const primaryShadow = await envDb[env].users.findFirst({
+          where: { authUserId: 2 },
+        });
+        await expectApiFailure(
+          "secondary owner ban primary",
+          api(env, `/admin/users/${primaryShadow.id}/ban`, {
+            method: "POST",
+            token: secondaryLogin.token,
+            body: { reason: testRunId },
+          })
+        );
+      }
+    );
+
+    await pass(
+      `${env}: primary owner can ban/unban secondary owner as owner`,
+      async () => {
+        await expectApiSuccess(
+          "primary ban secondary owner",
+          api(
+            env,
+            `/admin/users/${state.shadowUsers[env].secondary_owner.id}/ban`,
+            {
+              method: "POST",
+              token: primary,
+              body: { reason: testRunId },
+            }
+          )
+        );
+        await loginMustFail(
+          env,
+          state.authUsers.secondary_owner.email,
+          tempPassword,
+          "banned secondary owner",
+          "账号已被禁用"
+        );
+        await expectApiSuccess(
+          "primary unban secondary owner",
+          api(
+            env,
+            `/admin/users/${state.shadowUsers[env].secondary_owner.id}/unban`,
+            {
+              method: "POST",
+              token: primary,
+              body: {
+                restoreRole: "owner",
+                restoreAllowedEnvs: ["production", "development"],
+              },
+            }
+          )
+        );
+        await loginMustPass(
+          env,
+          state.authUsers.secondary_owner.email,
+          tempPassword,
+          "unbanned secondary owner"
+        );
+      }
+    );
   }
 
-  await pass("development: primary owner deletes user and writes tombstone", async () => {
-    await deleteTargetByPrimary("development", "user", primaryPassword);
-    const authUser = await authDb.users.findUnique({
-      where: { id: state.authUsers.user.id },
-    });
-    assert(authUser, "shared auth user should remain after development-only deletion");
-    const tombstone = await authDb.authEnvironmentDeletion.findUnique({
-      where: {
-        authUserId_env: {
-          authUserId: state.authUsers.user.id,
-          env: "development",
+  await pass(
+    "development: primary owner deletes user and writes tombstone",
+    async () => {
+      await deleteTargetByPrimary("development", "user", primaryPassword);
+      const authUser = await authDb.users.findUnique({
+        where: { id: state.authUsers.user.id },
+      });
+      assert(
+        authUser,
+        "shared auth user should remain after development-only deletion"
+      );
+      const tombstone = await authDb.authEnvironmentDeletion.findUnique({
+        where: {
+          authUserId_env: {
+            authUserId: state.authUsers.user.id,
+            env: "development",
+          },
         },
-      },
-    });
-    assert(tombstone, "development tombstone missing");
-    const devWorkspace = await envDb.development.workspaces.findUnique({
-      where: { id: state.workspaces.development[0].id },
-    });
-    assert(!devWorkspace, "development QA workspace still exists after deletion");
-    const devVectors = await envDb.development.document_vectors.findMany({
-      where: { docId: { in: state.docIds.development } },
-    });
-    assert(devVectors.length === 0, "development QA document vectors still exist");
-    await loginMustFail(
-      "development",
-      state.authUsers.user.email,
-      tempPassword,
-      "deleted development user"
-    );
-    await loginMustPass(
-      "production",
-      state.authUsers.user.email,
-      tempPassword,
-      "production user after dev deletion"
-    );
-  });
+      });
+      assert(tombstone, "development tombstone missing");
+      const devWorkspace = await envDb.development.workspaces.findUnique({
+        where: { id: state.workspaces.development[0].id },
+      });
+      assert(
+        !devWorkspace,
+        "development QA workspace still exists after deletion"
+      );
+      const devVectors = await envDb.development.document_vectors.findMany({
+        where: { docId: { in: state.docIds.development } },
+      });
+      assert(
+        devVectors.length === 0,
+        "development QA document vectors still exist"
+      );
+      await loginMustFail(
+        "development",
+        state.authUsers.user.email,
+        tempPassword,
+        "deleted development user"
+      );
+      await loginMustPass(
+        "production",
+        state.authUsers.user.email,
+        tempPassword,
+        "production user after dev deletion"
+      );
+    }
+  );
 
-  await pass("production: primary owner deletes remaining user and shared auth", async () => {
-    await deleteTargetByPrimary("production", "user", primaryPassword);
-    const authUser = await authDb.users.findUnique({
-      where: { id: state.authUsers.user.id },
-    });
-    assert(!authUser, "shared auth user should be deleted after final environment deletion");
-    const prodWorkspace = await envDb.production.workspaces.findUnique({
-      where: { id: state.workspaces.production[0].id },
-    });
-    assert(!prodWorkspace, "production QA workspace still exists after deletion");
-    const prodVectors = await envDb.production.document_vectors.findMany({
-      where: { docId: { in: state.docIds.production } },
-    });
-    assert(prodVectors.length === 0, "production QA document vectors still exist");
-  });
+  await pass(
+    "production: primary owner deletes remaining user and shared auth",
+    async () => {
+      await deleteTargetByPrimary("production", "user", primaryPassword);
+      const authUser = await authDb.users.findUnique({
+        where: { id: state.authUsers.user.id },
+      });
+      assert(
+        !authUser,
+        "shared auth user should be deleted after final environment deletion"
+      );
+      const prodWorkspace = await envDb.production.workspaces.findUnique({
+        where: { id: state.workspaces.production[0].id },
+      });
+      assert(
+        !prodWorkspace,
+        "production QA workspace still exists after deletion"
+      );
+      const prodVectors = await envDb.production.document_vectors.findMany({
+        where: { docId: { in: state.docIds.production } },
+      });
+      assert(
+        prodVectors.length === 0,
+        "production QA document vectors still exist"
+      );
+    }
+  );
 
   await pass("development: admin can self-delete with reauth", async () => {
     await selfDelete("development", "admin", tempPassword);
     const shadow = await envDb.development.users.findUnique({
       where: { id: state.shadowUsers.development.admin.id },
     });
-    assert(!shadow, "development admin shadow should be gone after self-delete");
+    assert(
+      !shadow,
+      "development admin shadow should be gone after self-delete"
+    );
   });
 
   return results;
@@ -881,60 +991,72 @@ async function cleanup() {
           ],
         },
       }),
-      db.workspace_chat_compactions.deleteMany({
-        where: {
-          OR: [
-            { workspace_id: { in: workspaceIds } },
-            { user_id: { in: userIds } },
-            { metadata_json: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
-      db.workspace_mind_maps.deleteMany({
-        where: {
-          OR: [
-            { workspaceId: { in: workspaceIds } },
-            { user_id: { in: userIds } },
-            { title: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
-      db.workspace_agent_invocations.deleteMany({
-        where: {
-          OR: [
-            { workspace_id: { in: workspaceIds } },
-            { user_id: { in: userIds } },
-            { prompt: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
-      db.prompt_history.deleteMany({
-        where: {
-          OR: [
-            { workspaceId: { in: workspaceIds } },
-            { modifiedBy: { in: userIds } },
-            { prompt: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
-      db.workspace_parsed_files.deleteMany({
-        where: {
-          OR: [
-            { workspaceId: { in: workspaceIds } },
-            { userId: { in: userIds } },
-            { filename: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
-      db.documentIndexStatus.deleteMany({
-        where: {
-          OR: [
-            { workspaceId: { in: workspaceIds } },
-            { docId: { in: docIds } },
-            { filePath: { contains: testRunId } },
-          ],
-        },
-      }).catch(() => null),
+      db.workspace_chat_compactions
+        .deleteMany({
+          where: {
+            OR: [
+              { workspace_id: { in: workspaceIds } },
+              { user_id: { in: userIds } },
+              { metadata_json: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
+      db.workspace_mind_maps
+        .deleteMany({
+          where: {
+            OR: [
+              { workspaceId: { in: workspaceIds } },
+              { user_id: { in: userIds } },
+              { title: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
+      db.workspace_agent_invocations
+        .deleteMany({
+          where: {
+            OR: [
+              { workspace_id: { in: workspaceIds } },
+              { user_id: { in: userIds } },
+              { prompt: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
+      db.prompt_history
+        .deleteMany({
+          where: {
+            OR: [
+              { workspaceId: { in: workspaceIds } },
+              { modifiedBy: { in: userIds } },
+              { prompt: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
+      db.workspace_parsed_files
+        .deleteMany({
+          where: {
+            OR: [
+              { workspaceId: { in: workspaceIds } },
+              { userId: { in: userIds } },
+              { filename: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
+      db.documentIndexStatus
+        .deleteMany({
+          where: {
+            OR: [
+              { workspaceId: { in: workspaceIds } },
+              { docId: { in: docIds } },
+              { filePath: { contains: testRunId } },
+            ],
+          },
+        })
+        .catch(() => null),
       db.document_vectors.deleteMany({
         where: {
           OR: [
@@ -980,10 +1102,18 @@ async function cleanup() {
           ],
         },
       }),
-      db.browser_extension_api_keys.deleteMany({ where: { user_id: { in: userIds } } }).catch(() => null),
-      db.temporary_auth_tokens.deleteMany({ where: { userId: { in: userIds } } }).catch(() => null),
-      db.system_prompt_variables.deleteMany({ where: { userId: { in: userIds } } }).catch(() => null),
-      db.desktop_mobile_devices.deleteMany({ where: { userId: { in: userIds } } }).catch(() => null),
+      db.browser_extension_api_keys
+        .deleteMany({ where: { user_id: { in: userIds } } })
+        .catch(() => null),
+      db.temporary_auth_tokens
+        .deleteMany({ where: { userId: { in: userIds } } })
+        .catch(() => null),
+      db.system_prompt_variables
+        .deleteMany({ where: { userId: { in: userIds } } })
+        .catch(() => null),
+      db.desktop_mobile_devices
+        .deleteMany({ where: { userId: { in: userIds } } })
+        .catch(() => null),
       db.event_logs.deleteMany({
         where: {
           OR: [
@@ -1008,55 +1138,79 @@ async function cleanup() {
         },
       }),
     ]);
-    await db.workspace_users.deleteMany({
-      where: {
-        OR: [
-          { user_id: { in: userIds } },
-          { workspace_id: { in: workspaceIds } },
-        ],
-      },
-    }).catch(() => null);
-    await db.workspaces.deleteMany({
-      where: {
-        OR: [
-          { id: { in: workspaceIds } },
-          { slug: { contains: `devprod-${timestamp}` } },
-          { name: { contains: testRunId } },
-        ],
-      },
-    }).catch(() => null);
-    await db.users.deleteMany({
-      where: {
-        OR: [
-          { id: { in: userIds } },
-          { authUserId: { in: state.authUserIds } },
-          { username: { contains: `devprod_${timestamp}` } },
-          { email: { startsWith: `qa+${timestamp}` } },
-        ],
-      },
-    }).catch(() => null);
+    await db.workspace_users
+      .deleteMany({
+        where: {
+          OR: [
+            { user_id: { in: userIds } },
+            { workspace_id: { in: workspaceIds } },
+          ],
+        },
+      })
+      .catch(() => null);
+    await db.workspaces
+      .deleteMany({
+        where: {
+          OR: [
+            { id: { in: workspaceIds } },
+            { slug: { contains: `devprod-${timestamp}` } },
+            { name: { contains: testRunId } },
+          ],
+        },
+      })
+      .catch(() => null);
+    await db.users
+      .deleteMany({
+        where: {
+          OR: [
+            { id: { in: userIds } },
+            { authUserId: { in: state.authUserIds } },
+            { username: { contains: `devprod_${timestamp}` } },
+            { email: { startsWith: `qa+${timestamp}` } },
+          ],
+        },
+      })
+      .catch(() => null);
   }
 
   await Promise.allSettled([
-    authDb.recovery_codes.deleteMany({ where: { user_id: { in: state.authUserIds } } }).catch(() => null),
-    authDb.password_reset_tokens.deleteMany({ where: { user_id: { in: state.authUserIds } } }).catch(() => null),
-    authDb.email_verification_codes.deleteMany({
-      where: {
-        OR: [
-          { user_id: { in: state.authUserIds } },
-          { email: { startsWith: `qa+${timestamp}` } },
-        ],
-      },
-    }).catch(() => null),
-    authDb.passkeyCredential.deleteMany({ where: { userId: { in: state.authUserIds } } }).catch(() => null),
-    authDb.passkeyChallenge.deleteMany({ where: { userId: { in: state.authUserIds } } }).catch(() => null),
-    authDb.trustedLoginDevice.deleteMany({ where: { userId: { in: state.authUserIds } } }).catch(() => null),
-    authDb.zkLoginAttempt.deleteMany({ where: { userId: { in: state.authUserIds } } }).catch(() => null),
-    authDb.authEnvironmentDeletion.deleteMany({ where: { authUserId: { in: state.authUserIds } } }),
-    authDb.invites.updateMany({
-      where: { usedByUserId: { in: state.authUserIds } },
-      data: { usedByUserId: null },
-    }).catch(() => null),
+    authDb.recovery_codes
+      .deleteMany({ where: { user_id: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.password_reset_tokens
+      .deleteMany({ where: { user_id: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.email_verification_codes
+      .deleteMany({
+        where: {
+          OR: [
+            { user_id: { in: state.authUserIds } },
+            { email: { startsWith: `qa+${timestamp}` } },
+          ],
+        },
+      })
+      .catch(() => null),
+    authDb.passkeyCredential
+      .deleteMany({ where: { userId: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.passkeyChallenge
+      .deleteMany({ where: { userId: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.trustedLoginDevice
+      .deleteMany({ where: { userId: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.zkLoginAttempt
+      .deleteMany({ where: { userId: { in: state.authUserIds } } })
+      .catch(() => null),
+    authDb.authEnvironmentDeletion.deleteMany({
+      where: { authUserId: { in: state.authUserIds } },
+    }),
+    authDb.invites
+      .updateMany({
+        where: { usedByUserId: { in: state.authUserIds } },
+        data: { usedByUserId: null },
+      })
+      .catch(() => null),
     authDb.users.deleteMany({
       where: {
         OR: [
@@ -1079,17 +1233,35 @@ async function assertNoResidue() {
       ],
     },
   });
-  assert(authResidue.length === 0, `Auth QA residue remains: ${JSON.stringify(authResidue)}`);
+  assert(
+    authResidue.length === 0,
+    `Auth QA residue remains: ${JSON.stringify(authResidue)}`
+  );
   for (const env of envs) {
     const [users, workspaces, threads, docs, vectors] = await Promise.all([
-      envDb[env].users.findMany({ where: { id: { in: state.shadowUserIds[env] } } }),
-      envDb[env].workspaces.findMany({ where: { id: { in: state.workspaceIds[env] } } }),
-      envDb[env].workspace_threads.findMany({ where: { id: { in: state.threadIds[env] } } }),
-      envDb[env].workspace_documents.findMany({ where: { docId: { in: state.docIds[env] } } }),
-      envDb[env].document_vectors.findMany({ where: { docId: { in: state.docIds[env] } } }),
+      envDb[env].users.findMany({
+        where: { id: { in: state.shadowUserIds[env] } },
+      }),
+      envDb[env].workspaces.findMany({
+        where: { id: { in: state.workspaceIds[env] } },
+      }),
+      envDb[env].workspace_threads.findMany({
+        where: { id: { in: state.threadIds[env] } },
+      }),
+      envDb[env].workspace_documents.findMany({
+        where: { docId: { in: state.docIds[env] } },
+      }),
+      envDb[env].document_vectors.findMany({
+        where: { docId: { in: state.docIds[env] } },
+      }),
     ]);
     assert(
-      users.length + workspaces.length + threads.length + docs.length + vectors.length === 0,
+      users.length +
+        workspaces.length +
+        threads.length +
+        docs.length +
+        vectors.length ===
+        0,
       `${env} QA residue remains: ${JSON.stringify({ users, workspaces, threads, docs, vectors })}`
     );
   }
@@ -1109,7 +1281,9 @@ function resetSnapshotFilters() {
 async function main() {
   log(`testRunId=${testRunId}`);
   if (!execute) {
-    log("dry-run only. Re-run with --execute to create isolated QA data and test APIs.");
+    log(
+      "dry-run only. Re-run with --execute to create isolated QA data and test APIs."
+    );
     return;
   }
   await abortIfQaResidueExists();
@@ -1117,7 +1291,9 @@ async function main() {
   const before = await snapshotNormal();
   log(`beforeHash=${before.hash}`);
 
-  const primaryPassword = await promptHidden("Primary owner password (hidden): ");
+  const primaryPassword = await promptHidden(
+    "Primary owner password (hidden): "
+  );
   assert(primaryPassword, "Primary owner password is required");
   const tempPassword = await seedTempData();
   const afterSeed = await snapshotNormal();
@@ -1125,7 +1301,9 @@ async function main() {
     log(`afterSeedHash=${afterSeed.hash}`);
     log(`beforeCounts=${JSON.stringify(before.counts)}`);
     log(`afterSeedCounts=${JSON.stringify(afterSeed.counts)}`);
-    log("warning: normal snapshot changed while QA seed exists; final cleanup snapshot will remain authoritative.");
+    log(
+      "warning: normal snapshot changed while QA seed exists; final cleanup snapshot will remain authoritative."
+    );
   }
 
   let results = [];
@@ -1143,7 +1321,13 @@ async function main() {
     `Normal data snapshot changed after cleanup.\nbefore=${before.hash}\nafter=${after.hash}`
   );
   log(`afterHash=${after.hash}`);
-  log(JSON.stringify({ testRunId, results, cleanup: "PASS", normalDataUnchanged: "PASS" }, null, 2));
+  log(
+    JSON.stringify(
+      { testRunId, results, cleanup: "PASS", normalDataUnchanged: "PASS" },
+      null,
+      2
+    )
+  );
 }
 
 main()
@@ -1160,5 +1344,7 @@ main()
   })
   .finally(async () => {
     await authDb.$disconnect().catch(() => null);
-    await Promise.all(envs.map((env) => envDb[env].$disconnect().catch(() => null)));
+    await Promise.all(
+      envs.map((env) => envDb[env].$disconnect().catch(() => null))
+    );
   });

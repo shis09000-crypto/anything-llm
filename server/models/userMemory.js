@@ -4,6 +4,14 @@ const {
   encryptSecret,
   decryptSecret,
 } = require("../utils/security/encryption");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
+const {
+  memoryCandidatesProjection,
+  personaMemoryProjection,
+  shadowUserIdForAuthUser,
+  structuredMemoryProjection,
+} = require("../utils/syncV2/memoryProjection");
 
 const MEMORY_CATEGORIES = [
   "preferences",
@@ -43,6 +51,34 @@ const MEMORY_TABLE_NAMES = [
   "user_memory_archives",
   "user_profile_overviews",
 ];
+
+async function memorySyncReady() {
+  return SyncV2.enabled("memory") && (await SyncV2.schemaReady());
+}
+
+async function recordMemoryNodeChange(
+  tx,
+  { authUserId, kind, eventType, changedPaths, payloadHint = {}, content }
+) {
+  const shadowUserId = await shadowUserIdForAuthUser(tx, authUserId);
+  if (!shadowUserId) return null;
+  let projectedContent = content;
+  if (projectedContent === undefined) {
+    if (kind === "candidates")
+      projectedContent = await memoryCandidatesProjection(tx, authUserId);
+    else if (kind === "structured")
+      projectedContent = await structuredMemoryProjection(tx, authUserId);
+    else projectedContent = await personaMemoryProjection(tx, authUserId);
+  }
+  return await SyncV2.recordNodeChange(tx, {
+    nodeKey: nodeKeys.userMemory(shadowUserId, kind),
+    content: projectedContent,
+    eventType,
+    changedPaths,
+    payloadHint,
+    audience: [shadowUserId],
+  });
+}
 
 function normalizeCategory(category = "") {
   const normalized = String(category || "").trim();
@@ -191,13 +227,31 @@ const UserMemory = {
   createCandidate: async function (userId, input = {}) {
     const memory = ensureMemoryInput(input);
     const fingerprint = fingerprintFor(memory);
-
-    return prisma.memory_candidates.create({
-      data: {
-        userId: Number(userId),
-        ...memory,
-        fingerprint,
-      },
+    if (!(await memorySyncReady())) {
+      return prisma.memory_candidates.create({
+        data: {
+          userId: Number(userId),
+          ...memory,
+          fingerprint,
+        },
+      });
+    }
+    return await prisma.$transaction(async (tx) => {
+      const created = await tx.memory_candidates.create({
+        data: {
+          userId: Number(userId),
+          ...memory,
+          fingerprint,
+        },
+      });
+      await recordMemoryNodeChange(tx, {
+        authUserId: userId,
+        kind: "candidates",
+        eventType: "memory.candidate_created",
+        changedPaths: [`candidates.${created.id}`],
+        payloadHint: { operation: "append", candidateId: created.id },
+      });
+      return created;
     });
   },
 
@@ -210,18 +264,35 @@ const UserMemory = {
       })
     );
 
-    return prisma.user_memory_blocks.create({
-      data: {
-        userId: Number(userId),
-        category: memory.category,
-        title: MASKED_MEMORY_TEXT,
-        detail: MASKED_MEMORY_TEXT,
-        source: memory.source,
-        confidence: memory.confidence,
-        updatedAt: new Date(),
-        isSensitive: true,
-        encryptedPayload,
-      },
+    const create = (tx) =>
+      tx.user_memory_blocks.create({
+        data: {
+          userId: Number(userId),
+          category: memory.category,
+          title: MASKED_MEMORY_TEXT,
+          detail: MASKED_MEMORY_TEXT,
+          source: memory.source,
+          confidence: memory.confidence,
+          updatedAt: new Date(),
+          isSensitive: true,
+          encryptedPayload,
+        },
+      });
+    if (!(await memorySyncReady())) return await create(prisma);
+    return await prisma.$transaction(async (tx) => {
+      const created = await create(tx);
+      await recordMemoryNodeChange(tx, {
+        authUserId: userId,
+        kind: "structured",
+        eventType: "memory.sensitive_created",
+        changedPaths: [`blocks.${created.id}`],
+        payloadHint: {
+          operation: "add",
+          memoryId: created.id,
+          sensitive: true,
+        },
+      });
+      return created;
     });
   },
 
@@ -233,6 +304,7 @@ const UserMemory = {
     const isSensitive = Boolean(input?.isSensitive);
     const normalizedTitle = normalizeTitle(memory.title);
 
+    const syncReady = await memorySyncReady();
     return prisma.$transaction(async (tx) => {
       const candidates = await tx.user_memory_blocks.findMany({
         where: {
@@ -306,6 +378,20 @@ const UserMemory = {
         });
       }
 
+      if (syncReady) {
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "structured",
+          eventType: previous ? "memory.replaced" : "memory.created",
+          changedPaths: [`blocks.${saved.id}`],
+          payloadHint: {
+            operation: previous ? "replace" : "add",
+            memoryId: saved.id,
+            sensitive: isSensitive,
+          },
+        });
+      }
+
       return {
         memory: saved,
         created: !previous,
@@ -318,6 +404,7 @@ const UserMemory = {
     const numericUserId = Number(userId);
     if (!numericUserId) throw new Error("Invalid user id.");
 
+    const syncReady = await memorySyncReady();
     return prisma.$transaction(async (tx) => {
       const candidates = await tx.memory_candidates.findMany({
         where: { userId: numericUserId },
@@ -406,6 +493,40 @@ const UserMemory = {
         },
       });
 
+      if (syncReady) {
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "candidates",
+          eventType: "memory.candidates_promoted",
+          changedPaths: promotedIds.length
+            ? promotedIds.map((id) => `candidates.${id}`)
+            : ["candidates"],
+          payloadHint: {
+            operation: "promote",
+            promotedCount: promotedIds.length,
+          },
+        });
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "structured",
+          eventType: "memory.structured_rebuilt",
+          changedPaths: ["$"],
+          payloadHint: { promotedCount: promotedIds.length },
+        });
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "persona",
+          eventType: "memory.persona_rebuilt",
+          changedPaths: ["overview", "version"],
+          content: {
+            overview: profile.overview,
+            version: profile.version,
+            generatedAt: profile.generatedAt,
+          },
+          payloadHint: { version: profile.version },
+        });
+      }
+
       return {
         success: true,
         version: profile.version,
@@ -481,6 +602,7 @@ const UserMemory = {
     if (!numericMemoryId) throw new Error("Invalid memory id.");
 
     const memory = ensureMemoryInput(input);
+    const syncReady = await memorySyncReady();
     return prisma.$transaction(async (tx) => {
       const existing = await tx.user_memory_blocks.findFirst({
         where: { id: numericMemoryId, userId: numericUserId },
@@ -509,6 +631,20 @@ const UserMemory = {
         },
       });
 
+      if (syncReady) {
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "structured",
+          eventType: "memory.updated",
+          changedPaths: [`blocks.${updated.id}`],
+          payloadHint: {
+            operation: "update",
+            memoryId: updated.id,
+            sensitive: existing.isSensitive,
+          },
+        });
+      }
+
       return toMemoryItem(updated, { maskSensitive: existing.isSensitive });
     });
   },
@@ -519,6 +655,7 @@ const UserMemory = {
     if (!numericUserId) throw new Error("Invalid user id.");
     if (!numericMemoryId) throw new Error("Invalid memory id.");
 
+    const syncReady = await memorySyncReady();
     return prisma.$transaction(async (tx) => {
       const existing = await tx.user_memory_blocks.findFirst({
         where: { id: numericMemoryId, userId: numericUserId },
@@ -535,6 +672,19 @@ const UserMemory = {
       });
 
       await tx.user_memory_blocks.delete({ where: { id: existing.id } });
+      if (syncReady) {
+        await recordMemoryNodeChange(tx, {
+          authUserId: numericUserId,
+          kind: "structured",
+          eventType: "memory.deleted",
+          changedPaths: [`blocks.${existing.id}`],
+          payloadHint: {
+            operation: "delete",
+            memoryId: existing.id,
+            sensitive: existing.isSensitive,
+          },
+        });
+      }
       return {
         success: true,
         archivedId: archive.id,

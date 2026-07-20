@@ -86,7 +86,7 @@ function apiAdminEndpoints(app) {
       response.status(200).json({ users });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -144,7 +144,7 @@ function apiAdminEndpoints(app) {
       response.status(newUser ? 200 : 400).json({ user: newUser, error });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -216,7 +216,7 @@ function apiAdminEndpoints(app) {
       response.status(200).json({ success, error });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -270,7 +270,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -317,7 +317,7 @@ function apiAdminEndpoints(app) {
       response.status(200).json({ invites });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -380,7 +380,7 @@ function apiAdminEndpoints(app) {
       response.status(200).json({ invite, error });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -430,7 +430,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -485,7 +485,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ users });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -552,7 +552,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -667,7 +667,7 @@ function apiAdminEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -723,7 +723,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ chats: chats, hasPages });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -779,7 +779,7 @@ function apiAdminEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

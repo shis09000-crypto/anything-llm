@@ -1,0 +1,31 @@
+[package]
+name = "athena-opaque-core"
+version = "1.0.0"
+edition = "2021"
+license = "MIT"
+
+[lib]
+name = "AthenaOpaqueCore"
+crate-type = ["staticlib", "rlib"]
+
+[[bin]]
+name = "athena-opaque-cli"
+path = "src/bin/athena_opaque_cli.rs"
+
+[dependencies]
+argon2 = "0.5"
+base64 = "0.22.1"
+generic-array = "=0.14.7"
+opaque-ke = { version = "=4.0.0", features = ["argon2"] }
+rand = "0.8.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10.9"
+zeroize = "1.8"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

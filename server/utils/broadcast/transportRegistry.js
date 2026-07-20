@@ -7,6 +7,14 @@ const SUPPORTED_TRANSPORTS = Object.freeze({
     description:
       "In-process broadcast fanout, ack, coalescing, and replay ring buffer.",
   },
+  nats: {
+    adapter: "nats",
+    status: "active",
+    multiInstance: true,
+    durableReplay: true,
+    description:
+      "NATS JetStream fanout with durable consumers and Outbox event-id deduplication.",
+  },
 });
 
 const RESERVED_TRANSPORTS = Object.freeze({
@@ -18,15 +26,11 @@ const RESERVED_TRANSPORTS = Object.freeze({
     description:
       "Reserved for cross-instance fanout and replay via Redis streams/pubsub.",
   },
-  nats: {
-    adapter: "nats",
-    status: "reserved",
-    multiInstance: true,
-    durableReplay: true,
-    description:
-      "Reserved for durable realtime event routing via NATS JetStream.",
-  },
 });
+
+function natsConfigured(env = process.env) {
+  return Boolean(String(env.ATHENA_NATS_SERVERS || env.NATS_URL || "").trim());
+}
 
 function selectedBroadcastTransport(env = process.env) {
   return String(env.ATHENA_BROADCAST_TRANSPORT || "memory")
@@ -38,6 +42,7 @@ function broadcastTransportSummary(env = process.env) {
   const selected = selectedBroadcastTransport(env);
   const active =
     SUPPORTED_TRANSPORTS[selected] || RESERVED_TRANSPORTS[selected] || null;
+  const configured = selected !== "nats" || natsConfigured(env);
   return {
     selected,
     supported: Object.keys(SUPPORTED_TRANSPORTS),
@@ -51,12 +56,21 @@ function broadcastTransportSummary(env = process.env) {
           durableReplay: false,
           description: "Unknown broadcast transport.",
         },
-    ready: Boolean(SUPPORTED_TRANSPORTS[selected]),
-    gatewaySafe: selected === "memory",
+    configured,
+    ready: Boolean(SUPPORTED_TRANSPORTS[selected]) && configured,
+    gatewaySafe: Boolean(
+      SUPPORTED_TRANSPORTS[selected]?.multiInstance &&
+        SUPPORTED_TRANSPORTS[selected]?.durableReplay &&
+        configured
+    ),
     warning:
       selected === "memory"
-        ? null
-        : `Broadcast transport '${selected}' is not implemented in V1; use memory or keep realtime gateway disabled.`,
+        ? "Memory transport is process-local; keep realtime routes in the API process."
+        : selected === "nats" && !configured
+          ? "NATS transport is selected but ATHENA_NATS_SERVERS is missing."
+          : active?.status === "active"
+            ? null
+            : `Broadcast transport '${selected}' is not implemented; keep realtime gateway disabled.`,
   };
 }
 
@@ -65,7 +79,10 @@ function ensureBroadcastTransportSupported(env = process.env) {
   if (summary.ready) return { ok: true, ...summary };
   return {
     ok: false,
-    code: "BROADCAST_TRANSPORT_NOT_IMPLEMENTED",
+    code:
+      summary.active?.status === "active"
+        ? "BROADCAST_TRANSPORT_CONFIG_MISSING"
+        : "BROADCAST_TRANSPORT_NOT_IMPLEMENTED",
     ...summary,
   };
 }

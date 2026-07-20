@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-const path = require("path");
-const fs = require("fs");
-const { PrismaClient } = require("@prisma/client");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+
+let PrismaClient;
 
 function parseArgs(argv = []) {
   const args = {};
@@ -129,26 +129,22 @@ async function main() {
   const env = String(args.env || process.env.APP_ENV || "development");
   if (!["development", "production"].includes(env))
     throw new Error("--env must be development or production");
-
-  process.env.APP_ENV = env;
-  process.env.NODE_ENV = env === "production" ? "production" : "development";
-
-  const serverRoot = path.resolve(__dirname, "..");
-  require("dotenv").config({
-    path: path.join(
-      serverRoot,
-      env === "development" ? ".env.development" : ".env"
-    ),
+  const runtime = await bootstrapCliRuntime({
+    argv: [...process.argv.slice(2), `--env=${env}`],
+    requiredTables: [
+      "workspace_threads",
+      "workspace_chats",
+      "_prisma_migrations",
+    ],
   });
 
-  const { databasePath } = require("../utils/environment");
+  PrismaClient = require("@prisma/client").PrismaClient;
   const {
     deepSeekCacheDiagnosis,
     hasDeepSeekCacheDiagnostics,
   } = require("../utils/AiProviders/deepseek/promptCache");
   const { decryptWorkspaceChatRecordsAsync } = require("../utils/security");
-  const dbPath = databasePath();
-  if (!fs.existsSync(dbPath)) throw new Error(`Database not found: ${dbPath}`);
+  const dbPath = runtime.databasePath;
 
   const prisma = new PrismaClient({
     datasources: { db: { url: sqliteDatasourceUrl(dbPath) } },

@@ -7,6 +7,7 @@ const {
   safeJsonParse,
   queryParams,
 } = require("../utils/http");
+const { readRequestHeader } = require("../utils/http/requestHeaders");
 const { normalizePath, isWithin } = require("../utils/files");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { getVectorDbClass } = require("../utils/helpers");
@@ -141,15 +142,22 @@ function publishWorkspaceDeleteBroadcast({
   );
 }
 
-function deleteVectorNamespaceInBackground(VectorDb, slug = "") {
+const inFlightWorkspaceDeleteJobs = new Set();
+
+async function deleteVectorNamespace(VectorDb, slug = "") {
   if (!VectorDb || !slug) return;
-  setImmediate(async () => {
-    try {
-      await VectorDb["delete-namespace"]({ namespace: slug });
-    } catch (e) {
-      console.error(e.message);
-    }
-  });
+  try {
+    await VectorDb["delete-namespace"]({ namespace: slug });
+  } catch (e) {
+    console.error(e.message);
+  }
+}
+
+async function drainWorkspaceDeleteJobs() {
+  while (inFlightWorkspaceDeleteJobs.size) {
+    await Promise.allSettled([...inFlightWorkspaceDeleteJobs]);
+  }
+  return { drained: true };
 }
 
 function runWorkspaceDeleteJob({
@@ -159,20 +167,35 @@ function runWorkspaceDeleteJob({
   clientContext,
   deleteIntentId,
   sourceActionId,
+  receiptLeaseOwner,
   VectorDb,
   responseUserId,
 } = {}) {
-  setImmediate(async () => {
+  const job = (async () => {
     const eventUser = user || (responseUserId ? { id: responseUserId } : null);
+    const renewLease = async () => {
+      if (!sourceActionId || !receiptLeaseOwner) return;
+      await MutationReceipt.renew({
+        userId: eventUser?.id,
+        sourceActionId,
+        leaseOwner: receiptLeaseOwner,
+        leaseMs: 30 * 60_000,
+      });
+    };
     try {
+      await renewLease();
       await WorkspaceChats.delete({ workspaceId: Number(workspace.id) });
+      await renewLease();
       await DocumentVectors.deleteForWorkspace(workspace.id);
+      await renewLease();
       await Document.delete({ workspaceId: Number(workspace.id) });
+      await renewLease();
       await Workspace.delete({ id: Number(workspace.id) });
       if (sourceActionId) {
         await MutationReceipt.complete({
           userId: eventUser?.id,
           sourceActionId,
+          leaseOwner: receiptLeaseOwner,
           resource: {
             workspaceId: workspace.id,
             workspaceSlug: workspace.slug,
@@ -180,13 +203,23 @@ function runWorkspaceDeleteJob({
         });
       }
 
-      await EventLogs.logEvent(
-        "workspace_deleted",
-        {
-          workspaceName: workspace?.name || "Unknown Workspace",
-        },
-        responseUserId ?? eventUser?.id
-      );
+      try {
+        await EventLogs.logEvent(
+          "workspace_deleted",
+          {
+            workspaceName: workspace?.name || "Unknown Workspace",
+          },
+          responseUserId ?? eventUser?.id
+        );
+      } catch (auditError) {
+        // The destructive work is already committed and cannot be rolled back.
+        // The audit subsystem marks readiness unhealthy when both its database
+        // and fsync spool are unavailable, so keep the business outcome honest.
+        console.error("[WorkspaceDelete] security audit unavailable", {
+          code: auditError?.code || "workspace_delete_audit_failed",
+          deleteIntentId,
+        });
+      }
 
       publishWorkspaceDeleteBroadcast({
         type: "deleted",
@@ -205,15 +238,24 @@ function runWorkspaceDeleteJob({
         sourceActionId,
         deleteIntentId,
       });
-      deleteVectorNamespaceInBackground(VectorDb, slug);
+      await deleteVectorNamespace(VectorDb, slug);
     } catch (error) {
       console.error(error.message, error);
       if (sourceActionId) {
-        await MutationReceipt.fail({
-          userId: eventUser?.id,
-          sourceActionId,
-          errorCode: workspaceDeleteErrorCode(error),
-        });
+        try {
+          await MutationReceipt.fail({
+            userId: eventUser?.id,
+            sourceActionId,
+            leaseOwner: receiptLeaseOwner,
+            errorCode: workspaceDeleteErrorCode(error),
+          });
+        } catch (settlementError) {
+          console.error("[WorkspaceDelete] receipt settlement failed", {
+            code:
+              settlementError?.code || "workspace_delete_receipt_settle_failed",
+            deleteIntentId,
+          });
+        }
       }
       publishWorkspaceDeleteBroadcast({
         type: "delete.failed",
@@ -235,7 +277,19 @@ function runWorkspaceDeleteJob({
         error: workspaceDeleteErrorCode(error),
       });
     }
-  });
+  })();
+  inFlightWorkspaceDeleteJobs.add(job);
+  void job.then(
+    () => inFlightWorkspaceDeleteJobs.delete(job),
+    (error) => {
+      inFlightWorkspaceDeleteJobs.delete(job);
+      console.error("[WorkspaceDelete] unhandled background failure", {
+        code: error?.code || "workspace_delete_background_failed",
+        deleteIntentId,
+      });
+    }
+  );
+  return job;
 }
 
 function parseHistoryQuery(request) {
@@ -262,6 +316,11 @@ function parseHistoryQuery(request) {
     anchorChatId,
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
+    attachmentMode:
+      query.attachmentMode === "reference" ||
+      readRequestHeader(request, "X-Athena-Chat-Payload-Version") === "2"
+        ? "reference"
+        : "inline",
   };
 }
 
@@ -455,7 +514,9 @@ async function anchoredChatHistory(baseClause = {}, options = {}) {
   const [anchor] = await WorkspaceChats.where(
     { ...baseClause, id: anchorChatId },
     1,
-    { id: "asc" }
+    { id: "asc" },
+    null,
+    { attachmentMode: options.attachmentMode }
   );
   if (!anchor) {
     return {
@@ -483,14 +544,18 @@ async function anchoredChatHistory(baseClause = {}, options = {}) {
     ? await WorkspaceChats.where(
         { ...baseClause, id: { lt: anchorChatId } },
         beforeLimit,
-        { id: "desc" }
+        { id: "desc" },
+        null,
+        { attachmentMode: options.attachmentMode }
       )
     : [];
   const newerAsc = afterLimit
     ? await WorkspaceChats.where(
         { ...baseClause, id: { gt: anchorChatId } },
         afterLimit,
-        { id: "asc" }
+        { id: "asc" },
+        null,
+        { attachmentMode: options.attachmentMode }
       )
     : [];
   const history = [...olderDesc].reverse().concat(anchor, newerAsc);
@@ -561,7 +626,9 @@ async function pagedChatHistory(
       ? await WorkspaceChats.where(
           { ...baseClause, id: { in: fullChatIds } },
           null,
-          { id: "asc" }
+          { id: "asc" },
+          null,
+          { attachmentMode: options.attachmentMode }
         )
       : [];
     const fullHistoryById = new Map(fullHistory.map((chat) => [chat.id, chat]));
@@ -571,7 +638,9 @@ async function pagedChatHistory(
   const history = await WorkspaceChats.where(
     whereClause,
     options.enabled ? options.limit : null,
-    orderBy
+    orderBy,
+    null,
+    { attachmentMode: options.attachmentMode }
   );
   return options.enabled && !options.afterChatId
     ? [...history].reverse()
@@ -678,7 +747,7 @@ function workspaceEndpoints(app) {
           .json({ workspace, message, defaultThreads, replayed });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -687,6 +756,7 @@ function workspaceEndpoints(app) {
     "/workspace/:slug/update",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
+      let receiptContext = null;
       try {
         const user = await userFromSession(request, response);
         const { slug = null } = request.params;
@@ -697,6 +767,16 @@ function workspaceEndpoints(app) {
         );
         const data = { ...requestData };
         delete data.sourceActionId;
+        const baseVersion = Number(
+          request.headers?.["if-match"] ?? data.baseVersion
+        );
+        const changedPaths = Array.isArray(data.changedPaths)
+          ? data.changedPaths
+          : Object.keys(data).filter(
+              (key) => !["baseVersion", "changedPaths"].includes(key)
+            );
+        delete data.baseVersion;
+        delete data.changedPaths;
         const mutationAction = Object.prototype.hasOwnProperty.call(
           data,
           "chatModel"
@@ -712,6 +792,7 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        let receiptLeaseOwner = null;
         if (sourceActionId) {
           const reservation = await MutationReceipt.reserve({
             userId: user?.id,
@@ -719,6 +800,14 @@ function workspaceEndpoints(app) {
             action: mutationAction,
             workspaceId: currWorkspace.id,
           });
+          receiptLeaseOwner = reservation.leaseOwner;
+          if (reservation.created) {
+            receiptContext = {
+              userId: user?.id,
+              sourceActionId,
+              leaseOwner: receiptLeaseOwner,
+            };
+          }
           if (!reservation.created) {
             if (reservation.receipt?.status === "failed") {
               return response.status(409).json({
@@ -737,22 +826,33 @@ function workspaceEndpoints(app) {
         }
 
         await Workspace.trackChange(currWorkspace, data, user);
-        const { workspace, message } = await Workspace.update(
-          currWorkspace.id,
-          data
-        );
+        const clientContext = getClientContext(request, { user });
+        const syncContext = {
+          baseVersion: Number.isInteger(baseVersion) ? baseVersion : null,
+          changedPaths,
+          originClientId: clientContext.clientId,
+          mutationId:
+            sourceActionId ||
+            compactIdentifier(request.headers?.["idempotency-key"], null),
+        };
+        const updateArgs = [currWorkspace.id, data];
+        if (syncContext.baseVersion !== null || syncContext.mutationId) {
+          updateArgs.push(syncContext);
+        }
+        const { workspace, message } = await Workspace.update(...updateArgs);
         if (workspace) {
           if (sourceActionId) {
             await MutationReceipt.complete({
               userId: user?.id,
               sourceActionId,
+              leaseOwner: receiptLeaseOwner,
               resource: {
                 workspaceId: workspace.id,
                 workspaceSlug: workspace.slug,
               },
             });
           }
-          const clientContext = getClientContext(request, { user });
+          receiptContext = null;
           publishWorkspaceSyncEvent({
             type: "workspace_updated",
             workspaceId: workspace.id,
@@ -763,11 +863,36 @@ function workspaceEndpoints(app) {
             senderClientId: clientContext.clientId,
             sourceActionId,
           });
+        } else if (receiptContext) {
+          await MutationReceipt.fail({
+            ...receiptContext,
+            errorCode: "workspace_update_failed",
+          });
+          receiptContext = null;
         }
         response.status(200).json({ workspace, message });
       } catch (e) {
+        if (receiptContext) {
+          await MutationReceipt.fail({
+            ...receiptContext,
+            errorCode: e?.code || "workspace_update_failed",
+          }).catch((receiptError) => {
+            console.error(
+              "[MutationReceipt] Failed to settle workspace update",
+              receiptError
+            );
+          });
+          receiptContext = null;
+        }
+        if (e?.code === "state_version_conflict") {
+          return response.status(409).json({
+            error: "state_version_conflict",
+            expectedVersion: e.expectedVersion,
+            current: e.syncNode || null,
+          });
+        }
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -783,7 +908,7 @@ function workspaceEndpoints(app) {
     async function (request, response) {
       try {
         const Collector = new CollectorApi();
-        const { originalname } = request.file;
+        const { filename, originalname } = request.file;
         const uploadTarget = resolveUploadTargetFolder(
           request.body?.folderName
         );
@@ -809,8 +934,10 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { success, reason, documents } =
-          await Collector.processDocument(originalname);
+        const { success, reason, documents } = await Collector.processDocument(
+          filename,
+          { title: originalname }
+        );
         if (!success) {
           response
             .status(500)
@@ -840,7 +967,7 @@ function workspaceEndpoints(app) {
           .json({ success: true, error: null, documents: movedDocuments });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -914,7 +1041,7 @@ function workspaceEndpoints(app) {
         console.error("Link upload failed", {
           message: redactSensitiveText(e.message, [link]),
         });
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -986,7 +1113,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1017,7 +1144,7 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("[RobustnessDiagnostics]", error.message, error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -1048,13 +1175,16 @@ function workspaceEndpoints(app) {
           return;
         }
 
+        let receiptLeaseOwner = null;
         if (sourceActionId) {
           const reservation = await MutationReceipt.reserve({
             userId: user?.id,
             sourceActionId,
             action: "workspace.delete",
             workspaceId: workspace.id,
+            leaseMs: 30 * 60_000,
           });
+          receiptLeaseOwner = reservation.leaseOwner;
           if (!reservation.created) {
             if (reservation.receipt?.status === "failed") {
               return response.status(409).json({
@@ -1103,6 +1233,7 @@ function workspaceEndpoints(app) {
           clientContext,
           deleteIntentId,
           sourceActionId,
+          receiptLeaseOwner,
           VectorDb,
           responseUserId: response.locals?.user?.id,
         });
@@ -1113,7 +1244,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1154,7 +1285,7 @@ function workspaceEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1172,7 +1303,7 @@ function workspaceEndpoints(app) {
         response.status(200).json({ workspaces });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1191,7 +1322,7 @@ function workspaceEndpoints(app) {
         response.status(200).json({ workspace });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1238,8 +1369,16 @@ function workspaceEndpoints(app) {
             ? anchoredHistory.history
             : await pagedChatHistory(baseClause, whereClause, historyOptions)
           : multiUserMode(response)
-            ? await WorkspaceChats.forWorkspaceByUser(workspace.id, user.id)
-            : await WorkspaceChats.forWorkspace(workspace.id);
+            ? await WorkspaceChats.forWorkspaceByUser(
+                workspace.id,
+                user.id,
+                null,
+                null,
+                { attachmentMode: historyOptions.attachmentMode }
+              )
+            : await WorkspaceChats.forWorkspace(workspace.id, null, null, {
+                attachmentMode: historyOptions.attachmentMode,
+              });
         const lightChatIds = lightChatIdsForHistory(
           orderedHistory,
           historyOptions
@@ -1256,7 +1395,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1325,7 +1464,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1369,7 +1508,15 @@ function workspaceEndpoints(app) {
             ...(multiUserMode(response) ? { user_id: user.id } : {}),
           },
           null,
-          { id: "asc" }
+          { id: "asc" },
+          null,
+          {
+            attachmentMode:
+              readRequestHeader(request, "X-Athena-Chat-Payload-Version") ===
+              "2"
+                ? "reference"
+                : "inline",
+          }
         );
         response.status(200).json({
           history: convertToChatHistory(history),
@@ -1380,7 +1527,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1414,7 +1561,10 @@ function workspaceEndpoints(app) {
           });
           if (!target || deleted.has(target.id)) continue;
           const thread = target.thread_id
-            ? await WorkspaceThread.get({ id: target.thread_id })
+            ? await WorkspaceThread.get({
+                workspace_id: workspace.id,
+                id: target.thread_id,
+              })
             : null;
           await deleteChatTurnAndPublish({
             workspace,
@@ -1433,7 +1583,7 @@ function workspaceEndpoints(app) {
           .json({ success: true, deletedCount: deleted.size });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1533,7 +1683,7 @@ function workspaceEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (error) {
         console.error("Error updating chat feedback:", error);
-        response.status(500).end();
+        response.status(error.httpStatus || 500).end();
       }
     }
   );
@@ -1550,7 +1700,7 @@ function workspaceEndpoints(app) {
       } catch (error) {
         console.error("Error fetching suggested messages:", error);
         response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, message: "Internal server error" });
       }
     }
@@ -1577,7 +1727,7 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the suggested messages:", error);
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           success: true,
           message: "Error saving the suggested messages.",
         });
@@ -1603,7 +1753,7 @@ function workspaceEndpoints(app) {
         return response.status(200).end();
       } catch (error) {
         console.error("Error processing the pin status update:", error);
-        return response.status(500).end();
+        return response.status(error.httpStatus || 500).end();
       }
     }
   );
@@ -1650,7 +1800,9 @@ function workspaceEndpoints(app) {
         return;
       } catch (error) {
         console.error("Error processing the TTS request:", error);
-        response.status(500).json({ message: "TTS could not be completed" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ message: "TTS could not be completed" });
       }
     }
   );
@@ -1693,7 +1845,9 @@ function workspaceEndpoints(app) {
         return;
       } catch (error) {
         console.error("Error processing the logo request:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -1744,7 +1898,9 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the profile picture upload:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -1788,7 +1944,9 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error processing the profile picture removal:", error);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -1797,6 +1955,7 @@ function workspaceEndpoints(app) {
     "/workspace/:slug/thread/fork",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
+      let forkReceiptContext = null;
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
@@ -1820,6 +1979,7 @@ function workspaceEndpoints(app) {
             })
           : null;
         const threadId = sourceThread?.id ?? null;
+        let receiptLeaseOwner = null;
         if (sourceActionId) {
           const reservation = await MutationReceipt.reserve({
             userId: user?.id,
@@ -1827,7 +1987,16 @@ function workspaceEndpoints(app) {
             action: "chat.fork",
             workspaceId: workspace.id,
             threadId,
+            leaseMs: 10 * 60_000,
           });
+          receiptLeaseOwner = reservation.leaseOwner;
+          if (reservation.created) {
+            forkReceiptContext = {
+              userId: user?.id,
+              sourceActionId,
+              leaseOwner: receiptLeaseOwner,
+            };
+          }
           if (!reservation.created) {
             const receipt = reservation.receipt;
             if (
@@ -1849,6 +2018,14 @@ function workspaceEndpoints(app) {
             });
           }
         }
+        const failForkReceipt = async (errorCode) => {
+          if (!forkReceiptContext) return;
+          await MutationReceipt.fail({
+            ...forkReceiptContext,
+            errorCode,
+          });
+          forkReceiptContext = null;
+        };
         const baseChatClause = {
           workspaceId: workspace.id,
           user_id: user?.id,
@@ -1871,25 +2048,33 @@ function workspaceEndpoints(app) {
               )?.id
             : null;
 
-        if (!forkedAtMessageId)
+        if (!forkedAtMessageId) {
+          await failForkReceipt("chat_fork_source_not_found");
           return response.status(400).json({
             message: isDualThreadFork
               ? "当前线程暂无可分支的消息"
               : "chatId is required",
           });
+        }
 
         const forkWhereClause = {
           ...baseChatClause,
           id: { lte: Number(forkedAtMessageId) },
         };
-        const chatsToFork = await WorkspaceChats.where(forkWhereClause, null, {
-          id: "asc",
-        });
+        const chatsToFork = await WorkspaceChats.where(
+          forkWhereClause,
+          null,
+          { id: "asc" },
+          null,
+          { attachmentMode: "reference" }
+        );
 
-        if (isDualThreadFork && chatsToFork.length === 0)
+        if (isDualThreadFork && chatsToFork.length === 0) {
+          await failForkReceipt("chat_fork_source_not_found");
           return response
             .status(400)
             .json({ message: "当前线程暂无可分支的消息" });
+        }
 
         const branchName = isDualThreadFork
           ? await uniqueBranchThreadName({ workspace, user, sourceThread })
@@ -1907,8 +2092,10 @@ function workspaceEndpoints(app) {
                 }
               : {}),
           });
-        if (threadError)
+        if (threadError) {
+          await failForkReceipt("chat_fork_thread_create_failed");
           return response.status(500).json({ error: threadError });
+        }
 
         let lastMessageText = "";
         const chatsData = chatsToFork.map((chat) => {
@@ -1921,6 +2108,9 @@ function workspaceEndpoints(app) {
             response: JSON.stringify(chatResponse),
             user_id: user?.id,
             thread_id: newThread.id,
+            payloadVersion: Number(chat.payloadVersion || 1),
+            sourceChatId: chat.id,
+            workspaceSlug: workspace.slug,
             ...(isDualThreadFork
               ? {
                   original_thread_id: threadId,
@@ -1932,7 +2122,10 @@ function workspaceEndpoints(app) {
         });
         const { chats: copiedChats, message: copyError } =
           await WorkspaceChats.bulkCreate(chatsData);
-        if (copyError) return response.status(500).json({ error: copyError });
+        if (copyError) {
+          await failForkReceipt("chat_fork_copy_failed");
+          return response.status(500).json({ error: copyError });
+        }
         const { thread: updatedThread } = isDualThreadFork
           ? { thread: newThread }
           : await WorkspaceThread.update(newThread, {
@@ -1941,18 +2134,11 @@ function workspaceEndpoints(app) {
                 : "Forked Thread",
             });
 
-        await EventLogs.logEvent(
-          "thread_forked",
-          {
-            workspaceName: workspace?.name || "Unknown Workspace",
-            threadName: updatedThread?.name || newThread.name,
-          },
-          user?.id
-        );
         if (sourceActionId) {
           await MutationReceipt.complete({
             userId: user?.id,
             sourceActionId,
+            leaseOwner: receiptLeaseOwner,
             resource: {
               workspaceId: workspace.id,
               workspaceSlug: workspace.slug,
@@ -1960,6 +2146,25 @@ function workspaceEndpoints(app) {
               threadSlug: newThread.slug,
             },
           });
+          forkReceiptContext = null;
+        }
+        try {
+          await EventLogs.logEvent(
+            "thread_forked",
+            {
+              workspaceName: workspace?.name || "Unknown Workspace",
+              threadName: updatedThread?.name || newThread.name,
+            },
+            user?.id
+          );
+        } catch (auditError) {
+          // The fork is already durable and its idempotency receipt is closed.
+          // Audit durability exposes its own readiness failure and must not
+          // convert a committed business mutation into a misleading 500.
+          console.error(
+            "[SecurityAudit] Failed to record thread fork",
+            auditError
+          );
         }
         const clientContext = getClientContext(request, { user });
         publishWorkspaceSyncEvent({
@@ -1990,8 +2195,21 @@ function workspaceEndpoints(app) {
             : {}),
         });
       } catch (e) {
+        if (forkReceiptContext) {
+          await MutationReceipt.fail({
+            ...forkReceiptContext,
+            errorCode: e?.code || "chat_fork_failed",
+          }).catch((receiptError) => {
+            console.error(
+              "[MutationReceipt] Failed to settle chat fork",
+              receiptError
+            );
+          });
+        }
         console.error(e.message, e);
-        response.status(500).json({ message: "Internal server error" });
+        response
+          .status(e.httpStatus || 500)
+          .json({ message: "Internal server error" });
       }
     }
   );
@@ -2023,7 +2241,10 @@ function workspaceEndpoints(app) {
         );
         const workspace = await Workspace.get({ id: validChat.workspaceId });
         const thread = validChat.thread_id
-          ? await WorkspaceThread.get({ id: validChat.thread_id })
+          ? await WorkspaceThread.get({
+              workspace_id: validChat.workspaceId,
+              id: validChat.thread_id,
+            })
           : null;
         if (!workspace)
           return response
@@ -2046,7 +2267,9 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: "Server error" });
+        response
+          .status(e.httpStatus || 500)
+          .json({ success: false, error: "Server error" });
       }
     }
   );
@@ -2074,7 +2297,7 @@ function workspaceEndpoints(app) {
         }
 
         const Collector = new CollectorApi();
-        const { originalname } = request.file;
+        const { filename, originalname } = request.file;
         const processingOnline = await Collector.online();
 
         if (!processingOnline) {
@@ -2088,8 +2311,10 @@ function workspaceEndpoints(app) {
           return;
         }
 
-        const { success, reason, documents } =
-          await Collector.processDocument(originalname);
+        const { success, reason, documents } = await Collector.processDocument(
+          filename,
+          { title: originalname }
+        );
         if (!success || documents?.length === 0) {
           response.status(500).json({ success: false, error: reason }).end();
           return;
@@ -2153,19 +2378,14 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
 
   app.delete(
     "/workspace/:slug/remove-and-unembed",
-    [
-      validatedRequest,
-      flexUserRoleValid([ROLES.all]),
-      validWorkspaceSlug,
-      handleFileUpload,
-    ],
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async function (request, response) {
       try {
         const body = reqBody(request);
@@ -2189,7 +2409,7 @@ function workspaceEndpoints(app) {
         response.status(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -2206,7 +2426,7 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error fetching prompt history:", error);
-        response.sendStatus(500).end();
+        response.sendStatus(error.httpStatus || 500).end();
       }
     }
   );
@@ -2223,7 +2443,7 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error clearing prompt history:", error);
-        response.sendStatus(500).end();
+        response.sendStatus(error.httpStatus || 500).end();
       }
     }
   );
@@ -2242,7 +2462,7 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error deleting prompt history:", error);
-        response.sendStatus(500).end();
+        response.sendStatus(error.httpStatus || 500).end();
       }
     }
   );
@@ -2264,7 +2484,7 @@ function workspaceEndpoints(app) {
         response.status(200).json(searchResults);
       } catch (error) {
         console.error("Error searching for workspaces:", error);
-        response.sendStatus(500).end();
+        response.sendStatus(error.httpStatus || 500).end();
       }
     }
   );
@@ -2291,7 +2511,7 @@ function workspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -2315,7 +2535,9 @@ function workspaceEndpoints(app) {
         response.status(200).json({ success: sent });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(e.httpStatus || 500)
+          .json({ success: false, error: e.message });
       }
     }
   );
@@ -2332,7 +2554,9 @@ function workspaceEndpoints(app) {
         });
       } catch (error) {
         console.error("Error checking if agent command is available:", error);
-        response.status(500).json({ showAgentCommand: true });
+        response
+          .status(error.httpStatus || 500)
+          .json({ showAgentCommand: true });
       }
     }
   );
@@ -2342,4 +2566,7 @@ function workspaceEndpoints(app) {
   workspaceReaderDocumentsEndpoints(app);
 }
 
-module.exports = { workspaceEndpoints };
+module.exports = {
+  drainWorkspaceDeleteJobs,
+  workspaceEndpoints,
+};

@@ -48,6 +48,8 @@ const {
   saveMemoryToolCallFrom,
   saveMemoryToolsForMessage,
 } = require("./saveMemoryTool");
+const { hydrateIncomingAttachments } = require("../contentObjects/chatPayload");
+const { beginModelExecution } = require("../aiGovernance");
 
 function promptCacheDiagnosticsFor(
   llm,
@@ -183,6 +185,15 @@ async function chatSync({
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? workspace?.chatMode ?? "automatic";
+  attachments = await hydrateIncomingAttachments({
+    attachments,
+    scope: {
+      workspaceId: workspace.id,
+      userId: user?.id || null,
+      threadId: thread?.id || null,
+      apiSessionId: sessionId,
+    },
+  });
 
   // If the user wants to reset the chat history we do so pre-flight
   // and continue execution. If no message is provided then the user intended
@@ -574,17 +585,37 @@ async function chatSync({
     compaction
   );
 
-  // Send the text completion.
-  const { textResponse, metrics: performanceMetrics } =
-    await LLMConnector.getChatCompletion(messages, {
+  // Reserve policy budget before provider execution. Observe mode records the
+  // same reservation without denying; enforce mode can fail closed here.
+  const modelExecution = await beginModelExecution(
+    {
+      ownerType: "workspace",
+      ownerId: String(workspace.id),
+      userId: user?.id || null,
+      workspaceId: workspace.id,
+      taskType: "workspace_chat",
+      provider: workspace?.chatProvider,
+      model: workspace?.chatModel,
+    },
+    { messages }
+  );
+  let completion;
+  try {
+    completion = await LLMConnector.getChatCompletion(messages, {
       temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
       user: user,
       thinking: deepSeekThinkingMode,
     });
+  } catch (error) {
+    await modelExecution.fail(error);
+    throw error;
+  }
+  const { textResponse, metrics: performanceMetrics } = completion;
   const metrics = withPromptCacheDiagnostics(
     performanceMetrics,
     promptCacheDiagnostics
   );
+  await modelExecution.settle(metrics, { transport: "api", chatMode });
 
   if (!textResponse) {
     return {
@@ -679,6 +710,15 @@ async function streamChat({
 }) {
   const uuid = uuidv4();
   const chatMode = mode ?? workspace?.chatMode ?? "automatic";
+  attachments = await hydrateIncomingAttachments({
+    attachments,
+    scope: {
+      workspaceId: workspace.id,
+      userId: user?.id || null,
+      threadId: thread?.id || null,
+      apiSessionId: sessionId,
+    },
+  });
 
   // If the user wants to reset the chat history we do so pre-flight
   // and continue execution. If no message is provided then the user intended
@@ -1078,44 +1118,37 @@ async function streamChat({
     historyWindow,
     compaction
   );
+  const modelExecution = await beginModelExecution(
+    {
+      ownerType: "workspace",
+      ownerId: String(workspace.id),
+      userId: user?.id || null,
+      workspaceId: workspace.id,
+      taskType: "workspace_chat",
+      provider: workspace?.chatProvider,
+      model: workspace?.chatModel,
+    },
+    { messages, toolCalls: exposeSaveMemoryTool ? 1 : 0 }
+  );
 
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
-  if (LLMConnector.streamingEnabled() !== true) {
-    console.log(
-      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
-    );
-    const { textResponse, metrics: performanceMetrics } =
-      await LLMConnector.getChatCompletion(messages, {
-        temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-        user: user,
-        thinking: deepSeekThinkingMode,
-      });
-    completeText = textResponse;
-    metrics = withPromptCacheDiagnostics(
-      performanceMetrics,
-      promptCacheDiagnostics
-    );
-    writeResponseChunk(response, {
-      uuid,
-      sources,
-      type: "textResponseChunk",
-      textResponse: completeText,
-      close: true,
-      error: false,
-      metrics,
-    });
-  } else {
-    const stream = await LLMConnector.streamGetChatCompletion(messages, {
-      temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      user: user,
-      thinking: deepSeekThinkingMode,
-      tools: exposeSaveMemoryTool ? saveMemoryToolsForMessage(message) : [],
-      toolChoice: exposeSaveMemoryTool ? "auto" : undefined,
-    });
-    completeText = await LLMConnector.handleStream(response, stream, { uuid });
-    if (saveMemoryToolCallFrom(stream.toolCalls)) {
-      completeText = "保存长期记忆需要前端确认，API 请求未写入记忆。";
+  try {
+    if (LLMConnector.streamingEnabled() !== true) {
+      console.log(
+        `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
+      );
+      const { textResponse, metrics: performanceMetrics } =
+        await LLMConnector.getChatCompletion(messages, {
+          temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+          user: user,
+          thinking: deepSeekThinkingMode,
+        });
+      completeText = textResponse;
+      metrics = withPromptCacheDiagnostics(
+        performanceMetrics,
+        promptCacheDiagnostics
+      );
       writeResponseChunk(response, {
         uuid,
         sources,
@@ -1123,15 +1156,45 @@ async function streamChat({
         textResponse: completeText,
         close: true,
         error: false,
-        metrics: stream.metrics || {},
+        metrics,
       });
+    } else {
+      const stream = await LLMConnector.streamGetChatCompletion(messages, {
+        temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+        user: user,
+        thinking: deepSeekThinkingMode,
+        tools: exposeSaveMemoryTool ? saveMemoryToolsForMessage(message) : [],
+        toolChoice: exposeSaveMemoryTool ? "auto" : undefined,
+      });
+      completeText = await LLMConnector.handleStream(response, stream, {
+        uuid,
+      });
+      if (saveMemoryToolCallFrom(stream.toolCalls)) {
+        completeText = "保存长期记忆需要前端确认，API 请求未写入记忆。";
+        writeResponseChunk(response, {
+          uuid,
+          sources,
+          type: "textResponseChunk",
+          textResponse: completeText,
+          close: true,
+          error: false,
+          metrics: stream.metrics || {},
+        });
+      }
+      metrics = withPromptCacheDiagnostics(
+        stream.metrics,
+        promptCacheDiagnostics
+      );
+      stream.metrics = metrics;
     }
-    metrics = withPromptCacheDiagnostics(
-      stream.metrics,
-      promptCacheDiagnostics
-    );
-    stream.metrics = metrics;
+  } catch (error) {
+    await modelExecution.fail(error);
+    throw error;
   }
+  await modelExecution.settle(metrics, {
+    transport: "api-stream",
+    chatMode,
+  });
 
   if (completeText?.length > 0) {
     const { chat } = await WorkspaceChats.new({

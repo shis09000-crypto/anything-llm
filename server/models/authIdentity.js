@@ -233,7 +233,7 @@ async function createAuthUser(params = {}) {
   return authPrisma.users.create({ data: authUserCreateData(params) });
 }
 
-async function ensureShadowUser(authUser = null) {
+async function ensureShadowUser(authUser = null, syncRepair = {}) {
   if (!authUser) return null;
 
   const authUserId = authUser.id;
@@ -251,9 +251,101 @@ async function ensureShadowUser(authUser = null) {
 
   const data = copyAuthFields(authUser);
   if (shadow) {
-    return prisma.users.update({
-      where: { id: shadow.id },
-      data,
+    const changedFields = Object.keys(data).filter((field) => {
+      const current = shadow[field];
+      const next = data[field];
+      if (current instanceof Date || next instanceof Date) {
+        return (
+          new Date(current || 0).getTime() !== new Date(next || 0).getTime()
+        );
+      }
+      return JSON.stringify(current ?? null) !== JSON.stringify(next ?? null);
+    });
+    if (!changedFields.length) return shadow;
+
+    const { SyncV2 } = require("./syncV2");
+    const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
+    const {
+      ENTITLEMENT_FIELDS,
+      PROFILE_FIELDS,
+      SECURITY_POLICY_FIELDS,
+      hasAnyField,
+      userEntitlementProjection,
+      userProfileProjection,
+      userSecurityPolicyProjection,
+    } = require("../utils/syncV2/userProjection");
+    const profileSync =
+      SyncV2.enabled("profile") && hasAnyField(changedFields, PROFILE_FIELDS);
+    const securitySync =
+      SyncV2.enabled("security") &&
+      hasAnyField(changedFields, SECURITY_POLICY_FIELDS);
+    const entitlementSync =
+      SyncV2.enabled("entitlements") &&
+      hasAnyField(changedFields, ENTITLEMENT_FIELDS);
+    const syncReady =
+      (profileSync || securitySync || entitlementSync) &&
+      (await SyncV2.schemaReady());
+    if (!syncReady) {
+      return prisma.users.update({ where: { id: shadow.id }, data });
+    }
+    return prisma.$transaction(async (tx) => {
+      const repaired = await tx.users.update({
+        where: { id: shadow.id },
+        data,
+      });
+      const compensatedMutationId = syncRepair.compensatedMutationId || null;
+      const common = {
+        audience: [Number(shadow.id)],
+        ...(compensatedMutationId
+          ? {
+              payloadHint: {
+                compensatedMutation: true,
+                compensatedMutationId,
+                reason: syncRepair.reason || "shared_auth_replication_failed",
+              },
+            }
+          : {}),
+      };
+      if (profileSync) {
+        await SyncV2.recordNodeChange(tx, {
+          ...common,
+          nodeKey: nodeKeys.userProfile(shadow.id),
+          content: userProfileProjection(repaired),
+          changedPaths: changedFields.filter((field) =>
+            PROFILE_FIELDS.has(field)
+          ),
+          eventType: compensatedMutationId
+            ? "user.profile.mutation_compensated"
+            : "user.profile.authority_repaired",
+        });
+      }
+      if (securitySync) {
+        await SyncV2.recordNodeChange(tx, {
+          ...common,
+          nodeKey: nodeKeys.userSecurityPolicies(shadow.id),
+          content: userSecurityPolicyProjection(repaired),
+          changedPaths: changedFields
+            .filter((field) => SECURITY_POLICY_FIELDS.has(field))
+            .map((field) => (field === "password" ? "credentials" : field)),
+          eventType: compensatedMutationId
+            ? "user.security_policy.mutation_compensated"
+            : "user.security_policy.authority_repaired",
+        });
+      }
+      if (entitlementSync) {
+        await SyncV2.recordNodeChange(tx, {
+          ...common,
+          nodeKey: nodeKeys.userEntitlements(shadow.id),
+          content: userEntitlementProjection(repaired),
+          changedPaths: changedFields.filter((field) =>
+            ENTITLEMENT_FIELDS.has(field)
+          ),
+          eventType: compensatedMutationId
+            ? "user.entitlements.mutation_compensated"
+            : "user.entitlements.authority_repaired",
+        });
+      }
+      return repaired;
     });
   }
 

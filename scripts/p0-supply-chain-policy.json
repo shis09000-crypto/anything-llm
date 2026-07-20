@@ -1,0 +1,108 @@
+{
+  "schemaVersion": 1,
+  "highSeverityPolicies": {
+    "server": [
+      {
+        "id": "llm-provider-sdk-boundary",
+        "modules": [
+          "@grpc/grpc-js",
+          "@langchain/core",
+          "langchain",
+          "langsmith",
+          "expr-eval"
+        ],
+        "owner": "ai-platform",
+        "mitigation": "Provider configuration is administrator-controlled; untrusted serialized LangChain manifests are not accepted, and task execution remains behind authenticated domain adapters.",
+        "expiresAt": "2026-10-31"
+      },
+      {
+        "id": "server-network-boundary",
+        "modules": [
+          "@modelcontextprotocol/sdk",
+          "axios",
+          "form-data",
+          "ip",
+          "jws",
+          "nodemailer",
+          "path-to-regexp",
+          "undici",
+          "ws"
+        ],
+        "owner": "security-platform",
+        "mitigation": "Routes are authenticated and body-limited; outbound connector destinations and request signing are validated at dedicated boundaries while upgrades are tested.",
+        "expiresAt": "2026-10-31"
+      },
+      {
+        "id": "server-archive-and-runtime-boundary",
+        "modules": [
+          "adm-zip",
+          "fast-uri",
+          "fast-xml-parser",
+          "lodash",
+          "lodash-es",
+          "minimatch",
+          "tar-fs",
+          "tmp"
+        ],
+        "owner": "runtime-platform",
+        "mitigation": "File inputs are size-bounded and parsed in controlled storage paths; XML and protobuf critical fixes are pinned while remaining High upgrades are compatibility-tested.",
+        "expiresAt": "2026-10-31"
+      }
+    ],
+    "collector": [
+      {
+        "id": "collector-parser-sandbox",
+        "modules": [
+          "@xmldom/xmldom",
+          "adm-zip",
+          "expr-eval",
+          "linkify-it",
+          "lodash",
+          "underscore"
+        ],
+        "owner": "document-platform",
+        "mitigation": "Inputs are streamed with byte caps, archives are preflighted for paths/count/expanded size, and each parse runs in an isolated temporary directory inside a non-root read-only container.",
+        "expiresAt": "2026-10-31"
+      },
+      {
+        "id": "collector-network-boundary",
+        "modules": [
+          "nodemailer",
+          "path-to-regexp",
+          "tar-fs",
+          "undici",
+          "ws"
+        ],
+        "owner": "security-platform",
+        "mitigation": "Every destination and redirect is DNS-revalidated, private networks are deny-by-default, responses are byte/time bounded, and concurrency is capped.",
+        "expiresAt": "2026-10-31"
+      },
+      {
+        "id": "collector-llm-boundary",
+        "modules": [
+          "@langchain/core",
+          "langchain",
+          "langsmith"
+        ],
+        "owner": "ai-platform",
+        "mitigation": "Collector does not accept serialized LangChain objects; provider execution is configuration-controlled and isolated from destination fetching.",
+        "expiresAt": "2026-10-31"
+      }
+    ],
+    "frontend": [
+      {
+        "id": "frontend-render-boundary",
+        "modules": [
+          "@remix-run/router",
+          "@xmldom/xmldom",
+          "linkify-it",
+          "lodash",
+          "pdfjs-dist"
+        ],
+        "owner": "web-platform",
+        "mitigation": "Untrusted markup is sanitized, spreadsheet parsing moved server-side, PDF work is isolated to the reader surface, and CSP/browser security headers constrain execution.",
+        "expiresAt": "2026-10-31"
+      }
+    ]
+  }
+}

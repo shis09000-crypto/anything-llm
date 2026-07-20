@@ -150,6 +150,7 @@ export default function ActiveWorkspaces() {
           Workspace.all({
             signal,
             task: false,
+            preferSyncV2Cache: !force,
           }),
         {
           reuseResolvedWithinMs: force ? 0 : NAV_DUPLICATE_REUSE_MS,

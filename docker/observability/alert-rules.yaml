@@ -1,0 +1,31 @@
+groups:
+  - name: athena-platform
+    rules:
+      - alert: AthenaSyncOutboxBacklog
+        expr: athena_sync_outbox_pending > 1000 or athena_sync_outbox_oldest_age_seconds > 60
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Sync Outbox is not draining within the delivery SLO.
+      - alert: AthenaSyncDeadLetters
+        expr: athena_sync_outbox_dead_letters > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Sync Outbox contains poison events requiring replay or isolation.
+      - alert: AthenaSecurityLedgerInvalid
+        expr: athena_security_audit_chain_valid == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Security audit ledger verification failed.
+      - alert: AthenaHighApiErrorRate
+        expr: sum(rate(athena_http_requests_total{status_code=~"5.."}[5m])) / clamp_min(sum(rate(athena_http_requests_total[5m])), 1) > 0.01
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Athena API 5xx error rate is above one percent.

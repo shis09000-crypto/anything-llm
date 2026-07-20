@@ -122,7 +122,9 @@ function workspaceSupplementEndpoints(app) {
         response.status(200).json({ success: true, supplements });
       } catch (error) {
         console.error("[WorkspaceSupplement] list failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -144,7 +146,9 @@ function workspaceSupplementEndpoints(app) {
           "[WorkspaceSupplement] tool manifest preview failed",
           error
         );
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -209,7 +213,9 @@ function workspaceSupplementEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (error) {
         console.error("[WorkspaceSupplement] bind failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -263,7 +269,9 @@ function workspaceSupplementEndpoints(app) {
         });
       } catch (error) {
         console.error("[WorkspaceSupplement] upload failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -314,7 +322,9 @@ function workspaceSupplementEndpoints(app) {
         });
       } catch (error) {
         console.error("[WorkspaceSupplement] text failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -334,7 +344,9 @@ function workspaceSupplementEndpoints(app) {
         response.status(result.success ? 200 : 404).json(result);
       } catch (error) {
         console.error("[WorkspaceSupplement] delete failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

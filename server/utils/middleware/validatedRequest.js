@@ -12,6 +12,7 @@ const {
   requireSignedHighRiskRequest,
 } = require("../requestSigning");
 const SystemSettings = DataAccessCenter.adminSystem;
+const AuthSession = DataAccessCenter.adminSystem.authSession;
 const AuthIdentity = DataAccessCenter.authIdentity.model;
 const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
@@ -58,7 +59,26 @@ async function validatedRequest(request, response, next) {
   }
 
   const bcrypt = require("bcryptjs");
-  const { p } = decodeJWT(token);
+  const decoded = decodeJWT(token);
+  const sessionId = decoded?.sid;
+
+  if (sessionId) {
+    const sessionResult = await AuthSession.validate(sessionId, {
+      authoritative: requiresAuthoritativeSession(request),
+      subjectType: "instance",
+      tokenVersion: decoded.tokenVersion || 1,
+    });
+    if (
+      !sessionResult.valid ||
+      !AuthSession.verifySingleUserAuthVersion(decoded.authVersion)
+    ) {
+      return sessionRejected(response, sessionResult.code);
+    }
+    response.locals.authSession = sessionResult.session;
+    return requireSignedHighRiskRequest(request, response, next);
+  }
+
+  const { p } = decoded;
 
   if (p === null || !/\w{32}:\w{32}/.test(p)) {
     response.status(401).json({
@@ -72,17 +92,27 @@ async function validatedRequest(request, response, next) {
   // be unsafe. As a consequence, existing JWTs with invalid `p` values that do not match the regex
   // in ln:44 will be marked invalid so they can be logged out and forced to log back in and obtain an encrypted token.
   // This kind of methodology only applies to single-user password mode.
-  if (
-    !bcrypt.compareSync(
-      EncryptionMgr.decrypt(p),
-      bcrypt.hashSync(process.env.AUTH_TOKEN, 10)
-    )
-  ) {
+  if (!(await AuthSession.legacySingleUserTokenAllowed())) {
+    response.status(401).json({
+      error: "Legacy session expired.",
+      code: "session_revoked",
+    });
+    return;
+  }
+
+  let legacyPassword = null;
+  try {
+    legacyPassword = EncryptionMgr.decrypt(p);
+  } catch {}
+  const authTokenHash = await bcrypt.hash(process.env.AUTH_TOKEN, 10);
+  if (!(await bcrypt.compare(String(legacyPassword || ""), authTokenHash))) {
     response.status(401).json({
       error: "Invalid auth credentials.",
     });
     return;
   }
+
+  response.locals.legacySingleUserToken = true;
 
   return requireSignedHighRiskRequest(request, response, next);
 }
@@ -116,6 +146,26 @@ async function validateMultiUserRequest(request, response, next) {
     return;
   }
 
+  const sessionId = valid.sid;
+  let authSession = null;
+  if (sessionId) {
+    const sessionResult = await AuthSession.validate(sessionId, {
+      authoritative: requiresAuthoritativeSession(request),
+      subjectType: "user",
+      tokenVersion: valid.tokenVersion || 1,
+    });
+    if (!sessionResult.valid) {
+      return sessionRejected(response, sessionResult.code);
+    }
+    authSession = sessionResult.session;
+    response.locals.authSession = authSession;
+  } else if (
+    AuthSession.enabled() &&
+    process.env.ATHENA_SESSION_V2_REQUIRE_MULTI === "true"
+  ) {
+    return sessionRejected(response, "session_missing");
+  }
+
   const shadow = await User._get({ id: valid.id });
   if (!shadow) {
     response.status(401).json({
@@ -132,6 +182,13 @@ async function validateMultiUserRequest(request, response, next) {
   }
   if (!authUser) {
     authUser = await AuthIdentity.bootstrapAuthUserFromShadow(shadow);
+  }
+
+  if (
+    authSession?.authUserId &&
+    Number(authSession.authUserId) !== Number(authUser?.id)
+  ) {
+    return sessionRejected(response, "session_subject_mismatch");
   }
 
   if (!authUser || !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
@@ -173,6 +230,23 @@ async function validateMultiUserRequest(request, response, next) {
   }
 
   return requireSignedHighRiskRequest(request, response, next);
+}
+
+function requiresAuthoritativeSession(request) {
+  const path = String(request.originalUrl || request.path || "").toLowerCase();
+  return /\/(security|sessions?|auth|passkey|trusted-device|client|account|user|admin|sync\/v2\/mutations)/.test(
+    path
+  );
+}
+
+function sessionRejected(response, reason = "session_revoked") {
+  const expired = /expired/.test(String(reason));
+  response.status(401).json({
+    success: false,
+    error: "session_revoked",
+    reason,
+    ...(expired ? { expired: true } : {}),
+  });
 }
 
 module.exports = {

@@ -9,6 +9,12 @@ const ClientIdentityRepository = {
       get athena_clients() {
         return prisma.athena_clients;
       },
+      get users() {
+        return prisma.users;
+      },
+      $transaction(callback, options) {
+        return prisma.$transaction(callback, options);
+      },
     };
   },
 };

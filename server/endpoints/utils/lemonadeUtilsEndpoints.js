@@ -155,7 +155,7 @@ function lemonadeUtilsEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        return response.status(500).json({
+        return response.status(e.httpStatus || 500).json({
           success: false,
           error: e.message || "An error occurred while deleting the model",
         });

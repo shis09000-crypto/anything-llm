@@ -1,0 +1,17 @@
+{
+  "src/components/Sidebar/ActiveWorkspaces/ThreadContainer/ThreadItem/index.jsx|uses|duration-200": 1,
+  "src/components/Sidebar/ActiveWorkspaces/ThreadContainer/ThreadItem/index.jsx|uses|ease-out": 1,
+  "src/components/SoftSettings/styles.css|transitions|box-shadow": 4,
+  "src/components/WorkspaceChat/ChatContainer/ChatHistory/ClarifyingQuestion/ChoiceForm.jsx|uses|transition-colors": 2,
+  "src/components/WorkspaceChat/ChatContainer/ChatHistory/ClarifyingQuestion/Footer.jsx|uses|transition-all": 2,
+  "src/components/WorkspaceChat/ChatContainer/ChatHistory/ClarifyingQuestion/Footer.jsx|uses|duration-300": 2,
+  "src/components/WorkspaceChat/ChatContainer/DocumentReader/PdfReader.jsx|uses|transition-opacity": 2,
+  "src/components/WorkspaceChat/ChatContainer/DocumentReader/PdfReader.jsx|uses|duration-200": 2,
+  "src/index.css|transitions|box-shadow": 1,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx|uses|transition-all": 1,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx|uses|duration-150": 3,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx|uses|duration-200": 2,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx|uses|ease-out": 5,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/styles.css|uses|ease-in": 5,
+  "src/pages/GeneralSettings/Settings/MobilePageExperiment/styles.css|uses|ease-out": 1
+}

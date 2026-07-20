@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 process.env.NODE_ENV === "development"
   ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
   : require("dotenv").config();
@@ -6,11 +9,11 @@ const { default: slugify } = require("slugify");
 const { isValidUrl, safeJsonParse } = require("../utils/http");
 const prisma = require("../utils/prisma");
 const {
-  MASTER_KEY_ENV,
   isSecretEncrypted,
   readSecret,
   saveSecret,
 } = require("../utils/security");
+const { resolveActiveKey } = require("../utils/security/keyCustody");
 const { MetaGenerator } = require("../utils/boot/MetaGenerator");
 const { PGVector } = require("../utils/vectorDbProviders/pgvector");
 const { NativeEmbedder } = require("../utils/EmbeddingEngines/native");
@@ -70,7 +73,11 @@ function setSecretField(target, source, fieldName) {
 }
 
 function secretEncryptionConfigured() {
-  return Boolean(String(process.env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function encryptSettingSecret(value = null) {
@@ -816,6 +823,13 @@ const SystemSettings = {
       AgentTavilyApiKey: !!process.env.AGENT_TAVILY_API_KEY || null,
       AgentExaApiKey: !!process.env.AGENT_EXA_API_KEY || null,
       AgentPerplexityApiKey: !!process.env.AGENT_PERPLEXITY_API_KEY || null,
+      QWeatherApiKey: isSecretEncrypted(process.env.QWEATHER_API_KEY_ENCRYPTED),
+      JuheStockApiKey: isSecretEncrypted(
+        process.env.JUHE_STOCK_API_KEY_ENCRYPTED
+      ),
+      JuheForexApiKey: isSecretEncrypted(
+        process.env.JUHE_FOREX_API_KEY_ENCRYPTED
+      ),
 
       // --------------------------------------------------------
       // Compliance Settings
@@ -856,8 +870,7 @@ const SystemSettings = {
       const setting = await prisma.system_settings.findFirst({ where: clause });
       return setting || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("systemSettings.get", error);
     }
   },
 
@@ -878,8 +891,7 @@ const SystemSettings = {
       });
       return settings;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("systemSettings.where", error);
     }
   },
 
@@ -906,8 +918,7 @@ const SystemSettings = {
       await prisma.system_settings.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("systemSettings.delete", error);
     }
   },
 

@@ -3,6 +3,9 @@
  * code blocks were not being extracted. This is a temporary fix until this issue is resolved.*/
 
 const { htmlToText } = require("html-to-text");
+const { readResponseJsonLimited, safeFetch } = require("../../../networkGuard");
+
+const MAX_CONNECTOR_JSON_BYTES = 25 * 1_024 * 1_024;
 
 class ConfluencePagesLoader {
   constructor({
@@ -68,20 +71,21 @@ class ConfluencePagesLoader {
       const authHeader = this.authorizationHeader;
       if (authHeader) initialHeaders.Authorization = authHeader;
 
-      // If SSL bypass is enabled, set the NODE_TLS_REJECT_UNAUTHORIZED environment variable
-      if (this.bypassSSL) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
-      const response = await fetch(url, { headers: initialHeaders });
+      // Keep explicit legacy TLS bypass scoped to this connector request. Never
+      // mutate NODE_TLS_REJECT_UNAUTHORIZED for the whole Collector process.
+      const response = await safeFetch(url, {
+        headers: initialHeaders,
+        allowInsecureTls: this.bypassSSL,
+      });
       if (!response.ok) {
         throw new Error(
           `Failed to fetch ${url} from Confluence: ${response.status}`
         );
       }
-      return await response.json();
+      return await readResponseJsonLimited(response, MAX_CONNECTOR_JSON_BYTES);
     } catch (error) {
       this.log("Error:", error);
       throw new Error(error.message);
-    } finally {
-      if (this.bypassSSL) process.env.NODE_TLS_REJECT_UNAUTHORIZED = "1";
     }
   }
 

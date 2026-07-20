@@ -9,12 +9,20 @@ const {
 const {
   USER_STATE_NAMESPACE_POLICIES,
   namespacePolicy,
+  sanitizeValue,
 } = require("./dataAccess/dataAccessPolicy");
 const { safeJsonParse } = require("./http");
 
 const DEFAULT_SCOPE = "global";
 const MAX_STATE_BYTES = 256 * 1024;
 const MAX_DRAFT_BYTES = 64 * 1024;
+
+const USER_STATE_MERGE_POLICIES = Object.freeze({
+  "chat.draft": "version-merge",
+  "thread.read-state": "monotonic-cursor",
+  "ios.drawer.pins": "set-replace",
+  "workspace.order": "ordered-replace",
+});
 
 const USER_STATE_NAMESPACES = new Set(
   Object.keys(USER_STATE_NAMESPACE_POLICIES)
@@ -51,6 +59,76 @@ function compactString(value = "", max = 512) {
     .slice(0, max);
 }
 
+function finiteInteger(value, fallback = null) {
+  const next = Number(value);
+  return Number.isSafeInteger(next) && next >= 0 ? next : fallback;
+}
+
+function sanitizeLegacyDraftEnvelope(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.encrypted !== true || value.encryptedText?.encrypted !== true)
+    return null;
+  const encryptedText = value.encryptedText;
+  const allowed = {
+    encrypted: true,
+    cryptoVersion: compactString(encryptedText.cryptoVersion, 64),
+    algorithm: compactString(encryptedText.algorithm, 64),
+    keyId: compactString(encryptedText.keyId, 128),
+    namespace: compactString(encryptedText.namespace, 512),
+    iv: compactString(encryptedText.iv, 128),
+    ciphertext: compactString(encryptedText.ciphertext, MAX_DRAFT_BYTES),
+  };
+  if (!allowed.iv || !allowed.ciphertext) return null;
+  return {
+    encrypted: true,
+    cryptoVersion: compactString(value.cryptoVersion, 64),
+    encryptedText: allowed,
+    workspaceSlug: value.workspaceSlug
+      ? compactString(value.workspaceSlug, 128)
+      : null,
+    threadSlug: value.threadSlug ? compactString(value.threadSlug, 128) : null,
+    expiresAt: finiteInteger(value.expiresAt),
+  };
+}
+
+function sanitizeChatDraftValue(value = null) {
+  const legacy = sanitizeLegacyDraftEnvelope(value);
+  if (legacy) return legacy;
+  const source =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    text: String(source.text || "").slice(0, MAX_DRAFT_BYTES),
+    workspaceSlug: source.workspaceSlug
+      ? compactString(source.workspaceSlug, 128)
+      : null,
+    threadSlug: source.threadSlug
+      ? compactString(source.threadSlug, 128)
+      : null,
+    expiresAt: finiteInteger(source.expiresAt),
+  };
+}
+
+function sanitizeThreadReadState(value = null) {
+  const source =
+    value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    cursor: finiteInteger(source.cursor, 0),
+    ...(finiteInteger(source.messageId) === null
+      ? {}
+      : { messageId: finiteInteger(source.messageId) }),
+  };
+}
+
+function sanitizeUserStateValue(namespace, value) {
+  if (namespace === "chat.draft") return sanitizeChatDraftValue(value);
+  if (namespace === "thread.read-state") return sanitizeThreadReadState(value);
+  return sanitizeValue(value);
+}
+
+function userStateMergePolicy(namespace) {
+  return USER_STATE_MERGE_POLICIES[String(namespace)] || "version-merge";
+}
+
 function parseScopedValue(scope = DEFAULT_SCOPE) {
   const parts = String(scope || DEFAULT_SCOPE).split(":");
   return { kind: parts[0] || DEFAULT_SCOPE, parts };
@@ -76,11 +154,22 @@ function standaloneReaderMetadata(readerDocumentId = null) {
 }
 
 function sanitizedStateInput(state = {}) {
+  const baseVersion = Number(state.baseVersion);
+  const namespace = compactString(state.namespace, 96);
   return {
-    namespace: compactString(state.namespace, 96),
+    namespace,
     scope: compactString(state.scope || DEFAULT_SCOPE, 512) || DEFAULT_SCOPE,
     version: compactString(state.version || "1", 32) || "1",
-    value: state.value ?? null,
+    value: sanitizeUserStateValue(namespace, state.value ?? null),
+    ...(Number.isInteger(baseVersion) && baseVersion >= 0
+      ? { baseVersion }
+      : {}),
+    changedPaths: Array.isArray(state.changedPaths)
+      ? state.changedPaths
+          .map((path) => compactString(path, 256))
+          .filter(Boolean)
+      : ["value"],
+    mutationId: compactString(state.mutationId, 160) || null,
   };
 }
 
@@ -188,10 +277,13 @@ function parseNamespaceFilter(value = null) {
 
 module.exports = {
   DEFAULT_SCOPE,
+  USER_STATE_MERGE_POLICIES,
   USER_STATE_NAMESPACES,
   namespacePolicy,
   parseNamespaceFilter,
   requiresAppleNativeAudience,
+  sanitizeUserStateValue,
+  userStateMergePolicy,
   validateUserStateInput,
   validateUserStateScope,
 };

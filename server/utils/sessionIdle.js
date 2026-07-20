@@ -1,6 +1,8 @@
 const { makeJWT, decodeJWT } = require("./http");
 const { normalizeAllowedEnvs, normalizeRole } = require("./authz/accountRoles");
 const crypto = require("crypto");
+const { lazyDataAccessFacade } = require("./dataAccess/lazyFacade");
+const AdminSystem = lazyDataAccessFacade("adminSystem");
 
 const IDLE_TIMEOUT_MS = 48 * 60 * 60 * 1000;
 const USER_ACTION_REFRESH_THROTTLE_MS = 60 * 1000;
@@ -67,9 +69,7 @@ function issueUserSessionToken(
       ? Number(lastUserActionAtOrOptions.lastUserActionAt) || Date.now()
       : Number(lastUserActionAtOrOptions) || Date.now();
   const clientId = normalizeSessionClientId(options.clientId);
-  const sessionId = clientId
-    ? normalizeSessionId(options.sessionId) || newSessionId()
-    : null;
+  const sessionId = normalizeSessionId(options.sessionId);
   return makeJWT(
     {
       id: user.id,
@@ -79,7 +79,65 @@ function issueUserSessionToken(
       role: normalizeRole(user.role),
       allowedEnvs: normalizeAllowedEnvs(user.allowedEnvs, user.role),
       lastUserActionAt: Number(lastUserActionAt),
-      ...(clientId ? { clientId, sessionId } : {}),
+      ...(clientId ? { clientId } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(sessionId && options.persistedSession
+        ? {
+            sid: sessionId,
+            jti: options.jti || crypto.randomUUID(),
+            tokenVersion: Number(options.tokenVersion) || 1,
+            authMode: options.authMode || "password",
+          }
+        : {}),
+    },
+    process.env.JWT_EXPIRY
+  );
+}
+
+async function createUserSessionToken(user, options = {}) {
+  const AuthSession = AdminSystem.authSession;
+  if (!AuthSession.enabled()) return issueUserSessionToken(user, options);
+  const session = await AuthSession.create({
+    subjectType: "user",
+    authUserId: user.authUserId,
+    clientId: normalizeSessionClientId(options.clientId),
+    authMode: options.authMode || "password",
+    tokenVersion: 1,
+  });
+  return issueUserSessionToken(user, {
+    ...options,
+    sessionId: session.sessionId,
+    tokenVersion: session.tokenVersion,
+    authMode: session.authMode,
+    persistedSession: true,
+  });
+}
+
+async function createSingleUserSessionToken(options = {}) {
+  const AuthSession = AdminSystem.authSession;
+  const session = AuthSession.enabled()
+    ? await AuthSession.create({
+        subjectType: "instance",
+        clientId: normalizeSessionClientId(options.clientId),
+        authMode: options.authMode || "password",
+        tokenVersion: 1,
+      })
+    : {
+        sessionId: newSessionId(),
+        clientId: normalizeSessionClientId(options.clientId),
+        authMode: options.authMode || "password",
+        tokenVersion: 1,
+      };
+  return makeJWT(
+    {
+      subjectType: "instance",
+      authMode: session.authMode,
+      authVersion: AuthSession.singleUserAuthVersion(),
+      clientId: session.clientId,
+      sessionId: session.sessionId,
+      sid: session.sessionId,
+      jti: crypto.randomUUID(),
+      tokenVersion: session.tokenVersion,
     },
     process.env.JWT_EXPIRY
   );
@@ -115,6 +173,8 @@ module.exports = {
   USER_ACTION_REASONS,
   USER_ACTION_REASON_SET,
   isAllowedUserActionReason,
+  createSingleUserSessionToken,
+  createUserSessionToken,
   issueUserSessionToken,
   jwtIdleState,
   sessionClientIdFromToken,

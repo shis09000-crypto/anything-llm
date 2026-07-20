@@ -29,7 +29,7 @@ function mindMapEndpoints(app) {
         response.status(200).json({ mindMaps });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -56,7 +56,7 @@ function mindMapEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -80,7 +80,7 @@ function mindMapEndpoints(app) {
         response.status(200).json({ mindMap });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -100,7 +100,7 @@ function mindMapEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );
@@ -126,7 +126,7 @@ function mindMapEndpoints(app) {
         response.status(200).json({ mindMap });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: error.message });
+        response.status(error.httpStatus || 500).json({ error: error.message });
       }
     }
   );

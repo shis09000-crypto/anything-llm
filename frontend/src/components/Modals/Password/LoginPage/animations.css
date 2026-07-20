@@ -1,0 +1,152 @@
+@keyframes athenaLoginCardEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 20px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes athenaAmbientFloatOne {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(5px, -9px, 0);
+  }
+}
+
+@keyframes athenaAmbientFloatTwo {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(-6px, 8px, 0);
+  }
+}
+
+@keyframes athenaAmbientTrace {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@keyframes athenaKnowledgeOrbFloat {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(-0.35deg);
+  }
+  48% {
+    transform: translate3d(0, -15px, 0) rotate(0.35deg);
+  }
+  72% {
+    transform: translate3d(2px, -9px, 0) rotate(0.1deg);
+  }
+}
+
+@keyframes athenaKnowledgeOrbGlow {
+  0%,
+  100% {
+    opacity: 0.92;
+    filter: drop-shadow(0 28px 32px rgb(122 91 58 / 0.12))
+      drop-shadow(0 0 20px rgb(255 241 210 / 0.25));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 34px 38px rgb(122 91 58 / 0.15))
+      drop-shadow(0 0 30px rgb(255 241 210 / 0.46));
+  }
+}
+
+@keyframes athenaOrbCausticPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scaleX(0.92);
+  }
+  50% {
+    opacity: 0.86;
+    transform: scaleX(1.08);
+  }
+}
+
+@keyframes athenaOrbRefraction {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate3d(-6px, 3px, 0) rotate(-18deg);
+  }
+  50% {
+    opacity: 0.7;
+    transform: translate3d(14px, -9px, 0) rotate(-15deg);
+  }
+}
+
+@keyframes athenaOrbitalDriftOne {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: translate3d(-50%, -50%, 0) rotate(-10deg) scale(0.98);
+  }
+  50% {
+    opacity: 0.86;
+    transform: translate3d(-50%, -50%, 0) rotate(-6deg) scale(1.03);
+  }
+}
+
+@keyframes athenaOrbitalDriftTwo {
+  0%,
+  100% {
+    opacity: 0.28;
+    transform: translate3d(-50%, -50%, 0) rotate(17deg) scale(1.02);
+  }
+  50% {
+    opacity: 0.62;
+    transform: translate3d(-50%, -50%, 0) rotate(22deg) scale(0.97);
+  }
+}
+
+@keyframes softLoginContentEnter {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes softLoginContentExit {
+  from {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .soft-login-card,
+  .soft-login-content-panel-enter,
+  .soft-login-content-panel-exit,
+  .athena-ambient-node,
+  .athena-ambient-trace,
+  .soft-login-orb-float,
+  .soft-login-knowledge-orb,
+  .soft-login-orb-caustic,
+  .soft-login-orb-refraction,
+  .soft-login-orbit-ring {
+    animation: none !important;
+  }
+}

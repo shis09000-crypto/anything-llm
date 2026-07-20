@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const {
   isSecretEncrypted,
@@ -58,8 +61,7 @@ const ApiKey = {
       const apiKey = await prisma.api_keys.findFirst({ where: clause });
       return apiKey;
     } catch (error) {
-      console.error("FAILED TO GET API KEY.", error.message);
-      return null;
+      throwModelDataAccessError("apiKeys.get", error);
     }
   },
 
@@ -68,8 +70,7 @@ const ApiKey = {
       const count = await prisma.api_keys.count({ where: clause });
       return count;
     } catch (error) {
-      console.error("FAILED TO COUNT API KEYS.", error.message);
-      return 0;
+      throwModelDataAccessError("apiKeys.count", error);
     }
   },
 
@@ -78,8 +79,7 @@ const ApiKey = {
       await prisma.api_keys.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error("FAILED TO DELETE API KEY.", error.message);
-      return false;
+      throwModelDataAccessError("apiKeys.delete", error);
     }
   },
 
@@ -91,8 +91,7 @@ const ApiKey = {
       });
       return apiKeys.map((apiKey) => publicApiKey(apiKey));
     } catch (error) {
-      console.error("FAILED TO GET API KEYS.", error.message);
-      return [];
+      throwModelDataAccessError("apiKeys.where", error);
     }
   },
 

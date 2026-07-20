@@ -3,6 +3,7 @@ const {
   buildNativeAppBootstrap,
   buildNativeAppPreflight,
 } = require("../utils/nativeAppBootstrap");
+const { opaqueNativeConfiguration } = require("./authZkLogin");
 
 function noStore(response) {
   response.setHeader("Cache-Control", "no-store");
@@ -26,7 +27,7 @@ function nativeAppPublicEndpoints(app) {
       return response.status(200).json(association.payload);
     } catch (error) {
       console.error("[native-app] AASA failed", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: "apple_app_site_association_failed",
       });
@@ -43,10 +44,13 @@ function nativeAppEndpoints(app) {
   app.get("/native-app/bootstrap", async (_request, response) => {
     try {
       noStore(response);
-      return response.status(200).json(buildNativeAppBootstrap());
+      const bootstrap = buildNativeAppBootstrap();
+      bootstrap.security ||= {};
+      bootstrap.security.opaque = await opaqueNativeConfiguration();
+      return response.status(200).json(bootstrap);
     } catch (error) {
       console.error("[native-app] bootstrap failed", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: "native_app_bootstrap_failed",
       });
@@ -64,7 +68,7 @@ function nativeAppEndpoints(app) {
       );
     } catch (error) {
       console.error("[native-app] preflight failed", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: "native_app_preflight_failed",
       });

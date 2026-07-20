@@ -10,6 +10,7 @@ import {
   CircleNotch,
 } from "@phosphor-icons/react";
 import Admin from "@/models/admin";
+import { DefaultBadge } from "../Badges/default";
 
 export const getCreateFileSkills = (t) => [
   {
@@ -110,6 +111,7 @@ export default function CreateFileSkillPanel({
             >
               {title}
             </label>
+            <DefaultBadge title={title} />
           </div>
           <Toggle
             size="lg"
@@ -122,6 +124,9 @@ export default function CreateFileSkillPanel({
         <img src={image} alt={title} className="w-full rounded-md" />
         <p className="text-theme-text-secondary text-opacity-60 text-xs font-medium">
           {t("agent.skill.createFiles.description")}
+        </p>
+        <p className="text-theme-text-secondary text-opacity-60 text-xs font-medium">
+          {t("agent.skill.default_skill")}
         </p>
 
         {enabled && (

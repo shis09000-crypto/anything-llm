@@ -5,6 +5,7 @@ import debounce from "lodash.debounce";
 import { safeJsonParse } from "@/utils/request";
 import {
   clearPromptDraft,
+  flushPromptDraft,
   hydratePromptDraft,
   persistPromptDraft,
   promptDraftScope,
@@ -109,9 +110,16 @@ export default function usePromptInputStorage({
 
   useEffect(() => {
     debouncedWriteToStorage(promptInput, scopedStorageKey);
-
-    return () => {
-      debouncedWriteToStorage.cancel();
-    };
   }, [promptInput, scopedStorageKey, debouncedWriteToStorage]);
+
+  useEffect(
+    () => () => {
+      // Do not discard the last keystrokes when navigation unmounts the
+      // composer before the debounce expires. Flush both debounce layers;
+      // per-node request serialization preserves save/delete ordering.
+      debouncedWriteToStorage.flush();
+      void flushPromptDraft(syncedDraftScope);
+    },
+    [debouncedWriteToStorage, syncedDraftScope]
+  );
 }

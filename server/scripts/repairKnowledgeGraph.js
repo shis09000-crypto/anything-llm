@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
-
-const { repairKnowledgeGraph } = require("../utils/knowledgeGraph/repair");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
 function args() {
   const argv = process.argv.slice(2);
@@ -18,6 +14,7 @@ function args() {
     force: argv.includes("--force"),
     batchSize: value("--batch-size"),
     scanLimit: value("--scan-limit"),
+    execute: argv.includes("--execute"),
   };
 }
 
@@ -30,6 +27,32 @@ function args() {
       );
       process.exit(1);
     }
+    await bootstrapCliRuntime({
+      access: options.execute ? "write" : "read",
+      execute: options.execute,
+      requiredTables: [
+        "workspaces",
+        "KnowledgeNode",
+        "KnowledgeGraphRepairRun",
+        "_prisma_migrations",
+      ],
+    });
+    if (!options.execute) {
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            mode: "dry-run",
+            action: "would-repair-knowledge-graph",
+            instruction: "Repair requires --execute and APP_ENV or --env.",
+          },
+          null,
+          2
+        )
+      );
+      process.exit(0);
+    }
+    const { repairKnowledgeGraph } = require("../utils/knowledgeGraph/repair");
     const result = await repairKnowledgeGraph({
       ...options,
       trigger: "cli",

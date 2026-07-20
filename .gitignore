@@ -26,6 +26,27 @@ server/storage/*crypto*
 server/storage/*gate*
 server/storage/**/crypto-gate/
 server/storage/**/gate/
+server/storage/embedding-batches/
+server/storage/tool-runs/
+server/storage/tmp/
+server/storage/shared/backups/
+collector/hotdir/*
+!collector/hotdir/__HOTDIR__.md
+collector/outputs/*
+!collector/outputs/.gitkeep
+
+# Native build/runtime products. Keep iOS source, project, tests and checked-in
+# framework integrity manifests; exclude generated products and credentials.
+server/generated/postgresql-main/
+server/generated/postgresql-auth/
+ios/**/DerivedData/
+ios/**/.build/
+ios/**/build/
+ios/**/target/
+ios/**/xcuserdata/
+ios/**/*.xcuserstate
+ios/**/*.p12
+ios/**/*.mobileprovision
 
 # Logs
 logs

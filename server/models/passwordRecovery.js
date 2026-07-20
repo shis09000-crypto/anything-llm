@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const crypto = require("crypto");
 const authPrisma = require("../utils/authPrisma");
 const bcrypt = require("bcryptjs");
@@ -50,8 +53,7 @@ const RecoveryCode = {
       });
       return recoveryCode;
     } catch (error) {
-      console.error("FAILED TO FIND RECOVERY CODE.", error.message);
-      return null;
+      throwModelDataAccessError("passwordRecovery.findFirst", error);
     }
   },
   findMany: async function (clause = {}) {
@@ -61,8 +63,7 @@ const RecoveryCode = {
       });
       return recoveryCodes;
     } catch (error) {
-      console.error("FAILED TO FIND RECOVERY CODES.", error.message);
-      return null;
+      throwModelDataAccessError("passwordRecovery.findMany", error);
     }
   },
   deleteMany: async function (clause = {}) {
@@ -70,8 +71,7 @@ const RecoveryCode = {
       await authPrisma.recovery_codes.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error("FAILED TO DELETE RECOVERY CODES.", error.message);
-      return false;
+      throwModelDataAccessError("passwordRecovery.deleteMany", error);
     }
   },
   hashesForUser: async function (userId = null) {
@@ -123,8 +123,7 @@ const PasswordResetToken = {
         where: clause,
       });
     } catch (error) {
-      console.error("FAILED TO FIND PASSWORD RESET TOKEN.", error.message);
-      return null;
+      throwModelDataAccessError("passwordRecovery.findUnique", error);
     }
   },
   deleteMany: async function (clause = {}) {
@@ -132,8 +131,7 @@ const PasswordResetToken = {
       await authPrisma.password_reset_tokens.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error("FAILED TO DELETE PASSWORD RESET TOKEN.", error.message);
-      return false;
+      throwModelDataAccessError("passwordRecovery.deleteMany", error);
     }
   },
 };

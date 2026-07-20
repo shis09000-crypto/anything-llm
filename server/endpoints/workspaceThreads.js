@@ -61,6 +61,7 @@ const WorkspaceThread = DataAccessCenter.workspaceThread;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
 const WeChatGatewayThread = DataAccessCenter.wechatGatewayThread;
 const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
+const { readRequestHeader } = require("../utils/http/requestHeaders");
 
 function compactActionId(value = null) {
   const normalized = String(value || "").trim();
@@ -91,6 +92,11 @@ function parseHistoryQuery(request) {
     anchorChatId,
     detail: query.detail === "light" ? "light" : "full",
     priorityWindow,
+    attachmentMode:
+      query.attachmentMode === "reference" ||
+      readRequestHeader(request, "X-Athena-Chat-Payload-Version") === "2"
+        ? "reference"
+        : "inline",
   };
 }
 
@@ -116,7 +122,7 @@ function historyETag(fingerprint = null) {
 function requestMatchesHistoryETag(request, fingerprint = null) {
   const tag = historyETag(fingerprint);
   if (!tag) return false;
-  return String(request.header("If-None-Match") || "")
+  return String(readRequestHeader(request, "If-None-Match") || "")
     .split(",")
     .map((value) => value.trim())
     .includes(tag);
@@ -223,7 +229,9 @@ async function anchoredChatHistory(baseClause = {}, options = {}) {
   const [anchor] = await WorkspaceChats.where(
     { ...baseClause, id: anchorChatId },
     1,
-    { id: "asc" }
+    { id: "asc" },
+    null,
+    { attachmentMode: options.attachmentMode }
   );
   if (!anchor) {
     return {
@@ -251,14 +259,18 @@ async function anchoredChatHistory(baseClause = {}, options = {}) {
     ? await WorkspaceChats.where(
         { ...baseClause, id: { lt: anchorChatId } },
         beforeLimit,
-        { id: "desc" }
+        { id: "desc" },
+        null,
+        { attachmentMode: options.attachmentMode }
       )
     : [];
   const newerAsc = afterLimit
     ? await WorkspaceChats.where(
         { ...baseClause, id: { gt: anchorChatId } },
         afterLimit,
-        { id: "asc" }
+        { id: "asc" },
+        null,
+        { attachmentMode: options.attachmentMode }
       )
     : [];
   const history = [...olderDesc].reverse().concat(anchor, newerAsc);
@@ -329,7 +341,9 @@ async function pagedChatHistory(
       ? await WorkspaceChats.where(
           { ...baseClause, id: { in: fullChatIds } },
           null,
-          { id: "asc" }
+          { id: "asc" },
+          null,
+          { attachmentMode: options.attachmentMode }
         )
       : [];
     const fullHistoryById = new Map(fullHistory.map((chat) => [chat.id, chat]));
@@ -339,7 +353,9 @@ async function pagedChatHistory(
   const history = await WorkspaceChats.where(
     whereClause,
     options.enabled ? options.limit : null,
-    orderBy
+    orderBy,
+    null,
+    { attachmentMode: options.attachmentMode }
   );
   return options.enabled && !options.afterChatId
     ? [...history].reverse()
@@ -459,7 +475,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -477,7 +493,9 @@ function workspaceThreadEndpoints(app) {
         );
         const threads = WorkspaceThread.sortForDisplay(
           await WorkspaceThread.withLastChatActivity(
-            defaultThreads.threads,
+            queryParams(request).includeArchived === "true"
+              ? defaultThreads.threads
+              : defaultThreads.threads.filter((thread) => !thread.archivedAt),
             workspace.id,
             user?.id
           )
@@ -488,7 +506,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -597,12 +615,14 @@ function workspaceThreadEndpoints(app) {
     "/workspace/:slug/thread/:threadSlug",
     [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
     async (request, response) => {
+      let receiptContext = null;
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
         const sourceActionId = compactActionId(
           (reqBody(request) || {}).sourceActionId
         );
+        let receiptLeaseOwner = null;
         if (sourceActionId) {
           const reservation = await MutationReceipt.reserve({
             userId: user?.id,
@@ -610,6 +630,14 @@ function workspaceThreadEndpoints(app) {
             action: "thread.delete",
             workspaceId: workspace.id,
           });
+          receiptLeaseOwner = reservation.leaseOwner;
+          if (reservation.created) {
+            receiptContext = {
+              userId: user?.id,
+              sourceActionId,
+              leaseOwner: receiptLeaseOwner,
+            };
+          }
           if (!reservation.created) {
             if (reservation.receipt?.status === "failed") {
               return response.status(409).json({
@@ -635,8 +663,10 @@ function workspaceThreadEndpoints(app) {
             await MutationReceipt.fail({
               userId: user?.id,
               sourceActionId,
+              leaseOwner: receiptLeaseOwner,
               errorCode: "thread_not_found",
             });
+            receiptContext = null;
           }
           return response
             .status(404)
@@ -647,8 +677,10 @@ function workspaceThreadEndpoints(app) {
             await MutationReceipt.fail({
               userId: user?.id,
               sourceActionId,
+              leaseOwner: receiptLeaseOwner,
               errorCode: "overview_thread_protected",
             });
+            receiptContext = null;
           }
           return response
             .status(400)
@@ -659,6 +691,7 @@ function workspaceThreadEndpoints(app) {
           await MutationReceipt.complete({
             userId: user?.id,
             sourceActionId,
+            leaseOwner: receiptLeaseOwner,
             resource: {
               workspaceId: workspace.id,
               workspaceSlug: workspace.slug,
@@ -666,6 +699,7 @@ function workspaceThreadEndpoints(app) {
               threadSlug: thread.slug,
             },
           });
+          receiptContext = null;
         }
         const clientContext = getClientContext(request, { user });
         publishWorkspaceSyncEvent({
@@ -684,8 +718,68 @@ function workspaceThreadEndpoints(app) {
           threadSlug: thread.slug,
         });
       } catch (e) {
+        if (receiptContext) {
+          await MutationReceipt.fail({
+            ...receiptContext,
+            errorCode: e?.code || "thread_delete_failed",
+          }).catch((receiptError) => {
+            console.error(
+              "[MutationReceipt] Failed to settle thread deletion",
+              receiptError
+            );
+          });
+        }
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/archive",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const thread = response.locals.thread;
+        if (WorkspaceThread.isOverviewThread(thread))
+          return response
+            .status(400)
+            .json({ success: false, error: "overview_thread_protected" });
+        const archived = await WorkspaceThread.archive(
+          thread,
+          user?.id || null
+        );
+        response.status(200).json({ success: true, thread: archived });
+      } catch (error) {
+        console.error("[WorkspaceThread] archive", error);
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/restore",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (_request, response) => {
+      try {
+        const thread = await WorkspaceThread.restore(response.locals.thread);
+        response.status(200).json({ success: true, thread });
+      } catch (error) {
+        console.error("[WorkspaceThread] restore", error);
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -738,7 +832,7 @@ function workspaceThreadEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -807,7 +901,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -884,7 +978,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -930,7 +1024,15 @@ function workspaceThreadEndpoints(app) {
             ...identifierWhere,
           },
           null,
-          { id: "asc" }
+          { id: "asc" },
+          null,
+          {
+            attachmentMode:
+              readRequestHeader(request, "X-Athena-Chat-Payload-Version") ===
+              "2"
+                ? "reference"
+                : "inline",
+          }
         );
 
         response.status(200).json({
@@ -942,7 +1044,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -955,6 +1057,7 @@ function workspaceThreadEndpoints(app) {
       validWorkspaceAndThreadSlug,
     ],
     async (request, response) => {
+      let receiptContext = null;
       try {
         const user = await userFromSession(request, response);
         const workspace = response.locals.workspace;
@@ -962,6 +1065,16 @@ function workspaceThreadEndpoints(app) {
         const sourceActionId = compactActionId(requestData.sourceActionId);
         const data = { ...requestData };
         delete data.sourceActionId;
+        const baseVersion = Number(
+          request.headers?.["if-match"] ?? data.baseVersion
+        );
+        const changedPaths = Array.isArray(data.changedPaths)
+          ? data.changedPaths
+          : Object.keys(data).filter(
+              (key) => !["baseVersion", "changedPaths"].includes(key)
+            );
+        delete data.baseVersion;
+        delete data.changedPaths;
         const mutationAction = Object.prototype.hasOwnProperty.call(
           data,
           "chatModel"
@@ -978,6 +1091,7 @@ function workspaceThreadEndpoints(app) {
           });
         }
         const currentThread = response.locals.thread;
+        let receiptLeaseOwner = null;
         if (sourceActionId) {
           const reservation = await MutationReceipt.reserve({
             userId: user?.id,
@@ -986,6 +1100,14 @@ function workspaceThreadEndpoints(app) {
             workspaceId: workspace.id,
             threadId: currentThread.id,
           });
+          receiptLeaseOwner = reservation.leaseOwner;
+          if (reservation.created) {
+            receiptContext = {
+              userId: user?.id,
+              sourceActionId,
+              leaseOwner: receiptLeaseOwner,
+            };
+          }
           if (!reservation.created) {
             if (reservation.receipt?.status === "failed") {
               return response.status(409).json({
@@ -1002,15 +1124,26 @@ function workspaceThreadEndpoints(app) {
             });
           }
         }
-        const { thread, message } = await WorkspaceThread.update(
-          currentThread,
-          data
-        );
+        const clientContext = getClientContext(request, { user });
+        const syncContext = {
+          baseVersion: Number.isInteger(baseVersion) ? baseVersion : null,
+          changedPaths,
+          originClientId: clientContext.clientId,
+          mutationId:
+            sourceActionId ||
+            compactActionId(request.headers?.["idempotency-key"]),
+        };
+        const updateArgs = [currentThread, data];
+        if (syncContext.baseVersion !== null || syncContext.mutationId) {
+          updateArgs.push(syncContext);
+        }
+        const { thread, message } = await WorkspaceThread.update(...updateArgs);
         if (thread) {
           if (sourceActionId) {
             await MutationReceipt.complete({
               userId: user?.id,
               sourceActionId,
+              leaseOwner: receiptLeaseOwner,
               resource: {
                 workspaceId: workspace.id,
                 workspaceSlug: workspace.slug,
@@ -1019,7 +1152,7 @@ function workspaceThreadEndpoints(app) {
               },
             });
           }
-          const clientContext = getClientContext(request, { user });
+          receiptContext = null;
           publishWorkspaceSyncEvent({
             type: "thread_updated",
             workspaceId: workspace.id,
@@ -1034,11 +1167,36 @@ function workspaceThreadEndpoints(app) {
             senderClientId: clientContext.clientId,
             sourceActionId,
           });
+        } else if (receiptContext) {
+          await MutationReceipt.fail({
+            ...receiptContext,
+            errorCode: "thread_update_failed",
+          });
+          receiptContext = null;
         }
         response.status(200).json({ thread, message });
       } catch (e) {
+        if (receiptContext) {
+          await MutationReceipt.fail({
+            ...receiptContext,
+            errorCode: e?.code || "thread_update_failed",
+          }).catch((receiptError) => {
+            console.error(
+              "[MutationReceipt] Failed to settle thread update",
+              receiptError
+            );
+          });
+          receiptContext = null;
+        }
+        if (e?.code === "state_version_conflict") {
+          return response.status(409).json({
+            error: "state_version_conflict",
+            expectedVersion: e.expectedVersion,
+            current: e.syncNode || null,
+          });
+        }
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1172,7 +1330,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1250,7 +1408,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -1301,7 +1459,7 @@ function workspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           error: e.message,
         });

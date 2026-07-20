@@ -2,7 +2,7 @@ import paths from "./paths";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { userFromStorage } from "./request";
-import { TOGGLE_LLM_SELECTOR_EVENT } from "@/components/WorkspaceChat/ChatContainer/PromptInput/LLMSelector/action";
+import { TOGGLE_LLM_SELECTOR_EVENT } from "@/utils/chat/llmSelectorEvents";
 import { canSeeAdmin } from "@/utils/authz";
 
 export const KEYBOARD_SHORTCUTS_HELP_EVENT = "keyboard-shortcuts-help";

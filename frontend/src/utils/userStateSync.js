@@ -7,19 +7,17 @@ import {
 import { APPEARANCE_SETTINGS } from "@/utils/constants";
 import { safeJsonParse } from "@/utils/request";
 import { getStoredAuthUser } from "@/utils/authUserStorage";
-import {
-  decryptLocalCachePayload,
-  encryptLocalCachePayload,
-} from "@/utils/security/localCacheCrypto";
+import { decryptLocalCachePayload } from "@/utils/security/localCacheCrypto";
 
 export { USER_STATE_NAMESPACES };
 
 const META_STORAGE_KEY = "athena_user_state_sync_meta:v1";
+const READ_CURSOR_STORAGE_KEY = "athena_user_state_read_cursors:v1";
 const DEFAULT_SCOPE = "global";
 const WRITE_DEBOUNCE_MS = 800;
 const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-const DRAFT_CRYPTO_VERSION = "athena-chat-draft:v1";
 const pendingWrites = new Map();
+const pendingReadCursorWrites = new Map();
 const hydrationKeys = new Set();
 
 function storage() {
@@ -70,10 +68,65 @@ function touchMeta(namespace, scope = DEFAULT_SCOPE, timestamp = Date.now()) {
   return timestamp;
 }
 
+function clearPendingWrite(key) {
+  const pending = pendingWrites.get(key);
+  if (!pending) return false;
+  clearTimeout(pending?.timer ?? pending);
+  pendingWrites.delete(key);
+  return true;
+}
+
+function flushPendingWrite(key) {
+  const pending = pendingWrites.get(key);
+  if (!pending || typeof pending.commit !== "function") return null;
+  clearTimeout(pending.timer);
+  return pending.commit();
+}
+
+function readCursorState() {
+  return safeJsonParse(storage()?.getItem(READ_CURSOR_STORAGE_KEY), {}) || {};
+}
+
+function persistedReadCursor(scope) {
+  return Math.max(
+    0,
+    Number(
+      readCursorState()[
+        stateKey(USER_STATE_NAMESPACES.threadReadState, scope)
+      ] || 0
+    ) || 0
+  );
+}
+
+function persistReadCursor(scope, cursor) {
+  const cursors = readCursorState();
+  const key = stateKey(USER_STATE_NAMESPACES.threadReadState, scope);
+  cursors[key] = Math.max(Number(cursors[key] || 0), Number(cursor) || 0);
+  try {
+    storage()?.setItem(READ_CURSOR_STORAGE_KEY, JSON.stringify(cursors));
+  } catch {}
+  return cursors[key];
+}
+
 function remoteTimestamp(state = null) {
   const valueTimestamp = Number(state?.value?.updatedAt || 0);
   const rowTimestamp = new Date(state?.updatedAt || 0).getTime();
   return Math.max(valueTimestamp, rowTimestamp, 0);
+}
+
+function hasAuthoritativeStateVersion(state = null) {
+  return (
+    Number.isInteger(Number(state?.stateVersion)) &&
+    Number(state.stateVersion) > 0
+  );
+}
+
+function shouldApplyRemote(state = null, namespace, scope = DEFAULT_SCOPE) {
+  if (!state) return false;
+  if (hasAuthoritativeStateVersion(state)) return true;
+  // Legacy servers have no stateVersion. Keep the timestamp comparison only
+  // as a compatibility side path; Sync V2 never treats client time as truth.
+  return remoteTimestamp(state) > metaTimestamp(namespace, scope);
 }
 
 function safeClone(value) {
@@ -111,6 +164,10 @@ export function sanitizeReaderState(value) {
 }
 
 async function getRemoteState(namespace, scope = DEFAULT_SCOPE) {
+  try {
+    const { syncV2Runtime } = await import("@/utils/syncV2/syncV2Runtime");
+    await syncV2Runtime.bootstrap();
+  } catch {}
   const states = await getUserStates([namespace]);
   return (
     states.find(
@@ -145,7 +202,7 @@ export function pushUserStateValue(
     },
   };
   const key = stateKey(namespace, scope);
-  clearTimeout(pendingWrites.get(key));
+  clearPendingWrite(key);
   pendingWrites.set(
     key,
     setTimeout(() => {
@@ -176,7 +233,7 @@ export async function hydrateJsonStorageKey({
   );
   try {
     const remote = await getRemoteState(namespace, scope);
-    if (remote && remoteTimestamp(remote) > metaTimestamp(namespace, scope)) {
+    if (shouldApplyRemote(remote, namespace, scope)) {
       const remoteValue = sanitize ? sanitize(remote.value) : remote.value;
       localStorageRef.setItem(storageKey, JSON.stringify(remoteValue));
       touchMeta(namespace, scope, remoteTimestamp(remote));
@@ -200,7 +257,7 @@ export async function hydrateUserStateValue({
 } = {}) {
   try {
     const remote = await getRemoteState(namespace, scope);
-    if (remote && remoteTimestamp(remote) > metaTimestamp(namespace, scope)) {
+    if (shouldApplyRemote(remote, namespace, scope)) {
       const remoteValue = sanitize ? sanitize(remote.value) : remote.value;
       touchMeta(namespace, scope, remoteTimestamp(remote));
       apply?.(remoteValue);
@@ -259,30 +316,6 @@ function draftCryptoNamespace(scope) {
   return `chat-draft:${scope || DEFAULT_SCOPE}`;
 }
 
-async function normalizeEncryptedDraftValue(scope, value = "", options = {}) {
-  const legacyValue = normalizeDraftValue(value, options);
-  try {
-    const encryptedText = await encryptLocalCachePayload({
-      namespace: draftCryptoNamespace(scope),
-      payload: { text: legacyValue.text },
-    });
-    if (encryptedText?.encrypted) {
-      return {
-        encrypted: true,
-        cryptoVersion: DRAFT_CRYPTO_VERSION,
-        encryptedText,
-        workspaceSlug: legacyValue.workspaceSlug,
-        threadSlug: legacyValue.threadSlug,
-        expiresAt: legacyValue.expiresAt,
-      };
-    }
-  } catch {}
-  return {
-    ...legacyValue,
-    encrypted: false,
-  };
-}
-
 async function draftTextFromValue(scope, draft = null, fallback = "") {
   if (!draft) return fallback;
   if (Number(draft.expiresAt || 0) && Number(draft.expiresAt) < Date.now()) {
@@ -295,7 +328,16 @@ async function draftTextFromValue(scope, draft = null, fallback = "") {
         namespace: draftCryptoNamespace(scope),
         encryptedPayload: draft.encryptedText,
       });
-      return String(decrypted?.text || "");
+      const text = String(decrypted?.text || "");
+      // The originating browser can open the legacy device-local envelope.
+      // Rewrite it once through the server-protected format so every other
+      // authorized device can read the same draft afterwards.
+      persistPromptDraft(scope, text, {
+        workspaceSlug: draft.workspaceSlug || null,
+        threadSlug: draft.threadSlug || null,
+        debounceMs: 0,
+      });
+      return text;
     } catch {
       return fallback;
     }
@@ -318,40 +360,106 @@ export async function hydratePromptDraft(scope, fallback = "") {
 export function persistPromptDraft(scope, value = "", options = {}) {
   const normalizedScope = scope || DEFAULT_SCOPE;
   const key = stateKey(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
-  clearTimeout(pendingWrites.get(key));
+  clearPendingWrite(key);
   const updatedAt = touchMeta(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
   const preview = normalizeDraftValue(value, options);
-  pendingWrites.set(
-    key,
-    setTimeout(async () => {
+  const pending = {
+    timer: null,
+    commit: () => {
+      if (pendingWrites.get(key) !== pending) return null;
       pendingWrites.delete(key);
-      const draftValue = await normalizeEncryptedDraftValue(
-        normalizedScope,
-        value,
-        options
-      );
-      patchUserStates([
+      // Remote drafts are protected at rest by the server. The browser-local
+      // cache key is intentionally not used for cross-device payloads because
+      // another authorized device cannot possess that key. Legacy envelopes
+      // remain readable above on their originating browser profile.
+      const draftValue = normalizeDraftValue(value, options);
+      return patchUserStates([
         {
           namespace: USER_STATE_NAMESPACES.chatDraft,
           scope: normalizedScope,
-          version: draftValue.encrypted ? "2" : "1",
-          value: {
-            ...draftValue,
-            updatedAt,
-          },
+          version: "3",
+          value: { ...draftValue, updatedAt },
         },
-      ]).catch(() => {});
-    }, options.debounceMs ?? 600)
-  );
+      ]).catch(() => null);
+    },
+  };
+  pending.timer = setTimeout(pending.commit, options.debounceMs ?? 600);
+  pendingWrites.set(key, pending);
   return preview;
+}
+
+export function flushPromptDraft(scope) {
+  return flushPendingWrite(
+    stateKey(USER_STATE_NAMESPACES.chatDraft, scope || DEFAULT_SCOPE)
+  );
 }
 
 export function clearPromptDraft(scope) {
   const key = stateKey(USER_STATE_NAMESPACES.chatDraft, scope);
-  clearTimeout(pendingWrites.get(key));
-  pendingWrites.delete(key);
+  clearPendingWrite(key);
   touchMeta(USER_STATE_NAMESPACES.chatDraft, scope);
   void deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
+}
+
+export function threadReadStateScope({
+  workspaceSlug = null,
+  threadSlug = null,
+} = {}) {
+  if (!workspaceSlug) return null;
+  if (!threadSlug) return `workspace:${workspaceSlug}`;
+  return `thread:${workspaceSlug}:${threadSlug}`;
+}
+
+export async function advanceThreadReadCursor({
+  workspaceSlug,
+  threadSlug,
+  cursor,
+  messageId = null,
+} = {}) {
+  const scope = threadReadStateScope({ workspaceSlug, threadSlug });
+  const normalizedCursor = Math.max(0, Number(cursor) || 0);
+  if (
+    !scope ||
+    !Number.isSafeInteger(normalizedCursor) ||
+    normalizedCursor <= 0
+  )
+    return null;
+  const key = stateKey(USER_STATE_NAMESPACES.threadReadState, scope);
+  const previous = pendingReadCursorWrites.get(key);
+  if (
+    normalizedCursor <=
+    Math.max(persistedReadCursor(scope), Number(previous?.cursor || 0))
+  )
+    return previous?.promise || null;
+
+  const promise = (previous?.promise || Promise.resolve())
+    .catch(() => null)
+    .then(async () => {
+      if (normalizedCursor <= persistedReadCursor(scope)) return null;
+      const result = await patchUserStates([
+        {
+          namespace: USER_STATE_NAMESPACES.threadReadState,
+          scope,
+          version: "1",
+          value: {
+            cursor: normalizedCursor,
+            ...(Number.isSafeInteger(Number(messageId)) &&
+            Number(messageId) >= 0
+              ? { messageId: Number(messageId) }
+              : {}),
+          },
+        },
+      ]);
+      persistReadCursor(scope, normalizedCursor);
+      return result;
+    })
+    .finally(() => {
+      if (pendingReadCursorWrites.get(key)?.promise === promise) {
+        pendingReadCursorWrites.delete(key);
+      }
+    });
+  pendingReadCursorWrites.set(key, { cursor: normalizedCursor, promise });
+  return promise;
 }
 
 export function appearancePreferenceValue(patch = {}) {
@@ -405,7 +513,10 @@ export async function hydrateAppearancePreferences(apply = () => {}) {
     }
 
     const incomingTimestamp = remoteTimestamp(remote);
-    if (incomingTimestamp < metaTimestamp(USER_STATE_NAMESPACES.appearance)) {
+    if (
+      !hasAuthoritativeStateVersion(remote) &&
+      incomingTimestamp < metaTimestamp(USER_STATE_NAMESPACES.appearance)
+    ) {
       persistAppearancePreferences();
       return appearancePreferenceValue();
     }

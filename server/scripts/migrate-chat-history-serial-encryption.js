@@ -1,28 +1,18 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
-
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(__dirname, "..", envPath) });
-const { applyEnvironmentStorage } = require("../utils/environment");
-applyEnvironmentStorage();
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
-const prisma = require("../utils/prisma");
-const {
-  auditWorkspaceChatSerialIntegrity,
-  chatHistorySerialEncryptionEnabled,
-  decryptChatFieldCompat,
-  encryptSerialChatField,
-  ensureSerialEncryptionTables,
-  isSerialEncryptedChatField,
-  rebuildChatCryptoChainForScope,
-  scopeFromChat,
-} = require("../utils/security/chatHistorySerialEncryption");
+let auditWorkspaceChatSerialIntegrity;
+let chatHistorySerialEncryptionEnabled;
+let decryptChatFieldCompat;
+let encryptSerialChatField;
+let ensureSerialEncryptionTables;
+let isSerialEncryptedChatField;
+let prisma;
+let rebuildChatCryptoChainForScope;
+let scopeFromChat;
 
 function argValue(name, fallback = null) {
   const prefix = `${name}=`;
@@ -100,7 +90,29 @@ async function metadataChatIds() {
 }
 
 async function main() {
-  const apply = hasArg("--apply");
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: [
+      "workspace_chats",
+      "workspace_chat_crypto_metadata",
+      "_prisma_migrations",
+    ],
+  });
+  prisma = require("../utils/prisma");
+  ({
+    auditWorkspaceChatSerialIntegrity,
+    chatHistorySerialEncryptionEnabled,
+    decryptChatFieldCompat,
+    encryptSerialChatField,
+    ensureSerialEncryptionTables,
+    isSerialEncryptedChatField,
+    rebuildChatCryptoChainForScope,
+    scopeFromChat,
+  } = require("../utils/security/chatHistorySerialEncryption"));
   const skipFailures = hasArg("--skip-failures");
   const limit = Math.max(1, Number(argValue("--limit", 500)) || 500);
   const maxRows = Number(argValue("--max-rows", 0)) || 0;
@@ -182,6 +194,12 @@ async function main() {
         touchedScopes: stats.touchedScopes.size,
         rebuiltScopes,
         postAudit,
+        ...(requestedApply && !execute
+          ? {
+              instruction:
+                "Apply requires --apply --execute and APP_ENV or --env.",
+            }
+          : {}),
       },
       null,
       2
@@ -318,5 +336,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect?.().catch(() => {});
+    await prisma?.$disconnect?.().catch(() => {});
   });

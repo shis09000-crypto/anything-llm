@@ -519,6 +519,8 @@ function serverGroupToItems(group, chatKey = null) {
     userMessageId: userMessage.id,
     status: TURN_STATUSES.completed,
     finalContent: assistant.content || "",
+    truncated: Boolean(assistant.truncated),
+    textRef: assistant.textRef || null,
     sources: assistant.sources || [],
     metrics: assistant.metrics || {},
     chatId: group.chatId,
@@ -810,6 +812,8 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
     clientTurnId:
       serverAssistant.clientTurnId || localAssistant.clientTurnId || null,
     finalContent: serverAssistant.finalContent || localAssistant.finalContent,
+    truncated: Boolean(serverAssistant.truncated),
+    textRef: serverAssistant.textRef || localAssistant.textRef || null,
     sources: serverAssistant.sources || localAssistant.sources,
     metrics: serverAssistant.metrics || localAssistant.metrics,
     feedbackScore: serverAssistant.feedbackScore,

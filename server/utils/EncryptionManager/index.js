@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const { dumpENV } = require("../helpers/updateENV");
 
 // Class that is used to arbitrarily encrypt/decrypt string data via a persistent passphrase/salt that
 // is either user defined or is created and saved to the ENV on creation.
@@ -36,10 +35,9 @@ class EncryptionManager {
     }
 
     if (!process.env[this.#keyENV] || !process.env[this.#saltENV]) {
-      this.log("Self-assigning key & salt for encrypting arbitrary data.");
-      process.env[this.#keyENV] = crypto.randomBytes(32).toString("hex");
-      process.env[this.#saltENV] = crypto.randomBytes(32).toString("hex");
-      dumpENV();
+      throw new Error(
+        "Legacy SIG_KEY and SIG_SALT are required. Automatic key generation is disabled; use Athena key migration tooling."
+      );
     } else
       this.log("Loaded existing key & salt for encrypting arbitrary data.");
 

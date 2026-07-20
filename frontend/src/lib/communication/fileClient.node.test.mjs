@@ -27,6 +27,8 @@ async function loadFileClient({ dev = false } = {}) {
   globalThis.__fileClientTestIdentity = {
     createCommunicationRequestId: () => "req-file-test",
   };
+  globalThis.__fileClientTestTaskRunner = async (operation, options = {}) =>
+    operation({ signal: options.signal });
   globalThis.__fileClientTestBlobClient = {
     BLOB_KINDS: {
       generatedFile: "generated_file",
@@ -67,6 +69,10 @@ async function loadFileClient({ dev = false } = {}) {
     .replace(
       'import { createCommunicationRequestId } from "./clientIdentity";',
       "const { createCommunicationRequestId } = globalThis.__fileClientTestIdentity;"
+    )
+    .replace(
+      'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
+      "const runScheduledTaskRequest = globalThis.__fileClientTestTaskRunner;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__fileClientTestDev");
 

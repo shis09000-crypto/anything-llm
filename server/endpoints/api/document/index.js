@@ -80,7 +80,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ statuses });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           error: `Failed to get index status: ${e.message}`,
         });
@@ -107,7 +107,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ success: true, status });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           error: `Failed to update index status: ${e.message}`,
         });
@@ -187,7 +187,7 @@ function apiDocumentEndpoints(app) {
     */
       try {
         const Collector = new CollectorApi();
-        const { originalname } = request.file;
+        const { filename, originalname } = request.file;
         const { addToWorkspaces = "", metadata: _metadata = {} } =
           reqBody(request);
         const metadata =
@@ -208,8 +208,8 @@ function apiDocumentEndpoints(app) {
         }
 
         const { success, reason, documents } = await Collector.processDocument(
-          originalname,
-          metadata
+          filename,
+          { ...metadata, title: metadata.title || originalname }
         );
 
         if (!success) {
@@ -235,7 +235,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ success: true, error: null, documents });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -329,7 +329,7 @@ function apiDocumentEndpoints(app) {
       }
       */
       try {
-        const { originalname } = request.file;
+        const { filename, originalname } = request.file;
         const { addToWorkspaces = "", metadata: _metadata = {} } =
           reqBody(request);
         const metadata =
@@ -362,8 +362,8 @@ function apiDocumentEndpoints(app) {
 
         // Process the uploaded document with metadata
         const { success, reason, documents } = await Collector.processDocument(
-          originalname,
-          metadata
+          filename,
+          { ...metadata, title: metadata.title || originalname }
         );
         if (!success) {
           return response
@@ -416,7 +416,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ success: true, error: null, documents });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -552,7 +552,7 @@ function apiDocumentEndpoints(app) {
         console.error("API link upload failed", {
           message: redactSensitiveText(e.message, [link]),
         });
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -696,7 +696,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ success: true, error: null, documents });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -741,7 +741,7 @@ function apiDocumentEndpoints(app) {
       response.status(200).json({ localFiles });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -804,7 +804,7 @@ function apiDocumentEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -861,7 +861,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ types });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -911,7 +911,7 @@ function apiDocumentEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -969,7 +969,7 @@ function apiDocumentEndpoints(app) {
       response.status(200).json({ document });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -1031,7 +1031,7 @@ function apiDocumentEndpoints(app) {
         response.status(200).json({ success: true, message: null });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           message: `Failed to create folder: ${e.message}`,
         });
@@ -1090,7 +1090,7 @@ function apiDocumentEndpoints(app) {
           .json({ success: true, message: "Folder removed successfully" });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           message: `Failed to remove folder: ${e.message}`,
         });
@@ -1197,7 +1197,7 @@ function apiDocumentEndpoints(app) {
       } catch (e) {
         console.error(e);
         response
-          .status(500)
+          .status(e.httpStatus || 500)
           .json({ success: false, message: "Failed to move files." });
       }
     }

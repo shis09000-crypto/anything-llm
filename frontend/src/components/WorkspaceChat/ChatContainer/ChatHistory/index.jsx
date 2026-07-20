@@ -192,6 +192,16 @@ export default forwardRef(function (
   const isStreaming = items.some(
     (item) => item.type === "assistant_turn" && item.status === "running"
   );
+  const latestPersistedChatId = useMemo(
+    () =>
+      items.reduce((latest, item) => {
+        const chatId = Number(item?.chatId);
+        return Number.isSafeInteger(chatId) && chatId > latest
+          ? chatId
+          : latest;
+      }, 0),
+    [items]
+  );
   const { showScrollbar } = Appearance.getSettings();
   const { textSize, textSizeClass, textSizeStyle } = useTextSize();
   const isMobileShell = mobileShellRuntimeActive();
@@ -1296,6 +1306,46 @@ export default forwardRef(function (
       lastAssistantTurn: assistantTurns[assistantTurns.length - 1] || null,
     });
   }, [chatKey, isStreaming, items]);
+
+  useEffect(() => {
+    if (
+      readOnly ||
+      isStreaming ||
+      !isNearBottom ||
+      !workspace?.slug ||
+      latestPersistedChatId <= 0 ||
+      document.visibilityState === "hidden"
+    )
+      return;
+    const timer = window.setTimeout(async () => {
+      if (
+        document.visibilityState === "hidden" ||
+        !shouldFollowOutputRef.current
+      )
+        return;
+      try {
+        const { advanceThreadReadCursor } = await import(
+          "@/utils/userStateSync"
+        );
+        await advanceThreadReadCursor({
+          workspaceSlug: workspace.slug,
+          threadSlug: effectiveThreadSlug,
+          cursor: latestPersistedChatId,
+          messageId: latestPersistedChatId,
+        });
+      } catch {
+        // Read-state delivery is recoverable and must never block chat render.
+      }
+    }, 900);
+    return () => window.clearTimeout(timer);
+  }, [
+    effectiveThreadSlug,
+    isNearBottom,
+    isStreaming,
+    latestPersistedChatId,
+    readOnly,
+    workspace?.slug,
+  ]);
 
   useEffect(() => {
     const previousItemsLength = previousItemsLengthRef.current;

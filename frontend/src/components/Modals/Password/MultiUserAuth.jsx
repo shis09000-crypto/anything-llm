@@ -34,6 +34,9 @@ import { setStoredAuthUser } from "@/utils/authUserStorage";
 import { AuthContext } from "@/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { markLoginBoot } from "@/utils/loginBootPerf";
+import LoginBackground from "./LoginPage/LoginBackground";
+import LoginCard from "./LoginPage/LoginCard";
+import LoginWelcomeHeader from "./LoginPage/LoginWelcomeHeader";
 import "./styles.css";
 
 const REMEMBERED_ACCOUNT_KEY = "athena:login:remembered-account";
@@ -74,11 +77,11 @@ const appleButtonStyle = {
   "--app-button-lg-px": "24px",
   "--app-button-lg-font-size": "15px",
   "--app-button-radius": "16px",
-  "--app-button-gradient-start": "#5ab0ff",
-  "--app-button-gradient-middle": "#007aff",
-  "--app-button-gradient-end": "#0066d6",
-  "--app-button-shadow-strength": "0.18",
-  "--app-button-glow-blur": "18px",
+  "--app-button-gradient-start": "#2b2b2f",
+  "--app-button-gradient-middle": "#17171a",
+  "--app-button-gradient-end": "#050506",
+  "--app-button-shadow-strength": "0.14",
+  "--app-button-glow-blur": "0px",
   "--app-button-hover-lift": "1px",
 };
 
@@ -99,6 +102,16 @@ const codeInputClass =
   "h-12 w-10 rounded-xl border border-slate-200 bg-white text-center text-lg font-semibold text-slate-950 outline-none transition focus:border-[#007AFF]/70 focus:ring-4 focus:ring-[#007AFF]/10 disabled:cursor-not-allowed disabled:bg-slate-100";
 
 const registrationEmailFormatMessage = "请输入有效邮箱地址，需包含 @ 和域名。";
+
+function normalizeLoginIdentifier(value = "") {
+  const normalized = String(value || "")
+    .normalize("NFKC")
+    .trim();
+  if (normalized.includes("@") || normalized.includes("。")) {
+    return normalizeEmailInput(normalized);
+  }
+  return normalized;
+}
 
 function isValidRegistrationEmail(email = "") {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || "").trim());
@@ -683,12 +696,14 @@ export default function MultiUserAuth({ loginLogo, isCustomLogo = false }) {
     setLoading(true);
     markLoginBoot("login_submit", { mode: "password" });
 
-    persistRememberedAccount(loginIdentifier, rememberAccount);
+    const normalizedIdentifier = normalizeLoginIdentifier(loginIdentifier);
+    setLoginIdentifier(normalizedIdentifier);
+    persistRememberedAccount(normalizedIdentifier, rememberAccount);
 
     try {
       const { valid, user, token, recoveryCodes, message } =
         await System.requestToken({
-          identifier: loginIdentifier,
+          identifier: normalizedIdentifier,
           password,
         });
 
@@ -1042,6 +1057,7 @@ function LoginForm({
 
   return (
     <form onSubmit={onSubmit} className="w-full space-y-5">
+      <LoginWelcomeHeader />
       {isTrustedQuickMode ? (
         <TrustedDeviceQuickLoginSlot
           device={trustedDevice}
@@ -1073,7 +1089,9 @@ function LoginForm({
               icon={<UserCircle className="h-5 w-5" />}
               placeholder="账号名 / 邮箱 / 手机号"
               value={loginIdentifier}
-              onChange={(event) => setLoginIdentifier(event.target.value)}
+              onChange={(event) =>
+                setLoginIdentifier(normalizeLoginIdentifier(event.target.value))
+              }
               required
               autoComplete="username"
               autoCapitalize="none"
@@ -1265,16 +1283,12 @@ function TrustedDeviceQuickLoginSlot({
   );
 }
 
-export function SoftLoginShell({ children, loginLogo, isCustomLogo }) {
+export function SoftLoginShell({ children }) {
   return (
     <div className="soft-login-page text-slate-950">
-      <SoftLoginVisual />
-
+      <LoginBackground />
       <main className="soft-login-panel">
-        <section className="soft-login-card">
-          <BrandHeader loginLogo={loginLogo} isCustomLogo={isCustomLogo} />
-          {children}
-        </section>
+        <LoginCard>{children}</LoginCard>
         <footer className="soft-login-footer">
           <span>Athena</span>
           <span>Privacy</span>
@@ -1283,52 +1297,6 @@ export function SoftLoginShell({ children, loginLogo, isCustomLogo }) {
         </footer>
       </main>
     </div>
-  );
-}
-
-const SoftLoginVisual = React.memo(function SoftLoginVisual() {
-  return (
-    <section className="soft-login-visual" aria-hidden="true">
-      <div className="soft-login-copy">
-        <h1>Athena</h1>
-        <p className="soft-login-copy-subtitle">Knowledge Operating System</p>
-        <p className="soft-login-copy-tagline">知识 · 智能 · 连接未来</p>
-        <p className="soft-login-copy-description">
-          为个人与团队打造的智能知识中枢
-        </p>
-      </div>
-      <img
-        src="/login/athena-soft-login-cube.png"
-        alt=""
-        className="soft-login-cube"
-        draggable={false}
-      />
-      <span className="soft-login-orb soft-login-orb-one" />
-      <span className="soft-login-orb soft-login-orb-two" />
-      <span className="soft-login-orb soft-login-orb-three" />
-    </section>
-  );
-});
-
-function BrandHeader({ loginLogo, isCustomLogo }) {
-  return (
-    <header className="mb-9 flex flex-col items-center text-center">
-      <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-[20px] border border-white bg-white shadow-[0_12px_28px_rgba(15,23,42,0.14)]">
-        <img
-          src={loginLogo}
-          alt="Athena"
-          className={`max-h-10 max-w-10 object-contain ${
-            isCustomLogo ? "rounded-xl" : ""
-          }`}
-        />
-      </div>
-      <h1 className="text-[28px] font-semibold leading-tight tracking-normal text-slate-950">
-        Athena
-      </h1>
-      <p className="mt-2 text-[13px] font-medium text-slate-500">
-        Knowledge Operating System
-      </p>
-    </header>
   );
 }
 

@@ -176,6 +176,7 @@ async function requestJsonCore(path, options = {}) {
     rawBody = false,
     signing = "auto",
     communicationScene = null,
+    acceptNotModified = false,
     task: _task,
     schedulerInternal: _schedulerInternal,
     ...rest
@@ -229,6 +230,21 @@ async function requestJsonCore(path, options = {}) {
     const durationMs = durationSince(startedAt);
     const responseBytes = communicationResponseSize(response, data);
     const requestBytes = communicationByteLength(bodyString);
+    if (acceptNotModified && response.status === 304) {
+      recordCommunicationEvent({
+        requestId,
+        type: "json",
+        method: normalizedMethod,
+        path,
+        status: 304,
+        durationMs,
+        requestBytes,
+        responseBytes: 0,
+        communicationScene,
+        ok: true,
+      });
+      return { response, data: null, requestId, notModified: true };
+    }
     if (!response.ok) {
       if (
         signingResult.signed &&
@@ -276,6 +292,7 @@ async function requestJsonCore(path, options = {}) {
           rawBody,
           signing,
           communicationScene,
+          acceptNotModified,
           ...rest,
         });
       }

@@ -16,6 +16,18 @@ function appEnvironment() {
       `Invalid APP_ENV "${process.env.APP_ENV}". Expected production or development.`
     );
   }
+  const nodeEnvironment = String(process.env.NODE_ENV || "")
+    .trim()
+    .toLowerCase();
+  if (
+    ["production", "development"].includes(nodeEnvironment) &&
+    process.env.APP_ENV &&
+    nodeEnvironment !== value
+  ) {
+    throw new Error(
+      `APP_ENV "${value}" conflicts with NODE_ENV "${nodeEnvironment}".`
+    );
+  }
   return value;
 }
 

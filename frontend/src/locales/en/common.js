@@ -1,4 +1,21 @@
 const TRANSLATIONS = {
+  syncConflict: {
+    title: "Sync conflicts",
+    description: "{{count}} local change needs your decision.",
+    sameField: "This field also changed on another device.",
+    historyExpired: "The version history expired. A full check is required.",
+    failedMutation: "The local change failed: {{error}}",
+    useServer: "Use server value",
+    keepLocal: "Keep local change",
+    discardLocal: "Discard local change",
+    retry: "Retry",
+    serverApplied: "The server value has been restored.",
+    localApplied: "The local change has been submitted again.",
+    missingVersion: "The latest server version is unavailable.",
+    failed: "Could not resolve the sync conflict.",
+    collapse: "Collapse",
+    expand: "Expand sync conflicts",
+  },
   onboarding: {
     home: {
       welcome: "Welcome",
@@ -244,7 +261,8 @@ const TRANSLATIONS = {
       },
       xlarge: {
         label: "Extra large",
-        description: "More prominent for demos, projection, or low-vision reading.",
+        description:
+          "More prominent for demos, projection, or low-vision reading.",
       },
       custom: {
         label: "Custom",
@@ -783,6 +801,31 @@ const readable = true;
       wait: "-- waiting for models --",
     },
     skill: {
+      cryptoMarket: {
+        title: "Cryptocurrency market data",
+        description:
+          "Read-only public spot prices and market snapshots from Gate and Binance. No private account access and no trading actions.",
+      },
+      weather: {
+        title: "Weather",
+        description:
+          "Current conditions and 3, 7, 10, 15, or 30 day forecasts from QWeather by Chinese city or GPS coordinates.",
+      },
+      globalMarket: {
+        title: "Global markets",
+        description:
+          "Read-only foreign exchange, index, stock, commodity, fund, and ETF quotes from Juhe, Stooq, and Frankfurter.",
+      },
+      marketData: {
+        credentials: "Provider credentials",
+        configured: "Configured",
+        notConfigured: "Configuration required",
+        qweatherKey: "QWeather API key",
+        juheStockKey: "Juhe stock API key",
+        juheForexKey: "Juhe forex API key",
+        secretHelp:
+          "Saved credentials are encrypted with the active Athena data key. Existing values are never shown again; enter a new value only to replace one.",
+      },
       rag: {
         title: "RAG & long-term memory",
         description:
@@ -910,6 +953,11 @@ const readable = true;
               "Create Word documents with basic styling and formatting",
           },
         },
+      },
+      documentFormatting: {
+        title: "DOCX formatting",
+        description:
+          "Create an improved DOCX copy of a Word document in the current workspace. Images, tables, headers, and footers are preserved when safe; unsupported documents are rebuilt with a warning. The source is never overwritten and every write requires confirmation.",
       },
       gmail: {
         title: "GMail",

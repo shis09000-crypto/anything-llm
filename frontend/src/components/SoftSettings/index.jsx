@@ -4,25 +4,28 @@ import { mobileShellRuntimeActive } from "@/utils/mobileRuntime";
 import { Outlet } from "react-router-dom";
 import { SoftSettingsShellContext } from "./context";
 import { FullScreenLoader } from "@/components/Preloader";
+import { SettingsDataProvider } from "@/pages/GeneralSettings/SettingsDataProvider";
 import "./styles.css";
 
 export function SoftSettingsOutletLayout() {
   const isMobileShell = mobileShellRuntimeActive();
 
   return (
-    <div className="settings-soft-page">
-      <Sidebar />
-      <main
-        style={{ height: isMobileShell ? "100%" : "calc(100% - 32px)" }}
-        className="settings-soft-main"
-      >
-        <SoftSettingsShellContext.Provider value={true}>
-          <React.Suspense fallback={<FullScreenLoader />}>
-            <Outlet />
-          </React.Suspense>
-        </SoftSettingsShellContext.Provider>
-      </main>
-    </div>
+    <SettingsDataProvider>
+      <div className="settings-soft-page">
+        <Sidebar />
+        <main
+          style={{ height: isMobileShell ? "100%" : "calc(100% - 32px)" }}
+          className="settings-soft-main"
+        >
+          <SoftSettingsShellContext.Provider value={true}>
+            <React.Suspense fallback={<FullScreenLoader />}>
+              <Outlet />
+            </React.Suspense>
+          </SoftSettingsShellContext.Provider>
+        </main>
+      </div>
+    </SettingsDataProvider>
   );
 }
 

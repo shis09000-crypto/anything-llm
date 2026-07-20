@@ -13,8 +13,13 @@ services:
       args:
         ARG_UID: ${UID:-1000}
         ARG_GID: ${GID:-1000}
-    cap_add:
-      - SYS_ADMIN
+    depends_on:
+      anything-llm-collector:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - "./.env:/app/server/.env"
       - "../server/storage:/app/server/storage"
@@ -25,7 +30,40 @@ services:
       - "3001:3001"
     env_file:
       - .env
+    environment:
+      ATHENA_COLLECTOR_INLINE: "false"
+      COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
       - anything-llm
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  anything-llm-collector:
+    container_name: anythingllm-collector
+    build:
+      context: ../.
+      dockerfile: ./docker/Dockerfile
+      target: collector-build
+      args:
+        ARG_UID: ${UID:-1000}
+        ARG_GID: ${GID:-1000}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=1g
+    volumes:
+      - "../server/storage:/app/server/storage"
+      - "../collector/hotdir/:/app/collector/hotdir"
+      - "../collector/outputs/:/app/collector/outputs"
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      ATHENA_RUNTIME_ROLE: collector
+      COLLECTOR_PORT: 8888
+      HOME: /tmp/collector-home
+    networks:
+      - anything-llm

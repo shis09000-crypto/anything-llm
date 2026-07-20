@@ -2,15 +2,15 @@ import {
   envIndexedDbName,
   getAppEnvironment,
   storageKeys,
-} from "@/utils/appEnvironment";
-import { getStoredAuthUser } from "@/utils/authUserStorage";
-import { serverStateCache } from "@/utils/serverState/serverStateCache";
-import { serverStateTaskBridge } from "@/utils/serverState/serverStateTaskBridge";
+} from "../appEnvironment.js";
+import { getStoredAuthUser } from "../authUserStorage.js";
+import { serverStateCache } from "../serverState/serverStateCache.js";
+import { serverStateTaskBridge } from "../serverState/serverStateTaskBridge.js";
 import {
   decryptLocalCachePayload,
   encryptLocalCachePayload,
-} from "@/utils/security/localCacheCrypto";
-import { historyCacheScope } from "./historyCacheScope";
+} from "../security/localCacheCrypto.js";
+import { historyCacheScope } from "./historyCacheScope.js";
 
 const DB_NAME = "anythingllm-workspacechat-cache";
 const STORE_NAME = "history";

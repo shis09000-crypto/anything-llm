@@ -30,7 +30,7 @@ function apiSystemEndpoints(app) {
       response.sendStatus(200).end();
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -67,7 +67,7 @@ function apiSystemEndpoints(app) {
       response.status(200).json({ settings });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -99,7 +99,7 @@ function apiSystemEndpoints(app) {
       response.status(200).json({ vectorCount });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -147,7 +147,7 @@ function apiSystemEndpoints(app) {
         response.status(200).json({ newValues, error });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -203,7 +203,7 @@ function apiSystemEndpoints(app) {
         response.status(200).send(data);
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -269,7 +269,7 @@ function apiSystemEndpoints(app) {
           .end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

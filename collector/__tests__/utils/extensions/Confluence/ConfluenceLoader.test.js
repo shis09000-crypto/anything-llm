@@ -1,6 +1,13 @@
 /* eslint-env jest, node */
 process.env.STORAGE_DIR = "test-storage";
 
+const mockSafeFetch = jest.fn();
+const mockReadResponseJsonLimited = jest.fn();
+jest.mock("../../../../utils/networkGuard", () => ({
+  safeFetch: mockSafeFetch,
+  readResponseJsonLimited: mockReadResponseJsonLimited,
+}));
+
 const { resolveConfluenceBaseUrl } = require("../../../../utils/extensions/Confluence");
 const {
   ConfluencePagesLoader,
@@ -27,16 +34,17 @@ describe("resolveConfluenceBaseUrl", () => {
 });
 
 describe("ConfluencePagesLoader", () => {
+  beforeEach(() => {
+    mockSafeFetch.mockResolvedValue({ ok: true, status: 200 });
+    mockReadResponseJsonLimited.mockResolvedValue({ size: 0, results: [] });
+  });
+
   afterEach(() => {
-    jest.restoreAllMocks();
+    jest.clearAllMocks();
   });
 
   describe("cloud mode", () => {
     test("API requests include /wiki prefix", async () => {
-      const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
-        ok: true,
-        json: jest.fn().mockResolvedValue({ size: 0, results: [] }),
-      });
       const loader = new ConfluencePagesLoader({
         baseUrl: resolveConfluenceBaseUrl("https://example.atlassian.net/wiki/spaces/SP", true),
         spaceKey: "SP",
@@ -47,7 +55,7 @@ describe("ConfluencePagesLoader", () => {
 
       await loader.fetchAllPagesInSpace();
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mockSafeFetch).toHaveBeenCalledWith(
         "https://example.atlassian.net/wiki/rest/api/content?spaceKey=SP&limit=25&start=0&expand=body.storage,version",
         expect.any(Object)
       );
@@ -79,10 +87,6 @@ describe("ConfluencePagesLoader", () => {
 
   describe("self-hosted mode", () => {
     test("API requests use context path without /wiki", async () => {
-      const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({
-        ok: true,
-        json: jest.fn().mockResolvedValue({ size: 0, results: [] }),
-      });
       const loader = new ConfluencePagesLoader({
         baseUrl: resolveConfluenceBaseUrl("https://my.domain.com/confluence/", false),
         spaceKey: "SP",
@@ -93,7 +97,7 @@ describe("ConfluencePagesLoader", () => {
 
       await loader.fetchAllPagesInSpace();
 
-      expect(fetchMock).toHaveBeenCalledWith(
+      expect(mockSafeFetch).toHaveBeenCalledWith(
         "https://my.domain.com/confluence/rest/api/content?spaceKey=SP&limit=25&start=0&expand=body.storage,version",
         expect.any(Object)
       );

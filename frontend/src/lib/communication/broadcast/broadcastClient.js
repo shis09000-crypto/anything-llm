@@ -21,6 +21,8 @@ import { recordCommunicationEvent } from "../communicationMetrics";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 import { broadcastEventReducer } from "./broadcastEventReducer";
 import { broadcastSubscriptionManager } from "./broadcastSubscriptionManager";
+import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
+import { syncV2Client } from "../syncV2Client";
 
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 8_000;
@@ -34,6 +36,8 @@ const state = {
   lastEventId: null,
   lastAckedEventId: null,
   lastError: null,
+  fallbackActive: false,
+  reconcilePromise: null,
   counters: {
     received: 0,
     acked: 0,
@@ -45,6 +49,7 @@ const state = {
   recent: [],
   subscriptions: [],
 };
+let fallbackController = null;
 
 function wsBase() {
   const apiBase = API_BASE === "/api" ? window.location.origin : API_BASE;
@@ -145,7 +150,7 @@ function ackEvent(socket, event) {
   });
 }
 
-function handleMessage(socket, raw, onEvent) {
+async function handleMessage(socket, raw, onEvent) {
   let message = null;
   try {
     message = JSON.parse(raw.data);
@@ -158,15 +163,25 @@ function handleMessage(socket, raw, onEvent) {
   if (message.type === "broadcast.event") {
     const event = message.event;
     state.counters.received += 1;
-    const reduced = broadcastEventReducer.reduce(event);
-    if (event?.coalescedCount) state.counters.coalesced += event.coalescedCount;
-    onEvent?.(event, reduced);
-    ackEvent(socket, event);
-    rememberRecent({
-      type: event?.broadcastType || `${event?.namespace}.${event?.type}`,
-      eventId: event?.eventId,
-      reduced,
-    });
+    try {
+      await state.reconcilePromise;
+      const syncResult = await syncV2Runtime.processBroadcastEvent(event);
+      const reduced = broadcastEventReducer.reduce(event, {
+        syncV2Applied: syncResult?.syncV2Applied === true,
+      });
+      if (event?.coalescedCount)
+        state.counters.coalesced += event.coalescedCount;
+      onEvent?.(event, reduced);
+      ackEvent(socket, event);
+      rememberRecent({
+        type: event?.broadcastType || `${event?.namespace}.${event?.type}`,
+        eventId: event?.eventId,
+        reduced,
+      });
+    } catch (error) {
+      state.lastError = error?.code || error?.message || "sync_v2_apply_failed";
+      safeClose(socket, 1011, "sync-apply-failed");
+    }
     return;
   }
 
@@ -193,12 +208,75 @@ function handleMessage(socket, raw, onEvent) {
   }
 }
 
+function syncV2SseEnvelope(syncEvent) {
+  return {
+    eventId: `sync-v2-sse:${syncEvent.eventId || syncEvent.seq}`,
+    namespace: "syncV2",
+    type: "node.changed",
+    seq: Number(syncEvent.seq),
+    nodeKey: syncEvent.nodeKey,
+    stateVersion: Number(syncEvent.stateVersion),
+    updatedAt: syncEvent.updatedAt,
+    payload: { syncV2: syncEvent },
+    requiresAck: false,
+  };
+}
+
+function stopSyncV2Fallback() {
+  fallbackController?.abort();
+  fallbackController = null;
+  state.fallbackActive = false;
+}
+
+function startSyncV2Fallback({ signal = null, onEvent = null } = {}) {
+  if (fallbackController || !syncV2Runtime.enabled()) return;
+  const controller = new AbortController();
+  fallbackController = controller;
+  state.fallbackActive = true;
+  signal?.addEventListener("abort", () => controller.abort(), { once: true });
+  void syncV2Client
+    .stream(syncV2Runtime.snapshot().cursor, {
+      signal: controller.signal,
+      async onReady(message) {
+        // The SSE transport deliberately keeps its inline replay bounded. If
+        // more than one page accumulated, finish recovery through the paged
+        // REST cursor path before accepting the stream as current.
+        if (message?.requiresFullSync || message?.hasMore) {
+          await syncV2Runtime.reconcile({ signal: controller.signal });
+        }
+      },
+      async onEvent(syncEvent) {
+        const syncResult = await syncV2Runtime.processEvent(syncEvent, {
+          signal: controller.signal,
+        });
+        const event = syncV2SseEnvelope(syncEvent);
+        const reduced = broadcastEventReducer.reduce(event, {
+          syncV2Applied: syncResult?.syncV2Applied === true,
+        });
+        onEvent?.(event, reduced);
+      },
+      onError(error) {
+        state.lastError = error?.code || error?.message || "sync_v2_sse_failed";
+      },
+    })
+    .catch((error) => {
+      if (controller.signal.aborted) return;
+      state.lastError = error?.code || error?.message || "sync_v2_sse_failed";
+    })
+    .finally(() => {
+      if (fallbackController === controller) {
+        fallbackController = null;
+        state.fallbackActive = false;
+      }
+    });
+}
+
 function wireSubscriptions(socket) {
   return broadcastSubscriptionManager.subscribe((subscriptions) => {
     state.subscriptions = subscriptions;
     if (socket.readyState !== WebSocket.OPEN) return;
     void sendControl(socket, {
-      type: "subscribe",
+      type: "replaceSubscriptions",
       subscriptions,
     });
   });
@@ -230,6 +308,19 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
         attempt = 0;
         state.connected = true;
         state.connecting = false;
+        state.reconcilePromise = syncV2Runtime
+          .reconcile({ signal })
+          .then((result) => {
+            stopSyncV2Fallback();
+            return result;
+          })
+          .catch((error) => {
+            state.lastError =
+              error?.code || error?.message || "sync_v2_reconcile_failed";
+            safeClose(socket, 1011, "sync-reconcile-failed");
+            throw error;
+          });
+        void state.reconcilePromise.catch(() => null);
         recordCommunicationEvent({
           type: "broadcast-open",
           method: "WS",
@@ -241,9 +332,9 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
           ok: true,
         });
       });
-      socket.addEventListener("message", (event) =>
-        handleMessage(socket, event, onEvent)
-      );
+      socket.addEventListener("message", (event) => {
+        void handleMessage(socket, event, onEvent);
+      });
       socket.addEventListener("close", () => resolve("close"), { once: true });
       socket.addEventListener("error", () => resolve("error"), { once: true });
       signal?.addEventListener(
@@ -264,6 +355,7 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
 
     state.counters.reconnects += 1;
     state.reconnects += 1;
+    startSyncV2Fallback({ signal, onEvent });
     recoveryCenter.handle(new Error("Broadcast connection closed."), {
       source: "broadcast",
       scope: { route: "broadcast" },
@@ -273,6 +365,7 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
     await sleep(backoff(attempt), signal);
     attempt += 1;
   }
+  stopSyncV2Fallback();
 }
 
 export const broadcastClient = {
@@ -285,6 +378,7 @@ export const broadcastClient = {
       lastEventId: state.lastEventId,
       lastAckedEventId: state.lastAckedEventId,
       lastError: state.lastError,
+      fallbackActive: state.fallbackActive,
       counters: { ...state.counters },
       subscriptions: broadcastSubscriptionManager.snapshot(),
       reducer: broadcastEventReducer.snapshot(),

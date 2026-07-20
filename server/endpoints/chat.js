@@ -264,7 +264,9 @@ function chatEndpoints(app) {
         response.status(result.success ? 200 : 404).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).json({ success: false, error: e.message });
+        response
+          .status(e.httpStatus || 500)
+          .json({ success: false, error: e.message });
       }
     }
   );

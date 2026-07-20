@@ -1,10 +1,7 @@
 #!/usr/bin/env node
-const prisma = require("../utils/prisma");
-const {
-  chatHistoryEncryptionEnabled,
-  encryptWorkspaceChatField,
-  workspaceChatFieldIsEncrypted,
-} = require("../utils/security/chatHistoryEncryption");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+
+let prisma;
 
 function argValue(name, fallback = null) {
   const prefix = `${name}=`;
@@ -17,7 +14,20 @@ function hasArg(name) {
 }
 
 async function main() {
-  const apply = hasArg("--apply");
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: ["workspace_chats", "_prisma_migrations"],
+  });
+  prisma = require("../utils/prisma");
+  const {
+    chatHistoryEncryptionEnabled,
+    encryptWorkspaceChatField,
+    workspaceChatFieldIsEncrypted,
+  } = require("../utils/security/chatHistoryEncryption");
   const limit = Math.max(1, Number(argValue("--limit", 500)) || 500);
   const maxRows = Number(argValue("--max-rows", 0)) || 0;
   const encryptionReady = chatHistoryEncryptionEnabled();
@@ -89,6 +99,12 @@ async function main() {
         alreadyEncrypted,
         wouldEncrypt,
         updated,
+        ...(requestedApply && !execute
+          ? {
+              instruction:
+                "Apply requires --apply --execute and APP_ENV or --env.",
+            }
+          : {}),
       },
       null,
       2
@@ -104,5 +120,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await prisma.$disconnect?.().catch(() => {});
+    await prisma?.$disconnect?.().catch(() => {});
   });

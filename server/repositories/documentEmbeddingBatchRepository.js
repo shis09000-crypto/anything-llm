@@ -1,12 +1,14 @@
 const prisma = require("../utils/prisma");
 const { SystemSettings } = require("../models/systemSettings");
 const { EmbeddingBatchJob } = require("../models/embeddingBatchJob");
+const { Document } = require("../models/documents");
 
 const workspaceDocuments = {
-  create: (options = {}) => prisma.workspace_documents.create(options),
+  create: (options = {}) => Document.create(options.data || {}),
   findFirst: (options = {}) => prisma.workspace_documents.findFirst(options),
   findMany: (options = {}) => prisma.workspace_documents.findMany(options),
-  updateMany: (options = {}) => prisma.workspace_documents.updateMany(options),
+  updateMany: (options = {}) =>
+    Document._updateAll(options.where || {}, options.data || {}),
 };
 
 const DocumentEmbeddingBatchRepository = {

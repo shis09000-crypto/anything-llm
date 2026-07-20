@@ -1,6 +1,6 @@
 # This GitHub action is for publishing of the primary image for AnythingLLM
 # It will publish a linux/amd64 and linux/arm64 image at the same time
-# This file should ONLY BY USED FOR `master` BRANCH. 
+# This file should ONLY BY USED FOR `master` BRANCH.
 # TODO: GitHub now has an ubuntu-24.04-arm64 runner, but we still need
 # to use QEMU to build the arm64 image because Chromium is not available for Linux arm64
 # so builds will still fail, or fail much more often. Its inconsistent and frustrating.
@@ -12,20 +12,20 @@ concurrency:
 
 on:
   push:
-    branches: ['master'] # master branch only. Do not modify.
+    branches: ["master"] # master branch only. Do not modify.
     paths-ignore:
-      - '**.md'
-      - '.gitmodules'
-      - 'cloud-deployments/**/*'
-      - 'images/**/*'
-      - '.vscode/**/*'
-      - '**/.env.example'
-      - '.github/ISSUE_TEMPLATE/**/*'
-      - '.devcontainer/**/*'
-      - 'embed/**/*' # Embed is submodule
-      - 'browser-extension/**/*' # Chrome extension is submodule
-      - 'server/utils/agents/aibitat/example/**/*' # Do not push new image for local dev testing of new aibitat images.
-      - 'extras/**/*' # Extra is just for news and other local content.
+      - "**.md"
+      - ".gitmodules"
+      - "cloud-deployments/**/*"
+      - "images/**/*"
+      - ".vscode/**/*"
+      - "**/.env.example"
+      - ".github/ISSUE_TEMPLATE/**/*"
+      - ".devcontainer/**/*"
+      - "embed/**/*" # Embed is submodule
+      - "browser-extension/**/*" # Chrome extension is submodule
+      - "server/utils/agents/aibitat/example/**/*" # Do not push new image for local dev testing of new aibitat images.
+      - "extras/**/*" # Extra is just for news and other local content.
 
 jobs:
   push_multi_platform_to_registries:
@@ -36,7 +36,7 @@ jobs:
       contents: read
     steps:
       - name: Check out the repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Check if DockerHub build needed
         shell: bash
@@ -52,28 +52,28 @@ jobs:
         id: dockerhub
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           version: v0.22.0
-      
+
       - name: Log in to Docker Hub
-        uses: docker/login-action@f4ef78c080cd8ba55a85445d5b36e214a81df20a
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         # Only login to the Docker Hub if the repo is mintplex/anythingllm, to allow for forks to build on GHCR
-        if: steps.dockerhub.outputs.enabled == 'true' 
+        if: steps.dockerhub.outputs.enabled == 'true'
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      
+
       - name: Log in to the Container registry
-        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
-        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
           images: |
             ${{ steps.dockerhub.outputs.enabled == 'true' && 'mintplexlabs/anythingllm' || '' }}
@@ -85,7 +85,7 @@ jobs:
             type=ref,event=pr
 
       - name: Build and push multi-platform Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           file: ./docker/Dockerfile
@@ -97,10 +97,10 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      
+
       # For Docker scout there are some intermediary reported CVEs which exists outside
       # of execution content or are unreachable by an attacker but exist in image.
-      # We create VEX files for these so they don't show in scout summary. 
+      # We create VEX files for these so they don't show in scout summary.
       - name: Collect known and verified CVE exceptions
         id: cve-list
         run: |
@@ -120,9 +120,13 @@ jobs:
       - name: Add VEX attestations
         env:
           CVE_EXCEPTIONS: ${{ steps.cve-list.outputs.CVE_EXCEPTIONS }}
+          SCOUT_INSTALL_COMMIT: c7ac4ce317eafa536bf2421d1c223908e2200dce
+          SCOUT_INSTALL_SHA256: 3d350aa78a4bf01b5ba27211a0bbb69441fe05d46202ab1694c8921877176d19
         run: |
           echo $CVE_EXCEPTIONS
-          curl -sSfL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+          curl -sSfL "https://raw.githubusercontent.com/docker/scout-cli/${SCOUT_INSTALL_COMMIT}/install.sh" -o /tmp/docker-scout-install.sh
+          echo "${SCOUT_INSTALL_SHA256}  /tmp/docker-scout-install.sh" | sha256sum -c -
+          sh /tmp/docker-scout-install.sh
           for cve in $CVE_EXCEPTIONS; do
             for tag in "${{ join(fromJSON(steps.meta.outputs.json).tags, ' ') }}"; do
               echo "Attaching VEX exception $cve to $tag"

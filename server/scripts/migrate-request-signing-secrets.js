@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
-const prisma = require("../utils/prisma");
-const { EncryptionManager } = require("../utils/EncryptionManager");
-const { isSecretEncrypted, saveSecret } = require("../utils/security");
-
-const legacyEncryption = new EncryptionManager();
+let prisma;
+let isSecretEncrypted;
+let saveSecret;
+let legacyEncryption;
 
 function decryptLegacySigningSecret(value) {
   if (!value) return null;
@@ -19,7 +18,18 @@ function decryptLegacySigningSecret(value) {
 }
 
 async function main() {
-  const apply = process.argv.includes("--apply");
+  const requestedApply = process.argv.includes("--apply");
+  const execute = process.argv.includes("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute: apply,
+    requiredTables: ["athena_clients"],
+  });
+  prisma = require("../utils/prisma");
+  const { EncryptionManager } = require("../utils/EncryptionManager");
+  ({ isSecretEncrypted, saveSecret } = require("../utils/security"));
+  legacyEncryption = new EncryptionManager();
   const clients = await prisma.athena_clients.findMany({
     where: {
       signingSecretEncrypted: { not: null },
@@ -67,6 +77,11 @@ async function main() {
     candidates: candidates.length,
     updated,
     failures,
+    requestedApply,
+    instruction:
+      requestedApply && !execute
+        ? "Repeat with explicit APP_ENV or --env plus --execute to mutate."
+        : null,
   };
   console.log(JSON.stringify(report, null, 2));
   process.exit(report.success ? 0 : 1);
@@ -84,5 +99,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect?.().catch(() => null);
+    await prisma?.$disconnect?.().catch(() => null);
   });

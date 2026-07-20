@@ -1,6 +1,7 @@
 /* global jest, describe, beforeEach, afterEach, it, expect */
 const fs = require("fs/promises");
 const path = require("path");
+const { storagePath } = require("../../../utils/environment");
 
 jest.mock("../../../utils/fileAccessPolicy", () => ({
   validateReadPath: jest.fn(async (inputPath) => ({
@@ -24,10 +25,7 @@ const {
   FilesystemWriteTextFile,
 } = require("../../../utils/agents/aibitat/plugins/filesystem/write-text-file");
 
-const filesystemRoot = path.resolve(
-  __dirname,
-  "../../../storage/anythingllm-fs"
-);
+const filesystemRoot = storagePath("anythingllm-fs");
 const testRoot = path.join(filesystemRoot, "__write_verify_tests__");
 
 function setupTool() {

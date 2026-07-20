@@ -15,6 +15,7 @@ const {
 } = require("./environment");
 const { getVectorDbClass } = require("./helpers");
 const { normalizePath, isWithin } = require("./files");
+const { cleanupDocxSources } = require("./documentSources");
 const {
   EventLogRepository: EventLogs,
 } = require("../repositories/eventLogRepository");
@@ -112,88 +113,281 @@ const AccountDeletionService = {
     reauthToken,
     confirm = false,
     mode = "self",
+    deletionRunId = null,
   }) {
-    const deletionJobId = crypto.randomUUID();
     const targetUser = target || actor;
     const reauth = validateReauthToken(reauthToken, actor.id);
     if (!confirm) throw new Error("请确认删除账户。");
     if (!reauth) throw new Error("请先完成安全验证。");
 
-    await audit("account_delete_requested", actor, {
-      authUserIdHash: fingerprint(targetUser.authUserId || targetUser.id),
-      env: normalizeEnv(env),
-      deletionJobId,
-      mode,
-    });
-
+    let run = null;
     try {
-      const preview = await this.preview({
+      run = await getOrCreateDeletionRun({
+        runId: deletionRunId,
         actor,
-        target: targetUser,
+        targetUser,
         env,
         mode,
+        previewFactory: () =>
+          this.preview({ actor, target: targetUser, env, mode }),
       });
-      const targetAuth = await authUserFor(targetUser);
+      const context = parseRunContext(run);
+      const preview = context.preview;
+      const targetSnapshot = context.target;
+      const targetAuth = context.targetAuth;
+      if (!preview || !targetSnapshot || !targetAuth)
+        throw new Error("删除工作流上下文不完整，无法安全继续。");
+
+      await audit("account_delete_requested", actor, {
+        authUserIdHash: fingerprint(targetAuth.id),
+        env: normalizeEnv(env),
+        deletionJobId: run.runId,
+        mode,
+        attempt: run.attempts,
+      });
+
       const hasOtherEnv = !preview.willDeleteSharedAuthUser;
 
       for (const workspace of preview.workspaces) {
-        if (workspace.deleteMode === "delete_workspace")
-          await deleteWorkspaceCompletely(workspace);
-        else await removeUserFromWorkspace(workspace, targetUser.id);
+        await runDeletionStep(run, `workspace:${workspace.id}`, async () => {
+          if (workspace.deleteMode === "delete_workspace")
+            await deleteWorkspaceCompletely(workspace);
+          else await removeUserFromWorkspace(workspace, targetSnapshot.id);
+        });
       }
 
-      await cleanupUserScopedData(targetUser);
-      await deleteProfilePicture(targetUser.pfpFilename);
-      await accountDeletionDb.users.deleteMany({
-        where: { id: Number(targetUser.id) },
-      });
+      await runDeletionStep(run, "user_scoped_data", () =>
+        cleanupUserScopedData(targetSnapshot)
+      );
+      await runDeletionStep(run, "profile_picture", () =>
+        deleteProfilePicture(targetSnapshot.pfpFilename)
+      );
 
       if (hasOtherEnv) {
-        await authPrisma.authEnvironmentDeletion.upsert({
-          where: {
-            authUserId_env: {
+        await runDeletionStep(run, "auth_environment_marker", () =>
+          authPrisma.authEnvironmentDeletion.upsert({
+            where: {
+              authUserId_env: {
+                authUserId: targetAuth.id,
+                env: normalizeEnv(env),
+              },
+            },
+            create: {
               authUserId: targetAuth.id,
               env: normalizeEnv(env),
+              deletedByAuthUserId: actor.authUserId || null,
             },
-          },
-          create: {
-            authUserId: targetAuth.id,
-            env: normalizeEnv(env),
-            deletedByAuthUserId: actor.authUserId || null,
-          },
-          update: {
-            deletedAt: new Date(),
-            deletedByAuthUserId: actor.authUserId || null,
-          },
-        });
-      } else {
-        await cleanupSharedAuthUser(targetAuth.id);
+            update: {
+              deletedAt: new Date(),
+              deletedByAuthUserId: actor.authUserId || null,
+            },
+          })
+        );
       }
 
+      await runDeletionStep(run, "shadow_user", async () => {
+        const { User } = require("../models/user");
+        const deletedShadow = await User.delete({
+          authUserId: Number(targetAuth.id),
+        });
+        if (!deletedShadow) {
+          const remaining = await accountDeletionDb.users.count({
+            where: { authUserId: Number(targetAuth.id) },
+          });
+          if (remaining > 0) throw new Error("账号本地数据删除失败。");
+        }
+      });
+
+      if (!hasOtherEnv)
+        await runDeletionStep(run, "shared_auth_user", () =>
+          cleanupSharedAuthUser(targetAuth.id)
+        );
+
+      await verifyDeletionOutcome({
+        targetSnapshot,
+        targetAuth,
+        hasOtherEnv,
+      });
+
       consumeReauthToken(reauthToken);
+      await accountDeletionDb.account_deletion_runs.update({
+        where: { runId: run.runId },
+        data: {
+          status: "completed",
+          currentStep: null,
+          errorJson: null,
+          completedAt: new Date(),
+        },
+      });
       await audit("account_deleted", actor, {
         authUserIdHash: fingerprint(targetAuth.id),
         env: normalizeEnv(env),
-        deletionJobId,
+        deletionJobId: run.runId,
         workspaceCount: preview.totals.workspaceCount,
         deletedAt: new Date().toISOString(),
       });
-      return { success: true, deletionJobId, preview };
+      return {
+        success: true,
+        deletionRunId: run.runId,
+        deletionJobId: run.runId,
+        preview,
+      };
     } catch (error) {
+      const runId = run?.runId || deletionRunId || crypto.randomUUID();
+      if (run?.runId) {
+        await accountDeletionDb.account_deletion_runs
+          .update({
+            where: { runId: run.runId },
+            data: {
+              status: "failed",
+              errorJson: JSON.stringify({
+                code: "account_deletion_incomplete",
+                message: safeReason(error.message),
+                failedAt: new Date().toISOString(),
+              }),
+            },
+          })
+          .catch(() => null);
+      }
       await audit("account_delete_failed", actor, {
         authUserIdHash: fingerprint(targetUser.authUserId || targetUser.id),
         env: normalizeEnv(env),
-        deletionJobId,
+        deletionJobId: runId,
         reason: safeReason(error.message),
       });
       return {
         success: false,
-        deletionJobId,
+        errorCode: "account_deletion_incomplete",
+        deletionRunId: runId,
+        deletionJobId: runId,
         error: error.message || "删除账户失败。",
       };
     }
   },
 };
+
+async function getOrCreateDeletionRun({
+  runId,
+  actor,
+  targetUser,
+  env,
+  mode,
+  previewFactory,
+}) {
+  if (runId) {
+    const existing = await accountDeletionDb.account_deletion_runs.findUnique({
+      where: { runId: String(runId) },
+    });
+    if (!existing) throw new Error("删除工作流不存在。");
+    const context = parseRunContext(existing);
+    const actorAuthUserId = Number(actor.authUserId || 0);
+    if (
+      context.actorAuthUserId &&
+      Number(context.actorAuthUserId) !== actorAuthUserId
+    )
+      throw new Error("无权继续该删除工作流。");
+    if (existing.status === "completed") return existing;
+    return accountDeletionDb.account_deletion_runs.update({
+      where: { runId: existing.runId },
+      data: {
+        status: "running",
+        attempts: { increment: 1 },
+        errorJson: null,
+      },
+    });
+  }
+
+  const preview = await previewFactory();
+  const targetAuth = await authUserFor(targetUser);
+  if (!targetAuth) throw new Error("共享认证账号不存在。");
+  const context = {
+    actorAuthUserId: actor.authUserId || null,
+    target: {
+      id: Number(targetUser.id),
+      authUserId: targetUser.authUserId || targetAuth.id,
+      username: targetUser.username || null,
+      email: targetUser.email || null,
+      pfpFilename: targetUser.pfpFilename || null,
+    },
+    targetAuth: {
+      id: Number(targetAuth.id),
+      role: targetAuth.role,
+      ownerType: targetAuth.ownerType,
+    },
+    preview,
+  };
+  return accountDeletionDb.account_deletion_runs.create({
+    data: {
+      runId: crypto.randomUUID(),
+      targetUserId: Number(targetUser.id),
+      targetAuthUserId: Number(targetAuth.id),
+      actorUserId: actor.id ? Number(actor.id) : null,
+      env: normalizeEnv(env),
+      mode,
+      status: "running",
+      contextJson: JSON.stringify(context),
+    },
+  });
+}
+
+function parseRunContext(run) {
+  try {
+    return JSON.parse(run?.contextJson || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function completedDeletionSteps(run) {
+  try {
+    const parsed = JSON.parse(run?.completedStepsJson || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function runDeletionStep(run, step, operation) {
+  const completed = completedDeletionSteps(run);
+  if (completed.includes(step)) return;
+  await accountDeletionDb.account_deletion_runs.update({
+    where: { runId: run.runId },
+    data: { status: "running", currentStep: step },
+  });
+  await operation();
+  const next = [...completed, step];
+  await accountDeletionDb.account_deletion_runs.update({
+    where: { runId: run.runId },
+    data: {
+      completedStepsJson: JSON.stringify(next),
+      currentStep: null,
+      errorJson: null,
+    },
+  });
+  run.completedStepsJson = JSON.stringify(next);
+}
+
+async function verifyDeletionOutcome({
+  targetSnapshot,
+  targetAuth,
+  hasOtherEnv,
+}) {
+  const localCount = await accountDeletionDb.users.count({
+    where: { authUserId: Number(targetAuth.id) },
+  });
+  if (localCount > 0)
+    throw new Error(`本地账号仍有 ${localCount} 条记录，删除核验未通过。`);
+  if (!hasOtherEnv) {
+    const authCount = await authPrisma.users.count({
+      where: { id: Number(targetAuth.id) },
+    });
+    if (authCount > 0) throw new Error("共享认证账号删除核验未通过。");
+  }
+  const userScopedCount = await accountDeletionDb.temporary_auth_tokens.count({
+    where: { userId: Number(targetSnapshot.id) },
+  });
+  if (userScopedCount > 0) throw new Error("临时认证数据删除核验未通过。");
+}
 
 async function authUserFor(user) {
   if (!user) return null;
@@ -273,20 +467,24 @@ async function deleteWorkspaceCompletely(workspace) {
 }
 
 async function removeUserFromWorkspace(workspace, userId) {
+  const { WorkspaceThread } = require("../models/workspaceThread");
+  const { WorkspaceUser } = require("../models/workspaceUsers");
   await accountDeletionDb.workspace_chats.deleteMany({
     where: { workspaceId: workspace.id, user_id: Number(userId) },
   });
-  await accountDeletionDb.workspace_threads.deleteMany({
-    where: { workspace_id: workspace.id, user_id: Number(userId) },
+  await WorkspaceThread.delete({
+    workspace_id: workspace.id,
+    user_id: Number(userId),
   });
   await cleanupUserWorkspaceAuxiliaryData(Number(workspace.id), Number(userId));
-  await accountDeletionDb.workspace_users.deleteMany({
-    where: { workspace_id: workspace.id, user_id: Number(userId) },
+  await WorkspaceUser.delete({
+    workspace_id: workspace.id,
+    user_id: Number(userId),
   });
 }
 
 async function cleanupWorkspaceAuxiliaryData(workspaceId) {
-  await Promise.allSettled([
+  await settledOrThrow("workspace_auxiliary", [
     accountDeletionDb.workspace_chat_compactions.deleteMany({
       where: { workspace_id: workspaceId },
     }),
@@ -296,9 +494,7 @@ async function cleanupWorkspaceAuxiliaryData(workspaceId) {
     accountDeletionDb.workspace_agent_invocations.deleteMany({
       where: { workspace_id: workspaceId },
     }),
-    accountDeletionDb.workspace_parsed_files.deleteMany({
-      where: { workspaceId },
-    }),
+    deleteParsedFilesAndSources({ workspaceId }),
     accountDeletionDb.workspace_quiz_attempts.deleteMany({
       where: { workspaceId },
     }),
@@ -316,7 +512,7 @@ async function cleanupWorkspaceAuxiliaryData(workspaceId) {
 }
 
 async function cleanupUserWorkspaceAuxiliaryData(workspaceId, userId) {
-  await Promise.allSettled([
+  await settledOrThrow("user_workspace_auxiliary", [
     accountDeletionDb.workspace_chat_compactions.deleteMany({
       where: { workspace_id: workspaceId, user_id: userId },
     }),
@@ -326,9 +522,7 @@ async function cleanupUserWorkspaceAuxiliaryData(workspaceId, userId) {
     accountDeletionDb.workspace_agent_invocations.deleteMany({
       where: { workspace_id: workspaceId, user_id: userId },
     }),
-    accountDeletionDb.workspace_parsed_files
-      .deleteMany({ where: { workspaceId, userId } })
-      .catch(() => null),
+    deleteParsedFilesAndSources({ workspaceId, userId }),
     accountDeletionDb.workspace_quiz_attempts.deleteMany({
       where: { workspaceId, userId },
     }),
@@ -346,7 +540,7 @@ async function cleanupUserWorkspaceAuxiliaryData(workspaceId, userId) {
 
 async function cleanupUserScopedData(user) {
   const userId = Number(user.id);
-  await Promise.allSettled([
+  await settledOrThrow("user_scoped", [
     accountDeletionDb.browser_extension_api_keys.deleteMany({
       where: { user_id: userId },
     }),
@@ -369,12 +563,11 @@ async function cleanupSharedAuthUser(authUserId) {
   await authPrisma.passkeyChallenge.deleteMany({ where: { userId } });
   await authPrisma.trustedLoginDevice.deleteMany({ where: { userId } });
   await authPrisma.zkLoginAttempt.deleteMany({ where: { userId } });
-  await authPrisma.invites
-    .updateMany({
-      where: { usedByUserId: userId },
-      data: { usedByUserId: null },
-    })
-    .catch(() => null);
+  await authPrisma.auth_sessions.deleteMany({ where: { authUserId: userId } });
+  await authPrisma.invites.updateMany({
+    where: { usedByUserId: userId },
+    data: { usedByUserId: null },
+  });
   await authPrisma.users.deleteMany({ where: { id: userId } });
 }
 
@@ -406,7 +599,33 @@ async function deleteProfilePicture(pfpFilename) {
   const basePath = storagePath("assets", "pfp");
   const pfpPath = path.join(basePath, normalizePath(pfpFilename));
   if (!isWithin(path.resolve(basePath), path.resolve(pfpPath))) return;
-  await fs.promises.unlink(pfpPath).catch(() => null);
+  try {
+    await fs.promises.unlink(pfpPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+async function deleteParsedFilesAndSources(where) {
+  const records = await accountDeletionDb.workspace_parsed_files.findMany({
+    where,
+    select: { metadata: true },
+  });
+  const result = await accountDeletionDb.workspace_parsed_files.deleteMany({
+    where,
+  });
+  if (result.count > 0) cleanupDocxSources(records);
+  return result;
+}
+
+async function settledOrThrow(label, promises) {
+  const results = await Promise.allSettled(promises);
+  const failures = results.filter((result) => result.status === "rejected");
+  if (failures.length === 0) return results;
+  const reason = failures
+    .map((failure) => safeReason(failure.reason?.message || failure.reason))
+    .join("; ");
+  throw new Error(`${label} cleanup failed: ${reason}`);
 }
 
 async function audit(event, actor, metadata = {}) {

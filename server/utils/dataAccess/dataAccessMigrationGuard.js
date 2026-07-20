@@ -59,6 +59,38 @@ const DIRECT_ACCESS_ALLOWLIST = Object.freeze([
 
 const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
   {
+    pattern: /^scripts\/content-object-admin\.js$/,
+    category: "maintenance",
+    risk: "internal-write",
+    reason:
+      "Content-object verification and bounded GC are explicit operator maintenance actions.",
+    action: "keep-content-object-maintenance-boundary",
+  },
+  {
+    pattern: /^scripts\/lib\/runtimeBootstrap\.js$/,
+    category: "bootstrap",
+    risk: "sensitive-read",
+    reason:
+      "Shared CLI bootstrap validates database schema sentinels before loading any operational client.",
+    action: "keep-cli-runtime-boundary",
+  },
+  {
+    pattern: /^scripts\/migrate-chat-content-objects\.js$/,
+    category: "migration",
+    risk: "sensitive-write",
+    reason:
+      "Chat content migration performs resumable row conversion and reference verification in bounded batches.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/athena-keyctl\.js$/,
+    category: "maintenance",
+    risk: "secret-write",
+    reason:
+      "Key custody CLI audits and repairs encrypted key metadata under an explicit operator command.",
+    action: "keep-security-maintenance-boundary",
+  },
+  {
     pattern: /^scripts\/audit-encryption-coverage\.js$/,
     category: "diagnostic",
     risk: "sensitive-read",
@@ -83,6 +115,14 @@ const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
     action: "prefer-data-access-where-available",
   },
   {
+    pattern: /^scripts\/chat-chain-incremental-benchmark\.js$/,
+    category: "diagnostic",
+    risk: "internal-write",
+    reason:
+      "Chat chain benchmark creates and removes bounded benchmark rows while verifying chain integrity.",
+    action: "keep-benchmark-boundary",
+  },
+  {
     pattern: /^scripts\/diagnose-deepseek-cache\.js$/,
     category: "diagnostic",
     risk: "internal-read",
@@ -97,6 +137,14 @@ const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
     reason:
       "One-time workspace chat encryption migration needs raw encrypted row inspection.",
     action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/ensure-local-encryption-key\.js$/,
+    category: "bootstrap",
+    risk: "secret-write",
+    reason:
+      "Local key bootstrap performs the one-time encrypted settings reconciliation required before startup.",
+    action: "keep-security-bootstrap-boundary",
   },
   {
     pattern: /^scripts\/maintain-local-auth\.js$/,
@@ -139,6 +187,22 @@ const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
     action: "keep-migration-boundary",
   },
   {
+    pattern: /^scripts\/migrate-user-state-draft-encryption\.js$/,
+    category: "migration",
+    risk: "sensitive-write",
+    reason:
+      "Draft migration reads legacy user-state rows and rewrites only encrypted draft payloads.",
+    action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/p0-database-audit\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "P0 database gate performs SQLite integrity and foreign-key checks without changing rows.",
+    action: "keep-script-boundary",
+  },
+  {
     pattern: /^scripts\/qa-account-delete-ban-devprod\.js$/,
     category: "qa",
     risk: "sensitive-write",
@@ -169,6 +233,38 @@ const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
     reason:
       "Encryption master key rotation must rewrap encrypted rows in a controlled script.",
     action: "keep-migration-boundary",
+  },
+  {
+    pattern: /^scripts\/sync-v2-benchmark\.js$/,
+    category: "diagnostic",
+    risk: "internal-read",
+    reason:
+      "Sync V2 benchmark reads domain projections and descriptors to compare request and payload costs.",
+    action: "keep-benchmark-boundary",
+  },
+  {
+    pattern: /^scripts\/sync-v2-outbox-admin\.js$/,
+    category: "maintenance",
+    risk: "internal-write",
+    reason:
+      "Outbox DLQ administration lists events by default and requeues only explicitly reviewed sequence IDs with --execute.",
+    action: "keep-audited-maintenance-boundary",
+  },
+  {
+    pattern: /^scripts\/sync-v2-shadow-audit\.js$/,
+    category: "maintenance",
+    risk: "internal-write",
+    reason:
+      "Sync V2 shadow audit is read-only by default and writes only when an operator selects materialize or repair mode.",
+    action: "keep-audited-maintenance-boundary",
+  },
+  {
+    pattern: /^scripts\/verify-security-audit-ledger\.js$/,
+    category: "diagnostic",
+    risk: "internal-read",
+    reason:
+      "Security audit verification reads the append-only ledger and signed checkpoints without mutating audit records or keys.",
+    action: "keep-script-boundary",
   },
 ]);
 

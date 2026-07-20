@@ -1,19 +1,15 @@
 #!/usr/bin/env node
 const path = require("path");
-const fs = require("fs");
 const bcrypt = require("bcryptjs");
-const { PrismaClient } = require("@prisma/client");
+const {
+  assertDatabaseSchema,
+  bootstrapCliRuntime,
+} = require("./lib/runtimeBootstrap");
 
-const serverRoot = path.resolve(__dirname, "..");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(serverRoot, envPath) });
-
-const { storageBaseDir, authDatabaseUrl } = require("../utils/environment");
-const { User } = require("../models/user");
-const { auditSharedAuthIdentity } = require("./audit-shared-auth-identity");
+let auditSharedAuthIdentity;
+let PrismaClient;
+let runtime;
+let User;
 
 const VALID_ENVS = ["development", "production"];
 
@@ -25,6 +21,7 @@ function parseArgs(argv = process.argv.slice(2)) {
     accountIdentifier: null,
     resetPasswordIdentifier: null,
     json: false,
+    execute: false,
   };
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -39,6 +36,10 @@ function parseArgs(argv = process.argv.slice(2)) {
     }
     if (arg === "--json") {
       args.json = true;
+      continue;
+    }
+    if (arg === "--execute") {
+      args.execute = true;
       continue;
     }
     if (arg === "--env") {
@@ -111,7 +112,7 @@ function client(url) {
 }
 
 function envDbPath(envName) {
-  return path.join(storageBaseDir(), envName, "anythingllm.db");
+  return path.join(runtime.storageBase, envName, "anythingllm.db");
 }
 
 function identityWhere(identifier = "") {
@@ -171,10 +172,11 @@ async function openEnvClients(envs = VALID_ENVS) {
   const entries = [];
   for (const envName of envs) {
     const dbPath = envDbPath(envName);
-    if (!fs.existsSync(dbPath)) {
-      entries.push([envName, { db: null, dbPath, missing: true }]);
-      continue;
-    }
+    await assertDatabaseSchema({
+      databasePath: dbPath,
+      requiredTables: ["users", "_prisma_migrations"],
+      label: envName,
+    });
     entries.push([envName, { db: client(sqliteUrl(dbPath)), dbPath }]);
   }
   return Object.fromEntries(entries);
@@ -322,7 +324,7 @@ async function resetPassword({ authDb, envClients, envs, identifier, logger }) {
   }
 
   const password = await promptNewPassword();
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const passwordHash = await bcrypt.hash(password, 10);
   await authDb.users.update({
     where: { id: authUser.id },
     data: { password: passwordHash },
@@ -346,10 +348,28 @@ async function resetPassword({ authDb, envClients, envs, identifier, logger }) {
 
 async function main() {
   const args = parseArgs();
+  const requestedWrite = args.fixLinks || Boolean(args.resetPasswordIdentifier);
+  const applyWrite = requestedWrite && args.execute;
+  runtime = await bootstrapCliRuntime({
+    access: applyWrite ? "write" : "read",
+    execute: args.execute,
+    // This command's --env selects account scopes, so APP_ENV remains the
+    // explicit runtime selector for write operations.
+    argv: args.execute ? ["--execute"] : [],
+    requiredTables: ["users", "_prisma_migrations"],
+  });
+  await assertDatabaseSchema({
+    databasePath: runtime.authDatabasePath,
+    requiredTables: ["users", "auth_sessions", "_prisma_migrations"],
+    label: "auth",
+  });
+  PrismaClient = require("@prisma/client").PrismaClient;
+  User = require("../models/user").User;
+  ({ auditSharedAuthIdentity } = require("./audit-shared-auth-identity"));
   const logger = args.json
     ? { log: () => {}, warn: () => {}, error: console.error }
     : console;
-  const authDb = client(authDatabaseUrl());
+  const authDb = client(sqliteUrl(runtime.authDatabasePath));
   const envClients = await openEnvClients(args.envs);
   const clients = [
     authDb,
@@ -361,7 +381,7 @@ async function main() {
       authDb,
       envClients,
       envs: args.envs,
-      fixLinks: args.fixLinks,
+      fixLinks: applyWrite && args.fixLinks,
       logger,
     });
     const report = await accountReport({
@@ -373,7 +393,12 @@ async function main() {
 
     if (!args.json) logAccountReport(report, logger);
 
-    if (args.resetPasswordIdentifier) {
+    if (args.resetPasswordIdentifier && !applyWrite) {
+      logger.warn(
+        "[maintain-local-auth] password reset requires --execute and explicit APP_ENV."
+      );
+    }
+    if (args.resetPasswordIdentifier && applyWrite) {
       await resetPassword({
         authDb,
         envClients,

@@ -30,7 +30,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ embeds });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -51,7 +51,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ embed, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -69,7 +69,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -89,7 +89,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -111,7 +111,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ chats: embedChats, hasPages, totalChats });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -126,7 +126,7 @@ function embedManagementEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

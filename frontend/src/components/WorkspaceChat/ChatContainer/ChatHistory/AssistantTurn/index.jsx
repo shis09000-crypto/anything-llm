@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { Warning } from "@phosphor-icons/react";
 import Citations from "../Citation";
 import Actions from "../HistoricalMessage/Actions";
@@ -20,6 +20,7 @@ import ToolEvent from "./ToolEvent";
 import { debugChatTurn } from "@/utils/chat/debug";
 import DocumentSourceChips from "@/modules/reader/DocumentSourceChips";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
+import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 
 function AssistantTurn({
   turn,
@@ -38,6 +39,28 @@ function AssistantTurn({
   const { t } = useTranslation();
   const { continueInterruptedAgentTurn, respondToClarification } =
     useChatThreadDrafts();
+  const [fullContent, setFullContent] = useState(null);
+  const [contentLoadState, setContentLoadState] = useState("idle");
+  const displayContent = fullContent ?? turn.finalContent;
+  useEffect(() => {
+    setFullContent(null);
+    setContentLoadState("idle");
+  }, [turn.textRef?.refId]);
+
+  const loadFullContent = async () => {
+    if (!turn.textRef?.contentUrl || contentLoadState === "loading") return;
+    setContentLoadState("loading");
+    try {
+      const { blob } = await requestBlob(turn.textRef.contentUrl, {
+        blobKind: BLOB_KINDS.chatContent,
+        communicationScene: "workspace-chat-content",
+      });
+      setFullContent(await blob.text());
+      setContentLoadState("loaded");
+    } catch {
+      setContentLoadState("failed");
+    }
+  };
   const { isEditing } = useEditMessage({
     chatId: turn.chatId,
     role: "assistant",
@@ -195,7 +218,7 @@ function AssistantTurn({
             role="assistant"
             chatId={turn.chatId}
             publicChatId={turn.publicChatId}
-            message={turn.finalContent}
+            message={displayContent}
             adjustTextArea={adjustTextArea}
             saveChanges={saveEditedMessage}
           />
@@ -208,9 +231,9 @@ function AssistantTurn({
               turnId={turn.turnId}
               className="flex flex-col gap-2 mb-4"
             />
-            {turn.finalContent ? (
+            {displayContent ? (
               <MarkdownOutput
-                content={turn.finalContent}
+                content={displayContent}
                 messageId={turn.id}
                 deferEnhancement={!isLastMessage}
                 onLayoutChange={onContentLayoutChange}
@@ -218,6 +241,20 @@ function AssistantTurn({
             ) : isRunning ? (
               <div className="mt-3 ml-1 dot-falling light:invert" />
             ) : null}
+            {turn.truncated && fullContent === null && (
+              <button
+                type="button"
+                onClick={loadFullContent}
+                disabled={contentLoadState === "loading"}
+                className="mt-3 px-3 py-1.5 rounded-md border border-theme-sidebar-border bg-theme-bg-secondary text-theme-text-primary text-xs disabled:opacity-60"
+              >
+                {contentLoadState === "loading"
+                  ? "Loading full response…"
+                  : contentLoadState === "failed"
+                    ? "Retry full response"
+                    : "Load full response"}
+              </button>
+            )}
             {turn.hydrationStatus === "light" && (
               <div
                 className="mt-3 space-y-2 min-h-[44px]"
@@ -299,10 +336,10 @@ function AssistantTurn({
               slug={workspace?.slug}
               chatId={turn.chatId}
               publicChatId={turn.publicChatId}
-              message={turn.finalContent}
+              message={displayContent}
             />
             <Actions
-              message={turn.finalContent}
+              message={displayContent}
               feedbackScore={turn.feedbackScore}
               chatId={turn.chatId}
               publicChatId={turn.publicChatId}

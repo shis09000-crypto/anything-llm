@@ -14,6 +14,10 @@ const {
   encryptVectorMetadataText,
   encryptVectorText,
 } = require("../../security");
+const {
+  defaultValueForSchemaField,
+  normalizeRowsForSchema,
+} = require("./schema");
 
 const SystemSettings = DataAccessCenter.adminSystem;
 
@@ -28,33 +32,11 @@ class LanceDb extends VectorDatabase {
   }
 
   static normalizeRowsForSchema(data = [], schema = null) {
-    if (!schema?.fields?.length) return data;
-
-    return data.map((row) => {
-      const normalized = { ...row };
-      for (const field of schema.fields) {
-        if (Object.prototype.hasOwnProperty.call(normalized, field.name))
-          continue;
-
-        const defaultValue = LanceDb.defaultValueForSchemaField(field);
-        if (defaultValue === undefined) continue;
-        normalized[field.name] = defaultValue;
-      }
-      return normalized;
-    });
+    return normalizeRowsForSchema(data, schema);
   }
 
   static defaultValueForSchemaField(field = {}) {
-    const type = field.type?.toString?.() || "";
-    if (type === "Utf8" || type === "LargeUtf8") return "";
-    if (
-      type.includes("Int") ||
-      type.includes("Float") ||
-      type.includes("Decimal")
-    )
-      return 0;
-    if (type === "Bool") return false;
-    return undefined;
+    return defaultValueForSchemaField(field);
   }
 
   static docpathForDocument(docId = "", fullFilePath = null, metadata = {}) {

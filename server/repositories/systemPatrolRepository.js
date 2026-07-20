@@ -13,6 +13,7 @@ const SystemPatrolRepository = {
     return {
       $executeRawUnsafe: (...args) => prisma.$executeRawUnsafe(...args),
       $queryRawUnsafe: (...args) => prisma.$queryRawUnsafe(...args),
+      $transaction: (...args) => prisma.$transaction(...args),
       executeRawUnsafe: (...args) => prisma.$executeRawUnsafe(...args),
       queryRawUnsafe: (...args) => prisma.$queryRawUnsafe(...args),
       get document_vectors() {
@@ -20,6 +21,18 @@ const SystemPatrolRepository = {
       },
       get documentIndexStatus() {
         return prisma.documentIndexStatus;
+      },
+      get users() {
+        return prisma.users;
+      },
+      get system_patrol_runs() {
+        return prisma.system_patrol_runs;
+      },
+      get system_patrol_repairs() {
+        return prisma.system_patrol_repairs;
+      },
+      get content_objects() {
+        return prisma.content_objects;
       },
     };
   },

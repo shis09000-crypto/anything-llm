@@ -104,6 +104,21 @@ export default function MemoryBlocksCard() {
   }, []);
 
   useEffect(() => {
+    function refreshVerifiedMemory() {
+      refreshMemoryData();
+    }
+    window.addEventListener(
+      "athena-sync-v2-memory-refresh",
+      refreshVerifiedMemory
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-sync-v2-memory-refresh",
+        refreshVerifiedMemory
+      );
+  }, []);
+
+  useEffect(() => {
     return () => {
       if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
     };
@@ -377,9 +392,9 @@ function MemoryBlockItem({ block, isActive, onOpen }) {
       onClick={() => onOpen(block)}
       onKeyDown={handleKeyDown}
       className={[
-        "group flex min-h-[196px] cursor-pointer flex-col rounded-2xl border border-[#E5E7EB] bg-white p-4 shadow-sm outline-none transition-all duration-200 ease-out focus-visible:-translate-y-0.5 focus-visible:border-violet-200 focus-visible:bg-slate-50/40 focus-visible:shadow-[0_10px_24px_rgba(15,23,42,0.06)] focus-visible:ring-1 focus-visible:ring-violet-100/70 md:hover:-translate-y-0.5 md:hover:border-violet-200 md:hover:bg-slate-50/40 md:hover:shadow-[0_14px_30px_rgba(15,23,42,0.08)]",
+        "motion-hover motion-pressable group flex min-h-[196px] cursor-pointer flex-col rounded-2xl border border-[#E5E7EB] bg-white p-4 shadow-sm outline-none focus-visible:-translate-y-0.5 focus-visible:border-violet-200 focus-visible:bg-slate-50/40 focus-visible:shadow-[0_10px_24px_rgba(15,23,42,0.06)] focus-visible:ring-1 focus-visible:ring-violet-100/70 md:hover:-translate-y-0.5 md:hover:border-violet-200 md:hover:bg-slate-50/40 md:hover:shadow-[0_14px_30px_rgba(15,23,42,0.08)]",
         isActive
-          ? "scale-[0.99] border-violet-200/70 bg-slate-50/40 shadow-[0_10px_24px_rgba(15,23,42,0.06)] ring-1 ring-violet-100/60 duration-[120ms]"
+          ? "scale-[0.99] border-violet-200/70 bg-slate-50/40 shadow-[0_10px_24px_rgba(15,23,42,0.06)] ring-1 ring-violet-100/60"
           : "",
       ].join(" ")}
     >
@@ -387,7 +402,7 @@ function MemoryBlockItem({ block, isActive, onOpen }) {
         <div className="flex min-w-0 items-center gap-2.5">
           <div
             className={[
-              "flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 transition duration-200 group-hover:scale-105 group-hover:ring-2 group-focus-visible:scale-105 group-focus-visible:ring-2",
+              "motion-hover flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 group-hover:scale-105 group-hover:ring-2 group-focus-visible:scale-105 group-focus-visible:ring-2",
               TONE_CLASSES[block.tone],
             ].join(" ")}
           >
@@ -399,7 +414,7 @@ function MemoryBlockItem({ block, isActive, onOpen }) {
             </h3>
           </div>
         </div>
-        <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500 transition duration-200 group-hover:border-violet-200 group-hover:bg-violet-50 group-hover:text-violet-500 group-focus-visible:border-violet-200 group-focus-visible:bg-violet-50 group-focus-visible:text-violet-500">
+        <span className="motion-hover shrink-0 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500 group-hover:border-violet-200 group-hover:bg-violet-50 group-hover:text-violet-500 group-focus-visible:border-violet-200 group-focus-visible:bg-violet-50 group-focus-visible:text-violet-500">
           {block.items.length}
         </span>
       </div>
@@ -444,7 +459,7 @@ function MemoryDetailDrawer({
   return (
     <div
       className={[
-        "fixed inset-0 z-[10000] hidden backdrop-blur-[2px] transition-opacity duration-[280ms] ease-out md:block",
+        "motion-hover fixed inset-0 z-[10000] hidden backdrop-blur-[2px] md:block",
         isOpen ? "bg-slate-950/[0.08] opacity-100" : "bg-slate-950/0 opacity-0",
       ].join(" ")}
       onClick={onClose}
@@ -455,7 +470,7 @@ function MemoryDetailDrawer({
         aria-modal="true"
         aria-labelledby={titleId}
         className={[
-          "absolute bottom-6 right-6 top-6 flex w-[400px] max-w-[calc(100vw-48px)] flex-col rounded-[20px] border border-slate-200/80 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.14)] transition-transform duration-[280ms] ease-out",
+          "motion-panel-switch absolute bottom-6 right-6 top-6 flex w-[400px] max-w-[calc(100vw-48px)] flex-col rounded-[20px] border border-slate-200/80 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.14)]",
           isOpen ? "translate-x-0" : "translate-x-[calc(100%+32px)]",
         ].join(" ")}
         onClick={(event) => event.stopPropagation()}

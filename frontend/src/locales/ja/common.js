@@ -1,5 +1,22 @@
 // Anything with "null" requires a translation. Contribute to translation via a PR!
 const TRANSLATIONS = {
+  syncConflict: {
+    title: "同期の競合",
+    description: "{{count}} 件のローカル変更を確認してください。",
+    sameField: "別のデバイスでも同じフィールドが変更されました。",
+    historyExpired: "バージョン履歴が期限切れのため、完全確認が必要です。",
+    failedMutation: "ローカル変更に失敗しました: {{error}}",
+    useServer: "サーバーの値を使用",
+    keepLocal: "ローカル変更を保持",
+    discardLocal: "ローカル変更を破棄",
+    retry: "再試行",
+    serverApplied: "サーバーの値を復元しました。",
+    localApplied: "ローカル変更を再送信しました。",
+    missingVersion: "最新のサーバーバージョンを取得できません。",
+    failed: "同期の競合を解決できませんでした。",
+    collapse: "折りたたむ",
+    expand: "同期の競合を展開",
+  },
   onboarding: {
     home: {
       getStarted: "はじめる",
@@ -215,19 +232,8 @@ const TRANSLATIONS = {
           "スライダーを 1px 単位で調整します。バックグラウンド同期では最後の値だけを保存します。",
       },
     },
-    previewMarkdown: `### アシスタント回答プレビュー
-
-これは文字サイズ、行間、強調表示の読みやすさを確認するための **Markdown の太字テキスト** です。
-
-- リスト項目は読みやすい間隔を保ちます
-- 日本語と English text を一緒に表示できます
-
-> 引用ブロックは出典の抜粋や推論メモを表示します。
-
-\`\`\`js
-const readable = true;
-\`\`\`
-`,
+    previewMarkdown:
+      "### アシスタント回答プレビュー\n\nこれは文字サイズ、行間、強調表示の読みやすさを確認するための **Markdown の太字テキスト** です。\n\n- リスト項目は読みやすい間隔を保ちます\n- 日本語と English text を一緒に表示できます\n\n> 引用ブロックは出典の抜粋や推論メモを表示します。\n\n```js\nconst readable = true;\n```\n",
   },
   "workspace-health": {
     unavailable: "なし",
@@ -729,6 +735,31 @@ const readable = true;
       wait: "-- モデルを読み込み中 --",
     },
     skill: {
+      cryptoMarket: {
+        title: "暗号資産マーケット",
+        description:
+          "Gate と Binance の公開スポット価格と市場スナップショットを読み取り専用で取得します。個人口座へのアクセスや取引操作は行いません。",
+      },
+      weather: {
+        title: "天気情報",
+        description:
+          "QWeather を使用し、中国の都市名または GPS 座標から現在の天気と 3、7、10、15、30 日予報を取得します。",
+      },
+      globalMarket: {
+        title: "グローバル市場",
+        description:
+          "Juhe、Stooq、Frankfurter から為替、指数、株式、商品、ファンド、ETF の相場を読み取り専用で取得します。",
+      },
+      marketData: {
+        credentials: "プロバイダー認証情報",
+        configured: "設定済み",
+        notConfigured: "設定が必要",
+        qweatherKey: "QWeather API キー",
+        juheStockKey: "Juhe 株式 API キー",
+        juheForexKey: "Juhe 為替 API キー",
+        secretHelp:
+          "認証情報は Athena の現在のデータキーで暗号化して保存されます。既存の値は再表示されず、置き換える場合のみ新しい値を入力します。",
+      },
       rag: {
         title: "RAGと長期記憶",
         description:
@@ -852,6 +883,11 @@ const readable = true;
             description: "基本的なスタイルと書式でWordドキュメントを作成する",
           },
         },
+      },
+      documentFormatting: {
+        title: "DOCX レイアウト最適化",
+        description:
+          "現在のワークスペースにある Word 文書から、レイアウトを整えた新しい DOCX コピーを作成します。安全な場合は画像、表、ヘッダー、フッターを保持し、対応できない文書は警告付きで再構築します。元ファイルは上書きせず、書き込みのたびに確認します。",
       },
       gmail: {
         title: "Gmail 接続",
@@ -1147,6 +1183,7 @@ const readable = true;
           },
         },
       },
+      ingest: {},
     },
     mcp: {
       title: "MCP サーバー",
@@ -1358,6 +1395,10 @@ const readable = true;
       "埋め込みとは、テキストをベクトルに変換するプロセスです。これらの認証情報は、ファイルやプロンプトをAthenaが処理できるフォーマットに変換するために必要です。",
     provider: {
       title: "埋め込みプロバイダー",
+    },
+    "document-mode": {
+      direct: {},
+      batch: {},
     },
   },
   text: {
@@ -1900,6 +1941,7 @@ const readable = true;
       theme: {
         title: "テーマ",
         description: "アプリケーションの希望の色テーマを選択してください。",
+        options: {},
       },
       "show-scrollbar": {
         title: "スクロールバーを表示する",
@@ -1955,6 +1997,14 @@ const readable = true;
         title: "チャットでHTMLをレンダリングする",
         description:
           "アシスタントの回答にHTML形式のレスポンスを生成する。\nこれにより、回答の品質を大幅に向上させることができるが、同時にセキュリティ上のリスクも生じる可能性がある。",
+      },
+      "motion-density": {
+        guide: {},
+        options: {
+          minimal: {},
+          balanced: {},
+          expressive: {},
+        },
       },
     },
   },
@@ -2332,9 +2382,9 @@ const readable = true;
           admin: "管理者",
         },
         expires: {
-          24: "24時間",
-          72: "3日",
-          168: "7日",
+          "24": "24時間",
+          "72": "3日",
+          "168": "7日",
         },
         autoAssignTitle: "招待ユーザーをワークスペースへ自動追加",
         autoAssignDescription:
@@ -2522,6 +2572,42 @@ const readable = true;
       queued: "待ち列",
     },
   },
+  rerank: {
+    providers: {
+      native: {},
+      alibaba: {},
+    },
+  },
+  ocr: {
+    providers: {
+      none: {},
+      alibaba: {},
+    },
+  },
+  "batch-jobs": {
+    table: {},
+    retry: {},
+    graph: {
+      status: {},
+    },
+  },
+  wechat: {
+    enabled: {},
+    qr: {},
+    status: {},
+    profile: {},
+    actions: {},
+    toasts: {},
+    errors: {},
+  },
+  advancedGateway: {
+    enabled: {},
+    notes: {},
+    fields: {},
+    actions: {},
+    toasts: {},
+  },
+  email_verification_errors: {},
 };
 
 export default TRANSLATIONS;

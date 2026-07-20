@@ -33,7 +33,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -60,7 +60,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -82,7 +82,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -104,7 +104,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -125,7 +125,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -146,7 +146,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -168,7 +168,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -190,7 +190,7 @@ function extensionEndpoints(app) {
         response.status(200).json(responseFromProcessor);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

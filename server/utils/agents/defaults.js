@@ -18,6 +18,11 @@ const DEFAULT_SKILLS = [
   AgentPlugins.webScraping.name,
   AgentPlugins.webBrowsing.name,
   AgentPlugins.requestUserInput.name,
+  AgentPlugins.cryptoMarketAgent.name,
+  AgentPlugins.weatherAgent.name,
+  AgentPlugins.globalMarketAgent.name,
+  AgentPlugins.createFilesAgent.name,
+  AgentPlugins.documentFormattingAgent.name,
 ];
 
 /**
@@ -171,11 +176,6 @@ async function agentSkillsFromSystemSettings() {
     ),
     []
   );
-  DEFAULT_SKILLS.forEach((skill) => {
-    if (!_disabledDefaultSkills.includes(skill))
-      pushSkillFunctions(systemFunctions, skill);
-  });
-
   // Load non-imported built-in skills that are configurable.
   const _setting = safeJsonParse(
     await SystemSettings.getValueOrFallback(
@@ -185,10 +185,12 @@ async function agentSkillsFromSystemSettings() {
     []
   );
 
-  // Pre-load disabled sub-skills and availability for configured skills
+  // Pre-load disabled sub-skills and availability for configured and default
+  // skills. This keeps default multi-tool groups subject to their existing
+  // dependency checks and per-sub-skill administrator controls.
   const skillFilterState = {};
   for (const skillName of Object.keys(SKILL_FILTER_CONFIG)) {
-    if (!_setting.includes(skillName)) continue;
+    if (![...DEFAULT_SKILLS, ..._setting].includes(skillName)) continue;
     const config = SKILL_FILTER_CONFIG[skillName];
     skillFilterState[skillName] = {
       available: await config.getAvailability(),
@@ -203,6 +205,11 @@ async function agentSkillsFromSystemSettings() {
         : [],
     };
   }
+
+  DEFAULT_SKILLS.forEach((skill) => {
+    if (!_disabledDefaultSkills.includes(skill))
+      pushSkillFunctions(systemFunctions, skill, skillFilterState[skill]);
+  });
 
   for (const skillName of _setting) {
     if (!AgentPlugins.hasOwnProperty(skillName)) continue;

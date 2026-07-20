@@ -22,7 +22,7 @@ function systemPatrolEndpoints(app) {
       } catch (error) {
         console.error("[SystemPatrol] status", error.message, error);
         return response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: error.message });
       }
     }
@@ -44,7 +44,7 @@ function systemPatrolEndpoints(app) {
       } catch (error) {
         console.error("[SystemPatrol] run", error.message, error);
         return response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: error.message });
       }
     }
@@ -64,7 +64,7 @@ function systemPatrolEndpoints(app) {
       } catch (error) {
         console.error("[SystemPatrol] run detail", error.message, error);
         return response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: error.message });
       }
     }
@@ -81,7 +81,7 @@ function systemPatrolEndpoints(app) {
       } catch (error) {
         console.error("[SystemPatrol] repair preview", error.message, error);
         return response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: error.message });
       }
     }
@@ -101,7 +101,7 @@ function systemPatrolEndpoints(app) {
       } catch (error) {
         console.error("[SystemPatrol] repair confirm", error.message, error);
         return response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: error.message });
       }
     }

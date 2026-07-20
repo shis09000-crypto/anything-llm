@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const { v4 } = require("uuid");
 const prisma = require("../utils/prisma");
 const CMD_REGEX = new RegExp(/[^a-zA-Z0-9_-]/g);
@@ -18,8 +21,7 @@ const SlashCommandPresets = {
       });
       return preset || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("slashCommandsPresets.get", error);
     }
   },
 
@@ -31,8 +33,7 @@ const SlashCommandPresets = {
       });
       return presets;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("slashCommandsPresets.where", error);
     }
   },
 
@@ -64,8 +65,7 @@ const SlashCommandPresets = {
       });
       return preset;
     } catch (error) {
-      console.error("Failed to create preset", error.message);
-      return null;
+      throwModelDataAccessError("slashCommandsPresets.create", error);
     }
   },
 
@@ -83,8 +83,7 @@ const SlashCommandPresets = {
         description: preset.description,
       }));
     } catch (error) {
-      console.error("Failed to get user presets", error.message);
-      return [];
+      throwModelDataAccessError("slashCommandsPresets.getUserPresets", error);
     }
   },
 
@@ -96,8 +95,7 @@ const SlashCommandPresets = {
       });
       return preset;
     } catch (error) {
-      console.error("Failed to update preset", error.message);
-      return null;
+      throwModelDataAccessError("slashCommandsPresets.update", error);
     }
   },
 
@@ -108,8 +106,7 @@ const SlashCommandPresets = {
       });
       return true;
     } catch (error) {
-      console.error("Failed to delete preset", error.message);
-      return false;
+      throwModelDataAccessError("slashCommandsPresets.delete", error);
     }
   },
 };

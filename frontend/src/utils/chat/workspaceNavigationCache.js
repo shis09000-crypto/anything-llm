@@ -1,5 +1,5 @@
-import { recordCommunicationEvent } from "@/lib/communication/communicationMetrics";
-import { workspaceNavigationStore } from "@/utils/serverState/workspaceNavigationStore";
+import { recordCommunicationEvent } from "../../lib/communication/communicationMetrics.js";
+import { workspaceNavigationStore } from "../serverState/workspaceNavigationStore.js";
 
 const inFlightRequests = new Map();
 const resolvedRequests = new Map();

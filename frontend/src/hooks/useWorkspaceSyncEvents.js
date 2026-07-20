@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { getClientIdentity } from "@/lib/communication";
+import { getClientIdentity } from "@/lib/communication/clientIdentity";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { useSyncCenterEvents } from "@/hooks/useSyncCenterEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";

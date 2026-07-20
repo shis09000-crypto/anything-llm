@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import useUser from "@/hooks/useUser";
 import AgentSkillsTab from "./Tabs/AgentSkills";
 import SlashCommandsTab from "./Tabs/SlashCommands";
+import CognitionTab from "./Tabs/Cognition";
 import { canSeeAdmin } from "@/utils/authz";
 
 export const TOOLS_MENU_KEYBOARD_EVENT = "tools-menu-keyboard";
@@ -19,6 +20,11 @@ function getTabs(t, user) {
       key: "slash-commands",
       label: t("chat_window.slash_commands"),
       component: SlashCommandsTab,
+    },
+    {
+      key: "cognition",
+      label: "认知与会议",
+      component: CognitionTab,
     },
   ];
 
@@ -51,6 +57,7 @@ export default function ToolsMenu({
   promptRef,
   centered = false,
   highlightedIndexRef,
+  threadSlug = null,
 }) {
   const { t } = useTranslation();
   const { user } = useUser();
@@ -177,6 +184,7 @@ export default function ToolsMenu({
             highlightedIndex={highlightedIndex}
             registerItemCount={registerItemCount}
             workspace={workspace}
+            threadSlug={threadSlug}
           />
         </div>
       </div>

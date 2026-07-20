@@ -1,6 +1,7 @@
 const { validURL } = require("../utils/url");
 const { scrapeGenericUrl } = require("./convert/generic");
 const { validateURL } = require("../utils/url");
+const { assertSafeDestination } = require("../utils/networkGuard");
 
 /**
  * Process a link and return the text content. This util will save the link as a document
@@ -14,6 +15,7 @@ async function processLink(link, scraperHeaders = {}, metadata = {}) {
   const validatedLink = validateURL(link);
   if (!validURL(validatedLink))
     return { success: false, reason: "Not a valid URL." };
+  await assertSafeDestination(validatedLink);
   return await scrapeGenericUrl({
     link: validatedLink,
     captureAs: "text",
@@ -34,6 +36,7 @@ async function getLinkText(link, captureAs = "text") {
   const validatedLink = validateURL(link);
   if (!validURL(validatedLink))
     return { success: false, reason: "Not a valid URL." };
+  await assertSafeDestination(validatedLink);
   return await scrapeGenericUrl({
     link: validatedLink,
     captureAs,

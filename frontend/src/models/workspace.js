@@ -23,6 +23,72 @@ import { v4 } from "uuid";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
 import { dispatchWorkspacePatchVisual } from "@/utils/workspaceEvents";
+import { submitProjectedSyncMutation } from "@/utils/syncV2/syncV2ProjectedMutation";
+
+const SYNC_V2_WORKSPACE_METADATA_FIELDS = [
+  "name",
+  "chatProvider",
+  "chatModel",
+  "chatMode",
+  "agentProvider",
+  "agentModel",
+  "openAiHistory",
+  "similarityThreshold",
+  "topN",
+  "vectorSearchMode",
+];
+const CHAT_PAYLOAD_HEADERS = { "X-Athena-Chat-Payload-Version": "2" };
+
+function cachedWorkspace(slug) {
+  return (
+    workspaceNavigationCache.getWorkspaceDetail(slug, { allowStale: true }) ||
+    workspaceNavigationCache
+      .getWorkspaces({ allowStale: true })
+      ?.find((workspace) => workspace.slug === slug) ||
+    null
+  );
+}
+
+async function syncV2WorkspaceIndex(options = {}) {
+  if (options.preferSyncV2Cache !== true) return null;
+  try {
+    const { syncV2Runtime } = await import("@/utils/syncV2/syncV2Runtime");
+    const result = await syncV2Runtime.bootstrap({ signal: options.signal });
+    if (!result?.enabled) return null;
+    return workspaceNavigationCache.getWorkspaces({ allowStale: true });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    return null;
+  }
+}
+
+async function updateWorkspaceWithSyncV2(slug, data, options = {}) {
+  const current = cachedWorkspace(slug);
+  if (!Number.isInteger(Number(current?.id))) return null;
+  const submitted = await submitProjectedSyncMutation(
+    {
+      nodeKey: `workspaces/${Number(current.id)}/metadata`,
+      payload: data,
+      allowedFields: SYNC_V2_WORKSPACE_METADATA_FIELDS,
+    },
+    {
+      allowOffline: options.allowOffline !== false,
+      signal: options.signal,
+    }
+  );
+  if (!submitted) return null;
+  const workspace = { ...current, ...data };
+  workspaceNavigationCache.setWorkspaceDetail(slug, workspace);
+  dispatchWorkspacePatchVisual({
+    workspace,
+    source: "workspace-sync-v2-update",
+  });
+  return {
+    workspace,
+    message: null,
+    queued: submitted.result?.queued === true,
+  };
+}
 
 function workspaceTask({
   label,
@@ -144,6 +210,15 @@ const Workspace = {
     };
   },
   update: async function (slug, data = {}, options = {}) {
+    try {
+      const synced = await updateWorkspaceWithSyncV2(slug, data, options);
+      if (synced) return synced;
+    } catch (error) {
+      return {
+        workspace: null,
+        message: error?.message || "Workspace update failed",
+      };
+    }
     const { workspace, message } = await postJson(
       `/workspace/${slug}/update`,
       data,
@@ -221,6 +296,7 @@ const Workspace = {
   chatHistory: async function (slug, options = {}) {
     const history = await getJson(`/workspace/${slug}/chats`, {
       signal: options.signal,
+      headers: CHAT_PAYLOAD_HEADERS,
       communicationScene: "workspace-chat",
       task: options.task,
     })
@@ -235,6 +311,7 @@ const Workspace = {
     const query = historyPageQuery(options);
     const payload = await getJson(`/workspace/${slug}/chats?${query}`, {
       signal: options.signal,
+      headers: CHAT_PAYLOAD_HEADERS,
       communicationScene: "workspace-chat",
       task: options.task,
     })
@@ -252,6 +329,7 @@ const Workspace = {
     const query = historyPageQuery(options);
     const payload = await getJson(`/workspace/${slug}/bootstrap?${query}`, {
       signal: options.signal,
+      headers: CHAT_PAYLOAD_HEADERS,
       communicationScene: "workspace-chat",
       task: options.task,
     })
@@ -277,6 +355,7 @@ const Workspace = {
       { chatIds, publicChatIds },
       {
         signal: options.signal,
+        headers: CHAT_PAYLOAD_HEADERS,
         communicationScene: "workspace-chat",
         task: options.task,
       }
@@ -372,6 +451,8 @@ const Workspace = {
     return result;
   },
   all: async function (options = {}) {
+    const projected = await syncV2WorkspaceIndex(options);
+    if (Array.isArray(projected)) return projected;
     const workspaces = await getJson("/workspaces", {
       signal: options.signal,
       communicationScene: options.communicationScene || "workspace-navigation",

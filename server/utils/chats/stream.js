@@ -46,6 +46,8 @@ const {
 } = require("./saveMemoryTool");
 const { requestChatToolApproval } = require("./toolApproval");
 const { promptForHistory } = require("./displayPrompt");
+const { hydrateIncomingAttachments } = require("../contentObjects/chatPayload");
+const { beginModelExecution } = require("../aiGovernance");
 
 const VALID_CHAT_MODE = ["automatic", "chat", "query"];
 
@@ -171,6 +173,15 @@ async function streamChatWithWorkspace(
   const displayMessage = promptForHistory({
     message,
     displayPrompt: options.displayPrompt,
+  });
+  attachments = await hydrateIncomingAttachments({
+    attachments,
+    scope: {
+      workspaceId: workspace.id,
+      userId: user?.id || null,
+      threadId: thread?.id || null,
+      apiSessionId: null,
+    },
   });
 
   if (Object.keys(VALID_COMMANDS).includes(updatedMessage)) {
@@ -593,80 +604,101 @@ async function streamChatWithWorkspace(
     historyWindow,
     compaction
   );
+  const modelExecution = await beginModelExecution(
+    {
+      ownerType: "workspace",
+      ownerId: String(workspace.id),
+      userId: user?.id || null,
+      workspaceId: workspace.id,
+      taskType: "workspace_chat",
+      provider: workspace?.chatProvider,
+      model: workspace?.chatModel,
+    },
+    { messages, toolCalls: exposeSaveMemoryTool ? 1 : 0 }
+  );
 
   // If streaming is not explicitly enabled for connector
   // we do regular waiting of a response and send a single chunk.
-  if (LLMConnector.streamingEnabled() !== true) {
-    console.log(
-      `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
-    );
-    const { textResponse, metrics: performanceMetrics } =
-      await LLMConnector.getChatCompletion(messages, {
+  try {
+    if (LLMConnector.streamingEnabled() !== true) {
+      console.log(
+        `\x1b[31m[STREAMING DISABLED]\x1b[0m Streaming is not available for ${LLMConnector.constructor.name}. Will use regular chat method.`
+      );
+      const { textResponse, metrics: performanceMetrics } =
+        await LLMConnector.getChatCompletion(messages, {
+          temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
+          user: user,
+          thinking: deepSeekThinkingMode,
+        });
+
+      completeText = textResponse;
+      metrics = withPromptCacheDiagnostics(
+        performanceMetrics,
+        promptCacheDiagnostics
+      );
+      writeResponseChunk(response, {
+        uuid,
+        sources,
+        type: "textResponseChunk",
+        textResponse: completeText,
+        close: true,
+        error: false,
+        metrics,
+      });
+    } else {
+      const stream = await LLMConnector.streamGetChatCompletion(messages, {
         temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
         user: user,
         thinking: deepSeekThinkingMode,
+        ...(exposeSaveMemoryTool
+          ? {
+              tools: saveMemoryToolsForMessage(updatedMessage),
+              toolChoice: "auto",
+            }
+          : {}),
       });
+      completeText = await LLMConnector.handleStream(response, stream, {
+        uuid,
+        sources,
+      });
+      metrics = withPromptCacheDiagnostics(
+        stream.metrics,
+        promptCacheDiagnostics
+      );
+      stream.metrics = metrics;
 
-    completeText = textResponse;
-    metrics = withPromptCacheDiagnostics(
-      performanceMetrics,
-      promptCacheDiagnostics
-    );
-    writeResponseChunk(response, {
-      uuid,
-      sources,
-      type: "textResponseChunk",
-      textResponse: completeText,
-      close: true,
-      error: false,
-      metrics,
-    });
-  } else {
-    const stream = await LLMConnector.streamGetChatCompletion(messages, {
-      temperature: workspace?.openAiTemp ?? LLMConnector.defaultTemp,
-      user: user,
-      thinking: deepSeekThinkingMode,
-      ...(exposeSaveMemoryTool
-        ? {
-            tools: saveMemoryToolsForMessage(updatedMessage),
-            toolChoice: "auto",
-          }
-        : {}),
-    });
-    completeText = await LLMConnector.handleStream(response, stream, {
-      uuid,
-      sources,
-    });
-    metrics = withPromptCacheDiagnostics(
-      stream.metrics,
-      promptCacheDiagnostics
-    );
-    stream.metrics = metrics;
-
-    const saveMemoryToolCall = saveMemoryToolCallFrom(stream.toolCalls);
-    if (saveMemoryToolCall) {
-      try {
-        const toolResult = await handleSaveMemoryToolCall({
-          response,
-          uuid,
-          user,
-          userMessage: updatedMessage,
-          toolCall: saveMemoryToolCall,
-        });
-        completeText = toolResult.textResponse;
-      } catch (error) {
-        completeText = `记忆保存失败：${error.message}`;
-        writeResponseChunk(response, {
-          uuid,
-          type: "toolCallResult",
-          toolName: SAVE_MEMORY_TOOL_NAME,
-          arguments: {},
-          result: { success: false, error: error.message },
-          content: completeText,
-        });
+      const saveMemoryToolCall = saveMemoryToolCallFrom(stream.toolCalls);
+      if (saveMemoryToolCall) {
+        try {
+          const toolResult = await handleSaveMemoryToolCall({
+            response,
+            uuid,
+            user,
+            userMessage: updatedMessage,
+            toolCall: saveMemoryToolCall,
+          });
+          completeText = toolResult.textResponse;
+        } catch (error) {
+          completeText = `记忆保存失败：${error.message}`;
+          writeResponseChunk(response, {
+            uuid,
+            type: "toolCallResult",
+            toolName: SAVE_MEMORY_TOOL_NAME,
+            arguments: {},
+            result: { success: false, error: error.message },
+            content: completeText,
+          });
+        }
       }
     }
+  } catch (error) {
+    await modelExecution.fail(error);
+    throw error;
   }
+  await modelExecution.settle(metrics, {
+    transport: "web-stream",
+    chatMode,
+  });
 
   if (completeText?.length > 0) {
     const { chat } = await WorkspaceChats.new({

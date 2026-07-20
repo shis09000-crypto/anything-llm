@@ -274,9 +274,9 @@ async function ingestUploadedSupplementFile({
   }
   return await processHotdirFile({
     workspace,
-    filename: file.originalname,
+    filename: file.filename || file.originalname,
     userId,
-    metadata,
+    metadata: { ...metadata, title: metadata.title || file.originalname },
   });
 }
 

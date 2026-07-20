@@ -1,0 +1,25 @@
+[
+  {
+    "name": "sort-keys-preserve-null-and-array-order",
+    "input": {
+      "z": null,
+      "a": 1,
+      "items": [3, 1, 2],
+      "nested": { "b": true, "a": "x" }
+    },
+    "canonical": "{\"a\":1,\"items\":[3,1,2],\"nested\":{\"a\":\"x\",\"b\":true},\"z\":null}",
+    "hash": "sha256:c94959a79cdf7c61ebbe5bbb584ca595e025a40280635f51c3dcb269f8af1c6c"
+  },
+  {
+    "name": "exclude-authority-timestamps-and-sensitive-fields",
+    "input": {
+      "id": 7,
+      "updatedAt": "2026-07-17T12:34:56.789Z",
+      "lastSeenAt": "2026-07-17T12:34:56.789Z",
+      "apiKey": "never-hash-me",
+      "profile": { "name": "Athena", "bio": null }
+    },
+    "canonical": "{\"id\":7,\"profile\":{\"bio\":null,\"name\":\"Athena\"}}",
+    "hash": "sha256:b30d0269903d688476fa006d4caf02c2fbc4a8b1283ef43b520c19ce036bab42"
+  }
+]

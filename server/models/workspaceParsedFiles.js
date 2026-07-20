@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { EventLogs } = require("./eventLogs");
 const { Document } = require("./documents");
@@ -5,6 +8,7 @@ const { documentsPath, directUploadsPath } = require("../utils/files");
 const { safeJsonParse } = require("../utils/http");
 const fs = require("fs");
 const path = require("path");
+const { cleanupDocxSources } = require("../utils/documentSources");
 
 const WorkspaceParsedFiles = {
   create: async function ({
@@ -55,8 +59,7 @@ const WorkspaceParsedFiles = {
       });
       return file;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspaceParsedFiles.get", error);
     }
   },
 
@@ -75,20 +78,23 @@ const WorkspaceParsedFiles = {
       });
       return files;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspaceParsedFiles.where", error);
     }
   },
 
   delete: async function (clause = {}) {
     try {
+      const sourceRecords = await prisma.workspace_parsed_files.findMany({
+        where: clause,
+        select: { metadata: true },
+      });
       const result = await prisma.workspace_parsed_files.deleteMany({
         where: clause,
       });
+      if (result.count > 0) cleanupDocxSources(sourceRecords);
       return result.count > 0;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspaceParsedFiles.delete", error);
     }
   },
 

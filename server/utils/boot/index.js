@@ -10,11 +10,28 @@ const markOnboarded = require("./markOnboarded");
 const { PushNotifications } = require("../PushNotifications");
 const { TelegramBotService } = require("../telegramBot");
 const { cleanupOpenClawWeixinLoginChild } = require("../openclawWeixin");
+const MCPHypervisor = require("../MCP/hypervisor");
 const { backgroundInlineEnabled } = require("../runtimeRole");
+const {
+  securityState,
+  waitForSecurityBootstrap,
+} = require("../security/keyRuntimeState");
+const { runtimeCoordinator } = require("../runtimeCoordinator");
+const {
+  _internals: { drainBroadcastEvents },
+} = require("../broadcast");
+const { drainSyncPushQueue } = require("../nativePush/apnsProvider");
 
 let shutdownHooksRegistered = false;
+let backgroundService = null;
 
 function bootBackgroundService() {
+  if (securityState().quarantined) {
+    console.error(
+      "[BackgroundWorkerService] Disabled while key custody is quarantined."
+    );
+    return null;
+  }
   if (!backgroundInlineEnabled()) {
     console.log(
       "\x1b[36m[BackgroundWorkerService]\x1b[0m Inline background workers disabled for this runtime role."
@@ -22,9 +39,64 @@ function bootBackgroundService() {
     return null;
   }
   const service = new BackgroundService();
-  service.boot();
+  backgroundService = service;
   return service;
 }
+
+runtimeCoordinator.register({
+  name: "background-workers",
+  order: 30,
+  stopOrder: 10,
+  start: async () => {
+    const service = bootBackgroundService();
+    if (service) await service.boot();
+  },
+  stop: async () => {
+    if (backgroundService) await backgroundService.stop();
+    backgroundService = null;
+  },
+});
+runtimeCoordinator.register({
+  name: "push-and-bot",
+  order: 40,
+  stopOrder: 15,
+  start: async () => {
+    await PushNotifications.setupPushNotificationService();
+    await TelegramBotService.bootIfActive();
+  },
+  stop: async () => {
+    await new TelegramBotService().stop();
+  },
+});
+runtimeCoordinator.register({
+  name: "external-child-processes",
+  order: 45,
+  stopOrder: 70,
+  stop: async () => {
+    await Promise.all([
+      cleanupOpenClawWeixinLoginChild(),
+      MCPHypervisor._instance?.shutdownMCPServers?.() || Promise.resolve(),
+    ]);
+  },
+});
+runtimeCoordinator.register({
+  name: "telemetry-flush",
+  order: 46,
+  stopOrder: 71,
+  stop: async () => Promise.resolve(Telemetry.flush()),
+});
+runtimeCoordinator.register({
+  name: "broadcast-durable-commits",
+  order: 50,
+  stopOrder: 90,
+  stop: drainBroadcastEvents,
+});
+runtimeCoordinator.register({
+  name: "native-push-drain",
+  order: 51,
+  stopOrder: 95,
+  stop: drainSyncPushQueue,
+});
 
 // TLS 1.3 cipher suites are selected by Node/OpenSSL automatically. The
 // explicit cipher list below constrains TLS 1.2 to modern AEAD suites.
@@ -72,18 +144,9 @@ function bootSSL(app, port = 3001) {
     });
     const server = https.createServer(credentials, app);
 
+    runtimeCoordinator.attachServer(server);
     server
-      .listen(port, async () => {
-        await markOnboarded();
-        await setupTelemetry();
-        new CommunicationKey(true);
-        new EncryptionManager();
-        bootBackgroundService();
-        await eagerLoadContextWindows();
-        await PushNotifications.setupPushNotificationService();
-        await TelegramBotService.bootIfActive();
-        console.log(`Primary server in HTTPS mode listening on port ${port}`);
-      })
+      .listen(port, () => void finishBoot("HTTPS", port))
       .on("error", catchSigTerms);
 
     require("@mintplex-labs/express-ws").default(app, server);
@@ -119,46 +182,50 @@ function bootHTTP(app, port = 3001) {
   if (!app) throw new Error('No "app" defined - crashing!');
   registerShutdownHooks();
 
-  app
-    .listen(port, async () => {
-      await markOnboarded();
-      await setupTelemetry();
-      new CommunicationKey(true);
-      new EncryptionManager();
-      bootBackgroundService();
-      await eagerLoadContextWindows();
-      await PushNotifications.setupPushNotificationService();
-      await TelegramBotService.bootIfActive();
-      console.log(`Primary server in HTTP mode listening on port ${port}`);
-    })
-    .on("error", catchSigTerms);
+  const server = app.listen(port, () => void finishBoot("HTTP", port));
+  runtimeCoordinator.attachServer(server);
+  server.on("error", catchSigTerms);
+  return { app, server };
+}
 
-  return { app, server: null };
+async function finishBoot(mode, port) {
+  try {
+    await waitForSecurityBootstrap();
+    await markOnboarded();
+    await setupTelemetry();
+    new CommunicationKey(true);
+    new EncryptionManager();
+    await eagerLoadContextWindows();
+    await runtimeCoordinator.start();
+    console.log(`Primary server in ${mode} mode listening on port ${port}`);
+  } catch (error) {
+    console.error(`[Runtime] ${mode} startup failed.`, error);
+    process.exitCode = 1;
+    await runtimeCoordinator.shutdown();
+  }
 }
 
 function registerShutdownHooks() {
   if (shutdownHooksRegistered) return;
   shutdownHooksRegistered = true;
 
-  process.once("SIGUSR2", async function () {
-    await cleanupOpenClawWeixinLoginChild();
-    Telemetry.flush();
-    process.kill(process.pid, "SIGUSR2");
-  });
-  process.once("SIGINT", async function () {
-    await cleanupOpenClawWeixinLoginChild();
-    Telemetry.flush();
-    process.kill(process.pid, "SIGINT");
-  });
-  process.once("SIGTERM", async function () {
-    await cleanupOpenClawWeixinLoginChild();
-    Telemetry.flush();
-    process.exit(0);
-  });
+  process.once("SIGUSR2", () => void shutdownForSignal("SIGUSR2"));
+  process.once("SIGINT", () => void shutdownForSignal("SIGINT"));
+  process.once("SIGTERM", () => void shutdownForSignal("SIGTERM"));
 }
 
-function catchSigTerms() {
-  registerShutdownHooks();
+async function shutdownForSignal(signal) {
+  runtimeCoordinator.ready = false;
+  const result = await runtimeCoordinator.shutdown();
+  if (signal === "SIGUSR2") process.kill(process.pid, "SIGUSR2");
+  else process.exit(result.timedOut ? 1 : 0);
+}
+
+function catchSigTerms(error) {
+  runtimeCoordinator.ready = false;
+  console.error("[Runtime] HTTP server error.", error);
+  process.exitCode = 1;
+  void runtimeCoordinator.shutdown().finally(() => process.exit(1));
 }
 
 module.exports = {

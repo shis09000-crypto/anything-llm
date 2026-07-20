@@ -7,6 +7,10 @@ import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClie
 import PreLoader from "@/components/Preloader";
 import { useTranslation } from "react-i18next";
 import Toggle from "@/components/lib/Toggle";
+import SecurityKeys from "@/models/securityKeys";
+import { vaultCryptoSupported } from "@/utils/security/vaultCrypto";
+import { localCacheCryptoSupported } from "@/utils/security/localCacheCrypto";
+import { zkLoginStorageSupported } from "@/utils/zkLoginStorage";
 import {
   USERNAME_MIN_LENGTH,
   USERNAME_MAX_LENGTH,
@@ -24,7 +28,222 @@ export default function GeneralSecurity() {
     <SoftSettingsLayout title={t("security.title")}>
       <MultiUserMode />
       <PasswordProtection />
+      <KeyGovernance />
     </SoftSettingsLayout>
+  );
+}
+
+function KeyGovernance() {
+  const [status, setStatus] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [password, setPassword] = useState("");
+  const [unlocked, setUnlocked] = useState(false);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const result = await SecurityKeys.status();
+      setStatus(result);
+    } catch (error) {
+      setStatus({ success: false, error: error?.message || "状态不可用" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    return () => {
+      void SecurityKeys.close();
+    };
+  }, []);
+
+  const unlock = async () => {
+    setBusy(true);
+    try {
+      const result = await SecurityKeys.unlock(password);
+      if (!result?.success) throw new Error(result?.error || "重新认证失败");
+      setUnlocked(true);
+      setPassword("");
+      showToast("密钥控制会话已解锁 5 分钟。", "success");
+    } catch (error) {
+      showToast(error?.message || "重新认证失败", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runPreflight = async () => {
+    setBusy(true);
+    try {
+      const result = await SecurityKeys.preflight();
+      if (!result?.success)
+        throw new Error(result?.runtime?.reason || result?.error);
+      showToast("密钥预检通过。", "success");
+      await refresh();
+    } catch (error) {
+      showToast(error?.message || "密钥预检失败", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const prepareRotation = async () => {
+    if (
+      !window.confirm(
+        "将创建一把 pending 密钥和持久轮换任务，但不会立即激活。继续吗？"
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await SecurityKeys.prepareRotation();
+      if (!result?.success) throw new Error(result?.reason || result?.error);
+      showToast("轮换任务已安全准备，旧密钥仍保持 active。", "success");
+      await refresh();
+    } catch (error) {
+      showToast(error?.message || "无法准备轮换任务", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runtime = status?.runtime;
+  const provider = status?.provider;
+  const active = status?.registry?.find((item) => item.status === "active");
+  const clientHealth = [
+    ["Vault", vaultCryptoSupported()],
+    ["设备签名", Boolean(globalThis.crypto?.subtle && globalThis.indexedDB)],
+    ["ZK 登录", zkLoginStorageSupported()],
+    ["本地缓存", localCacheCryptoSupported()],
+  ];
+
+  return (
+    <SoftCard
+      title="安全与密钥中心"
+      description="统一展示密钥托管、Canary、数据域预检和客户端密钥能力；原始密钥不会进入浏览器。"
+      actions={
+        <SoftButton type="button" onClick={refresh} disabled={loading || busy}>
+          刷新
+        </SoftButton>
+      }
+    >
+      {loading ? (
+        <PreLoader />
+      ) : (
+        <div className="space-y-4 text-sm text-[var(--soft-text-primary)]">
+          <div className="grid gap-3 md:grid-cols-3">
+            <KeyState
+              label="运行状态"
+              value={runtime?.status || status?.error || "unknown"}
+              bad={runtime?.quarantined}
+            />
+            <KeyState
+              label="Provider"
+              value={provider?.providerType || "unavailable"}
+              bad={!provider?.ok}
+            />
+            <KeyState
+              label="Active Key"
+              value={active?.keyId || provider?.keyId || "unregistered"}
+            />
+          </div>
+
+          {runtime?.reason && (
+            <div className="rounded-lg border border-red-400/30 bg-red-400/10 p-3 text-red-100">
+              隔离原因：{runtime.reason}
+            </div>
+          )}
+
+          <div>
+            <p className="mb-2 font-semibold">数据域验证</p>
+            <div className="grid gap-2 md:grid-cols-2">
+              {(status?.bindings || []).map((binding) => (
+                <div
+                  key={binding.domain}
+                  className="flex justify-between rounded-lg bg-white/5 px-3 py-2"
+                >
+                  <span>{binding.domain}</span>
+                  <span
+                    className={
+                      binding.coverageState === "failed"
+                        ? "text-red-300"
+                        : "text-emerald-300"
+                    }
+                  >
+                    {binding.coverageState}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 font-semibold">浏览器密钥能力</p>
+            <div className="flex flex-wrap gap-2">
+              {clientHealth.map(([label, ready]) => (
+                <span
+                  key={label}
+                  className={`rounded-full px-3 py-1 ${ready ? "bg-emerald-400/10 text-emerald-200" : "bg-amber-400/10 text-amber-200"}`}
+                >
+                  {label}: {ready ? "ready" : "unavailable"}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {!unlocked ? (
+            <div className="flex max-w-xl items-end gap-2">
+              <label className="flex-1">
+                <span className="mb-2 block text-xs text-[var(--soft-text-secondary)]">
+                  当前管理员密码
+                </span>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  autoComplete="current-password"
+                  className="w-full rounded-lg border border-white/10 bg-theme-settings-input-bg p-2.5 outline-none"
+                />
+              </label>
+              <SoftButton
+                type="button"
+                disabled={busy || !password}
+                onClick={unlock}
+              >
+                解锁控制
+              </SoftButton>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <SoftButton type="button" disabled={busy} onClick={runPreflight}>
+                执行预检
+              </SoftButton>
+              <SoftButton
+                type="button"
+                disabled={busy || runtime?.quarantined}
+                onClick={prepareRotation}
+              >
+                准备轮换
+              </SoftButton>
+            </div>
+          )}
+        </div>
+      )}
+    </SoftCard>
+  );
+}
+
+function KeyState({ label, value, bad = false }) {
+  return (
+    <div
+      className={`rounded-lg border p-3 ${bad ? "border-red-400/30 bg-red-400/10" : "border-white/10 bg-white/5"}`}
+    >
+      <p className="text-xs text-[var(--soft-text-secondary)]">{label}</p>
+      <p className="mt-1 break-all font-mono text-xs">{value}</p>
+    </div>
   );
 }
 

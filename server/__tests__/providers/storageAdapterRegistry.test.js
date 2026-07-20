@@ -10,17 +10,20 @@ const {
 } = require("../../providers/storage/storageAdapterRegistry");
 
 describe("StorageAdapterRegistry", () => {
-  test("exposes active file/vector/secret adapters and reserved future adapters", () => {
+  test("exposes active storage adapters and only genuinely future adapters as reserved", () => {
     const summary = StorageAdapterRegistry.summary();
 
     expect(summary.active).toHaveProperty("file");
     expect(summary.active).toHaveProperty("vector");
     expect(summary.active).toHaveProperty("secret");
+    expect(summary.active.objectStorage).toMatchObject({
+      providerType: "object-storage",
+    });
     expect(summary.reserved).toMatchObject({
       postgres: { status: "reserved" },
-      objectStorage: { status: "reserved" },
       redis: { status: "reserved" },
     });
+    expect(summary.reserved).not.toHaveProperty("objectStorage");
   });
 
   test("secret adapter does not reveal plaintext without explicit allow", () => {

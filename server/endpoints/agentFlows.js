@@ -44,7 +44,7 @@ function agentFlowEndpoints(app) {
         });
       } catch (error) {
         console.error("Error saving flow:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -65,7 +65,7 @@ function agentFlowEndpoints(app) {
         });
       } catch (error) {
         console.error("Error listing flows:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -94,7 +94,7 @@ function agentFlowEndpoints(app) {
         });
       } catch (error) {
         console.error("Error getting flow:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -157,7 +157,7 @@ function agentFlowEndpoints(app) {
         });
       } catch (error) {
         console.error("Error deleting flow:", error);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });
@@ -193,7 +193,9 @@ function agentFlowEndpoints(app) {
         return response.json({ success: true, flow });
       } catch (error) {
         console.error("Error toggling flow:", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

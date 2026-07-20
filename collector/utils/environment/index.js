@@ -8,7 +8,9 @@ const STORAGE_APPLIED_ENV = "ANYTHINGLLM_ENV_STORAGE_APPLIED";
 function appEnvironment() {
   const fallback =
     process.env.NODE_ENV === "production" ? "production" : "development";
-  const value = String(process.env.APP_ENV || fallback).trim().toLowerCase();
+  const value = String(process.env.APP_ENV || fallback)
+    .trim()
+    .toLowerCase();
   if (!VALID_APP_ENVS.has(value)) {
     throw new Error(
       `Invalid APP_ENV "${process.env.APP_ENV}". Expected production or development.`

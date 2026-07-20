@@ -92,7 +92,9 @@ function agentFileServerEndpoints(app) {
         return;
       } catch (error) {
         console.error("[agentFileServer] Download error:", error.message);
-        return response.status(500).json({ error: "Failed to download file" });
+        return response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to download file" });
       }
     }
   );

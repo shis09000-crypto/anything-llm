@@ -7,6 +7,7 @@ import CreateFileSkillPanel from "./CreateFileSkillPanel";
 import GMailSkillPanel from "./GMailSkillPanel";
 import GoogleCalendarSkillPanel from "./GoogleCalendarSkillPanel";
 import OutlookSkillPanel from "./OutlookSkillPanel";
+import MarketDataSkillPanel from "./MarketDataSkillPanel";
 import {
   Brain,
   File,
@@ -17,6 +18,10 @@ import {
   Terminal,
   ListChecks,
   ChatCircleDots,
+  CurrencyBtc,
+  CloudSun,
+  GlobeHemisphereWest,
+  FileDoc,
 } from "@phosphor-icons/react";
 import RAGImage from "@/media/agents/rag-memory.png";
 import SummarizeImage from "@/media/agents/view-summarize.png";
@@ -40,7 +45,9 @@ export function isSearchModelConfigured(settings = {}) {
 }
 
 export function configurableAgentSkillsFromSettings(agentSkills = []) {
-  return (agentSkills || []).filter((skill) => skill !== WEB_BROWSING_SKILL);
+  return (agentSkills || []).filter(
+    (skill) => skill !== WEB_BROWSING_SKILL && skill !== "create-files-agent"
+  );
 }
 
 export function isDefaultAgentSkillEnabled(
@@ -58,6 +65,49 @@ export function isDefaultAgentSkillEnabled(
 }
 
 export const getDefaultSkills = (t) => ({
+  "create-files-agent": {
+    title: t("agent.skill.createFiles.title"),
+    description: t("agent.skill.createFiles.description"),
+    component: CreateFileSkillPanel,
+    skill: "create-files-agent",
+    icon: FilePlus,
+    image: GenerateSaveImages,
+  },
+  "document-formatting-agent": {
+    title: t("agent.skill.documentFormatting.title"),
+    description: t("agent.skill.documentFormatting.description"),
+    component: DefaultSkillPanel,
+    skill: "document-formatting-agent",
+    icon: FileDoc,
+    image: GenerateSaveImages,
+  },
+  "crypto-market-agent": {
+    title: t("agent.skill.cryptoMarket.title"),
+    description: t("agent.skill.cryptoMarket.description"),
+    component: MarketDataSkillPanel,
+    icon: CurrencyBtc,
+    image: GenerateChartsImage,
+    skill: "crypto-market-agent",
+    configKind: "crypto",
+  },
+  "weather-agent": {
+    title: t("agent.skill.weather.title"),
+    description: t("agent.skill.weather.description"),
+    component: MarketDataSkillPanel,
+    icon: CloudSun,
+    image: ScrapeWebsitesImage,
+    skill: "weather-agent",
+    configKind: "weather",
+  },
+  "global-market-agent": {
+    title: t("agent.skill.globalMarket.title"),
+    description: t("agent.skill.globalMarket.description"),
+    component: MarketDataSkillPanel,
+    icon: GlobeHemisphereWest,
+    image: GenerateChartsImage,
+    skill: "global-market-agent",
+    configKind: "global",
+  },
   "rag-memory": {
     title: `Search: ${t("agent.skill.rag.title")}`,
     description: t("agent.skill.rag.description"),
@@ -119,7 +169,7 @@ export const getDefaultSkills = (t) => ({
 
 export const getConfigurableSkills = (
   t,
-  { fileSystemAgentAvailable = true, createFilesAgentAvailable = true } = {}
+  { fileSystemAgentAvailable = true } = {}
 ) => ({
   ...(fileSystemAgentAvailable && {
     "filesystem-agent": {
@@ -129,16 +179,6 @@ export const getConfigurableSkills = (
       skill: "filesystem-agent",
       icon: FolderOpen,
       image: FileSystemImage,
-    },
-  }),
-  ...(createFilesAgentAvailable && {
-    "create-files-agent": {
-      title: t("agent.skill.createFiles.title"),
-      description: t("agent.skill.createFiles.description"),
-      component: CreateFileSkillPanel,
-      skill: "create-files-agent",
-      icon: FilePlus,
-      image: GenerateSaveImages,
     },
   }),
   "create-chart": {

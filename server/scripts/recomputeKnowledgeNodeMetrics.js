@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+let prisma;
 
 function parseArgs(argv = []) {
   const args = {};
@@ -23,6 +21,31 @@ function parseArgs(argv = []) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
+  const execute = args.execute === true;
+  await bootstrapCliRuntime({
+    access: execute ? "write" : "read",
+    execute,
+    requiredTables: ["workspaces", "KnowledgeNode", "KnowledgeNodeMetrics"],
+  });
+  if (!execute) {
+    console.log(
+      JSON.stringify(
+        {
+          mode: "dry-run",
+          action: "knowledge-node-metrics-recompute",
+          workspace: args.workspace || null,
+          all: args.all === true,
+          node: args.node || null,
+          instruction:
+            "Repeat with explicit APP_ENV or --env plus --execute to mutate.",
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  prisma = require("../utils/prisma");
   const { DataAccessCenter } = require("../utils/dataAccess");
   const Workspace = DataAccessCenter.workspace;
   const KnowledgeGraph = DataAccessCenter.knowledgeGraph.model;
@@ -94,6 +117,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    const prisma = require("../utils/prisma");
-    await prisma.$disconnect().catch(() => {});
+    await prisma?.$disconnect().catch(() => {});
   });

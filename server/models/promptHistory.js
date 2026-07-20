@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 
 const PromptHistory = {
@@ -47,8 +50,7 @@ const PromptHistory = {
       });
       return history;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("promptHistory.forWorkspace", error);
     }
   },
 
@@ -70,8 +72,7 @@ const PromptHistory = {
       });
       return history || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("promptHistory.get", error);
     }
   },
 
@@ -80,8 +81,7 @@ const PromptHistory = {
       await prisma.prompt_history.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("promptHistory.delete", error);
     }
   },
 

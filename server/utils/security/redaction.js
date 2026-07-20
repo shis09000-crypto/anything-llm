@@ -2,7 +2,7 @@ const crypto = require("crypto");
 const path = require("path");
 
 const SENSITIVE_HEADER_PATTERN =
-  /(^|[-_])(authorization|cookie|token|secret|signature|api[-_]?key|apikey|key)([-_]|$)/i;
+  /(authorization|cookie|token|secret|signature|api[-_]?key|apikey|password|passwd|credential|private[-_]?key|encryption[-_]?key|signing[-_]?key|master[-_]?key|recovery[-_]?key|(^|[-_])key([-_]|$))/i;
 const PATH_LIKE_PATTERN = /path|filepath|localpath|absolutepath/i;
 const TITLE_LIKE_PATTERN = /title|documenttitle|booktitle/i;
 const FILENAME_LIKE_PATTERN = /filename|originalname|basename|file/i;

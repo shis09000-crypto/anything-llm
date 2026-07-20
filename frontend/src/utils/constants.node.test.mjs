@@ -12,7 +12,9 @@ async function loadConstants({ apiBase, pageUrl, dev = true } = {}) {
   };
 
   const transformed = source
+    .replaceAll("import.meta.env?.VITE_API_BASE", JSON.stringify(apiBase ?? ""))
     .replaceAll("import.meta.env.VITE_API_BASE", JSON.stringify(apiBase ?? ""))
+    .replaceAll("import.meta.env?.DEV", String(dev))
     .replaceAll("import.meta.env.DEV", String(dev));
 
   return import(

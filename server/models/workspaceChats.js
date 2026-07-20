@@ -5,13 +5,106 @@ const {
   withDeepSeekCacheDiagnosis,
 } = require("../utils/AiProviders/deepseek/promptCache");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 const {
+  appendChatCryptoMetadataForRows,
   decryptWorkspaceChatRecordAsync,
   decryptWorkspaceChatRecordsAsync,
   encryptWorkspaceChatFieldAsync,
-  rebuildChatCryptoChainForScope,
+  rebuildChatCryptoChainFromChatId,
   scopeFromChat,
 } = require("../utils/security/chatHistoryEncryption");
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
+const { ContentObject } = require("./contentObject");
+const {
+  hydrateChatPayload,
+  hydrateChatPayloads,
+  prepareChatPayload,
+} = require("../utils/contentObjects/chatPayload");
+const {
+  contentObjectWritesEnabled,
+} = require("../utils/contentObjects/policy");
+
+async function hydrateWorkspaceChatRelations(client, chats = []) {
+  if (!Array.isArray(chats) || chats.length === 0) return [];
+  const workspaceIds = [
+    ...new Set(
+      chats
+        .map((chat) => Number(chat.workspaceId))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+  const userIds = [
+    ...new Set(
+      chats
+        .map((chat) => Number(chat.user_id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    ),
+  ];
+  const [workspaces, users] = await Promise.all([
+    workspaceIds.length
+      ? client.workspaces.findMany({
+          where: { id: { in: workspaceIds } },
+          select: { id: true, name: true, slug: true },
+        })
+      : [],
+    userIds.length
+      ? client.users.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, username: true },
+        })
+      : [],
+  ]);
+  const workspaceById = new Map(
+    workspaces.map((workspace) => [Number(workspace.id), workspace])
+  );
+  const userById = new Map(users.map((user) => [Number(user.id), user]));
+
+  return chats.map((chat) => {
+    const workspace = workspaceById.get(Number(chat.workspaceId));
+    const user = chat.user_id
+      ? userById.get(Number(chat.user_id)) || null
+      : null;
+    return {
+      ...chat,
+      workspace: workspace
+        ? { name: workspace.name, slug: workspace.slug }
+        : { name: "deleted workspace", slug: null },
+      user: user
+        ? { username: user.username }
+        : {
+            username: chat.api_session_id !== null ? "API" : "unknown user",
+          },
+    };
+  });
+}
+
+function chatScopeKey(scope = {}) {
+  return JSON.stringify({
+    workspaceId: Number(scope.workspaceId),
+    userId: scope.userId == null ? null : Number(scope.userId),
+    threadId: scope.threadId == null ? null : Number(scope.threadId),
+    apiSessionId:
+      scope.apiSessionId == null ? null : String(scope.apiSessionId),
+  });
+}
+
+async function decryptAndHydrateRecord(chat, options = {}) {
+  return hydrateChatPayload(
+    await decryptWorkspaceChatRecordAsync(chat),
+    options
+  );
+}
+
+async function decryptAndHydrateRecords(chats = [], options = {}) {
+  return hydrateChatPayloads(
+    await decryptWorkspaceChatRecordsAsync(chats),
+    options
+  );
+}
 
 function safeParseResponse(response = null) {
   if (!response) return {};
@@ -116,6 +209,7 @@ const WorkspaceChats = {
     include = true,
     apiSessionId = null,
     clientTurnId = null,
+    sourceChannel = "web",
   }) {
     try {
       const normalizedClientTurnId = String(clientTurnId || "").trim() || null;
@@ -134,7 +228,9 @@ const WorkspaceChats = {
         });
         if (existing) {
           return {
-            chat: await decryptWorkspaceChatRecordAsync(existing),
+            chat: await decryptAndHydrateRecord(existing, {
+              attachmentMode: "reference",
+            }),
             message: null,
             replayed: true,
           };
@@ -152,23 +248,86 @@ const WorkspaceChats = {
         threadId,
         apiSessionId,
       };
-      const chat = await prisma.workspace_chats.create({
-        data: {
-          public_id: newPublicChatId(),
-          clientTurnId: normalizedClientTurnId,
-          workspaceId,
-          prompt: await encryptWorkspaceChatFieldAsync(prompt, scope),
-          response: await encryptWorkspaceChatFieldAsync(
-            safeJSONStringify(response),
-            scope
-          ),
-          user_id: user?.id || null,
-          thread_id: threadId,
-          api_session_id: apiSessionId,
-          include,
-        },
+      const workspace = contentObjectWritesEnabled()
+        ? await prisma.workspaces.findUnique({
+            where: { id: Number(workspaceId) },
+            select: { slug: true },
+          })
+        : null;
+      const preparedPayload = await prepareChatPayload({
+        response,
+        scope,
+        workspaceSlug: workspace?.slug || String(workspaceId),
       });
-      await rebuildChatCryptoChainForScope(scope);
+      const chatData = {
+        public_id: newPublicChatId(),
+        clientTurnId: normalizedClientTurnId,
+        workspaceId,
+        prompt: await encryptWorkspaceChatFieldAsync(prompt, scope),
+        response: await encryptWorkspaceChatFieldAsync(
+          safeJSONStringify(preparedPayload.response),
+          scope
+        ),
+        user_id: user?.id || null,
+        thread_id: threadId,
+        api_session_id: apiSessionId,
+        created_from: sourceChannel,
+        include,
+        payloadVersion: preparedPayload.payloadVersion,
+      };
+      const syncReady =
+        threadId &&
+        include &&
+        !apiSessionId &&
+        SyncV2.enabled("chat") &&
+        (await SyncV2.schemaReady());
+      const chat = await prisma.$transaction(async (tx) => {
+        const created = await tx.workspace_chats.create({ data: chatData });
+        if (syncReady) {
+          const thread = await tx.workspace_threads.update({
+            where: { id: Number(threadId) },
+            data: { historyRevision: { increment: 1 } },
+          });
+          const audience = thread.user_id
+            ? [Number(thread.user_id)]
+            : (
+                await tx.workspace_users.findMany({
+                  where: { workspace_id: Number(workspaceId) },
+                  select: { user_id: true },
+                })
+              ).map((row) => Number(row.user_id));
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.threadMessages(threadId),
+            content: {
+              threadId: Number(threadId),
+              historyRevision: thread.historyRevision,
+              latestChatId: created.id,
+              latestPublicChatId: created.public_id,
+            },
+            eventType: "message.appended",
+            changedPaths: [`messages.${created.id}`],
+            payloadHint: {
+              operation: "append",
+              messageId: created.id,
+              publicMessageId: created.public_id,
+              messageVersion: created.messageVersion,
+              historyRevision: thread.historyRevision,
+            },
+            originClientId: null,
+            mutationId: normalizedClientTurnId,
+            audience,
+          });
+        }
+        await ContentObject.attachToChat(tx, {
+          chatId: created.id,
+          attachments: preparedPayload.attachments,
+          contentRefs: preparedPayload.contentRefs,
+        });
+        await appendChatCryptoMetadataForRows([created], scope, {
+          client: tx,
+        });
+        return created;
+      });
       if (threadId && include && !apiSessionId) {
         const {
           maybeEnqueueTitleGenerationAfterChat,
@@ -183,8 +342,35 @@ const WorkspaceChats = {
           console.warn("[ThreadTitle] failed to schedule", error.message)
         );
       }
+      const persistedChat = await hydrateChatPayload(
+        await decryptWorkspaceChatRecordAsync(chat),
+        { attachmentMode: "reference" }
+      );
+      try {
+        if (process.env.NODE_ENV === "test")
+          return {
+            chat: persistedChat,
+            message: null,
+            replayed: false,
+          };
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        WorkspaceCognition.enqueueFinalizedTurn({
+          chat: persistedChat,
+          sourceChannel,
+        }).catch((error) =>
+          console.warn(
+            "[WorkspaceCognition] failed to enqueue finalized turn",
+            error.message
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[WorkspaceCognition] failed to schedule extraction",
+          error.message
+        );
+      }
       return {
-        chat: await decryptWorkspaceChatRecordAsync(chat),
+        chat: persistedChat,
         message: null,
         replayed: false,
       };
@@ -201,7 +387,9 @@ const WorkspaceChats = {
         });
         if (existing) {
           return {
-            chat: await decryptWorkspaceChatRecordAsync(existing),
+            chat: await decryptAndHydrateRecord(existing, {
+              attachmentMode: "reference",
+            }),
             message: null,
             replayed: true,
           };
@@ -216,7 +404,8 @@ const WorkspaceChats = {
     workspaceId = null,
     userId = null,
     limit = null,
-    orderBy = null
+    orderBy = null,
+    options = {}
   ) {
     if (!workspaceId || !userId) return [];
     try {
@@ -231,10 +420,9 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return await decryptWorkspaceChatRecordsAsync(chats);
+      return await decryptAndHydrateRecords(chats, options);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspaceChats.forWorkspaceByUser", error);
     }
   },
 
@@ -242,7 +430,8 @@ const WorkspaceChats = {
     workspaceId = null,
     apiSessionId = null,
     limit = null,
-    orderBy = null
+    orderBy = null,
+    options = {}
   ) {
     if (!workspaceId || !apiSessionId) return [];
     try {
@@ -256,17 +445,20 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return await decryptWorkspaceChatRecordsAsync(chats);
+      return await decryptAndHydrateRecords(chats, options);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError(
+        "workspaceChats.forWorkspaceByApiSessionId",
+        error
+      );
     }
   },
 
   forWorkspace: async function (
     workspaceId = null,
     limit = null,
-    orderBy = null
+    orderBy = null,
+    options = {}
   ) {
     if (!workspaceId) return [];
     try {
@@ -280,10 +472,9 @@ const WorkspaceChats = {
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : { orderBy: { id: "asc" } }),
       });
-      return await decryptWorkspaceChatRecordsAsync(chats);
+      return await decryptAndHydrateRecords(chats, options);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspaceChats.forWorkspace", error);
     }
   },
 
@@ -357,29 +548,153 @@ const WorkspaceChats = {
     }
   },
 
-  get: async function (clause = {}, limit = null, orderBy = null) {
+  get: async function (
+    clause = {},
+    limit = null,
+    orderBy = null,
+    options = {}
+  ) {
     try {
       const chat = await prisma.workspace_chats.findFirst({
         where: clause,
         ...(limit !== null ? { take: limit } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return await decryptWorkspaceChatRecordAsync(chat || null);
+      return await decryptAndHydrateRecord(chat || null, options);
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspaceChats.get", error);
     }
   },
 
   delete: async function (clause = {}) {
     try {
-      await prisma.workspace_chats.deleteMany({
+      const chats = await prisma.workspace_chats.findMany({
         where: clause,
+        select: {
+          id: true,
+          workspaceId: true,
+          user_id: true,
+          thread_id: true,
+          api_session_id: true,
+        },
       });
+      try {
+        const byWorkspace = new Map();
+        for (const chat of chats) {
+          if (!byWorkspace.has(chat.workspaceId))
+            byWorkspace.set(chat.workspaceId, []);
+          byWorkspace.get(chat.workspaceId).push(chat.id);
+        }
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        await Promise.all(
+          [...byWorkspace.entries()].map(([workspaceId, chatIds]) =>
+            WorkspaceCognition.cancelBufferedChats(
+              workspaceId,
+              chatIds,
+              "chat_deleted"
+            )
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[WorkspaceCognition] failed to cancel deleted chat buffers",
+          error.message
+        );
+      }
+      await prisma.$transaction(async (tx) => {
+        const affectedChats = await tx.workspace_chats.findMany({
+          where: clause,
+          select: {
+            id: true,
+            workspaceId: true,
+            user_id: true,
+            thread_id: true,
+            api_session_id: true,
+          },
+        });
+        const affectedChatIds = affectedChats.map((chat) => Number(chat.id));
+        const [attachmentRefs, contentRefs] = affectedChatIds.length
+          ? await Promise.all([
+              tx.workspace_chat_attachment_refs.findMany({
+                where: { chatId: { in: affectedChatIds } },
+                select: { contentObjectId: true },
+              }),
+              tx.workspace_chat_content_refs.findMany({
+                where: { chatId: { in: affectedChatIds } },
+                select: { contentObjectId: true },
+              }),
+            ])
+          : [[], []];
+        await tx.workspace_chats.deleteMany({ where: clause });
+        const released = new Map();
+        for (const ref of [...attachmentRefs, ...contentRefs]) {
+          released.set(
+            ref.contentObjectId,
+            Number(released.get(ref.contentObjectId) || 0) + 1
+          );
+        }
+        for (const [contentObjectId, count] of released.entries()) {
+          const object = await tx.content_objects.update({
+            where: { id: contentObjectId },
+            data: { refCount: { decrement: count } },
+          });
+          if (Number(object.refCount) <= 0) {
+            await tx.content_objects.update({
+              where: { id: contentObjectId },
+              data: {
+                refCount: 0,
+                state: "delete_pending",
+                deleteAfter: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              },
+            });
+          }
+        }
+        const affectedScopes = new Map();
+        for (const chat of affectedChats) {
+          const scope = scopeFromChat(chat);
+          const key = chatScopeKey(scope);
+          const current = affectedScopes.get(key);
+          if (!current || Number(chat.id) < current.startChatId) {
+            affectedScopes.set(key, {
+              scope,
+              startChatId: Number(chat.id),
+            });
+          }
+        }
+        for (const affected of affectedScopes.values()) {
+          await rebuildChatCryptoChainFromChatId(
+            affected.scope,
+            affected.startChatId,
+            { client: tx }
+          );
+        }
+      });
+      try {
+        const byWorkspace = new Map();
+        for (const chat of chats) {
+          if (!byWorkspace.has(chat.workspaceId))
+            byWorkspace.set(chat.workspaceId, []);
+          byWorkspace.get(chat.workspaceId).push(chat.id);
+        }
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        await Promise.all(
+          [...byWorkspace.entries()].map(([workspaceId, chatIds]) =>
+            WorkspaceCognition.markChatEvidenceStale(
+              workspaceId,
+              chatIds,
+              "source_chat_deleted"
+            )
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[WorkspaceCognition] failed to stale deleted chat evidence",
+          error.message
+        );
+      }
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspaceChats.delete", error);
     }
   },
 
@@ -387,7 +702,8 @@ const WorkspaceChats = {
     clause = {},
     limit = null,
     orderBy = null,
-    offset = null
+    offset = null,
+    options = {}
   ) {
     try {
       const chats = await prisma.workspace_chats.findMany({
@@ -396,10 +712,11 @@ const WorkspaceChats = {
         ...(offset !== null ? { skip: offset } : {}),
         ...(orderBy !== null ? { orderBy } : {}),
       });
-      return await decryptWorkspaceChatRecordsAsync(chats);
+      return await decryptAndHydrateRecords(chats, options);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("WorkspaceChats.where", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -429,8 +746,9 @@ const WorkspaceChats = {
       });
       return chats;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("WorkspaceChats.whereMetadata", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -441,8 +759,9 @@ const WorkspaceChats = {
       });
       return count;
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("WorkspaceChats.count", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -452,28 +771,13 @@ const WorkspaceChats = {
     offset = null,
     orderBy = null
   ) {
-    const { Workspace } = require("./workspace");
-    const { User } = require("./user");
-
     try {
       const results = await this.where(clause, limit, orderBy, offset);
-
-      for (const res of results) {
-        const workspace = await Workspace.get({ id: res.workspaceId });
-        res.workspace = workspace
-          ? { name: workspace.name, slug: workspace.slug }
-          : { name: "deleted workspace", slug: null };
-
-        const user = res.user_id ? await User.get({ id: res.user_id }) : null;
-        res.user = user
-          ? { username: user.username }
-          : { username: res.api_session_id !== null ? "API" : "unknown user" };
-      }
-
-      return results;
+      return await hydrateWorkspaceChatRelations(prisma, results);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("WorkspaceChats.whereWithData", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
   updateFeedbackScore: async function (chatId = null, feedbackScore = null) {
@@ -522,22 +826,102 @@ const WorkspaceChats = {
           scope
         );
       }
-      await prisma.workspace_chats.update({
-        where: { id },
-        data: payload,
-      });
-      if (contentUpdated) await rebuildChatCryptoChainForScope(scope);
+      const syncReady =
+        contentUpdated &&
+        existing.thread_id &&
+        existing.include &&
+        !existing.api_session_id &&
+        SyncV2.enabled("chat") &&
+        (await SyncV2.schemaReady());
+      if (contentUpdated) {
+        await prisma.$transaction(async (tx) => {
+          const updated = await tx.workspace_chats.update({
+            where: { id },
+            data: syncReady
+              ? { ...payload, messageVersion: { increment: 1 } }
+              : payload,
+          });
+          if (syncReady) {
+            const thread = await tx.workspace_threads.update({
+              where: { id: Number(existing.thread_id) },
+              data: { historyRevision: { increment: 1 } },
+            });
+            const audience = thread.user_id
+              ? [Number(thread.user_id)]
+              : (
+                  await tx.workspace_users.findMany({
+                    where: { workspace_id: Number(existing.workspaceId) },
+                    select: { user_id: true },
+                  })
+                ).map((row) => Number(row.user_id));
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.threadMessages(existing.thread_id),
+              content: {
+                threadId: Number(existing.thread_id),
+                historyRevision: thread.historyRevision,
+                latestChatId: updated.id,
+              },
+              eventType: "message.edited",
+              changedPaths: [`messages.${updated.id}`],
+              payloadHint: {
+                operation: "edit",
+                messageId: updated.id,
+                publicMessageId: updated.public_id,
+                messageVersion: updated.messageVersion,
+                historyRevision: thread.historyRevision,
+              },
+              audience,
+            });
+          }
+          await rebuildChatCryptoChainFromChatId(scope, updated.id || id, {
+            client: tx,
+          });
+        });
+      } else {
+        await prisma.workspace_chats.update({
+          where: { id },
+          data: payload,
+        });
+      }
+      if (contentUpdated) {
+        try {
+          if (process.env.NODE_ENV === "test") return true;
+          const { WorkspaceCognition } = require("./workspaceCognition");
+          await WorkspaceCognition.markChatEvidenceStale(
+            scope.workspaceId,
+            [id],
+            "source_chat_updated"
+          );
+          const updated = await prisma.workspace_chats.findFirst({
+            where: { id },
+          });
+          const decrypted = await decryptWorkspaceChatRecordAsync(updated);
+          await WorkspaceCognition.cancelBufferedChats(
+            scope.workspaceId,
+            [id],
+            "chat_content_replaced"
+          );
+          await WorkspaceCognition.enqueueFinalizedTurn({
+            chat: decrypted,
+            sourceChannel: decrypted.created_from || "web",
+          });
+        } catch (error) {
+          console.warn(
+            "[WorkspaceCognition] failed to refresh updated chat evidence",
+            error.message
+          );
+        }
+      }
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspaceChats._update", error);
     }
   },
   bulkCreate: async function (chatsData) {
     // TODO: Replace with createMany when we update prisma to latest version
     // The version of prisma that we are currently using does not support createMany with SQLite
     try {
-      const createdChats = [];
+      const preparedChats = [];
       for (const chatData of chatsData) {
         const scope = {
           workspaceId: chatData.workspaceId,
@@ -546,9 +930,23 @@ const WorkspaceChats = {
           apiSessionId:
             chatData.api_session_id ?? chatData.apiSessionId ?? null,
         };
-        const chat = await prisma.workspace_chats.create({
+        const sourceChatId =
+          chatData.sourceChatId ?? chatData.original_message_id ?? null;
+        const referenceClone =
+          Number(chatData.payloadVersion || 1) >= 2 && sourceChatId
+            ? await ContentObject.prepareChatReferenceClone(prisma, {
+                sourceChatId,
+                response: chatData.response,
+                workspaceSlug: chatData.workspaceSlug,
+              })
+            : { response: chatData.response, attachments: [], contentRefs: [] };
+        const data = { ...chatData };
+        delete data.sourceChatId;
+        delete data.workspaceSlug;
+        preparedChats.push({
+          scope,
           data: {
-            ...chatData,
+            ...data,
             ...(Object.prototype.hasOwnProperty.call(chatData, "prompt")
               ? {
                   prompt: await encryptWorkspaceChatFieldAsync(
@@ -560,15 +958,47 @@ const WorkspaceChats = {
             ...(Object.prototype.hasOwnProperty.call(chatData, "response")
               ? {
                   response: await encryptWorkspaceChatFieldAsync(
-                    chatData.response,
+                    typeof referenceClone.response === "string"
+                      ? referenceClone.response
+                      : safeJSONStringify(referenceClone.response),
                     scope
                   ),
                 }
               : {}),
             public_id: chatData.public_id || newPublicChatId(),
           },
+          attachments: referenceClone.attachments,
+          contentRefs: referenceClone.contentRefs,
         });
-        await rebuildChatCryptoChainForScope(scope);
+      }
+      const chats = await prisma.$transaction(async (tx) => {
+        const created = [];
+        const rowsByScope = new Map();
+        for (const prepared of preparedChats) {
+          const chat = await tx.workspace_chats.create({ data: prepared.data });
+          await ContentObject.attachToChat(tx, {
+            chatId: chat.id,
+            attachments: prepared.attachments,
+            contentRefs: prepared.contentRefs,
+          });
+          created.push(chat);
+          const key = JSON.stringify(prepared.scope);
+          const group = rowsByScope.get(key) || {
+            scope: prepared.scope,
+            rows: [],
+          };
+          group.rows.push(chat);
+          rowsByScope.set(key, group);
+        }
+        for (const group of rowsByScope.values()) {
+          await appendChatCryptoMetadataForRows(group.rows, group.scope, {
+            client: tx,
+          });
+        }
+        return created;
+      });
+      const createdChats = [];
+      for (const chat of chats) {
         createdChats.push(await decryptWorkspaceChatRecordAsync(chat));
       }
       return { chats: createdChats, message: null };
@@ -614,26 +1044,69 @@ const WorkspaceChats = {
         thread_id: data.threadId,
         api_session_id: data.apiSessionId,
         include: data.include,
+        created_from: data.sourceChannel || "agent",
       };
 
-      const chat = await prisma.workspace_chats.upsert({
-        where: {
-          id: Number(chatId),
-          user_id: data.user?.id || null,
-        },
-        // On updates, we already have the prompt so we don't need to set it again.
-        update: { ...payload, lastUpdatedAt: new Date() },
+      const createPayload = {
+        ...payload,
+        prompt: await encryptWorkspaceChatFieldAsync(data.prompt, scope),
+        public_id: data.public_id || newPublicChatId(),
+      };
+      const chat = await prisma.$transaction(async (tx) => {
+        const existing = Number(chatId)
+          ? await tx.workspace_chats.findFirst({
+              where: {
+                id: Number(chatId),
+                user_id: data.user?.id || null,
+              },
+            })
+          : null;
+        const persisted = await tx.workspace_chats.upsert({
+          where: {
+            id: Number(chatId),
+            user_id: data.user?.id || null,
+          },
+          // On updates, we already have the prompt so we don't need to set it again.
+          update: { ...payload, lastUpdatedAt: new Date() },
 
-        // On creates, we need to set the prompt or else record will fail.
-        create: {
-          ...payload,
-          prompt: await encryptWorkspaceChatFieldAsync(data.prompt, scope),
-          public_id: data.public_id || newPublicChatId(),
-        },
+          // On creates, we need to set the prompt or else record will fail.
+          create: createPayload,
+        });
+        if (!existing) {
+          await appendChatCryptoMetadataForRows([persisted], scope, {
+            client: tx,
+          });
+          return persisted;
+        }
+
+        const previousScope = scopeFromChat(existing);
+        await rebuildChatCryptoChainFromChatId(scope, persisted.id, {
+          client: tx,
+        });
+        if (chatScopeKey(previousScope) !== chatScopeKey(scope)) {
+          await rebuildChatCryptoChainFromChatId(previousScope, persisted.id, {
+            client: tx,
+          });
+        }
+        return persisted;
       });
-      await rebuildChatCryptoChainForScope(scope);
+      const persistedChat = await decryptWorkspaceChatRecordAsync(chat);
+      try {
+        if (process.env.NODE_ENV === "test")
+          return { chat: persistedChat, message: null };
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        await WorkspaceCognition.enqueueFinalizedTurn({
+          chat: persistedChat,
+          sourceChannel: data.sourceChannel || "agent",
+        });
+      } catch (error) {
+        console.warn(
+          "[WorkspaceCognition] failed to enqueue agent turn",
+          error.message
+        );
+      }
       return {
-        chat: await decryptWorkspaceChatRecordAsync(chat),
+        chat: persistedChat,
         message: null,
       };
     } catch (error) {
@@ -643,4 +1116,7 @@ const WorkspaceChats = {
   },
 };
 
-module.exports = { WorkspaceChats };
+module.exports = {
+  WorkspaceChats,
+  _internals: { hydrateWorkspaceChatRelations },
+};

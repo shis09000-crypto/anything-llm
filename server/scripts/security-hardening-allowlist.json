@@ -13,6 +13,12 @@
   },
   {
     "type": "route",
+    "pattern": "^POST /auth/passkeys/(native-web/exchange|native-register/(options|verify))$",
+    "reason": "Native passkey web handoff endpoints are authenticated by short-lived single-use PKCE-bound handoff records before a client signing secret exists.",
+    "owner": "auth"
+  },
+  {
+    "type": "route",
     "pattern": "^POST /invite/.*",
     "reason": "Invite flows are public-by-code and keep their existing invite validation boundary.",
     "owner": "auth"
@@ -52,6 +58,18 @@
     "pattern": "^frontend/src/locales/",
     "reason": "Locale verification scripts are development utilities, not runtime backend communication.",
     "owner": "frontend"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/utils/tasks/networkCoverageAudit.js$",
+    "reason": "The network coverage audit contains transport matcher literals but performs no runtime communication.",
+    "owner": "frontend-platform"
+  },
+  {
+    "type": "frontend_communication",
+    "pattern": "^frontend/src/utils/tasks/scheduledFetch.js$",
+    "reason": "This is the single scheduler-owned fetch adapter used to route covered network work through TaskScheduler.",
+    "owner": "frontend-platform"
   },
   {
     "type": "sensitive_log",

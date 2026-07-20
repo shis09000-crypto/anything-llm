@@ -43,6 +43,7 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   systemPatrol: DATA_ACCESS_CLASSIFICATIONS.internal,
   systemPromptVariable: DATA_ACCESS_CLASSIFICATIONS.user,
   syncEvent: DATA_ACCESS_CLASSIFICATIONS.user,
+  syncV2: DATA_ACCESS_CLASSIFICATIONS.user,
   telemetry: DATA_ACCESS_CLASSIFICATIONS.internal,
   user: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   userMemory: DATA_ACCESS_CLASSIFICATIONS.sensitive,
@@ -54,6 +55,8 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   workspaceOverview: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceChat: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceChatCompaction: DATA_ACCESS_CLASSIFICATIONS.user,
+  workspaceCognition: DATA_ACCESS_CLASSIFICATIONS.user,
+  workspaceMeetingDelegate: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceMindMap: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceParsedFile: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceSuggestedMessage: DATA_ACCESS_CLASSIFICATIONS.user,
@@ -92,6 +95,10 @@ const USER_STATE_NAMESPACE_POLICIES = Object.freeze({
   "chat.draft": {
     authority: "draft",
     description: "Temporary draft state.",
+  },
+  "thread.read-state": {
+    authority: "monotonic-cursor",
+    description: "Per-account thread read cursor; the server only advances it.",
   },
   "crypto.ui": {
     authority: "preference",

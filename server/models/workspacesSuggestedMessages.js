@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 
 const WorkspaceSuggestedMessages = {
@@ -8,8 +11,7 @@ const WorkspaceSuggestedMessages = {
       });
       return message || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspacesSuggestedMessages.get", error);
     }
   },
 
@@ -21,8 +23,7 @@ const WorkspaceSuggestedMessages = {
       });
       return messages;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspacesSuggestedMessages.where", error);
     }
   },
 
@@ -74,8 +75,10 @@ const WorkspaceSuggestedMessages = {
         message: msg.message,
       }));
     } catch (error) {
-      console.error("Failed to get all messages", error.message);
-      return [];
+      throwModelDataAccessError(
+        "workspacesSuggestedMessages.getMessages",
+        error
+      );
     }
   },
 };

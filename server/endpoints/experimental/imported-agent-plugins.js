@@ -22,7 +22,7 @@ function importedAgentPluginEndpoints(app) {
         response.status(200).json(updatedConfig);
       } catch (e) {
         console.error(e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -41,7 +41,7 @@ function importedAgentPluginEndpoints(app) {
         response.status(200).json(updatedConfig);
       } catch (e) {
         console.error(e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -56,7 +56,7 @@ function importedAgentPluginEndpoints(app) {
         response.status(200).json(result);
       } catch (e) {
         console.error(e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );

@@ -1,11 +1,14 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const moment = require("moment");
 const {
-  MASTER_KEY_ENV,
   isSecretEncrypted,
   readSecret,
   saveSecret,
 } = require("../utils/security");
+const { resolveActiveKey } = require("../utils/security/keyCustody");
 
 /**
  * @typedef {Object} SystemPromptVariable
@@ -215,8 +218,7 @@ const SystemPromptVariables = {
       });
       return true;
     } catch (error) {
-      console.error("Error deleting variable:", error);
-      return false;
+      throwModelDataAccessError("systemPromptVariables.delete", error);
     }
   },
 
@@ -367,7 +369,11 @@ function normalizeUserBioForPrompt(bio = "") {
 }
 
 function promptVariableEncryptionConfigured() {
-  return Boolean(String(process.env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function encryptPromptVariableValue(value = "") {

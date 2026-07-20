@@ -99,6 +99,21 @@ export default function AccountSettings() {
   }, [refreshPasskeys]);
 
   useEffect(() => {
+    function refreshVerifiedPasskeys(event) {
+      if (event.detail?.kind === "passkeys") refreshPasskeys();
+    }
+    window.addEventListener(
+      "athena-sync-v2-security-refresh",
+      refreshVerifiedPasskeys
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-sync-v2-security-refresh",
+        refreshVerifiedPasskeys
+      );
+  }, [refreshPasskeys]);
+
+  useEffect(() => {
     function syncHash() {
       const nextHash = normalizeHash(currentHash(), showAdmin);
       activeHashRef.current = nextHash;

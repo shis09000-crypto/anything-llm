@@ -7,11 +7,13 @@ LOG_DIR="$RUNTIME_DIR/logs"
 APP_ENV=""
 CHECK_INTERVAL="${CHECK_INTERVAL:-5}"
 START_GRACE_SECONDS="${START_GRACE_SECONDS:-20}"
+PORT_MISSING_GRACE_SECONDS="${PORT_MISSING_GRACE_SECONDS:-15}"
 CRASH_WINDOW_SECONDS="${CRASH_WINDOW_SECONDS:-60}"
 CRASH_LIMIT="${CRASH_LIMIT:-5}"
 CRASH_COOLDOWN_SECONDS="${CRASH_COOLDOWN_SECONDS:-30}"
 LOG_MAX_BYTES="${LOG_MAX_BYTES:-10485760}"
 LOG_KEEP="${LOG_KEEP:-5}"
+STOP_GRACE_SECONDS="${STOP_GRACE_SECONDS:-35}"
 STOPPING=0
 MOBILE_HTTPS="${MOBILE_HTTPS:-false}"
 HTTPS_KEY_PATH="${HTTPS_KEY_PATH:-${VITE_HTTPS_KEY_PATH:-}}"
@@ -20,6 +22,10 @@ HTTPS_CA_CERT_PATH="${HTTPS_CA_CERT_PATH:-}"
 HTTPS_PUBLIC_CA_PATH="${HTTPS_PUBLIC_CA_PATH:-}"
 HTTPS_BACKEND_URL="${HTTPS_BACKEND_URL:-}"
 VITE_DEV_API_PROXY_TARGET="${VITE_DEV_API_PROXY_TARGET:-}"
+
+if ! [[ "$STOP_GRACE_SECONDS" =~ ^[0-9]+$ ]] || (( STOP_GRACE_SECONDS < 30 )); then
+  STOP_GRACE_SECONDS=35
+fi
 
 mobile_https_enabled() {
   [[ "$MOBILE_HTTPS" == "1" || "$MOBILE_HTTPS" == "true" || "${VITE_DEV_HTTPS:-}" == "true" || "${ENABLE_HTTPS:-}" == "true" ]]
@@ -89,8 +95,13 @@ else
   SERVER_PORT="${SERVER_PORT:-3001}"
   COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
   FRONTEND_PORT=""
-  APP_URL="http://localhost:${SERVER_PORT}"
-  API_URL="http://localhost:${SERVER_PORT}/api"
+  if mobile_https_enabled; then
+    APP_URL="https://localhost:${SERVER_PORT}"
+    API_URL="https://localhost:${SERVER_PORT}/api"
+  else
+    APP_URL="http://localhost:${SERVER_PORT}"
+    API_URL="http://localhost:${SERVER_PORT}/api"
+  fi
   COMPONENTS="server collector"
 fi
 
@@ -182,12 +193,13 @@ pid_cwd_under_root() {
 kill_pid() {
   local pid="${1:-}"
   local name="${2:-process}"
-  local i
+  local deadline
 
   if ! pid_alive "$pid"; then return 0; fi
   log "stopping $name pid=$pid"
   kill "$pid" >/dev/null 2>&1 || true
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+  deadline=$(( $(now_epoch) + STOP_GRACE_SECONDS ))
+  while (( $(now_epoch) < deadline )); do
     if ! pid_alive "$pid"; then return 0; fi
     sleep 0.25
   done
@@ -353,6 +365,7 @@ init_component_state() {
     set_component_var "$component" LAST_RESTART_REASON "initial-start"
     set_component_var "$component" CRASH_LOOP "false"
     set_component_var "$component" COOLDOWN_UNTIL "0"
+    set_component_var "$component" PORT_MISSING_SINCE "0"
   done
 }
 
@@ -627,6 +640,7 @@ start_component() {
   set_component_var "$component" STATUS "starting"
   set_component_var "$component" LAST_RESTART_REASON "$reason"
   set_component_var "$component" CRASH_LOOP "false"
+  set_component_var "$component" PORT_MISSING_SINCE "0"
 }
 
 check_component() {
@@ -647,6 +661,7 @@ check_component() {
       kill_pid_tree "$pid" "$component"
     fi
     set_component_var "$component" PID ""
+    set_component_var "$component" PORT_MISSING_SINCE "0"
     mark_component_degraded "$component" "external-port-owner:${external_pids}"
     return 0
   fi
@@ -673,6 +688,7 @@ check_component() {
     uptime="$(seconds_since "${started:-0}")"
     set_component_var "$component" UPTIME_SECONDS "$uptime"
     set_component_var "$component" STATUS "running"
+    set_component_var "$component" PORT_MISSING_SINCE "0"
     if (( uptime > CRASH_WINDOW_SECONDS )); then
       set_component_var "$component" CRASH_LOOP "false"
       set_component_var "$component" RESTART_TIMES ""
@@ -682,6 +698,9 @@ check_component() {
   fi
 
   if [[ -n "$pid" ]] && pid_alive "$pid"; then
+    local missing_since
+    local missing_for
+    local now
     started="$(get_component_var "$component" STARTED_EPOCH)"
     uptime="$(seconds_since "${started:-0}")"
     status="$(get_component_var "$component" STATUS)"
@@ -689,14 +708,32 @@ check_component() {
       set_component_var "$component" UPTIME_SECONDS "$uptime"
       return 0
     fi
+    now="$(now_epoch)"
+    missing_since="$(get_component_var "$component" PORT_MISSING_SINCE)"
+    missing_since="${missing_since:-0}"
+    if (( missing_since <= 0 )); then
+      set_component_var "$component" PORT_MISSING_SINCE "$now"
+      set_component_var "$component" STATUS "recovering"
+      set_component_var "$component" UPTIME_SECONDS "$uptime"
+      log "$component pid=$pid is alive but port $port is missing; waiting up to ${PORT_MISSING_GRACE_SECONDS}s for transient recovery"
+      return 0
+    fi
+    missing_for=$((now - missing_since))
+    if (( missing_for < PORT_MISSING_GRACE_SECONDS )); then
+      set_component_var "$component" STATUS "recovering"
+      set_component_var "$component" UPTIME_SECONDS "$uptime"
+      return 0
+    fi
     log "$component pid=$pid is alive but port $port is missing; restarting"
     kill_pid_tree "$pid" "$component"
     set_component_var "$component" PID ""
+    set_component_var "$component" PORT_MISSING_SINCE "0"
     start_component "$component" "port-missing"
     return 0
   fi
 
   set_component_var "$component" PID ""
+  set_component_var "$component" PORT_MISSING_SINCE "0"
   start_component "$component" "pid-exited"
 }
 

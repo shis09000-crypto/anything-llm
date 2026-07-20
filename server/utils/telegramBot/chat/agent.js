@@ -293,6 +293,7 @@ async function handleAgentResponse(
 
     if (responseText) {
       await WorkspaceChats.new({
+        sourceChannel: "bot",
         workspaceId: workspace.id,
         prompt: message,
         response: {

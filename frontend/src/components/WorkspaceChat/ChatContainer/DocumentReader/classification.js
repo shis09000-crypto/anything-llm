@@ -48,26 +48,10 @@ async function textFromDocx(file) {
 }
 
 async function textFromXlsx(file) {
-  const XLSX = await import("xlsx");
-  const arrayBuffer = await file.arrayBuffer();
-  const workbook = XLSX.read(arrayBuffer, { type: "array" });
-  const parts = [];
-  for (const name of workbook.SheetNames) {
-    const sheet = workbook.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: false,
-      blankrows: false,
-    });
-    appendWithinLimit(parts, name);
-    for (const row of rows) {
-      appendWithinLimit(parts, (row || []).filter(Boolean).join(" | "));
-      if (parts.join("\n").length >= CLASSIFICATION_TEXT_LIMIT) break;
-    }
-    if (parts.join("\n").length >= CLASSIFICATION_TEXT_LIMIT) break;
-    await idleYield();
-  }
-  return compactText(parts.join("\n"));
+  // XLSX parsing is intentionally server-owned. The legacy browser parser has
+  // no maintained security release; server Reader post-processing provides the
+  // classification text and bounded workbook projection after upload.
+  return file ? "" : "";
 }
 
 async function textFromPdf(file) {

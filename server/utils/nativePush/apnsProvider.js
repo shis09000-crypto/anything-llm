@@ -6,8 +6,10 @@ const { DataAccessCenter } = require("../dataAccess");
 const IOSPushToken = DataAccessCenter.iosPushToken;
 
 const pendingByUser = new Map();
+const activeDeliveries = new Set();
 let cachedProviderToken = null;
 let cachedProviderTokenAt = 0;
+let draining = false;
 
 function compact(value = null) {
   const next = String(value || "").trim();
@@ -82,11 +84,17 @@ function sendOne(client, token, event, config, authorization) {
       resolve({ status, reason, tokenId: token.id });
     });
     request.on("error", reject);
+    request.setTimeout?.(10_000, () => {
+      const error = new Error("apns_delivery_timeout");
+      error.code = "APNS_DELIVERY_TIMEOUT";
+      request.close();
+      reject(error);
+    });
     request.end(
       JSON.stringify({
         aps: { "content-available": 1 },
         syncReason: event.reason || "sync_event",
-        latestEventId: event.eventId || null,
+        syncCheckpoint: Number(event.checkpointSeq || 0),
       })
     );
   });
@@ -129,13 +137,17 @@ async function deliver(userId, event) {
 function enqueueSyncPush(event = {}) {
   const userId = Number(event.scope?.userId);
   const config = configuration();
-  if (!config.configured || !Number.isFinite(userId)) return false;
+  if (draining || !config.configured || !Number.isFinite(userId)) return false;
   const existing = pendingByUser.get(userId);
   if (existing) {
     existing.event = {
       eventId: event.eventId || existing.event.eventId,
       sourceClientId: event.sourceClientId || existing.event.sourceClientId,
       reason: event.type || existing.event.reason,
+      checkpointSeq: Math.max(
+        Number(event.seq || 0),
+        Number(existing.event.checkpointSeq || 0)
+      ),
     };
     return true;
   }
@@ -145,26 +157,62 @@ function enqueueSyncPush(event = {}) {
       eventId: event.eventId || null,
       sourceClientId: event.sourceClientId || null,
       reason: event.type || "sync_event",
+      checkpointSeq: Number(event.seq || 0),
     },
     timer: null,
+    delivery: null,
   };
-  pending.timer = setTimeout(async () => {
-    pendingByUser.delete(userId);
-    try {
-      await deliver(userId, pending.event);
-    } catch (error) {
-      console.warn("[APNs] background sync delivery failed", {
-        userId,
-        code: error?.code || "delivery_failed",
-      });
-    }
+  pending.timer = setTimeout(() => {
+    void dispatchPendingPush(userId, pending);
   }, 750);
   pendingByUser.set(userId, pending);
   return true;
 }
 
+async function dispatchPendingPush(userId, pending) {
+  if (pending.delivery) return await pending.delivery;
+  if (pendingByUser.get(userId) === pending) pendingByUser.delete(userId);
+  if (pending.timer) clearTimeout(pending.timer);
+  const delivery = deliver(userId, pending.event);
+  pending.delivery = delivery;
+  activeDeliveries.add(delivery);
+  try {
+    await delivery;
+  } catch (error) {
+    console.warn("[APNs] background sync delivery failed", {
+      userId,
+      code: error?.code || "delivery_failed",
+    });
+  } finally {
+    activeDeliveries.delete(delivery);
+  }
+}
+
+async function drainSyncPushQueue() {
+  draining = true;
+  const pending = [...pendingByUser.entries()];
+  await Promise.all(
+    pending.map(([userId, entry]) => dispatchPendingPush(userId, entry))
+  );
+  if (activeDeliveries.size) {
+    try {
+      await Promise.allSettled([...activeDeliveries]);
+    } finally {
+      activeDeliveries.clear();
+    }
+  }
+  return { drained: true, pending: pendingByUser.size };
+}
+
 module.exports = {
   configuration,
+  drainSyncPushQueue,
   enqueueSyncPush,
-  _internals: { deliver, pendingByUser, sendOne },
+  _internals: {
+    activeDeliveries,
+    deliver,
+    dispatchPendingPush,
+    pendingByUser,
+    sendOne,
+  },
 };

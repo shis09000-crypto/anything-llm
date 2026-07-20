@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const DocumentSyncRun = {
   statuses: {
@@ -23,8 +26,7 @@ const DocumentSyncRun = {
       });
       return run || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("documentSyncRun.save", error);
     }
   },
 
@@ -35,8 +37,7 @@ const DocumentSyncRun = {
       });
       return queue || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("documentSyncRun.get", error);
     }
   },
 
@@ -55,8 +56,7 @@ const DocumentSyncRun = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("documentSyncRun.where", error);
     }
   },
 
@@ -69,8 +69,7 @@ const DocumentSyncRun = {
       });
       return count;
     } catch (error) {
-      console.error("FAILED TO COUNT DOCUMENTS.", error.message);
-      return 0;
+      throwModelDataAccessError("documentSyncRun.count", error);
     }
   },
 
@@ -79,8 +78,7 @@ const DocumentSyncRun = {
       await prisma.document_sync_executions.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documentSyncRun.delete", error);
     }
   },
 };

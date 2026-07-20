@@ -1,5 +1,22 @@
 // Anything with "null" requires a translation. Contribute to translation via a PR!
 const TRANSLATIONS = {
+  syncConflict: {
+    title: "同步冲突",
+    description: "有 {{count}} 项本地修改需要你确认。",
+    sameField: "另一台设备也修改了同一字段。",
+    historyExpired: "版本历史已过期，需要先执行完整校验。",
+    failedMutation: "本地修改提交失败：{{error}}",
+    useServer: "使用服务端值",
+    keepLocal: "保留本地修改",
+    discardLocal: "放弃本地修改",
+    retry: "重试",
+    serverApplied: "已恢复服务端值。",
+    localApplied: "已重新提交本地修改。",
+    missingVersion: "无法取得最新服务端版本。",
+    failed: "同步冲突处理失败。",
+    collapse: "收起",
+    expand: "展开同步冲突",
+  },
   onboarding: {
     home: {
       getStarted: "开始",
@@ -235,22 +252,12 @@ const TRANSLATIONS = {
       custom: {
         label: "自定义",
         labelWithSize: "自定义 {{size}}px",
-        description: "拖动滑杆，以 1px 为颗粒度调整；后台只保存最后一次停留的设置。",
+        description:
+          "拖动滑杆，以 1px 为颗粒度调整；后台只保存最后一次停留的设置。",
       },
     },
-    previewMarkdown: `### 助手回答预览
-
-这是一段 **Markdown 加粗文本**，用于确认阅读字号、行距和强调样式是否舒适。
-
-- 列表项目会保持清晰间距
-- 中文和 English text 会一起展示
-
-> 引用块用于展示来源摘录或推理说明。
-
-\`\`\`js
-const readable = true;
-\`\`\`
-`,
+    previewMarkdown:
+      "### 助手回答预览\n\n这是一段 **Markdown 加粗文本**，用于确认阅读字号、行距和强调样式是否舒适。\n\n- 列表项目会保持清晰间距\n- 中文和 English text 会一起展示\n\n> 引用块用于展示来源摘录或推理说明。\n\n```js\nconst readable = true;\n```\n",
   },
   "workspace-health": {
     unavailable: "暂无",
@@ -735,6 +742,31 @@ const readable = true;
       wait: "-- 等待模型 --",
     },
     skill: {
+      cryptoMarket: {
+        title: "加密货币行情",
+        description:
+          "通过 Gate 和 Binance 查询只读公开现货价格及市场快照，不访问私人账户，也不会执行交易。",
+      },
+      weather: {
+        title: "天气查询",
+        description:
+          "通过和风天气按中国城市或 GPS 坐标查询实况及 3、7、10、15、30 天预报。",
+      },
+      globalMarket: {
+        title: "全球市场",
+        description:
+          "通过聚合数据、Stooq 和 Frankfurter 查询只读外汇、指数、股票、商品、基金及 ETF 行情。",
+      },
+      marketData: {
+        credentials: "供应商密钥",
+        configured: "已配置",
+        notConfigured: "需要配置",
+        qweatherKey: "和风天气 API 密钥",
+        juheStockKey: "聚合数据股票 API 密钥",
+        juheForexKey: "聚合数据外汇 API 密钥",
+        secretHelp:
+          "密钥会使用 Athena 当前活动数据密钥加密保存。已有密钥不会再次显示；只有需要替换时才输入新值。",
+      },
       rag: {
         title: "检索增强生成和长期记忆",
         description:
@@ -855,6 +887,11 @@ const readable = true;
             description: "创建包含基本样式和格式的 Word 文档",
           },
         },
+      },
+      documentFormatting: {
+        title: "DOCX 排版优化",
+        description:
+          "将当前工作区的 Word 文档优化为新的 DOCX 副本。优先保留图片、表格、页眉页脚等结构，无法安全保真时会从解析内容重建并提示；不会覆盖源文件，每次写入前都会请求确认。",
       },
       gmail: {
         title: "Gmail 连接器",
@@ -2482,9 +2519,9 @@ const readable = true;
           admin: "管理员",
         },
         expires: {
-          24: "24 小时",
-          72: "3 天",
-          168: "7 天",
+          "24": "24 小时",
+          "72": "3 天",
+          "168": "7 天",
         },
         autoAssignTitle: "自动添加邀请用户到工作区",
         autoAssignDescription:

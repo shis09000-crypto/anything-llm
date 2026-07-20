@@ -50,7 +50,11 @@ test("fetchSystemEnvironment skips auth headers and uses no-cache by default", a
     {
       type: "getJson",
       path: "/system/environment",
-      options: { cache: "no-cache", includeBaseHeaders: false },
+      options: {
+        cache: "no-cache",
+        timeoutMs: 5_000,
+        includeBaseHeaders: false,
+      },
     },
   ]);
 });

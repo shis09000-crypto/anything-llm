@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require("fs");
 const path = require("path");
-const { storagePath } = require("../utils/environment");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
 const STANDALONE_READER_SEGMENT = "__global_reader__";
 
@@ -12,13 +12,15 @@ function parseArgs(argv = process.argv.slice(2)) {
     rebindUserId: null,
     rebindAuthUserId: null,
     ids: [],
+    execute: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--root") options.root = argv[++i];
     else if (arg.startsWith("--root="))
       options.root = arg.slice("--root=".length);
-    else if (arg === "--fix") options.dryRun = false;
+    else if (arg === "--fix") options.dryRun = true;
+    else if (arg === "--execute") options.execute = true;
     else if (arg === "--rebind-user-id")
       options.rebindUserId = Number(argv[++i]);
     else if (arg.startsWith("--rebind-user-id="))
@@ -35,10 +37,15 @@ function parseArgs(argv = process.argv.slice(2)) {
   if (!options.dryRun && !Number.isFinite(options.rebindUserId)) {
     throw new Error("--fix requires --rebind-user-id");
   }
+  if (argv.includes("--fix") && !Number.isFinite(options.rebindUserId)) {
+    throw new Error("--fix requires --rebind-user-id");
+  }
+  options.dryRun = !(argv.includes("--fix") && options.execute);
   return options;
 }
 
 function standaloneReaderRoot(root = null) {
+  const { storagePath } = require("../utils/environment");
   return path.resolve(
     root || storagePath("reader-documents"),
     STANDALONE_READER_SEGMENT
@@ -143,6 +150,11 @@ async function rebindStandaloneReaderOwners({
 
 async function main() {
   const options = parseArgs();
+  await bootstrapCliRuntime({
+    access: options.dryRun ? "read" : "write",
+    execute: options.execute,
+    requiredTables: ["users", "_prisma_migrations"],
+  });
   const root = options.root;
   const audit = await auditStandaloneReaderOwners({ root });
   let rebind = null;

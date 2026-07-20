@@ -189,7 +189,7 @@ function vaultEndpoints(app) {
           method: "password",
         });
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error?.message || "vault_reauth_failed",
         });

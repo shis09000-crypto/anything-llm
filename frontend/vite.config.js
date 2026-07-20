@@ -1,3 +1,4 @@
+/* global console, process */
 import { defineConfig } from "vite"
 import fs from "fs"
 import https from "https"
@@ -19,7 +20,7 @@ function devHttpsOptions() {
 
   return {
     key: fs.readFileSync(keyPath),
-    cert: fs.readFileSync(certPath),
+    cert: fs.readFileSync(certPath)
   }
 }
 
@@ -48,15 +49,34 @@ const apiProxyRewriteOrigin =
   process.env.VITE_DEV_API_PROXY_REWRITE_ORIGIN !== "false" &&
   apiProxyTargetUrl.hostname === "athenallm.online"
 
+function spaPublicDirectoryRouteGuard() {
+  return {
+    name: "athena-spa-public-directory-route-guard",
+    configureServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        const requestUrl = String(request.url || "/")
+        const [pathname, query = ""] = requestUrl.split("?", 2)
+        // `public/login/` contains static login assets. Vite otherwise treats
+        // the SPA route `/login` as that directory and returns a redirect/500
+        // instead of letting React Router render the page.
+        if (pathname === "/login") {
+          request.url = `/${query ? `?${query}` : ""}`
+        }
+        next()
+      })
+    }
+  }
+}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   assetsInclude: [
-    './public/piper/ort-wasm-simd-threaded.wasm',
-    './public/piper/piper_phonemize.wasm',
-    './public/piper/piper_phonemize.data',
+    "./public/piper/ort-wasm-simd-threaded.wasm",
+    "./public/piper/piper_phonemize.wasm",
+    "./public/piper/piper_phonemize.data"
   ],
   worker: {
-    format: 'es'
+    format: "es"
   },
   server: {
     port: 3000,
@@ -81,9 +101,9 @@ export default defineConfig({
               `[vite:api-proxy] ${apiProxyTarget} failed: ${error?.message || error}`
             )
           })
-        },
-      },
-    },
+        }
+      }
+    }
   },
   define: {
     "process.env": process.env
@@ -92,6 +112,7 @@ export default defineConfig({
     postcss
   },
   plugins: [
+    spaPublicDirectoryRouteGuard(),
     react(),
     visualizer({
       template: "treemap", // or sunburst
@@ -123,7 +144,7 @@ export default defineConfig({
     rollupOptions: {
       external: [
         // Reduces transformation time by 50% and we don't even use this variant, so we can ignore.
-        /@phosphor-icons\/react\/dist\/ssr/,
+        /@phosphor-icons\/react\/dist\/ssr/
       ]
     },
     commonjsOptions: {

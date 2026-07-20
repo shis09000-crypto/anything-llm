@@ -28,7 +28,7 @@ function mobileEndpoints(app) {
         return response.status(200).json({ devices });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -53,7 +53,7 @@ function mobileEndpoints(app) {
         return response.status(200).json({ updates });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -77,7 +77,7 @@ function mobileEndpoints(app) {
         return response.status(200).json({ message: "Device deleted" });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -92,7 +92,7 @@ function mobileEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -108,7 +108,7 @@ function mobileEndpoints(app) {
         .json({ success: true, message: "Device authenticated" });
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -139,7 +139,7 @@ function mobileEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -152,7 +152,7 @@ function mobileEndpoints(app) {
         return handleMobileCommand(request, response);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

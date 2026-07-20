@@ -1,6 +1,8 @@
 const { randomUUID } = require("crypto");
+const { observeHttp } = require("../utils/observability/metrics");
 
-const SLOW_REQUEST_MS = Number(process.env.COMMUNICATION_SLOW_REQUEST_MS) || 800;
+const SLOW_REQUEST_MS =
+  Number(process.env.COMMUNICATION_SLOW_REQUEST_MS) || 800;
 const MAX_LOGGED_EVENTS = 500;
 const recentEvents = [];
 
@@ -16,11 +18,47 @@ function pushEvent(event) {
   }
 }
 
+function recordCommunicationDiagnostic({
+  subsystem,
+  severity = "error",
+  operation = null,
+  domain = null,
+  errorCode = null,
+  resourceFingerprint = null,
+  payloadFingerprint = null,
+  keyFingerprint = null,
+  blocked = false,
+} = {}) {
+  const event = {
+    eventId: randomUUID(),
+    kind: "system-diagnostic",
+    subsystem: String(subsystem || "unknown").slice(0, 64),
+    severity: String(severity || "error").slice(0, 32),
+    operation: operation ? String(operation).slice(0, 128) : null,
+    domain: domain ? String(domain).slice(0, 128) : null,
+    errorCode: errorCode ? String(errorCode).slice(0, 128) : null,
+    resourceFingerprint: resourceFingerprint
+      ? String(resourceFingerprint).slice(0, 64)
+      : null,
+    payloadFingerprint: payloadFingerprint
+      ? String(payloadFingerprint).slice(0, 64)
+      : null,
+    keyFingerprint: keyFingerprint ? String(keyFingerprint).slice(0, 64) : null,
+    blocked: Boolean(blocked),
+    createdAt: new Date().toISOString(),
+  };
+  pushEvent(event);
+  return event;
+}
+
 function safeRequestBytes(request) {
+  if (Number.isFinite(Number(request.bodyByteLength)))
+    return Number(request.bodyByteLength);
   const contentLength = Number(request.headers["content-length"]);
   if (Number.isFinite(contentLength)) return contentLength;
   if (Buffer.isBuffer(request.rawBody)) return request.rawBody.length;
-  if (typeof request.rawBody === "string") return Buffer.byteLength(request.rawBody);
+  if (typeof request.rawBody === "string")
+    return Buffer.byteLength(request.rawBody);
   return 0;
 }
 
@@ -46,6 +84,7 @@ function routeScope(request, response) {
 function communicationMetricsMiddleware(request, response, next) {
   const startedAt = nowMs();
   const requestId =
+    request.correlationRequestId ||
     request.headers["x-communication-request-id"] ||
     request.headers["x-request-id"] ||
     randomUUID();
@@ -90,6 +129,13 @@ function communicationMetricsMiddleware(request, response, next) {
       ...routeScope(request, response),
     };
     pushEvent(event);
+    observeHttp({
+      request,
+      statusCode: response.statusCode,
+      durationMs,
+      requestBytes: event.requestBytes,
+      responseBytes,
+    });
     if (durationMs >= SLOW_REQUEST_MS) {
       console.warn("[communication:slow-request]", event);
     }
@@ -102,7 +148,23 @@ function communicationMetricsSnapshot({ limit = 100 } = {}) {
   return recentEvents.slice(-limit);
 }
 
+function communicationDiagnosticsSnapshot({
+  subsystem = null,
+  limit = 100,
+} = {}) {
+  const normalizedSubsystem = subsystem ? String(subsystem) : null;
+  return recentEvents
+    .filter(
+      (event) =>
+        event.kind === "system-diagnostic" &&
+        (!normalizedSubsystem || event.subsystem === normalizedSubsystem)
+    )
+    .slice(-limit);
+}
+
 module.exports = {
   communicationMetricsMiddleware,
   communicationMetricsSnapshot,
+  communicationDiagnosticsSnapshot,
+  recordCommunicationDiagnostic,
 };

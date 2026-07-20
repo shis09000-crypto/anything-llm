@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 
@@ -142,8 +145,7 @@ const WorkspaceMindMaps = {
       );
       return toPayload(records?.[0]);
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspaceMindMaps.get", error);
     }
   },
 
@@ -160,8 +162,7 @@ const WorkspaceMindMaps = {
       );
       return records.map(toPayload);
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspaceMindMaps.where", error);
     }
   },
 
@@ -239,8 +240,7 @@ const WorkspaceMindMaps = {
         cacheUserKey: cacheUserKey(user),
       });
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspaceMindMaps.updateViewport", error);
     }
   },
 };

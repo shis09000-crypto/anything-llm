@@ -1,30 +1,57 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { redactLogObject } = require("../utils/security/redaction");
+const {
+  appendSecurityAuditDurably,
+  isSecurityRelevantEvent,
+} = require("../utils/security/auditLedger");
+const { currentCorrelation } = require("../utils/observability/context");
 
 const EventLogs = {
   logEvent: async function (event, metadata = {}, userId = null) {
+    const occurredAt = new Date();
+    let eventLog = null;
+    let productLogError = null;
+    const safeMetadata =
+      metadata && typeof metadata === "object" && !Array.isArray(metadata)
+        ? redactLogObject(metadata)
+        : metadata;
     try {
-      const safeMetadata =
-        metadata && typeof metadata === "object" && !Array.isArray(metadata)
-          ? redactLogObject(metadata)
-          : metadata;
-      const eventLog = await prisma.event_logs.create({
+      eventLog = await prisma.event_logs.create({
         data: {
           event,
           metadata: safeMetadata ? JSON.stringify(safeMetadata) : null,
           userId: userId ? Number(userId) : null,
-          occurredAt: new Date(),
+          occurredAt,
         },
       });
       console.log(`\x1b[32m[Event Logged]\x1b[0m - ${event}`);
-      return { eventLog, message: null };
     } catch (error) {
+      productLogError = error;
       console.error(
         `\x1b[31m[Event Logging Failed]\x1b[0m - ${event}`,
         error.message
       );
-      return { eventLog: null, message: error.message };
     }
+    let securityAudit = null;
+    if (isSecurityRelevantEvent(event)) {
+      const correlation = currentCorrelation();
+      securityAudit = await appendSecurityAuditDurably({
+        event,
+        metadata: safeMetadata,
+        userId,
+        requestId: metadata?.requestId || correlation?.requestId || null,
+        traceId: metadata?.traceId || correlation?.traceId || null,
+        occurredAt,
+      });
+    }
+    return {
+      eventLog,
+      securityAudit,
+      message: productLogError?.message || null,
+    };
   },
 
   getByEvent: async function (event, limit = null, orderBy = null) {
@@ -38,8 +65,7 @@ const EventLogs = {
       });
       return logs;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("eventLogs.getByEvent", error);
     }
   },
 
@@ -54,8 +80,7 @@ const EventLogs = {
       });
       return logs;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("eventLogs.getByUserId", error);
     }
   },
 
@@ -76,8 +101,7 @@ const EventLogs = {
       });
       return logs;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("eventLogs.where", error);
     }
   },
 
@@ -113,8 +137,7 @@ const EventLogs = {
       });
       return count;
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("eventLogs.count", error);
     }
   },
 
@@ -125,8 +148,7 @@ const EventLogs = {
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("eventLogs.delete", error);
     }
   },
 };

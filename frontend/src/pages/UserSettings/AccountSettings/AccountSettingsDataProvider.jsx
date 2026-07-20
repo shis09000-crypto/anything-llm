@@ -133,6 +133,31 @@ export function AccountSettingsDataProvider({ user, children }) {
   );
 
   useEffect(() => {
+    function clearSecurityCache(event) {
+      if (event.detail?.kind === "passkeys") clear("passkeys");
+      if (event.detail?.kind === "clients") clear("trustedDevices");
+    }
+    function clearMemoryCache() {
+      clear("memoryOverview");
+    }
+    window.addEventListener(
+      "athena-sync-v2-security-refresh",
+      clearSecurityCache
+    );
+    window.addEventListener("athena-sync-v2-memory-refresh", clearMemoryCache);
+    return () => {
+      window.removeEventListener(
+        "athena-sync-v2-security-refresh",
+        clearSecurityCache
+      );
+      window.removeEventListener(
+        "athena-sync-v2-memory-refresh",
+        clearMemoryCache
+      );
+    };
+  }, [clear]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     window.__anythingAccountSettings = {
       cacheStats: () => stats,

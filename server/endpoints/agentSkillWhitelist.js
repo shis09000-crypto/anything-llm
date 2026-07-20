@@ -23,7 +23,7 @@ function agentSkillWhitelistEndpoints(app) {
       } catch (e) {
         console.error(e);
         return response
-          .status(500)
+          .status(e.httpStatus || 500)
           .json({ available: false, error: e.message });
       }
     }
@@ -41,7 +41,7 @@ function agentSkillWhitelistEndpoints(app) {
       } catch (e) {
         console.error(e);
         return response
-          .status(500)
+          .status(e.httpStatus || 500)
           .json({ available: false, error: e.message });
       }
     }
@@ -75,7 +75,9 @@ function agentSkillWhitelistEndpoints(app) {
         return response.status(success ? 200 : 400).json({ success, error });
       } catch (e) {
         console.error(e);
-        return response.status(500).json({ success: false, error: e.message });
+        return response
+          .status(e.httpStatus || 500)
+          .json({ success: false, error: e.message });
       }
     }
   );

@@ -13,10 +13,14 @@ const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const {
-  issueUserSessionToken,
+  createUserSessionToken,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
+const { issueReauthToken } = require("../utils/authz/reauthTokens");
 const { getClientContext } = require("../utils/clientIdentity");
+const {
+  reconcilePasskeysForShadowUser,
+} = require("../utils/syncV2/securitySync");
 const SystemSettings = DataAccessCenter.adminSystem;
 const AuthIdentity = DataAccessCenter.authIdentity.model;
 const User = DataAccessCenter.authIdentity.shadowUser;
@@ -31,6 +35,8 @@ const NATIVE_WEB_HANDOFF_TTL_MS = 90 * 1000;
 const optionRequestsByIp = new Map();
 const verifyFailuresByIp = new Map();
 const nativeWebHandoffs = new Map();
+const nativeRegistrationHandoffs = new Map();
+const nativeRegistrationExchanges = new Map();
 const APPLE_PASSKEY_AAGUIDS = new Map([
   ["00000000-0000-0000-0000-000000000000", "Apple iCloud Keychain"],
   ["fbfc3007-154e-4ecc-8c0b-6e020557d7bd", "Apple Passwords"],
@@ -65,6 +71,7 @@ function authPasskeyEndpoints(app) {
           nativeWebPasskeyPage({
             state: handoff.state,
             codeChallenge: handoff.codeChallenge,
+            purpose: handoff.purpose,
           })
         );
     } catch {
@@ -118,19 +125,210 @@ function authPasskeyEndpoints(app) {
       if (!localUser)
         return response.status(401).json(nativeWebExchangeFailure());
 
-      const token = issueUserSessionToken(localUser, {
+      if (handoff.purpose !== "login") {
+        return response.status(200).json({
+          valid: true,
+          user: User.filterFields(localUser),
+          token: null,
+          reauthToken: issueReauthToken(
+            localUser.id,
+            "passkey",
+            handoff.purpose
+          ),
+          purpose: handoff.purpose,
+          message: null,
+        });
+      }
+
+      const token = await createUserSessionToken(localUser, {
         ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+        authMode: "passkey",
       });
       return response.status(200).json({
         valid: true,
         user: User.filterFields(localUser),
         token,
+        reauthToken: null,
+        purpose: "login",
         message: null,
       });
     } catch {
       return response.status(401).json(nativeWebExchangeFailure());
     }
   });
+
+  app.post(
+    "/auth/passkeys/native-register/start",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        if (!response.locals.multiUserMode) {
+          return response.status(404).json({ success: false });
+        }
+        const body = reqBody(request);
+        const state = normalizeOpaqueHandoffValue(body?.state, 32, 128);
+        const codeChallenge = normalizeOpaqueHandoffValue(
+          body?.codeChallenge,
+          43,
+          128
+        );
+        const user = response.locals.user;
+        const authUserId = await currentAuthUserId(user);
+        const handoffId = crypto.randomBytes(32).toString("base64url");
+        pruneNativeRegistrationHandoffs();
+        nativeRegistrationHandoffs.set(nativeWebHandoffKey(handoffId), {
+          shadowUserId: user.id,
+          authUserId,
+          state,
+          codeChallenge,
+          expiresAt: Date.now() + NATIVE_WEB_HANDOFF_TTL_MS,
+        });
+        const startURL = new URL(
+          "/api/auth/passkeys/native-register",
+          requestOrigin(request)
+        );
+        startURL.searchParams.set("handoff", handoffId);
+        startURL.searchParams.set("state", state);
+        return response.status(200).json({
+          success: true,
+          startUrl: startURL.toString(),
+          expiresInSeconds: Math.floor(NATIVE_WEB_HANDOFF_TTL_MS / 1000),
+        });
+      } catch {
+        return response.status(400).json({
+          success: false,
+          error: "无法创建通行密钥注册会话。",
+        });
+      }
+    }
+  );
+
+  app.get("/auth/passkeys/native-register", async (request, response) => {
+    try {
+      const record = nativeRegistrationRecord(request.query || {});
+      response.set({
+        "Cache-Control": "no-store",
+        "Content-Security-Policy":
+          "default-src 'none'; connect-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'",
+        "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+      });
+      return response
+        .status(200)
+        .type("html")
+        .send(
+          nativeWebPasskeyRegistrationPage({
+            handoff: request.query.handoff,
+            state: record.state,
+          })
+        );
+    } catch {
+      return response.status(400).send("Invalid passkey registration request.");
+    }
+  });
+
+  app.post(
+    "/auth/passkeys/native-register/options",
+    async (request, response) => {
+      try {
+        const rateLimit = checkOptionsRateLimit(requestIp(request));
+        if (!rateLimit.allowed) {
+          return response.status(429).json({
+            success: false,
+            error: "通行密钥请求过于频繁，请稍后再试。",
+            retryAfter: rateLimit.retryAfter,
+          });
+        }
+        const record = nativeRegistrationRecord(reqBody(request));
+        const user = await User._get({ id: record.shadowUserId });
+        if (!user) throw new Error("Registration user is unavailable.");
+        const options = await registrationOptionsForUser({
+          user,
+          authUserId: record.authUserId,
+          request,
+        });
+        return response.status(200).json({ success: true, options });
+      } catch (error) {
+        console.error(
+          "[Native passkey register options failed]",
+          error.message
+        );
+        return response.status(400).json({
+          success: false,
+          error: "无法开始通行密钥注册。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/auth/passkeys/native-register/verify",
+    async (request, response) => {
+      try {
+        const body = reqBody(request);
+        const record = nativeRegistrationRecord(body);
+        const user = await User._get({ id: record.shadowUserId });
+        if (!user) throw new Error("Registration user is unavailable.");
+        const passkey = await verifyAndStoreRegistration({
+          user,
+          authUserId: record.authUserId,
+          body,
+          request,
+        });
+        nativeRegistrationHandoffs.delete(nativeWebHandoffKey(body.handoff));
+        const code = issueNativeRegistrationExchange(record);
+        return response.status(200).json({
+          success: true,
+          code,
+          state: record.state,
+          passkey: sanitizePasskey(passkey),
+        });
+      } catch (error) {
+        console.error("[Native passkey register verify failed]", error.message);
+        return response.status(400).json({
+          success: false,
+          error: "无法验证通行密钥注册。",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/auth/passkeys/native-register/exchange",
+    [validatedRequest],
+    async (request, response) => {
+      try {
+        const body = reqBody(request);
+        const code = normalizeOpaqueHandoffValue(body?.code, 32, 256);
+        const verifier = normalizeOpaqueHandoffValue(
+          body?.codeVerifier,
+          43,
+          128
+        );
+        pruneNativeRegistrationHandoffs();
+        const key = nativeWebHandoffKey(code);
+        const exchange = nativeRegistrationExchanges.get(key);
+        if (
+          !exchange ||
+          exchange.expiresAt <= Date.now() ||
+          exchange.shadowUserId !== response.locals.user?.id ||
+          !safeOpaqueEqual(sha256Base64Url(verifier), exchange.codeChallenge)
+        ) {
+          return response.status(401).json({
+            success: false,
+            error: "通行密钥注册确认已过期。",
+          });
+        }
+        nativeRegistrationExchanges.delete(key);
+        return response.status(200).json({ success: true });
+      } catch {
+        return response.status(401).json({
+          success: false,
+          error: "通行密钥注册确认无效。",
+        });
+      }
+    }
+  );
 
   app.post(
     "/auth/passkeys/register/options",
@@ -155,40 +353,17 @@ function authPasskeyEndpoints(app) {
         const authUserId = await currentAuthUserId(user);
         const { origin, rpID } = passkeyRpConfig(request);
         assertSecurePasskeyOrigin(origin);
-        const existingCredentials = await authPrisma.passkeyCredential.findMany(
-          {
-            where: { userId: authUserId },
-            select: { credentialId: true, transports: true },
-          }
-        );
-        const options = await generateRegistrationOptions({
-          rpName: RP_NAME,
-          rpID,
-          userName: user.username || user.email || `user-${user.id}`,
-          userID: userIdBytes(authUserId),
-          attestationType: "none",
-          excludeCredentials: existingCredentials.map((credential) => ({
-            id: credential.credentialId,
-            transports: parseTransports(credential.transports),
-          })),
-          authenticatorSelection: {
-            residentKey: "preferred",
-            userVerification: "required",
-            authenticatorAttachment: "platform",
-          },
-        });
-
-        await rememberChallenge({
-          challenge: normalizeBase64Url(options.challenge),
-          type: "register",
-          userId: authUserId,
+        const options = await registrationOptionsForUser({
+          user,
+          authUserId,
           request,
+          rpID,
         });
 
         return response.status(200).json({ success: true, options });
       } catch (error) {
         console.error("[Passkey register options failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "Could not start passkey registration.",
         });
@@ -200,7 +375,6 @@ function authPasskeyEndpoints(app) {
     "/auth/passkeys/register/verify",
     [validatedRequest],
     async (request, response) => {
-      let challengeRecord = null;
       try {
         if (!response.locals.multiUserMode) {
           return response.status(404).json({ success: false });
@@ -208,96 +382,12 @@ function authPasskeyEndpoints(app) {
 
         const user = response.locals.user;
         const authUserId = await currentAuthUserId(user);
-        const body = reqBody(request);
-        const attestationResponse = body?.response;
-        const challenge = normalizeBase64Url(
-          attestationResponse?.response?.clientDataJSON
-            ? challengeFromClientData(
-                attestationResponse.response.clientDataJSON
-              )
-            : null
-        );
-
-        challengeRecord = await consumeChallenge({
-          challenge,
-          type: "register",
-          userId: authUserId,
+        const passkey = await verifyAndStoreRegistration({
+          user,
+          authUserId,
+          body: reqBody(request),
+          request,
         });
-        if (!challengeRecord) {
-          return response.status(400).json({
-            success: false,
-            error: "Passkey challenge has expired. Please try again.",
-          });
-        }
-
-        const { origin, rpID } = passkeyRpConfig(request);
-        assertSecurePasskeyOrigin(origin);
-        const verification = await verifyRegistrationResponse({
-          response: attestationResponse,
-          expectedChallenge: challengeRecord.challenge,
-          expectedOrigin: origin,
-          expectedRPID: rpID,
-        });
-
-        if (!verification.verified || !verification.registrationInfo) {
-          return response.status(400).json({
-            success: false,
-            error: "Could not verify passkey registration.",
-          });
-        }
-
-        const { aaguid, credential, credentialBackedUp, credentialDeviceType } =
-          verification.registrationInfo;
-        const credentialId = normalizeBase64Url(credential.id);
-        const deviceType = normalizeDeviceType(
-          body?.deviceType,
-          credentialDeviceType
-        );
-        const browserName = normalizeDisplayLabel(body?.browserName, 40);
-        const platformName = normalizeDisplayLabel(body?.platformName, 40);
-        const provider = providerMetadata({
-          aaguid,
-          browserName,
-          platformName,
-          userAgent: request.get("user-agent") || "",
-        });
-        const deviceName = normalizeDeviceName({
-          preferred: body?.deviceName,
-          deviceType,
-          browserName,
-          platformName,
-          providerName: provider.providerName,
-        });
-        const passkey = await authPrisma.passkeyCredential.create({
-          data: {
-            userId: authUserId,
-            credentialId,
-            publicKey: bytesToBase64Url(credential.publicKey),
-            counter: Number(credential.counter || 0),
-            transports: JSON.stringify(credential.transports || []),
-            deviceType,
-            deviceName,
-            browserName,
-            platformName,
-            aaguid: normalizeAaguid(aaguid),
-            provider: provider.provider,
-            providerName: provider.providerName,
-            backedUp: Boolean(credentialBackedUp),
-          },
-        });
-
-        await EventLogs.logEvent(
-          "passkey_registered",
-          safeAuditMetadata(request, {
-            passkeyId: passkey.id,
-            credential: credentialFingerprint(credentialId),
-            deviceName,
-            deviceType,
-            provider: provider.provider,
-            providerName: provider.providerName,
-          }),
-          user.id
-        );
 
         return response.status(200).json({
           success: true,
@@ -347,7 +437,7 @@ function authPasskeyEndpoints(app) {
       return response.status(200).json({ success: true, options });
     } catch (error) {
       console.error("[Passkey login options failed]", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: "Could not start passkey login.",
       });
@@ -505,6 +595,7 @@ function authPasskeyEndpoints(app) {
         const handoffCode = issueNativeWebHandoff({
           shadowUserId: localUser.id,
           codeChallenge: nativeHandoff.codeChallenge,
+          purpose: nativeHandoff.purpose,
         });
         return response.status(200).json({
           valid: true,
@@ -515,8 +606,9 @@ function authPasskeyEndpoints(app) {
         });
       }
 
-      const sessionToken = issueUserSessionToken(localUser, {
+      const sessionToken = await createUserSessionToken(localUser, {
         ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+        authMode: "passkey",
       });
       return response.status(200).json({
         valid: true,
@@ -560,7 +652,7 @@ function authPasskeyEndpoints(app) {
       });
     } catch (error) {
       console.error("[Passkey list failed]", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: "无法读取通行密钥。",
       });
@@ -601,6 +693,13 @@ function authPasskeyEndpoints(app) {
         await authPrisma.passkeyCredential.delete({
           where: { id: passkey.id },
         });
+        await reconcilePasskeysForShadowUser({
+          shadowUserId: user.id,
+          authUserId,
+          eventType: "passkey.deleted",
+          changedPaths: [`passkeys.${passkey.id}`],
+          payloadHint: { operation: "delete", passkeyId: passkey.id },
+        });
         await EventLogs.logEvent(
           "passkey_deleted",
           safeAuditMetadata(request, {
@@ -615,7 +714,7 @@ function authPasskeyEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (error) {
         console.error("[Passkey delete failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "Could not delete passkey.",
         });
@@ -1013,7 +1112,11 @@ function nativeWebHandoffFromQuery(query) {
   if (query?.code_challenge_method !== "S256") {
     throw new Error("Unsupported native handoff method");
   }
-  return { state, codeChallenge };
+  return {
+    state,
+    codeChallenge,
+    purpose: normalizeNativeHandoffPurpose(query?.purpose),
+  };
 }
 
 function nativeWebHandoffFromRequest(body) {
@@ -1024,7 +1127,16 @@ function nativeWebHandoffFromRequest(body) {
       43,
       128
     ),
+    purpose: normalizeNativeHandoffPurpose(body.nativeHandoff.purpose),
   };
+}
+
+function normalizeNativeHandoffPurpose(value) {
+  const purpose = String(value || "login").trim();
+  if (!["login", "zk_enroll", "sensitive_memory_reveal"].includes(purpose)) {
+    throw new Error("Unsupported native handoff purpose");
+  }
+  return purpose;
 }
 
 function normalizeOpaqueHandoffValue(value, minLength, maxLength) {
@@ -1039,12 +1151,13 @@ function normalizeOpaqueHandoffValue(value, minLength, maxLength) {
   return normalized;
 }
 
-function issueNativeWebHandoff({ shadowUserId, codeChallenge }) {
+function issueNativeWebHandoff({ shadowUserId, codeChallenge, purpose }) {
   pruneNativeWebHandoffs();
   const code = crypto.randomBytes(32).toString("base64url");
   nativeWebHandoffs.set(nativeWebHandoffKey(code), {
     shadowUserId,
     codeChallenge,
+    purpose: normalizeNativeHandoffPurpose(purpose),
     expiresAt: Date.now() + NATIVE_WEB_HANDOFF_TTL_MS,
   });
   return code;
@@ -1079,12 +1192,18 @@ function nativeWebExchangeFailure() {
     valid: false,
     user: null,
     token: null,
+    reauthToken: null,
+    purpose: null,
     message: "通行密钥登录已过期，请重新验证。",
   };
 }
 
-function nativeWebPasskeyPage({ state, codeChallenge }) {
-  const context = JSON.stringify({ state, codeChallenge });
+function nativeWebPasskeyPage({ state, codeChallenge, purpose = "login" }) {
+  const context = JSON.stringify({
+    state,
+    codeChallenge,
+    purpose: normalizeNativeHandoffPurpose(purpose),
+  });
   return `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Athena 通行密钥登录</title>
 <style>body{margin:0;background:#f7f7f8;color:#111;font:17px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box}section{text-align:center}h1{font-size:24px;margin:0 0 12px}p{color:#6b6b73;margin:0;line-height:1.5}progress{width:124px;height:4px;margin-top:24px}</style></head>
@@ -1093,8 +1212,184 @@ function nativeWebPasskeyPage({ state, codeChallenge }) {
 const toBytes=value=>{const base=value.replace(/-/g,"+").replace(/_/g,"/");const padded=base+"=".repeat((4-base.length%4)%4);const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));};
 const toBase64URL=value=>{const bytes=new Uint8Array(value);let raw="";bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,"");};
 const serialize=credential=>({id:credential.id,rawId:toBase64URL(credential.rawId),type:credential.type,response:{clientDataJSON:toBase64URL(credential.response.clientDataJSON),authenticatorData:toBase64URL(credential.response.authenticatorData),signature:toBase64URL(credential.response.signature),userHandle:credential.response.userHandle?toBase64URL(credential.response.userHandle):null}});
-async function authenticate(){try{const optionsResponse=await fetch("/api/auth/passkeys/login/options",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:"{}"});const optionsPayload=await optionsResponse.json();if(!optionsPayload.success)throw new Error(optionsPayload.error||"无法请求通行密钥。");const publicKey=optionsPayload.options;publicKey.challenge=toBytes(publicKey.challenge);publicKey.allowCredentials=(publicKey.allowCredentials||[]).map(item=>({...item,id:toBytes(item.id)}));status.textContent="请使用通行密钥验证";const credential=await navigator.credentials.get({publicKey});status.textContent="正在安全验证...";const verifyResponse=await fetch("/api/auth/passkeys/login/verify",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:JSON.stringify({response:serialize(credential),nativeHandoff:{codeChallenge:context.codeChallenge}})});const result=await verifyResponse.json();if(!result.valid||!result.nativeHandoffCode)throw new Error(result.message||"通行密钥验证失败。");const params=new URLSearchParams({code:result.nativeHandoffCode,state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}catch(error){const params=new URLSearchParams({error:"passkey_failed",state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}}
+async function authenticate(){try{const optionsResponse=await fetch("/api/auth/passkeys/login/options",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:"{}"});const optionsPayload=await optionsResponse.json();if(!optionsPayload.success)throw new Error(optionsPayload.error||"无法请求通行密钥。");const publicKey=optionsPayload.options;publicKey.challenge=toBytes(publicKey.challenge);publicKey.allowCredentials=(publicKey.allowCredentials||[]).map(item=>({...item,id:toBytes(item.id)}));status.textContent="请使用通行密钥验证";const credential=await navigator.credentials.get({publicKey});status.textContent="正在安全验证...";const verifyResponse=await fetch("/api/auth/passkeys/login/verify",{method:"POST",headers:{"Content-Type":"application/json","X-Athena-Communication-Scene":"native-app-auth","Priority":"u=0, i"},body:JSON.stringify({response:serialize(credential),nativeHandoff:{codeChallenge:context.codeChallenge,purpose:context.purpose}})});const result=await verifyResponse.json();if(!result.valid||!result.nativeHandoffCode)throw new Error(result.message||"通行密钥验证失败。");const params=new URLSearchParams({code:result.nativeHandoffCode,state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}catch(error){const params=new URLSearchParams({error:"passkey_failed",state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}}
 authenticate();</script></body></html>`;
+}
+
+async function registrationOptionsForUser({
+  user,
+  authUserId,
+  request,
+  rpID: explicitRpID = null,
+}) {
+  const { origin, rpID } = passkeyRpConfig(request);
+  assertSecurePasskeyOrigin(origin);
+  const expectedRpID = explicitRpID || rpID;
+  const existingCredentials = await authPrisma.passkeyCredential.findMany({
+    where: { userId: authUserId },
+    select: { credentialId: true, transports: true },
+  });
+  const options = await generateRegistrationOptions({
+    rpName: RP_NAME,
+    rpID: expectedRpID,
+    userName: user.username || user.email || `user-${user.id}`,
+    userID: userIdBytes(authUserId),
+    attestationType: "none",
+    excludeCredentials: existingCredentials.map((credential) => ({
+      id: credential.credentialId,
+      transports: parseTransports(credential.transports),
+    })),
+    authenticatorSelection: {
+      residentKey: "preferred",
+      userVerification: "required",
+      authenticatorAttachment: "platform",
+    },
+  });
+  await rememberChallenge({
+    challenge: normalizeBase64Url(options.challenge),
+    type: "register",
+    userId: authUserId,
+    request,
+  });
+  return options;
+}
+
+async function verifyAndStoreRegistration({ user, authUserId, body, request }) {
+  const attestationResponse = body?.response;
+  const challenge = normalizeBase64Url(
+    attestationResponse?.response?.clientDataJSON
+      ? challengeFromClientData(attestationResponse.response.clientDataJSON)
+      : null
+  );
+  const challengeRecord = await consumeChallenge({
+    challenge,
+    type: "register",
+    userId: authUserId,
+  });
+  if (!challengeRecord) {
+    throw new Error("Passkey challenge has expired.");
+  }
+
+  const { origin, rpID } = passkeyRpConfig(request);
+  assertSecurePasskeyOrigin(origin);
+  const verification = await verifyRegistrationResponse({
+    response: attestationResponse,
+    expectedChallenge: challengeRecord.challenge,
+    expectedOrigin: origin,
+    expectedRPID: rpID,
+  });
+  if (!verification.verified || !verification.registrationInfo) {
+    throw new Error("Could not verify passkey registration.");
+  }
+
+  const { aaguid, credential, credentialBackedUp, credentialDeviceType } =
+    verification.registrationInfo;
+  const credentialId = normalizeBase64Url(credential.id);
+  const deviceType = normalizeDeviceType(
+    body?.deviceType,
+    credentialDeviceType
+  );
+  const browserName = normalizeDisplayLabel(body?.browserName, 40);
+  const platformName = normalizeDisplayLabel(body?.platformName, 40);
+  const provider = providerMetadata({
+    aaguid,
+    browserName,
+    platformName,
+    userAgent: request.get("user-agent") || "",
+  });
+  const deviceName = normalizeDeviceName({
+    preferred: body?.deviceName,
+    deviceType,
+    browserName,
+    platformName,
+    providerName: provider.providerName,
+  });
+  const passkey = await authPrisma.passkeyCredential.create({
+    data: {
+      userId: authUserId,
+      credentialId,
+      publicKey: bytesToBase64Url(credential.publicKey),
+      counter: Number(credential.counter || 0),
+      transports: JSON.stringify(credential.transports || []),
+      deviceType,
+      deviceName,
+      browserName,
+      platformName,
+      aaguid: normalizeAaguid(aaguid),
+      provider: provider.provider,
+      providerName: provider.providerName,
+      backedUp: Boolean(credentialBackedUp),
+    },
+  });
+  await reconcilePasskeysForShadowUser({
+    shadowUserId: user.id,
+    authUserId,
+    eventType: "passkey.registered",
+    changedPaths: [`passkeys.${passkey.id}`],
+    payloadHint: { operation: "add", passkeyId: passkey.id },
+  });
+  await EventLogs.logEvent(
+    "passkey_registered",
+    safeAuditMetadata(request, {
+      passkeyId: passkey.id,
+      credential: credentialFingerprint(credentialId),
+      deviceName,
+      deviceType,
+      provider: provider.provider,
+      providerName: provider.providerName,
+    }),
+    user.id
+  );
+  return passkey;
+}
+
+function nativeRegistrationRecord(input = {}) {
+  pruneNativeRegistrationHandoffs();
+  const handoff = normalizeOpaqueHandoffValue(input?.handoff, 32, 256);
+  const state = normalizeOpaqueHandoffValue(input?.state, 32, 128);
+  const record = nativeRegistrationHandoffs.get(nativeWebHandoffKey(handoff));
+  if (
+    !record ||
+    record.expiresAt <= Date.now() ||
+    !safeOpaqueEqual(record.state, state)
+  ) {
+    throw new Error("Passkey registration handoff expired.");
+  }
+  return record;
+}
+
+function issueNativeRegistrationExchange(record) {
+  const code = crypto.randomBytes(32).toString("base64url");
+  nativeRegistrationExchanges.set(nativeWebHandoffKey(code), {
+    shadowUserId: record.shadowUserId,
+    codeChallenge: record.codeChallenge,
+    expiresAt: Date.now() + NATIVE_WEB_HANDOFF_TTL_MS,
+  });
+  return code;
+}
+
+function pruneNativeRegistrationHandoffs() {
+  const now = Date.now();
+  for (const [key, value] of nativeRegistrationHandoffs.entries()) {
+    if (value.expiresAt <= now) nativeRegistrationHandoffs.delete(key);
+  }
+  for (const [key, value] of nativeRegistrationExchanges.entries()) {
+    if (value.expiresAt <= now) nativeRegistrationExchanges.delete(key);
+  }
+}
+
+function nativeWebPasskeyRegistrationPage({ handoff, state }) {
+  const context = JSON.stringify({ handoff, state });
+  return `<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Athena 添加通行密钥</title>
+<style>body{margin:0;background:#f7f7f8;color:#111;font:17px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}main{min-height:100vh;display:grid;place-items:center;padding:24px;box-sizing:border-box}section{text-align:center}h1{font-size:24px;margin:0 0 12px}p{color:#6b6b73;margin:0;line-height:1.5}progress{width:124px;height:4px;margin-top:24px}</style></head>
+<body><main><section><h1>Athena</h1><p id="status">正在准备通行密钥...</p><progress></progress></section></main>
+<script>const context=${context};const status=document.getElementById("status");
+const toBytes=value=>{const base=value.replace(/-/g,"+").replace(/_/g,"/");const padded=base+"=".repeat((4-base.length%4)%4);const raw=atob(padded);return Uint8Array.from(raw,c=>c.charCodeAt(0));};
+const toBase64URL=value=>{const bytes=new Uint8Array(value);let raw="";bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/g,"");};
+const serialize=credential=>({id:credential.id,rawId:toBase64URL(credential.rawId),type:credential.type,response:{clientDataJSON:toBase64URL(credential.response.clientDataJSON),attestationObject:toBase64URL(credential.response.attestationObject),transports:credential.response.getTransports?credential.response.getTransports():[]}});
+async function register(){try{const shared={handoff:context.handoff,state:context.state};const optionsResponse=await fetch("/api/auth/passkeys/native-register/options",{method:"POST",headers:{"Content-Type":"application/json","Priority":"u=0, i"},body:JSON.stringify(shared)});const payload=await optionsResponse.json();if(!payload.success)throw new Error(payload.error||"无法请求通行密钥。");const publicKey=payload.options;publicKey.challenge=toBytes(publicKey.challenge);publicKey.user={...publicKey.user,id:toBytes(publicKey.user.id)};publicKey.excludeCredentials=(publicKey.excludeCredentials||[]).map(item=>({...item,id:toBytes(item.id)}));status.textContent="请确认添加通行密钥";const credential=await navigator.credentials.create({publicKey});status.textContent="正在安全保存...";const verifyResponse=await fetch("/api/auth/passkeys/native-register/verify",{method:"POST",headers:{"Content-Type":"application/json","Priority":"u=0, i"},body:JSON.stringify({...shared,response:serialize(credential),deviceType:"platform",browserName:navigator.userAgent.includes("Safari")?"Safari":"Browser",platformName:navigator.platform||"Web"})});const result=await verifyResponse.json();if(!result.success||!result.code)throw new Error(result.error||"无法保存通行密钥。");const params=new URLSearchParams({code:result.code,state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}catch(error){const params=new URLSearchParams({error:"passkey_registration_failed",state:context.state});window.location.replace("athena://auth/callback?"+params.toString());}}
+register();</script></body></html>`;
 }
 
 module.exports = {
@@ -1109,6 +1404,9 @@ module.exports = {
     markVerifyFailure,
     nativeWebHandoffFromQuery,
     nativeWebPasskeyPage,
+    nativeWebPasskeyRegistrationPage,
+    nativeRegistrationRecord,
+    normalizeNativeHandoffPurpose,
     normalizeBase64Url,
     providerMetadata,
     sanitizePasskey,

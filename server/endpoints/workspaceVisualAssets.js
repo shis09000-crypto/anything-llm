@@ -68,7 +68,9 @@ function workspaceVisualAssetEndpoints(app) {
         response.status(200).json({ success: true, assets });
       } catch (error) {
         console.error("[WorkspaceVisualAsset] list failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -111,7 +113,9 @@ function workspaceVisualAssetEndpoints(app) {
         response.status(result.success ? 200 : 400).json(result);
       } catch (error) {
         console.error("[WorkspaceVisualAsset] upload failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -148,7 +152,7 @@ function workspaceVisualAssetEndpoints(app) {
       } catch (error) {
         console.error("[WorkspaceVisualAsset] file failed", error);
         response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: "asset_file_failed" });
       }
     }
@@ -170,7 +174,9 @@ function workspaceVisualAssetEndpoints(app) {
         response.status(result.success ? 200 : 404).json(result);
       } catch (error) {
         console.error("[WorkspaceVisualAsset] delete failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

@@ -1,5 +1,11 @@
 const ignore = require("ignore");
+const {
+  readResponseJsonLimited,
+  readResponseTextLimited,
+  safeFetch,
+} = require("../../../../networkGuard");
 const MAX_RETRIES = 3;
+const MAX_API_RESPONSE_BYTES = 25 * 1_024 * 1_024;
 
 /**
  * @typedef {Object} RepoLoaderArgs
@@ -90,7 +96,7 @@ class GitLabRepoLoader {
   async #validateAccessToken() {
     if (!this.accessToken) return;
     try {
-      await fetch(`${this.apiBase}/api/v4/user`, {
+      await safeFetch(`${this.apiBase}/api/v4/user`, {
         method: "GET",
         headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
       }).then((res) => res.ok);
@@ -336,7 +342,7 @@ ${body}`
       }/repository/files/${encodeURIComponent(sourceFilePath)}/raw?ref=${
         this.branch
       }`;
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "GET",
         headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
       });
@@ -359,7 +365,7 @@ ${body}`
       if (!response.ok)
         throw new Error(`Failed to fetch single file ${sourceFilePath}`);
 
-      return await response.text();
+      return await readResponseTextLimited(response, MAX_API_RESPONSE_BYTES);
     } catch (e) {
       console.error(`RepoLoader.fetchSingleFileContents`, e);
       return null;
@@ -384,7 +390,7 @@ ${body}`
       });
       const url = `${this.apiBase}${endpoint}?${params.toString()}`;
 
-      const response = await fetch(url, {
+      const response = await safeFetch(url, {
         method: "GET",
         headers: this.accessToken ? { "PRIVATE-TOKEN": this.accessToken } : {},
       });
@@ -418,7 +424,10 @@ ${body}`
         return null;
       }
 
-      const data = await response.json();
+      const data = await readResponseJsonLimited(
+        response,
+        MAX_API_RESPONSE_BYTES
+      );
       if (!Array.isArray(data)) {
         console.warn(`Unexpected response format for ${endpoint}:`, data);
         return [];

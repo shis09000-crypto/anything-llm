@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-/* global console, process, fetch, window, performance */
+/* global console, process, fetch, window, performance, URL */
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import { Buffer } from "node:buffer";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -79,6 +80,7 @@ const password =
   process.env.ATHENA_TEST_PASSWORD ||
   process.env.PASSWORD ||
   "";
+const suppliedToken = argValue("token") || process.env.ATHENA_TEST_TOKEN || "";
 const outPath = argValue("out");
 const label = argValue("label", "local-production-perf");
 const headless = argValue("headed", "false") !== "true";
@@ -114,6 +116,24 @@ function byteHeader(headers = {}) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function userFromSuppliedToken(token) {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(String(token).split(".")[1] || "", "base64url").toString(
+        "utf8"
+      )
+    );
+    return {
+      id: payload.id || payload.userId || null,
+      authUserId: payload.authUserId || null,
+      username: payload.username || "performance-test",
+      role: payload.role || "default",
+    };
+  } catch {
+    return { username: "performance-test", role: "default" };
+  }
+}
+
 function summarizeResources(resources = []) {
   const relevant = resources.filter((entry) =>
     ["script", "link", "css", "fetch", "xmlhttprequest", "navigation"].includes(
@@ -147,7 +167,12 @@ function summarizeResources(resources = []) {
   };
 }
 
-async function collectStage(page, name, fn) {
+async function collectStage(
+  page,
+  name,
+  fn,
+  { allowUnauthenticated = false } = {}
+) {
   await page.evaluate(() => {
     window.__anythingCommunication?.clear?.();
     window.__anythingWorkspacePerf?.clear?.();
@@ -175,6 +200,25 @@ async function collectStage(page, name, fn) {
   }
   await page.waitForTimeout(900).catch(() => {});
   page.off("response", onResponse);
+  const criticalFailures = responses.filter(
+    (response) =>
+      response.status >= 400 &&
+      !(
+        allowUnauthenticated &&
+        response.status === 401 &&
+        new URL(response.url).pathname.startsWith("/api/")
+      ) &&
+      ["script", "stylesheet", "document", "fetch", "xhr"].includes(
+        response.resourceType
+      )
+  );
+  const effectiveError =
+    error?.message ||
+    (criticalFailures.length
+      ? `Critical HTTP failures: ${criticalFailures
+          .map((response) => `${response.status} ${response.url}`)
+          .join(", ")}`
+      : null);
   const browserSnapshot = await page.evaluate(() => ({
     communication: window.__anythingCommunication?.budget?.() || null,
     perf: window.__anythingWorkspacePerf?.snapshot?.() || null,
@@ -189,9 +233,10 @@ async function collectStage(page, name, fn) {
   }));
   results.stages.push({
     name,
-    ok: !error,
+    ok: !effectiveError,
     durationMs: Date.now() - startedAt,
-    error: error?.message || null,
+    error: effectiveError,
+    criticalFailures,
     responses: {
       count: responses.length,
       bytesFromHeaders: responses.reduce(
@@ -214,6 +259,21 @@ async function collectStage(page, name, fn) {
 }
 
 async function loginInBrowser(page) {
+  if (suppliedToken) {
+    const data = {
+      valid: true,
+      token: suppliedToken,
+      user: userFromSuppliedToken(suppliedToken),
+    };
+    await page.evaluate(({ token, user }) => {
+      window.sessionStorage.setItem("anythingllm_authToken", token);
+      window.localStorage.removeItem("anythingllm_user");
+      window.sessionStorage.setItem("anythingllm_user", JSON.stringify(user));
+      window.localStorage.setItem("communicationDebugPanel", "false");
+      window.localStorage.setItem("workspaceChatPerfDebug", "true");
+    }, data);
+    return data;
+  }
   if (!email || !password) {
     throw new Error("Missing ATHENA_TEST_EMAIL/ATHENA_TEST_PASSWORD.");
   }
@@ -273,15 +333,31 @@ async function main() {
       executablePath || defaultChromeExecutablePath() || undefined,
   });
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  if (suppliedToken) {
+    await context.addInitScript(
+      ({ token, user }) => {
+        window.localStorage.removeItem("anythingllm_authToken");
+        window.localStorage.removeItem("anythingllm_user");
+        window.sessionStorage.setItem("anythingllm_authToken", token);
+        window.sessionStorage.setItem("anythingllm_user", JSON.stringify(user));
+      },
+      { token: suppliedToken, user: userFromSuppliedToken(suppliedToken) }
+    );
+  }
   const page = await context.newPage();
   page.setDefaultTimeout(12_000);
 
   try {
-    await collectStage(page, "login-page", async () => {
-      await page.goto(`${baseUrl}/login?nt=1`, {
-        waitUntil: "domcontentloaded",
-      });
-    });
+    await collectStage(
+      page,
+      "login-page",
+      async () => {
+        await page.goto(`${baseUrl}/login?nt=1`, {
+          waitUntil: "domcontentloaded",
+        });
+      },
+      { allowUnauthenticated: true }
+    );
 
     const login = await loginInBrowser(page);
     const workspaces = await fetchWorkspaces(page, login.token);
@@ -326,9 +402,13 @@ async function main() {
   }
 
   results.finishedAt = new Date().toISOString();
+  results.success = results.stages.every(
+    (stage) => stage.criticalFailures.length === 0
+  );
   const output = `${JSON.stringify(results, null, 2)}\n`;
   if (outPath) await fs.writeFile(outPath, output, "utf8");
   process.stdout.write(output);
+  if (!results.success) process.exitCode = 1;
 }
 
 main().catch((error) => {

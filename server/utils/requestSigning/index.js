@@ -323,6 +323,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     },
     {
       methods: ["POST"],
+      pattern: /^\/auth\/passkeys\/native-register\/(?:start|exchange)$/,
+    },
+    {
+      methods: ["POST"],
       pattern: /^\/auth\/trusted-devices\/enable$/,
     },
     {
@@ -378,6 +382,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
       pattern: /^\/system\/user$/,
     },
     {
+      methods: ["POST"],
+      pattern: /^\/system\/sessions\/(?:revoke|revoke-others|revoke-all)$/,
+    },
+    {
       methods: ["PATCH", "DELETE"],
       pattern: /^\/system\/user\/state$/,
     },
@@ -408,6 +416,14 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/system\/user\/email-verification\/(?:request|confirm)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/provider-settings\/llm$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/custom-models$/,
     },
     {
       methods: ["DELETE"],
@@ -868,6 +884,7 @@ async function verifySignatureParts({
   method,
   canonicalPath,
   bodyString = "",
+  bodySha256Override = null,
   signed = {},
 } = {}) {
   const context = getClientContext(request);
@@ -905,7 +922,7 @@ async function verifySignatureParts({
     return signingFailure("expired_timestamp");
   }
 
-  const expectedBodyHash = sha256Base64Url(bodyString);
+  const expectedBodyHash = bodySha256Override || sha256Base64Url(bodyString);
   if (!timingSafeEqualString(expectedBodyHash, bodySha256)) {
     return signingFailure("body_hash_mismatch");
   }
@@ -1001,6 +1018,7 @@ async function verifySignedRequest(request) {
     method: request.method,
     canonicalPath,
     bodyString: request.rawBody || "",
+    bodySha256Override: request.rawBodySha256 || null,
     signed,
   });
 }

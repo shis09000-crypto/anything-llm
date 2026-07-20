@@ -6,6 +6,12 @@ import {
   revokeClient,
 } from "@/lib/communication/clientIdentityClient";
 import { getClientIdentity } from "@/lib/communication/clientIdentity";
+import {
+  listAuthSessions,
+  revokeAllAuthSessions,
+  revokeAuthSession,
+  revokeOtherAuthSessions,
+} from "@/lib/communication/authSessionClient";
 import { apiErrorRaw } from "@/lib/communication/apiError";
 import System from "@/models/system";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
@@ -18,6 +24,10 @@ import {
   ready as opaqueReady,
 } from "@serenity-kit/opaque";
 import { detectAuthCapability } from "@/utils/authCapability";
+import { getStoredAuthUser } from "@/utils/authUserStorage";
+import { syncMutationQueue } from "@/utils/syncV2/syncMutationQueue";
+import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
+import { syncV2StateStore } from "@/utils/syncV2/syncV2StateStore";
 import {
   clearLocalZkDevices,
   createLocalZkDevice,
@@ -33,6 +43,40 @@ const ZK_UNSUPPORTED_MESSAGE =
   "零知识快速登录需要 HTTPS 或 localhost。手机局域网 HTTP 地址无法保存可信设备。";
 
 const now = new Date();
+
+async function updateProfileWithSyncV2({ displayName, bio }) {
+  const userId = Number(getStoredAuthUser()?.id);
+  const nodeKey = Number.isInteger(userId) ? `users/${userId}/profile` : null;
+  const descriptor = nodeKey ? syncV2StateStore.descriptor(nodeKey) : null;
+  const enabled =
+    String(import.meta.env?.VITE_SYNC_V2_ENABLED || "false") === "true" &&
+    syncV2Runtime.enabled();
+  if (!enabled || !descriptor) return System.updateUser({ displayName, bio });
+
+  const payload = Object.fromEntries(
+    Object.entries({ displayName, bio }).filter(
+      ([, value]) => value !== undefined
+    )
+  );
+  try {
+    const result = await syncMutationQueue.submit({
+      mutationId: crypto.randomUUID(),
+      nodeKey,
+      baseVersion: Number(descriptor.stateVersion || 0),
+      operation: "merge",
+      changedPaths: Object.keys(payload),
+      payload,
+    });
+    return { success: true, ...result };
+  } catch (error) {
+    const raw = apiErrorRaw(error);
+    return {
+      success: false,
+      error: raw?.error || error?.message || "无法更新个人资料。",
+      conflict: error?.status === 409,
+    };
+  }
+}
 
 function accountVisibleTask(label, surface = "account-settings") {
   return {
@@ -110,8 +154,7 @@ const AccountSettingsApi = {
     System.requestEmailVerification({ email }),
   confirmEmailVerification: ({ email, code, challengeId = "" }) =>
     System.confirmEmailVerification({ email, code, challengeId }),
-  updateProfile: ({ displayName, bio }) =>
-    System.updateUser({ displayName, bio }),
+  updateProfile: updateProfileWithSyncV2,
   updatePassword: ({ currentPassword, password }) =>
     System.updateUser({ currentPassword, password }),
   fetchMemoryOverview: () => System.memoryOverview(),
@@ -505,35 +548,76 @@ const AccountSettingsApi = {
     );
   },
   fetchSessions: async () => {
-    const clients = await listClients({
+    const requestOptions = {
       communicationScene: "account-settings",
       task: accountVisibleTask("account:sessions"),
-    }).catch(() => []);
+    };
+    const [sessionResult, clients] = await Promise.all([
+      listAuthSessions(requestOptions).catch(() => null),
+      listClients(requestOptions).catch(() => []),
+    ]);
+    if (sessionResult?.success) {
+      const clientsById = new Map(
+        (Array.isArray(clients) ? clients : []).map((client) => [
+          client.clientId,
+          client,
+        ])
+      );
+      return (sessionResult.sessions || []).map((session) =>
+        sessionFromAuthority(session, clientsById.get(session.clientId))
+      );
+    }
     if (!Array.isArray(clients) || !clients.length) return mockSessions;
     return clients.map(sessionFromClient);
   },
-  signOutOtherSessions: async () =>
-    revokeAllOtherClients({
+  signOutOtherSessions: async () => {
+    const options = {
       communicationScene: "account-security",
       task: accountSecurityTask("account:sessions-revoke-others"),
-    }),
-  signOutSession: async (clientId) =>
-    revokeClient(clientId, {
+    };
+    try {
+      return await revokeOtherAuthSessions(options);
+    } catch (error) {
+      if (!isSessionApiUnavailable(error)) throw error;
+      return revokeAllOtherClients(options);
+    }
+  },
+  signOutSession: async (sessionIdOrClientId) => {
+    const options = {
       communicationScene: "account-security",
       task: accountSecurityTask("account:session-revoke"),
-    }),
+    };
+    let result;
+    try {
+      result = await revokeAuthSession(sessionIdOrClientId, options);
+    } catch (error) {
+      if (!isSessionApiUnavailable(error)) throw error;
+      result = await revokeClient(sessionIdOrClientId, options);
+    }
+    if (result?.currentSessionRevoked) {
+      clearSensitiveClientSession({
+        reason: "current_session_revoked",
+        includeDurableCaches: false,
+      });
+    }
+    return result;
+  },
   signOutAllSessions: async () => {
-    const currentClientId = getClientIdentity().clientId;
-    await revokeAllOtherClients({
+    const options = {
       communicationScene: "account-security",
-      task: accountSecurityTask("account:sessions-revoke-all-others"),
-    });
-    const result = currentClientId
-      ? await revokeClient(currentClientId, {
-          communicationScene: "account-security",
-          task: accountSecurityTask("account:session-revoke-current"),
-        })
-      : { success: true };
+      task: accountSecurityTask("account:sessions-revoke-all"),
+    };
+    let result;
+    try {
+      result = await revokeAllAuthSessions(options);
+    } catch (error) {
+      if (!isSessionApiUnavailable(error)) throw error;
+      const currentClientId = getClientIdentity().clientId;
+      await revokeAllOtherClients(options);
+      result = currentClientId
+        ? await revokeClient(currentClientId, options)
+        : { success: true };
+    }
     if (result?.success) {
       clearSensitiveClientSession({
         reason: "all_sessions_revoked",
@@ -643,6 +727,39 @@ function sessionFromClient(client = {}) {
     revokedAt: client.revokedAt || null,
     hasDevicePublicKey: !!client.hasDevicePublicKey,
   };
+}
+
+function sessionFromAuthority(session = {}, client = {}) {
+  const device = sessionFromClient({
+    ...client,
+    clientId: session.clientId || client.clientId,
+    isCurrentClient: session.current,
+  });
+  return {
+    ...device,
+    id: session.sessionId,
+    sessionId: session.sessionId,
+    clientId: session.clientId || null,
+    authMode: session.authMode || "password",
+    browser: `${device.browser} · ${authModeLabel(session.authMode)}`,
+    lastActiveAt: session.lastSeenAt || session.createdAt,
+    current: !!session.current,
+    revokedAt: session.revokedAt || null,
+    idleExpiresAt: session.idleExpiresAt || null,
+    absoluteExpiresAt: session.absoluteExpiresAt || null,
+  };
+}
+
+function authModeLabel(value) {
+  if (value === "passkey") return "通行密钥";
+  if (value === "zk") return "可信设备";
+  if (value === "sso") return "SSO";
+  if (value === "invite") return "邀请登录";
+  return "密码登录";
+}
+
+function isSessionApiUnavailable(error) {
+  return [404, 503].includes(Number(error?.status));
 }
 
 function clientLabel(client = {}) {

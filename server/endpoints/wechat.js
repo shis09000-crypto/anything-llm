@@ -387,7 +387,7 @@ function wechatEndpoints(app) {
           .json({ config: connector ? normalizedConfig(connector) : null });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -425,7 +425,7 @@ function wechatEndpoints(app) {
           .json({ success: true, config: normalizedConfig(connector) });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -490,7 +490,7 @@ function wechatEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -538,7 +538,7 @@ function wechatEndpoints(app) {
       } catch (e) {
         console.error(e.message, e);
         return response
-          .status(500)
+          .status(e.httpStatus || 500)
           .json({ success: false, error: "login_status_failed" });
       }
     }
@@ -606,7 +606,7 @@ function wechatEndpoints(app) {
     } catch (error) {
       console.error("WeChat webhook failed", error.message);
       return response
-        .status(500)
+        .status(error.httpStatus || 500)
         .json(safeFailure(500, "webhook_failed", "unexpected_error").body);
     }
   });

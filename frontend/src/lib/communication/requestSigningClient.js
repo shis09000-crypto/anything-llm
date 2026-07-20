@@ -141,6 +141,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     },
     {
       methods: ["POST"],
+      pattern: /^\/auth\/passkeys\/native-register\/(?:start|exchange)$/,
+    },
+    {
+      methods: ["POST"],
       pattern: /^\/auth\/trusted-devices\/enable$/,
     },
     {
@@ -196,6 +200,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
       pattern: /^\/system\/user$/,
     },
     {
+      methods: ["POST"],
+      pattern: /^\/system\/sessions\/(?:revoke|revoke-others|revoke-all)$/,
+    },
+    {
       methods: ["PATCH", "DELETE"],
       pattern: /^\/system\/user\/state$/,
     },
@@ -226,6 +234,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/system\/user\/email-verification\/(?:request|confirm)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/system\/(?:provider-settings\/[^/]+|custom-models)$/,
     },
     {
       methods: ["DELETE"],

@@ -11,8 +11,11 @@ async function loadCreateFilesLib() {
     path.join(os.tmpdir(), "anythingllm-create-files-")
   );
   process.env.STORAGE_DIR = storageDir;
+  const generatedFilesRoot = require("../../../utils/environment").storagePath(
+    "generated-files"
+  );
   const createFilesLib = require("../../../utils/agents/aibitat/plugins/create-files/lib");
-  return { createFilesLib, storageDir };
+  return { createFilesLib, generatedFilesRoot, storageDir };
 }
 
 describe("create-files write verification", () => {
@@ -49,7 +52,7 @@ describe("create-files write verification", () => {
     expect(savedFile.displayFilename).toBe("verified.txt");
     expect(savedFile.fileSize).toBe(buffer.length);
     expect(savedFile.storagePath).toContain(
-      path.join(storageDir, "generated-files")
+      loaded.generatedFilesRoot
     );
     await expect(fs.readFile(savedFile.storagePath)).resolves.toEqual(buffer);
   });

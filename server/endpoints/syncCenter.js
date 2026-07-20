@@ -33,6 +33,320 @@ const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const IOSPushToken = DataAccessCenter.iosPushToken;
 const SyncEvent = DataAccessCenter.syncEvent;
+const SyncV2 = DataAccessCenter.syncV2;
+const {
+  syncV2CohortEnabled,
+  syncV2Enabled,
+  syncV2RetentionMs,
+} = require("../utils/syncV2/config");
+const {
+  threadFingerprintManifestForRequest,
+} = require("../utils/syncV2/threadFingerprintManifest");
+const { runMutationBatch } = require("../utils/syncV2/mutationBatch");
+const { subscribeToBroadcastEvents } = require("../utils/broadcast");
+const { classifyNodeKey } = require("../utils/syncV2/nodeRegistry");
+const {
+  authoritativeChangedPaths,
+  mutationReceiptId,
+  mutationRequestHash,
+  validateProjectedPayload,
+} = require("../utils/syncV2/mutationPolicy");
+const {
+  isSupportedThreadChatModel,
+} = require("../utils/chats/threadChatModel");
+const { withCorrelation } = require("../utils/observability/context");
+const { metrics } = require("../utils/observability/metrics");
+
+const User = DataAccessCenter.adminSystem.user;
+const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
+
+function stripClientDirty(value) {
+  if (Array.isArray(value)) return value.map(stripClientDirty);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !["dirty", "updatedAt"].includes(key))
+      .map(([key, entry]) => [key, stripClientDirty(entry)])
+  );
+}
+
+function syncMutationError(code, status = 400, details = {}) {
+  const error = new Error(code);
+  error.code = code;
+  error.httpStatus = status;
+  Object.assign(error, details);
+  return error;
+}
+
+async function applySyncV2Mutation(context, mutation = {}) {
+  const parsed = classifyNodeKey(mutation.nodeKey);
+  if (!parsed) throw syncMutationError("sync_v2_node_not_mutable", 400);
+  const mutationId = String(mutation.mutationId || "")
+    .trim()
+    .slice(0, 160);
+  if (!mutationId) throw syncMutationError("sync_v2_mutation_id_required", 400);
+  const operations = ["merge", "replace", "delete", "set-add", "set-remove"];
+  if (!operations.includes(mutation.operation))
+    throw syncMutationError("sync_v2_invalid_operation", 400);
+  if (
+    !(await SyncV2.canAccessNode({
+      nodeKey: parsed.nodeKey,
+      userId: context.user.id,
+      allowAllWorkspaces: context.allowAllWorkspaces,
+    }))
+  )
+    throw syncMutationError("sync_v2_node_forbidden", 403);
+
+  const baseVersion = Number(mutation.baseVersion);
+  if (!Number.isInteger(baseVersion) || baseVersion < 0)
+    throw syncMutationError("sync_v2_base_version_required", 400);
+  const requestHash = mutationRequestHash({
+    ...mutation,
+    nodeKey: parsed.nodeKey,
+    mutationId,
+    baseVersion,
+  });
+  const receiptKey = mutationReceiptId(mutationId);
+  const reservation = await MutationReceipt.reserve({
+    userId: context.user.id,
+    sourceActionId: receiptKey,
+    action: "sync-v2.mutation",
+    workspaceId: parsed.ownerType === "workspace" ? parsed.ownerId : undefined,
+    threadId: parsed.ownerType === "thread" ? parsed.ownerId : undefined,
+    baseVersion,
+    requestHash,
+    nodeKey: parsed.nodeKey,
+    mutationId,
+    expiresAt: new Date(Date.now() + syncV2RetentionMs()),
+  });
+  if (
+    reservation.receipt?.requestHash &&
+    reservation.receipt.requestHash !== requestHash
+  )
+    throw syncMutationError("sync_v2_idempotency_key_reused", 409);
+  if (
+    !reservation.created &&
+    reservation.receipt?.status === "completed" &&
+    reservation.receipt?.result
+  )
+    return { ...reservation.receipt.result, replayed: true };
+
+  if (!reservation.created && reservation.receipt?.status === "failed")
+    throw syncMutationError(
+      reservation.receipt.errorCode || "sync_v2_mutation_failed",
+      409
+    );
+
+  try {
+    const replay = await SyncV2.mutationReplay({
+      nodeKey: parsed.nodeKey,
+      mutationId,
+    });
+    if (replay) {
+      if (replay.compensated) {
+        throw syncMutationError("state_version_conflict", 409, {
+          current: replay.descriptor,
+          requiresFullSync: false,
+          conflictReason: "mutation_compensated",
+        });
+      }
+      await MutationReceipt.complete({
+        userId: context.user.id,
+        sourceActionId: receiptKey,
+        leaseOwner: reservation.leaseOwner,
+        resource: { nodeKey: parsed.nodeKey },
+        resultVersion: replay.descriptor?.stateVersion,
+        result: replay,
+      });
+      return replay;
+    }
+    const pendingAgeMs =
+      Date.now() - new Date(reservation.receipt?.updatedAt || 0).getTime();
+    if (
+      !reservation.created &&
+      reservation.receipt?.status === "pending" &&
+      Number.isFinite(pendingAgeMs) &&
+      pendingAgeMs < 30_000
+    )
+      throw syncMutationError("sync_v2_mutation_in_progress", 425);
+    if (!reservation.claimed && !reservation.created)
+      throw syncMutationError("sync_v2_mutation_in_progress", 425);
+    const changedPaths = authoritativeChangedPaths(mutation);
+    const syncContext = {
+      nodeKey: parsed.nodeKey,
+      baseVersion,
+      changedPaths,
+      mutationId,
+      originClientId: context.client?.clientId || null,
+    };
+    let authoritativeProjection = null;
+
+    if (parsed.kind === "user-preferences") {
+      if (mutation.operation === "delete") {
+        await DataAccessCenter.userState.delete({
+          userId: context.user.id,
+          namespace: parsed.namespace,
+          scope: parsed.scope,
+          syncContext,
+        });
+      } else {
+        const saved = await DataAccessCenter.userState.upsertMany({
+          userId: context.user.id,
+          states: [
+            {
+              namespace: parsed.namespace,
+              scope: parsed.scope,
+              mutationOperation: mutation.operation,
+              mutationPayload: stripClientDirty(mutation.payload),
+              baseVersion,
+              changedPaths,
+              mutationId,
+            },
+          ],
+          syncContext,
+        });
+        const state = Array.isArray(saved) ? saved[0] || null : null;
+        if (state) {
+          authoritativeProjection = {
+            namespace: state.namespace,
+            scope: state.scope,
+            schemaVersion: state.version,
+            value: state.value,
+          };
+        }
+      }
+    } else if (parsed.kind === "user-profile") {
+      if (mutation.operation !== "merge")
+        throw syncMutationError("sync_v2_operation_not_supported", 400);
+      const validation = validateProjectedPayload(
+        parsed.kind,
+        mutation.payload
+      );
+      if (validation.error)
+        throw syncMutationError(validation.error, 400, {
+          unsupportedFields: validation.unsupported || [],
+        });
+      const updates = validation.payload;
+      const result = await User.update(context.user.id, updates, syncContext);
+      if (!result.success) {
+        if (result.code === "state_version_conflict")
+          throw syncMutationError("state_version_conflict", 409, result);
+        throw syncMutationError(result.error || "sync_v2_mutation_failed", 422);
+      }
+    } else if (parsed.kind === "workspace-metadata") {
+      if (mutation.operation !== "merge")
+        throw syncMutationError("sync_v2_operation_not_supported", 400);
+      const validation = validateProjectedPayload(
+        parsed.kind,
+        mutation.payload
+      );
+      if (validation.error)
+        throw syncMutationError(validation.error, 400, {
+          unsupportedFields: validation.unsupported || [],
+        });
+      const { workspace, message } = await Workspace.update(
+        parsed.ownerId,
+        validation.payload,
+        syncContext
+      );
+      if (!workspace || message)
+        throw syncMutationError(message || "sync_v2_mutation_failed", 422);
+    } else if (parsed.kind === "thread-metadata") {
+      if (mutation.operation !== "merge")
+        throw syncMutationError("sync_v2_operation_not_supported", 400);
+      const validation = validateProjectedPayload(
+        parsed.kind,
+        mutation.payload
+      );
+      if (validation.error)
+        throw syncMutationError(validation.error, 400, {
+          unsupportedFields: validation.unsupported || [],
+        });
+      if (
+        Object.prototype.hasOwnProperty.call(validation.payload, "chatModel") &&
+        !isSupportedThreadChatModel(validation.payload.chatModel)
+      )
+        throw syncMutationError("sync_v2_unsupported_thread_chat_model", 400);
+      const current = await WorkspaceThread.get({
+        OR: [{ user_id: context.user.id }, { user_id: null }],
+        id: parsed.ownerId,
+      });
+      if (!current) throw syncMutationError("sync_v2_node_not_found", 404);
+      const { thread, message } = await WorkspaceThread.update(
+        current,
+        validation.payload,
+        syncContext
+      );
+      if (!thread || message)
+        throw syncMutationError(message || "sync_v2_mutation_failed", 422);
+    } else {
+      throw syncMutationError("sync_v2_node_not_mutable", 400);
+    }
+
+    const applied = await SyncV2.mutationReplay({
+      nodeKey: parsed.nodeKey,
+      mutationId,
+    });
+    const result = applied
+      ? {
+          ...applied,
+          replayed: false,
+          ...(authoritativeProjection
+            ? { projection: authoritativeProjection }
+            : {}),
+        }
+      : {
+          replayed: false,
+          descriptor: (
+            await SyncV2.batchGet({
+              userId: context.user.id,
+              allowAllWorkspaces: context.allowAllWorkspaces,
+              nodes: [{ nodeKey: parsed.nodeKey }],
+            })
+          )[0]?.descriptor,
+          ...(authoritativeProjection
+            ? { projection: authoritativeProjection }
+            : {}),
+        };
+    await MutationReceipt.complete({
+      userId: context.user.id,
+      sourceActionId: receiptKey,
+      leaseOwner: reservation.leaseOwner,
+      resource: { nodeKey: parsed.nodeKey },
+      resultVersion: result.descriptor?.stateVersion,
+      result,
+    });
+    return result;
+  } catch (error) {
+    if (reservation.claimed && error?.code !== "mutation_receipt_lease_lost") {
+      const deterministic =
+        Number.isInteger(Number(error?.httpStatus)) &&
+        Number(error.httpStatus) >= 400 &&
+        Number(error.httpStatus) < 500;
+      const settle = deterministic
+        ? MutationReceipt.fail({
+            userId: context.user.id,
+            sourceActionId: receiptKey,
+            leaseOwner: reservation.leaseOwner,
+            errorCode: error?.code || "sync_v2_mutation_failed",
+          })
+        : MutationReceipt.release({
+            userId: context.user.id,
+            sourceActionId: receiptKey,
+            leaseOwner: reservation.leaseOwner,
+            errorCode: error?.code || "sync_v2_mutation_retry_required",
+          });
+      await settle.catch((settleError) => {
+        console.error("[SyncCenter] failed to settle mutation receipt", {
+          mutationId,
+          nodeKey: parsed.nodeKey,
+          code: settleError?.code || "receipt_settlement_failed",
+        });
+      });
+    }
+    throw error;
+  }
+}
 
 function asyncEndpoint(handler) {
   return async (request, response) => {
@@ -44,9 +358,54 @@ function asyncEndpoint(handler) {
         code: error?.code || "sync_endpoint_failed",
       });
       if (!response.headersSent) {
-        response.status(500).json({ success: false, error: "sync_failed" });
+        response.status(error?.httpStatus || 500).json({
+          success: false,
+          error:
+            error?.code === "database_operation_failed"
+              ? "database_operation_failed"
+              : "sync_failed",
+        });
       }
     }
+  };
+}
+
+async function syncV2RequestContext(request, response) {
+  if (!syncV2Enabled()) {
+    response.status(404).json({ success: false, error: "sync_v2_disabled" });
+    return null;
+  }
+  if (!(await SyncV2.schemaReady())) {
+    response.status(503).json({
+      success: false,
+      error: "sync_v2_schema_unavailable",
+    });
+    return null;
+  }
+  const user = await userFromSession(request, response);
+  if (!user?.id) {
+    response.status(401).json({ success: false, error: "unauthorized" });
+    return null;
+  }
+  const client = getClientContext(request, { user });
+  if (
+    !syncV2CohortEnabled({
+      userId: user.id,
+      clientId: client?.clientId || "legacy",
+      domain: "core",
+    })
+  ) {
+    response.status(404).json({
+      success: false,
+      error: "sync_v2_cohort_unavailable",
+    });
+    return null;
+  }
+  return {
+    user,
+    client,
+    allowAllWorkspaces:
+      !multiUserMode(response) || ["admin", "owner"].includes(user.role),
   };
 }
 
@@ -84,83 +443,15 @@ function normalizeFingerprintRequests(value = []) {
   return normalized;
 }
 
-async function fingerprintManifestForRequest(response, user, requests) {
-  const workspaceSlugs = [
-    ...new Set(requests.map((item) => item.workspaceSlug)),
-  ];
-  const workspaces = [];
-  for (const slug of workspaceSlugs) {
-    const workspace = multiUserMode(response)
-      ? await Workspace.getWithUser(user, { slug })
-      : await Workspace.get({ slug });
-    if (workspace) workspaces.push(workspace);
-  }
-  const workspaceBySlug = new Map(
-    workspaces.map((workspace) => [workspace.slug, workspace])
-  );
-  const foundThreads = [];
-  for (const workspace of workspaces) {
-    const threadSlugs = requests
-      .filter((item) => item.workspaceSlug === workspace.slug)
-      .map((item) => item.threadSlug);
-    const threads = await WorkspaceThread.where({
-      workspace_id: workspace.id,
-      user_id: user?.id || null,
-      slug: { in: threadSlugs },
-    });
-    foundThreads.push(...threads);
-  }
-  const fingerprintRows = await WorkspaceThread.historyFingerprintManifest({
-    threads: foundThreads,
-    userId: user?.id || null,
-  });
-  const fingerprintByThreadId = new Map(
-    fingerprintRows.map((row) => [Number(row.threadId), row])
-  );
-  const threadByKey = new Map(
-    foundThreads.map((thread) => [
-      `${thread.workspace_id}:${thread.slug}`,
-      thread,
-    ])
-  );
-
-  return requests.map((requested) => {
-    const workspace = workspaceBySlug.get(requested.workspaceSlug);
-    const thread = workspace
-      ? threadByKey.get(`${workspace.id}:${requested.threadSlug}`)
-      : null;
-    const fingerprint = thread
-      ? fingerprintByThreadId.get(Number(thread.id))
-      : null;
-    if (!workspace || !thread || !fingerprint) {
-      return {
-        workspaceSlug: requested.workspaceSlug,
-        threadSlug: requested.threadSlug,
-        status: "unavailable",
-      };
-    }
-    return {
-      workspaceSlug: requested.workspaceSlug,
-      threadSlug: requested.threadSlug,
-      status:
-        requested.fingerprint === fingerprint.historyFingerprint
-          ? "unchanged"
-          : "changed",
-      historyFingerprint: fingerprint.historyFingerprint,
-      historyRevision: fingerprint.historyRevision,
-      latestChatId: fingerprint.latestChatId,
-      latestChatAt:
-        fingerprint.latestChatAt?.toISOString?.() ||
-        fingerprint.latestChatAt ||
-        null,
-    };
-  });
-}
-
 function sendSocket(socket, payload) {
   if (!socket || socket.readyState !== 1) return false;
   try {
     socket.send(JSON.stringify(payload));
+    metrics.realtimeMessages.inc({
+      transport: "websocket",
+      direction: "outbound",
+      type: String(payload?.type || "unknown").slice(0, 64),
+    });
     return true;
   } catch {
     return false;
@@ -213,6 +504,7 @@ async function verifiedSocketPayload(request, socket, message) {
       "hello",
       "resume",
       "subscribe",
+      "replaceSubscriptions",
       "unsubscribe",
       "ack",
       "ping",
@@ -257,6 +549,260 @@ function syncCenterEndpoints(app) {
   if (!app) return;
 
   app.get(
+    "/sync/v2/manifest",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      const manifest = await SyncV2.manifestForUser({
+        userId: context.user.id,
+        allowAllWorkspaces: context.allowAllWorkspaces,
+        knownManifestHash: String(request.query?.manifestHash || "").slice(
+          0,
+          96
+        ),
+      });
+      response.status(200).json({
+        success: true,
+        protocolVersion: 2,
+        generatedAt: new Date().toISOString(),
+        ...manifest,
+      });
+    })
+  );
+
+  app.post(
+    "/sync/v2/nodes:batchGet",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      const nodes = reqBody(request)?.nodes;
+      if (!Array.isArray(nodes) || nodes.length > 100) {
+        response.status(400).json({
+          success: false,
+          error: "sync_v2_invalid_node_batch",
+        });
+        return;
+      }
+      const results = await SyncV2.batchGet({
+        userId: context.user.id,
+        allowAllWorkspaces: context.allowAllWorkspaces,
+        nodes,
+      });
+      response.status(200).json({ success: true, nodes: results });
+    })
+  );
+
+  app.post(
+    "/sync/v2/mutations:batch",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      const mutations = reqBody(request)?.mutations;
+      if (
+        !Array.isArray(mutations) ||
+        !mutations.length ||
+        mutations.length > 50
+      ) {
+        return response.status(400).json({
+          success: false,
+          error: "sync_v2_invalid_mutation_batch",
+        });
+      }
+      const settled = await runMutationBatch(
+        mutations,
+        async (mutation) => await applySyncV2Mutation(context, mutation)
+      );
+      const results = settled.map((entry, index) => {
+        const mutation = mutations[index];
+        if (entry.status === "fulfilled") {
+          return {
+            mutationId: mutation?.mutationId || null,
+            nodeKey: mutation?.nodeKey || null,
+            success: true,
+            ...entry.value,
+          };
+        }
+        const error = entry.reason || {};
+        return {
+          mutationId: mutation?.mutationId || null,
+          nodeKey: mutation?.nodeKey || null,
+          success: false,
+          status:
+            error.httpStatus ||
+            (error.code === "state_version_conflict" ? 409 : 400),
+          error: error.code || error.message || "sync_v2_mutation_failed",
+          expectedVersion: error.expectedVersion,
+          current: error.current || error.syncNode || null,
+          requiresFullSync: error.requiresFullSync === true,
+          conflictReason: error.conflictReason || null,
+          unsupportedFields: error.unsupportedFields || [],
+        };
+      });
+      response.status(200).json({
+        success: results.every((result) => result.success),
+        results,
+      });
+    })
+  );
+
+  app.patch(
+    "/sync/v2/nodes/:nodeKey",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      const body = reqBody(request) || {};
+      const mutation = {
+        ...body,
+        nodeKey: request.params.nodeKey,
+        mutationId:
+          request.header("Idempotency-Key") || body.mutationId || null,
+        baseVersion: Number(request.header("If-Match") ?? body.baseVersion),
+        operation: body.operation || "merge",
+        payload: body.payload ?? body.patch ?? {},
+      };
+      try {
+        const result = await applySyncV2Mutation(context, mutation);
+        response.status(200).json({ success: true, ...result });
+      } catch (error) {
+        response.status(error.httpStatus || 400).json({
+          success: false,
+          error: error.code || error.message || "sync_v2_mutation_failed",
+          expectedVersion: error.expectedVersion,
+          current: error.current || error.syncNode || null,
+          requiresFullSync: error.requiresFullSync === true,
+          conflictReason: error.conflictReason || null,
+          unsupportedFields: error.unsupportedFields || [],
+        });
+      }
+    })
+  );
+
+  app.get(
+    "/sync/v2/events",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      const result = await SyncV2.eventsAfter({
+        userId: context.user.id,
+        allowAllWorkspaces: context.allowAllWorkspaces,
+        after: request.query?.after,
+        limit: request.query?.limit,
+      });
+      response.status(200).json({ success: true, ...result });
+    })
+  );
+
+  app.post(
+    "/sync/v2/cursor",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    asyncEndpoint(async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      if (!context.client?.clientId) {
+        response.status(400).json({
+          success: false,
+          error: "sync_v2_client_identity_required",
+        });
+        return;
+      }
+      const lastAppliedSeq = Number(reqBody(request)?.lastAppliedSeq);
+      if (!Number.isInteger(lastAppliedSeq) || lastAppliedSeq < 0) {
+        response.status(400).json({
+          success: false,
+          error: "sync_v2_invalid_cursor",
+        });
+        return;
+      }
+      const cursor = await SyncV2.updateCursor({
+        userId: context.user.id,
+        clientId: context.client.clientId,
+        platform: context.client.platform,
+        lastAppliedSeq,
+      });
+      response.status(200).json({
+        success: true,
+        lastAppliedSeq: cursor.lastAppliedSeq,
+      });
+    })
+  );
+
+  app.get(
+    "/sync/v2/stream",
+    [validatedRequest, flexUserRoleValid([ROLES.all])],
+    async (request, response) => {
+      const context = await syncV2RequestContext(request, response);
+      if (!context) return;
+      setSseTransportHeaders(response, { "Access-Control-Allow-Origin": "*" });
+      response.flushHeaders?.();
+      const buffered = [];
+      let replaying = true;
+      const writeEvent = (event) => {
+        const syncEvent = event?.payload?.syncV2;
+        if (!syncEvent?.seq) return;
+        metrics.realtimeMessages.inc({
+          transport: "sse",
+          direction: "outbound",
+          type: "syncV2.event",
+        });
+        response.write(`id: ${Number(syncEvent.seq)}\n`);
+        writeResponseChunk(response, {
+          type: "syncV2.event",
+          event: syncEvent,
+        });
+      };
+      const unsubscribe = subscribeToBroadcastEvents((event) => {
+        if (
+          !syncEventVisibleToUser(
+            event,
+            context.user.id,
+            context.client?.clientId
+          )
+        )
+          return;
+        if (replaying) buffered.push(event);
+        else writeEvent(event);
+      });
+      const lastEventId =
+        request.header("Last-Event-ID") || request.query?.after || null;
+      const replay = await SyncV2.eventsAfter({
+        userId: context.user.id,
+        allowAllWorkspaces: context.allowAllWorkspaces,
+        after: lastEventId,
+        limit: 200,
+      });
+      writeResponseChunk(response, {
+        type: "syncV2.ready",
+        checkpointSeq: replay.checkpointSeq,
+        requiresFullSync: replay.requiresFullSync,
+        hasMore: replay.hasMore,
+        nextSeq: replay.nextSeq,
+      });
+      for (const event of replay.events) {
+        response.write(`id: ${Number(event.seq)}\n`);
+        writeResponseChunk(response, { type: "syncV2.event", event });
+      }
+      replaying = false;
+      for (const event of buffered) writeEvent(event);
+      buffered.length = 0;
+      const heartbeat = setInterval(() => {
+        if (!response.destroyed && !response.writableEnded)
+          writeResponseChunk(response, { type: "heartbeat" });
+      }, 25_000);
+      const cleanup = () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      };
+      request.once("close", cleanup);
+      response.once("close", cleanup);
+    }
+  );
+
+  app.get(
     "/sync/events/replay",
     [validatedRequest, flexUserRoleValid([ROLES.all])],
     asyncEndpoint(async (request, response) => {
@@ -287,11 +833,11 @@ function syncCenterEndpoints(app) {
           error: "invalid_thread_fingerprint_request",
         });
       }
-      const threads = await fingerprintManifestForRequest(
-        response,
-        user,
-        requests
-      );
+      const threads = await threadFingerprintManifestForRequest({
+        userId: user?.id || null,
+        requireMembership: multiUserMode(response),
+        requests,
+      });
       response.status(200).json({
         success: true,
         checkedAt: new Date().toISOString(),
@@ -430,75 +976,114 @@ function syncCenterEndpoints(app) {
       sendReplay(connection, replay);
     }
 
-    socket.on("message", async (message) => {
-      const payload = await verifiedSocketPayload(request, socket, message);
-      if (!payload) return;
-      switch (payload.type) {
-        case "hello":
-        case "resume": {
-          const subscriptions = Array.isArray(payload.subscriptions)
-            ? payload.subscriptions
-            : [];
-          if (subscriptions.length) {
-            broadcastCenter.subscribe(connection, subscriptions);
-          }
-          if (payload.lastEventId) {
-            const replay = await broadcastCenter.replayDurable({
-              userId: connection.userId,
-              clientId: connection.clientId,
-              platform: connection.platform,
-              lastEventId: payload.lastEventId,
+    socket.on("message", (message) => {
+      void withCorrelation(request.athenaTraceContext || {}, async () => {
+        const payload = await verifiedSocketPayload(request, socket, message);
+        if (!payload) return;
+        const inboundMetricType = [
+          "hello",
+          "resume",
+          "subscribe",
+          "unsubscribe",
+          "replaceSubscriptions",
+          "ack",
+          "ping",
+        ].includes(payload.type)
+          ? payload.type
+          : "unknown";
+        metrics.realtimeMessages.inc({
+          transport: "websocket",
+          direction: "inbound",
+          type: inboundMetricType,
+        });
+        switch (payload.type) {
+          case "hello":
+          case "resume": {
+            const subscriptions = Array.isArray(payload.subscriptions)
+              ? payload.subscriptions
+              : [];
+            if (subscriptions.length) {
+              broadcastCenter.subscribe(connection, subscriptions);
+            }
+            if (payload.lastEventId) {
+              const replay = await broadcastCenter.replayDurable({
+                userId: connection.userId,
+                clientId: connection.clientId,
+                platform: connection.platform,
+                lastEventId: payload.lastEventId,
+                subscriptions: [...connection.subscriptions.values()],
+              });
+              sendReplay(connection, replay);
+            }
+            sendSocket(socket, {
+              type: "broadcast.hello",
+              ok: true,
               subscriptions: [...connection.subscriptions.values()],
             });
-            sendReplay(connection, replay);
+            return;
           }
-          sendSocket(socket, {
-            type: "broadcast.hello",
-            ok: true,
-            subscriptions: [...connection.subscriptions.values()],
-          });
-          return;
+          case "subscribe": {
+            const subscriptions = broadcastCenter.subscribe(
+              connection,
+              payload.scopes || payload.subscriptions || []
+            );
+            sendSocket(socket, {
+              type: "broadcast.subscribed",
+              subscriptions,
+            });
+            return;
+          }
+          case "unsubscribe": {
+            const subscriptions = broadcastCenter.unsubscribe(
+              connection,
+              payload.scopes || payload.subscriptions || []
+            );
+            sendSocket(socket, {
+              type: "broadcast.unsubscribed",
+              subscriptions,
+            });
+            return;
+          }
+          case "replaceSubscriptions": {
+            const subscriptions = broadcastCenter.replaceSubscriptions(
+              connection,
+              payload.scopes || payload.subscriptions || []
+            );
+            sendSocket(socket, {
+              type: "broadcast.subscriptionsReplaced",
+              subscriptions,
+            });
+            return;
+          }
+          case "ack": {
+            const ok = broadcastCenter.ack(connection, payload.eventId);
+            sendSocket(socket, {
+              type: "broadcast.ack",
+              eventId: payload.eventId,
+              ok,
+            });
+            return;
+          }
+          case "ping":
+            sendSocket(socket, { type: "broadcast.pong", at: Date.now() });
+            return;
+          default:
+            sendSocket(socket, {
+              type: "broadcast.error",
+              error: "unknown_message_type",
+            });
         }
-        case "subscribe": {
-          const subscriptions = broadcastCenter.subscribe(
-            connection,
-            payload.scopes || payload.subscriptions || []
-          );
-          sendSocket(socket, {
-            type: "broadcast.subscribed",
-            subscriptions,
-          });
-          return;
-        }
-        case "unsubscribe": {
-          const subscriptions = broadcastCenter.unsubscribe(
-            connection,
-            payload.scopes || payload.subscriptions || []
-          );
-          sendSocket(socket, {
-            type: "broadcast.unsubscribed",
-            subscriptions,
-          });
-          return;
-        }
-        case "ack": {
-          const ok = broadcastCenter.ack(connection, payload.eventId);
-          sendSocket(socket, {
-            type: "broadcast.ack",
-            eventId: payload.eventId,
-            ok,
-          });
-          return;
-        }
-        case "ping":
-          sendSocket(socket, { type: "broadcast.pong", at: Date.now() });
-          return;
-        default:
-          sendSocket(socket, {
-            type: "broadcast.error",
-            error: "unknown_message_type",
-          });
-      }
+      }).catch((error) => {
+        console.error("[Broadcast] message handling failed", {
+          code: error?.code || "broadcast_message_failed",
+          requestId: request.athenaTraceContext?.requestId || null,
+          traceId: request.athenaTraceContext?.traceId || null,
+        });
+        sendSocket(socket, {
+          type: "broadcast.error",
+          error: "message_handling_failed",
+        });
+      });
     });
 
     socket.on("close", () => {
@@ -523,4 +1108,7 @@ function syncCenterEndpoints(app) {
   );
 }
 
-module.exports = { syncCenterEndpoints };
+module.exports = {
+  syncCenterEndpoints,
+  __test: { applySyncV2Mutation },
+};

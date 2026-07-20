@@ -22,9 +22,7 @@ const { DataAccessCenter } = require("../../utils/dataAccess");
 const {
   DocumentIndexStatusRepository,
 } = require("../../repositories/documentIndexStatusRepository");
-const {
-  DocumentRepository,
-} = require("../../repositories/documentRepository");
+const { DocumentRepository } = require("../../repositories/documentRepository");
 const {
   DocumentVectorRepository,
 } = require("../../repositories/documentVectorRepository");
@@ -41,8 +39,14 @@ const {
   WorkspaceRepository,
 } = require("../../repositories/workspaceRepository");
 const {
+  WorkspaceCognitionRepository,
+} = require("../../repositories/workspaceCognitionRepository");
+const {
   UserStateRepository,
 } = require("../../repositories/userStateRepository");
+const {
+  RuntimeLifecycleRepository,
+} = require("../../repositories/runtimeLifecycleRepository");
 
 describe("DataAccessCenter", () => {
   beforeEach(() => {
@@ -66,6 +70,29 @@ describe("DataAccessCenter", () => {
       "function"
     );
     expect(typeof DataAccessCenter.athenaMutationReceipt.fail).toBe("function");
+    expect(typeof DataAccessCenter.athenaMutationReceipt.release).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.athenaMutationReceipt.renew).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.athenaMutationReceipt.sweepStale).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.athenaMutationReceipt.snapshot).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.syncV2.claimOutbox).toBe("function");
+    expect(typeof DataAccessCenter.syncV2.releaseOutboxClaims).toBe("function");
+    expect(typeof DataAccessCenter.syncV2.renewOutboxClaims).toBe("function");
+    expect(typeof DataAccessCenter.syncV2.markOutboxDispatched).toBe(
+      "function"
+    );
+    expect(typeof DataAccessCenter.syncV2.failOutboxClaim).toBe("function");
+    expect(typeof DataAccessCenter.syncV2.outboxHealth).toBe("function");
+    expect(typeof DataAccessCenter.runtimeLifecycle.databaseReadiness).toBe(
+      "function"
+    );
     expect(DataAccessCenter.domains).toContain("crypto");
     expect(DataAccessCenter.domains).toContain("sensitiveData");
     expect(DataAccessCenter.domains).toContain("vault");
@@ -78,6 +105,26 @@ describe("DataAccessCenter", () => {
     expect(() => DataAccessCenter.repository("missing")).toThrow(
       /Unknown data access repository domain/
     );
+  });
+
+  test("runtime lifecycle facade exposes audited database readiness", async () => {
+    jest
+      .spyOn(RuntimeLifecycleRepository, "databaseReadiness")
+      .mockResolvedValueOnce({
+        ready: true,
+        mainProvider: "sqlite",
+        authProvider: "sqlite",
+      });
+
+    await expect(
+      DataAccessCenter.runtimeLifecycle.databaseReadiness()
+    ).resolves.toMatchObject({ ready: true });
+    expect(DataAccessCenter.snapshot().recent[0]).toMatchObject({
+      domain: "runtimeLifecycle",
+      operation: "databaseReadiness",
+      accessType: "read",
+      success: true,
+    });
   });
 
   test("workspace facade calls the repository and records clause scope", async () => {
@@ -149,7 +196,6 @@ describe("DataAccessCenter", () => {
     });
   });
 
-
   test("document index status facade exposes status constants", () => {
     expect(DataAccessCenter.documentIndexStatus.statuses.indexing).toBe(
       "indexing"
@@ -160,7 +206,9 @@ describe("DataAccessCenter", () => {
   });
 
   test("document remove facade records workspace owner scope", async () => {
-    jest.spyOn(DocumentRepository, "removeDocuments").mockResolvedValueOnce(true);
+    jest
+      .spyOn(DocumentRepository, "removeDocuments")
+      .mockResolvedValueOnce(true);
 
     const result = await DataAccessCenter.document.removeDocuments(
       { id: 3, slug: "research" },
@@ -230,6 +278,63 @@ describe("DataAccessCenter", () => {
     });
   });
 
+  test("workspace cognition facade exposes the append-only v2 API", () => {
+    const methods = [
+      "enqueueThreadBackfill",
+      "requestFlush",
+      "retryExtractionJob",
+      "listExtractionState",
+      "listCandidates",
+      "createManualCandidate",
+      "reviewCandidate",
+      "itemHistory",
+      "listLedgerItems",
+      "reviseCanonicalItemFromProjection",
+      "currentCanonicalView",
+      "rebuildCanonicalProfile",
+      "getProfileState",
+      "appendEvidenceEventsForSources",
+      "appendEvidencePolicyEvent",
+      "cancelBufferedChats",
+    ];
+
+    for (const method of methods) {
+      expect(typeof DataAccessCenter.workspaceCognition[method]).toBe(
+        "function"
+      );
+    }
+  });
+
+  test("workspace cognition facade records candidate review scope", async () => {
+    jest
+      .spyOn(WorkspaceCognitionRepository, "reviewCandidate")
+      .mockResolvedValueOnce({ item: { id: 91 } });
+
+    const result = await DataAccessCenter.workspaceCognition.reviewCandidate({
+      workspaceId: 34,
+      candidateId: 5,
+      actorUserId: 1,
+      eventType: "confirmed",
+      idempotencyKey: "review-5",
+    });
+
+    expect(result.item.id).toBe(91);
+    expect(WorkspaceCognitionRepository.reviewCandidate).toHaveBeenCalledWith({
+      workspaceId: 34,
+      candidateId: 5,
+      actorUserId: 1,
+      eventType: "confirmed",
+      idempotencyKey: "review-5",
+    });
+    expect(DataAccessCenter.snapshot().recent[0]).toMatchObject({
+      domain: "workspaceCognition",
+      operation: "reviewCandidate",
+      accessType: "write",
+      ownerScope: { workspaceId: "34", candidateId: "5" },
+      success: true,
+    });
+  });
+
   test("auth identity facade exposes sync policy without sensitive fields", async () => {
     jest.spyOn(AuthIdentityRepository, "describeSyncPolicy");
 
@@ -268,8 +373,8 @@ describe("DataAccessCenter", () => {
     expect(summary.active).toHaveProperty("file");
     expect(summary.active).toHaveProperty("vector");
     expect(summary.active).toHaveProperty("secret");
+    expect(summary.active).toHaveProperty("objectStorage");
     expect(summary.reserved).toHaveProperty("postgres");
-    expect(summary.reserved).toHaveProperty("objectStorage");
     expect(summary.reserved).toHaveProperty("redis");
   });
 
@@ -287,7 +392,9 @@ describe("DataAccessCenter", () => {
       );
 
     expect(result.success).toBe(true);
-    expect(WorkspaceParsedFileRepository.moveToDocumentsAndEmbed).toHaveBeenCalledWith(
+    expect(
+      WorkspaceParsedFileRepository.moveToDocumentsAndEmbed
+    ).toHaveBeenCalledWith(
       { id: 7 },
       "file-1",
       { id: 3, slug: "research" },
@@ -326,12 +433,12 @@ describe("DataAccessCenter", () => {
       userId: 7,
       namespaces: ["reader.library"],
     });
-    expect(DataAccessCenter.userState.namespacePolicy("reader.library")).toMatchObject(
-      {
-        authority: "bootstrap-cache",
-        businessAuthority: false,
-      }
-    );
+    expect(
+      DataAccessCenter.userState.namespacePolicy("reader.library")
+    ).toMatchObject({
+      authority: "bootstrap-cache",
+      businessAuthority: false,
+    });
     expect(DataAccessCenter.snapshot().recent[0]).toMatchObject({
       domain: "userState",
       operation: "where",

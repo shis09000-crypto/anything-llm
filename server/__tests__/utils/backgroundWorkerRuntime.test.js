@@ -1,4 +1,6 @@
-const { BackgroundWorkerRuntime } = require("../../utils/backgroundWorker/runtime");
+const {
+  BackgroundWorkerRuntime,
+} = require("../../utils/backgroundWorker/runtime");
 
 describe("BackgroundWorkerRuntime", () => {
   test("starts BackgroundService and exposes a snapshot", async () => {
@@ -39,5 +41,28 @@ describe("BackgroundWorkerRuntime", () => {
       status: "failed",
       lastError: "boom",
     });
+  });
+
+  test("can be marked failed when security bootstrap is quarantined", () => {
+    const runtime = new BackgroundWorkerRuntime();
+    expect(runtime.fail(new Error("key custody quarantined"))).toMatchObject({
+      status: "failed",
+      lastError: "key custody quarantined",
+    });
+  });
+
+  test("stops the service and health listener", async () => {
+    const stop = jest.fn(async () => {});
+    const runtime = new BackgroundWorkerRuntime({
+      backgroundServiceFactory: () => ({
+        boot: jest.fn(async () => {}),
+        jobs: () => [],
+        stop,
+      }),
+    });
+    await runtime.start();
+    await runtime.stop();
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(runtime.snapshot()).toMatchObject({ status: "stopped" });
   });
 });

@@ -951,10 +951,10 @@ function BookshelfUploadProgressPanel({ items = [], onRetry, onRemove }) {
               <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200">
                 <div
                   className={[
-                    "h-full rounded-full transition-all duration-300",
+                    "motion-panel-switch h-full w-full origin-left rounded-full",
                     entry.status === "failed" ? "bg-rose-500" : "bg-blue-500",
                   ].join(" ")}
-                  style={{ width: `${barPercent}%` }}
+                  style={{ transform: `scaleX(${barPercent / 100})` }}
                 />
               </div>
               <div className="mt-2 flex items-center justify-between gap-3 text-[11px] font-bold">
@@ -989,6 +989,9 @@ function ReaderDrawer({
   onRetryBookshelfUpload,
   onRemoveBookshelfUpload,
   onOpenWorkspaceDoc,
+  onLoadWorkspaceDocuments,
+  workspaceDocumentsLoading = false,
+  workspaceDocumentsError = null,
   readerHistory = [],
   readerBookshelf = [],
   bookshelfLoading = false,
@@ -1090,6 +1093,7 @@ function ReaderDrawer({
     setBookshelfAddOpen(false);
     cancelBookshelfSelection();
     setActiveSection("workspace");
+    void onLoadWorkspaceDocuments?.();
   };
 
   const openHistorySection = () => {
@@ -1364,7 +1368,11 @@ function ReaderDrawer({
                     Workspace 解析文本
                   </p>
                 </div>
-                {documents.length > 0 ? (
+                {workspaceDocumentsLoading ? (
+                  <p className="m-0 px-4 py-5 text-center text-sm text-slate-500">
+                    正在加载工作区文档…
+                  </p>
+                ) : documents.length > 0 ? (
                   <div className="max-h-[204px] divide-y divide-slate-100 overflow-y-auto">
                     {documents.map((doc) => {
                       const docPath = doc.docpath || doc.name;
@@ -1383,6 +1391,14 @@ function ReaderDrawer({
                       );
                     })}
                   </div>
+                ) : workspaceDocumentsError ? (
+                  <button
+                    type="button"
+                    onClick={() => onLoadWorkspaceDocuments?.()}
+                    className="block w-full px-4 py-5 text-center text-sm font-semibold text-rose-600 hover:bg-rose-50"
+                  >
+                    加载失败，点击重试
+                  </button>
                 ) : (
                   <p className="m-0 px-4 py-5 text-center text-sm text-slate-500">
                     当前工作区没有可预览的解析文本。
@@ -1614,7 +1630,11 @@ function ReaderDrawer({
               .join(" ")}
           >
             {showingWorkspace ? (
-              documents.length > 0 ? (
+              workspaceDocumentsLoading ? (
+                <div className="flex h-full min-h-[280px] items-center justify-center text-sm font-semibold text-slate-500">
+                  正在加载工作区文档…
+                </div>
+              ) : documents.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   {documents.map((doc) => {
                     const docPath = doc.docpath || doc.name;
@@ -1636,6 +1656,19 @@ function ReaderDrawer({
                       </button>
                     );
                   })}
+                </div>
+              ) : workspaceDocumentsError ? (
+                <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-dashed border-rose-200 bg-rose-50/40 px-6 text-center">
+                  <p className="m-0 text-sm font-semibold text-rose-700">
+                    工作区文档加载失败
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onLoadWorkspaceDocuments?.()}
+                    className="mt-3 rounded-full bg-white px-4 py-2 text-xs font-bold text-rose-600 shadow-sm"
+                  >
+                    重新加载
+                  </button>
                 </div>
               ) : (
                 <div className="flex h-full min-h-[280px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200/90 bg-white/40 px-6 text-center">
@@ -1957,6 +1990,9 @@ export default function DocumentReaderPanel({
     deleteBookshelfCategory,
     updateBookshelfItemCategory,
     reclassifyBookshelfItem,
+    loadWorkspaceDocuments,
+    workspaceDocumentsLoading,
+    workspaceDocumentsError,
     workspace,
   } = useDocumentReader() || {};
   const readerBodyRef = useRef(null);
@@ -2212,7 +2248,7 @@ export default function DocumentReaderPanel({
 
   return (
     <div
-      className="relative hidden h-full min-w-0 lg:flex"
+      className="relative hidden h-full min-w-[420px] lg:flex"
       style={{ flex: `${percent} 1 0%` }}
     >
       <div className="relative flex h-full w-full flex-col overflow-hidden rounded-[18px] border border-white/10 bg-zinc-950 text-white shadow-[0_18px_45px_rgba(0,0,0,0.24)] ring-1 ring-white/5 light:border-white/70 light:bg-white light:text-slate-900 light:shadow-[0_18px_42px_rgba(15,23,42,0.12)] light:ring-slate-200/70">
@@ -2240,6 +2276,9 @@ export default function DocumentReaderPanel({
             onRetryBookshelfUpload={retryBookshelfUpload}
             onRemoveBookshelfUpload={removeBookshelfUpload}
             onOpenWorkspaceDoc={openWorkspaceParsedDocument}
+            onLoadWorkspaceDocuments={loadWorkspaceDocuments}
+            workspaceDocumentsLoading={workspaceDocumentsLoading}
+            workspaceDocumentsError={workspaceDocumentsError}
             readerHistory={readerHistory}
             readerBookshelf={readerBookshelf}
             bookshelfLoading={bookshelfLoading}

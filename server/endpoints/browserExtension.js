@@ -49,7 +49,7 @@ function browserExtensionEndpoints(app) {
       } catch (error) {
         console.error(error);
         response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ connected: false, error: "Failed to fetch workspaces" });
       }
     }
@@ -68,7 +68,7 @@ function browserExtensionEndpoints(app) {
       } catch (error) {
         console.error(error);
         response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ error: "Failed to disconnect and revoke API key" });
       }
     }
@@ -87,7 +87,9 @@ function browserExtensionEndpoints(app) {
         response.status(200).json({ workspaces });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: "Failed to fetch workspaces" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to fetch workspaces" });
       }
     }
   );
@@ -134,7 +136,9 @@ function browserExtensionEndpoints(app) {
         response.status(200).json({ success: true });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: "Failed to embed content" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to embed content" });
       }
     }
   );
@@ -160,7 +164,9 @@ function browserExtensionEndpoints(app) {
         response.status(200).json({ success: true });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: "Failed to embed content" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to embed content" });
       }
     }
   );
@@ -180,7 +186,7 @@ function browserExtensionEndpoints(app) {
       } catch (error) {
         console.error(error);
         response
-          .status(500)
+          .status(error.httpStatus || 500)
           .json({ success: false, error: "Failed to fetch API keys" });
       }
     }
@@ -217,7 +223,9 @@ function browserExtensionEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: "Failed to create API key" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to create API key" });
       }
     }
   );
@@ -245,7 +253,9 @@ function browserExtensionEndpoints(app) {
         response.status(200).json({ success: true });
       } catch (error) {
         console.error(error);
-        response.status(500).json({ error: "Failed to revoke API key" });
+        response
+          .status(error.httpStatus || 500)
+          .json({ error: "Failed to revoke API key" });
       }
     }
   );

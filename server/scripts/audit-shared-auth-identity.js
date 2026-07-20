@@ -1,33 +1,32 @@
 #!/usr/bin/env node
-const path = require("path");
-const fs = require("fs");
-const { PrismaClient } = require("@prisma/client");
-
-const serverRoot = path.resolve(__dirname, "..");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(serverRoot, envPath) });
-
-const { storageBaseDir, authDatabaseUrl } = require("../utils/environment");
 const {
-  deriveRoleDefaults,
-  normalizeRole,
-} = require("../utils/authz/accountRoles");
+  assertDatabaseSchema,
+  bootstrapCliRuntime,
+} = require("./lib/runtimeBootstrap");
+
+let PrismaClient;
+
+function accountRoleHelpers() {
+  return require("../utils/authz/accountRoles");
+}
 
 const VALID_ENVS = new Set(["development", "production"]);
 
 function parseArgs(argv = process.argv.slice(2)) {
   const args = {
-    env: process.env.NODE_ENV === "production" ? "production" : "development",
+    env:
+      process.env.APP_ENV === "production" ||
+      process.env.NODE_ENV === "production"
+        ? "production"
+        : "development",
     dryRun: true,
+    execute: argv.includes("--execute"),
   };
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--fix") {
-      args.dryRun = false;
+      args.dryRun = !args.execute;
       continue;
     }
     if (arg === "--dry-run") {
@@ -92,6 +91,7 @@ function identityClauses(user = {}) {
 }
 
 function authUserCreateData(user = {}, envName = "development") {
+  const { deriveRoleDefaults, normalizeRole } = accountRoleHelpers();
   const roleDefaults = deriveRoleDefaults({
     role: normalizeRole(user.role || "user"),
     status: user.status,
@@ -272,13 +272,21 @@ async function auditSharedAuthIdentity({
 
 async function main() {
   const args = parseArgs();
-  const dbPath = path.join(storageBaseDir(), args.env, "anythingllm.db");
-  if (!fs.existsSync(dbPath)) {
-    throw new Error(`Environment database not found: ${dbPath}`);
-  }
+  const runtime = await bootstrapCliRuntime({
+    access: args.dryRun ? "read" : "write",
+    execute: args.execute,
+    argv: [...process.argv.slice(2), `--env=${args.env}`],
+    requiredTables: ["users", "_prisma_migrations"],
+  });
+  await assertDatabaseSchema({
+    databasePath: runtime.authDatabasePath,
+    requiredTables: ["users", "auth_sessions", "_prisma_migrations"],
+    label: "auth",
+  });
+  PrismaClient = require("@prisma/client").PrismaClient;
 
-  const envDb = client(sqliteUrl(dbPath));
-  const authDb = client(authDatabaseUrl());
+  const envDb = client(sqliteUrl(runtime.databasePath));
+  const authDb = client(sqliteUrl(runtime.authDatabasePath));
   try {
     await auditSharedAuthIdentity({
       envDb,

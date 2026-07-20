@@ -38,6 +38,29 @@ describe("broadcast transport registry", () => {
     });
   });
 
+  test("enables NATS only when a server is explicitly configured", () => {
+    expect(
+      ensureBroadcastTransportSupported({
+        ATHENA_BROADCAST_TRANSPORT: "nats",
+      })
+    ).toMatchObject({
+      ok: false,
+      code: "BROADCAST_TRANSPORT_CONFIG_MISSING",
+      gatewaySafe: false,
+    });
+    expect(
+      ensureBroadcastTransportSupported({
+        ATHENA_BROADCAST_TRANSPORT: "nats",
+        ATHENA_NATS_SERVERS: "nats://127.0.0.1:4222",
+      })
+    ).toMatchObject({
+      ok: true,
+      ready: true,
+      gatewaySafe: true,
+      active: { adapter: "nats", durableReplay: true },
+    });
+  });
+
   test("reports unknown transport explicitly", () => {
     expect(
       ensureBroadcastTransportSupported({

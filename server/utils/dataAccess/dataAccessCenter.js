@@ -23,6 +23,7 @@ const MAX_RECENT_OPERATIONS = 80;
 
 const repositoryLoaders = {
   adminSystem: () => require("../../repositories/adminSystemRepository"),
+  aiGovernance: () => require("../../repositories/aiGovernanceRepository"),
   athenaMutationReceipt: () =>
     require("../../repositories/athenaMutationReceiptRepository"),
   agentSkillWhitelist: () =>
@@ -32,6 +33,7 @@ const repositoryLoaders = {
   authIdentity: () => require("../../repositories/authIdentityRepository"),
   clientIdentity: () => require("../../repositories/clientIdentityRepository"),
   communityHub: () => require("../../repositories/communityHubRepository"),
+  contentObject: () => require("../../repositories/contentObjectRepository"),
   crypto: () => require("../../repositories/cryptoRepository"),
   document: () => require("../../repositories/documentRepository"),
   documentEmbeddingBatch: () =>
@@ -57,7 +59,11 @@ const repositoryLoaders = {
   readerWorkerJob: () =>
     require("../../repositories/readerWorkerJobRepository"),
   requestSigning: () => require("../../repositories/requestSigningRepository"),
+  retention: () => require("../../repositories/retentionRepository"),
+  runtimeLifecycle: () =>
+    require("../../repositories/runtimeLifecycleRepository"),
   scheduledJob: () => require("../../repositories/scheduledJobRepository"),
+  securityKey: () => require("../../repositories/securityKeyRepository"),
   sensitiveData: () => require("../../repositories/sensitiveDataRepository"),
   slashCommandPreset: () =>
     require("../../repositories/slashCommandPresetRepository"),
@@ -65,6 +71,7 @@ const repositoryLoaders = {
     require("../../repositories/systemPromptVariableRepository"),
   systemPatrol: () => require("../../repositories/systemPatrolRepository"),
   syncEvent: () => require("../../repositories/syncEventRepository"),
+  syncV2: () => require("../../repositories/syncV2Repository"),
   telemetry: () => require("../../repositories/telemetryRepository"),
   user: () => require("../../repositories/userRepository"),
   userMemory: () => require("../../repositories/userMemoryRepository"),
@@ -77,6 +84,10 @@ const repositoryLoaders = {
   workspaceChat: () => require("../../repositories/workspaceChatRepository"),
   workspaceChatCompaction: () =>
     require("../../repositories/workspaceChatCompactionRepository"),
+  workspaceCognition: () =>
+    require("../../repositories/workspaceCognitionRepository"),
+  workspaceMeetingDelegate: () =>
+    require("../../repositories/workspaceMeetingDelegateRepository"),
   workspaceMindMap: () =>
     require("../../repositories/workspaceMindMapRepository"),
   workspaceOverview: () =>
@@ -96,12 +107,14 @@ const repositoryLoaders = {
 
 const repositoryExports = {
   adminSystem: "AdminSystemRepository",
+  aiGovernance: "AIGovernanceRepository",
   athenaMutationReceipt: "AthenaMutationReceiptRepository",
   agentSkillWhitelist: "AgentSkillWhitelistRepository",
   accountDeletion: "AccountDeletionRepository",
   authIdentity: "AuthIdentityRepository",
   clientIdentity: "ClientIdentityRepository",
   communityHub: "CommunityHubRepository",
+  contentObject: "ContentObjectRepository",
   crypto: "CryptoRepository",
   document: "DocumentRepository",
   documentEmbeddingBatch: "DocumentEmbeddingBatchRepository",
@@ -121,12 +134,16 @@ const repositoryExports = {
   readerLibrary: "ReaderLibraryRepository",
   readerWorkerJob: "ReaderWorkerJobRepository",
   requestSigning: "RequestSigningRepository",
+  retention: "RetentionRepository",
+  runtimeLifecycle: "RuntimeLifecycleRepository",
   scheduledJob: "ScheduledJobRepository",
+  securityKey: "SecurityKeyRepository",
   sensitiveData: "SensitiveDataRepository",
   slashCommandPreset: "SlashCommandPresetRepository",
   systemPromptVariable: "SystemPromptVariableRepository",
   systemPatrol: "SystemPatrolRepository",
   syncEvent: "SyncEventRepository",
+  syncV2: "SyncV2Repository",
   telemetry: "TelemetryRepository",
   user: "UserRepository",
   userMemory: "UserMemoryRepository",
@@ -136,6 +153,8 @@ const repositoryExports = {
   workspaceAgentInvocation: "WorkspaceAgentInvocationRepository",
   workspaceChat: "WorkspaceChatRepository",
   workspaceChatCompaction: "WorkspaceChatCompactionRepository",
+  workspaceCognition: "WorkspaceCognitionRepository",
+  workspaceMeetingDelegate: "WorkspaceMeetingDelegateRepository",
   workspaceMindMap: "WorkspaceMindMapRepository",
   workspaceOverview: "WorkspaceOverviewRepository",
   workspaceParsedFile: "WorkspaceParsedFileRepository",
@@ -548,6 +567,30 @@ function workspaceChatCompactionScopeFromArgs(method, args = []) {
   };
 }
 
+function workspaceCognitiveScopeFromArgs(method, args = []) {
+  const first = args[0] || {};
+  if (typeof first === "object") {
+    return {
+      workspaceId: first.workspaceId || first.workspace?.id,
+      threadId: first.threadId || first.thread?.id,
+      chatId: first.chatId || first.chat?.id,
+      jobId: first.jobId,
+      candidateId: first.candidateId,
+      cognitiveItemId: first.cognitiveItemId || first.canonicalItemId,
+      itemKey: first.itemKey,
+      assertionId: first.assertionId,
+      positionId: first.positionId,
+      evidenceId: first.evidenceId,
+      meetingPacketId: first.packetId || first.meetingPacketId,
+      meetingSessionId: first.sessionId || first.meetingSessionId,
+    };
+  }
+  return {
+    workspaceId: first,
+    resourceId: args[1],
+  };
+}
+
 function slashCommandPresetScopeFromArgs(method, args = []) {
   if (method === "create" || method === "getUserPresets")
     return { userId: args[0] };
@@ -767,6 +810,17 @@ function sensitiveDataScopeFromArgs(method, args = []) {
   };
 }
 
+function securityKeyScopeFromArgs(method, args = []) {
+  const options = args[0] || {};
+  return {
+    keyId: options.keyId,
+    purpose: options.purpose,
+    domain: options.domain,
+    jobId: options.jobId,
+    idempotencyKey: options.idempotencyKey ? "[redacted]" : null,
+  };
+}
+
 function readerWorkerJobScopeFromArgs(method, args = []) {
   const options = args[0] || {};
   if (method === "complete" || method === "fail") return { jobId: args[0] };
@@ -982,6 +1036,11 @@ const athenaMutationReceipt = makeRepositoryFacade(
     reserve: "write",
     complete: "write",
     fail: "write",
+    release: "write",
+    renew: "write",
+    sweepStale: "maintenance",
+    snapshot: "read",
+    pruneExpired: "maintenance",
   },
   repositoryBoundaryScopeFromArgs
 );
@@ -1043,6 +1102,37 @@ const syncEvent = makeRepositoryFacade(
   syncEventScopeFromArgs
 );
 
+const syncV2 = makeRepositoryFacade(
+  "syncV2",
+  {
+    schemaReady: "read",
+    enabled: "read",
+    canAccessNode: "read",
+    mutationReplay: "read",
+    recordNodeChange: "write",
+    recordAuthSessionChange: "write",
+    assertMutationVersion: "read",
+    reconcileNode: "write",
+    materializeCoreForUser: "write",
+    manifestForUser: "read",
+    batchGet: "read",
+    eventsAfter: "read",
+    updateCursor: "write",
+    pendingOutbox: "read",
+    claimOutbox: "maintenance",
+    releaseOutboxClaims: "maintenance",
+    renewOutboxClaims: "maintenance",
+    markOutboxDispatched: "maintenance",
+    failOutboxClaim: "maintenance",
+    markDispatched: "write",
+    pruneExpired: "maintenance",
+    audienceUserIds: "read",
+    outboxHealth: "read",
+    snapshot: "read",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const iosPushToken = makeRepositoryFacade(
   "iosPushToken",
   {
@@ -1081,6 +1171,46 @@ const workspaceChat = makeRepositoryFacade(
     upsert: "write",
   },
   workspaceChatScopeFromArgs
+);
+
+const contentObject = makeRepositoryFacade(
+  "contentObject",
+  {
+    resolveCompletedUpload: "read",
+    payloadReferences: "read",
+    contentReferenceObject: "read",
+    createUpload: "write",
+    pendingUpload: "read",
+    recordUploadPart: "write",
+    completableUpload: "read",
+    uploadParts: "read",
+    markUploadCompleted: "write",
+    stageBuffer: "write",
+    stageFileParts: "write",
+    attachToChat: "write",
+    prepareChatReferenceClone: "read",
+    cloneChatReferences: "write",
+    readRange: "read",
+    readWhole: "read",
+    attachmentForWorkspace: "read",
+    contentRefForWorkspace: "read",
+    verify: "read",
+    reconcile: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
+const aiGovernance = makeRepositoryFacade(
+  "aiGovernance",
+  {
+    priceFor: "read",
+    policyFor: "read",
+    reserve: "write",
+    settle: "write",
+    release: "write",
+    observeCompletedExecution: "write",
+  },
+  repositoryBoundaryScopeFromArgs
 );
 
 const document = makeRepositoryFacade(
@@ -1324,6 +1454,66 @@ const workspaceChatCompaction = {
     );
   },
 };
+
+const workspaceCognition = makeRepositoryFacade(
+  "workspaceCognition",
+  {
+    createAssertion: "write",
+    addEvidence: "write",
+    createPosition: "write",
+    createRelation: "write",
+    patchAssertion: "write",
+    patchPosition: "write",
+    patchEvidence: "write",
+    listItems: "read",
+    rebuildProfile: "write",
+    getLatestProfile: "read",
+    markDocumentEvidenceStale: "write",
+    markChatEvidenceStale: "write",
+    createExtractionJob: "write",
+    updateExtractionJob: "write",
+    enqueueFinalizedTurn: "write",
+    enqueueThreadBackfill: "write",
+    requestFlush: "write",
+    retryExtractionJob: "write",
+    listExtractionState: "read",
+    listCandidates: "read",
+    createManualCandidate: "write",
+    reviewCandidate: "write",
+    itemHistory: "read",
+    listLedgerItems: "read",
+    reviseCanonicalItemFromProjection: "write",
+    currentCanonicalView: "read",
+    rebuildCanonicalProfile: "write",
+    getProfileState: "read",
+    appendEvidenceEventsForSources: "write",
+    appendEvidencePolicyEvent: "write",
+    cancelBufferedChats: "write",
+    reconcileFinalizedTurns: "maintenance",
+    backfillLegacyCognition: "maintenance",
+    deleteWorkspaceBatchData: "write",
+    deleteWorkspaceData: "write",
+  },
+  workspaceCognitiveScopeFromArgs
+);
+
+const workspaceMeetingDelegate = makeRepositoryFacade(
+  "workspaceMeetingDelegate",
+  {
+    createPacket: "write",
+    updatePacket: "write",
+    getPacket: "read",
+    listPackets: "read",
+    freezePacket: "write",
+    revokePacket: "write",
+    createSession: "write",
+    getSession: "read",
+    recordAudit: "write",
+    listAudit: "read",
+    validateCommitment: "read",
+  },
+  workspaceCognitiveScopeFromArgs
+);
 
 const slashCommandPreset = {
   ...makeRepositoryFacade(
@@ -1600,6 +1790,14 @@ const mobile = repositoryBoundaryFacade("mobile");
 const nodeSupplement = repositoryBoundaryFacade("nodeSupplement");
 const quiz = repositoryBoundaryFacade("quiz");
 const requestSigning = repositoryBoundaryFacade("requestSigning");
+const runtimeLifecycle = makeRepositoryFacade(
+  "runtimeLifecycle",
+  {
+    databaseReadiness: "read",
+    disconnectDatabases: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
+);
 const scheduledJob = repositoryBoundaryFacade("scheduledJob");
 const systemPatrol = repositoryBoundaryFacade("systemPatrol");
 const workspaceOverview = repositoryBoundaryFacade("workspaceOverview");
@@ -1702,6 +1900,9 @@ const adminSystem = {
   get authIdentity() {
     return repositoryObject("adminSystem").authIdentity;
   },
+  get authSession() {
+    return repositoryObject("adminSystem").authSession;
+  },
   get browserExtensionApiKey() {
     return repositoryObject("adminSystem").browserExtensionApiKey;
   },
@@ -1779,6 +1980,27 @@ const sensitiveData = makeRepositoryFacade(
   sensitiveDataScopeFromArgs
 );
 
+const securityKey = makeRepositoryFacade(
+  "securityKey",
+  {
+    probeSample: "read",
+    listRegistry: "read",
+    activeRegistry: "read",
+    registryByKeyId: "read",
+    createRegistry: "write",
+    updateRegistry: "write",
+    listBindings: "read",
+    upsertBinding: "write",
+    createRotationJob: "write",
+    rotationJob: "read",
+    updateRotationJob: "write",
+    listRotationJobs: "read",
+    appendEvent: "write",
+    listEvents: "read",
+  },
+  securityKeyScopeFromArgs
+);
+
 const telemetry = makeRepositoryFacade(
   "telemetry",
   {
@@ -1791,15 +2013,27 @@ const telemetry = makeRepositoryFacade(
   repositoryBoundaryScopeFromArgs
 );
 
+const retention = makeRepositoryFacade(
+  "retention",
+  {
+    sweepPatrolRuns: "maintenance",
+    sweepExpiredUploads: "maintenance",
+    sweepOperationalRows: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
+);
+
 const DataAccessCenter = {
   domains: Object.freeze(Object.keys(repositoryLoaders).sort()),
   adminSystem,
+  aiGovernance,
   athenaMutationReceipt,
   agentSkillWhitelist,
   accountDeletion,
   authIdentity,
   clientIdentity,
   communityHub,
+  contentObject,
   crypto,
   document,
   documentEmbeddingBatch,
@@ -1818,7 +2052,10 @@ const DataAccessCenter = {
   readerLibrary,
   readerWorkerJob,
   requestSigning,
+  retention,
+  runtimeLifecycle,
   scheduledJob,
+  securityKey,
   sensitiveData,
   slashCommandPreset,
   get storage() {
@@ -1827,6 +2064,7 @@ const DataAccessCenter = {
   systemPromptVariable,
   systemPatrol,
   syncEvent,
+  syncV2,
   telemetry,
   user,
   userMemory,
@@ -1837,6 +2075,8 @@ const DataAccessCenter = {
   workspaceAgentInvocation,
   workspaceChat,
   workspaceChatCompaction,
+  workspaceCognition,
+  workspaceMeetingDelegate,
   workspaceMindMap,
   workspaceOverview,
   workspaceParsedFile,

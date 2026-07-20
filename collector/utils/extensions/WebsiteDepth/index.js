@@ -1,14 +1,11 @@
 const { v4 } = require("uuid");
-const {
-  PuppeteerWebBaseLoader,
-} = require("langchain/document_loaders/web/puppeteer");
 const { default: slugify } = require("slugify");
 const { parse } = require("node-html-parser");
 const { writeToServerDocuments, documentsFolder } = require("../../files");
 const { tokenizeString } = require("../../tokenizer");
+const { scrapeGenericUrl } = require("../../../processLink/convert/generic");
 const path = require("path");
 const fs = require("fs");
-const RuntimeSettings = require("../../runtimeSettings");
 const { redactUrl } = require("../../security/redaction");
 
 async function discoverLinks(startUrl, maxDepth = 1, maxLinks = 20) {
@@ -48,37 +45,13 @@ async function discoverLinks(startUrl, maxDepth = 1, maxLinks = 20) {
 
 async function getPageLinks(url, baseUrl) {
   try {
-    const runtimeSettings = new RuntimeSettings();
-    /** @type {import('puppeteer').PuppeteerLaunchOptions} */
-    let launchConfig = { headless: "new" };
-
-    /* On MacOS 15.1, the headless=new option causes the browser to crash immediately.
-     * It is not clear why this is the case, but it is reproducible. Since AnythinglLM
-     * in production runs in a container, we can disable headless mode to workaround the issue for development purposes.
-     *
-     * This may show a popup window when scraping a page in development mode.
-     * This is expected behavior if seen in development mode on MacOS 15+
-     */
-    if (
-      process.platform === "darwin" &&
-      process.env.NODE_ENV === "development"
-    ) {
-      console.log(
-        "Darwin Development Mode: Disabling headless mode to prevent Chromium from crashing."
-      );
-      launchConfig.headless = "false";
-    }
-
-    const loader = new PuppeteerWebBaseLoader(url, {
-      launchOptions: {
-        headless: launchConfig.headless,
-        ignoreHTTPSErrors: true,
-        args: runtimeSettings.get("browserLaunchArgs"),
-      },
-      gotoOptions: { waitUntil: "networkidle2" },
+    const result = await scrapeGenericUrl({
+      link: url,
+      captureAs: "html",
+      saveAsDocument: false,
     });
-    const docs = await loader.load();
-    const html = docs[0].pageContent;
+    if (!result?.success || !result.content) return [];
+    const html = result.content;
     const links = extractLinks(html, baseUrl);
     return links;
   } catch (error) {
@@ -110,24 +83,6 @@ function extractLinks(html, baseUrl) {
 }
 
 async function bulkScrapePages(links, outFolderPath) {
-  const runtimeSettings = new RuntimeSettings();
-  /** @type {import('puppeteer').PuppeteerLaunchOptions} */
-  let launchConfig = { headless: "new" };
-
-  /* On MacOS 15.1, the headless=new option causes the browser to crash immediately.
-   * It is not clear why this is the case, but it is reproducible. Since AnythinglLM
-   * in production runs in a container, we can disable headless mode to workaround the issue for development purposes.
-   *
-   * This may show a popup window when scraping a page in development mode.
-   * This is expected behavior if seen in development mode on MacOS 15+
-   */
-  if (process.platform === "darwin" && process.env.NODE_ENV === "development") {
-    console.log(
-      "Darwin Development Mode: Disabling headless mode to prevent Chromium from crashing."
-    );
-    launchConfig.headless = "false";
-  }
-
   const scrapedData = [];
 
   for (let i = 0; i < links.length; i++) {
@@ -136,23 +91,14 @@ async function bulkScrapePages(links, outFolderPath) {
     console.log(`Scraping ${i + 1}/${links.length}: ${redactedLink}`);
 
     try {
-      const loader = new PuppeteerWebBaseLoader(link, {
-        launchOptions: {
-          headless: launchConfig.headless,
-          ignoreHTTPSErrors: true,
-          args: runtimeSettings.get("browserLaunchArgs"),
-        },
-        gotoOptions: { waitUntil: "networkidle2" },
-        async evaluate(page, browser) {
-          const result = await page.evaluate(() => document.body.innerText);
-          await browser.close();
-          return result;
-        },
+      const result = await scrapeGenericUrl({
+        link,
+        captureAs: "text",
+        saveAsDocument: false,
       });
-      const docs = await loader.load();
-      const content = docs[0].pageContent;
+      const content = result?.success ? result.content : null;
 
-      if (!content.length) {
+      if (!content?.length) {
         console.warn(`Empty content for ${redactedLink}. Skipping.`);
         continue;
       }

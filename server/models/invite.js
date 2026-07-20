@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const crypto = require("crypto");
 const { safeJsonParse } = require("../utils/http");
 const authPrisma = require("../utils/authPrisma");
@@ -155,8 +158,7 @@ const Invite = {
       const invite = await authPrisma.invites.findFirst({ where: clause });
       return invite || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("invite.get", error);
     }
   },
 
@@ -175,8 +177,7 @@ const Invite = {
         where: { code: value, tokenHash: null },
       });
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("invite.getByToken", error);
     }
   },
 
@@ -188,8 +189,7 @@ const Invite = {
     try {
       return await authPrisma.invites.count({ where: clause });
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("invite.count", error);
     }
   },
 
@@ -198,8 +198,7 @@ const Invite = {
       await authPrisma.invites.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("invite.delete", error);
     }
   },
 
@@ -213,8 +212,7 @@ const Invite = {
       });
       return invites;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("invite.where", error);
     }
   },
 

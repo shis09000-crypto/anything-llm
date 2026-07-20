@@ -41,7 +41,7 @@ function authTrustedDeviceEndpoints(app) {
         });
       } catch (error) {
         console.error("[Trusted devices list failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           devices: [],
           error: "可信设备列表暂不可用。",

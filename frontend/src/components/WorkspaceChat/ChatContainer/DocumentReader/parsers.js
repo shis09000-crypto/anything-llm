@@ -109,23 +109,13 @@ function encodeCell(colIndex, rowIndex) {
 }
 
 export async function parseXlsxFile(file, readerDocumentId) {
-  const XLSX = await import("xlsx");
-  const arrayBuffer = await file.arrayBuffer();
-  const workbook = XLSX.read(arrayBuffer, { type: "array" });
-  const sheets = workbook.SheetNames.map((name) => {
-    const sheet = workbook.Sheets[name];
-    const rows = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      raw: false,
-      blankrows: false,
-    });
-    return { name, rows };
-  });
   return {
     schemaVersion: READER_SCHEMA_VERSION,
     readerDocumentId,
     documentType: "xlsx",
-    sheets,
+    sheets: [],
+    previewMode: "server-projection-required",
+    previewStatus: file ? "upload-required" : "pending",
   };
 }
 

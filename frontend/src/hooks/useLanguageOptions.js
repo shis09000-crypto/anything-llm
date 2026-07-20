@@ -1,18 +1,21 @@
-import i18n from "@/i18n";
-import { resources as languages } from "@/locales/resources";
+import i18n, { loadAndActivateLanguage } from "@/i18n";
+import {
+  normalizeSupportedLanguage,
+  supportedLanguages,
+} from "@/locales/resources";
 
 export function useLanguageOptions() {
-  const supportedLanguages = Object.keys(languages);
   const languageNames = new Intl.DisplayNames(supportedLanguages, {
     type: "language",
   });
   const changeLanguage = (newLang = "en") => {
-    if (!Object.keys(languages).includes(newLang)) return false;
-    i18n.changeLanguage(newLang);
+    if (!supportedLanguages.includes(newLang)) return false;
+    void loadAndActivateLanguage(newLang);
+    return true;
   };
 
   return {
-    currentLanguage: i18n.language || "en",
+    currentLanguage: normalizeSupportedLanguage(i18n.language),
     supportedLanguages,
     getLanguageName: (lang = "en") => languageNames.of(lang),
     changeLanguage,

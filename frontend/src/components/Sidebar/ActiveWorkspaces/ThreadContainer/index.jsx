@@ -375,6 +375,7 @@ export default function ThreadContainer({
           Workspace.threads.all(workspace.slug, {
             signal,
             task: false,
+            preferSyncV2Cache: true,
           }),
         {
           reuseResolvedWithinMs: THREAD_DUPLICATE_REUSE_MS,

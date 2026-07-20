@@ -30,7 +30,7 @@ function readerLibraryEndpoints(app) {
       const result = await ReaderLibraryService.list({ userId });
       return response.status(200).json(libraryResponse(result));
     } catch (error) {
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: error.message || "Failed to list reader library.",
       });
@@ -56,7 +56,7 @@ function readerLibraryEndpoints(app) {
         });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to bootstrap reader library.",
         });
@@ -87,7 +87,7 @@ function readerLibraryEndpoints(app) {
           });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to patch reader library item.",
         });
@@ -112,7 +112,7 @@ function readerLibraryEndpoints(app) {
         });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to delete reader library item.",
         });
@@ -138,7 +138,7 @@ function readerLibraryEndpoints(app) {
         });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to patch reader library category.",
         });
@@ -164,7 +164,7 @@ function readerLibraryEndpoints(app) {
         });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to delete reader library category.",
         });
@@ -191,7 +191,7 @@ function readerLibraryEndpoints(app) {
         });
         return response.status(200).json(libraryResponse(result));
       } catch (error) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message || "Failed to reconcile reader library.",
         });

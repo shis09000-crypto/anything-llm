@@ -122,7 +122,9 @@ describe("production transport security helpers", () => {
       success: false,
       error: "https_required",
     });
-    expect(insecureResponse.headers["Strict-Transport-Security"]).toBeUndefined();
+    expect(
+      insecureResponse.headers["Strict-Transport-Security"]
+    ).toBeUndefined();
   });
 
   it("redirects insecure production page requests to PUBLIC_APP_URL", () => {
@@ -278,12 +280,13 @@ describe("production transport security helpers", () => {
       sameSite: "lax",
       secure: true,
     });
-    expect(secureCookieOptions({ sameSite: "none" }, { NODE_ENV: "development" }))
-      .toEqual({
-        httpOnly: true,
-        sameSite: "none",
-        secure: true,
-      });
+    expect(
+      secureCookieOptions({ sameSite: "none" }, { NODE_ENV: "development" })
+    ).toEqual({
+      httpOnly: true,
+      sameSite: "none",
+      secure: true,
+    });
   });
 });
 
@@ -339,12 +342,17 @@ describe("SSL boot transport fallback", () => {
     };
     const createServer = jest.fn(() => server);
     jest.doMock("https", () => ({ createServer }));
-    jest.doMock("fs", () => ({
-      readFileSync: jest
-        .fn()
-        .mockReturnValueOnce(Buffer.from("KEY"))
-        .mockReturnValueOnce(Buffer.from("CERT")),
-    }));
+    jest.doMock("fs", () => {
+      const actualFs = jest.requireActual("fs");
+      return {
+        ...actualFs,
+        readFileSync: jest.fn((filePath, ...args) => {
+          if (filePath === "/certs/key.pem") return Buffer.from("KEY");
+          if (filePath === "/certs/cert.pem") return Buffer.from("CERT");
+          return actualFs.readFileSync(filePath, ...args);
+        }),
+      };
+    });
     jest.doMock("@mintplex-labs/express-ws", () => ({
       default: jest.fn(),
     }));
@@ -370,11 +378,17 @@ describe("SSL boot transport fallback", () => {
 
   it("does not fall back to HTTP when production SSL boot fails", () => {
     mockBootDependencies();
-    jest.doMock("fs", () => ({
-      readFileSync: jest.fn(() => {
-        throw new Error("missing cert");
-      }),
-    }));
+    jest.doMock("fs", () => {
+      const actualFs = jest.requireActual("fs");
+      return {
+        ...actualFs,
+        readFileSync: jest.fn((filePath, ...args) => {
+          if (["/missing/key.pem", "/missing/cert.pem"].includes(filePath))
+            throw new Error("missing cert");
+          return actualFs.readFileSync(filePath, ...args);
+        }),
+      };
+    });
     jest.spyOn(console, "error").mockImplementation(() => {});
 
     process.env.NODE_ENV = "production";

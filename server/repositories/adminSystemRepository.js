@@ -1,6 +1,7 @@
 const prisma = require("../utils/prisma");
 const { ApiKey } = require("../models/apiKeys");
 const { AuthIdentity } = require("../models/authIdentity");
+const { AuthSession } = require("../models/authSession");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const {
   EmailVerificationCode,
@@ -64,6 +65,10 @@ const AdminSystemRepository = {
 
   get authIdentity() {
     return AuthIdentity;
+  },
+
+  get authSession() {
+    return AuthSession;
   },
 
   get browserExtensionApiKey() {

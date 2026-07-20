@@ -23,10 +23,10 @@ jest.mock("../../models/workspaceChats", () => ({ WorkspaceChats: {} }));
 jest.mock("../../utils/chats/chatIdentifiers", () => ({
   newPublicChatId: () => "public-test",
 }));
-const mockRebuildChatCryptoChainForScope = jest.fn();
+const mockRebuildChatCryptoChainFromChatId = jest.fn();
 jest.mock("../../utils/security/chatHistoryEncryption", () => ({
-  rebuildChatCryptoChainForScope: (...args) =>
-    mockRebuildChatCryptoChainForScope(...args),
+  rebuildChatCryptoChainFromChatId: (...args) =>
+    mockRebuildChatCryptoChainFromChatId(...args),
 }));
 
 const {
@@ -61,7 +61,7 @@ describe("WorkspaceChatRepository native edit truncation", () => {
         return { count: 1 };
       }
     );
-    mockRebuildChatCryptoChainForScope.mockImplementation(async () => {
+    mockRebuildChatCryptoChainFromChatId.mockImplementation(async () => {
       sequence.push("crypto-rebuilt");
       return { success: true };
     });
@@ -168,8 +168,9 @@ describe("WorkspaceChatRepository native edit truncation", () => {
     expect(
       transaction.workspace_chat_compactions.deleteMany
     ).toHaveBeenCalled();
-    expect(mockRebuildChatCryptoChainForScope).toHaveBeenCalledWith(
+    expect(mockRebuildChatCryptoChainFromChatId).toHaveBeenCalledWith(
       expect.objectContaining({ workspaceId: 7, threadId: 8, userId: 9 }),
+      14,
       { client: transaction }
     );
     expect(result).toMatchObject({

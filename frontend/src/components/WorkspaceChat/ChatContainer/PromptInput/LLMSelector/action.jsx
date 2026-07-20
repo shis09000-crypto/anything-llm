@@ -9,9 +9,16 @@ import { useModal } from "@/hooks/useModal";
 import SetupProvider from "./SetupProvider";
 import { canSeeAdmin } from "@/utils/authz";
 
-export const TOGGLE_LLM_SELECTOR_EVENT = "toggle_llm_selector";
-export const SAVE_LLM_SELECTOR_EVENT = "save_llm_selector";
-export const PROVIDER_SETUP_EVENT = "provider_setup_requested";
+import {
+  PROVIDER_SETUP_EVENT,
+  SAVE_LLM_SELECTOR_EVENT,
+  TOGGLE_LLM_SELECTOR_EVENT,
+} from "@/utils/chat/llmSelectorEvents";
+export {
+  PROVIDER_SETUP_EVENT,
+  SAVE_LLM_SELECTOR_EVENT,
+  TOGGLE_LLM_SELECTOR_EVENT,
+} from "@/utils/chat/llmSelectorEvents";
 
 export default function LLMSelectorAction({ workspaceSlug = null }) {
   const { slug: urlSlug } = useParams();

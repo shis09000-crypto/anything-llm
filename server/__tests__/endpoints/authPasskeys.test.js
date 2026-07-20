@@ -30,6 +30,8 @@ const {
     markVerifyFailure,
     nativeWebHandoffFromQuery,
     nativeWebPasskeyPage,
+    nativeWebPasskeyRegistrationPage,
+    normalizeNativeHandoffPurpose,
     normalizeBase64Url,
     providerMetadata,
     resetRateLimits,
@@ -78,9 +80,19 @@ describe("passkey security helpers", () => {
         code_challenge: codeChallenge,
         code_challenge_method: "S256",
       })
-    ).toEqual({ state: "s".repeat(32), codeChallenge });
+    ).toEqual({ state: "s".repeat(32), codeChallenge, purpose: "login" });
     expect(safeOpaqueEqual(sha256Base64Url(verifier), codeChallenge)).toBe(
       true
+    );
+  });
+
+  it("allows only the native reauthentication purposes used by settings", () => {
+    expect(normalizeNativeHandoffPurpose("zk_enroll")).toBe("zk_enroll");
+    expect(normalizeNativeHandoffPurpose("sensitive_memory_reveal")).toBe(
+      "sensitive_memory_reveal"
+    );
+    expect(() => normalizeNativeHandoffPurpose("account_delete")).toThrow(
+      "Unsupported native handoff purpose"
     );
   });
 
@@ -88,9 +100,23 @@ describe("passkey security helpers", () => {
     const page = nativeWebPasskeyPage({
       state: "s".repeat(32),
       codeChallenge: "c".repeat(43),
+      purpose: "zk_enroll",
     });
     expect(page).toContain('error:"passkey_failed"');
     expect(page).toContain('window.location.replace("athena://auth/callback?"');
+    expect(page).toContain('"purpose":"zk_enroll"');
+  });
+
+  it("keeps native passkey registration on the Athena origin and returns to the app", () => {
+    const page = nativeWebPasskeyRegistrationPage({
+      handoff: "h".repeat(43),
+      state: "s".repeat(32),
+    });
+    expect(page).toContain("/api/auth/passkeys/native-register/options");
+    expect(page).toContain("/api/auth/passkeys/native-register/verify");
+    expect(page).toContain("passkey_registration_failed");
+    expect(page).toContain('window.location.replace("athena://auth/callback?"');
+    expect(page).not.toContain("Authorization");
   });
 
   it("deletes a valid challenge immediately when consumed", async () => {

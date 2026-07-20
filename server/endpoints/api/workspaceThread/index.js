@@ -146,7 +146,7 @@ function apiWorkspaceThreadEndpoints(app) {
         response.status(200).json({ thread, message });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -227,7 +227,7 @@ function apiWorkspaceThreadEndpoints(app) {
         response.status(200).json({ thread: updatedThread, message });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -276,7 +276,7 @@ function apiWorkspaceThreadEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -356,7 +356,7 @@ function apiWorkspaceThreadEndpoints(app) {
         response.status(200).json({ history: convertToChatHistory(history) });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -495,7 +495,7 @@ function apiWorkspaceThreadEndpoints(app) {
         response.status(200).json({ ...result });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           id: uuidv4(),
           type: "abort",
           textResponse: null,
@@ -583,7 +583,7 @@ function apiWorkspaceThreadEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           error: e.message,
           compactionId: null,

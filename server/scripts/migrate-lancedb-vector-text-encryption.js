@@ -1,22 +1,10 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
-
 const fs = require("fs");
-const path = require("path");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(__dirname, "..", envPath) });
-const { applyEnvironmentStorage } = require("../utils/environment");
-applyEnvironmentStorage();
-const lancedb = require("@lancedb/lancedb");
-const { storagePath } = require("../utils/environment");
-const {
-  encryptVectorText,
-  isEncryptedVectorText,
-  vectorTextEncryptionEnabled,
-} = require("../utils/security/vectorTextEncryption");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+
+let encryptVectorText;
+let isEncryptedVectorText;
+let vectorTextEncryptionEnabled;
 
 const DEFAULT_BATCH_SIZE = 100;
 
@@ -107,7 +95,21 @@ async function migrateTable({ table, tableName, apply, batchSize }) {
 }
 
 async function main() {
-  const apply = hasArg("--apply");
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: ["users", "_prisma_migrations"],
+  });
+  const lancedb = require("@lancedb/lancedb");
+  const { storagePath } = require("../utils/environment");
+  ({
+    encryptVectorText,
+    isEncryptedVectorText,
+    vectorTextEncryptionEnabled,
+  } = require("../utils/security/vectorTextEncryption"));
   const batchSize = Number(getArgValue("--batch-size", DEFAULT_BATCH_SIZE));
   const root = storagePath("lancedb");
 
@@ -126,6 +128,12 @@ async function main() {
       path: root,
       exists: false,
       tables: [],
+      ...(requestedApply && !execute
+        ? {
+            instruction:
+              "Apply requires --apply --execute and APP_ENV or --env.",
+          }
+        : {}),
     };
     console.log(JSON.stringify(report, null, 2));
     return;
@@ -173,6 +181,11 @@ async function main() {
     plaintextCandidates,
     updated,
     tables,
+    ...(requestedApply && !execute
+      ? {
+          instruction: "Apply requires --apply --execute and APP_ENV or --env.",
+        }
+      : {}),
   };
 
   console.log(JSON.stringify(report, null, 2));

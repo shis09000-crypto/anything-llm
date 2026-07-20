@@ -8,7 +8,7 @@ const {
 const {
   publishWorkspaceSyncEvent,
 } = require("../../../chats/workspaceSyncEvents");
-const { sanitizeAgentEvent } = require("../../toolResultStore.js");
+const { compactAgentEvents } = require("../../toolResultStore.js");
 const { promptForHistory } = require("../../../chats/displayPrompt");
 
 async function publishAgentChatFinalized(aibitat, chatId = null) {
@@ -110,6 +110,7 @@ const chatHistory = {
               response: {},
               clientTurnId:
                 aibitat.handlerProps.invocation.clientTurnId || null,
+              sourceChannel: "agent",
             });
             if (chat) aibitat.registerChatId(chat.id, chat.public_id || null);
           })().finally(() => {
@@ -196,9 +197,7 @@ const chatHistory = {
         const outputs = aibitat._pendingOutputs ?? [];
         const clarifyingQuestions =
           aibitat._pendingClarifyingQuestionSurveys ?? [];
-        const agentEvents = (aibitat._agentEvents ?? []).map(
-          sanitizeAgentEvent
-        );
+        const agentEvents = compactAgentEvents(aibitat._agentEvents ?? []);
         await WorkspaceChats.upsert(aibitat.trackedChatId, {
           workspaceId: Number(invocation.workspace_id),
           prompt,
@@ -217,6 +216,7 @@ const chatHistory = {
           threadId: invocation?.thread_id || null,
           include: true,
           clientTurnId: invocation?.clientTurnId || null,
+          sourceChannel: "agent",
         });
         await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 
@@ -244,9 +244,7 @@ const chatHistory = {
         const outputs = aibitat._pendingOutputs ?? [];
         const clarifyingQuestions =
           aibitat._pendingClarifyingQuestionSurveys ?? [];
-        const agentEvents = (aibitat._agentEvents ?? []).map(
-          sanitizeAgentEvent
-        );
+        const agentEvents = compactAgentEvents(aibitat._agentEvents ?? []);
         const existingSources = options?.sources ?? [];
         await WorkspaceChats.upsert(aibitat.trackedChatId, {
           workspaceId: Number(invocation.workspace_id),
@@ -270,6 +268,7 @@ const chatHistory = {
           threadId: invocation?.thread_id || null,
           include: true,
           clientTurnId: invocation?.clientTurnId || null,
+          sourceChannel: "agent",
         });
         await publishAgentChatFinalized(aibitat, aibitat.trackedChatId);
 
@@ -310,6 +309,7 @@ const chatHistory = {
         aibitat.clearCitations?.();
         aibitat._pendingOutputs = [];
         aibitat._agentEvents = [];
+        aibitat._agentEventIndexByKey = new Map();
         aibitat.clearClarifyingQuestionSurveys?.();
         aibitat.clearTrackedChatId();
       },

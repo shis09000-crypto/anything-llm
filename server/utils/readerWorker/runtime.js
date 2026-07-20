@@ -6,6 +6,10 @@ const {
   readerPreviewEngineStatus,
   runReaderPostprocessJob,
 } = require("../readerDocumentRuntime");
+const {
+  metricsRequestAuthorized,
+  registry,
+} = require("../observability/metrics");
 
 const WORKER_SUPPORTED_POSTPROCESS_TASKS = new Set([
   READER_WORKER_TASKS.PREVIEW,
@@ -23,7 +27,10 @@ class ReaderWorkerRuntime {
     this.now = now;
     this.workerId = workerId;
     this.pollTimer = null;
+    this.healthServer = null;
     this.processing = false;
+    this.ready = false;
+    this.lifecycleStatus = "created";
     this.lastQueueSnapshot = null;
     this.lastProcessedAt = null;
     this.lastError = null;
@@ -154,6 +161,13 @@ class ReaderWorkerRuntime {
   } = {}) {
     if (this.pollTimer) return this.pollTimer;
     if (!this.queueEnabled()) {
+      this.ready = false;
+      this.lifecycleStatus = "not-ready";
+      this.lastError = {
+        at: this.now().toISOString(),
+        code: "READER_WORKER_QUEUE_DISABLED",
+        message: "Durable reader queue is disabled.",
+      };
       console.log(
         "[ReaderWorker] durable queue disabled; set ATHENA_READER_WORKER_QUEUE=true to enable polling."
       );
@@ -170,6 +184,10 @@ class ReaderWorkerRuntime {
       });
     this.refreshQueueSnapshot().catch(() => null);
     this.pollTimer = setInterval(tick, Math.max(250, intervalMs));
+    this.pollTimer.unref?.();
+    this.ready = true;
+    this.lifecycleStatus = "running";
+    this.lastError = null;
     tick();
     console.log(
       `[ReaderWorker] durable queue polling enabled worker=${this.workerId} interval=${intervalMs}ms`
@@ -178,9 +196,35 @@ class ReaderWorkerRuntime {
   }
 
   stopQueuePolling() {
-    if (!this.pollTimer) return;
-    clearInterval(this.pollTimer);
+    if (this.pollTimer) clearInterval(this.pollTimer);
     this.pollTimer = null;
+    this.ready = false;
+  }
+
+  fail(error) {
+    this.ready = false;
+    this.lifecycleStatus = "failed";
+    this.lastError = {
+      at: this.now().toISOString(),
+      code: error?.code || null,
+      message: error?.message || String(error || "unknown"),
+    };
+    return this.snapshot();
+  }
+
+  async stop() {
+    this.lifecycleStatus = "stopping";
+    this.stopQueuePolling();
+    const deadline = Date.now() + 30_000;
+    while (this.processing && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    if (this.healthServer) {
+      await new Promise((resolve) => this.healthServer.close(() => resolve()));
+      this.healthServer = null;
+    }
+    this.lifecycleStatus = "stopped";
+    return this.snapshot();
   }
 
   snapshot() {
@@ -197,6 +241,9 @@ class ReaderWorkerRuntime {
     return {
       role: "reader-worker",
       status: this.processing ? "processing" : "idle",
+      ready: this.ready,
+      lifecycleStatus: this.lifecycleStatus,
+      lastError: this.lastError,
       startedAt: this.startedAt,
       now: this.now().toISOString(),
       workerId: this.workerId,
@@ -214,10 +261,34 @@ class ReaderWorkerRuntime {
   }
 
   startHealthServer({ port = 3011 } = {}) {
+    if (this.healthServer) return this.healthServer;
     const server = http.createServer((request, response) => {
+      if (request.url === "/metrics") {
+        if (!metricsRequestAuthorized(request)) {
+          response.writeHead(403, { "Content-Type": "application/json" });
+          response.end(
+            JSON.stringify({ success: false, error: "metrics_forbidden" })
+          );
+          return;
+        }
+        registry.metrics().then((body) => {
+          response.writeHead(200, { "Content-Type": registry.contentType });
+          response.end(body);
+        });
+        return;
+      }
       if (request.url === "/health") {
-        response.writeHead(200, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ success: true, role: "reader-worker" }));
+        response.writeHead(this.ready ? 200 : 503, {
+          "Content-Type": "application/json",
+        });
+        response.end(
+          JSON.stringify({
+            success: this.ready,
+            role: "reader-worker",
+            status: this.lifecycleStatus,
+            error: this.ready ? null : this.lastError?.code || "not_ready",
+          })
+        );
         return;
       }
 
@@ -252,7 +323,8 @@ class ReaderWorkerRuntime {
     server.listen(port, () => {
       console.log(`[ReaderWorker] health server listening on ${port}`);
     });
-    return server;
+    this.healthServer = server;
+    return this.healthServer;
   }
 }
 

@@ -2,8 +2,9 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { execFileSync } = require("child_process");
-const { PrismaClient } = require("@prisma/client");
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
+const { isPostgresql } = require("../database/databaseProvider");
+const { ContentObject } = require("../../models/contentObject");
 const SystemPatrolData = lazyDataAccessFacade("systemPatrol");
 const systemPatrolDb = SystemPatrolData.db;
 const Document = lazyDataAccessFacade("document");
@@ -11,7 +12,6 @@ const DocumentVectors = lazyDataAccessFacade("documentVector");
 const {
   appEnvironment,
   authDatabasePath,
-  authDatabaseUrl,
   databasePath,
   diagnosticSummary,
   storagePath,
@@ -102,6 +102,9 @@ function summarizeChecks(checks = []) {
 }
 
 async function ensurePatrolTables() {
+  // PostgreSQL schemas are migration-owned. Runtime DDL would require elevated
+  // privileges and would bypass the migrator/API role separation.
+  if (isPostgresql()) return;
   await systemPatrolDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "${RUN_TABLE}" (
       "id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,49 +148,81 @@ async function ensurePatrolTables() {
 
 async function createRun({ mode, trigger, triggeredBy }) {
   await ensurePatrolTables();
-  await systemPatrolDb.$executeRawUnsafe(
-    `INSERT INTO "${RUN_TABLE}" ("mode", "status", "trigger", "triggeredBy", "startedAt")
-     VALUES (?, 'running', ?, ?, CURRENT_TIMESTAMP)`,
-    mode,
-    trigger,
-    triggeredBy || null
-  );
-  const rows = await systemPatrolDb.$queryRawUnsafe(
-    `SELECT last_insert_rowid() AS id`
-  );
-  return Number(rows?.[0]?.id);
+  const run = await systemPatrolDb.system_patrol_runs.create({
+    data: {
+      mode,
+      status: "running",
+      trigger,
+      triggeredBy: triggeredBy || null,
+    },
+    select: { id: true },
+  });
+  return Number(run.id);
 }
 
 async function completeRun(runId, report) {
   const summary = summarizeChecks(report.checks);
-  await systemPatrolDb.$executeRawUnsafe(
-    `UPDATE "${RUN_TABLE}"
-     SET "status" = 'completed',
-         "summaryScore" = ?,
-         "summaryStatus" = ?,
-         "countsJson" = ?,
-         "reportJson" = ?,
-         "completedAt" = CURRENT_TIMESTAMP
-     WHERE "id" = ?`,
-    summary.score,
-    summary.status,
-    JSON.stringify(summary.counts),
-    JSON.stringify({ ...report, summary }),
-    runId
+  const completedReport = { ...report, summary };
+  const serialized = JSON.stringify(completedReport);
+  const archiveThreshold = Math.max(
+    1_024,
+    Number(process.env.SYSTEM_PATROL_INLINE_REPORT_MAX_BYTES) || 128 * 1024
   );
+  let reportObject = null;
+  if (Buffer.byteLength(serialized) > archiveThreshold) {
+    reportObject = await ContentObject.stageBuffer({
+      ownerType: "system",
+      ownerId: appEnvironment(),
+      domain: "system-patrol-report",
+      buffer: Buffer.from(serialized, "utf8"),
+      mimeType: "application/json",
+    });
+  }
+  await systemPatrolDb.$transaction(async (tx) => {
+    if (reportObject) {
+      await tx.content_objects.update({
+        where: { id: reportObject.id },
+        data: {
+          state: "ready",
+          readyAt: new Date(),
+          deleteAfter: null,
+          refCount: { increment: 1 },
+        },
+      });
+    }
+    await tx.system_patrol_runs.update({
+      where: { id: Number(runId) },
+      data: {
+        status: "completed",
+        summaryScore: summary.score,
+        summaryStatus: summary.status,
+        countsJson: JSON.stringify(summary.counts),
+        reportJson: reportObject
+          ? JSON.stringify({
+              archived: true,
+              objectId: reportObject.id,
+              generatedAt: completedReport.generatedAt,
+              summary,
+              checkCount: completedReport.checks.length,
+            })
+          : serialized,
+        reportObjectId: reportObject?.id || null,
+        completedAt: new Date(),
+      },
+    });
+  });
   return { ...report, id: runId, summary };
 }
 
 async function failRun(runId, error) {
-  await systemPatrolDb.$executeRawUnsafe(
-    `UPDATE "${RUN_TABLE}"
-     SET "status" = 'failed',
-         "error" = ?,
-         "completedAt" = CURRENT_TIMESTAMP
-     WHERE "id" = ?`,
-    error.message || String(error),
-    runId
-  );
+  await systemPatrolDb.system_patrol_runs.update({
+    where: { id: Number(runId) },
+    data: {
+      status: "failed",
+      error: error.message || String(error),
+      completedAt: new Date(),
+    },
+  });
 }
 
 function diskUsageFor(targetPath) {
@@ -270,20 +305,29 @@ async function checkStorage() {
 
 async function checkMainDatabase() {
   try {
-    const quickCheck =
-      await systemPatrolDb.$queryRawUnsafe("PRAGMA quick_check");
-    const tableCount = await systemPatrolDb.$queryRawUnsafe(
-      "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'"
-    );
+    const postgres = isPostgresql();
+    const quickCheck = postgres
+      ? await systemPatrolDb.$queryRawUnsafe("SELECT 1 AS healthy")
+      : await systemPatrolDb.$queryRawUnsafe("PRAGMA quick_check");
+    const tableCount = postgres
+      ? await systemPatrolDb.$queryRawUnsafe(
+          "SELECT COUNT(*)::int AS count FROM information_schema.tables WHERE table_schema = current_schema()"
+        )
+      : await systemPatrolDb.$queryRawUnsafe(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table'"
+        );
     return [
       checkResult({
-        id: "database.sqlite",
+        id: postgres ? "database.postgresql" : "database.sqlite",
         category: "database",
         status: "healthy",
         severity: "healthy",
-        summary: "Main SQLite database is reachable and quick_check passed.",
+        summary: postgres
+          ? "Main PostgreSQL database is reachable."
+          : "Main SQLite database is reachable and quick_check passed.",
         evidence: {
-          path: databasePath(),
+          provider: postgres ? "postgresql" : "sqlite",
+          ...(postgres ? {} : { path: databasePath() }),
           quickCheck,
           tables: Number(tableCount?.[0]?.count || 0),
         },
@@ -292,27 +336,25 @@ async function checkMainDatabase() {
   } catch (error) {
     return [
       checkResult({
-        id: "database.sqlite",
+        id: isPostgresql() ? "database.postgresql" : "database.sqlite",
         category: "database",
         status: "failed",
         severity: "critical",
-        summary: "Main SQLite database is not healthy.",
-        evidence: { path: databasePath(), error: error.message },
+        summary: "Main database is not healthy.",
+        evidence: {
+          provider: isPostgresql() ? "postgresql" : "sqlite",
+          ...(isPostgresql() ? {} : { path: databasePath() }),
+          error: error.message,
+        },
       }),
     ];
   }
 }
 
 async function withAuthDb(fn) {
-  const authDb = new PrismaClient({
-    datasources: { db: { url: authDatabaseUrl() } },
-    log: ["error", "warn"],
-  });
-  try {
-    return await fn(authDb);
-  } finally {
-    await authDb.$disconnect().catch(() => null);
-  }
+  const authDb = require("../authPrisma");
+  await authDb.$authPrismaReady;
+  return fn(authDb);
 }
 
 async function checkSharedAuth({ deep = false } = {}) {
@@ -607,13 +649,18 @@ async function checkWorkspaceConsistency({ deep = false } = {}) {
 }
 
 async function checkBackgroundWorkers() {
-  const recentRuns = await systemPatrolDb
-    .$queryRawUnsafe(
-      `SELECT "mode", "status", "summaryStatus", "startedAt", "completedAt"
-     FROM "${RUN_TABLE}"
-     ORDER BY "startedAt" DESC
-     LIMIT 5`
-    )
+  const recentRuns = await systemPatrolDb.system_patrol_runs
+    .findMany({
+      select: {
+        mode: true,
+        status: true,
+        summaryStatus: true,
+        startedAt: true,
+        completedAt: true,
+      },
+      orderBy: { startedAt: "desc" },
+      take: 5,
+    })
     .catch(() => []);
   return [
     checkResult({
@@ -663,27 +710,46 @@ async function runSystemPatrol({
 
 async function latestRun() {
   await ensurePatrolTables();
-  const rows = await systemPatrolDb.$queryRawUnsafe(
-    `SELECT * FROM "${RUN_TABLE}" ORDER BY "startedAt" DESC LIMIT 1`
-  );
-  return hydrateRun(rows?.[0] || null);
+  const row = await systemPatrolDb.system_patrol_runs.findFirst({
+    orderBy: { startedAt: "desc" },
+  });
+  return hydrateRun(row);
 }
 
 async function getRun(runId) {
   await ensurePatrolTables();
-  const rows = await systemPatrolDb.$queryRawUnsafe(
-    `SELECT * FROM "${RUN_TABLE}" WHERE "id" = ? LIMIT 1`,
-    Number(runId)
-  );
-  return hydrateRun(rows?.[0] || null);
+  const row = await systemPatrolDb.system_patrol_runs.findUnique({
+    where: { id: Number(runId) },
+  });
+  return hydrateRun(row);
 }
 
-function hydrateRun(row) {
+async function hydrateRun(row) {
   if (!row) return null;
+  let report = safeJsonParse(row.reportJson, {});
+  if (report?.archived === true && report?.objectId) {
+    try {
+      const object = await systemPatrolDb.content_objects.findUnique({
+        where: { id: report.objectId },
+      });
+      if (!object || object.state !== "ready")
+        throw new Error("system_patrol_report_object_not_ready");
+      report = safeJsonParse(
+        (await ContentObject.readWhole(object)).toString("utf8"),
+        report
+      );
+    } catch (error) {
+      report = {
+        ...report,
+        archiveUnavailable: true,
+        archiveError: error.code || error.message,
+      };
+    }
+  }
   return {
     ...row,
     counts: safeJsonParse(row.countsJson, {}),
-    report: safeJsonParse(row.reportJson, {}),
+    report,
   };
 }
 
@@ -705,11 +771,12 @@ async function status() {
 
 async function findRepairInRuns(id) {
   await ensurePatrolTables();
-  const rows = await systemPatrolDb.$queryRawUnsafe(
-    `SELECT * FROM "${RUN_TABLE}" ORDER BY "startedAt" DESC LIMIT 25`
-  );
+  const rows = await systemPatrolDb.system_patrol_runs.findMany({
+    orderBy: { startedAt: "desc" },
+    take: 25,
+  });
   for (const row of rows) {
-    const run = hydrateRun(row);
+    const run = await hydrateRun(row);
     const checks = run?.report?.checks || [];
     const check = checks.find((item) => item.repairAction?.id === id);
     if (check) return { run, check, repairAction: check.repairAction };
@@ -814,23 +881,25 @@ async function previewRepair(repairIdValue) {
       );
   }
 
-  await systemPatrolDb.$executeRawUnsafe(
-    `INSERT INTO "${REPAIR_TABLE}"
-       ("repairId", "runId", "checkId", "action", "status", "previewJson", "updatedAt")
-     VALUES (?, ?, ?, ?, 'previewed', ?, CURRENT_TIMESTAMP)
-     ON CONFLICT("repairId") DO UPDATE SET
-       "runId" = excluded."runId",
-       "checkId" = excluded."checkId",
-       "action" = excluded."action",
-       "status" = 'previewed',
-       "previewJson" = excluded."previewJson",
-       "updatedAt" = CURRENT_TIMESTAMP`,
-    repairIdValue,
-    found.run.id,
-    found.check.id,
-    found.repairAction.action,
-    JSON.stringify(preview)
-  );
+  await systemPatrolDb.system_patrol_repairs.upsert({
+    where: { repairId: repairIdValue },
+    create: {
+      repairId: repairIdValue,
+      runId: found.run.id,
+      checkId: found.check.id,
+      action: found.repairAction.action,
+      status: "previewed",
+      previewJson: JSON.stringify(preview),
+    },
+    update: {
+      runId: found.run.id,
+      checkId: found.check.id,
+      action: found.repairAction.action,
+      status: "previewed",
+      previewJson: JSON.stringify(preview),
+      updatedAt: new Date(),
+    },
+  });
 
   return {
     success: true,
@@ -924,19 +993,16 @@ async function confirmRepair(repairIdValue, { confirmedBy = null } = {}) {
       throw new Error(`Unsupported repair action: ${action.action}`);
   }
 
-  await systemPatrolDb.$executeRawUnsafe(
-    `UPDATE "${REPAIR_TABLE}"
-     SET "status" = 'completed',
-         "confirmedBy" = ?,
-         "backupPath" = ?,
-         "resultJson" = ?,
-         "updatedAt" = CURRENT_TIMESTAMP
-     WHERE "repairId" = ?`,
-    confirmedBy || null,
-    result.backupPath || null,
-    JSON.stringify(result),
-    repairIdValue
-  );
+  await systemPatrolDb.system_patrol_repairs.update({
+    where: { repairId: repairIdValue },
+    data: {
+      status: "completed",
+      confirmedBy: confirmedBy || null,
+      backupPath: result.backupPath || null,
+      resultJson: JSON.stringify(result),
+      updatedAt: new Date(),
+    },
+  });
 
   return { success: true, repairId: repairIdValue, action, result };
 }

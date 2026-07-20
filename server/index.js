@@ -5,12 +5,25 @@ const envPath =
 require("dotenv").config({ path: envPath });
 const { applyEnvironmentStorage } = require("./utils/environment");
 applyEnvironmentStorage();
+const {
+  shutdownOpenTelemetry,
+  startOpenTelemetry,
+} = require("./utils/observability");
+startOpenTelemetry();
 const { ensureWebCrypto } = require("./utils/security/webCrypto");
 ensureWebCrypto();
 const {
   assertProductionSecurityConfig,
 } = require("./utils/security/startupValidation");
 assertProductionSecurityConfig();
+const { startSecurityBootstrap } = require("./utils/security/keyLifecycle");
+const { quarantineMiddleware } = require("./utils/security/keyRuntimeState");
+startSecurityBootstrap({
+  runtimeRole: process.env.ATHENA_RUNTIME_ROLE || "api",
+  allowGenerate:
+    process.env.ATHENA_KEY_AUTO_BOOTSTRAP === "true" ||
+    process.env.NODE_ENV === "development",
+});
 
 const {
   ensureVectorProviderPersistenceDefaults,
@@ -20,7 +33,6 @@ require("./utils/logger")();
 hydrateProviderSettingsBackup();
 ensureVectorProviderPersistenceDefaults();
 const express = require("express");
-const bodyParser = require("body-parser");
 const cors = require("cors");
 const path = require("path");
 const { reqBody } = require("./utils/http");
@@ -31,9 +43,18 @@ const {
   authTrustedDeviceEndpoints,
 } = require("./endpoints/authTrustedDevices");
 const { authZkLoginEndpoints } = require("./endpoints/authZkLogin");
-const { workspaceEndpoints } = require("./endpoints/workspaces");
+const {
+  drainWorkspaceDeleteJobs,
+  workspaceEndpoints,
+} = require("./endpoints/workspaces");
 const { workspaceHealthEndpoints } = require("./endpoints/workspaceHealth");
 const { workspaceOverviewEndpoints } = require("./endpoints/workspaceOverview");
+const {
+  workspaceCognitionEndpoints,
+} = require("./endpoints/workspaceCognition");
+const {
+  workspaceMeetingDelegateEndpoints,
+} = require("./endpoints/workspaceMeetingDelegate");
 const { nodeSupplementEndpoints } = require("./endpoints/nodeSupplements");
 const {
   workspaceSupplementEndpoints,
@@ -92,8 +113,12 @@ const { syncCenterEndpoints } = require("./endpoints/syncCenter");
 const { clientIdentityEndpoints } = require("./endpoints/clientIdentity");
 const { vaultEndpoints } = require("./endpoints/vault");
 const { sensitiveSessionEndpoints } = require("./endpoints/sensitiveSessions");
+const { securityKeyEndpoints } = require("./endpoints/securityKeys");
 const { devControlEndpoints } = require("./endpoints/devControl");
 const { readerLibraryEndpoints } = require("./endpoints/readerLibrary");
+const {
+  workspaceChatAttachmentEndpoints,
+} = require("./endpoints/workspaceChatAttachments");
 const { httpLogger } = require("./middleware/httpLogger");
 const {
   applyTransportSecurity,
@@ -107,12 +132,18 @@ const {
   communicationMetricsMiddleware,
 } = require("./middleware/communicationMetrics");
 const { apiOnlyMode } = require("./utils/runtimeRole");
+const {
+  requestBodyLimitErrorHandler,
+  requestBodyPolicy,
+} = require("./middleware/requestBodyPolicy");
+const { runtimeCoordinator } = require("./utils/runtimeCoordinator");
+const {
+  observabilityContextMiddleware,
+} = require("./utils/observability/context");
+const { metricsEndpoint } = require("./utils/observability/metrics");
+const { apiErrorMiddleware } = require("./utils/http/apiError");
 const app = express();
 const apiRouter = express.Router();
-const FILE_LIMIT = "3GB";
-const rawBodySaver = (request, _response, buffer, encoding) => {
-  if (buffer?.length) request.rawBody = buffer.toString(encoding || "utf8");
-};
 
 app.disable("x-powered-by");
 app.use((_, response, next) => {
@@ -132,17 +163,26 @@ if (
   );
 }
 applyTransportSecurity(app);
+app.use(observabilityContextMiddleware);
+app.use(communicationMetricsMiddleware);
 app.use(clientIdentityMiddleware);
 app.use(cors(corsOptionsForEnvironment()));
-app.use(bodyParser.text({ limit: FILE_LIMIT, verify: rawBodySaver }));
-app.use(bodyParser.json({ limit: FILE_LIMIT, verify: rawBodySaver }));
-app.use(
-  bodyParser.urlencoded({
-    limit: FILE_LIMIT,
-    extended: true,
-    verify: rawBodySaver,
-  })
-);
+app.use(requestBodyPolicy);
+app.use(requestBodyLimitErrorHandler);
+app.get("/metrics", metricsEndpoint);
+app.use((request, response, next) => {
+  const status = runtimeCoordinator.status;
+  const operational = status === "running";
+  const livenessPath = ["/ready", "/api/ready", "/api/ping", "/ping"].includes(
+    String(request.path || request.url || "").split("?")[0]
+  );
+  if (operational || livenessPath) return next();
+  return response.status(503).json({
+    success: false,
+    error: "runtime_not_ready",
+    status,
+  });
+});
 
 if (!!process.env.ENABLE_HTTPS) {
   bootSSL(app, process.env.SERVER_PORT || 3001);
@@ -152,14 +192,49 @@ if (!!process.env.ENABLE_HTTPS) {
 
 nativeAppPublicEndpoints(app);
 app.use("/api", apiRouter);
-apiRouter.use(communicationMetricsMiddleware);
+function readinessSnapshot() {
+  const snapshot = runtimeCoordinator.snapshot();
+  const outbox =
+    require("./utils/syncV2/outboxDispatcher").syncV2OutboxSnapshot();
+  const receipts =
+    require("./utils/mutationReceiptSweeper").mutationReceiptSweeperSnapshot();
+  const securityAudit =
+    require("./utils/security/auditLedgerRuntime").securityAuditMaintenanceSnapshot();
+  const authSessions =
+    require("./utils/security/authSessionSyncReconciler").authSessionSyncReconcilerSnapshot();
+  const syncEnabled = require("./utils/syncV2/config").syncV2Enabled();
+  const p1Ready =
+    receipts.running &&
+    receipts.healthy &&
+    authSessions.running &&
+    authSessions.healthy &&
+    (!syncEnabled || (outbox.running && outbox.healthy)) &&
+    securityAudit.running &&
+    securityAudit.healthy;
+  return {
+    ...snapshot,
+    ready: snapshot.ready && p1Ready,
+    p1: { outbox, receipts, authSessions, securityAudit },
+  };
+}
+app.get("/ready", (_request, response) => {
+  const snapshot = readinessSnapshot();
+  response.status(snapshot.ready ? 200 : 503).json(snapshot);
+});
+apiRouter.get("/ready", (_request, response) => {
+  const snapshot = readinessSnapshot();
+  response.status(snapshot.ready ? 200 : 503).json(snapshot);
+});
+apiRouter.use(quarantineMiddleware);
 systemEndpoints(apiRouter);
 systemPatrolEndpoints(apiRouter);
 clientIdentityEndpoints(apiRouter);
 vaultEndpoints(apiRouter);
 sensitiveSessionEndpoints(apiRouter);
+securityKeyEndpoints(apiRouter);
 devControlEndpoints(apiRouter);
 readerLibraryEndpoints(apiRouter);
+workspaceChatAttachmentEndpoints(apiRouter);
 syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);
@@ -168,6 +243,8 @@ extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
 workspaceHealthEndpoints(apiRouter);
 workspaceOverviewEndpoints(apiRouter);
+workspaceCognitionEndpoints(apiRouter);
+workspaceMeetingDelegateEndpoints(apiRouter);
 nodeSupplementEndpoints(apiRouter);
 workspaceSupplementEndpoints(apiRouter);
 workspaceVisualAssetEndpoints(apiRouter);
@@ -207,11 +284,94 @@ embeddedEndpoints(apiRouter);
 
 // Externally facing browser extension endpoints
 browserExtensionEndpoints(apiRouter);
+apiRouter.use(apiErrorMiddleware);
+app.use(apiErrorMiddleware);
 
+const {
+  startSyncV2OutboxDispatcher,
+  stopSyncV2OutboxDispatcher,
+} = require("./utils/syncV2/outboxDispatcher");
 const { resumeActiveBatchJobs } = require("./utils/DocumentEmbeddingBatch");
-resumeActiveBatchJobs().catch((error) =>
-  console.error("[EmbeddingBatch] Failed to resume active jobs.", error.message)
-);
+const {
+  startWorkspaceCognitionWorker,
+  stopWorkspaceCognitionWorker,
+} = require("./models/workspaceCognitionBatch");
+const {
+  startMutationReceiptSweeper,
+  stopMutationReceiptSweeper,
+} = require("./utils/mutationReceiptSweeper");
+const {
+  startSecurityAuditMaintenance,
+  stopSecurityAuditMaintenance,
+} = require("./utils/security/auditLedgerRuntime");
+const {
+  startAuthSessionSyncReconciler,
+  stopAuthSessionSyncReconciler,
+} = require("./utils/security/authSessionSyncReconciler");
+runtimeCoordinator.register({
+  name: "database-readiness",
+  order: 1,
+  stopOrder: 110,
+  start: async () => {
+    const { DataAccessCenter } = require("./utils/dataAccess");
+    await DataAccessCenter.runtimeLifecycle.databaseReadiness();
+  },
+});
+runtimeCoordinator.register({
+  name: "sync-v2-outbox",
+  order: 10,
+  stopOrder: 80,
+  start: async () => startSyncV2OutboxDispatcher(),
+  stop: stopSyncV2OutboxDispatcher,
+});
+runtimeCoordinator.register({
+  name: "opentelemetry",
+  order: 5,
+  stopOrder: 100,
+  stop: shutdownOpenTelemetry,
+});
+runtimeCoordinator.register({
+  name: "mutation-receipt-sweeper",
+  order: 12,
+  stopOrder: 75,
+  start: async () => startMutationReceiptSweeper(),
+  stop: stopMutationReceiptSweeper,
+});
+runtimeCoordinator.register({
+  name: "security-audit-maintenance",
+  order: 14,
+  stopOrder: 74,
+  start: async () => startSecurityAuditMaintenance(),
+  stop: stopSecurityAuditMaintenance,
+});
+runtimeCoordinator.register({
+  name: "auth-session-sync-reconciler",
+  order: 13,
+  stopOrder: 73,
+  start: async () => startAuthSessionSyncReconciler(),
+  stop: stopAuthSessionSyncReconciler,
+});
+runtimeCoordinator.register({
+  name: "workspace-delete-jobs",
+  order: 15,
+  stopOrder: 72,
+  stop: drainWorkspaceDeleteJobs,
+});
+runtimeCoordinator.register({
+  name: "workspace-cognition",
+  order: 20,
+  stopOrder: 20,
+  start: async () => startWorkspaceCognitionWorker(),
+  stop: stopWorkspaceCognitionWorker,
+});
+runtimeCoordinator.register({
+  name: "embedding-batch-recovery",
+  order: 25,
+  stopOrder: 25,
+  start: async () => {
+    await resumeActiveBatchJobs();
+  },
+});
 
 if (process.env.NODE_ENV !== "development" && !apiOnlyMode()) {
   const { MetaGenerator } = require("./utils/boot/MetaGenerator");

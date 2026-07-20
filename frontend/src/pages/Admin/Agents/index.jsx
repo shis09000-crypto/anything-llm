@@ -68,8 +68,6 @@ export default function AdminAgents() {
 
   const [fileSystemAgentAvailable, setFileSystemAgentAvailable] =
     useState(false);
-  const [createFilesAgentAvailable, setCreateFilesAgentAvailable] =
-    useState(false);
 
   const defaultSkills = getDefaultSkills(t);
   const enabledAgentSkills = configurableAgentSkillsFromSettings(agentSkills);
@@ -78,7 +76,6 @@ export default function AdminAgents() {
   );
   const allConfigurableSkills = getConfigurableSkills(t, {
     fileSystemAgentAvailable,
-    createFilesAgentAvailable,
   });
   const allAppIntegrationSkills = getAppIntegrationSkills(t);
 
@@ -117,24 +114,18 @@ export default function AdminAgents() {
 
   useEffect(() => {
     async function fetchSettings() {
-      const [
-        _settings,
-        _preferences,
-        flowsRes,
-        fsAgentAvailable,
-        createFilesAvailable,
-      ] = await Promise.all([
-        System.keys(),
-        Admin.systemPreferencesByFields([
-          "disabled_agent_skills",
-          "default_agent_skills",
-          "imported_agent_skills",
-          "active_agent_flows",
-        ]),
-        AgentFlows.listFlows(),
-        System.isFileSystemAgentAvailable(),
-        System.isCreateFilesAgentAvailable(),
-      ]);
+      const [_settings, _preferences, flowsRes, fsAgentAvailable] =
+        await Promise.all([
+          System.keys(),
+          Admin.systemPreferencesByFields([
+            "disabled_agent_skills",
+            "default_agent_skills",
+            "imported_agent_skills",
+            "active_agent_flows",
+          ]),
+          AgentFlows.listFlows(),
+          System.isFileSystemAgentAvailable(),
+        ]);
       if (!mountedRef.current) return;
 
       const { flows = [] } = flowsRes;
@@ -151,7 +142,6 @@ export default function AdminAgents() {
       setActiveFlowIds(flows.filter((f) => f.active).map((f) => f.uuid));
       setAgentFlows(flows);
       setFileSystemAgentAvailable(fsAgentAvailable);
-      setCreateFilesAgentAvailable(createFilesAvailable);
       setLoading(false);
     }
     fetchSettings();
@@ -224,9 +214,9 @@ export default function AdminAgents() {
     }
 
     const { success } = await Admin.updateSystemPreferences(data.system);
-    await System.updateSystem(data.env);
+    const envResult = await System.updateSystem(data.env);
 
-    if (success) {
+    if (success && !envResult?.error) {
       const _settings = await System.keys();
       const _preferences = await Admin.systemPreferencesByFields([
         "disabled_agent_skills",
@@ -247,7 +237,11 @@ export default function AdminAgents() {
         clear: true,
       });
     } else {
-      showToast(`Agent preferences failed to save.`, "error", { clear: true });
+      showToast(
+        envResult?.error || `Agent preferences failed to save.`,
+        "error",
+        { clear: true }
+      );
     }
 
     setHasChanges(false);
@@ -523,6 +517,7 @@ export default function AdminAgents() {
                                   settings
                                 )}
                                 setHasChanges={setHasChanges}
+                                hasChanges={hasChanges}
                                 {...defaultSkills[selectedSkill]}
                               />
                             ) : configurableSkills?.[selectedSkill] ? (
@@ -743,6 +738,7 @@ export default function AdminAgents() {
                           settings
                         )}
                         setHasChanges={setHasChanges}
+                        hasChanges={hasChanges}
                         {...defaultSkills[selectedSkill]}
                       />
                     ) : configurableSkills?.[selectedSkill] ? (

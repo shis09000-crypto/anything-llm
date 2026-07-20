@@ -56,6 +56,11 @@ class BackgroundService {
       timeout: "2m",
       interval: process.env.SYSTEM_PATROL_INTERVAL || "15m",
     },
+    {
+      name: "retention-sweeper",
+      timeout: "5m",
+      interval: process.env.ATHENA_RETENTION_SWEEP_INTERVAL || "12hr",
+    },
   ];
 
   #documentSyncJobs = [
@@ -213,7 +218,8 @@ class BackgroundService {
       this.#cryptoHubBackgroundRuntime = null;
     }
     this.#cleanupScheduledJobs();
-    if (!!this.graceful && !!this.bree) this.graceful.stopBree(this.bree, 0);
+    if (!!this.graceful && !!this.bree)
+      await this.graceful.stopBree(this.bree, 0);
     this.bree = null;
     this.graceful = null;
     this.#log("Service stopped");

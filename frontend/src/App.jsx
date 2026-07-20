@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import { I18nextProvider, useTranslation } from "react-i18next";
 import { AuthContext, AuthProvider } from "@/AuthContext";
-import i18n from "./i18n";
+import i18n, { i18nReady } from "./i18n";
 
 import { PfpProvider } from "./PfpContext";
 import { LogoProvider } from "./LogoContext";
@@ -14,19 +14,14 @@ import KeyboardShortcutsHelp from "@/components/KeyboardShortcutsHelp";
 import ImageLightbox from "@/components/ImageLightbox";
 import { ErrorBoundary } from "react-error-boundary";
 import ErrorBoundaryFallback from "./components/ErrorBoundaryFallback";
-import { ChatThreadDraftProvider } from "@/contexts/ChatThreadDraftProvider";
-import { WorkspaceLayoutProvider } from "@/contexts/WorkspaceLayoutProvider";
 import { MotionProvider } from "@/contexts/MotionProvider";
 import MotionRouteOutlet from "@/components/MotionRouteOutlet";
-import { installAnythingMemoryDiagnostics } from "@/utils/chat/memoryDiagnostics";
 import { AppToastHost } from "@/components/lib/AppToast";
 import { AppConfirmDialogHost } from "@/components/lib/AppConfirmDialog/confirm";
 import { loadAppEnvironment } from "@/utils/appEnvironment";
 import CommunicationDebugPanel from "@/components/CommunicationDebugPanel";
 import CacheSchedulerDebugPanel from "@/components/CacheSchedulerDebugPanel";
-import { SettingsDataProvider } from "@/pages/GeneralSettings/SettingsDataProvider";
 import { SyncCenterProvider } from "@/hooks/useSyncCenterEvents";
-import { useWorkspaceNavigationSyncInvalidation } from "@/hooks/useWorkspaceSyncEvents";
 import { markLoginBoot } from "@/utils/loginBootPerf";
 import { hydrateAppearancePreferences } from "@/utils/userStateSync";
 import { isPersistentSettingsRoute } from "@/utils/settingsRoutes";
@@ -47,6 +42,7 @@ import {
   broadcastSubscriptionManager,
   visibleBroadcastScopesForPath,
 } from "@/lib/communication/broadcast";
+import SyncConflictCenter from "@/components/SyncConflictCenter";
 
 export default function App() {
   const location = useLocation();
@@ -57,7 +53,12 @@ export default function App() {
     : null;
 
   useEffect(() => {
-    installAnythingMemoryDiagnostics();
+    if (import.meta.env.DEV) {
+      void import("@/utils/chat/memoryDiagnostics").then(
+        ({ installAnythingMemoryDiagnostics }) =>
+          installAnythingMemoryDiagnostics()
+      );
+    }
     const cleanupNavigationLifecycle = installNavigationPageLifecycle();
     return () => cleanupNavigationLifecycle?.();
   }, []);
@@ -65,7 +66,7 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     markLoginBoot("app_boot_start", { path: window.location.pathname });
-    loadAppEnvironment().finally(() => {
+    Promise.all([loadAppEnvironment(), i18nReady]).finally(() => {
       markLoginBoot("environment_loaded");
       if (mounted) setEnvironmentReady(true);
     });
@@ -90,29 +91,23 @@ export default function App() {
                 <PfpProvider>
                   <I18nextProvider i18n={i18n}>
                     <MotionProvider>
-                      <ChatThreadDraftProvider>
-                        <WorkspaceLayoutProvider>
-                          <AuthenticatedSyncCenter>
-                            <AuthenticatedAppearanceSyncBridge />
-                            <SettingsDataProvider>
-                              <WorkspaceNavigationSyncBridge />
-                              <RouteTaskScopeBridge
-                                pathname={location.pathname}
-                                navigationType={navigationType}
-                              />
-                              <DeveloperNavigationControlBridge />
-                              <DefaultDocumentTitle />
-                              <MotionRouteOutlet />
-                              <AppConfirmDialogHost />
-                              <AppToastHost />
-                              <KeyboardShortcutsHelp />
-                              <ImageLightbox />
-                              <CommunicationDebugPanel />
-                              <CacheSchedulerDebugPanel />
-                            </SettingsDataProvider>
-                          </AuthenticatedSyncCenter>
-                        </WorkspaceLayoutProvider>
-                      </ChatThreadDraftProvider>
+                      <AuthenticatedSyncCenter>
+                        <AuthenticatedAppearanceSyncBridge />
+                        <RouteTaskScopeBridge
+                          pathname={location.pathname}
+                          navigationType={navigationType}
+                        />
+                        <DeveloperNavigationControlBridge />
+                        <DefaultDocumentTitle />
+                        <MotionRouteOutlet />
+                        <AppConfirmDialogHost />
+                        <AppToastHost />
+                        <SyncConflictCenter />
+                        <KeyboardShortcutsHelp />
+                        <ImageLightbox />
+                        <CommunicationDebugPanel />
+                        <CacheSchedulerDebugPanel />
+                      </AuthenticatedSyncCenter>
                     </MotionProvider>
                   </I18nextProvider>
                 </PfpProvider>
@@ -496,11 +491,6 @@ function AuthenticatedAppearanceSyncBridge() {
     });
   }, [authToken, theme, userId]);
 
-  return null;
-}
-
-function WorkspaceNavigationSyncBridge() {
-  useWorkspaceNavigationSyncInvalidation();
   return null;
 }
 

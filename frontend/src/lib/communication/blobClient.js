@@ -25,6 +25,8 @@ export const BLOB_KINDS = {
   generatedFile: "generated_file",
   exportText: "export_text",
   modelDownloadStream: "model_download_stream",
+  chatAttachment: "chat_attachment",
+  chatContent: "chat_content",
 };
 
 function nowMs() {

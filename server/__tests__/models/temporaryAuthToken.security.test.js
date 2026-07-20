@@ -10,8 +10,10 @@ jest.mock("../../utils/prisma", () => ({
 }));
 
 jest.mock("../../utils/sessionIdle", () => ({
-  issueUserSessionToken: jest.fn(() => "session-jwt"),
-  sessionTokenOptionsFromClientContext: jest.fn(() => ({ clientId: "client-1" })),
+  createUserSessionToken: jest.fn(async () => "session-jwt"),
+  sessionTokenOptionsFromClientContext: jest.fn(() => ({
+    clientId: "client-1",
+  })),
 }));
 
 describe("TemporaryAuthToken security storage", () => {

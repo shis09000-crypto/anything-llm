@@ -56,8 +56,24 @@ class CreateFilesManager {
    * @returns {boolean} True if tools are available
    */
   isToolAvailable() {
-    if (process.env.NODE_ENV === "development") return true;
-    return process.env.ANYTHING_LLM_RUNTIME === "docker";
+    try {
+      for (const dependency of [
+        "@mintplex-labs/mdpdf",
+        "docx",
+        "exceljs",
+        "pptxgenjs",
+      ])
+        require.resolve(dependency);
+
+      const outputDirectory = this.#getOutputDirectory();
+      const writableTarget = fsSync.existsSync(outputDirectory)
+        ? outputDirectory
+        : path.dirname(outputDirectory);
+      fsSync.accessSync(writableTarget, fsSync.constants.W_OK);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**

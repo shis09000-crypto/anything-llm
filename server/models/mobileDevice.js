@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { v4: uuidv4 } = require("uuid");
 const ip = require("ip");
@@ -177,8 +180,7 @@ const MobileDevice = {
       });
       return device;
     } catch (error) {
-      console.error("FAILED TO GET MOBILE DEVICE.", error);
-      return [];
+      throwModelDataAccessError("mobileDevice.get", error);
     }
   },
 
@@ -221,8 +223,7 @@ const MobileDevice = {
       });
       return devices;
     } catch (error) {
-      console.error("FAILED TO GET MOBILE DEVICES.", error.message);
-      return [];
+      throwModelDataAccessError("mobileDevice.where", error);
     }
   },
 };

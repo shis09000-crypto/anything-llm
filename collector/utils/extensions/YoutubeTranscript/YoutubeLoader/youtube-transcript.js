@@ -1,4 +1,11 @@
 const { validYoutubeVideoUrl } = require("../../../url");
+const {
+  readResponseJsonLimited,
+  readResponseTextLimited,
+  safeFetch,
+} = require("../../../networkGuard");
+
+const MAX_YOUTUBE_RESPONSE_BYTES = 25 * 1_024 * 1_024;
 
 class YoutubeTranscriptError extends Error {
   constructor(message) {
@@ -146,11 +153,14 @@ class YoutubeTranscript {
    * @throws {YoutubeTranscriptError} If no suitable caption track is found
    */
   static async #getPreferredCaptionTrack(videoId, preferredLanguages) {
-    const videoResponse = await fetch(
+    const videoResponse = await safeFetch(
       `https://www.youtube.com/watch?v=${videoId}`,
       { credentials: "omit" }
     );
-    const videoBody = await videoResponse.text();
+    const videoBody = await readResponseTextLimited(
+      videoResponse,
+      MAX_YOUTUBE_RESPONSE_BYTES
+    );
 
     const preferredCaptionTrack = this.#findPreferredCaptionTrack(
       videoBody,
@@ -193,7 +203,7 @@ class YoutubeTranscript {
         param2: innerProto,
       });
 
-      const response = await fetch(
+      const response = await safeFetch(
         "https://www.youtube.com/youtubei/v1/get_transcript",
         {
           method: "POST",
@@ -218,7 +228,10 @@ class YoutubeTranscript {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const responseData = await response.json();
+      const responseData = await readResponseJsonLimited(
+        response,
+        MAX_YOUTUBE_RESPONSE_BYTES
+      );
       return this.#extractTranscriptFromResponse(responseData);
     } catch (e) {
       throw new YoutubeTranscriptError(e.message || e);

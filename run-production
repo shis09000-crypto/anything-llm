@@ -7,7 +7,12 @@ LOG_DIR="$RUNTIME_DIR/logs"
 STATE_FILE="$RUNTIME_DIR/status-production.env"
 SERVER_PORT="${SERVER_PORT:-3001}"
 COLLECTOR_PORT="${COLLECTOR_PORT:-8888}"
-APP_URL="http://localhost:${SERVER_PORT}"
+if [[ "${ENABLE_HTTPS:-}" == "true" || "${ENABLE_HTTPS:-}" == "1" ]]; then
+  APP_URL="https://localhost:${SERVER_PORT}"
+  export PUBLIC_APP_URL="${PUBLIC_APP_URL:-$APP_URL}"
+else
+  APP_URL="http://localhost:${SERVER_PORT}"
+fi
 STORAGE_BASE="${STORAGE_DIR:-$ROOT_DIR/server/storage}"
 ENV_STORAGE_ROOT="$STORAGE_BASE/production"
 BUILD_STAMP_FILE="$ROOT_DIR/server/public/.anythingllm-build"
@@ -184,6 +189,8 @@ ensure_env_database() {
   local db_path="$ENV_STORAGE_ROOT/anythingllm.db"
 
   if database_has_core_schema "$db_path"; then
+    log "production database core schema is ready; applying pending migrations..."
+    apply_sqlite_migrations "$db_path"
     log "production database schema is ready"
     return 0
   fi
@@ -202,6 +209,17 @@ ensure_env_database() {
   fi
 }
 
+run_key_custody_preflight() {
+  log "running Athena key custody bootstrap and preflight..."
+  (
+    cd "$ROOT_DIR"
+    NODE_ENV=production \
+      APP_ENV=production \
+      STORAGE_DIR="$STORAGE_BASE" \
+      node server/scripts/athena-keyctl.js bootstrap --apply
+  )
+}
+
 write_state() {
   {
     printf 'APP_ENV=%q\n' "production"
@@ -215,6 +233,11 @@ write_state() {
     printf 'COLLECTOR_LOG=%q\n' "$COLLECTOR_LOG"
     printf 'FRONTEND_LOG=%q\n' ""
     printf 'APP_URL=%q\n' "$APP_URL"
+    if [[ "$APP_URL" == https://* ]]; then
+      printf 'HTTPS_ENABLED=%q\n' "true"
+    else
+      printf 'HTTPS_ENABLED=%q\n' "false"
+    fi
     printf 'STARTED_AT=%q\n' "$(date '+%Y-%m-%d %H:%M:%S')"
   } >"$STATE_FILE"
 }
@@ -448,6 +471,7 @@ else
   build_frontend_if_needed
   prepare_storage_dirs
   ensure_env_database
+  run_key_custody_preflight
   launch_supervisor
 fi
 

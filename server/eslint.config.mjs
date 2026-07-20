@@ -11,6 +11,7 @@ export default defineConfig([
     ignores: [
       "__tests__/**",
       "node_modules/**",
+      "generated/**",
       "public/**",
       "storage/**",
       "swagger/**",

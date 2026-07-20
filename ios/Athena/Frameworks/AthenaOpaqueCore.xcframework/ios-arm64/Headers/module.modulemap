@@ -1,0 +1,4 @@
+module AthenaOpaqueCore {
+  header "AthenaOpaqueCore.h"
+  export *
+}

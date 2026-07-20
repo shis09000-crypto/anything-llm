@@ -1,4 +1,3 @@
-import Workspace from "@/models/workspace";
 import showToast from "@/utils/toast";
 import { optimisticActionCenter } from "@/utils/optimistic/optimisticActionCenter";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
@@ -176,6 +175,7 @@ function registerWorkspaceCreate({ data = {}, source = "local" } = {}) {
       });
     },
     serverCall: async ({ signal }) => {
+      const { default: Workspace } = await import("@/models/workspace");
       const result = await Workspace.new(data, {
         signal,
         communicationScene: "workspace-navigation",
@@ -382,6 +382,7 @@ export function requestWorkspaceDelete({ workspace } = {}) {
     workspaceSlug,
     source: "local",
     serverCall: async ({ signal, deleteIntentId, actionId }) => {
+      const { default: Workspace } = await import("@/models/workspace");
       const success = await Workspace.delete(workspaceSlug, {
         signal,
         communicationScene: "workspace-navigation",

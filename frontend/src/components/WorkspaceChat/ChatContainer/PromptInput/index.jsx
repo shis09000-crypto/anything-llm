@@ -36,6 +36,7 @@ import { nFormatter } from "@/utils/numbers";
 import ReaderTextSourceCards from "@/modules/reader/ReaderTextSourceCards";
 import { useDocumentReader } from "@/modules/reader/DocumentReaderProvider";
 import { showAppConfirm } from "@/components/lib/AppConfirmDialog/confirm";
+import WorkspaceCognition from "@/models/workspaceCognition";
 
 export const PROMPT_INPUT_ID = "primary-prompt-input";
 export const PROMPT_INPUT_EVENT = "set_prompt_input";
@@ -88,6 +89,15 @@ export default function PromptInput({
   editMode = false,
   onCancelEdit = null,
 }) {
+  useEffect(() => {
+    return () => {
+      if (!workspaceSlug || !threadSlug) return;
+      WorkspaceCognition.flush(workspaceSlug, {
+        threadSlug,
+        reason: "switch",
+      }).catch?.(() => null);
+    };
+  }, [workspaceSlug, threadSlug]);
   const { t } = useTranslation();
   const readerContext = useDocumentReader();
   const { showAgentCommand = true } = workspace ?? {};
@@ -529,6 +539,7 @@ export default function PromptInput({
               promptRef={textareaRef}
               centered={centered}
               highlightedIndexRef={toolsHighlightRef}
+              threadSlug={threadSlug}
             />
             <PromptInputGlassShell glass={glass}>
               {editMode && (

@@ -5,6 +5,8 @@ const mockCreate = jest.fn();
 const mockUpdate = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockLogEvent = jest.fn();
+const mockUserFindUnique = jest.fn();
+const mockRevokeClientSessions = jest.fn();
 
 jest.mock("../../utils/prisma", () => ({
   athena_clients: {
@@ -14,6 +16,15 @@ jest.mock("../../utils/prisma", () => ({
     create: (...args) => mockCreate(...args),
     update: (...args) => mockUpdate(...args),
     updateMany: (...args) => mockUpdateMany(...args),
+  },
+  users: {
+    findUnique: (...args) => mockUserFindUnique(...args),
+  },
+}));
+
+jest.mock("../../models/authSession", () => ({
+  AuthSession: {
+    revokeClient: (...args) => mockRevokeClientSessions(...args),
   },
 }));
 
@@ -62,6 +73,8 @@ describe("client identity helpers", () => {
     mockUpdate.mockResolvedValue({ id: 1 });
     mockUpdateMany.mockResolvedValue({ count: 1 });
     mockLogEvent.mockResolvedValue({ eventLog: { id: 1 }, message: null });
+    mockUserFindUnique.mockResolvedValue({ authUserId: 100 });
+    mockRevokeClientSessions.mockResolvedValue({ count: 1 });
   });
 
   it("parses client context from HTTP headers", () => {
@@ -196,7 +209,6 @@ describe("client identity helpers", () => {
     });
   });
 
-
   it("falls back safely when capability profile is malformed", () => {
     const request = requestDouble({
       query: {
@@ -281,9 +293,7 @@ describe("client identity helpers", () => {
       publicKey: null,
       deviceFingerprintVersion: null,
     });
-    expect(payload.data.capabilities).toBe(
-      JSON.stringify({ clipboard: true })
-    );
+    expect(payload.data.capabilities).toBe(JSON.stringify({ clipboard: true }));
   });
 
   it("does not revive revoked clients during registration", async () => {

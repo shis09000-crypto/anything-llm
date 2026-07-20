@@ -4,7 +4,8 @@ const { processSingleFile } = require("../../processSingleFile");
 const { downloadURIToFile } = require("../../utils/downloadURIToFile");
 const { ACCEPTED_MIMES } = require("../../utils/constants");
 const { validYoutubeVideoUrl } = require("../../utils/url");
-const { redactUrl } = require("../../utils/security/redaction");
+const { safeFetch } = require("../../utils/networkGuard");
+const { currentTaskSignal } = require("../../utils/taskContext");
 
 /**
  * Parse a Content-Type header value and return the MIME type without charset or other parameters.
@@ -27,30 +28,24 @@ async function getContentTypeFromURL(url) {
     if (!url || typeof url !== "string" || !validURL(url))
       return { success: false, reason: "Not a valid URL.", contentType: null };
 
-    const abortController = new AbortController();
-    const timeout = setTimeout(() => {
-      abortController.abort();
-      console.error(
-        "Timeout fetching content type for URL:",
-        redactUrl(url.toString())
-      );
-    }, 5_000);
-
-    const res = await fetch(url, {
+    const res = await safeFetch(url, {
       method: "HEAD",
-      signal: abortController.signal,
-    }).finally(() => clearTimeout(timeout));
+      signal: currentTaskSignal(),
+      timeoutMs: 30_000,
+    });
+    const status = res.status;
+    const statusText = res.statusText;
+    const contentType = res.headers.get("Content-Type");
+    await res.body?.cancel().catch(() => null);
 
     if (!res.ok)
       return {
         success: false,
-        reason: `HTTP ${res.status}: ${res.statusText}`,
+        reason: `HTTP ${status}: ${statusText}`,
         contentType: null,
       };
 
-    const contentTypeWithoutCharset = parseContentType(
-      res.headers.get("Content-Type")
-    );
+    const contentTypeWithoutCharset = parseContentType(contentType);
     if (!contentTypeWithoutCharset)
       return {
         success: false,
@@ -63,6 +58,7 @@ async function getContentTypeFromURL(url) {
       contentType: contentTypeWithoutCharset,
     };
   } catch (error) {
+    if (error?.code === "collector_destination_forbidden") throw error;
     return {
       success: false,
       reason: `Error: ${error.message}`,
@@ -124,6 +120,7 @@ async function determineContentType(uri) {
       return { contentType: result.contentType, processVia };
     })
     .catch((error) => {
+      if (error?.code === "collector_destination_forbidden") throw error;
       console.error("Error getting content type from URL", error);
       return { contentType: null, processVia };
     });

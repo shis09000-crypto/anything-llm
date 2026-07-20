@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const { safeJsonParse } = require("../utils/http");
 const prisma = require("../utils/prisma");
 
@@ -82,8 +85,7 @@ const EmbedChats = {
       });
       return filterSources ? this.filterSources(chats) : chats;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embedChats.forEmbedByUser", error);
     }
   },
 
@@ -115,8 +117,7 @@ const EmbedChats = {
       });
       return chat || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("embedChats.get", error);
     }
   },
 
@@ -127,8 +128,7 @@ const EmbedChats = {
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("embedChats.delete", error);
     }
   },
 
@@ -147,8 +147,7 @@ const EmbedChats = {
       });
       return chats;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embedChats.where", error);
     }
   },
 
@@ -178,8 +177,7 @@ const EmbedChats = {
       });
       return chats;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embedChats.whereWithEmbedAndWorkspace", error);
     }
   },
 
@@ -190,8 +188,7 @@ const EmbedChats = {
       });
       return count;
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("embedChats.count", error);
     }
   },
 };

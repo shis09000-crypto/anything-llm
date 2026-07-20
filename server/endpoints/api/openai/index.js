@@ -87,7 +87,7 @@ function apiOpenAICompatibleEndpoints(app) {
       });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -202,7 +202,7 @@ function apiOpenAICompatibleEndpoints(app) {
         response.end();
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -269,7 +269,7 @@ function apiOpenAICompatibleEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -345,7 +345,7 @@ function apiOpenAICompatibleEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );

@@ -1,8 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import {
-  estimatePayloadBytes,
-  setSourcesMemoryStatsProvider,
-} from "@/utils/chat/memoryDiagnostics";
+import { estimatePayloadBytes } from "@/utils/chat/memorySize";
 
 export const SourcesSidebarContext = createContext();
 
@@ -23,13 +20,25 @@ export function SourcesSidebarProvider({ children }) {
   }
 
   useEffect(() => {
-    setSourcesMemoryStatsProvider(() => ({
-      sidebarOpen,
-      sourceCount: sources.length,
-      retainedBytes: estimatePayloadBytes(sources),
-      selectedSourceBytes: estimatePayloadBytes(selectedSource),
-    }));
-    return () => setSourcesMemoryStatsProvider(null);
+    if (!import.meta.env.DEV) return;
+    let disposed = false;
+    let unregister = () => {};
+    void import("@/utils/chat/memoryDiagnostics").then(
+      ({ setSourcesMemoryStatsProvider }) => {
+        if (disposed) return;
+        setSourcesMemoryStatsProvider(() => ({
+          sidebarOpen,
+          sourceCount: sources.length,
+          retainedBytes: estimatePayloadBytes(sources),
+          selectedSourceBytes: estimatePayloadBytes(selectedSource),
+        }));
+        unregister = () => setSourcesMemoryStatsProvider(null);
+      }
+    );
+    return () => {
+      disposed = true;
+      unregister();
+    };
   }, [selectedSource, sidebarOpen, sources]);
 
   return (

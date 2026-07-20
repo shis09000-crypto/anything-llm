@@ -3,6 +3,63 @@ import { apiErrorMessage as failureMessage } from "@/lib/communication/apiError"
 import { streamThreadTitleEvents } from "@/lib/communication/workspaceRealtimeClient";
 import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { submitProjectedSyncMutation } from "@/utils/syncV2/syncV2ProjectedMutation";
+
+const SYNC_V2_THREAD_METADATA_FIELDS = ["name", "chatModel"];
+const CHAT_PAYLOAD_HEADERS = { "X-Athena-Chat-Payload-Version": "2" };
+
+function cachedThread(workspaceSlug, threadSlug) {
+  return (
+    workspaceNavigationCache
+      .getThreads(workspaceSlug, { allowStale: true })
+      ?.find((thread) => thread.slug === threadSlug) || null
+  );
+}
+
+async function syncV2ThreadIndex(workspaceSlug, options = {}) {
+  if (options.preferSyncV2Cache !== true || options.includeArchived)
+    return null;
+  try {
+    const { syncV2Runtime } = await import("@/utils/syncV2/syncV2Runtime");
+    const result = await syncV2Runtime.bootstrap({ signal: options.signal });
+    if (!result?.enabled) return null;
+    return workspaceNavigationCache.getThreads(workspaceSlug, {
+      allowStale: true,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw error;
+    return null;
+  }
+}
+
+async function updateThreadWithSyncV2(
+  workspaceSlug,
+  threadSlug,
+  data,
+  options = {}
+) {
+  const current = cachedThread(workspaceSlug, threadSlug);
+  if (!Number.isInteger(Number(current?.id))) return null;
+  const submitted = await submitProjectedSyncMutation(
+    {
+      nodeKey: `threads/${Number(current.id)}/metadata`,
+      payload: data,
+      allowedFields: SYNC_V2_THREAD_METADATA_FIELDS,
+    },
+    {
+      allowOffline: options.allowOffline !== false,
+      signal: options.signal,
+    }
+  );
+  if (!submitted) return null;
+  const thread = { ...current, ...data };
+  workspaceNavigationCache.updateThread(workspaceSlug, thread);
+  return {
+    thread,
+    message: null,
+    queued: submitted.result?.queued === true,
+  };
+}
 
 function threadTask({
   label,
@@ -80,10 +137,16 @@ function historyPageQuery({
 
 const WorkspaceThread = {
   all: async function (workspaceSlug, options = {}) {
+    const projected = await syncV2ThreadIndex(workspaceSlug, options);
+    if (Array.isArray(projected)) {
+      return { threads: projected, defaultThreads: null };
+    }
+    const query = options.includeArchived ? "?includeArchived=true" : "";
     const { threads, defaultThreads } = await getJson(
-      `/workspace/${workspaceSlug}/threads`,
+      `/workspace/${workspaceSlug}/threads${query}`,
       {
         signal: options.signal,
+        headers: CHAT_PAYLOAD_HEADERS,
         communicationScene:
           options.communicationScene || "workspace-navigation",
         task: options.task,
@@ -94,7 +157,7 @@ const WorkspaceThread = {
         if (error?.name === "AbortError") throw error;
         return { threads: [], defaultThreads: null };
       });
-    if (Array.isArray(threads))
+    if (Array.isArray(threads) && !options.includeArchived)
       workspaceNavigationCache.setThreads(workspaceSlug, threads);
 
     return { threads, defaultThreads };
@@ -137,6 +200,20 @@ const WorkspaceThread = {
     }
   },
   update: async function (workspaceSlug, threadSlug, data = {}, options = {}) {
+    try {
+      const synced = await updateThreadWithSyncV2(
+        workspaceSlug,
+        threadSlug,
+        data,
+        options
+      );
+      if (synced) return synced;
+    } catch (error) {
+      return {
+        thread: null,
+        message: error?.message || "Thread update failed",
+      };
+    }
     const { thread, message } = await postJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/update`,
       data,
@@ -158,6 +235,30 @@ const WorkspaceThread = {
     if (thread?.slug)
       workspaceNavigationCache.updateThread(workspaceSlug, thread);
     return { thread, message };
+  },
+  archive: async function (workspaceSlug, threadSlug) {
+    return postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/archive`,
+      {},
+      {
+        communicationScene: "workspace-thread-action",
+        task: threadUserActionTask("thread:archive", workspaceSlug, threadSlug),
+      }
+    )
+      .then(({ data }) => data)
+      .catch((error) => ({ success: false, error: failureMessage(error) }));
+  },
+  restore: async function (workspaceSlug, threadSlug) {
+    return postJson(
+      `/workspace/${workspaceSlug}/thread/${threadSlug}/restore`,
+      {},
+      {
+        communicationScene: "workspace-thread-action",
+        task: threadUserActionTask("thread:restore", workspaceSlug, threadSlug),
+      }
+    )
+      .then(({ data }) => data)
+      .catch((error) => ({ success: false, error: failureMessage(error) }));
   },
   move: async function (
     workspaceSlug,
@@ -266,22 +367,40 @@ const WorkspaceThread = {
   },
   chatHistoryPage: async function (workspaceSlug, threadSlug, options = {}) {
     const query = historyPageQuery(options);
-    const payload = await getJson(
+    const result = await getJson(
       `/workspace/${workspaceSlug}/thread/${threadSlug}/chats?${query}`,
       {
         signal: options.signal,
+        headers: {
+          ...CHAT_PAYLOAD_HEADERS,
+          ...(options.historyFingerprint
+            ? { "If-None-Match": `"${options.historyFingerprint}"` }
+            : {}),
+        },
+        acceptNotModified: true,
         communicationScene: "workspace-chat",
         task: options.task,
       }
-    )
-      .then(({ data }) => data)
-      .catch((error) => {
-        if (error?.name === "AbortError") throw error;
-        return { history: [], page: null };
-      });
+    ).catch((error) => {
+      if (error?.name === "AbortError") throw error;
+      return { data: { history: [], page: null }, notModified: false };
+    });
+    if (result?.notModified) {
+      return {
+        history: options.cachedHistory || [],
+        page: options.cachedPage || null,
+        historyFingerprint: options.historyFingerprint,
+        historyRevision: options.historyRevision ?? null,
+        notModified: true,
+      };
+    }
+    const payload = result?.data || {};
     return {
       history: payload.history || [],
       page: payload.page || null,
+      historyFingerprint: payload.historyFingerprint || null,
+      historyRevision: payload.historyRevision ?? null,
+      notModified: false,
     };
   },
   chatBootstrap: async function (workspaceSlug, threadSlug, options = {}) {
@@ -290,6 +409,7 @@ const WorkspaceThread = {
       `/workspace/${workspaceSlug}/thread/${threadSlug}/bootstrap?${query}`,
       {
         signal: options.signal,
+        headers: CHAT_PAYLOAD_HEADERS,
         communicationScene: "workspace-chat",
         task: options.task,
       }
@@ -306,6 +426,8 @@ const WorkspaceThread = {
       thread: payload.thread || null,
       history: payload.history || [],
       page: payload.page || null,
+      historyFingerprint: payload.historyFingerprint || null,
+      historyRevision: payload.historyRevision ?? null,
     };
   },
   chatHistoryHydration: async function (
@@ -322,6 +444,7 @@ const WorkspaceThread = {
       { chatIds, publicChatIds },
       {
         signal: options.signal,
+        headers: CHAT_PAYLOAD_HEADERS,
         communicationScene: "workspace-chat",
         task: options.task,
       }

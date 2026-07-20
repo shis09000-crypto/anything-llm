@@ -3,7 +3,10 @@ import { useParams } from "react-router-dom";
 import PreLoader from "@/components/Preloader";
 import ChatModelSelection from "./ChatModelSelection";
 import { useTranslation } from "react-i18next";
-import { PROVIDER_SETUP_EVENT, SAVE_LLM_SELECTOR_EVENT } from "./action";
+import {
+  PROVIDER_SETUP_EVENT,
+  SAVE_LLM_SELECTOR_EVENT,
+} from "@/utils/chat/llmSelectorEvents";
 import {
   WORKSPACE_LLM_PROVIDERS,
   autoScrollToSelectedLLMProvider,

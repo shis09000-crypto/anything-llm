@@ -1,22 +1,16 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
-
 const fs = require("fs");
 const path = require("path");
-const {
-  documentsPath,
-  readDocumentJsonFile,
-  readVectorCacheJsonFile,
-  writeDocumentJsonFile,
-  writeVectorCacheJsonFile,
-} = require("../utils/files");
-const { storagePath } = require("../utils/environment");
-const {
-  documentStoreEncryptionEnabled,
-  isEncryptedDocumentStorePayload,
-} = require("../utils/security/documentStoreEncryption");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
-const vectorCachePath = storagePath("vector-cache");
+let documentStoreEncryptionEnabled;
+let documentsPath;
+let isEncryptedDocumentStorePayload;
+let readDocumentJsonFile;
+let readVectorCacheJsonFile;
+let vectorCachePath;
+let writeDocumentJsonFile;
+let writeVectorCacheJsonFile;
 
 function hasArg(name) {
   return process.argv.includes(name);
@@ -82,7 +76,27 @@ async function migrateFiles({ files, read, write, apply }) {
 }
 
 async function main() {
-  const apply = hasArg("--apply");
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: ["users", "_prisma_migrations"],
+  });
+  ({
+    documentsPath,
+    readDocumentJsonFile,
+    readVectorCacheJsonFile,
+    writeDocumentJsonFile,
+    writeVectorCacheJsonFile,
+  } = require("../utils/files"));
+  const { storagePath } = require("../utils/environment");
+  ({
+    documentStoreEncryptionEnabled,
+    isEncryptedDocumentStorePayload,
+  } = require("../utils/security/documentStoreEncryption"));
+  vectorCachePath = storagePath("vector-cache");
   if (apply && !documentStoreEncryptionEnabled()) {
     throw new Error(
       "DOCUMENT store encryption apply requires ENCRYPTION_MASTER_KEY."
@@ -120,6 +134,11 @@ async function main() {
     mode: apply ? "apply" : "dry-run",
     encryptionReady: documentStoreEncryptionEnabled(),
     results,
+    ...(requestedApply && !execute
+      ? {
+          instruction: "Apply requires --apply --execute and APP_ENV or --env.",
+        }
+      : {}),
   };
   console.log(JSON.stringify(report, null, 2));
   process.exit(report.success ? 0 : 1);

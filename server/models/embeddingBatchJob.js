@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 
@@ -60,8 +63,7 @@ const EmbeddingBatchJob = {
       });
       return job ? this.inflate(job) : null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("embeddingBatchJob.get", error);
     }
   },
 
@@ -74,8 +76,7 @@ const EmbeddingBatchJob = {
       });
       return jobs.map((job) => this.inflate(job));
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embeddingBatchJob.where", error);
     }
   },
 
@@ -294,8 +295,7 @@ const EmbeddingBatchJob = {
         orderBy: { occurredAt: "desc" },
       });
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("embeddingBatchJob.events", error);
     }
   },
 

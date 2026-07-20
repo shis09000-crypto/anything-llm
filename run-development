@@ -412,6 +412,18 @@ user_state_preferences_schema_exists() {
   [[ "$table_count" == "1" && "$column_count" == "7" ]]
 }
 
+sync_v2_schema_exists() {
+  local db_path="$1"
+  local table_count
+  local receipt_column_count
+  local chat_column_count
+
+  table_count="$(sqlite_scalar "$db_path" "select count(*) from sqlite_master where type='table' and name in ('sync_nodes','sync_outbox','sync_client_cursors');")"
+  receipt_column_count="$(sqlite_scalar "$db_path" "select count(*) from pragma_table_info('athena_mutation_receipts') where name in ('baseVersion','resultVersion','requestHash','resultJson','expiresAt');")"
+  chat_column_count="$(sqlite_scalar "$db_path" "select count(*) from pragma_table_info('workspace_chats') where name in ('messageVersion','deletedAt');")"
+  [[ "$table_count" == "3" && "$receipt_column_count" == "5" && "$chat_column_count" == "2" ]]
+}
+
 reconcile_known_sqlite_migration() {
   local db_path="$1"
   local migration_name="$2"
@@ -427,6 +439,13 @@ reconcile_known_sqlite_migration() {
       ;;
     20260624100000_add_user_state_preferences)
       if user_state_preferences_schema_exists "$db_path"; then
+        log "recording already-applied migration $migration_name"
+        record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
+        return 0
+      fi
+      ;;
+    20260717120000_add_sync_v2_state_tree)
+      if sync_v2_schema_exists "$db_path"; then
         log "recording already-applied migration $migration_name"
         record_sqlite_migration "$db_path" "$migration_name" "$migration_sql"
         return 0
@@ -498,6 +517,17 @@ ensure_env_database() {
     log "error: development database schema is still incomplete after migration"
     exit 1
   fi
+}
+
+run_key_custody_preflight() {
+  log "running Athena key custody bootstrap and preflight..."
+  (
+    cd "$ROOT_DIR"
+    NODE_ENV=development \
+      APP_ENV=development \
+      STORAGE_DIR="$STORAGE_BASE" \
+      node server/scripts/athena-keyctl.js bootstrap --apply
+  )
 }
 
 write_state() {
@@ -859,6 +889,7 @@ else
   SERVER_PORT="$SERVER_PORT" COLLECTOR_PORT="$COLLECTOR_PORT" FRONTEND_PORT="$FRONTEND_PORT" bash "$ROOT_DIR/stop-all" --env development --quiet || true
   prepare_storage_dirs
   ensure_env_database
+  run_key_custody_preflight
   launch_supervisor
 fi
 

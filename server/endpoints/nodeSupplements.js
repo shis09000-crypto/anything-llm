@@ -74,7 +74,9 @@ function nodeSupplementEndpoints(app) {
         response.status(200).json({ success: true, supplements });
       } catch (error) {
         console.error("[NodeSupplement] list failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -105,7 +107,9 @@ function nodeSupplementEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error("[NodeSupplement] create failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -167,7 +171,9 @@ function nodeSupplementEndpoints(app) {
         });
       } catch (error) {
         console.error("[NodeSupplement] upload failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -226,7 +232,9 @@ function nodeSupplementEndpoints(app) {
         });
       } catch (error) {
         console.error("[NodeSupplement] text failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -246,7 +254,9 @@ function nodeSupplementEndpoints(app) {
         response.status(result.success ? 200 : 404).json(result);
       } catch (error) {
         console.error("[NodeSupplement] delete failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

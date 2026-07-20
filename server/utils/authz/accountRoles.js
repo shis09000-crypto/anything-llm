@@ -288,7 +288,8 @@ function canDeleteAccount(actor = {}, target = {}) {
   const targetRole = authUserRole(target || {});
   if (actorRole !== ROLES.owner) return false;
   if (isPrimaryOwner(target)) return false;
-  if (isPrimaryOwner(actor)) return targetRole !== ROLES.owner || isSecondaryOwner(target);
+  if (isPrimaryOwner(actor))
+    return targetRole !== ROLES.owner || isSecondaryOwner(target);
   if (isSecondaryOwner(actor)) return targetRole !== ROLES.owner;
   return false;
 }
@@ -358,7 +359,9 @@ function canUnbanAccount(actor = {}, target = {}, options = {}) {
 
 function assertPrimaryOwnerProtected(target = {}) {
   if (isPrimaryOwner(target)) {
-    throw new Error("Primary owner cannot be deleted, disabled, or downgraded.");
+    throw new Error(
+      "Primary owner cannot be deleted, disabled, or downgraded."
+    );
   }
   return true;
 }
@@ -389,8 +392,7 @@ async function assertOwnerWillRemainAfterMutation({
   });
   const targetId = Number(targetAuthUserId);
   const remainingOwners = owners.filter((owner) => {
-    if (Number(owner.id) !== targetId)
-      return isActiveOwner(owner, env);
+    if (Number(owner.id) !== targetId) return isActiveOwner(owner, env);
     if (deleting) return false;
     const resulting = {
       ...owner,
@@ -401,7 +403,12 @@ async function assertOwnerWillRemainAfterMutation({
         ? { status: nextStatus }
         : {}),
       ...(nextAllowedEnvs !== null && nextAllowedEnvs !== undefined
-        ? { allowedEnvs: serializeAllowedEnvs(nextAllowedEnvs, nextRole || owner.role) }
+        ? {
+            allowedEnvs: serializeAllowedEnvs(
+              nextAllowedEnvs,
+              nextRole || owner.role
+            ),
+          }
         : {}),
       ...(nextSuspended !== null && nextSuspended !== undefined
         ? { suspended: Number(Boolean(nextSuspended)) }

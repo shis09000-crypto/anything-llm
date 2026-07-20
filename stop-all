@@ -6,6 +6,11 @@ RUNTIME_DIR="$ROOT_DIR/.anythingllm-runtime"
 LEGACY_STATE_FILE="$RUNTIME_DIR/status.env"
 QUIET=0
 TARGET_ENV="all"
+STOP_GRACE_SECONDS="${STOP_GRACE_SECONDS:-35}"
+
+if ! [[ "$STOP_GRACE_SECONDS" =~ ^[0-9]+$ ]] || (( STOP_GRACE_SECONDS < 30 )); then
+  STOP_GRACE_SECONDS=35
+fi
 
 usage() {
   cat <<EOF
@@ -107,10 +112,12 @@ pid_command() {
 kill_pid() {
   local pid="${1:-}"
   local name="${2:-process}"
+  local deadline
   if ! pid_alive "$pid"; then return 0; fi
   log "stopping $name pid=$pid"
   kill "$pid" >/dev/null 2>&1 || true
-  for _ in {1..20}; do
+  deadline=$(( $(date +%s) + STOP_GRACE_SECONDS ))
+  while (( $(date +%s) < deadline )); do
     if ! pid_alive "$pid"; then return 0; fi
     sleep 0.25
   done

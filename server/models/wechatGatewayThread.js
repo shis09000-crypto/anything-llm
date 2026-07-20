@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 
 const WeChatGatewayThread = {
@@ -36,8 +39,7 @@ const WeChatGatewayThread = {
       `;
       return rows?.[0] || null;
     } catch (error) {
-      console.error("WeChatGatewayThread.getByWxid", error.message);
-      return null;
+      throwModelDataAccessError("wechatGatewayThread.getByWxid", error);
     }
   },
 
@@ -50,8 +52,7 @@ const WeChatGatewayThread = {
       `;
       return rows?.[0] || null;
     } catch (error) {
-      console.error("WeChatGatewayThread.getByThreadSlug", error.message);
-      return null;
+      throwModelDataAccessError("wechatGatewayThread.getByThreadSlug", error);
     }
   },
 

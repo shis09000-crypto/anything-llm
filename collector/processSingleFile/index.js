@@ -11,6 +11,8 @@ const {
   isWithin,
 } = require("../utils/files");
 const RESERVED_FILES = ["__HOTDIR__.md"];
+const MAX_INPUT_BYTES = 500 * 1_024 * 1_024;
+const { validateArchive } = require("../utils/archiveGuard");
 
 /**
  * Process a single file and return the documents
@@ -52,6 +54,24 @@ async function processSingleFile(targetFilename, options = {}, metadata = {}) {
       documents: [],
     };
 
+  const realFilePath = fs.realpathSync(fullFilePath);
+  if (
+    !options.absolutePath &&
+    !isWithin(path.resolve(WATCH_DIRECTORY), realFilePath)
+  )
+    return {
+      success: false,
+      reason: "Resolved file path leaves the upload directory.",
+      documents: [],
+    };
+  const stat = fs.statSync(realFilePath);
+  if (!stat.isFile() || stat.size > MAX_INPUT_BYTES)
+    return {
+      success: false,
+      reason: "Input file exceeds the 500 MiB processing limit.",
+      documents: [],
+    };
+
   const fileExtension = path.extname(fullFilePath).toLowerCase();
   if (fullFilePath.includes(".") && !fileExtension) {
     return {
@@ -79,11 +99,22 @@ async function processSingleFile(targetFilename, options = {}, metadata = {}) {
     }
   }
 
+  try {
+    await validateArchive(realFilePath);
+  } catch (error) {
+    if (!options.absolutePath) trashFile(realFilePath);
+    return {
+      success: false,
+      reason: `Archive safety validation failed: ${error.message}`,
+      documents: [],
+    };
+  }
+
   const FileTypeProcessor = require(SUPPORTED_FILETYPE_CONVERTERS[
     processFileAs
   ]);
   return await FileTypeProcessor({
-    fullFilePath,
+    fullFilePath: realFilePath,
     filename: targetFilename,
     options,
     metadata,

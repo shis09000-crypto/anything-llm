@@ -117,6 +117,27 @@ export default function DocumentSettings({ workspace }) {
     fetchKeys(true);
   }, []);
 
+  useEffect(() => {
+    const refreshDocuments = (event) => {
+      const detail = event?.detail || {};
+      if (
+        detail.workspaceSlug !== workspace.slug &&
+        Number(detail.workspaceId) !== Number(workspace.id)
+      )
+        return;
+      void fetchKeysRef.current?.(true);
+    };
+    window.addEventListener(
+      "athena-sync-v2-workspace-documents-refresh",
+      refreshDocuments
+    );
+    return () =>
+      window.removeEventListener(
+        "athena-sync-v2-workspace-documents-refresh",
+        refreshDocuments
+      );
+  }, [workspace.id, workspace.slug]);
+
   const updateWorkspace = async (e) => {
     e.preventDefault();
     setLoading(true);

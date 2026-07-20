@@ -1,5 +1,5 @@
 const {
-  issueUserSessionToken,
+  createUserSessionToken,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const crypto = require("crypto");
@@ -104,8 +104,9 @@ const TemporaryAuthToken = {
       if (token.user.suspended) throw new Error("User account suspended.");
 
       // Create a new session token for the user valid for 30 days
-      const sessionToken = issueUserSessionToken(token.user, {
+      const sessionToken = await createUserSessionToken(token.user, {
         ...sessionTokenOptionsFromClientContext(clientContext),
+        authMode: "sso",
       });
 
       return { sessionToken, token, error: null };

@@ -11,34 +11,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎️
-        uses: actions/checkout@v2
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Generate All Sponsors README
         id: generate-all-sponsors
-        uses: JamesIves/github-sponsors-readme-action@v1
+        uses: JamesIves/github-sponsors-readme-action@2fd9142e765f755780202122261dc85e78459405 # v1
         with:
           token: ${{ secrets.SPONSOR_PAT }}
-          file: 'README.md'
+          file: "README.md"
           organization: true
           active-only: false
-          marker: 'all-sponsors'
+          marker: "all-sponsors"
 
       - name: Commit and Push 🚀
-        uses: stefanzweifel/git-auto-commit-action@v5
+        uses: stefanzweifel/git-auto-commit-action@b863ae1933cb653a53c021fe36dbb774e1fb9403 # v5
         id: auto-commit-action
         with:
-          commit_message: 'Update Sponsors README'
-          file_pattern: 'README.md'
+          commit_message: "Update Sponsors README"
+          file_pattern: "README.md"
 
       - name: Generate PR if changes detected
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7
         if: steps.auto-commit-action.outputs.files_changed == 'true'
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          title: 'Update Sponsors README'
-          branch: 'chore/update-sponsors'
-          base: 'master'
+          title: "Update Sponsors README"
+          branch: "chore/update-sponsors"
+          base: "master"
           draft: false
-          reviewers: 'timothycarambat'
-          assignees: 'timothycarambat'
+          reviewers: "timothycarambat"
+          assignees: "timothycarambat"
           maintainer-can-modify: true

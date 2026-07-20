@@ -31,9 +31,9 @@ describe("session idle policy helpers", () => {
     expect(isAllowedUserActionReason(USER_ACTION_REASONS.file_upload)).toBe(
       true
     );
-    expect(isAllowedUserActionReason(USER_ACTION_REASONS.workspace_switch)).toBe(
-      true
-    );
+    expect(
+      isAllowedUserActionReason(USER_ACTION_REASONS.workspace_switch)
+    ).toBe(true);
     expect(isAllowedUserActionReason(USER_ACTION_REASONS.thread_switch)).toBe(
       true
     );
@@ -89,10 +89,33 @@ describe("session idle policy helpers", () => {
 
     expect(decoded.clientId).toBe("client_abc");
     expect(decoded.sessionId).toMatch(/^sess_/);
+    expect(decoded.sid).toBeUndefined();
     expect(sessionClientIdFromToken(decoded)).toBe("client_abc");
-    expect(sessionTokenOptionsFromClientContext({ clientId: "legacy" })).toEqual(
-      {}
+    expect(
+      sessionTokenOptionsFromClientContext({ clientId: "legacy" })
+    ).toEqual({});
+  });
+
+  it("uses sid/jti claims for persisted sessions and never emits password material", () => {
+    const token = issueUserSessionToken(
+      { id: 7, username: "user", role: "admin", allowedEnvs: [] },
+      {
+        clientId: "client_abc",
+        sessionId: "sess_persisted",
+        tokenVersion: 2,
+        authMode: "passkey",
+        persistedSession: true,
+      }
     );
+    const decoded = decodeJWT(token);
+    expect(decoded).toMatchObject({
+      sessionId: "sess_persisted",
+      sid: "sess_persisted",
+      tokenVersion: 2,
+      authMode: "passkey",
+    });
+    expect(decoded.jti).toEqual(expect.any(String));
+    expect(decoded.p).toBeUndefined();
   });
 
   it("preserves session id when refreshing a client-bound token", () => {

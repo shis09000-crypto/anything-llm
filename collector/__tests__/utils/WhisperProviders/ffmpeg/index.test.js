@@ -8,6 +8,24 @@ jest.mock("fix-path", () => ({ default: jest.fn() }));
 
 const { FFMPEGWrapper } = require("../../../../utils/WhisperProviders/ffmpeg");
 
+function pcmWavFixture({ sampleRate = 8_000, samples = 800 } = {}) {
+  const dataBytes = samples * 2;
+  const buffer = Buffer.alloc(44 + dataBytes);
+  buffer.write("RIFF", 0);
+  buffer.writeUInt32LE(36 + dataBytes, 4);
+  buffer.write("WAVEfmt ", 8);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(1, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write("data", 36);
+  buffer.writeUInt32LE(dataBytes, 40);
+  return buffer;
+}
+
 const describeRunner = process.env.GITHUB_ACTIONS ? describe.skip : describe;
 
 describeRunner("FFMPEGWrapper", () => {
@@ -45,17 +63,7 @@ describeRunner("FFMPEGWrapper", () => {
   it("should convert audio file to wav format", async () => {
     if (!fs.existsSync(testDir)) fs.mkdirSync(testDir, { recursive: true });
 
-    const sampleUrl =
-      "https://github.com/ringcentral/ringcentral-api-docs/blob/main/resources/sample1.wav?raw=true";
-
-    const response = await fetch(sampleUrl);
-    if (!response.ok)
-      throw new Error(
-        `Failed to download sample file: ${response.statusText}`
-      );
-
-    const buffer = await response.arrayBuffer();
-    fs.writeFileSync(inputPath, Buffer.from(buffer));
+    fs.writeFileSync(inputPath, pcmWavFixture());
 
     const result = await ffmpeg.convertAudioToWav(inputPath, outputPath);
 

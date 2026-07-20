@@ -1,24 +1,28 @@
 const { MASTER_KEY_ENV } = require("./constants");
 const { EncryptionConfigError } = require("./errors");
+const { resolveActiveKey, resolveKey } = require("./keyCustody");
 
-function getMasterKey() {
-  const value = process.env[MASTER_KEY_ENV];
-  if (!value) {
+function getMasterKeyDescriptor(keyId = null) {
+  let descriptor;
+  try {
+    descriptor = keyId ? resolveKey(keyId) : resolveActiveKey();
+  } catch (error) {
+    if (error?.name === "EncryptionConfigError") throw error;
+    throw new EncryptionConfigError(
+      error?.message || `${MASTER_KEY_ENV} is invalid.`
+    );
+  }
+  if (!descriptor?.material) {
     throw new EncryptionConfigError(`${MASTER_KEY_ENV} is required.`);
   }
+  return descriptor;
+}
 
-  const normalized = String(value).trim();
-  if (!/^[a-fA-F0-9]+$/.test(normalized)) {
-    throw new EncryptionConfigError(`${MASTER_KEY_ENV} must be a hex string.`);
-  }
-
-  if (normalized.length !== 64) {
-    throw new EncryptionConfigError(`${MASTER_KEY_ENV} must be 32 bytes.`);
-  }
-
-  return Buffer.from(normalized, "hex");
+function getMasterKey(keyId = null) {
+  return getMasterKeyDescriptor(keyId).material;
 }
 
 module.exports = {
   getMasterKey,
+  getMasterKeyDescriptor,
 };

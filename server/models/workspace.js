@@ -6,6 +6,69 @@ const { v4: uuidv4 } = require("uuid");
 const { User } = require("./user");
 const { PromptHistory } = require("./promptHistory");
 const { SystemSettings } = require("./systemSettings");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
+
+function workspaceSyncContent(workspace = {}) {
+  const {
+    id,
+    name,
+    slug,
+    pfpFilename,
+    chatProvider,
+    chatModel,
+    chatMode,
+    agentProvider,
+    agentModel,
+    openAiHistory,
+    similarityThreshold,
+    topN,
+    vectorSearchMode,
+  } = workspace;
+  return {
+    id,
+    name,
+    slug,
+    pfpFilename,
+    chatProvider,
+    chatModel,
+    chatMode,
+    agentProvider,
+    agentModel,
+    openAiHistory,
+    similarityThreshold,
+    topN,
+    vectorSearchMode,
+  };
+}
+
+async function userWorkspaceIndexContent(tx, userId) {
+  return await tx.workspaces.findMany({
+    where: { workspace_users: { some: { user_id: Number(userId) } } },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      pfpFilename: true,
+      chatModel: true,
+    },
+    orderBy: { id: "asc" },
+  });
+}
+
+async function workspaceMembershipContent(tx, workspaceId) {
+  return await tx.workspace_users.findMany({
+    where: { workspace_id: Number(workspaceId) },
+    select: {
+      user_id: true,
+      users: { select: { role: true, status: true, suspended: true } },
+    },
+    orderBy: { user_id: "asc" },
+  });
+}
 
 function isNullOrNaN(value) {
   if (value === null) return true;
@@ -203,24 +266,59 @@ const Workspace = {
     );
 
     try {
-      const workspace = await prisma.workspaces.create({
-        data: {
-          name: this.validations.name(name),
-          chatMode: "automatic",
-          ...(additionalFields.sourceActionId
-            ? { sourceActionId: String(additionalFields.sourceActionId) }
-            : {}),
-          ...this.validateFields(additionalFields),
-          slug,
-        },
-      });
+      const createData = {
+        name: this.validations.name(name),
+        chatMode: "automatic",
+        ...(additionalFields.sourceActionId
+          ? { sourceActionId: String(additionalFields.sourceActionId) }
+          : {}),
+        ...this.validateFields(additionalFields),
+        slug,
+      };
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const workspace = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const created = await tx.workspaces.create({ data: createData });
+            if (creatorId) {
+              await tx.workspace_users.create({
+                data: {
+                  user_id: Number(creatorId),
+                  workspace_id: created.id,
+                },
+              });
+            }
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.workspaceMetadata(created.id),
+              content: workspaceSyncContent(created),
+              eventType: "workspace.created",
+              changedPaths: ["$"],
+              payloadHint: {
+                workspaceId: created.id,
+                workspaceSlug: created.slug,
+              },
+              mutationId: additionalFields.sourceActionId || null,
+              audience: creatorId ? [Number(creatorId)] : [],
+            });
+            if (creatorId) {
+              await SyncV2.recordNodeChange(tx, {
+                nodeKey: nodeKeys.userWorkspacesIndex(creatorId),
+                content: await userWorkspaceIndexContent(tx, creatorId),
+                eventType: "workspace.index.updated",
+                changedPaths: [`workspaces.${created.id}`],
+                payloadHint: { workspaceId: created.id, operation: "add" },
+                mutationId: additionalFields.sourceActionId || null,
+              });
+            }
+            return created;
+          })
+        : await prisma.workspaces.create({ data: createData });
 
-      // If created with a user then we need to create the relationship as well.
-      // If creating with an admin User it wont change anything because admins can
-      // view all workspaces anyway.
-      if (!!creatorId) await WorkspaceUser.create(creatorId, workspace.id);
+      if (!syncReady && creatorId)
+        await WorkspaceUser.create(creatorId, workspace.id);
       return { workspace, message: null };
     } catch (error) {
+      if (error?.code === "state_version_conflict") throw error;
       console.error(error.message);
       return { workspace: null, message: error.message };
     }
@@ -232,7 +330,7 @@ const Workspace = {
    * @param {Object} updates - The data to update.
    * @returns {Promise<{workspace: Object | null, message: string | null}>} A promise that resolves to an object containing the updated workspace and an error message if applicable.
    */
-  update: async function (id = null, updates = {}) {
+  update: async function (id = null, updates = {}, syncContext = {}) {
     if (!id) throw new Error("No workspace id provided for update");
 
     const validatedUpdates = this.validateFields(updates);
@@ -247,7 +345,7 @@ const Workspace = {
       validatedUpdates.chatModel = null;
     }
 
-    return this._update(id, validatedUpdates);
+    return this._update(id, validatedUpdates, syncContext);
   },
 
   /**
@@ -256,16 +354,57 @@ const Workspace = {
    * @param {Object} data - The data to update.
    * @returns {Promise<{workspace: Object | null, message: string | null}>} A promise that resolves to an object containing the updated workspace and an error message if applicable.
    */
-  _update: async function (id = null, data = {}) {
+  _update: async function (id = null, data = {}, syncContext = {}) {
     if (!id) throw new Error("No workspace id provided for update");
 
     try {
-      const workspace = await prisma.workspaces.update({
-        where: { id },
-        data,
-      });
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const workspace = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const nodeKey = nodeKeys.workspaceMetadata(id);
+            await SyncV2.assertMutationVersion(tx, {
+              nodeKey,
+              baseVersion: syncContext.baseVersion,
+              changedPaths: syncContext.changedPaths || Object.keys(data),
+            });
+            const updated = await tx.workspaces.update({ where: { id }, data });
+            const audience = (
+              await tx.workspace_users.findMany({
+                where: { workspace_id: Number(id) },
+                select: { user_id: true },
+              })
+            ).map((row) => row.user_id);
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey,
+              content: workspaceSyncContent(updated),
+              eventType: "workspace.updated",
+              changedPaths: syncContext.changedPaths || Object.keys(data),
+              payloadHint: {
+                workspaceId: updated.id,
+                workspaceSlug: updated.slug,
+              },
+              originClientId: syncContext.originClientId,
+              mutationId: syncContext.mutationId,
+              audience,
+            });
+            for (const userId of audience) {
+              await SyncV2.recordNodeChange(tx, {
+                nodeKey: nodeKeys.userWorkspacesIndex(userId),
+                content: await userWorkspaceIndexContent(tx, userId),
+                eventType: "workspace.index.updated",
+                changedPaths: [`workspaces.${id}`],
+                payloadHint: { workspaceId: id, operation: "update" },
+                originClientId: syncContext.originClientId,
+                mutationId: syncContext.mutationId,
+              });
+            }
+            return updated;
+          })
+        : await prisma.workspaces.update({ where: { id }, data });
       return { workspace, message: null };
     } catch (error) {
+      if (error?.code === "state_version_conflict") throw error;
       console.error(error.message);
       return { workspace: null, message: error.message };
     }
@@ -299,8 +438,9 @@ const Workspace = {
         ),
       };
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("Workspace.getWithUser", error, {
+        userId: user?.id || null,
+      });
     }
   },
 
@@ -358,20 +498,78 @@ const Workspace = {
         ),
       };
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspace.get", error);
     }
   },
 
   delete: async function (clause = {}) {
     try {
-      await prisma.workspaces.delete({
+      const workspace = await prisma.workspaces.findFirst({
         where: clause,
+        select: { id: true, slug: true },
       });
+      if (!workspace) return false;
+      const parsedFileSources = await prisma.workspace_parsed_files.findMany({
+        where: { workspaceId: workspace.id },
+        select: { metadata: true },
+      });
+      const { WorkspaceCognition } = require("./workspaceCognition");
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      await prisma.$transaction(async (tx) => {
+        const audience = (
+          await tx.workspace_users.findMany({
+            where: { workspace_id: workspace.id },
+            select: { user_id: true },
+          })
+        ).map((row) => row.user_id);
+        const threads = await tx.workspace_threads.findMany({
+          where: { workspace_id: workspace.id },
+          select: { id: true },
+        });
+        await WorkspaceCognition.deleteWorkspaceData([workspace.id], tx);
+        await tx.workspaces.delete({ where: clause });
+        if (syncReady) {
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceMetadata(workspace.id),
+            content: { deleted: true },
+            deletedAt: new Date(),
+            eventType: "workspace.deleted",
+            changedPaths: ["$delete"],
+            payloadHint: {
+              workspaceId: workspace.id,
+              workspaceSlug: workspace.slug,
+              purgePrefix: `workspaces/${workspace.id}`,
+            },
+            audience,
+          });
+          for (const thread of threads) {
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.threadMetadata(thread.id),
+              content: { deleted: true },
+              deletedAt: new Date(),
+              eventType: "thread.deleted",
+              changedPaths: ["$delete"],
+              payloadHint: { workspaceId: workspace.id, threadId: thread.id },
+              audience,
+            });
+          }
+          for (const userId of audience) {
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.userWorkspacesIndex(userId),
+              content: await userWorkspaceIndexContent(tx, userId),
+              eventType: "workspace.index.updated",
+              changedPaths: [`workspaces.${workspace.id}`],
+              payloadHint: { workspaceId: workspace.id, operation: "delete" },
+              audience: [userId],
+            });
+          }
+        }
+      });
+      require("../utils/documentSources").cleanupDocxSources(parsedFileSources);
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspace.delete", error);
     }
   },
 
@@ -379,8 +577,9 @@ const Workspace = {
     try {
       return await prisma.workspaces.count({ where: clause });
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("Workspace.count", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -399,8 +598,9 @@ const Workspace = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("Workspace.where", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -425,8 +625,9 @@ const Workspace = {
       });
       return workspaces;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("Workspace.whereWithUser", error, {
+        userId: user?.id || null,
+      });
     }
   },
 
@@ -446,8 +647,9 @@ const Workspace = {
       }
       return workspaces;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("Workspace.whereWithUsers", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -478,8 +680,9 @@ const Workspace = {
 
       return userInfo;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("Workspace.workspaceUsers", error, {
+        workspaceId: Number(workspaceId) || null,
+      });
     }
   },
 
@@ -491,8 +694,69 @@ const Workspace = {
    */
   updateUsers: async function (workspaceId, userIds = []) {
     try {
-      await WorkspaceUser.delete({ workspace_id: Number(workspaceId) });
-      await WorkspaceUser.createManyUsers(userIds, workspaceId);
+      const normalizedWorkspaceId = Number(workspaceId);
+      const nextUserIds = [
+        ...new Set(
+          userIds
+            .map(Number)
+            .filter((userId) => Number.isInteger(userId) && userId > 0)
+        ),
+      ];
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      await prisma.$transaction(async (tx) => {
+        const previousUserIds = (
+          await tx.workspace_users.findMany({
+            where: { workspace_id: normalizedWorkspaceId },
+            select: { user_id: true },
+          })
+        ).map((row) => Number(row.user_id));
+        await tx.workspace_users.deleteMany({
+          where: { workspace_id: normalizedWorkspaceId },
+        });
+        if (nextUserIds.length) {
+          await tx.workspace_users.createMany({
+            data: nextUserIds.map((userId) => ({
+              user_id: userId,
+              workspace_id: normalizedWorkspaceId,
+            })),
+          });
+        }
+        if (!syncReady) return;
+        const membership = await workspaceMembershipContent(
+          tx,
+          normalizedWorkspaceId
+        );
+        for (const nodeKey of [
+          nodeKeys.workspaceMembers(normalizedWorkspaceId),
+          nodeKeys.workspacePermissions(normalizedWorkspaceId),
+        ]) {
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey,
+            content: membership,
+            eventType: "workspace.membership.updated",
+            changedPaths: ["members"],
+            payloadHint: { workspaceId: normalizedWorkspaceId },
+            audience: nextUserIds,
+          });
+        }
+        const affectedUserIds = [
+          ...new Set([...previousUserIds, ...nextUserIds]),
+        ];
+        for (const userId of affectedUserIds) {
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.userWorkspacesIndex(userId),
+            content: await userWorkspaceIndexContent(tx, userId),
+            eventType: "workspace.index.updated",
+            changedPaths: [`workspaces.${normalizedWorkspaceId}`],
+            payloadHint: {
+              workspaceId: normalizedWorkspaceId,
+              operation: nextUserIds.includes(userId) ? "upsert" : "remove",
+            },
+            audience: [userId],
+          });
+        }
+      });
       return { success: true, error: null };
     } catch (error) {
       console.error(error.message);
@@ -562,8 +826,7 @@ const Workspace = {
       const results = await prisma.workspaces.findMany(prismaQuery);
       return results;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspace._findMany", error);
     }
   },
 
@@ -577,8 +840,7 @@ const Workspace = {
       const results = await prisma.workspaces.findFirst(prismaQuery);
       return results;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspace._findFirst", error);
     }
   },
 
@@ -593,11 +855,42 @@ const Workspace = {
    */
   upsert: async function (clause = {}, createData = {}, updateData = {}) {
     try {
-      const workspace = await prisma.workspaces.upsert({
-        where: clause,
-        update: updateData,
-        create: createData,
-      });
+      if (Object.keys(updateData).length === 0) {
+        const existing = await prisma.workspaces.findUnique({ where: clause });
+        if (existing) return { workspace: existing, error: null };
+      }
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const workspace = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const saved = await tx.workspaces.upsert({
+              where: clause,
+              update: updateData,
+              create: createData,
+            });
+            const audience = (
+              await tx.workspace_users.findMany({
+                where: { workspace_id: saved.id },
+                select: { user_id: true },
+              })
+            ).map((row) => Number(row.user_id));
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.workspaceMetadata(saved.id),
+              content: workspaceSyncContent(saved),
+              eventType: "workspace.upserted",
+              changedPaths: Object.keys(updateData).length
+                ? Object.keys(updateData)
+                : ["$create"],
+              payloadHint: { workspaceId: saved.id, workspaceSlug: saved.slug },
+              audience,
+            });
+            return saved;
+          })
+        : await prisma.workspaces.upsert({
+            where: clause,
+            update: updateData,
+            create: createData,
+          });
       return { workspace, error: null };
     } catch (error) {
       console.error(error.message);

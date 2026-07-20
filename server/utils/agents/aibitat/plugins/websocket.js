@@ -10,6 +10,7 @@ const { skillIsAutoApproved } = require("../../../helpers/agents");
 const { resolveEffectivePolicy } = require("../../../fileAccessPolicy");
 const { shellAgent } = require("./shell/index.js");
 const {
+  compactAgentEventKey,
   sanitizeAgentEvent,
   summarizeToolResult,
 } = require("../../toolResultStore.js");
@@ -45,13 +46,33 @@ const WEBSOCKET_BAIL_COMMANDS = [
 function recordAgentEvent(aibitat, event = {}) {
   if (!event.type) return;
   if (!Array.isArray(aibitat._agentEvents)) aibitat._agentEvents = [];
-  aibitat._agentEvents.push(
-    sanitizeAgentEvent({
-      ...event,
-      id: event.id || uuidv4(),
-      createdAt: event.createdAt || Date.now(),
-    })
-  );
+  if (!(aibitat._agentEventIndexByKey instanceof Map)) {
+    aibitat._agentEventIndexByKey = new Map();
+    aibitat._agentEvents.forEach((existing, index) => {
+      const existingKey = compactAgentEventKey(existing);
+      if (existingKey) aibitat._agentEventIndexByKey.set(existingKey, index);
+    });
+  }
+  const normalized = sanitizeAgentEvent({
+    ...event,
+    id: event.id || uuidv4(),
+    createdAt: event.createdAt || Date.now(),
+  });
+  const key = compactAgentEventKey(normalized);
+  const existingIndex = key
+    ? aibitat._agentEventIndexByKey.get(key)
+    : undefined;
+  if (existingIndex !== undefined) {
+    const previous = aibitat._agentEvents[existingIndex];
+    aibitat._agentEvents[existingIndex] = {
+      ...normalized,
+      id: previous.id || normalized.id,
+      createdAt: previous.createdAt || normalized.createdAt,
+    };
+    return;
+  }
+  const index = aibitat._agentEvents.push(normalized) - 1;
+  if (key) aibitat._agentEventIndexByKey.set(key, index);
 }
 
 function sanitizeReportStreamContent(content = {}) {

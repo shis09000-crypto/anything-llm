@@ -1,7 +1,6 @@
 function hasUsableWebCrypto(cryptoImpl = globalThis.crypto) {
   return !!(
-    cryptoImpl?.subtle &&
-    typeof cryptoImpl.getRandomValues === "function"
+    cryptoImpl?.subtle && typeof cryptoImpl.getRandomValues === "function"
   );
 }
 

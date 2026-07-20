@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'PR number to clean up (e.g., 123)'
+        description: "PR number to clean up (e.g., 123)"
         required: true
 
 jobs:
@@ -27,16 +27,16 @@ jobs:
           ORG_LC="${GITHUB_REPOSITORY_OWNER,,}"
           REPO_LC="${GITHUB_REPOSITORY#*/}"
           REPO_LC="${REPO_LC,,}"
-          
+
           echo "Looking for tag: pr-${PR_NUMBER}"
           echo "Package: /orgs/${ORG_LC}/packages/container/${REPO_LC}/versions"
-          
+
           VERSION_ID=$(gh api \
             -H "Accept: application/vnd.github+json" \
             --paginate \
             "/orgs/${ORG_LC}/packages/container/${REPO_LC}/versions" \
             --jq ".[] | select(.metadata.container.tags[] == \"pr-${PR_NUMBER}\") | .id")
-          
+
           if [ -n "$VERSION_ID" ]; then
             echo "Deleting package version $VERSION_ID (tag: pr-${PR_NUMBER})"
             gh api \
@@ -65,14 +65,14 @@ jobs:
           ORG_LC="${GITHUB_REPOSITORY_OWNER,,}"
           REPO_LC="${GITHUB_REPOSITORY#*/}"
           REPO_LC="${REPO_LC,,}"
-          
+
           VERSION_ID=$(gh api \
             -H "Accept: application/vnd.github+json" \
             --paginate \
             "/orgs/${ORG_LC}/packages/container/${REPO_LC}/versions" \
             --jq ".[] | select(.metadata.container.tags[] == \"pr-${PR_NUMBER}\") | .id" \
             2>/dev/null || true)
-          
+
           if [ -n "$VERSION_ID" ]; then
             echo "Deleting package version $VERSION_ID (tag: pr-${PR_NUMBER})"
             gh api \

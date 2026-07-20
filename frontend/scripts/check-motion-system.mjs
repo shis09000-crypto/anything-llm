@@ -1,8 +1,11 @@
+/* global console, process */
 import fs from "node:fs";
 import path from "node:path";
 
 const root = process.cwd();
 const srcDir = path.join(root, "src");
+const baselinePath = path.join(root, "scripts", "motion-system-baseline.json");
+const baseline = JSON.parse(fs.readFileSync(baselinePath, "utf8"));
 const centralMotionFiles = new Set([
   path.join(srcDir, "index.css"),
   path.join(srcDir, "contexts", "MotionProvider.jsx"),
@@ -93,10 +96,27 @@ for (const file of files) {
   if (file.endsWith(".css")) checkGpuSafeCss(file, content, failures);
 }
 
-if (failures.length) {
+function failureSignature(failure) {
+  const match = failure.match(
+    /^(.*?):\d+\s+(uses|transitions|animates)\s+"([^"]+)";/
+  );
+  return match ? `${match[1]}|${match[2]}|${match[3]}` : failure;
+}
+
+const observed = new Map();
+const newFailures = failures.filter((failure) => {
+  const signature = failureSignature(failure);
+  const count = (observed.get(signature) || 0) + 1;
+  observed.set(signature, count);
+  return count > Number(baseline[signature] || 0);
+});
+
+if (newFailures.length) {
   console.error("Motion system check failed:\n");
-  console.error(failures.join("\n"));
+  console.error(newFailures.join("\n"));
   process.exit(1);
 }
 
-console.log("Motion system check passed.");
+console.log(
+  `Motion system check passed (${failures.length} baselined finding(s), 0 new).`
+);

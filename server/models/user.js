@@ -3,6 +3,22 @@ const prisma = require("../utils/prisma");
 const { EventLogs } = require("./eventLogs");
 const { AuthIdentity } = require("./authIdentity");
 const { appEnvironment } = require("../utils/environment");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
+const {
+  ENTITLEMENT_FIELDS,
+  NOTIFICATION_FIELDS,
+  PROFILE_FIELDS,
+  SECURITY_POLICY_FIELDS,
+  hasAnyField,
+  userEntitlementProjection,
+  userNotificationProjection,
+  userProfileProjection,
+  userSecurityPolicyProjection,
+} = require("../utils/syncV2/userProjection");
 const {
   ROLES,
   assertValidRole,
@@ -263,7 +279,7 @@ const User = {
     return changes;
   },
 
-  update: async function (userId, updates = {}) {
+  update: async function (userId, updates = {}, syncContext = {}) {
     try {
       if (!userId) throw new Error("No user id provided for update");
       const currentUser = await prisma.users.findUnique({
@@ -332,12 +348,110 @@ const User = {
         updates.password = bcrypt.hashSync(updates.password, 10);
       }
 
-      const user = await prisma.users.update({
-        where: { id: parseInt(userId) },
-        data: updates,
-      });
-      if (user.authUserId)
-        await AuthIdentity.updateAuthUser(user.authUserId, updates);
+      const updateFields = Object.keys(updates);
+      const profileSync =
+        SyncV2.enabled("profile") && hasAnyField(updateFields, PROFILE_FIELDS);
+      const securitySync =
+        SyncV2.enabled("security") &&
+        hasAnyField(updateFields, SECURITY_POLICY_FIELDS);
+      const entitlementSync =
+        SyncV2.enabled("entitlements") &&
+        hasAnyField(updateFields, ENTITLEMENT_FIELDS);
+      const syncReady =
+        (profileSync || securitySync || entitlementSync) &&
+        (await SyncV2.schemaReady());
+      const user = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            if (syncContext.baseVersion !== undefined) {
+              await SyncV2.assertMutationVersion(tx, {
+                nodeKey: syncContext.nodeKey || nodeKeys.userProfile(userId),
+                baseVersion: syncContext.baseVersion,
+                changedPaths:
+                  syncContext.changedPaths ||
+                  updateFields.map((field) =>
+                    field === "password" ? "credentials" : field
+                  ),
+              });
+            }
+            const saved = await tx.users.update({
+              where: { id: parseInt(userId) },
+              data: updates,
+            });
+            const syncOptions = {
+              originClientId: syncContext.originClientId,
+              mutationId: syncContext.mutationId,
+              audience: [Number(userId)],
+            };
+            if (profileSync) {
+              const fields = updateFields.filter((field) =>
+                PROFILE_FIELDS.has(field)
+              );
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userProfile(userId),
+                content: userProfileProjection(saved),
+                changedPaths:
+                  syncContext.nodeKey === nodeKeys.userProfile(userId)
+                    ? syncContext.changedPaths || fields
+                    : fields,
+                eventType: "user.profile.updated",
+              });
+            }
+            if (securitySync) {
+              const fields = updateFields
+                .filter((field) => SECURITY_POLICY_FIELDS.has(field))
+                .map((field) => (field === "password" ? "credentials" : field));
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userSecurityPolicies(userId),
+                content: userSecurityPolicyProjection(saved),
+                changedPaths:
+                  syncContext.nodeKey === nodeKeys.userSecurityPolicies(userId)
+                    ? syncContext.changedPaths || fields
+                    : fields,
+                eventType: "user.security_policy.updated",
+              });
+            }
+            if (entitlementSync) {
+              const fields = updateFields.filter((field) =>
+                ENTITLEMENT_FIELDS.has(field)
+              );
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userEntitlements(userId),
+                content: userEntitlementProjection(saved),
+                changedPaths:
+                  syncContext.nodeKey === nodeKeys.userEntitlements(userId)
+                    ? syncContext.changedPaths || fields
+                    : fields,
+                eventType: "user.entitlements.updated",
+              });
+            }
+            return saved;
+          })
+        : await prisma.users.update({
+            where: { id: parseInt(userId) },
+            data: updates,
+          });
+      if (user.authUserId) {
+        try {
+          await AuthIdentity.updateAuthUser(user.authUserId, updates);
+        } catch (authError) {
+          // Shared auth is a separate SQLite authority and cannot participate
+          // in the environment DB transaction. Compensate the committed shadow
+          // from that authority; ensureShadowUser also advances affected Sync
+          // V2 nodes so no durable split-brain descriptor remains.
+          const authority = await AuthIdentity.findById(user.authUserId);
+          if (authority)
+            await AuthIdentity.ensureShadowUser(authority, {
+              compensatedMutationId: syncContext.mutationId || null,
+              reason: "shared_auth_replication_failed",
+            });
+          const error = new Error("shared_auth_replication_failed");
+          error.cause = authError;
+          throw error;
+        }
+      }
 
       await EventLogs.logEvent(
         "user_updated",
@@ -350,6 +464,17 @@ const User = {
       return { success: true, error: null };
     } catch (error) {
       console.error("FAILED TO UPDATE USER.", error.message);
+      if (error?.code === "state_version_conflict") {
+        return {
+          success: false,
+          error: "state_version_conflict",
+          code: error.code,
+          expectedVersion: error.expectedVersion,
+          current: error.syncNode || null,
+          requiresFullSync: error.requiresFullSync === true,
+          conflictReason: error.conflictReason || null,
+        };
+      }
       return {
         success: false,
         error: this._identifyErrorAndFormatMessage(error),
@@ -369,12 +494,82 @@ const User = {
     if (!id) throw new Error("No user id provided for update");
 
     try {
-      const user = await prisma.users.update({
-        where: { id },
-        data,
-      });
-      if (user.authUserId)
-        await AuthIdentity.updateAuthUser(user.authUserId, data);
+      const fields = Object.keys(data);
+      const profileSync =
+        SyncV2.enabled("profile") && hasAnyField(fields, PROFILE_FIELDS);
+      const securitySync =
+        SyncV2.enabled("security") &&
+        hasAnyField(fields, SECURITY_POLICY_FIELDS);
+      const entitlementSync =
+        SyncV2.enabled("entitlements") &&
+        hasAnyField(fields, ENTITLEMENT_FIELDS);
+      const notificationSync =
+        SyncV2.enabled("notifications") &&
+        hasAnyField(fields, NOTIFICATION_FIELDS);
+      const syncReady =
+        (profileSync || securitySync || entitlementSync || notificationSync) &&
+        (await SyncV2.schemaReady());
+      const user = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const saved = await tx.users.update({ where: { id }, data });
+            const syncOptions = { audience: [Number(id)] };
+            if (profileSync)
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userProfile(id),
+                content: userProfileProjection(saved),
+                changedPaths: fields.filter((field) =>
+                  PROFILE_FIELDS.has(field)
+                ),
+                eventType: "user.profile.updated",
+              });
+            if (securitySync)
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userSecurityPolicies(id),
+                content: userSecurityPolicyProjection(saved),
+                changedPaths: fields
+                  .filter((field) => SECURITY_POLICY_FIELDS.has(field))
+                  .map((field) =>
+                    field === "password" ? "credentials" : field
+                  ),
+                eventType: "user.security_policy.updated",
+              });
+            if (entitlementSync)
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userEntitlements(id),
+                content: userEntitlementProjection(saved),
+                changedPaths: fields.filter((field) =>
+                  ENTITLEMENT_FIELDS.has(field)
+                ),
+                eventType: "user.entitlements.updated",
+              });
+            if (notificationSync)
+              await SyncV2.recordNodeChange(tx, {
+                ...syncOptions,
+                nodeKey: nodeKeys.userNotifications(id),
+                content: userNotificationProjection(saved),
+                changedPaths: ["webPushConfigured"],
+                eventType: "user.notifications.configuration_updated",
+              });
+            return saved;
+          })
+        : await prisma.users.update({
+            where: { id },
+            data,
+          });
+      if (user.authUserId) {
+        try {
+          await AuthIdentity.updateAuthUser(user.authUserId, data);
+        } catch (authError) {
+          const authority = await AuthIdentity.findById(user.authUserId);
+          if (authority) await AuthIdentity.ensureShadowUser(authority);
+          const error = new Error("shared_auth_replication_failed");
+          error.cause = authError;
+          throw error;
+        }
+      }
       return { user, message: null };
     } catch (error) {
       console.error(error.message);
@@ -397,8 +592,9 @@ const User = {
       });
       return users;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("User._where", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -412,8 +608,9 @@ const User = {
       const user = await prisma.users.findFirst({ where: clause });
       return user ? this.filterFields({ ...user }) : null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("User.get", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
   // Returns user object with all fields
@@ -422,8 +619,9 @@ const User = {
       const user = await prisma.users.findFirst({ where: clause });
       return user ? { ...user } : null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("User._get", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -432,18 +630,89 @@ const User = {
       const count = await prisma.users.count({ where: clause });
       return count;
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("User.count", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
   delete: async function (clause = {}) {
     try {
-      await prisma.users.deleteMany({ where: clause });
+      const syncReady =
+        ["profile", "security", "entitlements", "workspace"].some((domain) =>
+          SyncV2.enabled(domain)
+        ) && (await SyncV2.schemaReady());
+      if (!syncReady) {
+        await prisma.users.deleteMany({ where: clause });
+        return true;
+      }
+      await prisma.$transaction(async (tx) => {
+        const users = await tx.users.findMany({
+          where: clause,
+          select: { id: true },
+        });
+        const userIds = users.map((user) => Number(user.id));
+        const memberships = userIds.length
+          ? await tx.workspace_users.findMany({
+              where: { user_id: { in: userIds } },
+              select: { workspace_id: true },
+            })
+          : [];
+        await tx.users.deleteMany({ where: clause });
+        for (const userId of userIds) {
+          const deletedNodeKeys = [];
+          if (SyncV2.enabled("profile"))
+            deletedNodeKeys.push(nodeKeys.userProfile(userId));
+          if (SyncV2.enabled("security"))
+            deletedNodeKeys.push(nodeKeys.userSecurityPolicies(userId));
+          if (SyncV2.enabled("entitlements"))
+            deletedNodeKeys.push(nodeKeys.userEntitlements(userId));
+          if (SyncV2.enabled("workspace"))
+            deletedNodeKeys.push(nodeKeys.userWorkspacesIndex(userId));
+          for (const nodeKey of deletedNodeKeys) {
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey,
+              content: { deleted: true },
+              deletedAt: new Date(),
+              eventType: "user.deleted",
+              changedPaths: ["$delete"],
+              audience: [userId],
+            });
+          }
+        }
+        const workspaceIds = SyncV2.enabled("workspace")
+          ? [...new Set(memberships.map((row) => Number(row.workspace_id)))]
+          : [];
+        for (const workspaceId of workspaceIds) {
+          const membership = await tx.workspace_users.findMany({
+            where: { workspace_id: workspaceId },
+            select: {
+              user_id: true,
+              users: {
+                select: { role: true, status: true, suspended: true },
+              },
+            },
+            orderBy: { user_id: "asc" },
+          });
+          const audience = membership.map((row) => Number(row.user_id));
+          for (const nodeKey of [
+            nodeKeys.workspaceMembers(workspaceId),
+            nodeKeys.workspacePermissions(workspaceId),
+          ]) {
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey,
+              content: membership,
+              eventType: "workspace.membership.updated",
+              changedPaths: ["members"],
+              payloadHint: { workspaceId, operation: "user-delete" },
+              audience,
+            });
+          }
+        }
+      });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("user.delete", error);
     }
   },
 
@@ -459,8 +728,9 @@ const User = {
       });
       return users.map((usr) => this.filterFields(usr));
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("User.where", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 

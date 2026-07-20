@@ -1,35 +1,21 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
-
 const fs = require("fs");
 const path = require("path");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(__dirname, "..", envPath) });
-const { applyEnvironmentStorage } = require("../utils/environment");
-applyEnvironmentStorage();
-const prisma = require("../utils/prisma");
-const { storagePath } = require("../utils/environment");
-const {
-  isEncryptedDocumentStorePayload,
-} = require("../utils/security/documentStoreEncryption");
-const {
-  isEncryptedVectorText,
-  vectorTextEncryptionEnabled,
-} = require("../utils/security/vectorTextEncryption");
-const {
-  auditWorkspaceChatSerialIntegrity,
-  chatHistorySerialEncryptionRequired,
-} = require("../utils/security/chatHistorySerialEncryption");
-const {
-  deviceSignatureRequired,
-  signingWarnOnly,
-} = require("../utils/requestSigning");
-const { vaultGrantRequired } = require("../utils/authz/vaultAccessGrants");
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+
+let prisma;
+let storagePath;
+let isEncryptedDocumentStorePayload;
+let isEncryptedVectorText;
+let vectorTextEncryptionEnabled;
+let auditWorkspaceChatSerialIntegrity;
+let chatHistorySerialEncryptionRequired;
+let deviceSignatureRequired;
+let signingWarnOnly;
+let vaultGrantRequired;
 
 const SECRET_PREFIX = "enc:v1:";
+const SECRET_V2_PREFIX = "enc:v2:";
 const CHAT_HISTORY_V2_PREFIX = "chat:v2:";
 const HIGH_RISK_ENCRYPTED_FIELDS = new Set([
   "api_keys.secret",
@@ -66,7 +52,7 @@ async function fieldCoverage({
   table,
   field,
   where = "1=1",
-  prefixes = [SECRET_PREFIX],
+  prefixes = [SECRET_PREFIX, SECRET_V2_PREFIX],
 }) {
   const total = await count(
     `SELECT COUNT(*) AS count FROM "${table}" WHERE ${where}`
@@ -351,7 +337,7 @@ async function main() {
         name: "workspace_chats.prompt",
         table: "workspace_chats",
         field: "prompt",
-        prefixes: [SECRET_PREFIX, CHAT_HISTORY_V2_PREFIX],
+        prefixes: [SECRET_PREFIX, SECRET_V2_PREFIX, CHAT_HISTORY_V2_PREFIX],
       })
     )
   );
@@ -361,7 +347,7 @@ async function main() {
         name: "workspace_chats.response",
         table: "workspace_chats",
         field: "response",
-        prefixes: [SECRET_PREFIX, CHAT_HISTORY_V2_PREFIX],
+        prefixes: [SECRET_PREFIX, SECRET_V2_PREFIX, CHAT_HISTORY_V2_PREFIX],
       })
     )
   );
@@ -408,7 +394,7 @@ async function main() {
   const report = {
     success: highRisk.length === 0,
     generatedAt: new Date().toISOString(),
-    secretPrefix: SECRET_PREFIX,
+    secretPrefixes: [SECRET_PREFIX, SECRET_V2_PREFIX],
     metrics,
     highRiskFindings: highRisk,
     serialEncryptionFeasibility: {
@@ -431,7 +417,37 @@ async function main() {
   process.exit(report.success ? 0 : 1);
 }
 
-main()
+async function run() {
+  await bootstrapCliRuntime({
+    requiredTables: [
+      "users",
+      "workspace_documents",
+      "workspace_chats",
+      "workspace_chat_crypto_metadata",
+    ],
+  });
+  prisma = require("../utils/prisma");
+  storagePath = require("../utils/environment").storagePath;
+  isEncryptedDocumentStorePayload =
+    require("../utils/security/documentStoreEncryption").isEncryptedDocumentStorePayload;
+  ({
+    isEncryptedVectorText,
+    vectorTextEncryptionEnabled,
+  } = require("../utils/security/vectorTextEncryption"));
+  ({
+    auditWorkspaceChatSerialIntegrity,
+    chatHistorySerialEncryptionRequired,
+  } = require("../utils/security/chatHistorySerialEncryption"));
+  ({
+    deviceSignatureRequired,
+    signingWarnOnly,
+  } = require("../utils/requestSigning"));
+  vaultGrantRequired =
+    require("../utils/authz/vaultAccessGrants").vaultGrantRequired;
+  return main();
+}
+
+run()
   .catch((error) => {
     console.error(
       JSON.stringify(
@@ -443,5 +459,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect?.().catch(() => null);
+    await prisma?.$disconnect?.().catch(() => null);
   });

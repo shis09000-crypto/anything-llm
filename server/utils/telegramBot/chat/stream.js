@@ -320,6 +320,7 @@ async function persistAndDeliver({
   }
 
   await WorkspaceChats.new({
+    sourceChannel: "bot",
     workspaceId: workspace.id,
     prompt: message,
     response: {

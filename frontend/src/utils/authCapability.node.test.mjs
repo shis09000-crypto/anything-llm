@@ -28,6 +28,8 @@ test("Apple state shows passkey with Apple capability copy", () => {
   ]) {
     const capability = classifyAuthCapability({
       ...scenario,
+      secureContext: true,
+      passkeyHostSupported: true,
       supportsWebAuthn: true,
     });
 
@@ -52,6 +54,8 @@ test("Google Chrome state shows passkey with browser capability copy", () => {
       ],
       platform: "Windows",
     },
+    secureContext: true,
+    passkeyHostSupported: true,
     supportsWebAuthn: true,
   });
 
@@ -73,6 +77,8 @@ test("unsupported domestic and unknown browsers do not show passkey or ZK fallba
     const capability = classifyAuthCapability({
       userAgent: scenario.userAgent,
       platform: scenario.platform,
+      secureContext: true,
+      passkeyHostSupported: true,
       supportsWebAuthn: true,
     });
 

@@ -59,7 +59,12 @@ const files = {
   ),
   promptInputStorage: read("src/hooks/usePromptInputStorage.js"),
   userStateSync: read("src/utils/userStateSync.js"),
-  chatDraftProvider: read("src/contexts/ChatThreadDraftProvider.jsx"),
+  userStateClient: read("src/lib/communication/userStateClient.js"),
+  syncMutationQueue: read("src/utils/syncV2/syncMutationQueue.js"),
+  chatDraftPersistence: [
+    read("src/contexts/ChatThreadDraftProvider.jsx"),
+    read("src/contexts/chatThreadDraftRuntime.js"),
+  ].join("\n"),
 };
 
 const requiredChecks = [
@@ -118,19 +123,31 @@ const requiredChecks = [
     id: "chat-draft-session-cache-sealed",
     area: "chat-cache",
     pass:
-      has(files.chatDraftProvider, "encryptLocalCachePayload") &&
-      has(files.chatDraftProvider, "decryptLocalCachePayload") &&
-      has(files.chatDraftProvider, "secure_storage_encryption_unavailable"),
+      has(files.chatDraftPersistence, "encryptLocalCachePayload") &&
+      has(files.chatDraftPersistence, "decryptLocalCachePayload") &&
+      has(
+        files.chatDraftPersistence,
+        "secure_storage_encryption_unavailable"
+      ),
   },
   {
-    id: "prompt-draft-local-legacy-cleared",
+    id: "prompt-draft-projected-and-offline-queue-sealed",
     area: "draft-cache",
     pass:
       has(files.promptInputStorage, "persistPromptDraft") &&
       has(files.promptInputStorage, "clearPromptDraft") &&
-      has(files.promptInputStorage, "localStorage.removeItem(USER_PROMPT_INPUT_MAP)") &&
-      has(files.userStateSync, "athena-chat-draft:v1") &&
-      has(files.userStateSync, "encryptLocalCachePayload"),
+      has(
+        files.promptInputStorage,
+        "localStorage.removeItem(USER_PROMPT_INPUT_MAP)"
+      ) &&
+      has(files.userStateSync, 'version: "3"') &&
+      has(files.userStateSync, "patchUserStates") &&
+      notHas(files.userStateSync, "encryptLocalCachePayload") &&
+      has(files.userStateClient, "syncMutationQueue.submit") &&
+      has(files.userStateClient, "allowOffline") &&
+      has(files.syncMutationQueue, "sealMutation") &&
+      has(files.syncMutationQueue, "encryptLocalCachePayload") &&
+      has(files.syncMutationQueue, "encryptedPayload"),
   },
   {
     id: "reader-local-cache-sealed",
@@ -215,7 +232,8 @@ const forbiddenPatterns = [
   },
   {
     id: "vault-grant-durable-storage",
-    pattern: /(localStorage|sessionStorage)[\s\S]{0,120}(vaultGrant|X-Athena-Vault-Grant)/,
+    pattern:
+      /(localStorage|sessionStorage)[\s\S]{0,120}(vaultGrant|X-Athena-Vault-Grant)/,
     severity: "high",
   },
   {

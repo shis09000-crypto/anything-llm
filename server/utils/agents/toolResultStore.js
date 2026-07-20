@@ -279,15 +279,15 @@ function sanitizeAgentEvent(event = {}) {
     truncated: event.truncated,
     exitCode: event.exitCode,
     timedOut: event.timedOut,
-    root: event.root,
+    root: truncate(event.root || "", 500).text || undefined,
     fileCount: event.fileCount,
     excludedCount: event.excludedCount,
     totalSize: event.totalSize,
     mode: event.mode,
     supplementKind: event.supplementKind,
     supplementId: event.supplementId,
-    documentTitle: event.documentTitle,
-    query: event.query,
+    documentTitle: truncate(event.documentTitle || "", 500).text || undefined,
+    query: truncate(event.query || "", 500).text || undefined,
     returnedCount: event.returnedCount,
     truncatedCount: event.truncatedCount,
     allowSkip: event.allowSkip,
@@ -312,6 +312,38 @@ function sanitizeAgentEvent(event = {}) {
   return Object.fromEntries(
     Object.entries(sanitized).filter(([, value]) => value !== undefined)
   );
+}
+
+function compactAgentEventKey(event = {}) {
+  if (!event.uuid) return null;
+  if (["assistant_delta", "final_message"].includes(event.type))
+    return `assistant:${event.uuid}`;
+  if (event.type === "tool_call") return `tool-call:${event.uuid}`;
+  if (event.type === "tool_result") return `tool-result:${event.uuid}`;
+  return null;
+}
+
+function compactAgentEvents(events = []) {
+  if (!Array.isArray(events)) return [];
+  const compacted = [];
+  const indexByKey = new Map();
+  for (const rawEvent of events) {
+    const event = sanitizeAgentEvent(rawEvent);
+    const key = compactAgentEventKey(event);
+    if (!key || !indexByKey.has(key)) {
+      if (key) indexByKey.set(key, compacted.length);
+      compacted.push(event);
+      continue;
+    }
+    const index = indexByKey.get(key);
+    const previous = compacted[index];
+    compacted[index] = {
+      ...event,
+      id: previous.id || event.id,
+      createdAt: previous.createdAt || event.createdAt,
+    };
+  }
+  return compacted;
 }
 
 function sanitizePayload(payload = {}) {
@@ -342,6 +374,8 @@ function sanitizePayload(payload = {}) {
 }
 
 module.exports = {
+  compactAgentEventKey,
+  compactAgentEvents,
   MAX_MODEL_TOOL_RESULT_CHARS,
   MAX_TOOL_OUTPUT_PREVIEW_CHARS,
   storeToolRun,

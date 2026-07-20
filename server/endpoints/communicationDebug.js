@@ -11,6 +11,17 @@ const {
 const {
   communicationMetricsSnapshot,
 } = require("../middleware/communicationMetrics");
+const {
+  encryptionDiagnosticsSnapshot,
+} = require("../utils/security/encryptionDiagnostics");
+const {
+  documentStoreEncryptionEnabled,
+} = require("../utils/security/documentStoreEncryption");
+const { DataAccessCenter } = require("../utils/dataAccess");
+const { syncV2OutboxSnapshot } = require("../utils/syncV2/outboxDispatcher");
+const {
+  chatChainRuntimeMetrics,
+} = require("../utils/security/chatHistorySerialEncryption");
 
 const DEBUG_PREFIX = "/debug/communication";
 const upload = multer({
@@ -86,6 +97,24 @@ function debugJsonEndpoints(app) {
     response.status(200).json({
       success: true,
       events: communicationMetricsSnapshot({ limit }),
+    });
+  });
+
+  app.get(`${DEBUG_PREFIX}/sync-v2`, guardDebug, async (_request, response) => {
+    response.status(200).json({
+      success: true,
+      stateTree: await DataAccessCenter.syncV2.snapshot(),
+      dispatcher: syncV2OutboxSnapshot(),
+      chatChain: chatChainRuntimeMetrics(),
+    });
+  });
+
+  app.get(`${DEBUG_PREFIX}/encryption`, guardDebug, (request, response) => {
+    const limit = intValue(request.query?.limit, 100, { min: 1, max: 500 });
+    response.status(200).json({
+      success: true,
+      documentStoreEncryptionEnabled: documentStoreEncryptionEnabled(),
+      ...encryptionDiagnosticsSnapshot({ limit }),
     });
   });
 
@@ -377,7 +406,7 @@ function debugMobileClientLogEndpoints(app) {
           logFile: result.file,
         });
       } catch (error) {
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           success: false,
           error: error.message,
         });

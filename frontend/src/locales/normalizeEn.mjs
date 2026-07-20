@@ -82,6 +82,18 @@ function normalizeTranslations(lang, source, target, _subdir = null) {
     return target ?? null;
   }
 
+  // Arrays are ordered translation values, not objects with numeric keys.
+  if (Array.isArray(source)) {
+    const targetValues = Array.isArray(target)
+      ? target
+      : target && typeof target === "object"
+        ? Object.values(target)
+        : [];
+    return source.map((value, index) =>
+      normalizeTranslations(lang, value, targetValues[index], _subdir)
+    );
+  }
+
   // Handle objects
   const normalized = target && typeof target === "object" ? { ...target } : {};
 

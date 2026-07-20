@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 
@@ -27,8 +30,7 @@ const AgentSkillWhitelist = {
       });
       return safeJsonParse(setting?.value, []);
     } catch (error) {
-      console.error("AgentSkillWhitelist.get error:", error.message);
-      return [];
+      throwModelDataAccessError("agentSkillWhitelist.get", error);
     }
   },
 

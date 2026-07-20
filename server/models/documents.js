@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const { v4: uuidv4 } = require("uuid");
 const { getVectorDbClass } = require("../utils/helpers");
 const prisma = require("../utils/prisma");
@@ -6,6 +9,29 @@ const { EventLogs } = require("./eventLogs");
 const { safeJsonParse } = require("../utils/http");
 const { getModelTag } = require("../endpoints/utils");
 const { DocumentIndexStatus } = require("./documentIndexStatus");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
+const {
+  workspaceDocumentsProjection,
+} = require("../utils/syncV2/documentProjection");
+
+async function documentSyncReady() {
+  return SyncV2.enabled("documents") && (await SyncV2.schemaReady());
+}
+
+async function recordWorkspaceDocumentsChange(
+  tx,
+  workspaceId,
+  { changedPaths = ["$"], eventType = "workspace.documents.updated" } = {}
+) {
+  const content = await workspaceDocumentsProjection(tx, workspaceId);
+  return await SyncV2.recordNodeChange(tx, {
+    nodeKey: nodeKeys.workspaceDomain(workspaceId, "documents"),
+    content,
+    changedPaths,
+    eventType,
+  });
+}
 
 function documentDisplayName(docpath = "", metadata = {}) {
   return (
@@ -48,11 +74,51 @@ const Document = {
 
   delete: async function (clause = {}) {
     try {
-      await prisma.workspace_documents.deleteMany({ where: clause });
+      const documents = await prisma.workspace_documents.findMany({
+        where: clause,
+        select: { workspaceId: true, docId: true },
+      });
+      const byWorkspace = new Map();
+      for (const document of documents) {
+        if (!byWorkspace.has(document.workspaceId))
+          byWorkspace.set(document.workspaceId, []);
+        byWorkspace.get(document.workspaceId).push(document.docId);
+      }
+      if (await documentSyncReady()) {
+        await prisma.$transaction(async (tx) => {
+          await tx.workspace_documents.deleteMany({ where: clause });
+          for (const [workspaceId, documentIds] of byWorkspace.entries()) {
+            await recordWorkspaceDocumentsChange(tx, workspaceId, {
+              changedPaths: documentIds.map(
+                (documentId) => `documents.${documentId}`
+              ),
+              eventType: "workspace.documents.deleted",
+            });
+          }
+        });
+      } else {
+        await prisma.workspace_documents.deleteMany({ where: clause });
+      }
+      try {
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        await Promise.all(
+          [...byWorkspace.entries()].map(([workspaceId, documentIds]) =>
+            WorkspaceCognition.markDocumentEvidenceStale(
+              workspaceId,
+              documentIds,
+              "source_deleted"
+            )
+          )
+        );
+      } catch (error) {
+        console.warn(
+          "[WorkspaceCognition] failed to stale deleted document evidence",
+          error.message
+        );
+      }
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documents.delete", error);
     }
   },
 
@@ -63,8 +129,7 @@ const Document = {
       });
       return document || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("documents.get", error);
     }
   },
 
@@ -85,8 +150,7 @@ const Document = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("documents.where", error);
     }
   },
 
@@ -200,9 +264,18 @@ const Document = {
       }
 
       try {
-        const createdDocument = await prisma.workspace_documents.create({
-          data: newDoc,
-        });
+        const createdDocument = (await documentSyncReady())
+          ? await prisma.$transaction(async (tx) => {
+              const created = await tx.workspace_documents.create({
+                data: newDoc,
+              });
+              await recordWorkspaceDocumentsChange(tx, workspace.id, {
+                changedPaths: [`documents.${created.docId}`],
+                eventType: "workspace.documents.created",
+              });
+              return created;
+            })
+          : await prisma.workspace_documents.create({ data: newDoc });
         await DocumentIndexStatus.markIndexed({
           workspaceId: workspace.id,
           docId,
@@ -288,12 +361,27 @@ const Document = {
       );
 
       try {
-        await prisma.workspace_documents.delete({
-          where: { id: document.id, workspaceId: workspace.id },
-        });
-        await prisma.document_vectors.deleteMany({
-          where: { docId: document.docId },
-        });
+        if (await documentSyncReady()) {
+          await prisma.$transaction(async (tx) => {
+            await tx.workspace_documents.delete({
+              where: { id: document.id, workspaceId: workspace.id },
+            });
+            await tx.document_vectors.deleteMany({
+              where: { docId: document.docId },
+            });
+            await recordWorkspaceDocumentsChange(tx, workspace.id, {
+              changedPaths: [`documents.${document.docId}`],
+              eventType: "workspace.documents.deleted",
+            });
+          });
+        } else {
+          await prisma.workspace_documents.delete({
+            where: { id: document.id, workspaceId: workspace.id },
+          });
+          await prisma.document_vectors.deleteMany({
+            where: { docId: document.docId },
+          });
+        }
         const { NodeSupplement } = require("./nodeSupplement");
         await NodeSupplement.deleteForDocument({
           workspaceId: workspace.id,
@@ -316,6 +404,19 @@ const Document = {
             String(document.docId)
           )
           .catch(() => null);
+        try {
+          const { WorkspaceCognition } = require("./workspaceCognition");
+          await WorkspaceCognition.markDocumentEvidenceStale(
+            workspace.id,
+            [document.docId],
+            "source_deleted"
+          );
+        } catch (error) {
+          console.warn(
+            "[WorkspaceCognition] failed to stale deleted document evidence",
+            error.message
+          );
+        }
         await DocumentIndexStatus.markDeleted({
           workspaceId: workspace.id,
           docId: document.docId,
@@ -345,8 +446,7 @@ const Document = {
       });
       return count;
     } catch (error) {
-      console.error("FAILED TO COUNT DOCUMENTS.", error.message);
-      return 0;
+      throwModelDataAccessError("documents.count", error);
     }
   },
   update: async function (id = null, data = {}) {
@@ -359,10 +459,21 @@ const Document = {
       return { document: { id }, message: "No valid fields to update!" };
 
     try {
-      const document = await prisma.workspace_documents.update({
-        where: { id },
-        data,
-      });
+      const document = (await documentSyncReady())
+        ? await prisma.$transaction(async (tx) => {
+            const saved = await tx.workspace_documents.update({
+              where: { id },
+              data,
+            });
+            await recordWorkspaceDocumentsChange(tx, saved.workspaceId, {
+              changedPaths: validKeys.map(
+                (field) => `documents.${saved.docId}.${field}`
+              ),
+              eventType: "workspace.documents.updated",
+            });
+            return saved;
+          })
+        : await prisma.workspace_documents.update({ where: { id }, data });
       return { document, message: null };
     } catch (error) {
       console.error(error.message);
@@ -371,15 +482,43 @@ const Document = {
   },
   _updateAll: async function (clause = {}, data = {}) {
     try {
-      await prisma.workspace_documents.updateMany({
-        where: clause,
-        data,
-      });
+      if (await documentSyncReady()) {
+        const workspaces = await prisma.workspace_documents.findMany({
+          where: clause,
+          select: { workspaceId: true },
+          distinct: ["workspaceId"],
+        });
+        await prisma.$transaction(async (tx) => {
+          await tx.workspace_documents.updateMany({ where: clause, data });
+          for (const workspace of workspaces) {
+            await recordWorkspaceDocumentsChange(tx, workspace.workspaceId, {
+              changedPaths: ["documents"],
+              eventType: "workspace.documents.updated",
+            });
+          }
+        });
+      } else {
+        await prisma.workspace_documents.updateMany({
+          where: clause,
+          data,
+        });
+      }
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documents._updateAll", error);
     }
+  },
+  create: async function (data = {}) {
+    if (!(await documentSyncReady()))
+      return await prisma.workspace_documents.create({ data });
+    return await prisma.$transaction(async (tx) => {
+      const document = await tx.workspace_documents.create({ data });
+      await recordWorkspaceDocumentsChange(tx, document.workspaceId, {
+        changedPaths: [`documents.${document.docId}`],
+        eventType: "workspace.documents.created",
+      });
+      return document;
+    });
   },
   content: async function (docId) {
     if (!docId) throw new Error("No workspace docId provided!");

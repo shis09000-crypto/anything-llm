@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const later = require("@breejs/later");
 const cronValidate = require("cron-validate").default;
@@ -10,7 +13,14 @@ const cronValidate = require("cron-validate").default;
 later.date.UTC();
 
 const ScheduledJob = {
-  writable: ["name", "prompt", "tools", "schedule", "enabled"],
+  writable: [
+    "name",
+    "prompt",
+    "tools",
+    "schedule",
+    "enabled",
+    "capabilityManifest",
+  ],
 
   /**
    * Maximum number of scheduled jobs that can be enabled at once.
@@ -55,7 +65,13 @@ const ScheduledJob = {
     }
   },
 
-  create: async function ({ name, prompt, tools = null, schedule } = {}) {
+  create: async function ({
+    name,
+    prompt,
+    tools = null,
+    schedule,
+    capabilityManifest = {},
+  } = {}) {
     try {
       const nextRunAt = this.computeNextRunAt(schedule);
       const job = await prisma.scheduled_jobs.create({
@@ -63,6 +79,7 @@ const ScheduledJob = {
           name: String(name),
           prompt: String(prompt),
           tools: tools ? JSON.stringify(tools) : null,
+          capabilityManifest: JSON.stringify(capabilityManifest || {}),
           schedule: String(schedule),
           nextRunAt,
         },
@@ -79,7 +96,7 @@ const ScheduledJob = {
       const updates = {};
       for (const key of this.writable) {
         if (data.hasOwnProperty(key)) {
-          if (key === "tools") {
+          if (key === "tools" || key === "capabilityManifest") {
             updates[key] = data[key] ? JSON.stringify(data[key]) : null;
           } else {
             updates[key] = data[key];
@@ -110,8 +127,7 @@ const ScheduledJob = {
       const job = await prisma.scheduled_jobs.findFirst({ where: clause });
       return job || null;
     } catch (error) {
-      console.error("Failed to get scheduled job:", error.message);
-      return null;
+      throwModelDataAccessError("scheduledJob.get", error);
     }
   },
 
@@ -132,8 +148,7 @@ const ScheduledJob = {
       });
       return results;
     } catch (error) {
-      console.error("Failed to query scheduled jobs:", error.message);
-      return [];
+      throwModelDataAccessError("scheduledJob.where", error);
     }
   },
 
@@ -142,8 +157,7 @@ const ScheduledJob = {
       await prisma.scheduled_jobs.delete({ where: { id: Number(id) } });
       return true;
     } catch (error) {
-      console.error("Failed to delete scheduled job:", error.message);
-      return false;
+      throwModelDataAccessError("scheduledJob.delete", error);
     }
   },
 
@@ -153,8 +167,7 @@ const ScheduledJob = {
         where: { enabled: true },
       });
     } catch (error) {
-      console.error("Failed to get enabled scheduled jobs:", error.message);
-      return [];
+      throwModelDataAccessError("scheduledJob.allEnabled", error);
     }
   },
 
@@ -174,8 +187,7 @@ const ScheduledJob = {
         },
       });
     } catch (error) {
-      console.error("Failed to count active scheduled jobs:", error.message);
-      return 0;
+      throwModelDataAccessError("scheduledJob.countActive", error);
     }
   },
 

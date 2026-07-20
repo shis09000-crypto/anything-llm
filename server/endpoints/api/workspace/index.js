@@ -105,7 +105,7 @@ function apiWorkspaceEndpoints(app) {
       response.status(200).json({ workspace, message });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -159,7 +159,7 @@ function apiWorkspaceEndpoints(app) {
       response.status(200).json({ workspaces });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -224,7 +224,7 @@ function apiWorkspaceEndpoints(app) {
       response.status(200).json({ workspace });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -274,7 +274,7 @@ function apiWorkspaceEndpoints(app) {
         response.sendStatus(200).end();
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -352,7 +352,7 @@ function apiWorkspaceEndpoints(app) {
         response.status(200).json({ workspace, message });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -449,7 +449,7 @@ function apiWorkspaceEndpoints(app) {
         response.status(200).json({ history: convertToChatHistory(history) });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -529,7 +529,7 @@ function apiWorkspaceEndpoints(app) {
         response.status(200).json({ workspace: updatedWorkspace, batchJob });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -597,7 +597,7 @@ function apiWorkspaceEndpoints(app) {
           .end();
       } catch (error) {
         console.error("Error processing the pin status update:", error);
-        return response.status(500).end();
+        return response.status(error.httpStatus || 500).end();
       }
     }
   );
@@ -724,7 +724,7 @@ function apiWorkspaceEndpoints(app) {
         return response.status(200).json({ ...result });
       } catch (e) {
         console.error(e.message, e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           id: uuidv4(),
           type: "abort",
           textResponse: null,
@@ -1022,7 +1022,7 @@ function apiWorkspaceEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

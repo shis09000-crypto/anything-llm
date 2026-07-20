@@ -8,7 +8,6 @@ applyEnvironmentStorage();
 
 require("./utils/logger")();
 const express = require("express");
-const bodyParser = require("body-parser");
 const cors = require("cors");
 const path = require("path");
 const { ACCEPTED_MIMES } = require("./utils/constants");
@@ -20,8 +19,16 @@ const extensions = require("./extensions");
 const { processRawText } = require("./processRawText");
 const { verifyPayloadIntegrity } = require("./middleware/verifyIntegrity");
 const { httpLogger } = require("./middleware/httpLogger");
+const { requestBodyPolicy } = require("./middleware/requestBodyPolicy");
+const {
+  collectorTaskGuard,
+  isCollectorProcessingRoute,
+  taskStats,
+} = require("./utils/taskContext");
+const { assertCollectorRuntimeSecurity } = require("./utils/runtimeSecurity");
 const app = express();
-const FILE_LIMIT = "3GB";
+let ready = false;
+let httpServer = null;
 
 // Only log HTTP requests in development mode and if the ENABLE_HTTP_LOGGER environment variable is set to true
 if (
@@ -35,14 +42,11 @@ if (
   );
 }
 app.use(cors({ origin: true }));
-app.use(
-  bodyParser.text({ limit: FILE_LIMIT }),
-  bodyParser.json({ limit: FILE_LIMIT }),
-  bodyParser.urlencoded({
-    limit: FILE_LIMIT,
-    extended: true,
-  })
-);
+app.use((request, response, next) => {
+  if (!isCollectorProcessingRoute(request)) return next();
+  return collectorTaskGuard(request, response, next);
+});
+app.use(requestBodyPolicy);
 
 app.post(
   "/process",
@@ -87,11 +91,17 @@ app.post(
         success,
         reason,
         documents = [],
-      } = await processSingleFile(targetFilename, {
-        ...options,
-        parseOnly: true,
-        absolutePath: options.absolutePath || null,
-      });
+      } = await processSingleFile(
+        targetFilename,
+        {
+          ...options,
+          parseOnly: true,
+          absolutePath: options.absolutePath || null,
+        },
+        {
+          title: options.displayName || path.basename(targetFilename),
+        }
+      );
       response
         .status(200)
         .json({ filename: targetFilename, success, reason, documents });
@@ -122,6 +132,13 @@ app.post(
       response.status(200).json({ url: link, success, reason, documents });
     } catch (e) {
       console.error(e);
+      if (e?.code === "collector_destination_forbidden")
+        return response.status(403).json({
+          success: false,
+          error: "collector_destination_forbidden",
+          url: link,
+          documents: [],
+        });
       response.status(200).json({
         url: link,
         success: false,
@@ -143,6 +160,13 @@ app.post(
       response.status(200).json({ url: link, success, content });
     } catch (e) {
       console.error(e);
+      if (e?.code === "collector_destination_forbidden")
+        return response.status(403).json({
+          success: false,
+          error: "collector_destination_forbidden",
+          url: link,
+          content: null,
+        });
       response.status(200).json({
         url: link,
         success: false,
@@ -186,20 +210,35 @@ app.get("/accepts", function (_, response) {
   response.status(200).json(ACCEPTED_MIMES);
 });
 
+app.get("/health", function (_, response) {
+  response.status(ready ? 200 : 503).json({
+    ready,
+    tasks: taskStats(),
+  });
+});
+
 app.all("*", function (_, response) {
   response.sendStatus(200);
 });
 
-app
-  .listen(process.env.COLLECTOR_PORT || 8888, async () => {
-    await wipeCollectorStorage();
+app.use((error, _request, response, _next) => {
+  console.error("[Collector] Request failed", error.message);
+  if (response.headersSent) return;
+  response.status(400).json({ success: false, error: "collector_bad_request" });
+});
+
+async function start() {
+  await assertCollectorRuntimeSecurity();
+  await wipeCollectorStorage();
+  httpServer = app.listen(process.env.COLLECTOR_PORT || 8888, () => {
+    ready = true;
     console.log(
       `Document processor app listening on port ${
         process.env.COLLECTOR_PORT || 8888
       }`
     );
-  })
-  .on("error", function (_) {
+  });
+  httpServer.on("error", function (_) {
     process.once("SIGUSR2", function () {
       process.kill(process.pid, "SIGUSR2");
     });
@@ -207,3 +246,26 @@ app
       process.kill(process.pid, "SIGINT");
     });
   });
+}
+
+async function shutdown(signal) {
+  ready = false;
+  console.log(`[Collector] ${signal} received; draining requests.`);
+  const timeout = setTimeout(() => process.exit(1), 30_000);
+  timeout.unref();
+  if (httpServer)
+    await new Promise((resolve) => httpServer.close(() => resolve()));
+  clearTimeout(timeout);
+  process.exit(0);
+}
+
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+
+start().catch((error) => {
+  ready = false;
+  console.error(`[Collector] Startup failed: ${error.message}`);
+  process.exitCode = 1;
+});
+
+module.exports = { app, start };

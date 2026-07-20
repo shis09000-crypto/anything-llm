@@ -182,6 +182,9 @@ function convertToChatHistory(history = [], options = {}) {
         sentAt: moment(createdAt).unix(),
         feedbackScore,
         metrics: isLight ? {} : data?.metrics || {},
+        ...(!isLight && data?.truncated && data?.textRef
+          ? { truncated: true, textRef: data.textRef }
+          : {}),
         ...(isLight ? { hydrationStatus: "light" } : {}),
         ...(!isLight && data?.outputs?.length > 0
           ? { outputs: data.outputs }

@@ -98,7 +98,7 @@ export default function ImageLightbox() {
       )}
 
       <img
-        src={currentImage.contentString}
+        src={currentImage.contentString || currentImage.contentUrl}
         alt={currentImage.name || "attachment"}
         className="max-w-[90vw] max-h-[90vh] object-contain"
         onClick={(e) => e.stopPropagation()}

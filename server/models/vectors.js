@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { Document } = require("./documents");
 
@@ -33,8 +36,7 @@ const DocumentVectors = {
       });
       return results;
     } catch (error) {
-      console.error("Where query failed", error);
-      return [];
+      throwModelDataAccessError("vectors.where", error);
     }
   },
 
@@ -48,8 +50,7 @@ const DocumentVectors = {
       });
       return true;
     } catch (error) {
-      console.error("Delete for workspace failed", error);
-      return false;
+      throwModelDataAccessError("vectors.deleteForWorkspace", error);
     }
   },
 
@@ -60,8 +61,7 @@ const DocumentVectors = {
       });
       return true;
     } catch (error) {
-      console.error("Delete IDs failed", error);
-      return false;
+      throwModelDataAccessError("vectors.deleteIds", error);
     }
   },
 
@@ -70,8 +70,7 @@ const DocumentVectors = {
       await prisma.document_vectors.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error("Delete failed", error);
-      return false;
+      throwModelDataAccessError("vectors.delete", error);
     }
   },
 };

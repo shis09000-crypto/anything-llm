@@ -12,7 +12,7 @@ const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { reqBody } = require("../utils/http");
 const {
-  issueUserSessionToken,
+  createUserSessionToken,
   sessionTokenOptionsFromClientContext,
 } = require("../utils/sessionIdle");
 const { getClientContext } = require("../utils/clientIdentity");
@@ -71,7 +71,7 @@ function authZkLoginEndpoints(app) {
         });
       } catch (error) {
         console.error("[ZK reauth password failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "无法验证当前密码。",
         });
@@ -121,7 +121,7 @@ function authZkLoginEndpoints(app) {
         return response.status(200).json({ success: true, options });
       } catch (error) {
         console.error("[ZK reauth passkey options failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "无法启动通行密钥验证。",
         });
@@ -270,7 +270,7 @@ function authZkLoginEndpoints(app) {
           "[Sensitive memory reauth passkey options failed]",
           error.message
         );
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "无法启动通行密钥验证。",
         });
@@ -431,7 +431,7 @@ function authZkLoginEndpoints(app) {
         });
       } catch (error) {
         console.error("[ZK enroll start failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: zkUnavailableError(error),
         });
@@ -510,13 +510,13 @@ function authZkLoginEndpoints(app) {
         });
       } catch (error) {
         if (isTrustedDeviceSchemaError(error)) {
-          return response.status(500).json({
+          return response.status(error.httpStatus || 500).json({
             success: false,
             error: TRUSTED_DEVICE_SCHEMA_ERROR,
           });
         }
         console.error("[ZK enroll finish failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "无法启用可信设备快速登录。",
         });
@@ -599,13 +599,13 @@ function authZkLoginEndpoints(app) {
       });
     } catch (error) {
       if (isTrustedDeviceSchemaError(error)) {
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: TRUSTED_DEVICE_SCHEMA_ERROR,
         });
       }
       console.error("[ZK login start failed]", error.message);
-      return response.status(500).json({
+      return response.status(error.httpStatus || 500).json({
         success: false,
         error: zkUnavailableError(error),
       });
@@ -697,8 +697,9 @@ function authZkLoginEndpoints(app) {
       return response.status(200).json({
         valid: true,
         user: User.filterFields(localUser),
-        token: issueUserSessionToken(localUser, {
+        token: await createUserSessionToken(localUser, {
           ...sessionTokenOptionsFromClientContext(getClientContext(request)),
+          authMode: "zk",
         }),
         message: null,
       });
@@ -748,14 +749,14 @@ function authZkLoginEndpoints(app) {
         });
       } catch (error) {
         if (isTrustedDeviceSchemaError(error)) {
-          return response.status(500).json({
+          return response.status(error.httpStatus || 500).json({
             success: false,
             devices: [],
             error: TRUSTED_DEVICE_SCHEMA_ERROR,
           });
         }
         console.error("[ZK devices list failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           devices: [],
           error: "可信设备列表暂不可用。",
@@ -797,13 +798,13 @@ function authZkLoginEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (error) {
         if (isTrustedDeviceSchemaError(error)) {
-          return response.status(500).json({
+          return response.status(error.httpStatus || 500).json({
             success: false,
             error: TRUSTED_DEVICE_SCHEMA_ERROR,
           });
         }
         console.error("[ZK device delete failed]", error.message);
-        return response.status(500).json({
+        return response.status(error.httpStatus || 500).json({
           success: false,
           error: "删除可信设备失败。",
         });
@@ -1134,8 +1135,38 @@ function isTrustedDeviceSchemaError(error) {
   );
 }
 
+async function opaqueNativeConfiguration() {
+  try {
+    const opaque = await opaqueApi();
+    const setup = await opaqueServerSetup();
+    const serverStaticPublicKey = opaque.server.getPublicKey(setup);
+    return {
+      available: true,
+      protocolVersion: "opaque-ke-4.0.0-serenity-v1",
+      keyStretching: "memory-constrained",
+      serverStaticPublicKey,
+      serverStaticPublicKeyFingerprint: crypto
+        .createHash("sha256")
+        .update(serverStaticPublicKey)
+        .digest("base64url"),
+    };
+  } catch (error) {
+    return {
+      available: false,
+      protocolVersion: "opaque-ke-4.0.0-serenity-v1",
+      keyStretching: "memory-constrained",
+      serverStaticPublicKey: null,
+      serverStaticPublicKeyFingerprint: null,
+      status: String(error?.message || "").includes("OPAQUE_SERVER_SETUP")
+        ? "server_setup_required"
+        : "unavailable",
+    };
+  }
+}
+
 module.exports = {
   authZkLoginEndpoints,
+  opaqueNativeConfiguration,
   _zkLoginTestUtils: {
     isTrustedDeviceSchemaError,
     normalizeDeviceId,

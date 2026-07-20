@@ -50,7 +50,7 @@ function serviceFor({
         : {
             success: false,
             safeErrorMessage: `missing order ${orderId}`,
-        };
+          };
     }),
     getFuturesUsdtPositionsRaw: jest.fn(async () => ({
       success: true,
@@ -66,6 +66,7 @@ function serviceFor({
     fakeClient,
     service: new GateTradeRecordsService({
       restClientFactory: () => fakeClient,
+      now: () => nowSec * 1000,
       wsManager: {
         addPrivateEventListener: jest.fn(() => jest.fn()),
         start: jest.fn(),
@@ -128,7 +129,9 @@ async function futuresRecords(options, snapshotOptions = {}) {
     ...snapshotOptions,
   });
   return {
-    records: payload.records.filter((record) => record.marketType === "futures"),
+    records: payload.records.filter(
+      (record) => record.marketType === "futures"
+    ),
     payload,
     fakeClient,
   };
@@ -334,36 +337,39 @@ describe("Gate futures trade records normalization", () => {
   });
 
   test("keeps pagination cursor based on raw fills after order aggregation", async () => {
-    const { payload } = await futuresRecords({
-      futuresTrades: [
-        futuresTrade({
-          id: "cl-fill-1",
-          order_id: "cl-order",
-          create_time: String(nowSec),
-          size: "-149",
-          close_size: "0",
-        }),
-        futuresTrade({
-          id: "cl-fill-2",
-          order_id: "cl-order",
-          create_time: String(nowSec - 1),
-          size: "-839",
-          close_size: "0",
-        }),
-      ],
-      futuresContracts: {
-        CL_USDT: { name: "CL_USDT", quanto_multiplier: "0.01" },
-      },
-      futuresOrders: {
-        "CL_USDT:cl-order": {
-          id: "cl-order",
-          contract: "CL_USDT",
-          size: "-988",
-          is_reduce_only: false,
-          is_close: false,
+    const { payload } = await futuresRecords(
+      {
+        futuresTrades: [
+          futuresTrade({
+            id: "cl-fill-1",
+            order_id: "cl-order",
+            create_time: String(nowSec),
+            size: "-149",
+            close_size: "0",
+          }),
+          futuresTrade({
+            id: "cl-fill-2",
+            order_id: "cl-order",
+            create_time: String(nowSec - 1),
+            size: "-839",
+            close_size: "0",
+          }),
+        ],
+        futuresContracts: {
+          CL_USDT: { name: "CL_USDT", quanto_multiplier: "0.01" },
+        },
+        futuresOrders: {
+          "CL_USDT:cl-order": {
+            id: "cl-order",
+            contract: "CL_USDT",
+            size: "-988",
+            is_reduce_only: false,
+            is_close: false,
+          },
         },
       },
-    }, { limit: 2 });
+      { limit: 2 }
+    );
 
     expect(payload.records).toHaveLength(1);
     expect(payload.hasMoreHistory).toBe(true);
@@ -719,7 +725,10 @@ function feeSummaryServiceFor({
     })),
     getFuturesUsdtAccountBook: jest.fn(async ({ type } = {}) => ({
       success: true,
-      data: type === "point_fee" ? futuresPointFeeAccountBook : futuresFeeAccountBook,
+      data:
+        type === "point_fee"
+          ? futuresPointFeeAccountBook
+          : futuresFeeAccountBook,
     })),
     getSpotTickersRaw: jest.fn(async () => ({
       success: true,

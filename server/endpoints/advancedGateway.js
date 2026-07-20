@@ -77,7 +77,7 @@ function advancedGatewayEndpoints(app) {
           .json({ config: connector ? publicConfig(connector) : null });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -123,7 +123,7 @@ function advancedGatewayEndpoints(app) {
           .json({ success: true, config: publicConfig(connector) });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -152,7 +152,7 @@ function advancedGatewayEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        return response.sendStatus(500);
+        return response.sendStatus(e.httpStatus || 500);
       }
     }
   );

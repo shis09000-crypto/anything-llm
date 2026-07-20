@@ -68,7 +68,7 @@ function telegramEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -157,7 +157,7 @@ function telegramEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -174,7 +174,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -192,7 +192,7 @@ function telegramEndpoints(app) {
         });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -208,7 +208,7 @@ function telegramEndpoints(app) {
           .json({ users: service.pendingPairings || [] });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -223,7 +223,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ users: approved });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -245,7 +245,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -267,7 +267,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -289,7 +289,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );
@@ -330,7 +330,7 @@ function telegramEndpoints(app) {
         return response.status(200).json({ success: true });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500);
+        response.sendStatus(e.httpStatus || 500);
       }
     }
   );

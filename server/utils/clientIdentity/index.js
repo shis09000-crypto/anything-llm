@@ -5,6 +5,11 @@ const clientIdentityDb = ClientIdentityData.db;
 const {
   EventLogRepository: EventLogs,
 } = require("../../repositories/eventLogRepository");
+const SyncV2 = lazyDataAccessFacade("syncV2");
+const { nodeKeys } = require("../syncV2/nodeRegistry");
+const { clientDevicesProjection } = require("../syncV2/securityProjection");
+const AdminSystem = lazyDataAccessFacade("adminSystem");
+const AuthSession = AdminSystem.authSession;
 
 const CLIENT_HEADERS = {
   clientId: "X-Athena-Client-Id",
@@ -36,6 +41,22 @@ const TRUST_LEVELS = new Set(["low", "medium", "high"]);
 const CAPABILITY_SOURCE = new Set(["declared", "detected", "unknown"]);
 const LAST_SEEN_THROTTLE_MS = 60_000;
 const lastSeenWrites = new Map();
+
+async function recordClientNodeChange(
+  tx,
+  { userId, eventType, changedPaths, payloadHint, originClientId = null }
+) {
+  const content = await clientDevicesProjection(tx, userId);
+  return await SyncV2.recordNodeChange(tx, {
+    nodeKey: nodeKeys.userSecurityClients(userId),
+    content,
+    eventType,
+    changedPaths,
+    payloadHint,
+    originClientId,
+    audience: [Number(userId)],
+  });
+}
 
 function headerValue(request, name) {
   return request?.header?.(name) || request?.headers?.[name.toLowerCase()];
@@ -331,9 +352,6 @@ async function registerClient({
       clientId: String(clientId),
     },
   };
-  const existing = await clientIdentityDb.athena_clients.findUnique({ where });
-  if (existing?.revokedAt) return existing;
-
   const data = {
     platform: normalizedPlatform,
     deviceName: compactString(deviceName, 128),
@@ -343,36 +361,105 @@ async function registerClient({
     capabilitySource: normalizeCapabilitySource(capabilitySource),
   };
 
-  if (existing) {
-    const nextPublicKey =
-      !existing.publicKey && publicKey ? compactString(publicKey, 2048) : null;
-    return clientIdentityDb.athena_clients.update({
-      where: { id: existing.id },
+  const syncReady =
+    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  if (!syncReady) {
+    const existing = await clientIdentityDb.athena_clients.findUnique({
+      where,
+    });
+    if (existing?.revokedAt) return existing;
+    if (existing) {
+      const nextPublicKey =
+        !existing.publicKey && publicKey
+          ? compactString(publicKey, 2048)
+          : null;
+      return clientIdentityDb.athena_clients.update({
+        where: { id: existing.id },
+        data: {
+          ...data,
+          ...(nextPublicKey
+            ? {
+                publicKey: nextPublicKey,
+                deviceFingerprintVersion: compactString(
+                  deviceFingerprintVersion,
+                  32
+                ),
+              }
+            : {}),
+          lastSeenAt: now,
+        },
+      });
+    }
+    return clientIdentityDb.athena_clients.create({
       data: {
+        userId: Number(userId),
+        clientId: String(clientId),
         ...data,
-        ...(nextPublicKey
-          ? {
-              publicKey: nextPublicKey,
-              deviceFingerprintVersion: compactString(
-                deviceFingerprintVersion,
-                32
-              ),
-            }
-          : {}),
+        publicKey: publicKey || null,
+        deviceFingerprintVersion: compactString(deviceFingerprintVersion, 32),
         lastSeenAt: now,
       },
     });
   }
 
-  return clientIdentityDb.athena_clients.create({
-    data: {
-      userId: Number(userId),
-      clientId: String(clientId),
-      ...data,
-      publicKey: publicKey || null,
-      deviceFingerprintVersion: compactString(deviceFingerprintVersion, 32),
-      lastSeenAt: now,
-    },
+  return await clientIdentityDb.$transaction(async (tx) => {
+    const existing = await tx.athena_clients.findUnique({ where });
+    if (existing?.revokedAt) return existing;
+    const nextPublicKey =
+      existing && !existing.publicKey && publicKey
+        ? compactString(publicKey, 2048)
+        : null;
+    const nextFingerprintVersion = nextPublicKey
+      ? compactString(deviceFingerprintVersion, 32)
+      : existing?.deviceFingerprintVersion ||
+        compactString(deviceFingerprintVersion, 32);
+    const meaningfulChange =
+      !existing ||
+      existing.platform !== data.platform ||
+      existing.deviceName !== data.deviceName ||
+      existing.appVersion !== data.appVersion ||
+      existing.trustLevel !== data.trustLevel ||
+      existing.capabilities !== data.capabilities ||
+      existing.capabilitySource !== data.capabilitySource ||
+      Boolean(nextPublicKey) ||
+      existing.deviceFingerprintVersion !== nextFingerprintVersion;
+    const saved = existing
+      ? await tx.athena_clients.update({
+          where: { id: existing.id },
+          data: {
+            ...data,
+            ...(nextPublicKey
+              ? {
+                  publicKey: nextPublicKey,
+                  deviceFingerprintVersion: nextFingerprintVersion,
+                }
+              : {}),
+            lastSeenAt: now,
+          },
+        })
+      : await tx.athena_clients.create({
+          data: {
+            userId: Number(userId),
+            clientId: String(clientId),
+            ...data,
+            publicKey: publicKey || null,
+            deviceFingerprintVersion: nextFingerprintVersion,
+            lastSeenAt: now,
+          },
+        });
+    if (meaningfulChange) {
+      await recordClientNodeChange(tx, {
+        userId,
+        eventType: existing ? "client.updated" : "client.registered",
+        changedPaths: [`clients.${String(clientId)}`],
+        payloadHint: {
+          operation: existing ? "update" : "add",
+          clientId: String(clientId),
+        },
+        originClientId: clientId,
+      });
+    }
+    return saved;
   });
 }
 
@@ -439,14 +526,37 @@ async function revokeClient({ userId, clientId } = {}) {
   }
 
   const revokedAt = new Date();
-  const result = await clientIdentityDb.athena_clients.updateMany({
-    where: {
-      userId: Number(userId),
-      clientId: String(clientId),
-      revokedAt: null,
-    },
-    data: { revokedAt },
-  });
+  const syncReady =
+    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  const result = syncReady
+    ? await clientIdentityDb.$transaction(async (tx) => {
+        const updated = await tx.athena_clients.updateMany({
+          where: {
+            userId: Number(userId),
+            clientId: String(clientId),
+            revokedAt: null,
+          },
+          data: { revokedAt },
+        });
+        if (updated.count > 0) {
+          await recordClientNodeChange(tx, {
+            userId,
+            eventType: "client.revoked",
+            changedPaths: [`clients.${String(clientId)}.revokedAt`],
+            payloadHint: { operation: "revoke", clientId: String(clientId) },
+          });
+        }
+        return updated;
+      })
+    : await clientIdentityDb.athena_clients.updateMany({
+        where: {
+          userId: Number(userId),
+          clientId: String(clientId),
+          revokedAt: null,
+        },
+        data: { revokedAt },
+      });
+  if (result.count > 0) await revokeAuthSessionsForClient({ userId, clientId });
   return {
     client: { ...client, revokedAt },
     revoked: result.count > 0,
@@ -458,13 +568,69 @@ async function revokeAllOtherClients({ userId, currentClientId } = {}) {
   if (!userId || !currentClientId || currentClientId === "legacy") {
     return { count: 0 };
   }
-  return clientIdentityDb.athena_clients.updateMany({
-    where: {
-      userId: Number(userId),
-      clientId: { not: String(currentClientId) },
-      revokedAt: null,
-    },
-    data: { revokedAt: new Date() },
+  const where = {
+    userId: Number(userId),
+    clientId: { not: String(currentClientId) },
+    revokedAt: null,
+  };
+  const targets = await clientIdentityDb.athena_clients.findMany({
+    where,
+    select: { clientId: true },
+  });
+  const syncReady =
+    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  if (!syncReady) {
+    const result = await clientIdentityDb.athena_clients.updateMany({
+      where,
+      data: { revokedAt: new Date() },
+    });
+    await Promise.all(
+      targets.map(({ clientId }) =>
+        revokeAuthSessionsForClient({ userId, clientId })
+      )
+    );
+    return result;
+  }
+  const result = await clientIdentityDb.$transaction(async (tx) => {
+    const result = await tx.athena_clients.updateMany({
+      where,
+      data: { revokedAt: new Date() },
+    });
+    if (result.count > 0) {
+      await recordClientNodeChange(tx, {
+        userId,
+        eventType: "client.revoked_all_others",
+        changedPaths: targets.map(
+          (target) => `clients.${target.clientId}.revokedAt`
+        ),
+        payloadHint: {
+          operation: "revoke-all-others",
+          excludedClientId: String(currentClientId),
+          revokedCount: result.count,
+        },
+        originClientId: currentClientId,
+      });
+    }
+    return result;
+  });
+  await Promise.all(
+    targets.map(({ clientId }) =>
+      revokeAuthSessionsForClient({ userId, clientId })
+    )
+  );
+  return result;
+}
+
+async function revokeAuthSessionsForClient({ userId, clientId }) {
+  const user = await clientIdentityDb.users.findUnique({
+    where: { id: Number(userId) },
+    select: { authUserId: true },
+  });
+  if (!user?.authUserId) return { count: 0 };
+  return AuthSession.revokeClient({
+    authUserId: user.authUserId,
+    clientId,
+    reason: "device_revoked",
   });
 }
 

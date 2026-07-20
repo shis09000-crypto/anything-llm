@@ -13,6 +13,7 @@ jest.mock("../../utils/authz/resourceAccess", () => ({
 const {
   namespacePolicy,
   parseNamespaceFilter,
+  userStateMergePolicy,
   validateUserStateInput,
   validateUserStateScope,
 } = require("../../utils/userStatePreferencePolicy");
@@ -108,6 +109,49 @@ describe("user state preference policy", () => {
         },
       })
     ).resolves.toMatchObject({ ok: false, status: 413 });
+  });
+
+  it("preserves bounded draft text while dropping unapproved fields", async () => {
+    await expect(
+      validateUserStateInput({
+        state: {
+          namespace: "chat.draft",
+          scope: "thread:ws-a:thread-a",
+          value: {
+            text: "cross-device draft",
+            workspaceSlug: "ws-a",
+            threadSlug: "thread-a",
+            updatedAt: "untrusted-client-clock",
+            token: "must-not-survive",
+          },
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      state: {
+        value: {
+          text: "cross-device draft",
+          workspaceSlug: "ws-a",
+          threadSlug: "thread-a",
+        },
+      },
+    });
+  });
+
+  it("registers thread read state as a monotonic cursor", async () => {
+    expect(userStateMergePolicy("thread.read-state")).toBe("monotonic-cursor");
+    await expect(
+      validateUserStateInput({
+        state: {
+          namespace: "thread.read-state",
+          scope: "thread:ws-a:thread-a",
+          value: { cursor: 42, messageId: 9, updatedAt: "ignored" },
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: true,
+      state: { value: { cursor: 42, messageId: 9 } },
+    });
   });
 
   it("requires scoped resources to be authorized", async () => {

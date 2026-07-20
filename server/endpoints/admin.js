@@ -10,7 +10,6 @@ const ApiKey = DataAccessCenter.adminSystem.apiKey;
 const AuthIdentity = DataAccessCenter.adminSystem.authIdentity;
 const Invite = DataAccessCenter.adminSystem.invite;
 const User = DataAccessCenter.adminSystem.user;
-const AdminUserRecords = DataAccessCenter.adminSystem.userRecords;
 const {
   DocumentVectorRepository: DocumentVectors,
 } = require("../repositories/documentVectorRepository");
@@ -168,7 +167,7 @@ function adminEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -212,7 +211,7 @@ function adminEndpoints(app) {
         response.status(200).json({ user: newUser, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -274,7 +273,7 @@ function adminEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -284,10 +283,10 @@ function adminEndpoints(app) {
       const currUser = await userFromSession(request, response);
       const { id } = request.params;
       const user = await User._get({ id: Number(id) });
-      const { confirm, reauthToken } = reqBody(request) || {};
+      const { confirm, reauthToken, deletionRunId } = reqBody(request) || {};
       recordAdminCheckpoint(request, "admin_user_delete", "admin_user", id);
 
-      if (!user) {
+      if (!user && !deletionRunId) {
         response.status(404).json({ success: false, error: "User not found" });
         return;
       }
@@ -303,17 +302,18 @@ function adminEndpoints(app) {
 
       const result = await AccountDeletionService.execute({
         actor: currUser,
-        target: user,
+        target: user || currUser,
         confirm: Boolean(confirm),
         reauthToken,
+        deletionRunId,
         mode: "owner_delete",
       });
       if (result.success) consumeReauthToken(reauthToken);
-      response.status(result.success ? 200 : 400).json(result);
+      response.status(result.success ? 200 : 503).json(result);
     } catch (e) {
       console.error(e);
       response
-        .status(500)
+        .status(e.httpStatus || 500)
         .json({ success: false, error: e.message || "Failed to delete user" });
     }
   };
@@ -394,10 +394,14 @@ function adminEndpoints(app) {
           where: { id: targetAuth.id },
           data: disabled,
         });
-        await AdminUserRecords.update({
-          where: { id: target.id },
-          data: disabled,
-        });
+        const { user: disabledShadow, message: disableError } =
+          await User._update(target.id, disabled);
+        if (!disabledShadow) {
+          await AuthIdentity.ensureShadowUser(
+            await AuthIdentity.findById(targetAuth.id)
+          );
+          throw new Error(disableError || "封禁账号失败。");
+        }
         await EventLogs.logEvent(
           "account_banned",
           {
@@ -466,10 +470,14 @@ function adminEndpoints(app) {
           where: { id: targetAuth.id },
           data: restored,
         });
-        await AdminUserRecords.update({
-          where: { id: target.id },
-          data: restored,
-        });
+        const { user: restoredShadow, message: restoreError } =
+          await User._update(target.id, restored);
+        if (!restoredShadow) {
+          await AuthIdentity.ensureShadowUser(
+            await AuthIdentity.findById(targetAuth.id)
+          );
+          throw new Error(restoreError || "解封账号失败。");
+        }
         await EventLogs.logEvent(
           "account_unbanned",
           {
@@ -514,7 +522,7 @@ function adminEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -569,7 +577,7 @@ function adminEndpoints(app) {
         response.status(200).json({ invite, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -596,7 +604,7 @@ function adminEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -627,7 +635,7 @@ function adminEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -642,7 +650,7 @@ function adminEndpoints(app) {
         response.status(200).json({ users });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -662,7 +670,7 @@ function adminEndpoints(app) {
         response.status(200).json({ workspace, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -687,7 +695,7 @@ function adminEndpoints(app) {
         response.status(200).json({ success, error });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -724,7 +732,7 @@ function adminEndpoints(app) {
         response.status(200).json({ success: true, error: null });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -847,7 +855,7 @@ function adminEndpoints(app) {
         response.status(200).json({ settings: requestedSettings });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -885,7 +893,7 @@ function adminEndpoints(app) {
         response.status(200).json(result);
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -902,7 +910,7 @@ function adminEndpoints(app) {
         });
       } catch (error) {
         console.error(error);
-        response.status(500).json({
+        response.status(error.httpStatus || 500).json({
           apiKey: null,
           error: "Could not find an API Keys.",
         });
@@ -946,7 +954,7 @@ function adminEndpoints(app) {
         });
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -969,7 +977,7 @@ function adminEndpoints(app) {
         return response.status(200).end();
       } catch (e) {
         console.error(e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

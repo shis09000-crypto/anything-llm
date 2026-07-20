@@ -1,8 +1,6 @@
 #!/usr/bin/env node
-
-process.env.NODE_ENV === "development"
-  ? require("dotenv").config({ path: `.env.${process.env.NODE_ENV}` })
-  : require("dotenv").config();
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
+let prisma;
 
 function parseArgs(argv = []) {
   const args = {};
@@ -23,13 +21,37 @@ function parseArgs(argv = []) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  const { backfillKnowledgeGraph } = require("../utils/knowledgeGraph");
   if (!args.all && !args.workspace) {
     console.error(
       "Usage: node scripts/backfillKnowledgeGraph.js --workspace <slug> | --all [--limit 100] [--batch-size 25] [--retry] [--cleanup]"
     );
     process.exit(1);
   }
+  const execute = args.execute === true;
+  await bootstrapCliRuntime({
+    access: execute ? "write" : "read",
+    execute,
+    requiredTables: ["workspaces", "KnowledgeNode", "GraphExtractionJob"],
+  });
+  if (!execute) {
+    console.log(
+      JSON.stringify(
+        {
+          mode: "dry-run",
+          action: "knowledge-graph-backfill",
+          workspace: args.workspace || null,
+          all: args.all === true,
+          instruction:
+            "Repeat with explicit APP_ENV or --env plus --execute to mutate.",
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
+  prisma = require("../utils/prisma");
+  const { backfillKnowledgeGraph } = require("../utils/knowledgeGraph");
 
   const result = await backfillKnowledgeGraph({
     workspaceSlug: args.workspace || null,
@@ -48,6 +70,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    const prisma = require("../utils/prisma");
-    await prisma.$disconnect().catch(() => {});
+    await prisma?.$disconnect().catch(() => {});
   });

@@ -252,39 +252,63 @@ model system_settings {
   lastUpdatedAt DateTime @default(now())
 }
 
+model account_deletion_runs {
+  runId              String    @id
+  targetUserId       Int
+  targetAuthUserId   Int?
+  actorUserId        Int?
+  env                String
+  mode               String
+  status             String    @default("running")
+  currentStep        String?
+  completedStepsJson String    @default("[]")
+  contextJson        String    @default("{}")
+  attempts           Int       @default(1)
+  errorJson          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  completedAt        DateTime?
+
+  @@index([targetUserId, status])
+  @@index([targetAuthUserId, status])
+  @@index([createdAt])
+}
+
 model system_patrol_runs {
-  id            Int       @id @default(autoincrement())
-  mode          String    @default("light")
-  status        String    @default("running")
-  trigger       String    @default("manual")
-  triggeredBy   Int?
-  summaryScore  Int       @default(0)
-  summaryStatus String    @default("unknown")
-  countsJson    String    @default("{}")
-  reportJson    String    @default("{}")
-  error         String?
-  startedAt     DateTime  @default(now())
-  completedAt   DateTime?
+  id             Int       @id @default(autoincrement())
+  mode           String    @default("light")
+  status         String    @default("running")
+  trigger        String    @default("manual")
+  triggeredBy    Int?
+  summaryScore   Int       @default(0)
+  summaryStatus  String    @default("unknown")
+  countsJson     String    @default("{}")
+  reportJson     String    @default("{}")
+  reportObjectId String?
+  error          String?
+  startedAt      DateTime  @default(now())
+  completedAt    DateTime?
 
   @@index([startedAt])
   @@index([status])
   @@index([summaryStatus])
+  @@index([reportObjectId])
 }
 
 model system_patrol_repairs {
-  id          Int       @id @default(autoincrement())
-  repairId    String    @unique
+  id          Int      @id @default(autoincrement())
+  repairId    String   @unique
   runId       Int?
   checkId     String
   action      String
-  status      String    @default("previewed")
-  previewJson String    @default("{}")
+  status      String   @default("previewed")
+  previewJson String   @default("{}")
   backupPath  String?
   confirmedBy Int?
-  resultJson  String    @default("{}")
+  resultJson  String   @default("{}")
   error       String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
 
   @@index([runId])
   @@index([repairId])
@@ -352,11 +376,33 @@ model users {
   reader_library_items         reader_library_items[]
   reader_library_categories    reader_library_categories[]
   vault_items                  vault_items[]
+  auth_sessions                auth_sessions[]
 
   @@index([originEnv])
   @@index([role])
   @@index([status])
   @@index([ownerType])
+}
+
+model auth_sessions {
+  sessionId         String    @id
+  subjectType       String
+  authUserId        Int?
+  clientId          String?
+  authMode          String
+  tokenVersion      Int       @default(1)
+  createdAt         DateTime  @default(now())
+  lastSeenAt        DateTime  @default(now())
+  idleExpiresAt     DateTime
+  absoluteExpiresAt DateTime
+  revokedAt         DateTime?
+  revokeReason      String?
+  authUser          users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  @@index([authUserId, revokedAt])
+  @@index([clientId, revokedAt])
+  @@index([idleExpiresAt])
+  @@index([absoluteExpiresAt])
 }
 
 model vault_items {
@@ -573,21 +619,21 @@ model password_reset_tokens {
 }
 
 model email_verification_codes {
-  id         Int       @id @default(autoincrement())
-  user_id    Int?
-  challenge_id String? @unique
-  email      String
-  purpose    String
-  code_hash  String
-  expiresAt  DateTime
-  attempts   Int       @default(0)
-  consumedAt DateTime?
-  request_ip String?
-  client_id  String?
-  device_id  String?
-  session_id String?
-  createdAt  DateTime  @default(now())
-  user       users?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  id           Int       @id @default(autoincrement())
+  user_id      Int?
+  challenge_id String?   @unique
+  email        String
+  purpose      String
+  code_hash    String
+  expiresAt    DateTime
+  attempts     Int       @default(0)
+  consumedAt   DateTime?
+  request_ip   String?
+  client_id    String?
+  device_id    String?
+  session_id   String?
+  createdAt    DateTime  @default(now())
+  user         users?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
   @@index([user_id, purpose])
@@ -676,21 +722,21 @@ model PasskeyChallenge {
 }
 
 model TrustedLoginDevice {
-  id               Int       @id @default(autoincrement())
-  userId           Int
-  deviceId         String
-  deviceName       String    @default("This Device")
-  verifier         String
-  publicCommitment String
+  id                       Int       @id @default(autoincrement())
+  userId                   Int
+  deviceId                 String
+  deviceName               String    @default("This Device")
+  verifier                 String
+  publicCommitment         String
   opaqueRegistrationRecord String?
-  deviceSalt       String?
-  lastChallengeAt  DateTime?
-  failureCount     Int       @default(0)
-  lockedUntil      DateTime?
-  createdAt        DateTime  @default(now())
-  lastUsedAt       DateTime?
-  revokedAt        DateTime?
-  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceSalt               String?
+  lastChallengeAt          DateTime?
+  failureCount             Int       @default(0)
+  lockedUntil              DateTime?
+  createdAt                DateTime  @default(now())
+  lastUsedAt               DateTime?
+  revokedAt                DateTime?
+  user                     users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, deviceId])
   @@index([userId])
@@ -1287,6 +1333,7 @@ model workspace_threads {
   created_from           String?
   forked_at_message_id   Int?
   forked_at              DateTime?
+  archivedAt             DateTime?
   createdAt              DateTime                 @default(now())
   lastUpdatedAt          DateTime                 @default(now())
   workspace              workspaces               @relation(fields: [workspace_id], references: [id], onDelete: Cascade)
@@ -1295,28 +1342,29 @@ model workspace_threads {
 
   @@index([workspace_id])
   @@index([user_id])
+  @@index([workspace_id, archivedAt])
 }
 
 model athena_sync_events {
-  id             Int       @id @default(autoincrement())
-  eventId        String    @unique
+  id             Int      @id @default(autoincrement())
+  eventId        String   @unique
   userId         Int?
   targetClientId String?
   namespace      String
   eventType      String
   visibility     String
-  priority       String    @default("normal")
+  priority       String   @default("normal")
   version        String?
   revision       String?
-  scopeJson      String    @default("{}")
-  resourceJson   String    @default("{}")
-  payloadJson    String    @default("{}")
-  originJson     String    @default("{}")
+  scopeJson      String   @default("{}")
+  resourceJson   String   @default("{}")
+  payloadJson    String   @default("{}")
+  originJson     String   @default("{}")
   sourceClientId String?
-  requiresAck    Boolean   @default(true)
-  createdAt      DateTime  @default(now())
+  requiresAck    Boolean  @default(true)
+  createdAt      DateTime @default(now())
   expiresAt      DateTime
-  user           users?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user           users?   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, id])
   @@index([targetClientId, id])
@@ -1324,19 +1372,19 @@ model athena_sync_events {
 }
 
 model athena_ios_push_tokens {
-  id                   Int       @id @default(autoincrement())
-  userId               Int
-  clientId             String
-  environment          String
-  bundleId             String
-  tokenEncrypted       String
-  tokenFingerprint     String
-  appVersion           String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @default(now())
-  lastSeenAt           DateTime  @default(now())
-  revokedAt            DateTime?
-  user                 users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id               Int       @id @default(autoincrement())
+  userId           Int
+  clientId         String
+  environment      String
+  bundleId         String
+  tokenEncrypted   String
+  tokenFingerprint String
+  appVersion       String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  revokedAt        DateTime?
+  user             users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, clientId, environment, bundleId])
   @@index([userId, revokedAt])
@@ -1353,6 +1401,18 @@ model athena_mutation_receipts {
   status         String    @default("pending")
   resourceJson   String    @default("{}")
   errorCode      String?
+  baseVersion    Int?
+  resultVersion  Int?
+  requestHash    String?
+  nodeKey        String?
+  mutationId     String?
+  leaseOwner     String?
+  leaseExpiresAt DateTime?
+  attemptCount   Int       @default(0)
+  lastErrorCode  String?
+  recoveredAt    DateTime?
+  resultJson     String    @default("{}")
+  expiresAt      DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now())
   user           users     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1361,6 +1421,117 @@ model athena_mutation_receipts {
   @@index([userId, status])
   @@index([workspaceId])
   @@index([threadId])
+  @@index([status, leaseExpiresAt])
+  @@index([nodeKey, status])
+  @@index([mutationId])
+}
+
+model sync_nodes {
+  id            Int       @id @default(autoincrement())
+  nodeKey       String    @unique
+  parentKey     String?
+  ownerType     String
+  ownerId       Int?
+  visibility    String    @default("user")
+  schemaVersion Int       @default(1)
+  stateVersion  Int       @default(1)
+  contentHash   String?
+  hashAlgorithm String    @default("sha256")
+  updatedAt     DateTime  @default(now())
+  deletedAt     DateTime?
+
+  @@index([ownerType, ownerId])
+  @@index([parentKey])
+  @@index([updatedAt])
+}
+
+model sync_outbox {
+  seq              Int       @id @default(autoincrement())
+  eventId          String    @unique
+  nodeKey          String
+  ownerType        String
+  ownerId          Int?
+  visibility       String    @default("user")
+  stateVersion     Int
+  eventType        String
+  changedPathsJson String    @default("[]")
+  payloadHintJson  String    @default("{}")
+  audienceJson     String    @default("[]")
+  originClientId   String?
+  mutationId       String?
+  requestId        String?
+  traceId          String?
+  traceparent      String?
+  status           String    @default("pending")
+  attemptCount     Int       @default(0)
+  nextAttemptAt    DateTime?
+  leaseOwner       String?
+  leaseExpiresAt   DateTime?
+  lastErrorCode    String?
+  lastErrorDetail  String?
+  deadLetteredAt   DateTime?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  dispatchedAt     DateTime?
+
+  @@unique([nodeKey, mutationId])
+  @@index([nodeKey, stateVersion])
+  @@index([ownerType, ownerId, seq])
+  @@index([expiresAt])
+  @@index([dispatchedAt, seq])
+  @@index([status, nextAttemptAt, seq])
+  @@index([leaseOwner, leaseExpiresAt])
+  @@index([deadLetteredAt, seq])
+}
+
+model security_audit_ledger {
+  id           Int      @id @default(autoincrement())
+  chainId      String   @default("security-v1")
+  sequence     Int
+  eventId      String   @unique
+  event        String
+  metadataJson String   @default("{}")
+  userId       Int?
+  requestId    String?
+  traceId      String?
+  previousHash String
+  entryHash    String   @unique
+  occurredAt   DateTime
+  createdAt    DateTime @default(now())
+
+  @@unique([chainId, sequence])
+  @@index([chainId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model security_audit_checkpoints {
+  id              Int      @id @default(autoincrement())
+  chainId         String   @default("security-v1")
+  throughSequence Int
+  throughHash     String
+  algorithm       String   @default("ed25519")
+  keyId           String
+  publicKey       String
+  signature       String
+  createdAt       DateTime @default(now())
+
+  @@unique([chainId, throughSequence])
+  @@index([keyId, createdAt])
+}
+
+model sync_client_cursors {
+  id             Int      @id @default(autoincrement())
+  userId         Int
+  clientId       String
+  platform       String?
+  lastAppliedSeq Int      @default(0)
+  lastSeenAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now())
+
+  @@unique([userId, clientId])
+  @@index([userId, lastAppliedSeq])
+  @@index([lastSeenAt])
 }
 
 model workspace_suggested_messages {
@@ -1376,26 +1547,123 @@ model workspace_suggested_messages {
 }
 
 model workspace_chats {
-  id                  Int      @id @default(autoincrement())
-  public_id           String?  @unique
-  clientTurnId        String?  @unique
+  id                  Int       @id @default(autoincrement())
+  public_id           String?   @unique
+  clientTurnId        String?   @unique
   workspaceId         Int
   prompt              String
   response            String
-  include             Boolean  @default(true)
+  include             Boolean   @default(true)
   user_id             Int?
   thread_id           Int? // No relation to prevent whole table migration
   original_thread_id  Int?
   original_message_id Int?
   created_from        String?
   api_session_id      String? // String identifier for only the dev API to partition chats in any mode.
-  createdAt           DateTime @default(now())
-  lastUpdatedAt       DateTime @default(now())
+  createdAt           DateTime  @default(now())
+  lastUpdatedAt       DateTime  @default(now())
+  messageVersion      Int       @default(1)
+  payloadVersion      Int       @default(1)
+  deletedAt           DateTime?
   feedbackScore       Boolean?
-  users               users?   @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  users               users?    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@index([workspaceId, user_id, thread_id, api_session_id, include, id], map: "workspace_chats_thread_history_idx")
+  @@index([workspaceId, user_id, thread_id, api_session_id, id], map: "workspace_chats_scope_tail_idx")
   @@index([workspaceId, user_id, api_session_id, include, thread_id, createdAt, id], map: "workspace_chats_thread_activity_idx")
+}
+
+model content_objects {
+  id                     String    @id
+  ownerType              String
+  ownerId                String
+  domain                 String
+  scopeHash              String
+  dedupeKey              String
+  plaintextSha256        String
+  plaintextSize          Int
+  mimeType               String?
+  provider               String
+  objectKey              String    @unique
+  ciphertextSha256       String
+  encryptionVersion      String
+  wrappedDek             String
+  encryptionMetadataJson String
+  state                  String    @default("staging")
+  refCount               Int       @default(0)
+  createdAt              DateTime  @default(now())
+  readyAt                DateTime?
+  lastVerifiedAt         DateTime?
+  deleteAfter            DateTime?
+  deletedAt              DateTime?
+
+  @@unique([ownerType, ownerId, domain, dedupeKey])
+  @@index([state, createdAt])
+  @@index([state, deleteAfter])
+  @@index([ownerType, ownerId, domain])
+}
+
+model workspace_chat_attachment_refs {
+  id              String   @id
+  chatId          Int
+  contentObjectId String
+  ordinal         Int
+  displayName     String
+  mimeType        String
+  byteSize        Int
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+
+  @@unique([chatId, ordinal])
+  @@index([contentObjectId])
+  @@index([chatId])
+}
+
+model workspace_chat_content_refs {
+  id              String   @id
+  chatId          Int
+  contentObjectId String
+  role            String
+  jsonPath        String
+  createdAt       DateTime @default(now())
+
+  @@unique([chatId, jsonPath])
+  @@index([contentObjectId])
+  @@index([chatId])
+}
+
+model chat_attachment_uploads {
+  id              String    @id
+  workspaceId     Int
+  userId          Int?
+  contentObjectId String?
+  displayName     String
+  mimeType        String
+  expectedSize    Int?
+  expectedSha256  String?
+  receivedBytes   Int       @default(0)
+  partsJson       String    @default("[]")
+  status          String    @default("pending")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+  expiresAt       DateTime
+  completedAt     DateTime?
+
+  @@index([workspaceId, userId, status])
+  @@index([status, expiresAt])
+  @@index([contentObjectId])
+}
+
+model chat_attachment_upload_parts {
+  uploadId   String
+  partNumber Int
+  byteSize   Int
+  sha256     String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now())
+
+  @@id([uploadId, partNumber])
+  @@index([uploadId])
 }
 
 model workspace_chat_conversation_keys {
@@ -1458,6 +1726,528 @@ model workspace_chat_compactions {
 
   @@index([workspace_id, user_id, thread_id, api_session_id, created_at])
   @@index([workspace_id, thread_id, api_session_id, covered_to_chat_id])
+}
+
+model workspace_cognitive_assertions {
+  id                 Int       @id @default(autoincrement())
+  workspaceId        Int
+  assertionType      String
+  statement          String
+  verificationStatus String    @default("candidate")
+  confidence         Float     @default(0)
+  validFrom          DateTime?
+  validUntil         DateTime?
+  createdByType      String
+  createdByUserId    Int?
+  normalizedHash     String
+  supersededById     Int?
+  profileRevision    Int?
+  disclosureLevel    String    @default("workspace_only")
+  reviewReason       String?
+  canonicalItemId    Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([workspaceId, normalizedHash])
+  @@index([workspaceId, assertionType, verificationStatus])
+  @@index([workspaceId, updatedAt])
+  @@index([workspaceId, canonicalItemId])
+}
+
+model workspace_cognitive_positions {
+  id                         Int       @id @default(autoincrement())
+  workspaceId                Int
+  assertionId                Int
+  subjectUserId              Int
+  proposedByUserId           Int?
+  stance                     String
+  rationale                  String?
+  conditionsJson             String    @default("{}")
+  status                     String    @default("candidate")
+  meetingDisclosure          String    @default("workspace_only")
+  confirmedAt                DateTime?
+  sourceChatId               Int?
+  supersededById             Int?
+  canonicalPositionVersionId Int?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+
+  @@index([workspaceId, assertionId])
+  @@index([workspaceId, subjectUserId, status])
+  @@index([workspaceId, canonicalPositionVersionId])
+}
+
+model workspace_cognitive_evidence {
+  id                  Int      @id @default(autoincrement())
+  workspaceId         Int
+  assertionId         Int
+  evidenceKind        String
+  sourceType          String
+  sourceRef           String
+  documentId          String?
+  chunkId             String?
+  chatId              Int?
+  threadId            Int?
+  graphEdgeId         String?
+  sourceWorkspaceId   Int
+  excerpt             String?
+  confidence          Float    @default(0)
+  freshness           String   @default("current")
+  disclosureLevel     String   @default("workspace_only")
+  metadataJson        String   @default("{}")
+  canonicalEvidenceId Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([workspaceId, assertionId, sourceType, sourceRef, evidenceKind])
+  @@index([workspaceId, assertionId, freshness])
+  @@index([workspaceId, documentId, chunkId])
+  @@index([workspaceId, chatId])
+  @@index([workspaceId, canonicalEvidenceId])
+}
+
+model workspace_cognitive_relations {
+  id                  Int      @id @default(autoincrement())
+  workspaceId         Int
+  fromAssertionId     Int
+  toAssertionId       Int
+  relationType        String
+  confidence          Float    @default(0)
+  createdByType       String   @default("system")
+  canonicalRelationId Int?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([workspaceId, fromAssertionId, toAssertionId, relationType])
+  @@index([workspaceId, relationType])
+  @@index([workspaceId, canonicalRelationId])
+}
+
+model workspace_cognitive_profiles {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  revision        Int
+  profileJson     String   @default("{}")
+  sourceWatermark String?
+  contentHash     String
+  generatedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@unique([workspaceId, revision])
+  @@index([workspaceId, generatedAt])
+}
+
+model workspace_cognitive_extraction_jobs {
+  id                      Int       @id @default(autoincrement())
+  workspaceId             Int
+  threadId                Int?
+  requestedById           Int?
+  mode                    String    @default("incremental")
+  status                  String    @default("pending")
+  fromChatId              Int?
+  toChatId                Int?
+  lastScannedChatId       Int?
+  extractedCount          Int       @default(0)
+  error                   String?
+  metadataJson            String    @default("{}")
+  idempotencyKey          String?
+  scopeKey                String?
+  triggerReason           String    @default("manual")
+  pipeline                String    @default("direct_refine")
+  phase                   String    @default("pending")
+  chatIdsJson             String    @default("[]")
+  inputContentHash        String?
+  screeningOutputJson     String?
+  refiningOutputJson      String?
+  attemptCount            Int       @default(0)
+  maxAttempts             Int       @default(5)
+  nextRetryAt             DateTime?
+  leaseOwner              String?
+  leaseExpiresAt          DateTime?
+  heartbeatAt             DateTime?
+  errorCode               String?
+  errorDetail             String?
+  pipelineVersion         Int       @default(3)
+  jobType                 String    @default("rough_screen")
+  priority                Int       @default(10)
+  partialGroup            Boolean   @default(false)
+  modelMaxTokens          Int?
+  protocolRepairAttempted Boolean   @default(false)
+  startedAt               DateTime?
+  completedAt             DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@unique([idempotencyKey])
+  @@index([workspaceId, threadId, status])
+  @@index([workspaceId, lastScannedChatId])
+  @@index([status, nextRetryAt, leaseExpiresAt])
+  @@index([workspaceId, scopeKey, status])
+  @@index([status, priority, nextRetryAt, leaseExpiresAt])
+  @@index([workspaceId, pipelineVersion, jobType, status])
+}
+
+model workspace_cognitive_turn_buffer {
+  id            Int       @id @default(autoincrement())
+  workspaceId   Int
+  threadId      Int?
+  scopeKey      String
+  chatId        Int
+  contentHash   String
+  sourceChannel String    @default("web")
+  status        String    @default("pending")
+  jobId         Int?
+  claimedAt     DateTime?
+  processedAt   DateTime?
+  screenedAt    DateTime?
+  roughResultId Int?
+  cancelledAt   DateTime?
+  cancelReason  String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([workspaceId, chatId, contentHash])
+  @@index([workspaceId, scopeKey, status, chatId])
+  @@index([jobId, status])
+  @@index([roughResultId, status])
+}
+
+model workspace_cognitive_rough_results {
+  id               Int      @id @default(autoincrement())
+  workspaceId      Int
+  roughJobId       Int      @unique
+  threadId         Int?
+  scopeKey         String
+  chatIdsJson      String   @default("[]")
+  inputContentHash String
+  segmentRefsJson  String   @default("[]")
+  outputHash       String
+  status           String   @default("ready")
+  readyAt          DateTime @default(now())
+  refineJobId      Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([workspaceId, status, readyAt, id])
+  @@index([refineJobId, status])
+}
+
+model workspace_cognitive_refine_inputs {
+  id            Int      @id @default(autoincrement())
+  workspaceId   Int
+  refineJobId   Int
+  roughResultId Int      @unique
+  ordinal       Int
+  createdAt     DateTime @default(now())
+
+  @@unique([refineJobId, ordinal])
+  @@index([workspaceId, refineJobId])
+}
+
+model workspace_cognitive_extraction_attempts {
+  id               Int      @id @default(autoincrement())
+  workspaceId      Int
+  jobId            Int
+  stage            String
+  attemptNo        Int
+  provider         String?
+  model            String?
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  cacheHitTokens   Int      @default(0)
+  cacheMissTokens  Int      @default(0)
+  durationMs       Int      @default(0)
+  inputHash        String?
+  outputHash       String?
+  outcome          String
+  errorCode        String?
+  metricsJson      String   @default("{}")
+  createdAt        DateTime @default(now())
+
+  @@unique([jobId, stage, attemptNo])
+  @@index([workspaceId, createdAt])
+  @@index([jobId, stage])
+}
+
+model workspace_cognitive_thread_state {
+  id                  Int       @id @default(autoincrement())
+  workspaceId         Int
+  threadId            Int?
+  scopeKey            String
+  lastEnqueuedChatId  Int?
+  lastExtractedChatId Int?
+  pendingTurnCount    Int       @default(0)
+  lastActivityAt      DateTime?
+  flushRequestedAt    DateTime?
+  flushReason         String?
+  pausedAt            DateTime?
+  activeJobId         Int?
+  lastErrorCode       String?
+  lastErrorDetail     String?
+  retryCount          Int       @default(0)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([workspaceId, scopeKey])
+  @@index([workspaceId, lastActivityAt, pendingTurnCount])
+  @@index([activeJobId])
+}
+
+model workspace_cognitive_candidates {
+  id                    Int      @id @default(autoincrement())
+  candidateKey          String   @unique
+  workspaceId           Int
+  threadId              Int?
+  extractionJobId       Int?
+  assertionType         String
+  statement             String
+  origin                String
+  subjectUserId         Int?
+  stance                String?
+  rationale             String?
+  conditionsJson        String   @default("{}")
+  confidence            Float    @default(0)
+  sourceChatIdsJson     String   @default("[]")
+  evidenceJson          String   @default("[]")
+  suggestedRelationJson String   @default("{}")
+  normalizedHash        String
+  rawModelOutputJson    String   @default("{}")
+  pipelineVersion       Int      @default(3)
+  legacyPipeline        Boolean  @default(false)
+  createdAt             DateTime @default(now())
+
+  @@index([workspaceId, extractionJobId, normalizedHash])
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, subjectUserId])
+  @@index([workspaceId, legacyPipeline, createdAt])
+}
+
+model workspace_cognitive_candidate_events {
+  id             Int      @id @default(autoincrement())
+  workspaceId    Int
+  candidateId    Int
+  eventType      String
+  actorUserId    Int?
+  payloadJson    String   @default("{}")
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, candidateId, createdAt])
+}
+
+model workspace_cognitive_items {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  itemKey         String
+  version         Int
+  candidateId     Int?
+  assertionType   String
+  statement       String
+  createdByType   String
+  createdByUserId Int?
+  confidence      Float    @default(0)
+  disclosureLevel String   @default("workspace_only")
+  isTemporary     Boolean  @default(false)
+  normalizedHash  String
+  metadataJson    String   @default("{}")
+  createdAt       DateTime @default(now())
+
+  @@unique([workspaceId, itemKey, version])
+  @@index([workspaceId, assertionType, createdAt])
+  @@index([workspaceId, normalizedHash])
+  @@index([workspaceId, candidateId])
+}
+
+model workspace_cognitive_position_versions {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int
+  cognitiveItemId   Int
+  subjectUserId     Int
+  stance            String
+  rationale         String?
+  conditionsJson    String   @default("{}")
+  meetingDisclosure String   @default("workspace_only")
+  isTemporary       Boolean  @default(false)
+  createdAt         DateTime @default(now())
+
+  @@index([workspaceId, cognitiveItemId])
+  @@index([workspaceId, subjectUserId, createdAt])
+}
+
+model workspace_cognitive_item_relations {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  fromItemId      Int
+  toItemId        Int
+  relationType    String
+  confidence      Float    @default(0)
+  rationale       String?
+  createdByType   String   @default("user")
+  createdByUserId Int?
+  createdAt       DateTime @default(now())
+
+  @@unique([workspaceId, fromItemId, toItemId, relationType])
+  @@index([workspaceId, relationType])
+  @@index([workspaceId, toItemId])
+}
+
+model workspace_cognitive_item_evidence {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int
+  cognitiveItemId   Int
+  evidenceKind      String
+  sourceType        String
+  sourceRef         String
+  documentId        String?
+  chunkId           String?
+  chatId            Int?
+  threadId          Int?
+  graphEdgeId       String?
+  sourceWorkspaceId Int
+  excerpt           String?
+  confidence        Float    @default(0)
+  disclosureLevel   String   @default("workspace_only")
+  metadataJson      String   @default("{}")
+  createdAt         DateTime @default(now())
+
+  @@index([workspaceId, cognitiveItemId])
+  @@index([workspaceId, documentId, chunkId])
+  @@index([workspaceId, chatId])
+}
+
+model workspace_cognitive_evidence_events {
+  id             Int      @id @default(autoincrement())
+  workspaceId    Int
+  evidenceId     Int
+  eventType      String
+  reason         String?
+  actorType      String   @default("system")
+  actorUserId    Int?
+  metadataJson   String   @default("{}")
+  idempotencyKey String
+  createdAt      DateTime @default(now())
+
+  @@unique([workspaceId, idempotencyKey])
+  @@index([workspaceId, evidenceId, createdAt])
+}
+
+model workspace_cognitive_profile_invalidations {
+  id          Int      @id @default(autoincrement())
+  workspaceId Int
+  generation  Int
+  reason      String
+  sourceType  String?
+  sourceId    String?
+  createdAt   DateTime @default(now())
+
+  @@unique([workspaceId, generation])
+  @@index([workspaceId, createdAt])
+}
+
+model workspace_cognitive_profile_state {
+  id                Int      @id @default(autoincrement())
+  workspaceId       Int      @unique
+  dirtyGeneration   Int      @default(0)
+  rebuiltGeneration Int      @default(0)
+  rebuildStatus     String   @default("idle")
+  lastError         String?
+  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now())
+}
+
+model workspace_cognitive_profile_items {
+  id              Int      @id @default(autoincrement())
+  workspaceId     Int
+  profileRevision Int
+  cognitiveItemId Int
+  itemKey         String
+  itemVersion     Int
+  membershipType  String   @default("active")
+  createdAt       DateTime @default(now())
+
+  @@unique([workspaceId, profileRevision, cognitiveItemId, membershipType])
+  @@index([workspaceId, profileRevision])
+  @@index([workspaceId, itemKey, itemVersion])
+}
+
+model workspace_meeting_packets {
+  id                  Int       @id @default(autoincrement())
+  workspaceId         Int
+  packetKey           String
+  revision            Int       @default(1)
+  createdByUserId     Int?
+  delegateUserId      Int?
+  title               String
+  objective           String?
+  status              String    @default("draft")
+  profileRevision     Int?
+  selectionJson       String    @default("{}")
+  sourceWhitelistJson String    @default("{}")
+  disclosureRulesJson String    @default("{}")
+  redactionRulesJson  String    @default("[]")
+  contentHash         String?
+  frozenAt            DateTime?
+  revokedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([workspaceId, packetKey, revision])
+  @@index([workspaceId, status, updatedAt])
+}
+
+model workspace_meeting_authorizations {
+  id                     Int       @id @default(autoincrement())
+  workspaceId            Int
+  meetingPacketId        Int
+  actionType             String
+  targetScopeJson        String    @default("{}")
+  limitsJson             String    @default("{}")
+  conditionsJson         String    @default("{}")
+  validFrom              DateTime?
+  validUntil             DateTime?
+  allowConditional       Boolean   @default(false)
+  requiresSecondApproval Boolean   @default(false)
+  status                 String    @default("active")
+  createdByUserId        Int?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([workspaceId, meetingPacketId, actionType])
+}
+
+model workspace_meeting_sessions {
+  id              Int       @id @default(autoincrement())
+  workspaceId     Int
+  meetingPacketId Int
+  threadId        Int
+  delegateUserId  Int?
+  createdByUserId Int?
+  status          String    @default("active")
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([workspaceId, meetingPacketId, status])
+  @@index([workspaceId, threadId])
+}
+
+model workspace_meeting_audit_events {
+  id               Int      @id @default(autoincrement())
+  workspaceId      Int
+  meetingSessionId Int
+  actorUserId      Int?
+  eventType        String
+  decision         String?
+  requestJson      String   @default("{}")
+  resultJson       String   @default("{}")
+  evidenceRefsJson String   @default("[]")
+  authorizationId  Int?
+  createdAt        DateTime @default(now())
+
+  @@index([workspaceId, meetingSessionId, createdAt])
+  @@index([workspaceId, eventType])
 }
 
 model workspace_mind_maps {
@@ -1751,17 +2541,18 @@ model wechat_gateway_threads {
 }
 
 model scheduled_jobs {
-  id        Int                  @id @default(autoincrement())
-  name      String
-  prompt    String
-  tools     String? // JSON array of tool identifiers (null = use all enabled agent skills)
-  schedule  String // Cron expression
-  enabled   Boolean              @default(true)
-  lastRunAt DateTime?
-  nextRunAt DateTime?
-  createdAt DateTime             @default(now())
-  updatedAt DateTime             @default(now())
-  runs      scheduled_job_runs[]
+  id                 Int                  @id @default(autoincrement())
+  name               String
+  prompt             String
+  tools              String? // JSON array of tool identifiers (null = use all enabled agent skills)
+  capabilityManifest String               @default("{}")
+  schedule           String // Cron expression
+  enabled            Boolean              @default(true)
+  lastRunAt          DateTime?
+  nextRunAt          DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @default(now())
+  runs               scheduled_job_runs[]
 }
 
 model scheduled_job_runs {
@@ -1776,4 +2567,219 @@ model scheduled_job_runs {
   job         scheduled_jobs @relation(fields: [jobId], references: [id], onDelete: Cascade)
 
   @@index([jobId])
+}
+
+// Non-secret registry for application encryption keys. Raw key material is
+// deliberately held by Key Custody providers and never persisted here.
+model security_key_registry {
+  id               Int       @id @default(autoincrement())
+  keyId            String    @unique
+  purpose          String
+  providerType     String
+  fingerprint      String
+  version          Int       @default(1)
+  status           String    @default("pending")
+  canaryEnvelope   String?
+  sourceDescriptor String?
+  metadata         String?
+  createdAt        DateTime  @default(now())
+  activatedAt      DateTime?
+  retiredAt        DateTime?
+  lastVerifiedAt   DateTime?
+
+  @@index([purpose, status])
+  @@index([fingerprint])
+}
+
+model security_key_domain_bindings {
+  id              Int       @id @default(autoincrement())
+  domain          String    @unique
+  purpose         String
+  activeKeyId     String
+  envelopeVersion String    @default("enc:v1")
+  coverageState   String    @default("unknown")
+  coverage        String?
+  lastVerifiedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([purpose])
+  @@index([activeKeyId])
+}
+
+model security_key_rotation_jobs {
+  id             Int       @id @default(autoincrement())
+  jobId          String    @unique
+  idempotencyKey String    @unique
+  purpose        String
+  sourceKeyId    String?
+  targetKeyId    String?
+  status         String    @default("pending")
+  stage          String    @default("prepare")
+  progress       String?
+  failure        String?
+  createdBy      Int?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  completedAt    DateTime?
+
+  @@index([purpose, status])
+  @@index([createdAt])
+}
+
+model security_key_events {
+  id         Int      @id @default(autoincrement())
+  event      String
+  keyId      String?
+  purpose    String?
+  jobId      String?
+  metadata   String?
+  createdBy  Int?
+  occurredAt DateTime @default(now())
+
+  @@index([event])
+  @@index([keyId])
+  @@index([jobId])
+}
+
+model ai_price_catalog {
+  id                     String    @id
+  provider               String
+  modelPattern           String
+  version                Int       @default(1)
+  currency               String    @default("USD")
+  inputMicrosPerMillion  Int?
+  outputMicrosPerMillion Int?
+  source                 String?
+  active                 Boolean   @default(true)
+  effectiveAt            DateTime  @default(now())
+  expiresAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([provider, modelPattern, version])
+  @@index([provider, active, effectiveAt])
+}
+
+model ai_budget_policies {
+  id                 String   @id
+  ownerType          String
+  ownerId            String
+  taskType           String   @default("*")
+  maxInputTokens     Int?
+  maxOutputTokens    Int?
+  maxToolCalls       Int?
+  maxDurationMs      Int?
+  maxCostMicros      Int?
+  unknownPriceAction String   @default("limit")
+  enabled            Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([ownerType, ownerId, taskType])
+  @@index([enabled, ownerType, ownerId])
+}
+
+model ai_budget_reservations {
+  id                   String    @id
+  policyId             String?
+  ownerType            String
+  ownerId              String
+  userId               Int?
+  workspaceId          Int?
+  taskType             String
+  provider             String
+  model                String
+  status               String    @default("reserved")
+  reservedInputTokens  Int       @default(0)
+  reservedOutputTokens Int       @default(0)
+  reservedToolCalls    Int       @default(0)
+  reservedDurationMs   Int       @default(0)
+  reservedCostMicros   Int?
+  actualInputTokens    Int?
+  actualOutputTokens   Int?
+  actualToolCalls      Int?
+  actualDurationMs     Int?
+  actualCostMicros     Int?
+  failureCode          String?
+  traceId              String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  expiresAt            DateTime
+  settledAt            DateTime?
+
+  @@index([ownerType, ownerId, status, createdAt])
+  @@index([status, expiresAt])
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+}
+
+model ai_usage_events {
+  id             String   @id
+  reservationId  String?
+  invocationId   String?
+  ownerType      String
+  ownerId        String
+  userId         Int?
+  workspaceId    Int?
+  taskType       String
+  provider       String
+  model          String
+  inputTokens    Int      @default(0)
+  outputTokens   Int      @default(0)
+  toolCalls      Int      @default(0)
+  durationMs     Int      @default(0)
+  costMicros     Int?
+  priceCatalogId String?
+  status         String
+  metadataJson   String   @default("{}")
+  traceId        String?
+  startedAt      DateTime
+  completedAt    DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  @@unique([reservationId])
+  @@index([ownerType, ownerId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([userId, createdAt])
+  @@index([provider, model, createdAt])
+  @@index([taskType, createdAt])
+}
+
+model ai_eval_cases {
+  id               String   @id
+  suite            String
+  version          Int      @default(1)
+  dataClass        String   @default("synthetic")
+  authorizationRef String?
+  inputRef         String?
+  expectedJson     String   @default("{}")
+  metadataJson     String   @default("{}")
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([suite, version, id])
+  @@index([suite, active])
+}
+
+model ai_eval_results {
+  id           String   @id
+  caseId       String
+  runId        String
+  provider     String
+  model        String
+  status       String
+  qualityScore Float?
+  safetyScore  Float?
+  toolScore    Float?
+  latencyMs    Int?
+  costMicros   Int?
+  resultRef    String?
+  metadataJson String   @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@unique([runId, caseId])
+  @@index([caseId, createdAt])
+  @@index([runId])
 }

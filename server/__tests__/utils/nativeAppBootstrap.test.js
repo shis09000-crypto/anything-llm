@@ -50,6 +50,7 @@ describe("native app bootstrap contract", () => {
       },
       features: {
         readerMaxUploadBytes: READER_MAX_UPLOAD_BYTES,
+        syncV2: false,
       },
       endpoints: {
         bootstrapPath: "/api/native-app/bootstrap",
@@ -94,6 +95,7 @@ describe("native app bootstrap contract", () => {
     expect(bootstrap.features.crypto).toBe(false);
     expect(bootstrap.features.localModel).toBe(false);
     expect(bootstrap.features.fullOffline).toBe(false);
+    expect(bootstrap.features.syncV2).toBe(false);
     expect(bootstrap.readiness.p0).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -106,6 +108,14 @@ describe("native app bootstrap contract", () => {
         }),
       ])
     );
+  });
+
+  it("exposes Sync V2 as an independently controlled native capability", () => {
+    const bootstrap = buildNativeAppBootstrap({
+      env: { ATHENA_SYNC_V2_ENABLED: "true" },
+    });
+
+    expect(bootstrap.features.syncV2).toBe(true);
   });
 
   it("returns null version policy values when optional env is unset", () => {

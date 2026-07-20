@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const { BackgroundService } = require("../utils/BackgroundWorkers");
 const prisma = require("../utils/prisma");
 const { SystemSettings } = require("./systemSettings");
@@ -99,8 +102,7 @@ const DocumentSyncQueue = {
       );
       return queue || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("documentSyncQueue.watch", error);
     }
   },
 
@@ -140,8 +142,7 @@ const DocumentSyncQueue = {
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documentSyncQueue._update", error);
     }
   },
 
@@ -152,8 +153,7 @@ const DocumentSyncQueue = {
       });
       return queue || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("documentSyncQueue.get", error);
     }
   },
 
@@ -172,8 +172,7 @@ const DocumentSyncQueue = {
       });
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("documentSyncQueue.where", error);
     }
   },
 
@@ -185,8 +184,7 @@ const DocumentSyncQueue = {
       });
       return count;
     } catch (error) {
-      console.error("FAILED TO COUNT DOCUMENTS.", error.message);
-      return 0;
+      throwModelDataAccessError("documentSyncQueue.count", error);
     }
   },
 
@@ -195,8 +193,7 @@ const DocumentSyncQueue = {
       await prisma.document_sync_queues.deleteMany({ where: clause });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documentSyncQueue.delete", error);
     }
   },
 

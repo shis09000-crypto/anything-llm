@@ -53,7 +53,7 @@ describe("knowledge graph utilities", () => {
     ).toBe("code");
     expect(
       buildExtractionPrompt({ text: "revenue margin", domain: "finance" })
-    ).toContain("companies, metrics, events");
+    ).toContain("公司、指标、事件");
   });
 
   it("normalizes relation aliases and downgrades unknown labels", () => {

@@ -3,7 +3,8 @@ const {
   encryptSecret,
   isEncryptedSecret,
 } = require("./encryption");
-const { MASTER_KEY_ENV } = require("./constants");
+const { recordEncryptionBlock } = require("./encryptionDiagnostics");
+const { resolveActiveKey } = require("./keyCustody");
 
 const DOCUMENT_STORE_CRYPTO_VERSION = "athena-document-store:v1";
 const DOCUMENT_STORE_ALGORITHM = "AES-GCM-256";
@@ -16,7 +17,11 @@ function documentStoreEncryptionEnabled(env = process.env) {
     "true"
   )
     return false;
-  return Boolean(String(env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function isEncryptedDocumentStorePayload(value) {
@@ -41,27 +46,48 @@ function encryptDocumentStorePayload(
       JSON.stringify({
         domain: normalizeDomain(domain),
         payload,
-      })
+      }),
+      { domain }
     ),
   };
 }
 
 function decryptDocumentStorePayload(
   value,
-  { domain = "document-store" } = {}
+  { domain = "document-store", resource = null } = {}
 ) {
   if (!isEncryptedDocumentStorePayload(value)) return value;
-  const decrypted = JSON.parse(decryptSecretIfNeeded(value.encryptedPayload));
-  const expectedDomain = normalizeDomain(domain);
-  if (decrypted?.domain && decrypted.domain !== expectedDomain) {
-    throw new Error("document_store_domain_mismatch");
+  try {
+    const decrypted = JSON.parse(
+      decryptSecretIfNeeded(value.encryptedPayload, {
+        operation: "decrypt-document-store",
+        domain,
+        resource,
+      })
+    );
+    const expectedDomain = normalizeDomain(domain);
+    if (decrypted?.domain && decrypted.domain !== expectedDomain) {
+      throw new Error("document_store_domain_mismatch");
+    }
+    return decrypted?.payload;
+  } catch (error) {
+    recordEncryptionBlock({
+      error,
+      operation: "decrypt-document-store",
+      domain,
+      resource,
+      payload: value.encryptedPayload,
+    });
+    throw error;
   }
-  return decrypted?.payload;
 }
 
-function parseDocumentStoreJson(rawText, { domain = "document-store" } = {}) {
+function parseDocumentStoreJson(
+  rawText,
+  { domain = "document-store", resource = null } = {}
+) {
   const parsed = JSON.parse(rawText);
-  return decryptDocumentStorePayload(parsed, { domain });
+  return decryptDocumentStorePayload(parsed, { domain, resource });
 }
 
 function stringifyDocumentStoreJson(

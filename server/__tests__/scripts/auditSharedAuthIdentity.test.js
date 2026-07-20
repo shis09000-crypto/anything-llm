@@ -21,10 +21,17 @@ describe("audit shared auth identity script", () => {
     expect(parseArgs(["--env", "production"])).toEqual({
       env: "production",
       dryRun: true,
+      execute: false,
     });
     expect(parseArgs(["--env=development", "--fix"])).toEqual({
       env: "development",
+      dryRun: true,
+      execute: false,
+    });
+    expect(parseArgs(["--env=development", "--fix", "--execute"])).toEqual({
+      env: "development",
       dryRun: false,
+      execute: true,
     });
     expect(() => parseArgs(["--env", "staging"])).toThrow(
       "Expected development or production"

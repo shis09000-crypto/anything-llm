@@ -24,9 +24,16 @@ function chatMutationHTTPStatus(error = null) {
   }
 }
 
-async function threadHistorySyncMetadata(thread = null, user = null) {
+async function threadHistorySyncMetadata(
+  thread = null,
+  user = null,
+  workspaceId = null
+) {
   if (!thread?.id) return {};
-  const current = await WorkspaceThread.get({ id: Number(thread.id) });
+  const current = await WorkspaceThread.get({
+    workspace_id: Number(workspaceId || thread.workspace_id),
+    id: Number(thread.id),
+  });
   if (!current) return {};
   const [manifest] = await WorkspaceThread.historyFingerprintManifest({
     threads: [current],
@@ -52,7 +59,11 @@ async function publishCommittedChatDeletion({
   targetChatId = null,
   publicChatId = null,
 } = {}) {
-  const historyMetadata = await threadHistorySyncMetadata(thread, user);
+  const historyMetadata = await threadHistorySyncMetadata(
+    thread,
+    user,
+    workspace?.id
+  );
   const event = publishWorkspaceSyncEvent(
     {
       type: "chat_deleted",

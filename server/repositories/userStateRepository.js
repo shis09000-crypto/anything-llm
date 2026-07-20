@@ -1,9 +1,11 @@
 const { UserStatePreference } = require("../models/userStatePreference");
 const {
   namespacePolicy,
-  sanitizeValue,
   userStateNamespaceSummary,
 } = require("../utils/dataAccess/dataAccessPolicy");
+const {
+  sanitizeUserStateValue,
+} = require("../utils/userStatePreferencePolicy");
 
 const UserStateRepository = {
   dataDomain: "user-state",
@@ -19,14 +21,23 @@ const UserStateRepository = {
     return UserStatePreference.where(options);
   },
 
-  async upsertMany({ userId, states = [] } = {}) {
+  async upsertMany({ userId, states = [], syncContext = {} } = {}) {
     const sanitized = states.map((state) => ({
       ...state,
-      value: sanitizeValue(state.value),
+      value: sanitizeUserStateValue(state.namespace, state.value),
+      ...(Object.prototype.hasOwnProperty.call(state, "mutationPayload")
+        ? {
+            mutationPayload: sanitizeUserStateValue(
+              state.namespace,
+              state.mutationPayload
+            ),
+          }
+        : {}),
     }));
     return UserStatePreference.upsertMany({
       userId,
       states: sanitized,
+      syncContext,
     });
   },
 

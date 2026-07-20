@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const authPrisma = require("../utils/authPrisma");
@@ -141,11 +144,7 @@ const EmailVerificationCode = {
         orderBy: { createdAt: "desc" },
       });
     } catch (error) {
-      console.error(
-        "FAILED TO FIND EMAIL VERIFICATION CODE.",
-        prismaErrorLabel(error)
-      );
-      return null;
+      throwModelDataAccessError("emailVerification.latest", error);
     }
   },
 
@@ -171,11 +170,7 @@ const EmailVerificationCode = {
       if (email && verification.email !== email) return null;
       return verification;
     } catch (error) {
-      console.error(
-        "FAILED TO FIND EMAIL VERIFICATION CHALLENGE.",
-        prismaErrorLabel(error)
-      );
-      return null;
+      throwModelDataAccessError("emailVerification.findByChallenge", error);
     }
   },
 
@@ -191,11 +186,10 @@ const EmailVerificationCode = {
         orderBy: { createdAt: "desc" },
       });
     } catch (error) {
-      console.error(
-        "FAILED TO FIND PENDING EMAIL VERIFICATION.",
-        prismaErrorLabel(error)
+      throwModelDataAccessError(
+        "emailVerification.latestPendingForUser",
+        error
       );
-      return null;
     }
   },
 
@@ -207,11 +201,7 @@ const EmailVerificationCode = {
       });
       return true;
     } catch (error) {
-      console.error(
-        "FAILED TO INCREMENT EMAIL VERIFICATION ATTEMPTS.",
-        prismaErrorLabel(error)
-      );
-      return false;
+      throwModelDataAccessError("emailVerification.incrementAttempts", error);
     }
   },
 
@@ -227,11 +217,7 @@ const EmailVerificationCode = {
       });
       return result.count === 1;
     } catch (error) {
-      console.error(
-        "FAILED TO CONSUME EMAIL VERIFICATION CODE.",
-        prismaErrorLabel(error)
-      );
-      return false;
+      throwModelDataAccessError("emailVerification.consume", error);
     }
   },
 
@@ -248,11 +234,7 @@ const EmailVerificationCode = {
       });
       return true;
     } catch (error) {
-      console.error(
-        "FAILED TO EXPIRE EMAIL VERIFICATION CODES.",
-        prismaErrorLabel(error)
-      );
-      return false;
+      throwModelDataAccessError("emailVerification.expireOpenCodes", error);
     }
   },
 };
@@ -317,11 +299,7 @@ const EmailVerificationGrant = {
       if (grant.expiresAt < new Date()) return null;
       return grant;
     } catch (error) {
-      console.error(
-        "FAILED TO FIND EMAIL VERIFICATION GRANT.",
-        prismaErrorLabel(error)
-      );
-      return null;
+      throwModelDataAccessError("emailVerification.findValid", error);
     }
   },
 
@@ -337,11 +315,7 @@ const EmailVerificationGrant = {
       });
       return result.count === 1;
     } catch (error) {
-      console.error(
-        "FAILED TO CONSUME EMAIL VERIFICATION GRANT.",
-        prismaErrorLabel(error)
-      );
-      return false;
+      throwModelDataAccessError("emailVerification.consume", error);
     }
   },
 
@@ -357,11 +331,7 @@ const EmailVerificationGrant = {
       });
       return true;
     } catch (error) {
-      console.error(
-        "FAILED TO CONSUME EMAIL VERIFICATION GRANTS.",
-        prismaErrorLabel(error)
-      );
-      return false;
+      throwModelDataAccessError("emailVerification.consumeMany", error);
     }
   },
 };
@@ -371,6 +341,44 @@ const EmailVerificationRateLimit = {
 
   bucketHash: function ({ bucketType, purpose, value }) {
     return hashRateLimitBucket({ bucketType, purpose, value });
+  },
+
+  status: async function ({
+    bucketType,
+    purpose,
+    value,
+    limit,
+    windowMs = 60 * 60 * 1000,
+  }) {
+    if (!value || !limit || limit < 1)
+      return { blocked: false, retryAfterSeconds: 0, count: 0 };
+    const bucket = await authPrisma.email_verification_rate_limits.findUnique({
+      where: {
+        bucket_hash: this.bucketHash({ bucketType, purpose, value }),
+      },
+    });
+    if (!bucket) return { blocked: false, retryAfterSeconds: 0, count: 0 };
+    const now = Date.now();
+    const windowEnd = bucket.window_start.getTime() + windowMs;
+    const blockedUntil = bucket.blockedUntil?.getTime() || 0;
+    const effectiveEnd = Math.max(windowEnd, blockedUntil);
+    const blocked = effectiveEnd > now && bucket.count >= limit;
+    return {
+      blocked,
+      retryAfterSeconds: blocked
+        ? Math.max(1, Math.ceil((effectiveEnd - now) / 1_000))
+        : 0,
+      count: bucket.count,
+    };
+  },
+
+  clear: async function ({ bucketType, purpose, value }) {
+    if (!value) return { count: 0 };
+    return authPrisma.email_verification_rate_limits.deleteMany({
+      where: {
+        bucket_hash: this.bucketHash({ bucketType, purpose, value }),
+      },
+    });
   },
 
   hit: async function ({

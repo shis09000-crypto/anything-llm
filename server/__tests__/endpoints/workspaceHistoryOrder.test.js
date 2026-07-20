@@ -6,6 +6,7 @@ const mockForWorkspaceByApiSessionId = jest.fn();
 const mockWorkspaceGet = jest.fn();
 const mockWorkspaceGetWithUser = jest.fn();
 const mockWorkspaceThreadGet = jest.fn();
+const mockHistoryFingerprintManifest = jest.fn();
 const mockUserFromSession = jest.fn();
 const mockQueryParams = jest.fn();
 const mockMultiUserMode = jest.fn();
@@ -33,6 +34,8 @@ jest.mock("../../models/workspace", () => ({
 jest.mock("../../models/workspaceThread", () => ({
   WorkspaceThread: {
     get: (...args) => mockWorkspaceThreadGet(...args),
+    historyFingerprintManifest: (...args) =>
+      mockHistoryFingerprintManifest(...args),
   },
 }));
 
@@ -88,6 +91,7 @@ function jsonResponse(locals = {}) {
   const json = jest.fn();
   return {
     locals,
+    setHeader: jest.fn(),
     status: jest.fn(() => ({ json })),
     sendStatus: jest.fn(() => ({ end: jest.fn() })),
   };
@@ -112,7 +116,7 @@ function routesFor(register) {
 describe("workspace chat history ordering", () => {
   beforeEach(() => {
     jest.resetModules();
-    jest.clearAllMocks();
+    jest.resetAllMocks();
     process.env.STORAGE_DIR = "/tmp/anythingllm-test-storage";
     mockUserFromSession.mockResolvedValue({ id: 7 });
     mockQueryParams.mockReturnValue({});
@@ -125,6 +129,14 @@ describe("workspace chat history ordering", () => {
       slug: "thread",
       workspace_id: 1,
     });
+    mockHistoryFingerprintManifest.mockResolvedValue([
+      {
+        historyRevision: 1,
+        historyFingerprint: "test-history-fingerprint",
+        latestChatId: 12,
+        latestChatAt: null,
+      },
+    ]);
   });
 
   it("returns thread history pages in ascending chatId order after descending cursor lookup", async () => {
@@ -153,7 +165,9 @@ describe("workspace chat history ordering", () => {
         id: { lt: 10 },
       }),
       2,
-      { id: "desc" }
+      { id: "desc" },
+      null,
+      { attachmentMode: "inline" }
     );
     expect(res.status.mock.results[0].value.json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -201,19 +215,25 @@ describe("workspace chat history ordering", () => {
         id: 10,
       }),
       1,
-      { id: "asc" }
+      { id: "asc" },
+      null,
+      { attachmentMode: "inline" }
     );
     expect(mockWorkspaceChatsWhere).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ id: { lt: 10 } }),
       2,
-      { id: "desc" }
+      { id: "desc" },
+      null,
+      { attachmentMode: "inline" }
     );
     expect(mockWorkspaceChatsWhere).toHaveBeenNthCalledWith(
       3,
       expect.objectContaining({ id: { gt: 10 } }),
       2,
-      { id: "asc" }
+      { id: "asc" },
+      null,
+      { attachmentMode: "inline" }
     );
 
     const payload = res.status.mock.results[0].value.json.mock.calls[0][0];
@@ -304,7 +324,9 @@ describe("workspace chat history ordering", () => {
         id: { in: [9, 7] },
       }),
       null,
-      { id: "asc" }
+      { id: "asc" },
+      null,
+      { attachmentMode: "inline" }
     );
   });
 
@@ -325,7 +347,9 @@ describe("workspace chat history ordering", () => {
         id: { lt: 10 },
       }),
       2,
-      { id: "desc" }
+      { id: "desc" },
+      null,
+      { attachmentMode: "inline" }
     );
     const history =
       res.status.mock.results[0].value.json.mock.calls[0][0].history;

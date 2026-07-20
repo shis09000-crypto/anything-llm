@@ -77,6 +77,34 @@ export default function DataPrivacyCard() {
   }, [sensitiveDrawerOpen]);
 
   useEffect(() => {
+    function refreshVerifiedSensitiveState(event) {
+      if (event.type === "athena-sync-v2-security-refresh") {
+        if (event.detail?.kind === "passkeys") refreshPasskeys();
+        return;
+      }
+      if (sensitiveDrawerOpen) refreshSensitiveMemories();
+    }
+    window.addEventListener(
+      "athena-sync-v2-security-refresh",
+      refreshVerifiedSensitiveState
+    );
+    window.addEventListener(
+      "athena-sync-v2-memory-refresh",
+      refreshVerifiedSensitiveState
+    );
+    return () => {
+      window.removeEventListener(
+        "athena-sync-v2-security-refresh",
+        refreshVerifiedSensitiveState
+      );
+      window.removeEventListener(
+        "athena-sync-v2-memory-refresh",
+        refreshVerifiedSensitiveState
+      );
+    };
+  }, [sensitiveDrawerOpen]);
+
+  useEffect(() => {
     if (!sensitiveDrawerOpen) return;
     const timer = window.setTimeout(() => {
       setSensitiveDrawerOpen(false);
@@ -509,7 +537,7 @@ function SensitiveMemoryDrawer({
   return (
     <div
       className={[
-        "fixed inset-0 z-[10000] hidden transition-opacity duration-[280ms] md:block",
+        "motion-hover fixed inset-0 z-[10000] hidden md:block",
         open
           ? "pointer-events-auto bg-slate-950/[0.08] opacity-100 backdrop-blur-[2px]"
           : "pointer-events-none bg-slate-950/0 opacity-0",
@@ -521,7 +549,7 @@ function SensitiveMemoryDrawer({
     >
       <aside
         className={[
-          "absolute bottom-6 right-6 top-6 flex w-[400px] max-w-[calc(100vw-48px)] flex-col rounded-[20px] border border-slate-200/80 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.14)] transition-transform duration-[280ms] ease-out",
+          "motion-panel-switch absolute bottom-6 right-6 top-6 flex w-[400px] max-w-[calc(100vw-48px)] flex-col rounded-[20px] border border-slate-200/80 bg-white shadow-[0_22px_60px_rgba(15,23,42,0.14)]",
           open ? "translate-x-0" : "translate-x-[calc(100%+32px)]",
         ].join(" ")}
         onClick={(event) => event.stopPropagation()}

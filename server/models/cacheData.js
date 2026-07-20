@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 
 const CacheData = {
@@ -22,8 +25,7 @@ const CacheData = {
       });
       return cache || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("cacheData.get", error);
     }
   },
 
@@ -34,8 +36,7 @@ const CacheData = {
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("cacheData.delete", error);
     }
   },
 
@@ -48,8 +49,7 @@ const CacheData = {
       });
       return caches;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("cacheData.where", error);
     }
   },
 
@@ -60,8 +60,7 @@ const CacheData = {
       });
       return count;
     } catch (error) {
-      console.error(error.message);
-      return 0;
+      throwModelDataAccessError("cacheData.count", error);
     }
   },
 };

@@ -1,5 +1,13 @@
 const { htmlToText } = require("html-to-text");
 const pdf = require("pdf-parse");
+const {
+  readResponseBufferLimited,
+  readResponseJsonLimited,
+  safeFetch,
+} = require("../../../networkGuard");
+
+const MAX_CONNECTOR_JSON_BYTES = 25 * 1_024 * 1_024;
+const MAX_CONNECTOR_FILE_BYTES = 500 * 1_024 * 1_024;
 
 class PaperlessNgxLoader {
   constructor({ baseUrl, apiToken }) {
@@ -33,18 +41,20 @@ class PaperlessNgxLoader {
       while (nextUrl) {
         console.log(`Fetching documents page ${page} from Paperless-ngx`);
         try {
-          const data = await fetch(nextUrl, {
+          const response = await safeFetch(nextUrl, {
             headers: {
               "Content-Type": "application/json",
               ...this.baseHeaders,
             },
-          }).then((res) => {
-            if (!res.ok)
-              throw new Error(
-                `Failed to fetch documents from Paperless-ngx: ${res.status}`
-              );
-            return res.json();
           });
+          if (!response.ok)
+            throw new Error(
+              `Failed to fetch documents from Paperless-ngx: ${response.status}`
+            );
+          const data = await readResponseJsonLimited(
+            response,
+            MAX_CONNECTOR_JSON_BYTES
+          );
 
           const validResults = data.results.filter((doc) => doc?.id);
           if (!validResults.length) break;
@@ -52,9 +62,20 @@ class PaperlessNgxLoader {
           documents.push(...validResults);
 
           if (data.next === nextUrl) break;
-          nextUrl = data.next || null;
+          if (data.next) {
+            const candidate = new URL(data.next, this.baseUrl);
+            if (candidate.origin !== this.baseUrl) {
+              const error = new Error(
+                "Paperless pagination attempted to leave the configured origin."
+              );
+              error.code = "collector_destination_forbidden";
+              throw error;
+            }
+            nextUrl = candidate.toString();
+          } else nextUrl = null;
           page++;
         } catch (error) {
+          if (error?.code === "collector_destination_forbidden") throw error;
           console.error(
             `Error fetching page ${page} from Paperless-ngx:`,
             error
@@ -91,7 +112,7 @@ class PaperlessNgxLoader {
    */
   async fetchDocumentContent(documentId) {
     try {
-      const response = await fetch(
+      const response = await safeFetch(
         `${this.baseUrl}/api/documents/${documentId}/download/`,
         {
           headers: this.baseHeaders,
@@ -101,15 +122,20 @@ class PaperlessNgxLoader {
       if (!response.ok)
         throw new Error(`Failed to fetch document content: ${response.status}`);
 
-      const contentType = response.headers.get("content-type");
+      const contentType = String(
+        response.headers.get("content-type") || ""
+      ).split(";")[0];
+      const buffer = await readResponseBufferLimited(
+        response,
+        MAX_CONNECTOR_FILE_BYTES
+      );
       switch (contentType) {
         case "text/plain":
-          return await response.text();
+          return buffer.toString("utf8");
         case "application/pdf":
-          const buffer = await response.arrayBuffer();
           return await this.parsePdfContent(buffer);
         default:
-          return await response.text();
+          return buffer.toString("utf8");
       }
     } catch (error) {
       console.error(

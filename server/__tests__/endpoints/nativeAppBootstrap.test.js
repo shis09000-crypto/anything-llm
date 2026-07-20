@@ -10,11 +10,23 @@ const mockAppleAppSiteAssociation = jest.fn(() => ({
   configured: true,
   payload: { applinks: { apps: [], details: [] } },
 }));
+const mockOpaqueNativeConfiguration = jest.fn(async () => ({
+  available: true,
+  protocolVersion: "opaque-ke-4.0.0",
+  keyStretching: "memory-constrained",
+  serverStaticPublicKey: "server-public-key",
+  serverStaticPublicKeyFingerprint: "sha256:fingerprint",
+  status: "ready",
+}));
 
 jest.mock("../../utils/nativeAppBootstrap", () => ({
   appleAppSiteAssociation: (...args) => mockAppleAppSiteAssociation(...args),
   buildNativeAppBootstrap: (...args) => mockBuildNativeAppBootstrap(...args),
   buildNativeAppPreflight: (...args) => mockBuildNativeAppPreflight(...args),
+}));
+jest.mock("../../endpoints/authZkLogin", () => ({
+  opaqueNativeConfiguration: (...args) =>
+    mockOpaqueNativeConfiguration(...args),
 }));
 
 const {
@@ -73,7 +85,18 @@ describe("native app bootstrap endpoint", () => {
     expect(response.json).toHaveBeenCalledWith({
       success: true,
       protocolVersion: "ios-native-v1",
+      security: {
+        opaque: {
+          available: true,
+          protocolVersion: "opaque-ke-4.0.0",
+          keyStretching: "memory-constrained",
+          serverStaticPublicKey: "server-public-key",
+          serverStaticPublicKeyFingerprint: "sha256:fingerprint",
+          status: "ready",
+        },
+      },
     });
+    expect(mockOpaqueNativeConfiguration).toHaveBeenCalledTimes(1);
   });
 
   it("does not register or alter legacy mobile routes", () => {

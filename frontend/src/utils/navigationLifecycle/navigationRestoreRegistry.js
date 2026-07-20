@@ -1,11 +1,16 @@
-import { workspaceNavigationCache } from "../chat/workspaceNavigationCache.js";
-import { threadHistoryCache } from "../chat/threadHistoryCache.js";
 import { markTaskPerformance } from "../tasks/taskScheduler.js";
 
-function restoreWorkspaceChat({ scope = {} } = {}) {
+async function restoreWorkspaceChat({ scope = {} } = {}) {
   const workspaceSlug = scope.workspaceSlug || null;
   const threadSlug = scope.threadSlug || null;
   if (!workspaceSlug) return Promise.resolve(null);
+  if (typeof window === "undefined") return null;
+
+  const [{ workspaceNavigationCache }, { threadHistoryCache }] =
+    await Promise.all([
+      import("../chat/workspaceNavigationCache.js"),
+      import("../chat/threadHistoryCache.js"),
+    ]);
 
   const workspaces = workspaceNavigationCache.getWorkspaces({
     allowStale: true,
@@ -67,12 +72,12 @@ function restoreWorkspaceChat({ scope = {} } = {}) {
     hasThreads: Array.isArray(threads),
   });
 
-  return Promise.resolve({
+  return {
     source: cacheHit ? "cache" : "miss",
     cacheHit,
     workspaces: Array.isArray(workspaces) ? workspaces.length : 0,
     threads: Array.isArray(threads) ? threads.length : 0,
-  });
+  };
 }
 
 export function restoreTargetForScope(scope = {}) {

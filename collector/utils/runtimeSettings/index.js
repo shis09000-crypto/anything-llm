@@ -38,6 +38,15 @@ class RuntimeSettings {
         if (Array.isArray(value)) args = value.map((arg) => String(arg.trim()));
         if (typeof value === "string")
           args = value.split(",").map((arg) => arg.trim());
+        if (
+          process.env.NODE_ENV === "production" &&
+          args.some((arg) =>
+            ["--no-sandbox", "--disable-setuid-sandbox"].includes(arg)
+          )
+        )
+          throw new Error(
+            "Production Collector refuses Chromium sandbox bypass arguments."
+          );
         return args;
       },
     },

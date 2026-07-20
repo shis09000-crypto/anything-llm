@@ -424,7 +424,7 @@ function confirmOptimistic(event) {
   if (result?.confirmed) counters.optimisticConfirmed += 1;
 }
 
-function reduceNormalized(event) {
+function reduceNormalized(event, { syncV2Applied = false } = {}) {
   confirmOptimistic(event);
   if (event.eventPriority === "critical") handleCritical(event);
 
@@ -489,9 +489,11 @@ function reduceNormalized(event) {
       return dispatchDeveloperNavigationCommand(event);
     case "userState.updated":
     case "userState.deleted":
+      if (syncV2Applied) return { action: "user-state-sync-v2-applied" };
       invalidateUserState(event);
       return { action: "user-state-invalidate" };
     case "user.profile.updated":
+      if (syncV2Applied) return { action: "user-profile-sync-v2-applied" };
       return refreshUserProfile(event);
     case "settings.updated":
       invalidateScope(event, "broadcast-settings");
@@ -502,7 +504,7 @@ function reduceNormalized(event) {
 }
 
 export const broadcastEventReducer = {
-  reduce(rawEvent = {}) {
+  reduce(rawEvent = {}, options = {}) {
     const event = normalizeBroadcastEvent(rawEvent);
     if (!event) return { ok: false, reason: "invalid-event" };
     counters.received += 1;
@@ -513,7 +515,7 @@ export const broadcastEventReducer = {
     }
 
     try {
-      const result = reduceNormalized(event);
+      const result = reduceNormalized(event, options);
       counters.reduced += 1;
       recent.push({
         eventId: event.eventId,

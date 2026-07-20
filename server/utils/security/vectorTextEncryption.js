@@ -3,7 +3,7 @@ const {
   encryptSecret,
   isEncryptedSecret,
 } = require("./encryption");
-const { MASTER_KEY_ENV } = require("./constants");
+const { resolveActiveKey } = require("./keyCustody");
 
 const VECTOR_TEXT_CRYPTO_VERSION = "athena-vector-text:v1";
 const VECTOR_TEXT_ALGORITHM = "AES-GCM-256";
@@ -16,7 +16,11 @@ function vectorTextEncryptionEnabled(env = process.env) {
     String(env.VECTOR_TEXT_ENCRYPTION_DISABLED || "").toLowerCase() === "true"
   )
     return false;
-  return Boolean(String(env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function encryptVectorText(text, { domain = VECTOR_TEXT_DEFAULT_DOMAIN } = {}) {
@@ -32,7 +36,8 @@ function encryptVectorText(text, { domain = VECTOR_TEXT_DEFAULT_DOMAIN } = {}) {
       JSON.stringify({
         domain: normalizeDomain(domain),
         text: value,
-      })
+      }),
+      { domain }
     ),
   });
 }
@@ -46,7 +51,9 @@ function decryptVectorText(
   const payload = parseEncryptedVectorTextPayload(text);
   if (!payload) return text;
 
-  const decrypted = JSON.parse(decryptSecretIfNeeded(payload.encryptedPayload));
+  const decrypted = JSON.parse(
+    decryptSecretIfNeeded(payload.encryptedPayload, { domain })
+  );
   const expectedDomain = normalizeDomain(domain);
   if (decrypted?.domain && decrypted.domain !== expectedDomain) {
     throw new Error("vector_text_domain_mismatch");

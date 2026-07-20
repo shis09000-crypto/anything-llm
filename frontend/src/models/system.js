@@ -31,6 +31,7 @@ import {
   adminSystemStateStore,
 } from "@/utils/serverState/adminSystemStateStore";
 import { sensitiveSessionCenter } from "@/utils/sensitive/sensitiveSessionCenter";
+import { setAuthToken } from "@/utils/authTokenStorage";
 
 let systemKeysCache = null;
 let systemKeysCacheAt = 0;
@@ -284,7 +285,10 @@ const System = {
     return await postJson("/onboarding", undefined, {
       communicationScene: "onboarding",
     })
-      .then(() => true)
+      .then(({ data }) => {
+        if (data?.token) setAuthToken(data.token);
+        return data?.valid !== false;
+      })
       .catch(() => false);
   },
   keys: async function () {

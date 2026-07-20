@@ -73,7 +73,7 @@ function apiEmbedEndpoints(app) {
       response.status(200).json({ embeds: filteredEmbeds });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -134,7 +134,7 @@ function apiEmbedEndpoints(app) {
         response.status(200).json({ chats });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -195,7 +195,7 @@ function apiEmbedEndpoints(app) {
         response.status(200).json({ chats });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );
@@ -282,7 +282,7 @@ function apiEmbedEndpoints(app) {
       response.status(200).json({ embed, error });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -352,7 +352,7 @@ function apiEmbedEndpoints(app) {
       response.status(200).json({ success, error });
     } catch (e) {
       console.error(e.message, e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 
@@ -402,7 +402,7 @@ function apiEmbedEndpoints(app) {
           .json({ success, error: success ? null : "Failed to delete embed" });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(500).end();
+        response.sendStatus(e.httpStatus || 500).end();
       }
     }
   );

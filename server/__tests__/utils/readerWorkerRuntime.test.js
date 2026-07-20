@@ -28,6 +28,7 @@ jest.mock("../../utils/dataAccess/dataAccessCenter", () => ({
 }));
 
 const { ReaderWorkerRuntime } = require("../../utils/readerWorker/runtime");
+const { once } = require("events");
 const { DataAccessCenter } = require("../../utils/dataAccess/dataAccessCenter");
 const {
   runReaderPostprocessJob,
@@ -47,6 +48,8 @@ describe("ReaderWorkerRuntime", () => {
     expect(runtime.snapshot()).toMatchObject({
       role: "reader-worker",
       status: "idle",
+      ready: false,
+      lifecycleStatus: "created",
       startedAt: "2026-07-07T00:00:00.000Z",
       queue: {
         mode: "disabled",
@@ -73,6 +76,54 @@ describe("ReaderWorkerRuntime", () => {
   test("disabled durable queue does not claim jobs", async () => {
     const runtime = new ReaderWorkerRuntime();
     await expect(runtime.processOne()).resolves.toBeNull();
+  });
+
+  test("reports not-ready until the durable queue is attached", () => {
+    const runtime = new ReaderWorkerRuntime({
+      now: () => new Date("2026-07-07T00:00:00.000Z"),
+    });
+
+    expect(runtime.startQueuePolling()).toBeNull();
+    expect(runtime.snapshot()).toMatchObject({
+      ready: false,
+      lifecycleStatus: "not-ready",
+      lastError: { code: "READER_WORKER_QUEUE_DISABLED" },
+    });
+
+    process.env.ATHENA_READER_WORKER_QUEUE = "true";
+    expect(runtime.startQueuePolling()).toBeTruthy();
+    expect(runtime.snapshot()).toMatchObject({
+      ready: true,
+      lifecycleStatus: "running",
+      lastError: null,
+    });
+    runtime.stopQueuePolling();
+  });
+
+  test("health endpoint fails closed before startup and closes on stop", async () => {
+    const runtime = new ReaderWorkerRuntime();
+    const server = runtime.startHealthServer({ port: 0 });
+    if (!server.listening) await once(server, "listening");
+    const port = server.address().port;
+
+    const before = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(before.status).toBe(503);
+    await expect(before.json()).resolves.toMatchObject({
+      success: false,
+      status: "created",
+    });
+
+    process.env.ATHENA_READER_WORKER_QUEUE = "true";
+    runtime.startQueuePolling();
+    const after = await fetch(`http://127.0.0.1:${port}/health`);
+    expect(after.status).toBe(200);
+    await expect(after.json()).resolves.toMatchObject({
+      success: true,
+      status: "running",
+    });
+
+    await runtime.stop();
+    expect(runtime.healthServer).toBeNull();
   });
 
   test("enabled durable queue claims and executes postprocess jobs", async () => {

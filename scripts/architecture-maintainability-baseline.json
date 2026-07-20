@@ -1,0 +1,41 @@
+{
+  "godFileThreshold": 3000,
+  "silentModelFallbackMax": 19,
+  "godFiles": {
+    "frontend/src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx": {
+      "maxLines": 10253,
+      "owner": "frontend-settings",
+      "nextBoundary": "experiment sections and preview fixtures"
+    },
+    "frontend/src/components/WorkspaceChat/ChatContainer/DocumentReader/EpubReader.jsx": {
+      "maxLines": 5701,
+      "owner": "reader-frontend",
+      "nextBoundary": "epub pagination and annotation adapters"
+    },
+    "frontend/src/components/WorkspaceChat/ChatContainer/DocumentReader/Provider.jsx": {
+      "maxLines": 5151,
+      "owner": "reader-frontend",
+      "nextBoundary": "reader orchestration services"
+    },
+    "ios/Athena/Athena/Features/Conversation/ConversationHomeView.swift": {
+      "maxLines": 5006,
+      "owner": "ios-conversation",
+      "nextBoundary": "composer coordinator and conversation actions"
+    },
+    "server/endpoints/system.js": {
+      "maxLines": 4065,
+      "owner": "server-system-api",
+      "nextBoundary": "account, session and user-state route registrars"
+    },
+    "ios/Athena/Athena/Core/Workspace/WorkspaceCenter.swift": {
+      "maxLines": 4045,
+      "owner": "ios-workspace",
+      "nextBoundary": "workspace navigation and mutation coordinators"
+    },
+    "server/models/workspaceCognitionBatch.js": {
+      "maxLines": 3652,
+      "owner": "server-cognition",
+      "nextBoundary": "batch planning, execution and persistence services"
+    }
+  }
+}

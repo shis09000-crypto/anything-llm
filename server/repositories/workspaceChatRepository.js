@@ -3,8 +3,10 @@ const { createModelRepository } = require("./createModelRepository");
 const prisma = require("../utils/prisma");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
 const {
-  rebuildChatCryptoChainForScope,
+  rebuildChatCryptoChainFromChatId,
 } = require("../utils/security/chatHistoryEncryption");
+const { SyncV2 } = require("../models/syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 
 const WorkspaceChatRepository = createModelRepository(WorkspaceChats, {
   domain: "workspace-chat",
@@ -150,6 +152,8 @@ async function permanentChatMutation({
   validateTarget,
   resource,
 } = {}) {
+  const syncReady =
+    scope.threadId && SyncV2.enabled("chat") && (await SyncV2.schemaReady());
   return await prisma.$transaction(async (transaction) => {
     let receipt = null;
     if (scope.userId) {
@@ -232,9 +236,51 @@ async function permanentChatMutation({
     await transaction.workspace_chat_compactions.deleteMany({
       where: scope.compaction,
     });
-    await rebuildChatCryptoChainForScope(scope.crypto, {
-      client: transaction,
-    });
+    if (deletedChatIds.length) {
+      await rebuildChatCryptoChainFromChatId(scope.crypto, deletedChatIds[0], {
+        client: transaction,
+      });
+    }
+
+    let sync = null;
+    if (syncReady) {
+      const thread = await transaction.workspace_threads.update({
+        where: { id: scope.threadId },
+        data: { historyRevision: { increment: 1 } },
+      });
+      const latest = await transaction.workspace_chats.findFirst({
+        where: scope.where,
+        select: { id: true, public_id: true, lastUpdatedAt: true },
+        orderBy: { id: "desc" },
+      });
+      const audience = thread.user_id
+        ? [Number(thread.user_id)]
+        : (
+            await transaction.workspace_users.findMany({
+              where: { workspace_id: scope.workspaceId },
+              select: { user_id: true },
+            })
+          ).map((row) => Number(row.user_id));
+      sync = await SyncV2.recordNodeChange(transaction, {
+        nodeKey: nodeKeys.threadMessages(scope.threadId),
+        content: {
+          threadId: scope.threadId,
+          historyRevision: thread.historyRevision,
+          latestChatId: latest?.id || null,
+          latestPublicChatId: latest?.public_id || null,
+          latestChatAt: latest?.lastUpdatedAt || null,
+        },
+        eventType: "message.deleted",
+        changedPaths: deletedChatIds.map((id) => `messages.${id}`),
+        payloadHint: {
+          operation: "delete",
+          deletedMessageIds: deletedChatIds,
+          historyRevision: thread.historyRevision,
+        },
+        mutationId: scope.sourceActionId,
+        audience,
+      });
+    }
 
     const completedResource = {
       workspaceId: scope.workspaceId,
@@ -255,6 +301,15 @@ async function permanentChatMutation({
           status: "completed",
           resourceJson: JSON.stringify(completedResource),
           errorCode: null,
+          ...(sync
+            ? {
+                resultVersion: sync.node.stateVersion,
+                resultJson: JSON.stringify({
+                  descriptor: sync.node,
+                  deletedChatIds,
+                }),
+              }
+            : {}),
           updatedAt: new Date(),
         },
       });

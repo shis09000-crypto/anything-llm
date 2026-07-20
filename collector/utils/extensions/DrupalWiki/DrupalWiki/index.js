@@ -22,6 +22,14 @@ const {
   WATCH_DIRECTORY,
   SUPPORTED_FILETYPE_CONVERTERS,
 } = require("../../../constants");
+const {
+  readResponseBufferLimited,
+  readResponseJsonLimited,
+  safeFetch,
+} = require("../../../networkGuard");
+
+const MAX_CONNECTOR_JSON_BYTES = 25 * 1_024 * 1_024;
+const MAX_CONNECTOR_FILE_BYTES = 500 * 1_024 * 1_024;
 
 class Page {
   /**
@@ -233,13 +241,13 @@ class DrupalWiki {
   }
 
   async _doFetch(url) {
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       headers: this.#getHeaders(),
     });
     if (!response.ok) {
       throw new Error(`Failed to fetch ${url}: ${response.status}`);
     }
-    return response.json();
+    return readResponseJsonLimited(response, MAX_CONNECTOR_JSON_BYTES);
   }
 
   #getHeaders() {
@@ -305,7 +313,7 @@ class DrupalWiki {
         }
 
         const downloadUrl = `${this.baseUrl}/api/rest/scope/api/attachment/${attachId}/download`;
-        const attachmentResponse = await fetch(downloadUrl, {
+        const attachmentResponse = await safeFetch(downloadUrl, {
           headers: this.#getHeaders(),
         });
         if (!attachmentResponse.ok) {
@@ -313,7 +321,10 @@ class DrupalWiki {
           continue;
         }
 
-        const buffer = await attachmentResponse.arrayBuffer();
+        const buffer = await readResponseBufferLimited(
+          attachmentResponse,
+          MAX_CONNECTOR_FILE_BYTES
+        );
         const localFilePath = normalizePath(
           sanitizeFileName(path.resolve(WATCH_DIRECTORY, fileName))
         );
@@ -326,7 +337,7 @@ class DrupalWiki {
           continue;
         }
 
-        require("fs").writeFileSync(localFilePath, Buffer.from(buffer));
+        require("fs").writeFileSync(localFilePath, buffer);
         await processSingleFile(localFilePath);
       }
     } catch (err) {

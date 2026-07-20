@@ -64,14 +64,16 @@ async function loadClearSensitiveClientState() {
       };`
     )
     .replace(
-      'import { removeStoredAuthUser } from "@/utils/authUserStorage";',
-      `const removeStoredAuthUser = () => {
+      /import\s+\{\s*getStoredAuthUser,\s*removeStoredAuthUser,?\s*\}\s+from\s+"@\/utils\/authUserStorage";/,
+      `const getStoredAuthUser = () => ({ authUserId: "test-user" });
+      const removeStoredAuthUser = () => {
         globalThis.__clearSensitiveStateTest.removedAuthUsers += 1;
       };`
     )
     .replace(
-      'import { storageKeys } from "@/utils/appEnvironment";',
-      "const storageKeys = (storage) => Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean);"
+      'import { getAppEnvironment, storageKeys } from "@/utils/appEnvironment";',
+      `const getAppEnvironment = () => "development";
+      const storageKeys = (storage) => Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(Boolean);`
     )
     .replace(
       'import { threadHistoryCache } from "@/utils/chat/threadHistoryCache";',
@@ -104,6 +106,10 @@ async function loadClearSensitiveClientState() {
       `const clearVaultAccessGrant = () => {
         globalThis.__clearSensitiveStateTest.clearedVaultGrants += 1;
       };`
+    )
+    .replace(
+      'import { serverStateCache } from "@/utils/serverState/serverStateCache";',
+      "const serverStateCache = { clear() {} };"
     );
 
   return import(

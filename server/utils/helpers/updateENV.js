@@ -5,6 +5,7 @@ const {
   SUPPORTED_CONNECTION_METHODS,
 } = require("../AiProviders/bedrock/utils");
 const { resetAllVectorStores } = require("../vectorStore/resetAllVectorStores");
+const { saveSecret } = require("../security");
 const {
   exportBackupValues,
   hydrateFromBackup,
@@ -979,6 +980,21 @@ const KEY_MAPPING = {
           : "Invalid vision tool enabled value.",
     ],
   },
+  QWeatherApiKey: {
+    envKey: "QWEATHER_API_KEY_ENCRYPTED",
+    checks: [isNotEmpty],
+    transform: saveSecret,
+  },
+  JuheStockApiKey: {
+    envKey: "JUHE_STOCK_API_KEY_ENCRYPTED",
+    checks: [isNotEmpty],
+    transform: saveSecret,
+  },
+  JuheForexApiKey: {
+    envKey: "JUHE_FOREX_API_KEY_ENCRYPTED",
+    checks: [isNotEmpty],
+    transform: saveSecret,
+  },
 };
 
 const PROVIDER_SETTING_KEYS = [
@@ -1147,6 +1163,9 @@ const PROVIDER_SETTING_KEYS = [
   "VisionBaseUrl",
   "VisionModelPref",
   "VisionToolEnabled",
+  "QWeatherApiKey",
+  "JuheStockApiKey",
+  "JuheForexApiKey",
 ];
 
 const EXTRA_PROVIDER_ENV_KEYS = [
@@ -1530,7 +1549,12 @@ async function validatePGVectorTableName(key, prevValue, nextValue) {
 // read from an ENV file as this seems to be a complicating step for many so allowing people to write
 // to the process will at least alleviate that issue. It does not perform comprehensive validity checks or sanity checks
 // and is simply for debugging when the .env not found issue many come across.
-async function updateENV(newENVs = {}, force = false, userId = null) {
+async function updateENV(
+  newENVs = {},
+  force = false,
+  userId = null,
+  { allowEmptyKeys = [] } = {}
+) {
   let error = "";
   const runAfterAll = [];
   const validKeys = Object.keys(KEY_MAPPING);
@@ -1543,6 +1567,7 @@ async function updateENV(newENVs = {}, force = false, userId = null) {
     const {
       envKey,
       checks,
+      transform = (value) => value,
       preUpdate = [], // Functions to run before updating a specific ENV variable
       postUpdate = [], // Functions to run after updating a specific ENV variable
       postSettled = [], // Functions to run after all ENV variables have been updated
@@ -1550,7 +1575,12 @@ async function updateENV(newENVs = {}, force = false, userId = null) {
     runAfterAll.push(...postSettled);
     const prevValue = process.env[envKey];
     const nextValue = newENVs[key];
-    let errors = await executeValidationChecks(checks, nextValue, force);
+    const allowsEmpty =
+      allowEmptyKeys.includes(key) &&
+      (nextValue === "" || nextValue === null || nextValue === undefined);
+    let errors = allowsEmpty
+      ? []
+      : await executeValidationChecks(checks, nextValue, force);
 
     // If there are any errors from regular simple validation checks
     // exit early.
@@ -1573,8 +1603,9 @@ async function updateENV(newENVs = {}, force = false, userId = null) {
       break;
     }
 
-    newValues[key] = nextValue;
-    process.env[envKey] = nextValue;
+    const storedValue = transform(nextValue);
+    newValues[key] = storedValue;
+    process.env[envKey] = storedValue;
 
     for (const postUpdateFunc of postUpdate)
       await postUpdateFunc(key, prevValue, nextValue);
@@ -1717,11 +1748,17 @@ function dumpENV() {
     "DESKTOP_RUNTIME_CONFIG_PATH",
     "DESKTOP_LOG_DIR",
     "DESKTOP_ENV_PATH",
-    // For persistent data encryption
-    ...INFRASTRUCTURE_SECRET_ENV_KEYS,
+    // Docker compose runtime settings live in the same managed env file.
+    "STORAGE_DIR",
+    "UID",
+    "GID",
+    "ATHENA_KEY_PROVIDER",
+    "ATHENA_MASTER_KEY_FILE",
+    "ATHENA_KEYRING_PATH",
+    "ATHENA_SECRET_ENVELOPE_VERSION",
+    // Infrastructure encryption keys are preserved from the provider-owned
+    // source file below and are never generated from mutable process state.
     ...CRYPTO_GATE_ENV_KEYS,
-    "SIG_KEY",
-    "SIG_SALT",
     // Password Schema Keys if present.
     "PASSWORDMINCHAR",
     "PASSWORDMAXCHAR",
@@ -1816,15 +1853,49 @@ function dumpENV() {
     frozenEnvs[key] = process.env?.[key] || null;
   }
 
+  const envPath =
+    process.env.DESKTOP_ENV_PATH ||
+    path.join(
+      __dirname,
+      process.env.NODE_ENV === "development"
+        ? "../../.env.development"
+        : "../../.env"
+    );
+  const providerOwnedKeys = [
+    ...INFRASTRUCTURE_SECRET_ENV_KEYS,
+    "ATHENA_KEY_PROVIDER",
+    "ATHENA_MASTER_KEY_FILE",
+    "ATHENA_KEYRING_PATH",
+    "SIG_KEY",
+    "SIG_SALT",
+  ];
+  const existingContent = fs.existsSync(envPath)
+    ? fs.readFileSync(envPath, "utf8")
+    : "";
+  const preservedProviderLines = existingContent
+    .split(/\r?\n/)
+    .filter((line) =>
+      providerOwnedKeys.some((key) => new RegExp(`^\\s*${key}\\s*=`).test(line))
+    );
+
   var envResult = `# Auto-dump ENV from system call on ${new Date().toTimeString()}\n`;
   envResult += Object.entries(frozenEnvs)
     .map(([key, value]) => `${key}='${sanitizeValue(value)}'`)
     .join("\n");
-
-  const envPath =
-    process.env.DESKTOP_ENV_PATH || path.join(__dirname, "../../.env");
+  if (preservedProviderLines.length) {
+    envResult += `${envResult.endsWith("\n") ? "" : "\n"}${preservedProviderLines.join("\n")}`;
+  }
+  envResult = `${envResult.replace(/\n+$/, "")}\n`;
   fs.mkdirSync(path.dirname(envPath), { recursive: true });
-  fs.writeFileSync(envPath, envResult, { encoding: "utf8", flag: "w" });
+  const temporary = `${envPath}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temporary, envResult, {
+    encoding: "utf8",
+    flag: "w",
+    mode: 0o600,
+  });
+  fs.chmodSync(temporary, 0o600);
+  fs.renameSync(temporary, envPath);
+  fs.chmodSync(envPath, 0o600);
   return true;
 }
 

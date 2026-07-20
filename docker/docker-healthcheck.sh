@@ -13,7 +13,7 @@ elif { [ "$TRUST_PROXY" = "true" ] || [ "$TRUST_PROXY" = "1" ]; } &&
 fi
 
 # Send a request to the specified URL
-response=$(curl "${CURL_ARGS[@]}" "$SCHEME://localhost:$PORT/api/ping")
+response=$(curl "${CURL_ARGS[@]}" "$SCHEME://localhost:$PORT/api/ready")
 
 # If the HTTP response code is 200 (OK), the server is up
 if [ "$response" -eq 200 ]; then

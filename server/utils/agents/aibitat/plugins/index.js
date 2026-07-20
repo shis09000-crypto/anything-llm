@@ -17,6 +17,10 @@ const { shellAgent } = require("./shell/index.js");
 const { documentIndexStatusTool } = require("./document-index-status-tool.js");
 const { workspaceSupplementTool } = require("./workspace-supplement-tool.js");
 const { requestUserInput } = require("./request-user-input.js");
+const { cryptoMarketAgent } = require("./crypto-market");
+const { weatherAgent } = require("./weather");
+const { globalMarketAgent } = require("./global-market");
+const { documentFormattingAgent } = require("./document-formatting");
 
 module.exports = {
   webScraping,
@@ -38,6 +42,10 @@ module.exports = {
   documentIndexStatusTool,
   workspaceSupplementTool,
   requestUserInput,
+  cryptoMarketAgent,
+  weatherAgent,
+  globalMarketAgent,
+  documentFormattingAgent,
 
   // Plugin name aliases so they can be pulled by slug as well.
   [webScraping.name]: webScraping,
@@ -59,4 +67,8 @@ module.exports = {
   [documentIndexStatusTool.name]: documentIndexStatusTool,
   [workspaceSupplementTool.name]: workspaceSupplementTool,
   [requestUserInput.name]: requestUserInput,
+  [cryptoMarketAgent.name]: cryptoMarketAgent,
+  [weatherAgent.name]: weatherAgent,
+  [globalMarketAgent.name]: globalMarketAgent,
+  [documentFormattingAgent.name]: documentFormattingAgent,
 };

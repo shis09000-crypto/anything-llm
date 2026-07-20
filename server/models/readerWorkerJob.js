@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const crypto = require("crypto");
 const prisma = require("../utils/prisma");
 
@@ -109,8 +112,7 @@ const ReaderWorkerJob = {
       const row = await prisma.reader_worker_jobs.create({ data });
       return publicJob(row);
     } catch (error) {
-      console.error("Failed to enqueue reader worker job:", error.message);
-      return null;
+      throwModelDataAccessError("readerWorkerJob.enqueue", error);
     }
   },
 
@@ -119,8 +121,7 @@ const ReaderWorkerJob = {
       const row = await prisma.reader_worker_jobs.findFirst({ where: clause });
       return publicJob(row);
     } catch (error) {
-      console.error("Failed to get reader worker job:", error.message);
-      return null;
+      throwModelDataAccessError("readerWorkerJob.get", error);
     }
   },
 
@@ -133,8 +134,7 @@ const ReaderWorkerJob = {
       });
       return rows.map(publicJob);
     } catch (error) {
-      console.error("Failed to list reader worker jobs:", error.message);
-      return [];
+      throwModelDataAccessError("readerWorkerJob.where", error);
     }
   },
 
@@ -198,8 +198,7 @@ const ReaderWorkerJob = {
       }
       return null;
     } catch (error) {
-      console.error("Failed to claim reader worker job:", error.message);
-      return null;
+      throwModelDataAccessError("readerWorkerJob.claimNext", error);
     }
   },
 
@@ -218,8 +217,7 @@ const ReaderWorkerJob = {
       });
       return publicJob(row);
     } catch (error) {
-      console.error("Failed to complete reader worker job:", error.message);
-      return null;
+      throwModelDataAccessError("readerWorkerJob.complete", error);
     }
   },
 
@@ -253,8 +251,7 @@ const ReaderWorkerJob = {
       });
       return publicJob(row);
     } catch (error) {
-      console.error("Failed to fail reader worker job:", error.message);
-      return null;
+      throwModelDataAccessError("readerWorkerJob.fail", error);
     }
   },
 
@@ -275,8 +272,7 @@ const ReaderWorkerJob = {
       });
       return result.count;
     } catch (error) {
-      console.error("Failed to cancel reader worker jobs:", error.message);
-      return 0;
+      throwModelDataAccessError("readerWorkerJob.cancel", error);
     }
   },
 

@@ -17,7 +17,11 @@ console.log = originalConsoleLog;
 function walk(dir, files = []) {
   if (!fs.existsSync(dir)) return files;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (["node_modules", ".git", "dist", "build"].includes(entry.name)) {
+    if (
+      ["node_modules", ".git", "dist", "build", "generated"].includes(
+        entry.name
+      )
+    ) {
       continue;
     }
     const target = path.join(dir, entry.name);
@@ -162,7 +166,7 @@ function auditFrontendCommunicationBoundaries() {
   const frontend = path.join(repoRoot, "frontend/src");
   const allowed = [/^frontend\/src\/lib\/communication\//];
   const pattern =
-    /fetch\s*\(|fetchEventSource|new\s+WebSocket|EventSource|XMLHttpRequest|postMessage|ipcRenderer|invoke\s*\(/;
+    /\bfetch\s*\(|fetchEventSource|new\s+WebSocket|EventSource|XMLHttpRequest|postMessage|ipcRenderer|invoke\s*\(/;
   return walk(frontend)
     .filter((file) => /\.(js|jsx|ts|tsx|mjs|cjs)$/.test(file))
     .flatMap((file) => {

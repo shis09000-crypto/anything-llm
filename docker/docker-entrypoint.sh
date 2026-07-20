@@ -22,32 +22,44 @@ run_server() {
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     node scripts/prisma-runtime.js migrate deploy &&
-    node /app/server/index.js
+    exec node /app/server/index.js
 }
 
 run_collector() {
-  node /app/collector/index.js
+  exec node /app/collector/index.js
 }
 
 run_reader_worker() {
   cd /app/server/ &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
-    node /app/server/reader-worker.js
+    exec node /app/server/reader-worker.js
 }
 
 run_background_worker() {
   cd /app/server/ &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
-    node /app/server/background-worker.js
+    exec node /app/server/background-worker.js
 }
 
 run_realtime_gateway() {
   cd /app/server/ &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
-    node /app/server/realtime-gateway.js
+    exec node /app/server/realtime-gateway.js
+}
+
+child_pids=()
+
+stop_children() {
+  trap - TERM INT
+  for pid in "${child_pids[@]}"; do
+    kill -TERM "$pid" 2>/dev/null || true
+  done
+  for pid in "${child_pids[@]}"; do
+    wait "$pid" 2>/dev/null || true
+  done
 }
 
 case "${ATHENA_RUNTIME_ROLE:-monolith}" in
@@ -67,11 +79,16 @@ case "${ATHENA_RUNTIME_ROLE:-monolith}" in
     run_reader_worker
     ;;
   monolith|*)
+    trap stop_children TERM INT
     run_server &
+    child_pids+=("$!")
     if [ "${ATHENA_COLLECTOR_INLINE:-true}" != "false" ]; then
       run_collector &
+      child_pids+=("$!")
     fi
     wait -n
-    exit $?
+    status=$?
+    stop_children
+    exit "$status"
     ;;
 esac

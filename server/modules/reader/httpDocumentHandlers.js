@@ -4,6 +4,7 @@ const { recordClientTrustCheckpoint } = require("../../utils/clientIdentity");
 const accessGate = require("./accessGate");
 const documentCatalog = require("./documentCatalog");
 const documentsCore = require("./documentsCore");
+const ingestCore = require("./ingestCore");
 const pdfMedia = require("./pdfMedia");
 const postprocessPipeline = require("./postprocessPipeline");
 const readerLinks = require("./readerLinks");
@@ -79,12 +80,27 @@ async function metadataGet(request, response) {
     } else {
       assertReaderDocumentVisible(documentRoot, metadata);
     }
-    const content = includeContent
+    let content = includeContent
       ? documentsCore.readReaderJsonFile(documentRoot, "content.json", null, {
           readerDocumentId,
           endpoint: "get",
         })
       : null;
+    if (
+      includeContent &&
+      ingestCore.documentTypeFromMetadata(metadata) === "xlsx" &&
+      !content?.projection?.source
+    ) {
+      const originalPath = await documentsCore.originalPathForReaderDocument({
+        documentRoot,
+        metadata,
+      });
+      content = await ingestCore.xlsxContentProjection({
+        readerDocumentId,
+        originalPath,
+      });
+      documentsCore.writeReaderJsonFile(documentRoot, "content.json", content);
+    }
     const pdfManifest = pdfMedia.readOptionalReaderPdfManifest(
       documentRoot,
       readerDocumentId

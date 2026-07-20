@@ -1,7 +1,14 @@
 const path = require("path");
 const fs = require("fs");
-const { PrismaClient } = require("@prisma/client");
 const { databasePath } = require("../environment");
+const {
+  databaseProvider,
+  mainPostgresqlUrl,
+} = require("../database/databaseProvider");
+const {
+  installMigrationWriteBarrier,
+  installRawSqlDialectAdapter,
+} = require("../database/sqlDialect");
 
 // npx prisma introspect
 // npx prisma generate
@@ -20,25 +27,48 @@ function sqliteDatasourceUrl() {
   return url.toString();
 }
 
+const provider = databaseProvider();
+const { PrismaClient } =
+  provider === "postgresql"
+    ? require("../../generated/postgresql-main")
+    : require("@prisma/client");
+
+const datasourceUrl =
+  provider === "postgresql" ? mainPostgresqlUrl() : sqliteDatasourceUrl();
+
 const prisma = new PrismaClient({
   log: logLevels,
   datasources: {
     db: {
-      url: sqliteDatasourceUrl(),
+      url: datasourceUrl,
     },
   },
 });
+installRawSqlDialectAdapter(prisma);
+installMigrationWriteBarrier(prisma);
 
 const isJestRuntime = Boolean(process.env.JEST_WORKER_ID);
 
-if (process.env.NODE_ENV !== "test" && !isJestRuntime) {
-  (async () => {
-    await prisma.$queryRaw`PRAGMA journal_mode = WAL`;
-    await prisma.$queryRaw`PRAGMA synchronous = NORMAL`;
-    await prisma.$queryRaw`PRAGMA busy_timeout = 5000`;
-  })().catch((error) =>
-    console.warn("[Prisma] Failed to apply SQLite pragmas:", error.message)
-  );
-}
+const prismaReady =
+  process.env.NODE_ENV !== "test" && !isJestRuntime
+    ? (async () => {
+        if (provider === "postgresql") {
+          await prisma.$queryRaw`SELECT 1`;
+          return true;
+        }
+        await prisma.$queryRaw`PRAGMA journal_mode = WAL`;
+        await prisma.$queryRaw`PRAGMA synchronous = NORMAL`;
+        await prisma.$queryRaw`PRAGMA busy_timeout = 5000`;
+        return true;
+      })()
+    : Promise.resolve(true);
+
+prismaReady.catch((error) => {
+  console.error(`[Prisma] ${provider} startup check failed:`, error.message);
+  if (process.env.NODE_ENV === "production") process.exitCode = 1;
+});
+
+prisma.$prismaReady = prismaReady;
+prisma.$databaseProvider = provider;
 
 module.exports = prisma;

@@ -1,6 +1,9 @@
 const prisma = require("../utils/prisma");
 const {
-  rebuildChatCryptoChainForScope,
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
+const {
+  rebuildChatCryptoChainFromChatId,
 } = require("../utils/security/chatHistorySerialEncryption");
 const slugifyModule = require("slugify");
 const { v4: uuidv4 } = require("uuid");
@@ -8,14 +11,86 @@ const { resolveThreadChatModel } = require("../utils/chats/threadChatModel");
 const {
   threadHistoryFingerprint,
 } = require("../utils/chats/threadHistoryFingerprint");
+const { SyncV2 } = require("./syncV2");
+const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 
 const THREAD_TYPES = {
   chat: "chat",
   overview: "overview",
+  meeting: "meeting",
 };
 const THREAD_CREATED_FROM = {
   workspaceDefault: "workspace_default",
 };
+
+function threadSyncContent(thread = {}) {
+  const {
+    id,
+    workspace_id,
+    user_id,
+    slug,
+    name,
+    title,
+    titleVersion,
+    thread_type,
+    chatModel,
+    archivedAt,
+  } = thread;
+  return {
+    id,
+    workspace_id,
+    user_id,
+    slug,
+    name,
+    title,
+    titleVersion,
+    thread_type,
+    chatModel,
+    archivedAt,
+  };
+}
+
+async function workspaceThreadsIndexContent(tx, workspaceId, userId = null) {
+  return await tx.workspace_threads.findMany({
+    where: {
+      workspace_id: Number(workspaceId),
+      ...(userId
+        ? { OR: [{ user_id: Number(userId) }, { user_id: null }] }
+        : {}),
+    },
+    select: {
+      id: true,
+      slug: true,
+      name: true,
+      title: true,
+      thread_type: true,
+      chatModel: true,
+      archivedAt: true,
+    },
+    orderBy: { id: "asc" },
+  });
+}
+
+async function workspaceAudience(tx, workspaceId, fallbackUserId = null) {
+  const users = (
+    await tx.workspace_users.findMany({
+      where: { workspace_id: Number(workspaceId) },
+      select: { user_id: true },
+    })
+  ).map((row) => Number(row.user_id));
+  if (fallbackUserId) users.push(Number(fallbackUserId));
+  return [...new Set(users.filter((id) => id > 0))];
+}
+
+function workspaceThreadIndexChange(workspaceId, operation) {
+  return {
+    // A workspace thread index is projected per requesting user. Its event is
+    // therefore deliberately aggregate-only: private thread identifiers stay
+    // inside the authorized thread node and domain API.
+    changedPaths: ["threads"],
+    payloadHint: { workspaceId: Number(workspaceId), operation },
+  };
+}
 
 function placeholders(values = []) {
   return values.map(() => "?").join(",");
@@ -289,36 +364,70 @@ const WorkspaceThread = {
 
   new: async function (workspace, userId = null, data = {}) {
     try {
-      const thread = await prisma.workspace_threads.create({
-        data: {
-          ...(data.sourceActionId
-            ? { sourceActionId: String(data.sourceActionId) }
-            : {}),
-          name: data.name ? String(data.name) : this.defaultName,
-          slug: data.slug
-            ? this.slugify(data.slug, { lowercase: true })
-            : uuidv4(),
-          user_id: userId ? Number(userId) : null,
-          workspace_id: workspace.id,
-          chatModel: resolveThreadChatModel(workspace, data),
-          ...(data.parent_thread_id
-            ? { parent_thread_id: Number(data.parent_thread_id) }
-            : {}),
-          ...(data.thread_type
-            ? { thread_type: String(data.thread_type) }
-            : {}),
-          ...(data.created_from
-            ? { created_from: String(data.created_from) }
-            : {}),
-          ...(data.forked_at_message_id
-            ? { forked_at_message_id: Number(data.forked_at_message_id) }
-            : {}),
-          ...(data.forked_at ? { forked_at: data.forked_at } : {}),
-        },
-      });
+      const createData = {
+        ...(data.sourceActionId
+          ? { sourceActionId: String(data.sourceActionId) }
+          : {}),
+        name: data.name ? String(data.name) : this.defaultName,
+        slug: data.slug
+          ? this.slugify(data.slug, { lowercase: true })
+          : uuidv4(),
+        user_id: userId ? Number(userId) : null,
+        workspace_id: workspace.id,
+        chatModel: resolveThreadChatModel(workspace, data),
+        ...(data.parent_thread_id
+          ? { parent_thread_id: Number(data.parent_thread_id) }
+          : {}),
+        ...(data.thread_type ? { thread_type: String(data.thread_type) } : {}),
+        ...(data.created_from
+          ? { created_from: String(data.created_from) }
+          : {}),
+        ...(data.forked_at_message_id
+          ? { forked_at_message_id: Number(data.forked_at_message_id) }
+          : {}),
+        ...(data.forked_at ? { forked_at: data.forked_at } : {}),
+      };
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const thread = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const created = await tx.workspace_threads.create({
+              data: createData,
+            });
+            const audience = await workspaceAudience(tx, workspace.id, userId);
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.threadMetadata(created.id),
+              content: threadSyncContent(created),
+              eventType: "thread.created",
+              changedPaths: ["$"],
+              payloadHint: {
+                workspaceId: workspace.id,
+                workspaceSlug: workspace.slug,
+                threadId: created.id,
+                threadSlug: created.slug,
+              },
+              mutationId: data.sourceActionId || null,
+              audience,
+            });
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.workspaceThreadsIndex(workspace.id),
+              content: await workspaceThreadsIndexContent(
+                tx,
+                workspace.id,
+                userId
+              ),
+              eventType: "thread.index.updated",
+              ...workspaceThreadIndexChange(workspace.id, "add"),
+              mutationId: data.sourceActionId || null,
+              audience,
+            });
+            return created;
+          })
+        : await prisma.workspace_threads.create({ data: createData });
 
       return { thread: this.withDisplayTitle(thread), message: null };
     } catch (error) {
+      if (error?.code === "state_version_conflict") throw error;
       console.error(error.message);
       return { thread: null, message: error.message };
     }
@@ -402,7 +511,7 @@ const WorkspaceThread = {
     };
   },
 
-  update: async function (prevThread = null, data = {}) {
+  update: async function (prevThread = null, data = {}, syncContext = {}) {
     if (!prevThread) throw new Error("No thread id provided for update");
 
     if (this.isOverviewThread(prevThread)) {
@@ -433,12 +542,63 @@ const WorkspaceThread = {
     }
 
     try {
-      const thread = await prisma.workspace_threads.update({
-        where: { id: prevThread.id },
-        data: { ...validData, lastUpdatedAt: new Date() },
-      });
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const thread = syncReady
+        ? await prisma.$transaction(async (tx) => {
+            const nodeKey = nodeKeys.threadMetadata(prevThread.id);
+            const changedPaths =
+              syncContext.changedPaths || Object.keys(validData);
+            await SyncV2.assertMutationVersion(tx, {
+              nodeKey,
+              baseVersion: syncContext.baseVersion,
+              changedPaths,
+            });
+            const updated = await tx.workspace_threads.update({
+              where: { id: prevThread.id },
+              data: { ...validData, lastUpdatedAt: new Date() },
+            });
+            const audience = await workspaceAudience(
+              tx,
+              updated.workspace_id,
+              updated.user_id
+            );
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey,
+              content: threadSyncContent(updated),
+              eventType: "thread.updated",
+              changedPaths,
+              payloadHint: {
+                workspaceId: updated.workspace_id,
+                threadId: updated.id,
+                threadSlug: updated.slug,
+              },
+              originClientId: syncContext.originClientId,
+              mutationId: syncContext.mutationId,
+              audience,
+            });
+            await SyncV2.recordNodeChange(tx, {
+              nodeKey: nodeKeys.workspaceThreadsIndex(updated.workspace_id),
+              content: await workspaceThreadsIndexContent(
+                tx,
+                updated.workspace_id,
+                updated.user_id
+              ),
+              eventType: "thread.index.updated",
+              ...workspaceThreadIndexChange(updated.workspace_id, "update"),
+              originClientId: syncContext.originClientId,
+              mutationId: syncContext.mutationId,
+              audience,
+            });
+            return updated;
+          })
+        : await prisma.workspace_threads.update({
+            where: { id: prevThread.id },
+            data: { ...validData, lastUpdatedAt: new Date() },
+          });
       return { thread: this.withDisplayTitle(thread), message: null };
     } catch (error) {
+      if (error?.code === "state_version_conflict") throw error;
       console.error(error.message);
       return { thread: null, message: error.message };
     }
@@ -452,21 +612,188 @@ const WorkspaceThread = {
 
       return this.withDisplayTitle(thread) || null;
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("WorkspaceThread.get", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
   delete: async function (clause = {}) {
     try {
-      await prisma.workspace_threads.deleteMany({
+      const threads = await prisma.workspace_threads.findMany({
         where: clause,
+        select: { id: true, workspace_id: true },
+      });
+      for (const thread of threads) {
+        const chatIds = (
+          await prisma.workspace_chats.findMany({
+            where: {
+              workspaceId: thread.workspace_id,
+              thread_id: thread.id,
+            },
+            select: { id: true },
+          })
+        ).map((row) => row.id);
+        if (chatIds.length) {
+          const { WorkspaceCognition } = require("./workspaceCognition");
+          await WorkspaceCognition.cancelBufferedChats(
+            thread.workspace_id,
+            chatIds,
+            "thread_deleted"
+          );
+        }
+      }
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      if (!syncReady) {
+        await prisma.workspace_threads.deleteMany({ where: clause });
+        return true;
+      }
+      await prisma.$transaction(async (tx) => {
+        const deletedThreads = await tx.workspace_threads.findMany({
+          where: clause,
+        });
+        const audienceByWorkspace = new Map();
+        for (const thread of deletedThreads) {
+          if (!audienceByWorkspace.has(thread.workspace_id)) {
+            audienceByWorkspace.set(
+              thread.workspace_id,
+              await workspaceAudience(tx, thread.workspace_id, thread.user_id)
+            );
+          }
+        }
+        await tx.workspace_threads.deleteMany({ where: clause });
+        for (const thread of deletedThreads) {
+          const audience = audienceByWorkspace.get(thread.workspace_id) || [];
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.threadMetadata(thread.id),
+            content: { deleted: true },
+            deletedAt: new Date(),
+            eventType: "thread.deleted",
+            changedPaths: ["$delete"],
+            payloadHint: {
+              workspaceId: thread.workspace_id,
+              threadId: thread.id,
+              threadSlug: thread.slug,
+            },
+            audience,
+          });
+        }
+        for (const [workspaceId, audience] of audienceByWorkspace.entries()) {
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceThreadsIndex(workspaceId),
+            content: await workspaceThreadsIndexContent(tx, workspaceId),
+            eventType: "thread.index.updated",
+            ...workspaceThreadIndexChange(workspaceId, "delete"),
+            audience,
+          });
+        }
       });
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspaceThread.delete", error);
     }
+  },
+
+  archive: async function (thread = null, userId = null) {
+    if (!thread?.id || this.isOverviewThread(thread)) return null;
+    const syncReady =
+      SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+    const archived = syncReady
+      ? await prisma.$transaction(async (tx) => {
+          const updated = await tx.workspace_threads.update({
+            where: { id: Number(thread.id) },
+            data: { archivedAt: new Date(), lastUpdatedAt: new Date() },
+          });
+          const audience = await workspaceAudience(
+            tx,
+            updated.workspace_id,
+            updated.user_id
+          );
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.threadMetadata(updated.id),
+            content: threadSyncContent(updated),
+            eventType: "thread.archived",
+            changedPaths: ["archivedAt"],
+            payloadHint: {
+              workspaceId: updated.workspace_id,
+              threadId: updated.id,
+              threadSlug: updated.slug,
+            },
+            audience,
+          });
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceThreadsIndex(updated.workspace_id),
+            content: await workspaceThreadsIndexContent(
+              tx,
+              updated.workspace_id,
+              updated.user_id
+            ),
+            eventType: "thread.index.updated",
+            ...workspaceThreadIndexChange(updated.workspace_id, "archive"),
+            audience,
+          });
+          return updated;
+        })
+      : await prisma.workspace_threads.update({
+          where: { id: Number(thread.id) },
+          data: { archivedAt: new Date(), lastUpdatedAt: new Date() },
+        });
+    const { WorkspaceCognition } = require("./workspaceCognition");
+    await WorkspaceCognition.requestFlush({
+      workspaceId: archived.workspace_id,
+      threadId: archived.id,
+      userId,
+      reason: "archive",
+    });
+    return this.withDisplayTitle(archived);
+  },
+
+  restore: async function (thread = null) {
+    if (!thread?.id) return null;
+    const syncReady =
+      SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+    const restored = syncReady
+      ? await prisma.$transaction(async (tx) => {
+          const updated = await tx.workspace_threads.update({
+            where: { id: Number(thread.id) },
+            data: { archivedAt: null, lastUpdatedAt: new Date() },
+          });
+          const audience = await workspaceAudience(
+            tx,
+            updated.workspace_id,
+            updated.user_id
+          );
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.threadMetadata(updated.id),
+            content: threadSyncContent(updated),
+            eventType: "thread.restored",
+            changedPaths: ["archivedAt"],
+            payloadHint: {
+              workspaceId: updated.workspace_id,
+              threadId: updated.id,
+              threadSlug: updated.slug,
+            },
+            audience,
+          });
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceThreadsIndex(updated.workspace_id),
+            content: await workspaceThreadsIndexContent(
+              tx,
+              updated.workspace_id,
+              updated.user_id
+            ),
+            eventType: "thread.index.updated",
+            ...workspaceThreadIndexChange(updated.workspace_id, "restore"),
+            audience,
+          });
+          return updated;
+        })
+      : await prisma.workspace_threads.update({
+          where: { id: Number(thread.id) },
+          data: { archivedAt: null, lastUpdatedAt: new Date() },
+        });
+    return this.withDisplayTitle(restored);
   },
 
   moveToWorkspace: async function ({
@@ -498,7 +825,9 @@ const WorkspaceThread = {
 
     try {
       await ensureThreadMoveTables();
-      return await prisma.$transaction(async (tx) => {
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      const result = await prisma.$transaction(async (tx) => {
         const sourceThread = await tx.workspace_threads.findFirst({
           where: {
             id: threadId,
@@ -517,9 +846,24 @@ const WorkspaceThread = {
             workspaceId: sourceWorkspaceId,
             thread_id: threadId,
           },
-          select: { id: true },
+          select: { id: true, user_id: true, api_session_id: true },
         });
         const chatIds = chatRows.map((row) => Number(row.id));
+        const movedChatScopes = new Map();
+        for (const row of chatRows) {
+          const key = JSON.stringify({
+            userId: row.user_id ?? null,
+            apiSessionId: row.api_session_id ?? null,
+          });
+          const current = movedChatScopes.get(key);
+          if (!current || Number(row.id) < current.startChatId) {
+            movedChatScopes.set(key, {
+              userId: row.user_id ?? null,
+              apiSessionId: row.api_session_id ?? null,
+              startChatId: Number(row.id),
+            });
+          }
+        }
         const quizAttemptIds = await quizAttemptIdsForChatIds(
           tx,
           sourceWorkspaceId,
@@ -551,26 +895,38 @@ const WorkspaceThread = {
             lastUpdatedAt: new Date(),
           },
         });
+        if (tx.workspace_cognitive_turn_buffer?.updateMany) {
+          await tx.workspace_cognitive_turn_buffer.updateMany({
+            where: {
+              workspaceId: sourceWorkspaceId,
+              threadId,
+              status: { in: ["pending", "claimed"] },
+            },
+            data: { workspaceId: targetWorkspaceId },
+          });
+          await tx.workspace_cognitive_extraction_jobs.updateMany({
+            where: {
+              workspaceId: sourceWorkspaceId,
+              threadId,
+              status: { in: ["pending", "running", "retry_wait", "failed"] },
+            },
+            data: { workspaceId: targetWorkspaceId },
+          });
+          await tx.workspace_cognitive_thread_state.updateMany({
+            where: { workspaceId: sourceWorkspaceId, threadId },
+            data: { workspaceId: targetWorkspaceId, pausedAt: null },
+          });
+        }
 
-        const movedChatScopes = await tx.workspace_chats.findMany({
-          where: {
-            workspaceId: targetWorkspaceId,
-            thread_id: threadId,
-          },
-          select: {
-            user_id: true,
-            api_session_id: true,
-          },
-          distinct: ["user_id", "api_session_id"],
-        });
-        for (const scope of movedChatScopes) {
-          await rebuildChatCryptoChainForScope(
+        for (const scope of movedChatScopes.values()) {
+          await rebuildChatCryptoChainFromChatId(
             {
               workspaceId: targetWorkspaceId,
-              userId: scope.user_id ?? null,
+              userId: scope.userId,
               threadId,
-              apiSessionId: scope.api_session_id ?? null,
+              apiSessionId: scope.apiSessionId,
             },
+            scope.startChatId,
             { client: tx, reencrypt: true }
           );
         }
@@ -613,12 +969,64 @@ const WorkspaceThread = {
           attemptIds: quizAttemptIds,
         });
 
+        if (syncReady) {
+          const sourceAudience = await workspaceAudience(
+            tx,
+            sourceWorkspaceId,
+            sourceThread.user_id
+          );
+          const targetAudience = await workspaceAudience(
+            tx,
+            targetWorkspaceId,
+            sourceThread.user_id
+          );
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.threadMetadata(updatedThread.id),
+            content: threadSyncContent(updatedThread),
+            eventType: "thread.moved",
+            changedPaths: ["workspace_id"],
+            payloadHint: {
+              threadId: updatedThread.id,
+              threadSlug: updatedThread.slug,
+              sourceWorkspaceId,
+              targetWorkspaceId,
+            },
+            audience: [...new Set([...sourceAudience, ...targetAudience])],
+          });
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceThreadsIndex(sourceWorkspaceId),
+            content: await workspaceThreadsIndexContent(tx, sourceWorkspaceId),
+            eventType: "thread.index.updated",
+            ...workspaceThreadIndexChange(sourceWorkspaceId, "move-out"),
+            audience: sourceAudience,
+          });
+          await SyncV2.recordNodeChange(tx, {
+            nodeKey: nodeKeys.workspaceThreadsIndex(targetWorkspaceId),
+            content: await workspaceThreadsIndexContent(tx, targetWorkspaceId),
+            eventType: "thread.index.updated",
+            ...workspaceThreadIndexChange(targetWorkspaceId, "move-in"),
+            audience: targetAudience,
+          });
+        }
+
         return {
           thread: this.withDisplayTitle(updatedThread),
           message: null,
           movedChatCount: movedChats.count || 0,
+          movedChatIds: chatIds,
         };
       });
+      if (result?.movedChatIds?.length) {
+        const { WorkspaceCognition } = require("./workspaceCognition");
+        await WorkspaceCognition.appendEvidenceEventsForSources({
+          workspaceId: sourceWorkspaceId,
+          chatIds: result.movedChatIds,
+          eventType: "review_required",
+          reason: "source_thread_moved_workspace",
+        });
+      }
+      const { movedChatIds: _movedChatIds, ...publicResult } = result;
+      return publicResult;
     } catch (error) {
       console.error(error.message);
       return { thread: null, message: error.message };
@@ -640,8 +1048,9 @@ const WorkspaceThread = {
       });
       return results.map((thread) => this.withDisplayTitle(thread));
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("WorkspaceThread.where", error, {
+        hasClause: Object.keys(clause || {}).length > 0,
+      });
     }
   },
 
@@ -661,8 +1070,10 @@ const WorkspaceThread = {
       });
       return result.count > 0;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError(
+        "workspaceThread.markTitleGenerationPending",
+        error
+      );
     }
   },
 
@@ -682,8 +1093,10 @@ const WorkspaceThread = {
       });
       return result.count > 0;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError(
+        "workspaceThread.markTitleGenerationFailed",
+        error
+      );
     }
   },
 
@@ -696,28 +1109,72 @@ const WorkspaceThread = {
   } = {}) {
     if (!threadId || !title || !titleMessageScope) return null;
     try {
-      const result = await prisma.workspace_threads.updateMany({
-        where: {
-          id: Number(threadId),
-          OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
-        },
-        data: {
-          name: String(title),
-          title: String(title),
-          titleSource,
-          titleHash,
-          titleMessageScope,
-          titleGenerationStatus: "idle",
-          titleGeneratedAt: new Date(),
-          titleVersion: { increment: 1 },
-          lastUpdatedAt: new Date(),
-        },
+      const where = {
+        id: Number(threadId),
+        OR: [{ titleSource: null }, { titleSource: { not: "manual" } }],
+      };
+      const data = {
+        name: String(title),
+        title: String(title),
+        titleSource,
+        titleHash,
+        titleMessageScope,
+        titleGenerationStatus: "idle",
+        titleGeneratedAt: new Date(),
+        titleVersion: { increment: 1 },
+        lastUpdatedAt: new Date(),
+      };
+      const syncReady =
+        SyncV2.enabled("workspace") && (await SyncV2.schemaReady());
+      if (!syncReady) {
+        const result = await prisma.workspace_threads.updateMany({
+          where,
+          data,
+        });
+        if (result.count === 0) return null;
+        return await this.get({ id: Number(threadId) });
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const result = await tx.workspace_threads.updateMany({ where, data });
+        if (result.count === 0) return null;
+        const thread = await tx.workspace_threads.findUnique({
+          where: { id: Number(threadId) },
+        });
+        if (!thread) return null;
+        const audience = await workspaceAudience(
+          tx,
+          thread.workspace_id,
+          thread.user_id
+        );
+        await SyncV2.recordNodeChange(tx, {
+          nodeKey: nodeKeys.threadMetadata(thread.id),
+          content: threadSyncContent(thread),
+          eventType: "thread.title.updated",
+          changedPaths: ["name", "title", "titleVersion"],
+          payloadHint: {
+            workspaceId: thread.workspace_id,
+            threadId: thread.id,
+            threadSlug: thread.slug,
+            title: thread.title,
+          },
+          audience,
+        });
+        await SyncV2.recordNodeChange(tx, {
+          nodeKey: nodeKeys.workspaceThreadsIndex(thread.workspace_id),
+          content: await workspaceThreadsIndexContent(
+            tx,
+            thread.workspace_id,
+            thread.user_id
+          ),
+          eventType: "thread.index.updated",
+          ...workspaceThreadIndexChange(thread.workspace_id, "title"),
+          audience,
+        });
+        return thread;
       });
-      if (result.count === 0) return null;
-      return await this.get({ id: Number(threadId) });
+      return this.withDisplayTitle(updated);
     } catch (error) {
-      console.error(error.message);
-      return null;
+      throwModelDataAccessError("workspaceThread.updateAutomaticTitle", error);
     }
   },
 };
@@ -729,4 +1186,7 @@ function threadLatestTime(thread = null) {
   return Number.isFinite(time) ? time : 0;
 }
 
-module.exports = { WorkspaceThread };
+module.exports = {
+  WorkspaceThread,
+  _internals: { workspaceThreadIndexChange },
+};

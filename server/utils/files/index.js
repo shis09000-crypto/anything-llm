@@ -12,10 +12,10 @@ const {
 const documentsPath = storagePath("documents");
 const directUploadsPath = storagePath("direct-uploads");
 const vectorCachePath = storagePath("vector-cache");
-const hotdirPath =
-  process.env.NODE_ENV === "development"
-    ? path.resolve(__dirname, `../../../collector/hotdir`)
-    : path.resolve(process.env.STORAGE_DIR, `../../collector/hotdir`);
+// The Collector is a sibling of server in source and container layouts. Do not
+// derive this path from STORAGE_DIR: environment-scoped storage adds an extra
+// development/production segment and can otherwise point at server/collector.
+const hotdirPath = path.resolve(__dirname, "../../../collector/hotdir");
 
 function getDataAccessCenter() {
   return require("../dataAccess").DataAccessCenter;
@@ -282,6 +282,7 @@ function readDocumentJsonFile(filePath) {
     FileStorageProvider.readFilePath(filePath, "utf8"),
     {
       domain: "source-document",
+      resource: filePath,
     }
   );
 }
@@ -299,6 +300,7 @@ function readVectorCacheJsonFile(filePath) {
     FileStorageProvider.readFilePath(filePath, "utf8"),
     {
       domain: "vector-cache",
+      resource: filePath,
     }
   );
 }

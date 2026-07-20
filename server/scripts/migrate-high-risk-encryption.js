@@ -1,25 +1,11 @@
 #!/usr/bin/env node
-process.env.NODE_ENV ||= "development";
+const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 
-const path = require("path");
-const envPath =
-  process.env.NODE_ENV === "development"
-    ? `.env.${process.env.NODE_ENV}`
-    : process.env.DESKTOP_ENV_PATH || ".env";
-require("dotenv").config({ path: path.join(__dirname, "..", envPath) });
-
-const { applyEnvironmentStorage } = require("../utils/environment");
-applyEnvironmentStorage();
-
-const prisma = require("../utils/prisma");
-const {
-  MASTER_KEY_ENV,
-  isEncryptedSecret,
-  saveSecret,
-} = require("../utils/security");
-const {
-  _private: { hashTemporaryAuthToken },
-} = require("../models/temporaryAuthToken");
+let hashTemporaryAuthToken;
+let isEncryptedSecret;
+let prisma;
+let resolveActiveKey;
+let saveSecret;
 
 const MASKED_MEMORY_TEXT = "••••••••";
 const TEMP_AUTH_TOKEN_HASH_PREFIX = "sha256:v1:";
@@ -29,7 +15,11 @@ function hasArg(name) {
 }
 
 function encryptionReady() {
-  return Boolean(String(process.env[MASTER_KEY_ENV] || "").trim());
+  try {
+    return Boolean(resolveActiveKey());
+  } catch {
+    return false;
+  }
 }
 
 function encryptValue(value = null) {
@@ -259,10 +249,30 @@ async function sanitizeSensitiveMemoryArchives({ apply }) {
 }
 
 async function main() {
-  const apply = hasArg("--apply");
+  const requestedApply = hasArg("--apply");
+  const execute = hasArg("--execute");
+  const apply = requestedApply && execute;
+  await bootstrapCliRuntime({
+    access: apply ? "write" : "read",
+    execute,
+    requiredTables: [
+      "system_prompt_variables",
+      "system_settings",
+      "workspace_chat_compactions",
+      "temporary_auth_tokens",
+      "user_memory_archives",
+      "_prisma_migrations",
+    ],
+  });
+  prisma = require("../utils/prisma");
+  ({ isEncryptedSecret, saveSecret } = require("../utils/security"));
+  ({ resolveActiveKey } = require("../utils/security/keyCustody"));
+  ({
+    _private: { hashTemporaryAuthToken },
+  } = require("../models/temporaryAuthToken"));
   if (apply && !encryptionReady()) {
     throw new Error(
-      `${MASTER_KEY_ENV} is required to apply high-risk encryption migration.`
+      "A valid Athena Key Custody provider is required to apply high-risk encryption migration."
     );
   }
 
@@ -302,6 +312,12 @@ async function main() {
         encryptionReady: encryptionReady(),
         generatedAt: new Date().toISOString(),
         results,
+        ...(requestedApply && !execute
+          ? {
+              instruction:
+                "Apply requires --apply --execute and APP_ENV or --env.",
+            }
+          : {}),
       },
       null,
       2
@@ -322,5 +338,5 @@ main()
     process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect?.().catch(() => null);
+    await prisma?.$disconnect?.().catch(() => null);
   });

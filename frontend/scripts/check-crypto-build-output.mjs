@@ -93,6 +93,13 @@ function classifyAcceptedEvalRisk(file, content) {
     accepted.push("onnxruntime-web wasm/runtime");
   }
   if (
+    content.includes("opaque_bg.js") &&
+    content.includes("__wbg_new_no_args_1c7c842f08d00ebb") &&
+    content.includes("__wbg_msCrypto_d562bbe83e0d4b91")
+  ) {
+    accepted.push("@serenity-kit/opaque wasm-bindgen runtime");
+  }
+  if (
     file.startsWith("EpubReader-") &&
     content.includes("setImmediate") &&
     content.includes("process.nextTick")

@@ -524,6 +524,7 @@ async function generateQuiz({
     questions: firstResult.questions,
   });
   const { chat, message: chatError } = await WorkspaceChats.new({
+    sourceChannel: "system",
     workspaceId: workspace.id,
     prompt: message,
     response: responseForQuiz(initialQuiz),

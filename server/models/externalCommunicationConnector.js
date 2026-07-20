@@ -1,3 +1,6 @@
+const {
+  throwModelDataAccessError,
+} = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
 const { safeJsonParse } = require("../utils/http");
 
@@ -21,8 +24,7 @@ const ExternalCommunicationConnector = {
         config: safeJsonParse(connector.config, {}),
       };
     } catch (error) {
-      console.error("ExternalCommunicationConnector.get", error.message);
-      return null;
+      throwModelDataAccessError("externalCommunicationConnector.get", error);
     }
   },
 
@@ -101,8 +103,7 @@ const ExternalCommunicationConnector = {
       });
       return true;
     } catch (error) {
-      console.error("ExternalCommunicationConnector.delete", error.message);
-      return false;
+      throwModelDataAccessError("externalCommunicationConnector.delete", error);
     }
   },
 };

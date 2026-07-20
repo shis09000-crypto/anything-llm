@@ -52,7 +52,9 @@ function quizEndpoints(app) {
         response.status(200).json(result);
       } catch (error) {
         console.error("[Quiz] generate endpoint failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -94,7 +96,9 @@ function quizEndpoints(app) {
         response.status(result.success ? 200 : 409).json(result);
       } catch (error) {
         console.error("[Quiz] submit endpoint failed", error);
-        response.status(500).json({ success: false, error: error.message });
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );

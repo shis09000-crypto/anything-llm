@@ -2,6 +2,7 @@
 /* global console, process, TextEncoder, fetch, window, indexedDB */
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
+import { Buffer } from "node:buffer";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -83,6 +84,7 @@ const password =
   process.env.ATHENA_TEST_PASSWORD ||
   process.env.PASSWORD ||
   "";
+const suppliedToken = argValue("token") || process.env.ATHENA_TEST_TOKEN || "";
 const outPath = argValue("out");
 const headless = argValue("headed", "false") !== "true";
 const executablePath = argValue("executable-path");
@@ -140,6 +142,24 @@ function safeJson(raw, fallback = null) {
   return fallback;
 }
 
+function userFromSuppliedToken(token) {
+  try {
+    const payload = JSON.parse(
+      Buffer.from(String(token).split(".")[1] || "", "base64url").toString(
+        "utf8"
+      )
+    );
+    return {
+      id: payload.id || payload.userId || null,
+      authUserId: payload.authUserId || null,
+      username: payload.username || "storage-audit",
+      role: payload.role || "default",
+    };
+  } catch {
+    return { username: "storage-audit", role: "default" };
+  }
+}
+
 function isEmptyObject(value) {
   return (
     value &&
@@ -191,6 +211,20 @@ function summarizeStorage(entries = {}) {
 }
 
 async function loginInBrowser(page) {
+  if (suppliedToken) {
+    const data = {
+      valid: true,
+      token: suppliedToken,
+      user: userFromSuppliedToken(suppliedToken),
+    };
+    await page.evaluate(({ token, user }) => {
+      window.localStorage.removeItem("anythingllm_authToken");
+      window.localStorage.removeItem("anythingllm_user");
+      window.sessionStorage.setItem("anythingllm_authToken", token);
+      window.sessionStorage.setItem("anythingllm_user", JSON.stringify(user));
+    }, data);
+    return data;
+  }
   if (!email || !password) {
     if (allowUnauthenticated) return null;
     throw new Error(

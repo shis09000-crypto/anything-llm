@@ -21,7 +21,7 @@ function utilEndpoints(app) {
       response.status(200).json(metrics);
     } catch (e) {
       console.error(e);
-      response.sendStatus(500).end();
+      response.sendStatus(e.httpStatus || 500).end();
     }
   });
 

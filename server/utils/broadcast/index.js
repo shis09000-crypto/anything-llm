@@ -4,6 +4,7 @@ const {
   broadcastTransportSummary,
   ensureBroadcastTransportSupported,
 } = require("./transportRegistry");
+const { BroadcastTransport } = require("./broadcastTransport");
 const { DataAccessCenter } = require("../dataAccess");
 const { enqueueSyncPush } = require("../nativePush/apnsProvider");
 
@@ -45,6 +46,8 @@ const counters = {
 };
 let lastTransportWarningAt = 0;
 let durableCommitQueue = Promise.resolve();
+let transportStartPromise = null;
+const committedEventIds = new Map();
 
 function normalizeNumber(value = null) {
   if (value === null || value === undefined || value === "") return null;
@@ -222,6 +225,15 @@ function normalizeBroadcastEvent(event = {}) {
     eventPriority,
     version: normalizeNumber(event.version ?? event.revision) || Date.now(),
     revision: normalizeNumber(event.revision ?? event.version) || null,
+    seq: normalizeNumber(event.seq ?? event.payload?.syncV2?.seq),
+    nodeKey: event.nodeKey || event.payload?.syncV2?.nodeKey || null,
+    stateVersion:
+      normalizeNumber(
+        event.stateVersion ?? event.payload?.syncV2?.stateVersion
+      ) || null,
+    hash: event.hash || event.payload?.syncV2?.hash || null,
+    updatedAt:
+      event.updatedAt || event.payload?.syncV2?.updatedAt || event.createdAt,
     createdAt: event.createdAt || new Date().toISOString(),
     sourceClientId:
       event.sourceClientId || event.origin?.clientId || event.clientId || null,
@@ -393,7 +405,19 @@ function fanout(event) {
   }
 }
 
+function pruneCommittedEventIds() {
+  const cutoff = Date.now() - EVENT_STORE_TTL_MS;
+  for (const [eventId, committedAt] of committedEventIds.entries()) {
+    if (committedAt >= cutoff) break;
+    committedEventIds.delete(eventId);
+  }
+}
+
 function commitLiveEvent(event) {
+  if (!event?.eventId) return null;
+  pruneCommittedEventIds();
+  if (committedEventIds.has(event.eventId)) return event;
+  committedEventIds.set(event.eventId, Date.now());
   pruneEventStore();
   eventStore.push(event);
   counters.published += 1;
@@ -403,17 +427,45 @@ function commitLiveEvent(event) {
   return event;
 }
 
+async function publishToSharedTransport(event) {
+  if (broadcastTransportSummary().selected !== "nats") return null;
+  return BroadcastTransport.publish(event);
+}
+
+function ensureTransportSubscription() {
+  if (broadcastTransportSummary().selected !== "nats") return null;
+  if (transportStartPromise) return transportStartPromise;
+  transportStartPromise = BroadcastTransport.start(async (event) => {
+    commitLiveEvent(event);
+  }).catch((error) => {
+    counters.transportErrors += 1;
+    transportStartPromise = null;
+    console.error("[BroadcastCenter] shared transport start failed", {
+      code: error?.code || error?.message || "transport_start_failed",
+    });
+    throw error;
+  });
+  return transportStartPromise;
+}
+
+function shouldPersistDurableEvents(env = process.env) {
+  if (env.ATHENA_SYNC_EVENT_TEST_PERSIST === "true") return true;
+  // Endpoint tests may intentionally exercise production branches. Jest's
+  // worker marker remains the authoritative test-runtime signal in that case.
+  if (env.JEST_WORKER_ID !== undefined) return false;
+  return env.NODE_ENV !== "test";
+}
+
 function commitEvent(event) {
-  if (
-    process.env.NODE_ENV === "test" &&
-    process.env.ATHENA_SYNC_EVENT_TEST_PERSIST !== "true"
-  ) {
+  if (!shouldPersistDurableEvents()) {
     return commitLiveEvent(event);
   }
   durableCommitQueue = durableCommitQueue
     .then(async () => {
       const persisted = await SyncEvent.persist(event);
-      commitLiveEvent(persisted || event);
+      const committed = persisted || event;
+      await publishToSharedTransport(committed);
+      commitLiveEvent(committed);
     })
     .catch((error) => {
       counters.persistenceErrors += 1;
@@ -426,8 +478,36 @@ function commitEvent(event) {
   return event;
 }
 
+async function commitEventDurably(event) {
+  if (!shouldPersistDurableEvents()) {
+    await publishToSharedTransport(event);
+    return commitLiveEvent(event);
+  }
+  try {
+    const persisted = await SyncEvent.persist(event);
+    const committed = persisted || event;
+    await publishToSharedTransport(committed);
+    return commitLiveEvent(committed);
+  } catch (error) {
+    counters.persistenceErrors += 1;
+    console.error("[BroadcastCenter] durable event persistence failed", {
+      eventId: event.eventId,
+      type: event.type,
+      code: error?.code || "persistence_failed",
+    });
+    throw error;
+  }
+}
+
 async function flushDurableCommits() {
   await durableCommitQueue;
+}
+
+async function drainBroadcastEvents() {
+  for (const key of [...pendingCoalesced.keys()]) flushCoalesced(key);
+  await flushDurableCommits();
+  await BroadcastTransport.drain();
+  transportStartPromise = null;
 }
 
 function flushCoalesced(key) {
@@ -478,7 +558,38 @@ function publishBroadcastEvent(event = {}, options = {}) {
   return normalized;
 }
 
+/**
+ * Publish an event only after its durable replay record has committed. This is
+ * intentionally separate from the legacy non-blocking publisher: transactional
+ * Outbox dispatchers need an acknowledgement boundary, while ordinary visual
+ * broadcasts must retain their existing latency and coalescing behaviour.
+ */
+async function publishBroadcastEventDurably(event = {}, options = {}) {
+  const transport = ensureBroadcastTransportSupported();
+  if (!transport.ok) {
+    counters.transportErrors += 1;
+    const error = new Error(
+      transport.warning || "broadcast transport unavailable"
+    );
+    error.code = transport.code || "BROADCAST_TRANSPORT_NOT_IMPLEMENTED";
+    throw error;
+  }
+  const normalized = normalizeBroadcastEvent(event);
+  if (!normalized) {
+    const error = new Error("invalid_broadcast_event");
+    error.code = "INVALID_BROADCAST_EVENT";
+    throw error;
+  }
+  if (options.coalesce !== false) {
+    const error = new Error("durable_publish_requires_non_coalesced_event");
+    error.code = "DURABLE_PUBLISH_REQUIRES_NON_COALESCED_EVENT";
+    throw error;
+  }
+  return await commitEventDurably(normalized);
+}
+
 function subscribeToBroadcastEvents(handler) {
+  void ensureTransportSubscription()?.catch(() => null);
   broadcastEvents.on(BROADCAST_EVENT, handler);
   return () => broadcastEvents.off(BROADCAST_EVENT, handler);
 }
@@ -580,6 +691,7 @@ function registerConnection({
   clientId = null,
   platform = null,
 } = {}) {
+  void ensureTransportSubscription()?.catch(() => null);
   const id = connectionId();
   const connection = {
     id,
@@ -612,6 +724,17 @@ function removeConnection(connection) {
 }
 
 const broadcastCenter = {
+  async startSharedTransport() {
+    await ensureTransportSubscription();
+    return BroadcastTransport.health();
+  },
+
+  async drainSharedTransport() {
+    await BroadcastTransport.drain();
+    transportStartPromise = null;
+    return true;
+  },
+
   subscribe(connection, scopes = []) {
     if (!connection) return [];
     const normalized = (Array.isArray(scopes) ? scopes : [scopes])
@@ -630,6 +753,22 @@ const broadcastCenter = {
       .filter(Boolean);
     normalized.forEach((subscription) =>
       connection.subscriptions.delete(subscriptionKey(subscription))
+    );
+    return [...connection.subscriptions.values()];
+  },
+
+  replaceSubscriptions(connection, scopes = []) {
+    if (!connection) return [];
+    const defaults = defaultSubscriptions({ clientId: connection.clientId });
+    const normalized = [
+      ...defaults,
+      ...(Array.isArray(scopes) ? scopes : [scopes]),
+    ]
+      .map(normalizeSubscription)
+      .filter(Boolean);
+    connection.subscriptions.clear();
+    normalized.forEach((subscription) =>
+      connection.subscriptions.set(subscriptionKey(subscription), subscription)
     );
     return [...connection.subscriptions.values()];
   },
@@ -656,6 +795,7 @@ const broadcastCenter = {
   snapshot() {
     return {
       transport: broadcastTransportSummary(),
+      transportHealth: BroadcastTransport.health(),
       connections: connections.size,
       eventStoreSize: eventStore.length,
       pendingCoalesced: pendingCoalesced.size,
@@ -675,6 +815,7 @@ const broadcastCenter = {
 
 module.exports = {
   publishBroadcastEvent,
+  publishBroadcastEventDurably,
   subscribeToBroadcastEvents,
   replayBroadcastEvents,
   replayDurableBroadcastEvents,
@@ -686,11 +827,16 @@ module.exports = {
     mergeEvents,
     flushCoalesced,
     flushDurableCommits,
+    drainBroadcastEvents,
+    shouldPersistDurableEvents,
     commitLiveEvent,
+    commitEventDurably,
     broadcastEvents,
     pendingCoalesced,
     eventStore,
     connections,
+    committedEventIds,
+    ensureTransportSubscription,
     connectionSubscribedToEvent,
     broadcastTransportSummary,
   },

@@ -155,8 +155,8 @@ function tradeTimestampMs(trade) {
     : Math.floor(number * 1000);
 }
 
-function normalizeWindow({ from, to, cursorTs }) {
-  const nowSec = Math.floor(Date.now() / 1000);
+function normalizeWindow({ from, to, cursorTs, nowMs = Date.now() }) {
+  const nowSec = Math.floor(nowMs / 1000);
   const defaultFrom = nowSec - DEFAULT_WINDOW_DAYS * 24 * 60 * 60;
   const fromSec = clampInteger(from, defaultFrom, 0, nowSec);
   const rawToSec = clampInteger(to, nowSec, fromSec, nowSec);
@@ -1168,10 +1168,12 @@ class GateTradeRecordsService {
     restClientFactory = () => new GateRestClient(),
     wsManager = cryptoGateWsManager,
     cycleMemoryStore = new SystemSettingsTradeCycleMemoryStore(),
+    now = () => Date.now(),
   } = {}) {
     this.restClientFactory = restClientFactory;
     this.wsManager = wsManager;
     this.cycleMemoryStore = cycleMemoryStore;
+    this.now = now;
     this.subscribers = new Map();
     this.unsubscribePrivateEvents = null;
     this.futuresContractDetails = new Map();
@@ -1185,6 +1187,7 @@ class GateTradeRecordsService {
     limit = DEFAULT_BATCH_LIMIT,
     debugFeeFields = false,
   } = {}) {
+    const nowMs = this.now();
     const batchLimit = clampInteger(
       limit,
       DEFAULT_BATCH_LIMIT,
@@ -1195,6 +1198,7 @@ class GateTradeRecordsService {
       from,
       to,
       cursorTs,
+      nowMs,
     });
     const client = this.restClientFactory();
     const [spotResult, futuresResult, positionsResult] =
@@ -1375,7 +1379,7 @@ class GateTradeRecordsService {
 
     return {
       success: true,
-      asOf: Date.now(),
+      asOf: nowMs,
       exchange: "gate",
       marketType: "all",
       settle: DEFAULT_SETTLE,

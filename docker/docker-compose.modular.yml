@@ -15,9 +15,12 @@ services:
         ARG_UID: ${UID:-1000}
         ARG_GID: ${GID:-1000}
     depends_on:
-      - anything-llm-collector
-    cap_add:
-      - SYS_ADMIN
+      anything-llm-collector:
+        condition: service_healthy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     volumes:
       - "./.env:/app/server/.env"
       - "../server/storage:/app/server/storage"
@@ -139,8 +142,16 @@ services:
       args:
         ARG_UID: ${UID:-1000}
         ARG_GID: ${GID:-1000}
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,size=1g
     volumes:
       - "./.env:/app/server/.env"
+      - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
     user: "${UID:-1000}:${GID:-1000}"
@@ -149,5 +160,6 @@ services:
     environment:
       ATHENA_RUNTIME_ROLE: collector
       COLLECTOR_PORT: 8888
+      HOME: /tmp/collector-home
     networks:
       - anything-llm

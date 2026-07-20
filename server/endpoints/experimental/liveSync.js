@@ -58,7 +58,7 @@ function liveSyncEndpoints(app) {
         response.status(200).json({ liveSyncEnabled: newStatus === "enabled" });
       } catch (e) {
         console.error(e);
-        response.status(500).end();
+        response.status(e.httpStatus || 500).end();
       }
     }
   );
@@ -111,7 +111,7 @@ function liveSyncEndpoints(app) {
         return response.status(200).end();
       } catch (error) {
         console.error("Error processing the watch status update:", error);
-        return response.status(500).end();
+        return response.status(error.httpStatus || 500).end();
       }
     }
   );

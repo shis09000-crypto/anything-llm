@@ -25,6 +25,7 @@ import { BLOB_KINDS, requestBlob } from "@/lib/communication/blobClient";
 import defaultWorkspaceHeroBg from "@/media/overview/default-workspace-hero-bg.webp";
 import defaultNodeFocusBg from "@/media/overview/default-node-focus-bg.webp";
 import { useTranslation } from "react-i18next";
+import CognitiveCenter from "./CognitiveCenter";
 
 const OVERVIEW_CACHE_TTL_MS = 60_000;
 const HERO_BACKGROUND_MAX_BYTES = 5 * 1024 * 1024;
@@ -777,6 +778,8 @@ export default function WorkspaceOverview({
             applyHeroBackgroundAsset(asset);
           }}
         />
+
+        <CognitiveCenter workspace={workspace} threadSlug={threadSlug} />
 
         <div className="mt-5 grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
           <main className="min-w-0 space-y-5">

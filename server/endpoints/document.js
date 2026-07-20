@@ -75,7 +75,7 @@ function documentEndpoints(app) {
         response.status(200).json({ statuses: rows });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           message: `Failed to get index status: ${e.message}`,
         });
@@ -102,7 +102,7 @@ function documentEndpoints(app) {
         response.status(200).json({ success: true, status });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           message: `Failed to update index status: ${e.message}`,
         });
@@ -132,7 +132,7 @@ function documentEndpoints(app) {
         response.status(200).json({ success: true, message: null });
       } catch (e) {
         console.error(e);
-        response.status(500).json({
+        response.status(e.httpStatus || 500).json({
           success: false,
           message: `Failed to create folder: ${e.message} `,
         });
@@ -202,7 +202,7 @@ function documentEndpoints(app) {
       } catch (e) {
         console.error(e);
         response
-          .status(500)
+          .status(e.httpStatus || 500)
           .json({ success: false, message: "Failed to move files." });
       }
     }

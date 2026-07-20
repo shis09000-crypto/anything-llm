@@ -13,6 +13,12 @@ const {
 } = require("@modelcontextprotocol/sdk/client/streamableHttp.js");
 const { patchShellEnvironmentPath } = require("../../helpers/shell");
 const { storagePath } = require("../../environment");
+const {
+  assertMCPServerPolicy,
+  buildMCPEnvironment,
+  createPolicyFetch,
+  _internals: { resolveConfiguredHeaders },
+} = require("../../plugins/securityPolicy");
 
 /**
  * @typedef {'stdio' | 'http' | 'sse'} MCPServerTypes
@@ -286,47 +292,75 @@ class MCPHypervisor {
   }
 
   /**
+   * Close every MCP client and wait for its stdio child to exit. Runtime
+   * shutdown uses this stronger boundary so a plugin cannot survive the API
+   * process drain as an orphan. Interactive reload keeps the legacy fast prune
+   * path above.
+   */
+  async shutdownMCPServers({ timeoutMs = 5_000 } = {}) {
+    const entries = Object.entries(this.mcps);
+    this.mcps = {};
+    this.mcpLoadingResults = {};
+    const boundedTimeout = Math.min(
+      Math.max(Number(timeoutMs) || 5_000, 250),
+      15_000
+    );
+    await Promise.all(
+      entries.map(async ([name, mcp]) => {
+        const childProcess = mcp?.transport?._process || null;
+        let exitPromise = null;
+        if (childProcess && childProcess.exitCode === null) {
+          exitPromise = new Promise((resolve) => {
+            const done = () => resolve(true);
+            childProcess.once("exit", done);
+            childProcess.once("error", done);
+          });
+        }
+        try {
+          await Promise.resolve(mcp?.close?.());
+        } catch (error) {
+          this.log(`Failed to close MCP client ${name}`, {
+            code: error?.code || "MCP_CLOSE_FAILED",
+          });
+        }
+        if (!exitPromise || childProcess.exitCode !== null) return;
+        childProcess.kill("SIGTERM");
+        const exited = await Promise.race([
+          exitPromise,
+          new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(false), boundedTimeout);
+            timer.unref?.();
+          }),
+        ]);
+        if (!exited && childProcess.exitCode === null) {
+          this.log(`Force killing MCP ${name} after drain timeout`, {
+            pid: childProcess.pid,
+          });
+          childProcess.kill("SIGKILL");
+          await Promise.race([
+            exitPromise,
+            new Promise((resolve) => {
+              const timer = setTimeout(resolve, 1_000);
+              timer.unref?.();
+            }),
+          ]);
+        }
+      })
+    );
+  }
+
+  /**
    * Build the MCP server environment variables - ensures proper PATH and NODE_PATH
    * inheritance across all platforms and deployment scenarios.
    * @param {Object} server - The server definition
    * @returns {Promise<{env: { [key: string]: string } | {}}}> - The environment variables
    */
-  async #buildMCPServerENV(server) {
+  async #buildMCPServerENV(name, server, policy) {
     const shellEnv = await patchShellEnvironmentPath();
-    let baseEnv = {
-      PATH:
-        shellEnv.PATH ||
-        process.env.PATH ||
-        "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-      NODE_PATH:
-        shellEnv.NODE_PATH ||
-        process.env.NODE_PATH ||
-        "/usr/local/lib/node_modules",
-      ...shellEnv, // Include all shell environment variables
-    };
-
-    // Docker-specific environment setup
-    if (process.env.ANYTHING_LLM_RUNTIME === "docker") {
-      baseEnv = {
-        // Fixed: NODE_PATH should point to modules directory, not node binary
-        NODE_PATH: "/usr/local/lib/node_modules",
-        PATH: "/usr/local/bin:/usr/bin:/bin",
-        ...baseEnv, // Allow inheritance to override docker defaults if needed
-      };
-    }
-
-    // No custom environment specified - return base environment
-    if (!server?.env || Object.keys(server.env).length === 0) {
-      return { env: baseEnv };
-    }
-
-    // Merge user-specified environment with base environment
-    // User environment takes precedence over defaults
+    const env = buildMCPEnvironment({ name, server, shellEnv, policy });
     return {
-      env: {
-        ...baseEnv,
-        ...server.env,
-      },
+      env,
+      cwd: env.ATHENA_PLUGIN_RUNTIME_DIR,
     };
   }
 
@@ -397,14 +431,14 @@ class MCPHypervisor {
    * @param {MCPServerTypes} type - The server type
    * @returns {Promise<StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport>} - The server transport
    */
-  async #setupServerTransport(server, type) {
+  async #setupServerTransport(name, server, type, policy) {
     // if not stdio then it is http or sse
-    if (type !== "stdio") return this.createHttpTransport(server);
+    if (type !== "stdio") return this.createHttpTransport(server, policy);
 
     return new StdioClientTransport({
       command: server.command,
       args: server?.args ?? [],
-      ...(await this.#buildMCPServerENV(server)),
+      ...(await this.#buildMCPServerENV(name, server, policy)),
     });
   }
 
@@ -413,22 +447,31 @@ class MCPHypervisor {
    * @param {Object} server - The server definition
    * @returns {StreamableHTTPClientTransport | SSEClientTransport} - The server transport
    */
-  createHttpTransport(server) {
+  createHttpTransport(server, policy) {
     const url = new URL(server.url);
+    const headers = resolveConfiguredHeaders({
+      server,
+      manifest: policy.manifest,
+      inherited: process.env,
+      mode: policy.mode,
+    });
+    const guardedFetch = createPolicyFetch({ policy });
 
     // If the server block has a type property then use that to determine the transport type
     switch (server.type) {
       case "streamable":
       case "http":
         return new StreamableHTTPClientTransport(url, {
+          fetch: guardedFetch,
           requestInit: {
-            headers: server.headers,
+            headers,
           },
         });
       default:
         return new SSEClientTransport(url, {
+          fetch: guardedFetch,
           requestInit: {
-            headers: server.headers,
+            headers,
           },
         });
     }
@@ -447,16 +490,43 @@ class MCPHypervisor {
     if (!serverType) throw new Error("MCP server command or url is required");
 
     this.#validateServerDefinitionByType(name, server, serverType);
-    this.log(`Attempting to start MCP server: ${name}`);
+    const policy = assertMCPServerPolicy({
+      name,
+      server,
+      type: serverType,
+    });
+    this.log(`Attempting to start MCP server: ${name}`, {
+      serviceIdentity: policy.serviceIdentity,
+      policyMode: policy.mode,
+    });
     const mcp = new Client({ name: name, version: "1.0.0" });
-    const transport = await this.#setupServerTransport(server, serverType);
+    mcp.athenaPolicy = policy;
+    const transport = await this.#setupServerTransport(
+      name,
+      server,
+      serverType,
+      policy
+    );
 
     // Add connection event listeners
     transport.onclose = () => this.log(`${name} - Transport closed`);
     transport.onerror = (error) =>
-      this.log(`${name} - Transport error:`, error);
+      this.log(`${name} - Transport error:`, {
+        code: error?.code || null,
+        message: String(error?.message || error || "transport_error").slice(
+          0,
+          300
+        ),
+      });
     transport.onmessage = (message) =>
-      this.log(`${name} - Transport message:`, message);
+      this.log(`${name} - Transport message`, {
+        method: message?.method || null,
+        id: message?.id || null,
+        hasResult: Object.prototype.hasOwnProperty.call(
+          message || {},
+          "result"
+        ),
+      });
 
     // Connect and await the connection with a timeout
     this.mcps[name] = mcp;

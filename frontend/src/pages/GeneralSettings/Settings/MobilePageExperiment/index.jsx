@@ -77,7 +77,7 @@ import {
   getPreferredLocalZkDevice,
   listLocalZkDevices,
 } from "@/utils/zkLoginStorage";
-import { postJson } from "@/lib/communication";
+import { postJson } from "@/lib/communication/apiClient";
 import showToast from "@/utils/toast";
 import {
   USERNAME_MAX_LENGTH,
