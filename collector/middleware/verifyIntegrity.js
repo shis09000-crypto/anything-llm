@@ -4,7 +4,10 @@ const runtimeSettings = new RuntimeSettings();
 
 function verifyPayloadIntegrity(request, response, next) {
   const comKey = new CommunicationKey();
-  if (process.env.NODE_ENV === "development") {
+  if (
+    process.env.NODE_ENV === "development" &&
+    process.env.ATHENA_COLLECTOR_DEV_INTEGRITY_BYPASS === "true"
+  ) {
     comKey.log("verifyPayloadIntegrity is skipped in development.");
     runtimeSettings.parseOptionsFromRequest(request);
     next();

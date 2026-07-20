@@ -1,8 +1,42 @@
 const crypto = require("crypto");
 const DEFAULT_RETENTION_MS = 30 * 24 * 60 * 60 * 1_000;
+const DEFAULT_ACTIVE_OUTBOX_INTERVAL_MS = 250;
+const DEFAULT_SHADOW_OUTBOX_INTERVAL_MS = 5_000;
 
 function syncV2Enabled(env = process.env) {
   return String(env.ATHENA_SYNC_V2_ENABLED || "false").toLowerCase() === "true";
+}
+
+function envBoolean(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(
+    String(value).trim().toLowerCase()
+  );
+}
+
+// The Outbox is an internal transaction/control-plane concern. It must not be
+// coupled to whether clients are currently in a Sync V2 rollout cohort.
+function syncV2OutboxDispatchEnabled(env = process.env) {
+  if (syncV2Enabled(env)) return true;
+  return envBoolean(env.ATHENA_SYNC_V2_OUTBOX_DISPATCH, true);
+}
+
+function syncV2ControlPlaneMode(env = process.env) {
+  if (!syncV2OutboxDispatchEnabled(env)) return "disabled";
+  return syncV2Enabled(env) ? "active" : "shadow";
+}
+
+function positiveInteger(value, fallback, maximum = Number.MAX_SAFE_INTEGER) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, maximum);
+}
+
+function syncV2OutboxIntervalMs(env = process.env) {
+  const fallback = syncV2Enabled(env)
+    ? DEFAULT_ACTIVE_OUTBOX_INTERVAL_MS
+    : DEFAULT_SHADOW_OUTBOX_INTERVAL_MS;
+  return positiveInteger(env.SYNC_V2_OUTBOX_INTERVAL_MS, fallback, 60 * 60_000);
 }
 
 function syncV2DomainEnabled(domain, env = process.env) {
@@ -74,11 +108,16 @@ function syncV2HashSamplePercent(env = process.env) {
 }
 
 module.exports = {
+  DEFAULT_ACTIVE_OUTBOX_INTERVAL_MS,
   DEFAULT_RETENTION_MS,
+  DEFAULT_SHADOW_OUTBOX_INTERVAL_MS,
   rolloutPercent,
   syncV2CohortEnabled,
+  syncV2ControlPlaneMode,
   syncV2DomainEnabled,
   syncV2Enabled,
   syncV2HashSamplePercent,
+  syncV2OutboxDispatchEnabled,
+  syncV2OutboxIntervalMs,
   syncV2RetentionMs,
 };

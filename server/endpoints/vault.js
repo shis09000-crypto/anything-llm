@@ -19,6 +19,7 @@ const {
   revokeSensitiveSessions,
 } = require("../utils/authz/sensitiveSessions");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
+const { verifyPassword } = require("../utils/security/passwordCredential");
 
 const User = DataAccessCenter.user;
 
@@ -168,10 +169,10 @@ function vaultEndpoints(app) {
       try {
         const { currentPassword } = reqBody(request) || {};
         const user = await User._get({ id: userId });
-        const bcrypt = require("bcryptjs");
         if (
           !user ||
-          !bcrypt.compareSync(String(currentPassword || ""), user.password)
+          !(await verifyPassword(String(currentPassword || ""), user.password))
+            .valid
         ) {
           void logVaultEvent(
             "vault_reauth_failed",

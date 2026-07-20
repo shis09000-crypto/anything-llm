@@ -20,10 +20,12 @@ const logLevels = ["error", "info", "warn"]; // add "query" to debug query logs
 function sqliteDatasourceUrl() {
   const dbPath = databasePath();
   const storageDir = path.dirname(dbPath);
-  fs.mkdirSync(storageDir, { recursive: true });
+  const readOnlyCli = process.env.ATHENA_CLI_DATABASE_ACCESS === "read";
+  if (!readOnlyCli) fs.mkdirSync(storageDir, { recursive: true });
   const url = new URL(`file:${dbPath}`);
   url.searchParams.set("connection_limit", "1");
   url.searchParams.set("pool_timeout", "10");
+  if (readOnlyCli) url.searchParams.set("mode", "ro");
   return url.toString();
 }
 
@@ -53,6 +55,10 @@ const prismaReady =
   process.env.NODE_ENV !== "test" && !isJestRuntime
     ? (async () => {
         if (provider === "postgresql") {
+          await prisma.$queryRaw`SELECT 1`;
+          return true;
+        }
+        if (process.env.ATHENA_CLI_DATABASE_ACCESS === "read") {
           await prisma.$queryRaw`SELECT 1`;
           return true;
         }

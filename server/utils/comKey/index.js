@@ -5,9 +5,9 @@ const { storagePath } = require("../environment");
 const keyPath = storagePath("comkey");
 
 // What does this class do?
-// This class generates a hashed version of some text (typically a JSON payload) using a rolling RSA key
+// This class generates a hashed version of some text (typically a JSON payload) using a persisted IPC RSA key
 // that can then be appended as a header value to do integrity checking on a payload. Given the
-// nature of this class and that keys are rolled constantly, this protects the request
+// nature of this class, this protects the request
 // integrity of requests sent to the collector as only the server can sign these requests.
 // This keeps accidental misconfigurations of AnythingLLM that leaving port 8888 open from
 // being abused or SSRF'd by users scraping malicious sites who have a loopback embedded in a <script>, for example.
@@ -18,10 +18,10 @@ class CommunicationKey {
   #pubKeyName = "ipc-pub.pem";
   #storageLoc = keyPath;
 
-  // Init the class and determine if keys should be rolled.
-  // This typically occurs on boot up so key is fresh each boot.
-  constructor(generate = false) {
-    if (generate) this.#generate();
+  // Bootstrapping is intentionally idempotent. Hot reloads, health supervisors,
+  // tests, and ordinary process restarts must never rotate persisted key material.
+  constructor(ensureReady = false) {
+    if (ensureReady) this.ensureReady();
   }
 
   log(text, ...args) {
@@ -32,32 +32,115 @@ class CommunicationKey {
     return fs.readFileSync(path.resolve(this.#storageLoc, this.#privKeyName));
   }
 
-  #generate() {
-    const keyPair = crypto.generateKeyPairSync("rsa", {
-      modulusLength: 2048,
-      publicKeyEncoding: {
-        type: "pkcs1",
-        format: "pem",
-      },
-      privateKeyEncoding: {
-        type: "pkcs1",
-        format: "pem",
-      },
-    });
+  #keyLocations() {
+    return {
+      privateKeyPath: path.resolve(this.#storageLoc, this.#privKeyName),
+      publicKeyPath: path.resolve(this.#storageLoc, this.#pubKeyName),
+    };
+  }
 
-    if (!fs.existsSync(this.#storageLoc))
-      fs.mkdirSync(this.#storageLoc, { recursive: true });
-    fs.writeFileSync(
-      `${path.resolve(this.#storageLoc, this.#privKeyName)}`,
-      keyPair.privateKey
+  #validatePair(privateKeyPath, publicKeyPath) {
+    const challenge = crypto.randomBytes(32);
+    const signature = crypto.sign(
+      "RSA-SHA256",
+      challenge,
+      fs.readFileSync(privateKeyPath)
     );
-    fs.writeFileSync(
-      `${path.resolve(this.#storageLoc, this.#pubKeyName)}`,
-      keyPair.publicKey
+    if (
+      !crypto.verify(
+        "RSA-SHA256",
+        challenge,
+        fs.readFileSync(publicKeyPath),
+        signature
+      )
+    )
+      throw new Error("Communication key pair validation failed.");
+  }
+
+  #generateInitialPair(privateKeyPath, publicKeyPath) {
+    const initializeLockPath = path.resolve(
+      this.#storageLoc,
+      ".ipc-key-initialize.lock"
     );
+    let initializeLock;
+    let privateTempPath;
+    let publicTempPath;
+    fs.mkdirSync(this.#storageLoc, { recursive: true, mode: 0o700 });
+    try {
+      try {
+        initializeLock = fs.openSync(initializeLockPath, "wx", 0o600);
+      } catch (error) {
+        if (error?.code === "EEXIST")
+          throw new Error(
+            "Communication key initialization is already in progress; refusing a concurrent write."
+          );
+        throw error;
+      }
+
+      const keyPair = crypto.generateKeyPairSync("rsa", {
+        modulusLength: 2048,
+        publicKeyEncoding: {
+          type: "pkcs1",
+          format: "pem",
+        },
+        privateKeyEncoding: {
+          type: "pkcs1",
+          format: "pem",
+        },
+      });
+      const nonce = `${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+      privateTempPath = `${privateKeyPath}.${nonce}.tmp`;
+      publicTempPath = `${publicKeyPath}.${nonce}.tmp`;
+      fs.writeFileSync(privateTempPath, keyPair.privateKey, {
+        flag: "wx",
+        mode: 0o600,
+      });
+      fs.writeFileSync(publicTempPath, keyPair.publicKey, {
+        flag: "wx",
+        mode: 0o644,
+      });
+      this.#validatePair(privateTempPath, publicTempPath);
+      if (fs.existsSync(privateKeyPath) || fs.existsSync(publicKeyPath))
+        throw new Error(
+          "Communication key destination changed during initialization; refusing replacement."
+        );
+      fs.renameSync(privateTempPath, privateKeyPath);
+      fs.renameSync(publicTempPath, publicKeyPath);
+    } finally {
+      if (privateTempPath) fs.rmSync(privateTempPath, { force: true });
+      if (publicTempPath) fs.rmSync(publicTempPath, { force: true });
+      if (initializeLock !== undefined) {
+        fs.closeSync(initializeLock);
+        fs.rmSync(initializeLockPath, { force: true });
+      }
+    }
     this.log(
-      "RSA key pair generated for signed payloads within AnythingLLM services."
+      "RSA key pair initialized for signed payloads within AnythingLLM services."
     );
+  }
+
+  ensureReady() {
+    const { privateKeyPath, publicKeyPath } = this.#keyLocations();
+    const privateKeyExists = fs.existsSync(privateKeyPath);
+    const publicKeyExists = fs.existsSync(publicKeyPath);
+
+    if (privateKeyExists !== publicKeyExists)
+      throw new Error(
+        "Communication key pair is incomplete; refusing automatic replacement."
+      );
+
+    if (!privateKeyExists) {
+      this.#generateInitialPair(privateKeyPath, publicKeyPath);
+      return { created: true };
+    }
+
+    this.#validatePair(privateKeyPath, publicKeyPath);
+    if ((fs.statSync(privateKeyPath).mode & 0o777) !== 0o600)
+      fs.chmodSync(privateKeyPath, 0o600);
+    if ((fs.statSync(publicKeyPath).mode & 0o777) !== 0o644)
+      fs.chmodSync(publicKeyPath, 0o644);
+    this.log("Validated existing RSA key pair without rotation.");
+    return { created: false };
   }
 
   // This instance of ComKey on server is intended for generation of Priv/Pub key for signing and decoding.
@@ -69,7 +152,7 @@ class CommunicationKey {
       .toString("hex");
   }
 
-  // Use the rolling priv-key to encrypt arbitrary data that is text
+  // Use the IPC private key to encrypt arbitrary data that is text
   // returns the encrypted content as a base64 string.
   encrypt(textData = "") {
     return crypto

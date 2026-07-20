@@ -1,0 +1,1913 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Athena Enterprise Security Red Team & Purple Team Assessment Report",
+    "description": "Enterprise v2.3 security architecture, authorized red-team simulation and purple-team roadmap for CTO and security committee review.",
+    "generatedAt": "2026-07-20T20:30:00+08:00",
+    "cards": [
+      {
+        "id": "overall_score",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "Weighted current security score; not a compliance certification.",
+        "metrics": [
+          {
+            "label": "Overall security score",
+            "field": "overallScore",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "critical_findings",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "Confirmed Critical findings in the authorized review.",
+        "metrics": [
+          {
+            "label": "Critical findings",
+            "field": "critical",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "high_findings",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "High findings requiring immediate ownership.",
+        "metrics": [
+          {
+            "label": "High findings",
+            "field": "high",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "tests_passed",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "Focused security, Agent, Sync, transport and storage tests passed.",
+        "metrics": [
+          {
+            "label": "Tests passed",
+            "field": "tests",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "sync_integrity",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "Reviewed Sync projections with no hash, permission or projection conflict.",
+        "metrics": [
+          {
+            "label": "Sync integrity",
+            "field": "syncIntegrity",
+            "format": "percent"
+          }
+        ]
+      },
+      {
+        "id": "encrypted_chats",
+        "dataset": "headline",
+        "sourceId": "security_evidence",
+        "description": "Current Chat rows with encrypted prompt and response.",
+        "metrics": [
+          {
+            "label": "Encrypted Chat rows",
+            "field": "encryptedChats",
+            "format": "compact"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "risk_distribution",
+        "title": "Confirmed and conditional finding distribution",
+        "subtitle": "Risk counts after deduplication; assurance gaps without an exploitable path are not counted as vulnerabilities.",
+        "type": "bar",
+        "dataset": "severity",
+        "sourceId": "security_evidence",
+        "encodings": {
+          "x": {
+            "field": "severity",
+            "type": "ordinal",
+            "label": "Severity"
+          },
+          "y": {
+            "field": "count",
+            "type": "quantitative",
+            "label": "Findings",
+            "format": "number"
+          }
+        },
+        "yAxisTitle": "Finding count",
+        "valueFormat": "number",
+        "layout": "full"
+      },
+      {
+        "id": "security_scores",
+        "title": "Security evaluation scorecard",
+        "subtitle": "Evidence-based current score on a 10-point scale; scores are not compliance certification.",
+        "type": "bar",
+        "dataset": "scores",
+        "sourceId": "security_evidence",
+        "encodings": {
+          "x": {
+            "field": "dimension",
+            "type": "ordinal",
+            "label": "Dimension"
+          },
+          "y": {
+            "field": "score",
+            "type": "quantitative",
+            "label": "Score",
+            "format": "number"
+          }
+        },
+        "yAxisTitle": "Score / 10",
+        "valueFormat": "number",
+        "layout": "full",
+        "referenceLines": [
+          {
+            "value": 8,
+            "label": "Enterprise-ready target"
+          }
+        ]
+      },
+      {
+        "id": "verification_coverage",
+        "title": "Current assurance coverage by domain",
+        "subtitle": "Architecture-review estimate combining code, tests, local runtime and external-environment proof boundaries.",
+        "type": "bar",
+        "dataset": "verification",
+        "sourceId": "security_evidence",
+        "encodings": {
+          "x": {
+            "field": "domain",
+            "type": "ordinal",
+            "label": "Domain"
+          },
+          "y": {
+            "field": "verified",
+            "type": "quantitative",
+            "label": "Verified coverage",
+            "format": "number",
+            "unit": "%"
+          }
+        },
+        "yAxisTitle": "Verified coverage (%)",
+        "valueFormat": "number",
+        "unit": "%",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "attack_surface",
+        "title": "Athena Attack Surface Inventory",
+        "subtitle": "Entry points, existing controls, residual exposure and lifecycle.",
+        "showDescription": true,
+        "dataset": "attackSurface",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "surface",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "surface",
+            "label": "Surface",
+            "type": "text"
+          },
+          {
+            "field": "entryLifecycle",
+            "label": "Entry & lifecycle",
+            "type": "text"
+          },
+          {
+            "field": "controls",
+            "label": "Current controls",
+            "type": "text"
+          },
+          {
+            "field": "residual",
+            "label": "Residual exposure",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "threat_model",
+        "title": "Threat Model",
+        "subtitle": "Abuse cases prioritized by trust transition, asset and realistic impact.",
+        "showDescription": true,
+        "dataset": "threats",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "idActor",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "idActor",
+            "label": "Threat & actor",
+            "type": "text"
+          },
+          {
+            "field": "assetPath",
+            "label": "Asset & attack path",
+            "type": "text"
+          },
+          {
+            "field": "controlGap",
+            "label": "Control & gap",
+            "type": "text"
+          },
+          {
+            "field": "rating",
+            "label": "Likelihood & impact",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "red_team",
+        "title": "Authorized Red Team Simulation",
+        "subtitle": "Non-destructive simulation and code-path confirmation; no secret or user content was exposed in the report.",
+        "showDescription": true,
+        "dataset": "redTeam",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "scenarioResult",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "scenarioResult",
+            "label": "Scenario & result",
+            "type": "text"
+          },
+          {
+            "field": "techniqueEvidence",
+            "label": "Technique & evidence",
+            "type": "text"
+          },
+          {
+            "field": "severity",
+            "label": "Risk",
+            "type": "text"
+          },
+          {
+            "field": "recommendation",
+            "label": "Recommendation",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "ai_security",
+        "title": "AI & Agent Security Assessment",
+        "subtitle": "Model behavior is never treated as an authorization decision; tool and memory sinks need their own policy.",
+        "showDescription": true,
+        "dataset": "ai",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "areaPriority",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "areaPriority",
+            "label": "Area & priority",
+            "type": "text"
+          },
+          {
+            "field": "current",
+            "label": "Current control",
+            "type": "text"
+          },
+          {
+            "field": "attackResult",
+            "label": "Attack & assessment",
+            "type": "text"
+          },
+          {
+            "field": "gap",
+            "label": "Gap",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "identity_review",
+        "title": "Identity & Authorization Review",
+        "subtitle": "Zero-trust identity controls and the long-lived-channel exception.",
+        "showDescription": true,
+        "dataset": "identity",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "controlRating",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "controlRating",
+            "label": "Control & rating",
+            "type": "text"
+          },
+          {
+            "field": "implementation",
+            "label": "Implementation",
+            "type": "text"
+          },
+          {
+            "field": "verification",
+            "label": "Verification",
+            "type": "text"
+          },
+          {
+            "field": "residual",
+            "label": "Residual gap",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "data_review",
+        "title": "Data Security Review",
+        "subtitle": "Authority, confidentiality, integrity, isolation and recovery evidence by domain.",
+        "showDescription": true,
+        "dataset": "data",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "domainIntegrity",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "domainIntegrity",
+            "label": "Domain & integrity",
+            "type": "text"
+          },
+          {
+            "field": "protectionIsolation",
+            "label": "Protection & isolation",
+            "type": "text"
+          },
+          {
+            "field": "recovery",
+            "label": "Recovery",
+            "type": "text"
+          },
+          {
+            "field": "gap",
+            "label": "Gap",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "infrastructure_review",
+        "title": "Infrastructure Security Review",
+        "subtitle": "Runtime, deployment, distributed transport, observability and CI/CD controls.",
+        "showDescription": true,
+        "dataset": "infrastructure",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "componentRisk",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "componentRisk",
+            "label": "Component & risk",
+            "type": "text"
+          },
+          {
+            "field": "strengths",
+            "label": "Strengths",
+            "type": "text"
+          },
+          {
+            "field": "finding",
+            "label": "Finding / assurance gap",
+            "type": "text"
+          },
+          {
+            "field": "next",
+            "label": "Required action",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "vulnerabilities",
+        "title": "Vulnerability Report",
+        "subtitle": "Deduplicated findings, evidence confidence, ownership and remediation target.",
+        "showDescription": true,
+        "dataset": "vulnerabilities",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "idSeverity",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "idSeverity",
+            "label": "ID & severity",
+            "type": "text"
+          },
+          {
+            "field": "findingEvidence",
+            "label": "Finding & evidence",
+            "type": "text"
+          },
+          {
+            "field": "vectorImpact",
+            "label": "Vector & impact",
+            "type": "text"
+          },
+          {
+            "field": "remediation",
+            "label": "Remediation, owner & target",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "risk_matrix",
+        "title": "Residual Risk Matrix",
+        "subtitle": "Likelihood and impact are qualitative architecture-review judgments, not actuarial probabilities.",
+        "showDescription": true,
+        "dataset": "risks",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "riskRating",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "riskRating",
+            "label": "Risk & residual",
+            "type": "text"
+          },
+          {
+            "field": "likelihoodImpact",
+            "label": "Likelihood, impact & inherent",
+            "type": "text"
+          },
+          {
+            "field": "controls",
+            "label": "Current controls",
+            "type": "text"
+          },
+          {
+            "field": "treatment",
+            "label": "Treatment",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "blue_team",
+        "title": "Blue Team Capability Matrix",
+        "subtitle": "Prevention, detection, containment, response, recovery and evidence maturity.",
+        "showDescription": true,
+        "dataset": "blueTeam",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "capabilityMaturity",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "capabilityMaturity",
+            "label": "Capability & maturity",
+            "type": "text"
+          },
+          {
+            "field": "current",
+            "label": "Current state",
+            "type": "text"
+          },
+          {
+            "field": "weakness",
+            "label": "Weakness",
+            "type": "text"
+          },
+          {
+            "field": "action",
+            "label": "Next action",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "roadmap",
+        "title": "Purple Team Improvement Roadmap",
+        "subtitle": "The roadmap fixes directly confirmed paths first and preserves compatibility through additive, feature-gated changes.",
+        "showDescription": true,
+        "dataset": "roadmap",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "horizonPriority",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "horizonPriority",
+            "label": "Horizon & priority",
+            "type": "text"
+          },
+          {
+            "field": "changes",
+            "label": "Changes",
+            "type": "text"
+          },
+          {
+            "field": "benefitGate",
+            "label": "Benefit & gate",
+            "type": "text"
+          },
+          {
+            "field": "rollback",
+            "label": "Rollback",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "standards",
+        "title": "Standards Mapping",
+        "subtitle": "Reference mapping used for architecture review; this report does not assert formal certification.",
+        "showDescription": true,
+        "dataset": "standards",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "standardStatus",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "standardStatus",
+            "label": "Standard & assessment",
+            "type": "text"
+          },
+          {
+            "field": "mapped",
+            "label": "Mapped domains",
+            "type": "text"
+          },
+          {
+            "field": "evidence",
+            "label": "Evidence",
+            "type": "text"
+          },
+          {
+            "field": "gaps",
+            "label": "Gaps",
+            "type": "text"
+          }
+        ]
+      },
+      {
+        "id": "score_detail",
+        "title": "Final Security Score",
+        "subtitle": "Scores are calibrated to current evidence and intentionally capped by the four High findings and missing external-production proof.",
+        "showDescription": true,
+        "dataset": "scores",
+        "sourceId": "security_evidence",
+        "defaultSort": {
+          "field": "score",
+          "direction": "desc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "dimension",
+            "label": "Dimension",
+            "type": "text"
+          },
+          {
+            "field": "score",
+            "label": "Score /10",
+            "format": "number"
+          },
+          {
+            "field": "rationale",
+            "label": "Rationale",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "security_evidence",
+        "label": "Athena v2.3 security evidence snapshot",
+        "path": "output/pdf/athena-enterprise-security-assessment-v2.3-evidence.json",
+        "query": {
+          "engine": "sqlite",
+          "language": "sql",
+          "sql": "SELECT\n       (SELECT COUNT(*) FROM \"workspace_chats\") AS chat_rows,\n       (SELECT COUNT(*) FROM \"sync_nodes\") AS sync_nodes,\n       (SELECT COUNT(*) FROM \"security_audit_ledger\") AS audit_entries",
+          "description": "Consolidated test, runtime, encryption, synchronization, ledger and risk evidence.",
+          "executed_at": "2026-07-20T20:30:00+08:00",
+          "filters": [
+            "Authorized local development environment only",
+            "Non-destructive evidence collection",
+            "Secret values and absolute host paths excluded"
+          ]
+        }
+      },
+      {
+        "id": "source_tree",
+        "label": "Athena source and runtime configuration",
+        "path": "package.json",
+        "query": {
+          "engine": "repository-review",
+          "language": "json",
+          "description": "Application, security, synchronization, AI, Collector, mobile, desktop, deployment and CI boundaries.",
+          "executed_at": "2026-07-20T20:30:00+08:00",
+          "filters": [
+            "Authorized local development environment only",
+            "Non-destructive evidence collection",
+            "Secret values and absolute host paths excluded"
+          ]
+        }
+      },
+      {
+        "id": "sync_contract",
+        "label": "Sync V2 implementation contract",
+        "path": "docs/sync-v2-implementation.md",
+        "query": {
+          "engine": "repository-review",
+          "language": "json",
+          "description": "State-version, hash, Outbox, cursor, mutation receipt, cache durability and recovery semantics.",
+          "executed_at": "2026-07-20T20:30:00+08:00",
+          "filters": [
+            "Authorized local development environment only",
+            "Non-destructive evidence collection",
+            "Secret values and absolute host paths excluded"
+          ]
+        }
+      },
+      {
+        "id": "architecture_report",
+        "label": "Athena v2.3 architecture due diligence",
+        "path": "output/pdf/Athena-System-Architecture-Blueprint-v2.3.pdf",
+        "query": {
+          "engine": "repository-review",
+          "language": "json",
+          "description": "System landscape, data ownership, performance and distributed-readiness evidence.",
+          "executed_at": "2026-07-20T20:30:00+08:00",
+          "filters": [
+            "Authorized local development environment only",
+            "Non-destructive evidence collection",
+            "Secret values and absolute host paths excluded"
+          ]
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Athena Enterprise Security Red Team & Purple Team Assessment Report\n\n**Release v2.3 · Enterprise Security Committee Edition · 2026-07-20**"
+      },
+      {
+        "id": "classification",
+        "type": "markdown",
+        "body": "**Classification:** Internal Architecture & Security Review  \n**Assessment mode:** authorized, local, non-destructive  \n**Audience:** CTO, Security Committee, Product Infrastructure and Engineering Leadership"
+      },
+      {
+        "id": "executive_heading",
+        "type": "markdown",
+        "body": "## 1. Executive Summary"
+      },
+      {
+        "id": "executive",
+        "type": "markdown",
+        "body": "## Technical conclusion — strong product security foundation, four High gaps block enterprise-grade assurance\n\nAthena 已建立一条明显优于普通 AI 应用的安全主链：Passkey/OPAQUE 与服务端 Session V2、资源级授权、设备签名、AES-256-GCM/HKDF、内容对象信封加密、Chat Hash Chain、Ed25519 审计检查点、Sync V2 版本/Hash/Outbox/cursor，以及运行时 drain/DLQ/reconcile。50 个测试套件、275 项聚焦测试全部通过；当前 1,038 条 Chat 的 prompt/response 全部加密，Chat 链断裂为 0，263 个 Sync 节点与 186 个投影没有 Hash、权限或正文冲突。\n\n**但是，系统尚不能被评为“企业安全完成态”。** 本次发现 0 个 Critical、4 个 High、5 个 Medium、2 个 Low。四个 High 分别位于：(1) WebSocket 未统一执行权威 Session V2；(2) Collector 开发态接受调用方 absolutePath，已在授权本机用公开文件安全复现；(3) Collector 容器挂载与环境变量范围过大；(4) RAG 内容缺少 untrusted/taint/provenance 边界，可诱导 workspace rag-memory 持久化污染。\n\n综合评分 **7.4/10**。结论是“安全架构方向正确、数据保护成熟、AI 与长连接边界需要 P0 闭环”。报告不把外部 PostgreSQL/NATS/S3/KMS 适配代码等同于生产证明，也不把开发态问题隐瞒为‘只影响开发’：开发环境往往拥有最宽数据与密钥可见性，必须按真实信任边界修复。",
+        "sourceId": "security_evidence"
+      },
+      {
+        "id": "headline_metrics",
+        "type": "metric-strip",
+        "cardIds": [
+          "overall_score",
+          "critical_findings",
+          "high_findings",
+          "tests_passed",
+          "sync_integrity",
+          "encrypted_chats"
+        ]
+      },
+      {
+        "id": "risk_chart",
+        "type": "chart",
+        "chartId": "risk_distribution",
+        "layout": "full"
+      },
+      {
+        "id": "decision",
+        "type": "markdown",
+        "body": "### Security committee decision\n\n- **允许继续本地开发与受控灰度**：现有 REST、Chat SSE、Sync V2 数据模型、加密存储和对象层无需推倒重写。\n- **不允许在四个 High 未关闭前声明企业安全就绪**：特别是独立 Realtime Gateway、公开 Collector 或高权限插件/Agent。\n- **修复策略必须无感兼容**：WS 使用短期 ticket 的双读迁移；Collector 使用服务端签发的 opaque handle；Memory 先进入候选态，不删除现有用户记忆。\n- **安全与同步继续解耦**：实时传输丢失可补拉；身份吊销和授权失败必须立即 fail-closed。"
+      },
+      {
+        "id": "pb_arch",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "architecture_heading",
+        "type": "markdown",
+        "body": "## 2. Security Architecture Diagram"
+      },
+      {
+        "id": "architecture_intro",
+        "type": "markdown",
+        "body": "Athena 的 Zero Trust 边界应贯穿每一次请求和每一条长连接：客户端或内部服务的网络位置都不构成信任；身份、设备、资源、操作能力和数据用途分别授权。加密解决机密性，Hash Chain/签名解决完整性，Outbox/cursor 解决可靠恢复——三者不能互相替代。"
+      },
+      {
+        "id": "security_architecture",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:18px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">Athena Security Architecture — layered zero-trust controls</h3><svg viewBox=\"0 0 1200 635\" width=\"100%\" role=\"img\" aria-label=\"Athena Security Architecture — layered zero-trust controls\" style=\"display:block\"><defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 255 90 L 330 90\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"292.5\" y=\"83\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">TLS</text><path d=\"M 565 90 L 640 90\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"602.5\" y=\"83\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">identity</text><path d=\"M 875 90 L 950 90\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"912.5\" y=\"83\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">principal</text><path d=\"M 1055 145 L 1055 245\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"1055\" y=\"188\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">allow/deny</text><path d=\"M 470 145 L 470 245\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"470\" y=\"188\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">bounded input</text><path d=\"M 760 145 L 760 245\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"760\" y=\"188\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">session</text><path d=\"M 295 312 L 330 312\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"312.5\" y=\"305\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">intent</text><path d=\"M 590 312 L 625 312\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"607.5\" y=\"305\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">write</text><path d=\"M 885 312 L 920 312\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"902.5\" y=\"305\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">proof</text><path d=\"M 520 380 L 270 480\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"395\" y=\"423\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">contain</text><path d=\"M 760 380 L 605 480\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"682.5\" y=\"423\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">observe</text><path d=\"M 1040 380 L 940 480\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"990\" y=\"423\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">repair</text><g><rect x=\"35\" y=\"35\" width=\"220\" height=\"110\" rx=\"15\" fill=\"#eef2ff\" stroke=\"#6366f1\" stroke-width=\"2\"/><text x=\"51\" y=\"63\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Clients</text><text x=\"51\" y=\"89\" font-size=\"13.5\" fill=\"#334155\">Web · iOS/iPadOS</text><text x=\"51\" y=\"110\" font-size=\"13.5\" fill=\"#334155\">Electron desktop</text><text x=\"51\" y=\"131\" font-size=\"13.5\" fill=\"#334155\">encrypted local cache</text></g><g><rect x=\"330\" y=\"35\" width=\"235\" height=\"110\" rx=\"15\" fill=\"#eff6ff\" stroke=\"#2563eb\" stroke-width=\"2\"/><text x=\"346\" y=\"63\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Transport &amp; Edge</text><text x=\"346\" y=\"89\" font-size=\"13.5\" fill=\"#334155\">TLS · CSP · body limits</text><text x=\"346\" y=\"110\" font-size=\"13.5\" fill=\"#334155\">request signatures</text><text x=\"346\" y=\"131\" font-size=\"13.5\" fill=\"#334155\">rate limits</text></g><g><rect x=\"640\" y=\"35\" width=\"235\" height=\"110\" rx=\"15\" fill=\"#ecfeff\" stroke=\"#0891b2\" stroke-width=\"2\"/><text x=\"656\" y=\"63\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Identity &amp; Session</text><text x=\"656\" y=\"89\" font-size=\"13.5\" fill=\"#334155\">Passkey · OPAQUE/ZK</text><text x=\"656\" y=\"110\" font-size=\"13.5\" fill=\"#334155\">Session V2 · device</text><text x=\"656\" y=\"131\" font-size=\"13.5\" fill=\"#334155\">revoke + expiry</text></g><g><rect x=\"950\" y=\"35\" width=\"215\" height=\"110\" rx=\"15\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"2\"/><text x=\"966\" y=\"63\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Authorization</text><text x=\"966\" y=\"89\" font-size=\"13.5\" fill=\"#334155\">resource scope</text><text x=\"966\" y=\"110\" font-size=\"13.5\" fill=\"#334155\">capability policy</text><text x=\"966\" y=\"131\" font-size=\"13.5\" fill=\"#334155\">approval boundary</text></g><g><rect x=\"35\" y=\"245\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"51\" y=\"273\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Domain Services</text><text x=\"51\" y=\"299\" font-size=\"13.5\" fill=\"#334155\">Workspace · Chat · Memory</text><text x=\"51\" y=\"320\" font-size=\"13.5\" fill=\"#334155\">Knowledge · Sync V2</text><text x=\"51\" y=\"341\" font-size=\"13.5\" fill=\"#334155\">domain repositories</text></g><g><rect x=\"330\" y=\"245\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#fdf4ff\" stroke=\"#a21caf\" stroke-width=\"2\"/><text x=\"346\" y=\"273\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">AI &amp; Agent Runtime</text><text x=\"346\" y=\"299\" font-size=\"13.5\" fill=\"#334155\">model routing</text><text x=\"346\" y=\"320\" font-size=\"13.5\" fill=\"#334155\">tools + permission</text><text x=\"346\" y=\"341\" font-size=\"13.5\" fill=\"#334155\">budget / timeout / eval</text></g><g><rect x=\"625\" y=\"245\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"641\" y=\"273\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Data Protection</text><text x=\"641\" y=\"299\" font-size=\"13.5\" fill=\"#334155\">AES-256-GCM + HKDF</text><text x=\"641\" y=\"320\" font-size=\"13.5\" fill=\"#334155\">content-object DEKs</text><text x=\"641\" y=\"341\" font-size=\"13.5\" fill=\"#334155\">tenant and account isolation</text></g><g><rect x=\"920\" y=\"245\" width=\"245\" height=\"135\" rx=\"15\" fill=\"#fefce8\" stroke=\"#ca8a04\" stroke-width=\"2\"/><text x=\"936\" y=\"273\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Integrity &amp; Audit</text><text x=\"936\" y=\"299\" font-size=\"13.5\" fill=\"#334155\">SHA-256 Hash Chain</text><text x=\"936\" y=\"320\" font-size=\"13.5\" fill=\"#334155\">Ed25519 checkpoints</text><text x=\"936\" y=\"341\" font-size=\"13.5\" fill=\"#334155\">Outbox / receipts / cursor</text></g><g><rect x=\"120\" y=\"480\" width=\"300\" height=\"125\" rx=\"15\" fill=\"#f1f5f9\" stroke=\"#334155\" stroke-width=\"2\"/><text x=\"136\" y=\"508\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Runtime Defense</text><text x=\"136\" y=\"534\" font-size=\"13.5\" fill=\"#334155\">non-root · sandbox</text><text x=\"136\" y=\"555\" font-size=\"13.5\" fill=\"#334155\">readiness · drain · DLQ</text><text x=\"136\" y=\"576\" font-size=\"13.5\" fill=\"#334155\">SSRF/archive/file guards</text></g><g><rect x=\"455\" y=\"480\" width=\"300\" height=\"125\" rx=\"15\" fill=\"#f1f5f9\" stroke=\"#334155\" stroke-width=\"2\"/><text x=\"471\" y=\"508\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Detection</text><text x=\"471\" y=\"534\" font-size=\"13.5\" fill=\"#334155\">structured audit</text><text x=\"471\" y=\"555\" font-size=\"13.5\" fill=\"#334155\">metrics / traces</text><text x=\"471\" y=\"576\" font-size=\"13.5\" fill=\"#334155\">policy and anomaly signals</text></g><g><rect x=\"790\" y=\"480\" width=\"300\" height=\"125\" rx=\"15\" fill=\"#f1f5f9\" stroke=\"#334155\" stroke-width=\"2\"/><text x=\"806\" y=\"508\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Recovery &amp; Proof</text><text x=\"806\" y=\"534\" font-size=\"13.5\" fill=\"#334155\">reconcile / sweeper</text><text x=\"806\" y=\"555\" font-size=\"13.5\" fill=\"#334155\">key canary / DB audit</text><text x=\"806\" y=\"576\" font-size=\"13.5\" fill=\"#334155\">immutable archive target</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "architecture_notes",
+        "type": "markdown",
+        "body": "### Existing control chain\n\n1. 客户端使用 TLS；Web 使用 sessionStorage bearer token 与不可导出 WebCrypto 缓存密钥，iOS 使用 Keychain `ThisDeviceOnly` 与 CryptoKit。\n2. API 入口执行内容类型/体积限制、必要的原文 Hash/签名、登录限流、Session 与资源权限。\n3. AI/Agent 的模型输出不直接产生授权；工具必须再经过 capability、approval、文件/网络/时间/成本边界。\n4. 领域表是业务权威；Content Object 只承载 Blob；Sync Tree 只承载版本、Hash、游标与引用。\n5. Security Ledger 与 Chat Chain 提供篡改证据；Runtime Coordinator、lease/DLQ/sweeper/reconcile 提供自恢复。"
+      },
+      {
+        "id": "pb_surface",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "surface_heading",
+        "type": "markdown",
+        "body": "## 3. Attack Surface Map"
+      },
+      {
+        "id": "attack_surface_diagram",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:18px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">Athena Attack Surface Map — entry, path and blast radius</h3><svg viewBox=\"0 0 1200 655\" width=\"100%\" role=\"img\" aria-label=\"Athena Attack Surface Map — entry, path and blast radius\" style=\"display:block\"><defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 255 100 L 335 100\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"295\" y=\"93\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 570 100 L 650 100\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"610\" y=\"93\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 885 100 L 965 100\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"925\" y=\"93\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 160 175 L 160 270\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"160\" y=\"215.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 450 175 L 450 270\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"450\" y=\"215.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 770 175 L 740 270\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"755\" y=\"215.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 1065 175 L 1035 270\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"1050\" y=\"215.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 160 420 L 280 510\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"220\" y=\"458\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">affects</text><path d=\"M 450 420 L 600 510\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"525\" y=\"458\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">affects</text><path d=\"M 740 420 L 920 510\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"830\" y=\"458\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">affects</text><path d=\"M 1035 420 L 735 510\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"885\" y=\"458\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">affects</text><g><rect x=\"30\" y=\"30\" width=\"225\" height=\"145\" rx=\"15\" fill=\"#fff1f2\" stroke=\"#e11d48\" stroke-width=\"2\"/><text x=\"46\" y=\"58\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Entry Points</text><text x=\"46\" y=\"84\" font-size=\"13.5\" fill=\"#334155\">browser / mobile</text><text x=\"46\" y=\"105\" font-size=\"13.5\" fill=\"#334155\">desktop / deep link</text><text x=\"46\" y=\"126\" font-size=\"13.5\" fill=\"#334155\">REST / WS / SSE</text><text x=\"46\" y=\"147\" font-size=\"13.5\" fill=\"#334155\">files / URLs / webhooks</text></g><g><rect x=\"335\" y=\"30\" width=\"235\" height=\"145\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"351\" y=\"58\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Trust Transitions</text><text x=\"351\" y=\"84\" font-size=\"13.5\" fill=\"#334155\">edge parser</text><text x=\"351\" y=\"105\" font-size=\"13.5\" fill=\"#334155\">Session V2 / JWT</text><text x=\"351\" y=\"126\" font-size=\"13.5\" fill=\"#334155\">resource authorization</text><text x=\"351\" y=\"147\" font-size=\"13.5\" fill=\"#334155\">Collector integrity</text></g><g><rect x=\"650\" y=\"30\" width=\"235\" height=\"145\" rx=\"15\" fill=\"#fefce8\" stroke=\"#ca8a04\" stroke-width=\"2\"/><text x=\"666\" y=\"58\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Execution Paths</text><text x=\"666\" y=\"84\" font-size=\"13.5\" fill=\"#334155\">Domain API</text><text x=\"666\" y=\"105\" font-size=\"13.5\" fill=\"#334155\">AI Agent + tools</text><text x=\"666\" y=\"126\" font-size=\"13.5\" fill=\"#334155\">Collector / Reader</text><text x=\"666\" y=\"147\" font-size=\"13.5\" fill=\"#334155\">MCP / plugin process</text></g><g><rect x=\"965\" y=\"30\" width=\"205\" height=\"145\" rx=\"15\" fill=\"#fee2e2\" stroke=\"#dc2626\" stroke-width=\"2\"/><text x=\"981\" y=\"58\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Impact Areas</text><text x=\"981\" y=\"84\" font-size=\"13.5\" fill=\"#334155\">identity / session</text><text x=\"981\" y=\"105\" font-size=\"13.5\" fill=\"#334155\">workspace data</text><text x=\"981\" y=\"126\" font-size=\"13.5\" fill=\"#334155\">memory / knowledge</text><text x=\"981\" y=\"147\" font-size=\"13.5\" fill=\"#334155\">keys / storage</text></g><g><rect x=\"30\" y=\"270\" width=\"260\" height=\"150\" rx=\"15\" fill=\"#fff1f2\" stroke=\"#be123c\" stroke-width=\"2\"/><text x=\"46\" y=\"298\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Confirmed Path A</text><text x=\"46\" y=\"324\" font-size=\"13.5\" fill=\"#334155\">revoked JWT</text><text x=\"46\" y=\"345\" font-size=\"13.5\" fill=\"#334155\">WS handshake bypasses</text><text x=\"46\" y=\"366\" font-size=\"13.5\" fill=\"#334155\">authoritative session</text><text x=\"46\" y=\"387\" font-size=\"13.5\" fill=\"#334155\">→ confidentiality risk</text></g><g><rect x=\"320\" y=\"270\" width=\"260\" height=\"150\" rx=\"15\" fill=\"#fff1f2\" stroke=\"#be123c\" stroke-width=\"2\"/><text x=\"336\" y=\"298\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Confirmed Path B</text><text x=\"336\" y=\"324\" font-size=\"13.5\" fill=\"#334155\">dev Collector request</text><text x=\"336\" y=\"345\" font-size=\"13.5\" fill=\"#334155\">client absolutePath</text><text x=\"336\" y=\"366\" font-size=\"13.5\" fill=\"#334155\">trusted by parser</text><text x=\"336\" y=\"387\" font-size=\"13.5\" fill=\"#334155\">→ readable local file</text></g><g><rect x=\"610\" y=\"270\" width=\"260\" height=\"150\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#c2410c\" stroke-width=\"2\"/><text x=\"626\" y=\"298\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Design Path C</text><text x=\"626\" y=\"324\" font-size=\"13.5\" fill=\"#334155\">untrusted RAG content</text><text x=\"626\" y=\"345\" font-size=\"13.5\" fill=\"#334155\">instruction authority</text><text x=\"626\" y=\"366\" font-size=\"13.5\" fill=\"#334155\">rag-memory.store</text><text x=\"626\" y=\"387\" font-size=\"13.5\" fill=\"#334155\">→ memory poisoning</text></g><g><rect x=\"900\" y=\"270\" width=\"270\" height=\"150\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#c2410c\" stroke-width=\"2\"/><text x=\"916\" y=\"298\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Blast Path D</text><text x=\"916\" y=\"324\" font-size=\"13.5\" fill=\"#334155\">Collector compromise</text><text x=\"916\" y=\"345\" font-size=\"13.5\" fill=\"#334155\">broad storage mount</text><text x=\"916\" y=\"366\" font-size=\"13.5\" fill=\"#334155\">full service environment</text><text x=\"916\" y=\"387\" font-size=\"13.5\" fill=\"#334155\">→ expanded impact</text></g><g><rect x=\"145\" y=\"510\" width=\"270\" height=\"115\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"161\" y=\"538\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Security State</text><text x=\"161\" y=\"564\" font-size=\"13.5\" fill=\"#334155\">Auth DB · sessions</text><text x=\"161\" y=\"585\" font-size=\"13.5\" fill=\"#334155\">device trust · receipts</text><text x=\"161\" y=\"606\" font-size=\"13.5\" fill=\"#334155\">audit ledger</text></g><g><rect x=\"465\" y=\"510\" width=\"270\" height=\"115\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"481\" y=\"538\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Business State</text><text x=\"481\" y=\"564\" font-size=\"13.5\" fill=\"#334155\">Main DB · Sync nodes</text><text x=\"481\" y=\"585\" font-size=\"13.5\" fill=\"#334155\">Chat · Workspace</text><text x=\"481\" y=\"606\" font-size=\"13.5\" fill=\"#334155\">content objects</text></g><g><rect x=\"785\" y=\"510\" width=\"270\" height=\"115\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"801\" y=\"538\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">AI State</text><text x=\"801\" y=\"564\" font-size=\"13.5\" fill=\"#334155\">vector DB · graph</text><text x=\"801\" y=\"585\" font-size=\"13.5\" fill=\"#334155\">memory · prompts</text><text x=\"801\" y=\"606\" font-size=\"13.5\" fill=\"#334155\">tools / plugin scope</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "attack_surface_table",
+        "type": "table",
+        "tableId": "attack_surface",
+        "layout": "full"
+      },
+      {
+        "id": "surface_observation",
+        "type": "markdown",
+        "body": "### Principal attack-surface observation\n\n最危险的边界不是公开 REST 本身，而是‘被认为已经在内网或开发态’的旁路：长连接握手、Collector 本地文件入口、解析容器的挂载/环境，以及被模型视为普通上下文的外部文档。大厂级治理要求这些旁路与主链路使用同一身份和最小权限策略。"
+      },
+      {
+        "id": "pb_threat",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "threat_heading",
+        "type": "markdown",
+        "body": "## 4. Threat Model"
+      },
+      {
+        "id": "threat_method",
+        "type": "markdown",
+        "body": "本评审按资产—信任转换—攻击者能力—可观测性—恢复路径建模。严重性同时考虑可利用性、数据/身份影响、是否持久化以及是否跨租户。没有可利用路径的外部环境缺失记录为 assurance gap，不伪装成漏洞。"
+      },
+      {
+        "id": "threat_table",
+        "type": "table",
+        "tableId": "threat_model",
+        "layout": "full"
+      },
+      {
+        "id": "threat_assets",
+        "type": "markdown",
+        "body": "### Crown-jewel assets\n\n- 身份权威：AuthSession、Passkey 公钥、设备绑定、恢复与吊销状态。\n- 用户数据：Chat、Workspace、文档、附件、长期记忆、向量与图谱。\n- AI 控制权：系统提示、Agent 角色、工具能力、预算、插件服务身份。\n- 密钥与证据：Key Custody、DEK 封装、设备签名密钥、审计链与检查点。\n- 同步权威：stateVersion、Outbox seq、mutation receipt、cursor 与权限投影。"
+      },
+      {
+        "id": "pb_red",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "red_heading",
+        "type": "markdown",
+        "body": "## 5. Red Team Attack Simulation"
+      },
+      {
+        "id": "red_scope",
+        "type": "markdown",
+        "body": "所有动态测试都在用户授权的本地开发环境完成，使用非破坏性输入。没有读取或输出秘密材料，没有写入恶意长期记忆，没有修改真实业务数据。复现路径在报告中保持为防御团队可行动的最小信息，不提供可直接滥用的武器化载荷。"
+      },
+      {
+        "id": "red_team_table",
+        "type": "table",
+        "tableId": "red_team",
+        "layout": "full"
+      },
+      {
+        "id": "red_evidence",
+        "type": "markdown",
+        "body": "### Verified runtime observations\n\n- Frontend、API、Collector 健康检查均为 HTTP 200；TLS 1.1 被拒绝，TLS 1.2/1.3 可用。\n- API 返回 DENY frame policy、nosniff、严格 referrer policy、Permissions-Policy 与 `object-src 'none'` / `frame-ancestors 'none'` CSP。\n- 未认证 Sync manifest、Vault、mutation batch 均返回 401。\n- 普通 JSON 超过 3 MiB 在业务处理前返回结构化 413。\n- Collector loopback SSRF 被目的地址策略阻止。\n- Collector 开发态本地文件读取已用仓库公开文件安全复现，证明它不是仅靠静态推断的理论问题。"
+      },
+      {
+        "id": "pb_ai",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "ai_heading",
+        "type": "markdown",
+        "body": "## 6. AI Security Assessment"
+      },
+      {
+        "id": "ai_conclusion",
+        "type": "markdown",
+        "body": "Athena 的 Agent 安全优点是能力检查在工具侧，而不是依赖模型‘自觉’；高风险文件/工具和账户级 `save_memory` 已有明确审批边界。主要缺口是进入模型的 RAG/网页/文件内容尚未被统一标记为不可信数据，且 workspace `rag-memory.store` 没有复用账户记忆的‘显式当前用户意图 + 强制审批 + 候选确认’策略。"
+      },
+      {
+        "id": "ai_table",
+        "type": "table",
+        "tableId": "ai_security",
+        "layout": "full"
+      },
+      {
+        "id": "ai_target",
+        "type": "markdown",
+        "body": "### Target AI trust pipeline\n\n`External content → provenance + taint label → retrieval policy → untrusted-data envelope → model → proposed action → capability + user approval → isolated tool → audited result → candidate memory → confirmation → active memory`\n\n任何文档、网页、插件返回或模型输出都不能自动升级为系统指令。Memory 是高价值持久化 sink，应和文件写入、网络访问、Secret 使用同等对待。"
+      },
+      {
+        "id": "ai_future",
+        "type": "markdown",
+        "body": "### Future AI OS security requirement\n\nPersonal AI OS 需要可解释的记忆同意、来源、衰减、删除、跨 Workspace 边界和组织策略；Multi-Agent 架构还需要可验证的 Agent 服务身份、委托链、最小能力、预算与责任归属。不要用通用 CRDT、ZKP 或门限签名掩盖尚未完成的基本授权和隔离。"
+      },
+      {
+        "id": "pb_identity",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "identity_heading",
+        "type": "markdown",
+        "body": "## 7. Identity Security Review"
+      },
+      {
+        "id": "identity_table",
+        "type": "table",
+        "tableId": "identity_review",
+        "layout": "full"
+      },
+      {
+        "id": "ws_detail",
+        "type": "markdown",
+        "body": "### High finding: authoritative identity stops at the WebSocket boundary\n\nREST 的 Session V2 能检查 sid、idle/absolute expiry、tokenVersion、吊销和敏感操作的权威状态；但 broadcast、Agent 与 crypto WebSocket 的握手路径仍以‘JWT 能解码并能加载用户’作为主要判断。结果是旧 Token 被吊销后，可能在 JWT 自身过期前重新建立或维持连接。\n\n推荐迁移：`REST-authenticated one-time WS ticket (30–60s) → handshake binds sessionId/clientId/device → socket expiry timer + periodic authoritative revalidation → revoke/device event closes active sockets`。旧客户端在短过渡期双读，但禁止继续在 URL 中发送长期 bearer token。"
+      },
+      {
+        "id": "pb_data",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "data_heading",
+        "type": "markdown",
+        "body": "## 8. Data Security Review"
+      },
+      {
+        "id": "data_table",
+        "type": "table",
+        "tableId": "data_review",
+        "layout": "full"
+      },
+      {
+        "id": "data_metrics",
+        "type": "markdown",
+        "body": "### Verified protection evidence\n\n- Main/Auth SQLite `quick_check=ok`，外键违规为 0。\n- 1,038/1,038 条 Chat prompt 与 response 已加密；1,038 条 crypto metadata 完整，chainInvalid=0。\n- 文档存储 31 条、向量缓存 30 条、LanceDB 文本 695/695 条均在当前审计中显示加密覆盖。\n- Content Object 以独立随机 DEK、AEAD、checksum 和 staging→ready 状态隔离 Blob；Chat 大对象治理使数据库相对迁移前基线缩小约 90%。\n- 安全账本 13 条记录、4 个 Ed25519 检查点，验证失败 0。\n\n这些结果证明当前本地数据保护链健康，但不能替代外部 KMS、对象锁、备份恢复和数据驻留演练。"
+      },
+      {
+        "id": "pb_sync",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "sync_heading",
+        "type": "markdown",
+        "body": "## 9. Cross-device Synchronization Security"
+      },
+      {
+        "id": "sync_security_diagram",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:18px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">Sync V2 Security — consistency proof is separate from real-time transport</h3><svg viewBox=\"0 0 1200 635\" width=\"100%\" role=\"img\" aria-label=\"Sync V2 Security — consistency proof is separate from real-time transport\" style=\"display:block\"><defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 260 112 L 330 112\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"295\" y=\"105\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">signed write</text><path d=\"M 575 112 L 645 112\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"610\" y=\"105\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">authorize</text><path d=\"M 890 112 L 960 112\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"925\" y=\"105\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">event</text><path d=\"M 1065 180 L 960 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"1012.5\" y=\"233\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">hint</text><path d=\"M 645 180 L 240 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"442.5\" y=\"233\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">batch pull</text><path d=\"M 575 180 L 600 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"587.5\" y=\"233\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">409</text><path d=\"M 890 180 L 960 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"925\" y=\"233\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">replay</text><path d=\"M 240 435 L 395 520\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"317.5\" y=\"470.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 960 435 L 805 520\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"882.5\" y=\"470.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><g><rect x=\"30\" y=\"45\" width=\"230\" height=\"135\" rx=\"15\" fill=\"#eef2ff\" stroke=\"#6366f1\" stroke-width=\"2\"/><text x=\"46\" y=\"73\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Trusted Client State</text><text x=\"46\" y=\"99\" font-size=\"13.5\" fill=\"#334155\">account-isolated cache</text><text x=\"46\" y=\"120\" font-size=\"13.5\" fill=\"#334155\">device key + clientId</text><text x=\"46\" y=\"141\" font-size=\"13.5\" fill=\"#334155\">local dirty queue</text><text x=\"46\" y=\"162\" font-size=\"13.5\" fill=\"#334155\">last applied cursor</text></g><g><rect x=\"330\" y=\"45\" width=\"245\" height=\"135\" rx=\"15\" fill=\"#eff6ff\" stroke=\"#2563eb\" stroke-width=\"2\"/><text x=\"346\" y=\"73\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Mutation Boundary</text><text x=\"346\" y=\"99\" font-size=\"13.5\" fill=\"#334155\">mutationId / receipt</text><text x=\"346\" y=\"120\" font-size=\"13.5\" fill=\"#334155\">baseVersion / If-Match</text><text x=\"346\" y=\"141\" font-size=\"13.5\" fill=\"#334155\">changedPaths</text><text x=\"346\" y=\"162\" font-size=\"13.5\" fill=\"#334155\">high-risk signature</text></g><g><rect x=\"645\" y=\"45\" width=\"245\" height=\"135\" rx=\"15\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"2\"/><text x=\"661\" y=\"73\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Authority Transaction</text><text x=\"661\" y=\"99\" font-size=\"13.5\" fill=\"#334155\">domain write</text><text x=\"661\" y=\"120\" font-size=\"13.5\" fill=\"#334155\">stateVersion + hash</text><text x=\"661\" y=\"141\" font-size=\"13.5\" fill=\"#334155\">Outbox seq</text><text x=\"661\" y=\"162\" font-size=\"13.5\" fill=\"#334155\">server updatedAt</text></g><g><rect x=\"960\" y=\"45\" width=\"210\" height=\"135\" rx=\"15\" fill=\"#fefce8\" stroke=\"#ca8a04\" stroke-width=\"2\"/><text x=\"976\" y=\"73\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Notification</text><text x=\"976\" y=\"99\" font-size=\"13.5\" fill=\"#334155\">WS primary</text><text x=\"976\" y=\"120\" font-size=\"13.5\" fill=\"#334155\">SSE / Push wake</text><text x=\"976\" y=\"141\" font-size=\"13.5\" fill=\"#334155\">NATS adapter</text><text x=\"976\" y=\"162\" font-size=\"13.5\" fill=\"#334155\">no business authority</text></g><g><rect x=\"110\" y=\"300\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#f0fdfa\" stroke=\"#0f766e\" stroke-width=\"2\"/><text x=\"126\" y=\"328\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Reliable Apply</text><text x=\"126\" y=\"354\" font-size=\"13.5\" fill=\"#334155\">manifest / batchGet</text><text x=\"126\" y=\"375\" font-size=\"13.5\" fill=\"#334155\">version + hash</text><text x=\"126\" y=\"396\" font-size=\"13.5\" fill=\"#334155\">encrypted archive</text><text x=\"126\" y=\"417\" font-size=\"13.5\" fill=\"#334155\">ACK after persistence</text></g><g><rect x=\"470\" y=\"300\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"486\" y=\"328\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Conflict Control</text><text x=\"486\" y=\"354\" font-size=\"13.5\" fill=\"#334155\">different fields rebase</text><text x=\"486\" y=\"375\" font-size=\"13.5\" fill=\"#334155\">same field conflict</text><text x=\"486\" y=\"396\" font-size=\"13.5\" fill=\"#334155\">tombstones</text><text x=\"486\" y=\"417\" font-size=\"13.5\" fill=\"#334155\">monotonic read cursor</text></g><g><rect x=\"830\" y=\"300\" width=\"260\" height=\"135\" rx=\"15\" fill=\"#f1f5f9\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"846\" y=\"328\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Repair</text><text x=\"846\" y=\"354\" font-size=\"13.5\" fill=\"#334155\">cursor replay</text><text x=\"846\" y=\"375\" font-size=\"13.5\" fill=\"#334155\">full reconcile</text><text x=\"846\" y=\"396\" font-size=\"13.5\" fill=\"#334155\">same-version hash alert</text><text x=\"846\" y=\"417\" font-size=\"13.5\" fill=\"#334155\">permission re-check</text></g><g><rect x=\"245\" y=\"520\" width=\"300\" height=\"90\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#64748b\" stroke-width=\"2\"/><text x=\"261\" y=\"548\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Not deployed</text><text x=\"261\" y=\"574\" font-size=\"13.5\" fill=\"#334155\">No Merkle Tree in active path</text><text x=\"261\" y=\"595\" font-size=\"13.5\" fill=\"#334155\">No generic CRDT / Vector Clock</text></g><g><rect x=\"655\" y=\"520\" width=\"300\" height=\"90\" rx=\"15\" fill=\"#f8fafc\" stroke=\"#64748b\" stroke-width=\"2\"/><text x=\"671\" y=\"548\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Security rule</text><text x=\"671\" y=\"574\" font-size=\"13.5\" fill=\"#334155\">Event transport may duplicate</text><text x=\"671\" y=\"595\" font-size=\"13.5\" fill=\"#334155\">authority/version/authz may not</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "sync_assessment",
+        "type": "markdown",
+        "body": "### Attack-resistance assessment\n\n- 恶意客户端不能自行提升服务端版本；Mutation 使用 `mutationId`、`baseVersion`、changedPaths、receipt 与必要的设备签名。\n- 乱序或重复事件不会直接重复业务副作用；客户端只在业务缓存、descriptor、加密 Archive 与 cursor 全部可靠落盘后 ACK。\n- WS/SSE/APNs 是提示与唤醒链路，Outbox seq、event replay、Manifest/BatchGet、stateVersion/hash 才是恢复依据。\n- 权限必须在发送与补拉时重查；安全/权限/Session/权益不得由陈旧缓存授予。\n- 当前审计检查 263 个节点和 186 个投影，未发现权限、正文、Hash 或投影冲突。\n\n**Merkle Tree、通用 CRDT 与 Vector Clock 当前未部署。** 这不是安全缺失：263 节点规模下 version+hash+cursor 已足够。若未来为协同正文引入 CRDT，必须同时设计 actor identity、每操作授权、tombstone/DoS 上限、签名快照和服务端准入；Merkle 只能优化对账，不能代替授权或消息签名。"
+      },
+      {
+        "id": "sync_gap",
+        "type": "markdown",
+        "body": "当前最大同步安全缺口并不在状态树算法，而在长连接身份生命周期：被吊销的 Session 必须同时关闭/拒绝 WS，并确保未授权 scope 立即移除。"
+      },
+      {
+        "id": "pb_infra",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "infra_heading",
+        "type": "markdown",
+        "body": "## 10. Infrastructure Security Review"
+      },
+      {
+        "id": "infra_table",
+        "type": "table",
+        "tableId": "infrastructure_review",
+        "layout": "full"
+      },
+      {
+        "id": "collector_detail",
+        "type": "markdown",
+        "body": "### High finding: Collector isolation violates least privilege\n\nCollector 已有很好的请求级 SSRF、DNS 重绑定、重定向、文件大小、超时、并发和 archive 防护，也使用 non-root/cap-drop/read-only rootfs。但部署仍把过大的服务端存储目录以读写方式挂入，并继承广泛的服务环境。解析器属于高风险供应链边界，一旦出错，进程级最小权限必须限制其只能看到本任务输入、输出与有限对象存储凭据。\n\n推荐把 Collector 拆为‘控制 API + 隔离 Worker’，每任务独立临时目录和短期服务凭据；Main/Auth DB、Key 文件和其他服务 Secret 均不得挂载或注入。"
+      },
+      {
+        "id": "supply_chain",
+        "type": "markdown",
+        "body": "### Supply-chain posture\n\n当前门禁满足 reachable Critical=0，GitHub Actions 使用完整 commit SHA；但原始 High advisory 仍为 Server 114、Collector 40、Frontend 11。大厂级门禁应以 reachability、owner、隔离、到期时间和回归共同决策，而不是简单忽略或强制大版本升级。发布镜像需要 digest pin，CI 需要 SBOM/CycloneDX、VEX、SCA、Secret scanner 与可追溯 provenance。"
+      },
+      {
+        "id": "pb_vuln",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "vuln_heading",
+        "type": "markdown",
+        "body": "## 11. Vulnerability Report"
+      },
+      {
+        "id": "vuln_table",
+        "type": "table",
+        "tableId": "vulnerabilities",
+        "layout": "full"
+      },
+      {
+        "id": "vuln_rule",
+        "type": "markdown",
+        "body": "### Severity rule\n\nCritical 要求已确认的跨信任边界远程完全接管、广泛密钥/租户数据泄漏或不可逆高影响路径；本轮未确认此类问题。High 包括可复现的本地/开发边界读取、会话吊销绕过、持久 AI 记忆污染和高影响隔离失败。条件性外部分布式风险在未部署前列为 Medium，并设为上线阻断门禁。"
+      },
+      {
+        "id": "pb_risk",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "risk_heading",
+        "type": "markdown",
+        "body": "## 12. Risk Matrix"
+      },
+      {
+        "id": "risk_matrix_table",
+        "type": "table",
+        "tableId": "risk_matrix",
+        "layout": "full"
+      },
+      {
+        "id": "coverage_chart",
+        "type": "chart",
+        "chartId": "verification_coverage",
+        "layout": "full"
+      },
+      {
+        "id": "risk_note",
+        "type": "markdown",
+        "body": "覆盖率图是基于代码、测试、本机运行和外部环境证明的评审估计，不是统计置信区间。AI 与基础设施得分较低，原因是缺少持续对抗语料和外部多节点/SIEM/KMS 证明，而不是缺少代码文件。"
+      },
+      {
+        "id": "pb_blue",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "blue_heading",
+        "type": "markdown",
+        "body": "## 13. Blue Team Defense Capability"
+      },
+      {
+        "id": "blue_team_diagram",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:18px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">Blue/Purple Team Closed Loop — detect, contain, recover, prove</h3><svg viewBox=\"0 0 1200 500\" width=\"100%\" role=\"img\" aria-label=\"Blue/Purple Team Closed Loop — detect, contain, recover, prove\" style=\"display:block\"><defs><marker id=\"arrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 285 132 L 345 132\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"315\" y=\"125\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 575 132 L 635 132\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"605\" y=\"125\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 865 132 L 925 132\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"895\" y=\"125\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 1040 195 L 945 330\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"992.5\" y=\"255.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 815 392 L 765 392\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"790\" y=\"385\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 505 392 L 455 392\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"480\" y=\"385\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\"></text><path d=\"M 325 330 L 170 195\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#arrow)\"/><text x=\"247.5\" y=\"255.5\" text-anchor=\"middle\" font-size=\"11.5\" fill=\"#475569\">improve</text><g><rect x=\"55\" y=\"70\" width=\"230\" height=\"125\" rx=\"15\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"2\"/><text x=\"71\" y=\"98\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Prevent</text><text x=\"71\" y=\"124\" font-size=\"13.5\" fill=\"#334155\">Session / AuthZ</text><text x=\"71\" y=\"145\" font-size=\"13.5\" fill=\"#334155\">capability policy</text><text x=\"71\" y=\"166\" font-size=\"13.5\" fill=\"#334155\">input and network guards</text></g><g><rect x=\"345\" y=\"70\" width=\"230\" height=\"125\" rx=\"15\" fill=\"#eff6ff\" stroke=\"#2563eb\" stroke-width=\"2\"/><text x=\"361\" y=\"98\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Detect</text><text x=\"361\" y=\"124\" font-size=\"13.5\" fill=\"#334155\">structured audit</text><text x=\"361\" y=\"145\" font-size=\"13.5\" fill=\"#334155\">metrics / traces</text><text x=\"361\" y=\"166\" font-size=\"13.5\" fill=\"#334155\">chain and hash alerts</text></g><g><rect x=\"635\" y=\"70\" width=\"230\" height=\"125\" rx=\"15\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"651\" y=\"98\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Contain</text><text x=\"651\" y=\"124\" font-size=\"13.5\" fill=\"#334155\">revoke / close</text><text x=\"651\" y=\"145\" font-size=\"13.5\" fill=\"#334155\">readiness / circuit</text><text x=\"651\" y=\"166\" font-size=\"13.5\" fill=\"#334155\">DLQ / quarantine</text></g><g><rect x=\"925\" y=\"70\" width=\"230\" height=\"125\" rx=\"15\" fill=\"#fdf4ff\" stroke=\"#a21caf\" stroke-width=\"2\"/><text x=\"941\" y=\"98\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Recover</text><text x=\"941\" y=\"124\" font-size=\"13.5\" fill=\"#334155\">cursor reconcile</text><text x=\"941\" y=\"145\" font-size=\"13.5\" fill=\"#334155\">sweeper / retry</text><text x=\"941\" y=\"166\" font-size=\"13.5\" fill=\"#334155\">backup / reverse shadow</text></g><g><rect x=\"195\" y=\"330\" width=\"260\" height=\"125\" rx=\"15\" fill=\"#fefce8\" stroke=\"#ca8a04\" stroke-width=\"2\"/><text x=\"211\" y=\"358\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Prove</text><text x=\"211\" y=\"384\" font-size=\"13.5\" fill=\"#334155\">Hash Chain</text><text x=\"211\" y=\"405\" font-size=\"13.5\" fill=\"#334155\">Ed25519 checkpoint</text><text x=\"211\" y=\"426\" font-size=\"13.5\" fill=\"#334155\">immutable archive / evidence</text></g><g><rect x=\"505\" y=\"330\" width=\"260\" height=\"125\" rx=\"15\" fill=\"#eef2ff\" stroke=\"#6366f1\" stroke-width=\"2\"/><text x=\"521\" y=\"358\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Learn</text><text x=\"521\" y=\"384\" font-size=\"13.5\" fill=\"#334155\">incident review</text><text x=\"521\" y=\"405\" font-size=\"13.5\" fill=\"#334155\">threat-model update</text><text x=\"521\" y=\"426\" font-size=\"13.5\" fill=\"#334155\">new adversarial tests</text></g><g><rect x=\"815\" y=\"330\" width=\"260\" height=\"125\" rx=\"15\" fill=\"#f1f5f9\" stroke=\"#334155\" stroke-width=\"2\"/><text x=\"831\" y=\"358\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Enforce</text><text x=\"831\" y=\"384\" font-size=\"13.5\" fill=\"#334155\">CI security gate</text><text x=\"831\" y=\"405\" font-size=\"13.5\" fill=\"#334155\">owner / expiry</text><text x=\"831\" y=\"426\" font-size=\"13.5\" fill=\"#334155\">policy as code</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "blue_team_table",
+        "type": "table",
+        "tableId": "blue_team",
+        "layout": "full"
+      },
+      {
+        "id": "self_healing",
+        "type": "markdown",
+        "body": "### Self-operation and recovery assessment\n\nAthena 已具备企业系统需要的自恢复骨架：Outbox/receipt lease、毒事件隔离/DLQ、Auth revision fingerprint 周期对账、Sync cursor/full reconcile、Content Object staging/GC、Runtime Coordinator drain、数据库/加密/Hash Chain 审计。缺口是这些能力还没有全部连接到持久化 SLO、跨组件 trace、告警分派、Runbook 和演练证据。‘自动重试成功’不是闭环；闭环必须能证明检测、限制爆炸半径、恢复权威状态并保存不可抵赖证据。"
+      },
+      {
+        "id": "pb_purple",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "purple_heading",
+        "type": "markdown",
+        "body": "## 14. Purple Team Improvement Plan"
+      },
+      {
+        "id": "roadmap_table",
+        "type": "table",
+        "tableId": "roadmap",
+        "layout": "full"
+      },
+      {
+        "id": "rollout",
+        "type": "markdown",
+        "body": "### Release, migration and rollback strategy\n\n- 每项修复独立开关与可观测指标；先 shadow/dual-read，再小流量，再强制。\n- WS ticket 迁移保留旧客户端短期兼容，但安全事件必须强制权威 Session 读。\n- Collector 的旧 absolutePath 只允许 API 进程内部适配为 opaque handle；公共请求立即拒绝。\n- Workspace memory 先保存候选和 provenance，再由用户确认激活；不自动删除现有记忆。\n- NATS、KMS、WORM、PG 只在 staging 演练通过后启用；故障时回到现有权威链路，不丢 Outbox/领域数据。\n- 测试循环遵循一次完整矩阵登记缺陷、修复后只重测相关项、全部关闭后最终完整门禁。"
+      },
+      {
+        "id": "test_plan",
+        "type": "markdown",
+        "body": "### Required verification gates\n\n1. 吊销 Session/设备后 5 秒内拒绝新 WS 并关闭已有 socket；URL/日志无长期 Token。\n2. Collector 对绝对路径、符号链接、越界 realpath、跨任务 handle、浏览器来源和无签名调用全部 fail-closed。\n3. Collector Worker 无法读取 Main/Auth DB、Key 文件或非本任务目录，网络只允许批准域。\n4. 间接提示注入不能直接触发 memory/file/network/secret sink；所有候选 Memory 带 provenance、scope、TTL 和审批证据。\n5. NATS 生产配置无 TLS/mTLS/ACL 时 not-ready；重复、乱序与伪造事件不产生业务副作用。\n6. 安全账本归档延迟、链失败、登录异常、工具越权、Sync backlog 与对象校验失败均触发告警。\n7. 供应链门禁保持 reachable Critical=0；High 必须有 owner、隔离和到期时间。"
+      },
+      {
+        "id": "pb_standards",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "standards_heading",
+        "type": "markdown",
+        "body": "## 15. Standards Mapping"
+      },
+      {
+        "id": "standards_table",
+        "type": "table",
+        "tableId": "standards",
+        "layout": "full"
+      },
+      {
+        "id": "standards_links",
+        "type": "markdown",
+        "body": "### Normative references\n\n- [OWASP Application Security Verification Standard 5.0.0](https://owasp.org/www-project-application-security-verification-standard/)\n- [OWASP Top 10:2025](https://owasp.org/Top10/)\n- [NIST SP 800-207 Zero Trust Architecture](https://csrc.nist.gov/pubs/sp/800/207/final)\n- [NIST Cybersecurity Framework 2.0](https://www.nist.gov/news-events/news/2024/02/nist-releases-version-20-landmark-cybersecurity-framework)\n- [OWASP Top 10 for LLM Applications 2025](https://owasp.org/www-project-top-10-for-large-language-model-applications/assets/PDF/OWASP-Top-10-for-LLMs-v2025.pdf)\n- [OWASP LLM Verification Standard v2](https://owasp.org/www-project-llm-verification-standard/LLMSVS-v2.0-en.html)\n- [OWASP AI Security Verification Standard](https://owasp.org/www-project-artificial-intelligence-security-verification-standard-aisvs-docs/)"
+      },
+      {
+        "id": "pb_score",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "score_heading",
+        "type": "markdown",
+        "body": "## 16. Final Security Score"
+      },
+      {
+        "id": "score_chart",
+        "type": "chart",
+        "chartId": "security_scores",
+        "layout": "full"
+      },
+      {
+        "id": "score_table",
+        "type": "table",
+        "tableId": "score_detail",
+        "layout": "full"
+      },
+      {
+        "id": "score_conclusion",
+        "type": "markdown",
+        "body": "### Final assessment: 7.4/10 — Strong product-grade foundation, not yet enterprise security complete\n\nAthena 的 Data Protection 已接近企业强度，身份与授权主链也明显成熟；四个 High 集中在‘主链路之外的旁路’与 AI 持久化 sink。完成 0–14 天 P0 后，预计整体可进入约 8.2/10 的准企业区间；只有外部 staging 的多节点、KMS/WORM/SIEM、持续 AI 对抗和事故演练完成，才应声明 8.5+ 的企业安全成熟度。"
+      },
+      {
+        "id": "pb_method",
+        "type": "html",
+        "body": "<div class=\"athena-page-break\"></div>",
+        "layout": "full"
+      },
+      {
+        "id": "method_heading",
+        "type": "markdown",
+        "body": "## 17. Methodology, Evidence and Limitations"
+      },
+      {
+        "id": "methodology",
+        "type": "markdown",
+        "body": "### Evidence collected\n\n- 扫描前后端、数据库、同步、缓存、认证、WebSocket、Workspace、Memory、Knowledge、Agent/MCP、iOS、Desktop、Docker、CI/CD 与运维配置。\n- 执行 50 个聚焦套件、275 项测试，全部通过。\n- 执行 Main/Auth 数据库完整性、加密覆盖、Chat Hash Chain、Sync shadow、Security Ledger、资源授权、桌面安全和供应链门禁审计。\n- 启动真实本地开发服务，验证 TLS、Headers、401、413、SSRF、readiness 与 Collector 的安全路径。\n- 进行静态密钥/私钥标记检查；未发现已跟踪真实私钥标记。专用 gitleaks/trufflehog 未安装，因此记录为 assurance gap。"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "### Limitations and non-claims\n\n- 本报告不是渗透测试认证、SOC 2/ISO 27001 合规结论或漏洞赏金保证。\n- 未对外部生产资源、第三方账户、真实攻击性 Payload、密钥材料或破坏性动作进行测试。\n- 当前没有外部 PostgreSQL/NATS/S3/KMS/SIEM 多节点环境，因此只评价适配、配置和故障测试，不声明生产容量/可用性。\n- 当前开发环境 Sync V2 未全局启用；跨设备撤销、杀进程、Push 丢失和长离线需要授权多设备 E2E。\n- 没有 Android 原生客户端；Android 只能评价协议准备度。\n- 安全评分包含专业判断，应只随新证据改变。"
+      },
+      {
+        "id": "appendix",
+        "type": "markdown",
+        "body": "## Appendix — Executive action register\n\n**Blockers before broader exposure:** ATH-SEC-2026-001 至 004。  \n**Blockers before distributed production:** ATH-SEC-2026-006、008 与外部 PG/NATS/S3/KMS 演练。  \n**Continuous governance:** dependency High burn-down、WS/Collector/AI adversarial tests、immutable evidence、incident runbooks。\n\n**Five-year blueprint:** 统一身份与工作负载信任、可审计 AI 能力委托、全域 provenance/taint、客户/区域数据策略、可验证恢复、持续 Purple Team。Athena 不需要为了技术名词引入通用 Merkle/CRDT/ZKP；只有当明确威胁模型和协作需求出现时才增加复杂度。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "generatedAt": "2026-07-20T20:30:00+08:00",
+    "status": "ready",
+    "datasets": {
+      "headline": [
+        {
+          "overallScore": 7.4,
+          "critical": 0,
+          "high": 4,
+          "tests": 275,
+          "syncIntegrity": 1,
+          "encryptedChats": 1038
+        }
+      ],
+      "severity": [
+        {
+          "severity": "Critical",
+          "count": 0
+        },
+        {
+          "severity": "High",
+          "count": 4
+        },
+        {
+          "severity": "Medium",
+          "count": 5
+        },
+        {
+          "severity": "Low",
+          "count": 2
+        }
+      ],
+      "verification": [
+        {
+          "domain": "Identity & session",
+          "verified": 86,
+          "unverified": 14
+        },
+        {
+          "domain": "Authorization & API",
+          "verified": 88,
+          "unverified": 12
+        },
+        {
+          "domain": "Data protection",
+          "verified": 92,
+          "unverified": 8
+        },
+        {
+          "domain": "Sync integrity",
+          "verified": 90,
+          "unverified": 10
+        },
+        {
+          "domain": "AI / Agent security",
+          "verified": 65,
+          "unverified": 35
+        },
+        {
+          "domain": "Infrastructure / operations",
+          "verified": 70,
+          "unverified": 30
+        }
+      ],
+      "attackSurface": [
+        {
+          "surface": "Web / browser",
+          "entryLifecycle": "REST, Chat SSE, Sync WS, deep links, cached state · Lifecycle: per tab / account / session",
+          "controls": "CSP, TLS, sessionStorage token, non-extractable WebCrypto cache key, encrypted IndexedDB",
+          "residual": "WS query-token exposure; XSS remains a bearer-token concern"
+        },
+        {
+          "surface": "iOS / iPadOS",
+          "entryLifecycle": "REST, WS, APNs wake, local cache · Lifecycle: device-bound, logout/account isolated",
+          "controls": "Keychain ThisDeviceOnly, CryptoKit AES-GCM, complete file protection, device signatures",
+          "residual": "authenticated revoke/kill/network-switch E2E not completed in this review"
+        },
+        {
+          "surface": "Electron desktop",
+          "entryLifecycle": "renderer IPC, local service, updater, child processes · Lifecycle: application and supervised children",
+          "controls": "contextIsolation, nodeIntegration off, sandbox, signed-update policy",
+          "residual": "desktop offline authority and cloud authority require explicit mode separation"
+        },
+        {
+          "surface": "REST API",
+          "entryLifecycle": "602 route declarations across 73 endpoint files · Lifecycle: request / session",
+          "controls": "body classes, session middleware, resource AuthZ, rate limiting, request signing",
+          "residual": "17/12 reviewed allowlist entries require continuing ownership"
+        },
+        {
+          "surface": "WebSocket / SSE",
+          "entryLifecycle": "broadcast, Agent, crypto and chat streams · Lifecycle: long-lived connection",
+          "controls": "JWT identity, scope routing, origin checks, signed high-risk Agent messages",
+          "residual": "authoritative Session V2 not uniformly enforced at WS handshake"
+        },
+        {
+          "surface": "Collector / Reader",
+          "entryLifecycle": "URL fetch, files, archives, raw text · Lifecycle: bounded task / temporary directory",
+          "controls": "SSRF, DNS-rebinding, redirect, archive, size, timeout and concurrency guards",
+          "residual": "development absolutePath trust and excessive container mounts/environment"
+        },
+        {
+          "surface": "AI Agent / MCP / plugins",
+          "entryLifecycle": "prompts, RAG context, tool calls, scheduled jobs · Lifecycle: invocation / job / agent session",
+          "controls": "capability manifests, approval, timeout, tool policy, budget scaffolding",
+          "residual": "untrusted context taint and workspace-memory confirmation incomplete"
+        },
+        {
+          "surface": "Data plane",
+          "entryLifecycle": "Main/Auth DB, content objects, vector DB, graph, local filesystem · Lifecycle: domain-defined retention",
+          "controls": "AEAD, HKDF, DEK envelope, tenant scope, foreign keys, hashes",
+          "residual": "external KMS/WORM/multi-node proof outstanding"
+        },
+        {
+          "surface": "Supply chain / CI",
+          "entryLifecycle": "npm packages, container images, GitHub Actions · Lifecycle: build / release",
+          "controls": "full-SHA actions, reachable Critical gate, tests and static audits",
+          "residual": "165 raw High advisories; images not all digest-pinned; no installed secret scanner"
+        }
+      ],
+      "threats": [
+        {
+          "idActor": "T01 · credential thief",
+          "assetPath": "Asset: account session and synchronized data · Path: stolen bearer token → long-lived WebSocket",
+          "controlGap": "Control: REST Session V2, device trust · Gap: WS handshake bypasses authoritative session",
+          "rating": "Likelihood: medium · Impact: high"
+        },
+        {
+          "idActor": "T02 · local-network or malicious web origin",
+          "assetPath": "Asset: development host files · Path: Collector parse request → caller-supplied absolutePath",
+          "controlGap": "Control: SSRF and archive guards · Gap: dev integrity bypass, permissive CORS/bind, trusted path",
+          "rating": "Likelihood: high in dev · Impact: high"
+        },
+        {
+          "idActor": "T03 · malicious document or web content author",
+          "assetPath": "Asset: workspace memory and Agent behavior · Path: indirect prompt injection → rag-memory.store",
+          "controlGap": "Control: tool policy and high-risk approvals · Gap: no taint/provenance/forced confirmation for workspace vector memory",
+          "rating": "Likelihood: medium · Impact: high"
+        },
+        {
+          "idActor": "T04 · compromised parser dependency",
+          "assetPath": "Asset: databases, objects and service credentials · Path: Collector process compromise → broad RW storage and environment",
+          "controlGap": "Control: non-root, cap-drop, read-only rootfs · Gap: service mount and secret scope are too broad",
+          "rating": "Likelihood: low-medium · Impact: high"
+        },
+        {
+          "idActor": "T05 · unauthenticated recon",
+          "assetPath": "Asset: runtime topology and failure state · Path: public detailed readiness",
+          "controlGap": "Control: no business data in response · Gap: host/worker/component detail is exposed",
+          "rating": "Likelihood: high · Impact: medium"
+        },
+        {
+          "idActor": "T06 · internal network attacker",
+          "assetPath": "Asset: cross-instance event integrity · Path: NATS credential theft or transport interception",
+          "controlGap": "Control: Outbox authority, eventId dedupe, obfuscated subjects · Gap: TLS/mTLS/ACL/event signature not enforced by adapter",
+          "rating": "Likelihood: conditional · Impact: medium-high"
+        },
+        {
+          "idActor": "T07 · malicious dependency or build compromise",
+          "assetPath": "Asset: application and CI · Path: reachable vulnerable package or mutable image tag",
+          "controlGap": "Control: Critical gate, SHA-pinned Actions · Gap: High backlog, SBOM/VEX and digest pinning incomplete",
+          "rating": "Likelihood: medium · Impact: medium-high"
+        },
+        {
+          "idActor": "T08 · privileged insider or host compromise",
+          "assetPath": "Asset: security evidence · Path: modify database and local ledger/archive",
+          "controlGap": "Control: Hash Chain + Ed25519 checkpoints · Gap: external immutable archive/SIEM disabled by default",
+          "rating": "Likelihood: low-medium · Impact: high"
+        }
+      ],
+      "redTeam": [
+        {
+          "scenarioResult": "Authentication bypass · Result: blocked",
+          "techniqueEvidence": "Technique: protected REST access without credentials · Evidence: Sync manifest, Vault and mutation endpoints returned 401",
+          "severity": "pass",
+          "recommendation": "retain centralized route audit and sensitive authoritative session reads"
+        },
+        {
+          "scenarioResult": "Session revocation replay · Result: confirmed design bypass",
+          "techniqueEvidence": "Technique: trace revoked/stolen JWT through broadcast, Agent and crypto WS handshakes · Evidence: WS paths decode JWT/load user without AuthSession validation",
+          "severity": "High",
+          "recommendation": "shared WS authenticator, short-lived ticket, periodic revalidation and revoke-close"
+        },
+        {
+          "scenarioResult": "JWT / recovery abuse · Result: mostly blocked",
+          "techniqueEvidence": "Technique: algorithm, token replay, recovery and single-use review · Evidence: sessions, rate limits and recovery tests pass; explicit algorithm pin remains",
+          "severity": "Low",
+          "recommendation": "pin algorithm; deadline and telemetry for legacy token path"
+        },
+        {
+          "scenarioResult": "Horizontal / vertical authorization · Result: blocked in tested matrix",
+          "techniqueEvidence": "Technique: resource-scope and temporary-token access tests · Evidence: resource-access, temporary-token and static route audits pass",
+          "severity": "pass",
+          "recommendation": "add authenticated cross-tenant runtime E2E to complement static assurance"
+        },
+        {
+          "scenarioResult": "Oversized / chunked body · Result: blocked",
+          "techniqueEvidence": "Technique: send payload beyond ordinary 3 MiB class · Evidence: 413 before business handling with structured limit response",
+          "severity": "pass",
+          "recommendation": "continue heap and compressed-body regression tests"
+        },
+        {
+          "scenarioResult": "SSRF to loopback · Result: blocked",
+          "techniqueEvidence": "Technique: Collector URL request targeting API loopback · Evidence: destination policy rejected loopback",
+          "severity": "pass",
+          "recommendation": "return explicit denial status and preserve redirect/DNS revalidation"
+        },
+        {
+          "scenarioResult": "Collector local file read · Result: confirmed",
+          "techniqueEvidence": "Technique: authorized safe file path supplied to development parse API · Evidence: Collector returned parsed public repository file content",
+          "severity": "High",
+          "recommendation": "opaque handles only, realpath root check, loopback bind and integrity in dev"
+        },
+        {
+          "scenarioResult": "Sync event injection/replay · Result: blocked in tested paths",
+          "techniqueEvidence": "Technique: duplicate, stale, conflicting and unsigned mutation tests · Evidence: version/hash/receipt/signature/cursor tests pass; 0 projection mismatch",
+          "severity": "pass",
+          "recommendation": "close WS session gap and run authenticated multi-device chaos"
+        },
+        {
+          "scenarioResult": "Audit tampering · Result: detectable",
+          "techniqueEvidence": "Technique: ledger chain/checkpoint verification · Evidence: 13 entries, 4 Ed25519 checkpoints, 0 verification failures",
+          "severity": "pass with gap",
+          "recommendation": "export to immutable external archive and alert on archive lag"
+        }
+      ],
+      "ai": [
+        {
+          "areaPriority": "Prompt injection · High",
+          "current": "system/tool prompts and capability boundaries exist",
+          "attackResult": "Attack: direct or indirect instructions attempt to override policy · Assessment: partial resistance",
+          "gap": "no centralized untrusted-content taint/provenance layer"
+        },
+        {
+          "areaPriority": "Memory poisoning · High",
+          "current": "account save_memory requires explicit intent and approval",
+          "attackResult": "Attack: RAG content induces rag-memory.store into workspace vector namespace · Assessment: confirmed design gap",
+          "gap": "workspace store lacks equivalent forced approval and provenance"
+        },
+        {
+          "areaPriority": "Tool abuse · Medium",
+          "current": "tool policy, approvals, timeouts and capability broker",
+          "attackResult": "Attack: request unauthorized file/network/high-risk tool · Assessment: strong for covered tools",
+          "gap": "plugin isolation and Secret Broker enforcement are not universal"
+        },
+        {
+          "areaPriority": "Agent privilege escalation · Medium",
+          "current": "user/workspace context and scoped capability checks",
+          "attackResult": "Attack: Agent crosses workspace, role or device boundary · Assessment: no confirmed bypass in focused tests",
+          "gap": "continuous cross-tenant adversarial corpus absent"
+        },
+        {
+          "areaPriority": "Data exfiltration · Medium",
+          "current": "resource AuthZ, encrypted storage, tool restrictions",
+          "attackResult": "Attack: malicious context asks tool to reveal hidden/system/private content · Assessment: bounded but not formally proven",
+          "gap": "egress DLP, canary documents and taint-to-sink policy needed"
+        },
+        {
+          "areaPriority": "Jailbreak · Medium",
+          "current": "provider/system policies and tool-side authorization",
+          "attackResult": "Attack: model output violates behavioral policy · Assessment: model-dependent",
+          "gap": "no release-gated adversarial safety/eval corpus"
+        },
+        {
+          "areaPriority": "Agent evaluation · Medium",
+          "current": "usage/budget/eval data structures and tests",
+          "attackResult": "Attack: quality or safety regression passes release · Assessment: observe-ready",
+          "gap": "production datasets, thresholds and enforcement maturity"
+        }
+      ],
+      "identity": [
+        {
+          "controlRating": "Primary authentication · strong",
+          "implementation": "Passkey, OPAQUE/ZK, password/SSO/invite compatibility",
+          "verification": "focused auth suites passed",
+          "residual": "phishing-resistant methods should be preferred and measured"
+        },
+        {
+          "controlRating": "Server session · material gap",
+          "implementation": "AuthSession sid/jti, idle/absolute expiry, token version, revoke",
+          "verification": "REST and sensitive-session tests passed",
+          "residual": "not reused by all WebSocket handshakes"
+        },
+        {
+          "controlRating": "Login abuse · strong locally",
+          "implementation": "persistent IP/identifier/combined buckets and dummy async bcrypt",
+          "verification": "rate-limit behavior tests passed",
+          "residual": "production distributed limiter topology still needs external proof"
+        },
+        {
+          "controlRating": "Device trust · strong with gap",
+          "implementation": "P-256 signing, nonce/timestamp/body hash, client identity",
+          "verification": "native signing/replay tests passed",
+          "residual": "socket revalidation and device-revoke E2E incomplete"
+        },
+        {
+          "controlRating": "Authorization · strong",
+          "implementation": "route middleware, resource ownership, workspace role, capability policy",
+          "verification": "338-route hardening audit and resource tests passed",
+          "residual": "allowlist ownership and dynamic cross-tenant E2E"
+        },
+        {
+          "controlRating": "Token handling · needs improvement",
+          "implementation": "Web sessionStorage, iOS Keychain, no new password-bearing JWT",
+          "verification": "JWT fallback and storage design reviewed",
+          "residual": "query-string token on Web WS; algorithm pin cleanup"
+        },
+        {
+          "controlRating": "Account deletion/revocation · good design",
+          "implementation": "persistent idempotent workflows and session revision reconcile",
+          "verification": "failure/recovery paths present",
+          "residual": "external multi-store chaos proof remains"
+        }
+      ],
+      "data": [
+        {
+          "domainIntegrity": "Chat and messages · Evidence: 1,038/1,038 encrypted; invalid chains 0",
+          "protectionIsolation": "Protection: AES-256-GCM, hash-chain metadata, content-object references · Isolation: workspace/thread ownership and attachment authorization",
+          "recovery": "rebuild/audit and object reconciliation",
+          "gap": "external object store/KMS proof"
+        },
+        {
+          "domainIntegrity": "Auth/session data · Evidence: quick_check and foreign_key_check pass",
+          "protectionIsolation": "Protection: separate Auth DB, least-privilege target roles, encrypted sensitive fields · Isolation: authUserId authority; no cross-DB joins",
+          "recovery": "revision fingerprint/reconcile and repair workflow",
+          "gap": "external PostgreSQL cutover proof"
+        },
+        {
+          "domainIntegrity": "Sync metadata · Evidence: 263 nodes; 186 projections; 0 hash/conflict findings",
+          "protectionIsolation": "Protection: account/device cursor partition, no secrets or Blob payloads · Isolation: permission checked on manifest, pull and event",
+          "recovery": "cursor replay, reconcile, tombstone and hash repair",
+          "gap": "current dev rollout disabled"
+        },
+        {
+          "domainIntegrity": "Knowledge/vector · Evidence: 695/695 vector text rows encrypted",
+          "protectionIsolation": "Protection: encrypted document store, vector text encryption · Isolation: workspace/vector namespace",
+          "recovery": "re-embed/re-index from authorized source",
+          "gap": "prompt-injection provenance and data-residency policy"
+        },
+        {
+          "domainIntegrity": "Long-term memory · Evidence: candidate/confirmed structure",
+          "protectionIsolation": "Protection: encrypted values and scoped synchronization · Isolation: user/workspace ownership",
+          "recovery": "delete/reconcile",
+          "gap": "workspace rag-memory confirmation and provenance"
+        },
+        {
+          "domainIntegrity": "Content objects · Evidence: checksum and staging→ready transaction",
+          "protectionIsolation": "Protection: per-object random DEK, streaming AEAD, wrapped DEK, HMAC tenant fingerprint · Isolation: authorization on every download",
+          "recovery": "staging GC, delayed delete, reference recount",
+          "gap": "external S3 object-lock and KMS proof"
+        },
+        {
+          "domainIntegrity": "Security audit · Evidence: 13 entries / 4 checkpoints / 0 failures",
+          "protectionIsolation": "Protection: SHA-256 chain and Ed25519 checkpoints · Isolation: administrative/security access",
+          "recovery": "verify and archive retry",
+          "gap": "external immutable archive disabled by default"
+        }
+      ],
+      "infrastructure": [
+        {
+          "componentRisk": "API runtime · Medium",
+          "strengths": "request limit classes, graceful drain, readiness, structured errors",
+          "finding": "detailed public readiness leaks topology",
+          "next": "minimal public health; authenticated internal diagnostics"
+        },
+        {
+          "componentRisk": "Collector · High",
+          "strengths": "non-root, cap-drop, read-only rootfs, SSRF/archive/timeout/size guards",
+          "finding": "dev absolutePath trust; broad RW storage and full environment",
+          "next": "opaque handles, narrow mounts/env/egress, loopback dev bind"
+        },
+        {
+          "componentRisk": "Database · Assurance",
+          "strengths": "SQLite integrity clean; PostgreSQL schemas/adapters and pool roles",
+          "finding": "external managed PostgreSQL not exercised here",
+          "next": "staging cutover/rollback/lock/connection chaos"
+        },
+        {
+          "componentRisk": "NATS JetStream · Medium conditional",
+          "strengths": "Outbox authority, durable adapters, eventId dedupe, readiness behavior",
+          "finding": "TLS/mTLS/ACL not enforced in adapter",
+          "next": "production-only secure scheme, workload identity and ACL"
+        },
+        {
+          "componentRisk": "Secrets / keys · Assurance",
+          "strengths": "Key Custody, canary validation, provider abstraction, no secret output",
+          "finding": "external KMS/HSM not production-proven",
+          "next": "KMS/Vault staging and rotation drill without changing current keys"
+        },
+        {
+          "componentRisk": "Containers · High",
+          "strengths": "sandboxing and least Linux capabilities in several services",
+          "finding": "Collector mount/environment violate process-level least privilege",
+          "next": "service-specific identity, filesystem and network policy"
+        },
+        {
+          "componentRisk": "Observability · Medium",
+          "strengths": "OTel/Prometheus-compatible instrumentation and correlation design",
+          "finding": "no external persistent SOC/SIEM evidence in local runtime",
+          "next": "deploy collector/storage/alerts and incident runbooks"
+        },
+        {
+          "componentRisk": "CI/CD · Medium",
+          "strengths": "full commit SHA for Actions; reachable Critical=0 gate",
+          "finding": "165 raw High advisories; incomplete SBOM/VEX/image digests",
+          "next": "owner+expiry policy, reachability, SBOM and immutable release inputs"
+        }
+      ],
+      "vulnerabilities": [
+        {
+          "idSeverity": "ATH-SEC-2026-001 · High",
+          "findingEvidence": "WebSocket handshakes bypass authoritative Session V2 · Evidence: confirmed code path",
+          "vectorImpact": "Vector: revoked or stolen JWT reused on broadcast/Agent/crypto sockets · Impact: session revocation may not terminate confidentiality or socket access until JWT expiry",
+          "remediation": "shared authoritative WS auth, short-lived ticket, token/device binding, periodic revalidation and revoke-close · Owner: Identity + Realtime · Target: 0–7 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-002 · High",
+          "findingEvidence": "Development Collector accepts caller-controlled absolutePath · Evidence: safely reproduced on a public repository file",
+          "vectorImpact": "Vector: unauthenticated local/dev parse request points to Collector-readable file · Impact: arbitrary readable local file exposure within Collector OS permissions",
+          "remediation": "remove field from public DTO; opaque staging handles; realpath root check; loopback bind; dev integrity · Owner: Collector · Target: 0–7 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-003 · High",
+          "findingEvidence": "Collector has excessive storage and environment blast radius · Evidence: confirmed compose/configuration",
+          "vectorImpact": "Vector: parser or dependency compromise · Impact: access to Main/Auth data, objects, key files or unrelated service credentials",
+          "remediation": "narrow RO/RW mounts, scoped service identity, Secret Broker, egress allowlist and separate network · Owner: Platform Security · Target: 0–14 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-004 · High",
+          "findingEvidence": "Indirect prompt injection can poison workspace vector memory · Evidence: confirmed design gap; not used to write real malicious content",
+          "vectorImpact": "Vector: malicious document/web context induces rag-memory.store · Impact: persistent attacker-controlled context can alter future Agent decisions",
+          "remediation": "untrusted-data envelope, provenance/TTL, explicit current-turn intent, forced approval and candidate→confirmed activation · Owner: AI Platform · Target: 0–14 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-005 · Medium",
+          "findingEvidence": "Public readiness exposes internal runtime detail · Evidence: confirmed runtime probe",
+          "vectorImpact": "Vector: unauthenticated /ready or /api/ready · Impact: reconnaissance of host, workers, queues and component failure state",
+          "remediation": "minimal public status; authenticated internal diagnostic endpoint · Owner: Platform · Target: 30 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-006 · Medium",
+          "findingEvidence": "NATS transport does not enforce production trust controls · Evidence: conditional code/config review",
+          "vectorImpact": "Vector: internal interception or service credential compromise · Impact: event observation/injection/redelivery pressure in distributed deployment",
+          "remediation": "TLS/mTLS, CA validation, workload identity, subject ACL and optional Ed25519 event envelope · Owner: Realtime Platform · Target: 30 days before production NATS"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-007 · Medium",
+          "findingEvidence": "High-severity supply-chain backlog remains · Evidence: Critical reachable=0; raw High server 114, Collector 40, frontend 11",
+          "vectorImpact": "Vector: reachable vulnerable dependency or mutable image input · Impact: server, Collector or frontend compromise depending on reachability",
+          "remediation": "upgrade/disable reachable paths, SBOM/VEX, owner+expiry, image digest and secret scanning · Owner: Developer Platform · Target: 30–90 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-008 · Medium",
+          "findingEvidence": "Security ledger lacks mandatory external immutable archive · Evidence: chain valid; archive disabled by default",
+          "vectorImpact": "Vector: host or privileged database compromise · Impact: local evidence can be deleted or withheld despite tamper detection",
+          "remediation": "WORM/Object Lock export, archive-lag alert, SIEM ingestion and recovery drill · Owner: Security Operations · Target: 30 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-009 · Medium",
+          "findingEvidence": "Web broadcast token appears in WebSocket query string · Evidence: confirmed client implementation",
+          "vectorImpact": "Vector: proxy/browser/crash/access log captures URL · Impact: bearer-token disclosure and replay",
+          "remediation": "single-use 30–60 second WS ticket or secure subprotocol/header; redact URLs · Owner: Web + Identity · Target: 0–30 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-010 · Low",
+          "findingEvidence": "JWT algorithm and legacy token path need explicit closure · Evidence: code review; no bypass reproduced",
+          "vectorImpact": "Vector: configuration drift or indefinite migration compatibility · Impact: future verification ambiguity and expanded maintenance surface",
+          "remediation": "pin allowed algorithm, persist deadline, usage telemetry and removal gate · Owner: Identity · Target: 90 days"
+        },
+        {
+          "idSeverity": "ATH-SEC-2026-011 · Low",
+          "findingEvidence": "Development exposure and production-policy drift are not continuously asserted · Evidence: development runtime probe",
+          "vectorImpact": "Vector: development CORS/metrics/environment behavior reaches shared environment · Impact: information exposure or mistaken deployment posture",
+          "remediation": "deployment-mode policy tests, loopback defaults and production conformance gate · Owner: Platform · Target: 90 days"
+        }
+      ],
+      "risks": [
+        {
+          "riskRating": "R1 Session revocation gap on WS · Residual: High",
+          "likelihoodImpact": "Likelihood: 3/5 · Impact: 4/5 · Inherent: 12 High",
+          "controls": "JWT identity, resource scope, signed high-risk messages",
+          "treatment": "immediate"
+        },
+        {
+          "riskRating": "R2 Collector local file read · Residual: High",
+          "likelihoodImpact": "Likelihood: 4/5 dev · Impact: 4/5 · Inherent: 16 High",
+          "controls": "process OS permissions, local/dev boundary",
+          "treatment": "immediate"
+        },
+        {
+          "riskRating": "R3 Collector process compromise · Residual: High",
+          "likelihoodImpact": "Likelihood: 2/5 · Impact: 5/5 · Inherent: 10 High",
+          "controls": "non-root/cap-drop/read-only rootfs",
+          "treatment": "immediate"
+        },
+        {
+          "riskRating": "R4 RAG memory poisoning · Residual: High",
+          "likelihoodImpact": "Likelihood: 3/5 · Impact: 4/5 · Inherent: 12 High",
+          "controls": "capabilities, tool policy and approvals elsewhere",
+          "treatment": "immediate"
+        },
+        {
+          "riskRating": "R5 Distributed event trust · Residual: Medium",
+          "likelihoodImpact": "Likelihood: 2/5 conditional · Impact: 4/5 · Inherent: 8 Medium",
+          "controls": "Outbox authority and dedupe",
+          "treatment": "before NATS production"
+        },
+        {
+          "riskRating": "R6 Supply-chain compromise · Residual: Medium",
+          "likelihoodImpact": "Likelihood: 3/5 · Impact: 4/5 · Inherent: 12 High",
+          "controls": "reachable Critical gate and tests",
+          "treatment": "continuous 30–90 day burn-down"
+        },
+        {
+          "riskRating": "R7 Audit evidence loss · Residual: Medium",
+          "likelihoodImpact": "Likelihood: 2/5 · Impact: 4/5 · Inherent: 8 Medium",
+          "controls": "signed chain checkpoints",
+          "treatment": "immutable off-host archive"
+        },
+        {
+          "riskRating": "R8 Sync forgery/conflict · Residual: Low–Medium",
+          "likelihoodImpact": "Likelihood: 2/5 · Impact: 4/5 · Inherent: 8 Medium",
+          "controls": "version/hash/receipt/device signature/AuthZ/reconcile",
+          "treatment": "authenticated chaos and cohort gate"
+        }
+      ],
+      "blueTeam": [
+        {
+          "capabilityMaturity": "Identity detection · 3.5/5",
+          "current": "login buckets, session records, revoke reasons, device identity",
+          "weakness": "WS lifecycle not correlated to authoritative session",
+          "action": "emit socket-session correlation and revoke-close metrics"
+        },
+        {
+          "capabilityMaturity": "Security audit integrity · 4/5 local",
+          "current": "hash chain + Ed25519 checkpoints",
+          "weakness": "archive not mandatory/off-host",
+          "action": "WORM export and verification alert"
+        },
+        {
+          "capabilityMaturity": "Sync recovery · 4/5 design",
+          "current": "Outbox lease/DLQ, cursor replay, full reconcile, hash repair",
+          "weakness": "current local rollout disabled; large cursor lag is expected but unproven operationally",
+          "action": "cohort SLO and authenticated fault drills"
+        },
+        {
+          "capabilityMaturity": "Runtime containment · 3/5",
+          "current": "readiness, graceful drain, worker lifecycle, Collector guards",
+          "weakness": "Collector service isolation violates least privilege",
+          "action": "narrow process/container boundary"
+        },
+        {
+          "capabilityMaturity": "AI abuse detection · 2.5/5",
+          "current": "tool policy, approvals, usage/eval scaffolding",
+          "weakness": "no continuous prompt-injection/taint/DLP signal",
+          "action": "adversarial corpus and taint-to-sink telemetry"
+        },
+        {
+          "capabilityMaturity": "Supply-chain defense · 3/5",
+          "current": "pinned Actions and reachable Critical gate",
+          "weakness": "raw High backlog and incomplete SBOM/VEX/digests",
+          "action": "risk-owned remediation and immutable inputs"
+        },
+        {
+          "capabilityMaturity": "Incident response · 3/5",
+          "current": "structured errors, retries, sweeper, reconcile, rollback patterns",
+          "weakness": "no demonstrated SOC paging/tabletop evidence",
+          "action": "runbooks, on-call ownership and purple-team exercises"
+        },
+        {
+          "capabilityMaturity": "Cryptographic operations · 4/5 local",
+          "current": "Key Custody, canary, AEAD/HKDF, device signatures",
+          "weakness": "external KMS/HSM and rotation drill pending",
+          "action": "provider staging with no current-key modification"
+        }
+      ],
+      "roadmap": [
+        {
+          "horizonPriority": "Immediate · 0–7 days · P0",
+          "changes": "authoritative WS handshake/revalidation/revoke-close; short-lived ticket; remove Collector public absolutePath; loopback bind and dev integrity; minimal public readiness",
+          "benefitGate": "Benefit: closes two directly confirmed attack paths and reduces reconnaissance · Gate: revoked JWT cannot connect/remain; safe file proof returns deny; clients remain compatible",
+          "rollback": "feature-gated WS ticket dual-read; Collector opaque-handle compatibility adapter"
+        },
+        {
+          "horizonPriority": "Immediate · 0–14 days · P0",
+          "changes": "Collector narrow mounts/env/egress; RAG taint/provenance, explicit intent, forced approval and candidate memory",
+          "benefitGate": "Benefit: reduces parser blast radius and persistent AI compromise · Gate: tool/file/network/secret escape tests fail closed; poisoning corpus cannot activate memory",
+          "rollback": "disable external parsing or workspace memory store, not security checks"
+        },
+        {
+          "horizonPriority": "30 days · P1",
+          "changes": "NATS TLS/mTLS/ACL/workload identity; WORM security archive; SIEM alerts; SBOM/VEX/image digest; authenticated multi-device revoke E2E",
+          "benefitGate": "Benefit: enterprise distributed trust, investigation and supply-chain accountability · Gate: transport refuses insecure production configuration; archive lag alert; revoke under five seconds",
+          "rollback": "return to in-process memory transport where topology permits"
+        },
+        {
+          "horizonPriority": "90 days · P1/P2",
+          "changes": "adversarial AI eval corpus; plugin container/Secret Broker enforcement; PG/NATS/S3 chaos staging; legacy JWT removal",
+          "benefitGate": "Benefit: continuous AI assurance and production-scale proof · Gate: release safety thresholds; cross-tenant zero-leak suite; cutover/reverse-shadow drill",
+          "rollback": "provider adapters and cohort switches; retain additive data"
+        },
+        {
+          "horizonPriority": "Long term · Strategic",
+          "changes": "SPIFFE/SPIRE workload identity, managed KMS/HSM, data residency, multi-region recovery, continuous purple team and bug bounty",
+          "benefitGate": "Benefit: five-year enterprise trust and platform ecosystem resilience · Gate: SLO/error budget, RTO/RPO, residency and cryptographic governance",
+          "rollback": "region/workload identity staged adoption"
+        }
+      ],
+      "standards": [
+        {
+          "standardStatus": "OWASP ASVS 5.0.0 · substantial controls; not a certification",
+          "mapped": "authentication, session, access control, input, cryptography, API and configuration",
+          "evidence": "275 focused tests, route audits, runtime probes",
+          "gaps": "WS session lifecycle, Collector file boundary, external DAST/SAST"
+        },
+        {
+          "standardStatus": "OWASP Top 10:2025 · reviewed",
+          "mapped": "broken access control, security misconfiguration, injection, supply chain, logging",
+          "evidence": "resource tests, body/SSRF guards, dependency gate, signed ledger",
+          "gaps": "readiness exposure, Collector dev trust, dependency High backlog"
+        },
+        {
+          "standardStatus": "OWASP LLM Top 10 / LLMSVS / AISVS · partial",
+          "mapped": "prompt injection, sensitive disclosure, supply chain, excessive agency, memory poisoning",
+          "evidence": "capability/approval/tool timeout tests",
+          "gaps": "taint/provenance, continuous adversarial eval and DLP"
+        },
+        {
+          "standardStatus": "NIST SP 800-207 Zero Trust · strong REST path; incomplete long-lived channel path",
+          "mapped": "continuous identity, resource policy, device context, least privilege",
+          "evidence": "Session V2, device signing, resource AuthZ",
+          "gaps": "WS revalidation and workload identity"
+        },
+        {
+          "standardStatus": "NIST CSF 2.0 · all functions represented",
+          "mapped": "Govern, Identify, Protect, Detect, Respond, Recover",
+          "evidence": "policy/tests, encryption, telemetry design, reconcile/rollback",
+          "gaps": "external SOC evidence, immutable archive and exercises"
+        }
+      ],
+      "scores": [
+        {
+          "dimension": "Authentication Security",
+          "score": 7.4,
+          "rationale": "Passkey/OPAQUE, Session V2 and rate limits are strong; WS session enforcement is a material gap."
+        },
+        {
+          "dimension": "Authorization Security",
+          "score": 7.8,
+          "rationale": "Resource/capability controls and route audits are strong; Collector and WS boundaries bypass the intended control plane."
+        },
+        {
+          "dimension": "Data Protection",
+          "score": 8.5,
+          "rationale": "Comprehensive AEAD/HKDF/object encryption and integrity evidence; Collector blast radius and external KMS proof cap the score."
+        },
+        {
+          "dimension": "AI Security",
+          "score": 6.5,
+          "rationale": "Tool capabilities and approvals are promising; indirect injection, taint and memory confirmation are incomplete."
+        },
+        {
+          "dimension": "Infrastructure Security",
+          "score": 6.9,
+          "rationale": "Runtime and container controls exist, but Collector isolation, external SIEM and distributed trust remain unproven."
+        },
+        {
+          "dimension": "Attack Resistance",
+          "score": 7.1,
+          "rationale": "Most tested abuse paths fail closed; four High findings prevent enterprise-ready assurance."
+        }
+      ]
+    }
+  },
+  "sources": [
+    {
+      "id": "security_evidence",
+      "label": "Athena v2.3 security evidence snapshot",
+      "path": "output/pdf/athena-enterprise-security-assessment-v2.3-evidence.json",
+      "query": {
+        "engine": "sqlite",
+        "language": "sql",
+        "sql": "SELECT\n       (SELECT COUNT(*) FROM \"workspace_chats\") AS chat_rows,\n       (SELECT COUNT(*) FROM \"sync_nodes\") AS sync_nodes,\n       (SELECT COUNT(*) FROM \"security_audit_ledger\") AS audit_entries",
+        "description": "Consolidated test, runtime, encryption, synchronization, ledger and risk evidence.",
+        "executed_at": "2026-07-20T20:30:00+08:00",
+        "filters": [
+          "Authorized local development environment only",
+          "Non-destructive evidence collection",
+          "Secret values and absolute host paths excluded"
+        ]
+      }
+    },
+    {
+      "id": "source_tree",
+      "label": "Athena source and runtime configuration",
+      "path": "package.json",
+      "query": {
+        "engine": "repository-review",
+        "language": "json",
+        "description": "Application, security, synchronization, AI, Collector, mobile, desktop, deployment and CI boundaries.",
+        "executed_at": "2026-07-20T20:30:00+08:00",
+        "filters": [
+          "Authorized local development environment only",
+          "Non-destructive evidence collection",
+          "Secret values and absolute host paths excluded"
+        ]
+      }
+    },
+    {
+      "id": "sync_contract",
+      "label": "Sync V2 implementation contract",
+      "path": "docs/sync-v2-implementation.md",
+      "query": {
+        "engine": "repository-review",
+        "language": "json",
+        "description": "State-version, hash, Outbox, cursor, mutation receipt, cache durability and recovery semantics.",
+        "executed_at": "2026-07-20T20:30:00+08:00",
+        "filters": [
+          "Authorized local development environment only",
+          "Non-destructive evidence collection",
+          "Secret values and absolute host paths excluded"
+        ]
+      }
+    },
+    {
+      "id": "architecture_report",
+      "label": "Athena v2.3 architecture due diligence",
+      "path": "output/pdf/Athena-System-Architecture-Blueprint-v2.3.pdf",
+      "query": {
+        "engine": "repository-review",
+        "language": "json",
+        "description": "System landscape, data ownership, performance and distributed-readiness evidence.",
+        "executed_at": "2026-07-20T20:30:00+08:00",
+        "filters": [
+          "Authorized local development environment only",
+          "Non-destructive evidence collection",
+          "Secret values and absolute host paths excluded"
+        ]
+      }
+    }
+  ],
+  "package_info": {}
+}

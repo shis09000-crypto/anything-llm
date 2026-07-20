@@ -16,6 +16,8 @@ function singleConnectionUrl(value) {
   const url = new URL(raw);
   url.searchParams.set("connection_limit", "1");
   url.searchParams.set("pool_timeout", "10");
+  if (process.env.ATHENA_CLI_DATABASE_ACCESS === "read")
+    url.searchParams.set("mode", "ro");
   return url.toString();
 }
 
@@ -47,6 +49,10 @@ const authPrismaReady =
   process.env.NODE_ENV !== "test" && !isJestRuntime
     ? (async () => {
         if (provider === "postgresql") {
+          await authPrisma.$queryRaw`SELECT 1`;
+          return true;
+        }
+        if (process.env.ATHENA_CLI_DATABASE_ACCESS === "read") {
           await authPrisma.$queryRaw`SELECT 1`;
           return true;
         }

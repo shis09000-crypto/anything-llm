@@ -57,6 +57,16 @@ async function bodyToBuffer(body) {
   return Buffer.concat(chunks);
 }
 
+function objectLockSatisfies(committed, retainUntil) {
+  if (!retainUntil) return true;
+  const actual = new Date(committed.objectLockRetainUntilDate || 0).getTime();
+  return (
+    committed.objectLockMode === "COMPLIANCE" &&
+    Number.isFinite(actual) &&
+    actual + 5 * 60_000 >= retainUntil.getTime()
+  );
+}
+
 const ContentObjectS3Provider = {
   adapterName: "content-object-s3",
   providerType: "object-storage",
@@ -84,7 +94,15 @@ const ContentObjectS3Provider = {
     };
   },
 
-  async putImmutable({ objectKey, body, ciphertextSha256 }) {
+  async putImmutable({
+    objectKey,
+    body,
+    ciphertextSha256,
+    retentionDays = null,
+  }) {
+    const retainUntil = retentionDays
+      ? new Date(Date.now() + Number(retentionDays) * 86_400_000)
+      : null;
     try {
       await s3Client().send(
         new PutObjectCommand({
@@ -96,13 +114,20 @@ const ContentObjectS3Provider = {
           ),
           IfNoneMatch: "*",
           Metadata: { "athena-cipher-sha256": ciphertextSha256 },
+          ...(retainUntil
+            ? {
+                ObjectLockMode: "COMPLIANCE",
+                ObjectLockRetainUntilDate: retainUntil,
+              }
+            : {}),
         })
       );
       const committed = await this.stat({ objectKey });
       if (
         !committed.exists ||
         committed.size !== body.length ||
-        committed.metadataSha256 !== ciphertextSha256
+        committed.metadataSha256 !== ciphertextSha256 ||
+        !objectLockSatisfies(committed, retainUntil)
       ) {
         const error = new Error("content_object_s3_commit_verification_failed");
         error.code = "CONTENT_OBJECT_S3_COMMIT_VERIFICATION_FAILED";
@@ -119,7 +144,8 @@ const ContentObjectS3Provider = {
         if (
           !winner.exists ||
           winner.size !== body.length ||
-          winner.metadataSha256 !== ciphertextSha256
+          winner.metadataSha256 !== ciphertextSha256 ||
+          !objectLockSatisfies(winner, retainUntil)
         ) {
           const collision = new Error("content_object_collision");
           collision.code = "CONTENT_OBJECT_COLLISION";
@@ -131,11 +157,24 @@ const ContentObjectS3Provider = {
     }
   },
 
-  async putImmutableFile({ objectKey, sourcePath, ciphertextSha256 }) {
+  async putImmutableFile({
+    objectKey,
+    sourcePath,
+    ciphertextSha256,
+    retentionDays = null,
+  }) {
     const destination = target(objectKey);
     const existing = await this.stat({ objectKey });
     if (existing.exists) {
-      if (existing.metadataSha256 !== ciphertextSha256) {
+      if (
+        existing.metadataSha256 !== ciphertextSha256 ||
+        !objectLockSatisfies(
+          existing,
+          retentionDays
+            ? new Date(Date.now() + Number(retentionDays) * 86_400_000)
+            : null
+        )
+      ) {
         const error = new Error("content_object_collision");
         error.code = "CONTENT_OBJECT_COLLISION";
         throw error;
@@ -143,6 +182,9 @@ const ContentObjectS3Provider = {
       return { created: false, bytes: existing.size };
     }
     const stat = await fs.promises.stat(sourcePath);
+    const retainUntil = retentionDays
+      ? new Date(Date.now() + Number(retentionDays) * 86_400_000)
+      : null;
     try {
       const upload = new Upload({
         client: s3Client(),
@@ -153,6 +195,12 @@ const ContentObjectS3Provider = {
           ContentType: "application/octet-stream",
           IfNoneMatch: "*",
           Metadata: { "athena-cipher-sha256": ciphertextSha256 },
+          ...(retainUntil
+            ? {
+                ObjectLockMode: "COMPLIANCE",
+                ObjectLockRetainUntilDate: retainUntil,
+              }
+            : {}),
         },
         partSize: 8 * 1024 * 1024,
         queueSize: 2,
@@ -175,7 +223,8 @@ const ContentObjectS3Provider = {
     if (
       !committed.exists ||
       committed.size !== stat.size ||
-      committed.metadataSha256 !== ciphertextSha256
+      committed.metadataSha256 !== ciphertextSha256 ||
+      !objectLockSatisfies(committed, retainUntil)
     ) {
       const error = new Error("content_object_s3_commit_verification_failed");
       error.code = "CONTENT_OBJECT_S3_COMMIT_VERIFICATION_FAILED";
@@ -203,6 +252,8 @@ const ContentObjectS3Provider = {
         lastModified: result.LastModified || null,
         checksumSha256: result.ChecksumSHA256 || null,
         metadataSha256: result.Metadata?.["athena-cipher-sha256"] || null,
+        objectLockMode: result.ObjectLockMode || null,
+        objectLockRetainUntilDate: result.ObjectLockRetainUntilDate || null,
       };
     } catch (error) {
       if (["NotFound", "NoSuchKey"].includes(error.name))

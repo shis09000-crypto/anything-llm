@@ -9,6 +9,44 @@ private struct SigningSecretResponse: Decodable {
     let signingSecretVersion: String?
 }
 
+private struct DeviceKeyRotationRequest: Encodable {
+    let publicKey: String
+    let deviceKeyAlgorithm: String
+}
+
+private struct DeviceKeyRotationResponse: Decodable {
+    let success: Bool
+    let rotated: Bool
+    let prepared: Bool?
+    let deviceKeyAlgorithm: String
+}
+
+private enum AthenaDeviceSigningKey {
+    case software(P256.Signing.PrivateKey)
+    case secureEnclave(SecureEnclave.P256.Signing.PrivateKey)
+
+    var publicKey: P256.Signing.PublicKey {
+        switch self {
+        case .software(let key): key.publicKey
+        case .secureEnclave(let key): key.publicKey
+        }
+    }
+
+    var algorithm: String {
+        switch self {
+        case .software: "p256-software-v1"
+        case .secureEnclave: "p256-secure-enclave-v1"
+        }
+    }
+
+    func signature(for data: Data) throws -> P256.Signing.ECDSASignature {
+        switch self {
+        case .software(let key): try key.signature(for: data)
+        case .secureEnclave(let key): try key.signature(for: data)
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class RequestSigningCenter {
@@ -31,12 +69,14 @@ final class RequestSigningCenter {
 
     private enum Keys {
         static let devicePrivateKey = "requestSigning.devicePrivateKey"
+        static let secureEnclaveKeyReference = "requestSigning.secureEnclaveKeyReference"
+        static let secureEnclaveRotationPending = "requestSigning.secureEnclaveRotationPending"
         static let signingSecret = "requestSigning.secret"
         static let signingSecretVersion = "requestSigning.secretVersion"
     }
 
     private let secureStore: SecureValueStore
-    private var privateKey: P256.Signing.PrivateKey?
+    private var privateKey: AthenaDeviceSigningKey?
     private var signingSecret: String?
 
     var status: Status = .missingDeviceKey
@@ -56,12 +96,37 @@ final class RequestSigningCenter {
     }
 
     func prepareDeviceKey() throws {
-        if let data = try secureStore.data(forKey: Keys.devicePrivateKey) {
-            privateKey = try P256.Signing.PrivateKey(rawRepresentation: data)
+        if let data = try secureStore.data(forKey: Keys.secureEnclaveKeyReference) {
+            guard SecureEnclave.isAvailable else {
+                throw APIClientError.signingUnavailable
+            }
+            privateKey = .secureEnclave(
+                try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data)
+            )
+        } else if let data = try secureStore.data(forKey: Keys.devicePrivateKey) {
+            privateKey = .software(try P256.Signing.PrivateKey(rawRepresentation: data))
+        } else if SecureEnclave.isAvailable {
+            var accessError: Unmanaged<CFError>?
+            guard let accessControl = SecAccessControlCreateWithFlags(
+                nil,
+                kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                .privateKeyUsage,
+                &accessError
+            ) else {
+                throw APIClientError.signingUnavailable
+            }
+            let generated = try SecureEnclave.P256.Signing.PrivateKey(
+                accessControl: accessControl
+            )
+            try secureStore.setData(
+                generated.dataRepresentation,
+                forKey: Keys.secureEnclaveKeyReference
+            )
+            privateKey = .secureEnclave(generated)
         } else {
             let generated = P256.Signing.PrivateKey()
             try secureStore.setData(generated.rawRepresentation, forKey: Keys.devicePrivateKey)
-            privateKey = generated
+            privateKey = .software(generated)
         }
 
         if let data = try secureStore.data(forKey: Keys.signingSecret) {
@@ -71,6 +136,111 @@ final class RequestSigningCenter {
             signingSecretVersion = String(data: data, encoding: .utf8)
         }
         updateStatus()
+    }
+
+    func migrateDeviceKeyToSecureEnclave(using apiClient: APIClient) async throws -> Bool {
+        if try secureStore.data(forKey: Keys.secureEnclaveRotationPending) != nil,
+           let currentKey = privateKey,
+           case .secureEnclave = currentKey
+        {
+            let request = DeviceKeyRotationRequest(
+                publicKey: try publicJWK(for: currentKey.publicKey),
+                deviceKeyAlgorithm: currentKey.algorithm
+            )
+            do {
+                let response = try await commitDeviceKeyRotation(
+                    request,
+                    using: apiClient
+                )
+                try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
+                try secureStore.removeData(forKey: Keys.devicePrivateKey)
+                return response.rotated
+            } catch APIClientError.httpStatus(let status, _, _) where status == 409 {
+                if let legacy = try secureStore.data(forKey: Keys.devicePrivateKey) {
+                    privateKey = .software(
+                        try P256.Signing.PrivateKey(rawRepresentation: legacy)
+                    )
+                    try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
+                    try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
+                }
+                throw APIClientError.signingUnavailable
+            }
+        }
+        guard let currentKey = privateKey,
+              case .software = currentKey,
+              SecureEnclave.isAvailable else {
+            return false
+        }
+        var accessError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            .privateKeyUsage,
+            &accessError
+        ) else {
+            throw APIClientError.signingUnavailable
+        }
+        let candidate = try SecureEnclave.P256.Signing.PrivateKey(
+            accessControl: accessControl
+        )
+        let request = DeviceKeyRotationRequest(
+            publicKey: try publicJWK(for: candidate.publicKey),
+            deviceKeyAlgorithm: "p256-secure-enclave-v1"
+        )
+        let prepared = try await apiClient.requestJSON(
+            DeviceKeyRotationResponse.self,
+            method: .post,
+            path: "/api/client-identity/device-key-rotation/prepare",
+            body: request,
+            authorization: .required,
+            signing: .required
+        )
+        guard prepared.success,
+              prepared.deviceKeyAlgorithm == "p256-secure-enclave-v1" else {
+            throw APIClientError.signingUnavailable
+        }
+        try secureStore.setData(
+            candidate.dataRepresentation,
+            forKey: Keys.secureEnclaveKeyReference
+        )
+        try secureStore.setData(
+            Data("pending".utf8),
+            forKey: Keys.secureEnclaveRotationPending
+        )
+        privateKey = .secureEnclave(candidate)
+        let response: DeviceKeyRotationResponse
+        do {
+            response = try await commitDeviceKeyRotation(request, using: apiClient)
+        } catch APIClientError.httpStatus(let status, _, _) where status == 409 {
+            privateKey = currentKey
+            try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
+            try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
+            throw APIClientError.signingUnavailable
+        }
+        guard response.success,
+              response.deviceKeyAlgorithm == "p256-secure-enclave-v1" else {
+            privateKey = currentKey
+            try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
+            throw APIClientError.signingUnavailable
+        }
+        try secureStore.removeData(forKey: Keys.devicePrivateKey)
+        try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
+        return response.rotated
+    }
+
+    private func commitDeviceKeyRotation(
+        _ request: DeviceKeyRotationRequest,
+        using apiClient: APIClient
+    ) async throws -> DeviceKeyRotationResponse {
+        try await apiClient.requestJSON(
+            DeviceKeyRotationResponse.self,
+            method: .post,
+            path: "/api/client-identity/device-key-rotation/commit",
+            body: request,
+            authorization: .required,
+            signing: .required,
+            retryOnConnectionLoss: true
+        )
     }
 
     func refreshSigningSecret(using apiClient: APIClient) async throws {
@@ -106,6 +276,8 @@ final class RequestSigningCenter {
     func resetDeviceKey() throws {
         privateKey = nil
         try secureStore.removeData(forKey: Keys.devicePrivateKey)
+        try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
+        try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
         try clearSigningSecret()
         status = .missingDeviceKey
     }
@@ -143,7 +315,7 @@ final class RequestSigningCenter {
             headerName(for: "signature", fallback: "X-Athena-Signature"): signature.rawRepresentation.base64URLEncodedString(),
             headerName(for: "signatureVersion", fallback: "X-Athena-Signature-Version"): preferredSignatureVersion,
             headerName(for: "devicePublicKey", fallback: "X-Athena-Device-Public-Key"): try publicJWK(for: privateKey.publicKey),
-            headerName(for: "deviceKeyAlgorithm", fallback: "X-Athena-Device-Key-Algorithm"): "p256-v1",
+            headerName(for: "deviceKeyAlgorithm", fallback: "X-Athena-Device-Key-Algorithm"): privateKey.algorithm,
         ]
     }
 
@@ -181,7 +353,7 @@ final class RequestSigningCenter {
             bodySha256: bodyHash,
             signature: signature.rawRepresentation.base64URLEncodedString(),
             devicePublicKey: try publicJWK(for: privateKey.publicKey),
-            deviceKeyAlgorithm: "p256-v1"
+            deviceKeyAlgorithm: privateKey.algorithm
         )
         return try encoder.encode(
             WebSocketSignedEnvelope(

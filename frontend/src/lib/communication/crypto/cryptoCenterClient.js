@@ -11,6 +11,7 @@ import {
   durationSince,
   nowMs,
 } from "./cryptoShared";
+import { issueRealtimeTicket } from "../realtimeTicketClient";
 
 export async function fetchCryptoCenterSnapshot(range, options = {}) {
   const path = cryptoCenterPath("/crypto-center/snapshot", { range });
@@ -55,10 +56,13 @@ export async function fetchCryptoCenterSnapshot(range, options = {}) {
   }
 }
 
-export function createCryptoCenterSocket(range, options = {}) {
+export async function createCryptoCenterSocket(range, options = {}) {
+  const realtimeTicket = options.url
+    ? null
+    : await issueRealtimeTicket("crypto", null, options.ticketOptions || {});
   return createWebSocket({
     ...options,
-    url: options.url || cryptoCenterStreamUrl(range),
+    url: options.url || cryptoCenterStreamUrl(range, realtimeTicket),
     task: options.task || {
       kind: "crypto-websocket",
       priority: "P2",

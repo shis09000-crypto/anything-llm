@@ -133,4 +133,31 @@ describe("SystemSettings secret storage", () => {
       }),
     ]);
   });
+
+  it("propagates database outages instead of returning security defaults", async () => {
+    mockSystemSettings.findFirst.mockRejectedValueOnce(
+      new Error("database offline")
+    );
+    const { SystemSettings } = require("../../models/systemSettings");
+
+    await expect(SystemSettings.isMultiUserMode()).rejects.toMatchObject({
+      code: "database_operation_failed",
+      operation: "systemSettings.get",
+    });
+  });
+
+  it("does not persist plaintext when key custody cannot resolve authority", async () => {
+    jest.doMock("../../utils/security/keyCustody", () => ({
+      ...jest.requireActual("../../utils/security/keyCustody"),
+      resolveActiveKey: () => {
+        throw new Error("key authority unavailable");
+      },
+    }));
+    const { SystemSettings } = require("../../models/systemSettings");
+
+    await expect(
+      SystemSettings.updateSettings({ hub_api_key: "must-not-be-plaintext" })
+    ).resolves.toMatchObject({ success: false });
+    expect(mockSystemSettings.upsert).not.toHaveBeenCalled();
+  });
 });

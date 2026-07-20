@@ -1,6 +1,6 @@
 {
   "godFileThreshold": 3000,
-  "silentModelFallbackMax": 19,
+  "silentModelFallbackMax": 4,
   "godFiles": {
     "frontend/src/pages/GeneralSettings/Settings/MobilePageExperiment/index.jsx": {
       "maxLines": 10253,

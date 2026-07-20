@@ -38,6 +38,10 @@ const path = require("path");
 const { reqBody } = require("./utils/http");
 const { systemEndpoints } = require("./endpoints/system");
 const { systemPatrolEndpoints } = require("./endpoints/systemPatrol");
+const { realtimeAuthEndpoints } = require("./endpoints/realtimeAuth");
+const {
+  runtimeDiagnosticsEndpoints,
+} = require("./endpoints/runtimeDiagnostics");
 const { authPasskeyEndpoints } = require("./endpoints/authPasskeys");
 const {
   authTrustedDeviceEndpoints,
@@ -141,6 +145,11 @@ const {
   observabilityContextMiddleware,
 } = require("./utils/observability/context");
 const { metricsEndpoint } = require("./utils/observability/metrics");
+const {
+  livenessSnapshot,
+  publicReadinessSnapshot,
+  strictReadinessEnabled,
+} = require("./utils/runtimeReadiness");
 const { apiErrorMiddleware } = require("./utils/http/apiError");
 const app = express();
 const apiRouter = express.Router();
@@ -170,17 +179,32 @@ app.use(cors(corsOptionsForEnvironment()));
 app.use(requestBodyPolicy);
 app.use(requestBodyLimitErrorHandler);
 app.get("/metrics", metricsEndpoint);
+app.get("/live", (_request, response) =>
+  response.status(200).json(livenessSnapshot())
+);
+apiRouter.get("/live", (_request, response) =>
+  response.status(200).json(livenessSnapshot())
+);
 app.use((request, response, next) => {
   const status = runtimeCoordinator.status;
   const operational = status === "running";
-  const livenessPath = ["/ready", "/api/ready", "/api/ping", "/ping"].includes(
-    String(request.path || request.url || "").split("?")[0]
-  );
-  if (operational || livenessPath) return next();
+  const healthPath = [
+    "/live",
+    "/api/live",
+    "/ready",
+    "/api/ready",
+    "/api/ping",
+    "/ping",
+    "/metrics",
+    "/api/system/runtime-diagnostics",
+  ].includes(String(request.path || request.url || "").split("?")[0]);
+  const ready =
+    healthPath || !strictReadinessEnabled() || publicReadinessSnapshot().ready;
+  if ((operational && ready) || healthPath) return next();
   return response.status(503).json({
     success: false,
     error: "runtime_not_ready",
-    status,
+    reasonCode: operational ? "control_plane_unhealthy" : `runtime_${status}`,
   });
 });
 
@@ -192,43 +216,20 @@ if (!!process.env.ENABLE_HTTPS) {
 
 nativeAppPublicEndpoints(app);
 app.use("/api", apiRouter);
-function readinessSnapshot() {
-  const snapshot = runtimeCoordinator.snapshot();
-  const outbox =
-    require("./utils/syncV2/outboxDispatcher").syncV2OutboxSnapshot();
-  const receipts =
-    require("./utils/mutationReceiptSweeper").mutationReceiptSweeperSnapshot();
-  const securityAudit =
-    require("./utils/security/auditLedgerRuntime").securityAuditMaintenanceSnapshot();
-  const authSessions =
-    require("./utils/security/authSessionSyncReconciler").authSessionSyncReconcilerSnapshot();
-  const syncEnabled = require("./utils/syncV2/config").syncV2Enabled();
-  const p1Ready =
-    receipts.running &&
-    receipts.healthy &&
-    authSessions.running &&
-    authSessions.healthy &&
-    (!syncEnabled || (outbox.running && outbox.healthy)) &&
-    securityAudit.running &&
-    securityAudit.healthy;
-  return {
-    ...snapshot,
-    ready: snapshot.ready && p1Ready,
-    p1: { outbox, receipts, authSessions, securityAudit },
-  };
-}
 app.get("/ready", (_request, response) => {
-  const snapshot = readinessSnapshot();
+  const snapshot = publicReadinessSnapshot();
   response.status(snapshot.ready ? 200 : 503).json(snapshot);
 });
 apiRouter.get("/ready", (_request, response) => {
-  const snapshot = readinessSnapshot();
+  const snapshot = publicReadinessSnapshot();
   response.status(snapshot.ready ? 200 : 503).json(snapshot);
 });
+runtimeDiagnosticsEndpoints(apiRouter);
 apiRouter.use(quarantineMiddleware);
 systemEndpoints(apiRouter);
 systemPatrolEndpoints(apiRouter);
 clientIdentityEndpoints(apiRouter);
+realtimeAuthEndpoints(apiRouter);
 vaultEndpoints(apiRouter);
 sensitiveSessionEndpoints(apiRouter);
 securityKeyEndpoints(apiRouter);

@@ -1,0 +1,322 @@
+{
+  "schemaVersion": 1,
+  "release": "v2.3",
+  "controls": [
+    {
+      "id": "P0-REALTIME-AUTHORITY",
+      "owner": "Identity & Realtime",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/authz/realtimePrincipal.js",
+        "server/models/realtimeTicket.js",
+        "server/endpoints/realtimeAuth.js",
+        "server/endpoints/syncCenter.js",
+        "server/endpoints/agentWebsocket.js",
+        "server/modules/crypto/httpCenterHandlers.js"
+      ],
+      "tests": [
+        "server/__tests__/utils/realtimePrincipal.test.js",
+        "server/__tests__/models/realtimeTicket.test.js"
+      ],
+      "runtimeEvidence": [
+        "one-time ticket",
+        "shared Auth DB ticket hash with atomic consume",
+        "authoritative Session V2 handshake",
+        "five-second continuous revalidation",
+        "client revocation check"
+      ],
+      "featureFlags": [
+        "ATHENA_REALTIME_REQUIRE_SESSION",
+        "ATHENA_REALTIME_TICKET_STORE",
+        "ATHENA_REALTIME_LEGACY_QUERY_TOKEN",
+        "ATHENA_REALTIME_REVALIDATE_MS"
+      ],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "P0-COLLECTOR-OPAQUE-HANDLE",
+      "owner": "Reader & Collector",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/collectorApi/index.js",
+        "collector/index.js",
+        "collector/processSingleFile/index.js"
+      ],
+      "tests": ["collector/__tests__/processSingleFileSecurity.test.js"],
+      "runtimeEvidence": [
+        "absolute paths stay inside the API process",
+        "opaque upload handle DTO",
+        "symlink and hardlink rejection",
+        "per-task private copy"
+      ],
+      "featureFlags": ["ATHENA_COLLECTOR_GUARD_V2"],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "P0-COLLECTOR-BLAST-RADIUS",
+      "owner": "Platform Security",
+      "status": "implemented_static_verified_container_gate_pending",
+      "codePaths": [
+        "docker/docker-compose.yml",
+        "docker/docker-compose.modular.yml",
+        "collector/middleware/verifyIntegrity.js"
+      ],
+      "tests": ["docker compose config", "Collector integration smoke"],
+      "runtimeEvidence": [
+        "no shared .env",
+        "no full storage mount",
+        "read-only input mount",
+        "public-key-only communication key mount",
+        "non-root read-only container"
+      ],
+      "featureFlags": ["ATHENA_COLLECTOR_GUARD_V2"],
+      "exception": "Internet document retrieval still uses the guarded bridge network until an egress proxy is deployed.",
+      "exceptionExpiresAt": "2026-10-20"
+    },
+    {
+      "id": "P0-RAG-MEMORY-POISONING",
+      "owner": "AI Safety & Memory",
+      "status": "implemented_verified_local",
+      "codePaths": ["server/utils/agents/aibitat/plugins/memory.js"],
+      "tests": ["server/__tests__/utils/agents/memory.test.js"],
+      "runtimeEvidence": [
+        "forced per-call user approval",
+        "provenance hash and actor metadata",
+        "security audit transitions",
+        "untrusted retrieval envelope"
+      ],
+      "featureFlags": ["ATHENA_RAG_MEMORY_STORE"],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "P0-PRODUCTION-POLICY-GATE",
+      "owner": "Security Architecture",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/security/startupValidation.js",
+        "server/utils/boot/index.js"
+      ],
+      "tests": ["server/__tests__/utils/startupValidation.test.js"],
+      "runtimeEvidence": [
+        "Session V2 required",
+        "device signatures required",
+        "strict readiness required",
+        "origin allowlist required",
+        "direct HTTPS defaults to TLS 1.3"
+      ],
+      "featureFlags": ["ATHENA_STRICT_READY", "ATHENA_TLS_MIN_VERSION"],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "P0-HEALTH-DIAGNOSTIC-SEPARATION",
+      "owner": "SRE",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/runtimeReadiness.js",
+        "server/endpoints/runtimeDiagnostics.js",
+        "server/index.js"
+      ],
+      "tests": [
+        "server/__tests__/utils/runtimeReadiness.test.js",
+        "API health and authorization smoke"
+      ],
+      "runtimeEvidence": [
+        "minimal public liveness",
+        "public-safe readiness reason",
+        "admin-authenticated detailed diagnostics"
+      ],
+      "featureFlags": ["ATHENA_STRICT_READY"],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "P0-IPC-KEY-LIFECYCLE",
+      "owner": "Platform Security",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/comKey/index.js",
+        "server/utils/boot/index.js",
+        "collector/utils/comKey/index.js"
+      ],
+      "tests": ["server/__tests__/utils/communicationKey.test.js"],
+      "runtimeEvidence": [
+        "first-use-only atomic initialization",
+        "cryptographic pair validation without restart rotation",
+        "incomplete and mismatched pair fail-closed",
+        "concurrent initialization lock",
+        "private key mode 0600"
+      ],
+      "featureFlags": [],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-006-IOS-SECURE-ENCLAVE",
+      "owner": "Mobile Security",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "ios/Athena/Athena/Core/Security/RequestSigningCenter.swift",
+        "server/endpoints/clientIdentity.js",
+        "server/utils/requestSigning/index.js"
+      ],
+      "tests": ["iOS full build/test", "server request-signing route contract"],
+      "runtimeEvidence": [
+        "non-exportable Secure Enclave P-256 key on supported devices",
+        "two-phase old-key-authorized rotation",
+        "ambiguous network failure resumability",
+        "simulator-only software fallback"
+      ],
+      "featureFlags": [],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-007-PASSWORD-ARGON2ID",
+      "owner": "Identity Security",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/security/passwordCredential.js",
+        "server/models/authIdentity.js",
+        "server/models/user.js"
+      ],
+      "tests": ["server/__tests__/utils/passwordCredential.test.js"],
+      "runtimeEvidence": [
+        "Argon2id 64 MiB / t=3 / p=1",
+        "bcrypt verify-only migration on successful authentication",
+        "optional strict-permission pepper file",
+        "fixed-cost unknown-account comparison"
+      ],
+      "featureFlags": ["ATHENA_PASSWORD_PEPPER_FILE"],
+      "exception": "Existing bcrypt credentials migrate only when the user authenticates or resets the password because plaintext is unavailable.",
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-009-NATS-ZERO-TRUST",
+      "owner": "Realtime Platform",
+      "status": "implemented_config_contract_external_provisioning_required",
+      "codePaths": [
+        "server/utils/broadcast/transports/natsJetStreamTransport.js",
+        "docker/nats/nats-server.production.conf.example",
+        "docs/runbooks/nats-security.md"
+      ],
+      "tests": ["server/__tests__/utils/natsJetStreamTransport.test.js"],
+      "runtimeEvidence": [
+        "production tls-only endpoints",
+        "mTLS client certificate validation",
+        "NKey or credentials workload identity",
+        "private-file mode validation",
+        "operator JWT ACL contract"
+      ],
+      "featureFlags": ["ATHENA_BROADCAST_TRANSPORT"],
+      "exception": "Production account JWTs and PKI identities must be provisioned by the deployment platform.",
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-010-AUDIT-WORM-SIEM",
+      "owner": "Security Operations",
+      "status": "implemented_config_contract_external_sink_required",
+      "codePaths": [
+        "server/utils/security/auditArchive.js",
+        "server/utils/security/securitySiemSink.js",
+        "server/providers/storage/contentObjectS3Provider.js"
+      ],
+      "tests": [
+        "server/__tests__/providers/contentObjectS3Provider.test.js",
+        "server/__tests__/utils/securitySiemSink.test.js"
+      ],
+      "runtimeEvidence": [
+        "S3 COMPLIANCE Object Lock",
+        "signed immutable ledger checkpoint",
+        "HMAC-authenticated HTTPS SIEM notice",
+        "retry without cursor advancement",
+        "Prometheus archive health alert signal"
+      ],
+      "featureFlags": ["ATHENA_SECURITY_AUDIT_ARCHIVE_ENABLED"],
+      "exception": "A production WORM bucket and SIEM endpoint remain deployment evidence, not repository evidence.",
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-011-DATA-CLASSIFICATION",
+      "owner": "Data Governance",
+      "status": "implemented_verified_local",
+      "codePaths": [
+        "server/utils/dataAccess/dataAccessPolicy.js",
+        "server/scripts/audit-data-security-catalog.js"
+      ],
+      "tests": ["server/__tests__/utils/dataSecurityCatalog.test.js"],
+      "runtimeEvidence": [
+        "S0-S4 domain catalog",
+        "encryption/export/log/retention policy",
+        "residency/DLP/watermark policy",
+        "DataAccessCenter audit envelope"
+      ],
+      "featureFlags": [],
+      "exception": null,
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-012-EXTERNAL-KEY-CUSTODY",
+      "owner": "Cryptography Platform",
+      "status": "implemented_staging_adapter_external_provider_required",
+      "codePaths": [
+        "server/utils/security/keyCustody/providers.js",
+        "server/providers/storage/secretStoreProvider.js"
+      ],
+      "tests": ["server/__tests__/utils/security/keyCustody.test.js"],
+      "runtimeEvidence": [
+        "short-lived Vault/KMS sidecar lease",
+        "strict file permissions",
+        "purpose/key-id/TTL validation",
+        "attestation metadata without secret diagnostics"
+      ],
+      "featureFlags": ["ATHENA_KEY_PROVIDER", "ATHENA_KEY_LEASE_FILE"],
+      "exception": "HSM-backed production provider and attestation issuance must be supplied by the infrastructure platform; no existing key was migrated or rotated.",
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-013-EDGE-EVIDENCE-GATE",
+      "owner": "Edge Security",
+      "status": "release_gate_implemented_external_evidence_required",
+      "codePaths": [
+        "server/utils/security/releaseEvidence.js",
+        "server/scripts/verify-enterprise-security-evidence.js"
+      ],
+      "tests": ["server/__tests__/utils/releaseEvidence.test.js"],
+      "runtimeEvidence": [
+        "Ed25519 evidence signature",
+        "30-day freshness bound",
+        "WAF/DDoS/DNSSEC/origin-mTLS/bot/hidden-origin controls",
+        "production fail-closed startup gate"
+      ],
+      "featureFlags": ["ATHENA_ENTERPRISE_RELEASE_GATE"],
+      "exception": "The application repository cannot deploy or attest CDN, DNS or origin controls; a platform signer must provide evidence.",
+      "exceptionExpiresAt": null
+    },
+    {
+      "id": "ATH-V1-014-DR-EVIDENCE-GATE",
+      "owner": "SRE / Business Continuity",
+      "status": "local_drill_implemented_external_evidence_required",
+      "codePaths": [
+        "server/scripts/disaster-recovery-drill.js",
+        "server/utils/security/releaseEvidence.js"
+      ],
+      "tests": [
+        "local SQLite recovery drill",
+        "server/__tests__/utils/releaseEvidence.test.js"
+      ],
+      "runtimeEvidence": [
+        "isolated main/Auth restore integrity check",
+        "key-custody decrypt round trip",
+        "90-day signed cross-account/cross-region evidence",
+        "observed RPO/RTO requirement"
+      ],
+      "featureFlags": ["ATHENA_ENTERPRISE_RELEASE_GATE"],
+      "exception": "Cross-account and cross-region restore proof requires real cloud resources and remains a release-blocking external control.",
+      "exceptionExpiresAt": null
+    }
+  ]
+}

@@ -3,6 +3,29 @@ import XCTest
 @testable import Athena
 
 final class ConversationPerformanceTests: XCTestCase {
+    func testUserMessageBubbleUsesNaturalWidthUntilMaximumRailWidth() {
+        let maximum = UserMessageBubbleWidthPolicy.maximumWidth(
+            rowWidth: 400,
+            maximumContentFraction: 0.78
+        )
+
+        XCTAssertEqual(maximum, 312)
+        XCTAssertEqual(
+            UserMessageBubbleWidthPolicy.fittedWidth(
+                idealWidth: 96,
+                maximumWidth: maximum
+            ),
+            96
+        )
+        XCTAssertEqual(
+            UserMessageBubbleWidthPolicy.fittedWidth(
+                idealWidth: 560,
+                maximumWidth: maximum
+            ),
+            312
+        )
+    }
+
     func testComposerBottomClearanceKeepsTwelvePointSpacingAboveComposer() {
         XCTAssertEqual(
             ComposerLayoutPolicy.bottomContentClearance(

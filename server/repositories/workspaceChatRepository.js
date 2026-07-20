@@ -1,6 +1,9 @@
 const { WorkspaceChats } = require("../models/workspaceChats");
 const { createModelRepository } = require("./createModelRepository");
 const prisma = require("../utils/prisma");
+const {
+  databaseTableColumns,
+} = require("../utils/database/schemaIntrospection");
 const { newPublicChatId } = require("../utils/chats/chatIdentifiers");
 const {
   rebuildChatCryptoChainFromChatId,
@@ -14,10 +17,8 @@ const WorkspaceChatRepository = createModelRepository(WorkspaceChats, {
 });
 
 WorkspaceChatRepository.publicIdColumnExists = async function () {
-  const columns = await prisma.$queryRawUnsafe(
-    `PRAGMA table_info("workspace_chats")`
-  );
-  return columns.some((column) => column.name === "public_id");
+  const columns = await databaseTableColumns(prisma, "workspace_chats");
+  return columns.has("public_id");
 };
 
 WorkspaceChatRepository.backfillMissingPublicIds = async function ({

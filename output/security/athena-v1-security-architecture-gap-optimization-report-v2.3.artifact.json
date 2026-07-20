@@ -1,0 +1,1524 @@
+{
+  "surface": "report",
+  "manifest": {
+    "version": 1,
+    "surface": "report",
+    "title": "Athena V1.0 Security Architecture Gap Assessment & Optimization Report",
+    "description": "Read-only assessment of Athena v2.3 against the user-provided enterprise and financial-grade security architecture V1.0, with a prioritized optimization roadmap.",
+    "generatedAt": "2026-07-20T12:45:48.647Z",
+    "cards": [
+      {
+        "id": "product_score",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Current product security posture from the local architecture/security review; not a compliance certification.",
+        "metrics": [
+          {
+            "label": "Product security posture",
+            "field": "productScore",
+            "format": "number",
+            "unit": "/10"
+          }
+        ]
+      },
+      {
+        "id": "blueprint_completion",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Weighted completion against the broader financial-grade V1.0 target operating model.",
+        "metrics": [
+          {
+            "label": "V1.0 blueprint completion",
+            "field": "blueprintCompletion",
+            "format": "number",
+            "unit": "%"
+          }
+        ]
+      },
+      {
+        "id": "confirmed_high",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Confirmed High code-path findings requiring P0 ownership.",
+        "metrics": [
+          {
+            "label": "Confirmed High findings",
+            "field": "confirmedHigh",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "route_findings",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Static high-risk route audit across 338 routes.",
+        "metrics": [
+          {
+            "label": "Route audit findings",
+            "field": "routeFindings",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "sync_conflicts",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Hash, permission and projection conflicts in the read-only Sync V2 audit.",
+        "metrics": [
+          {
+            "label": "Sync projection conflicts",
+            "field": "syncConflicts",
+            "format": "number"
+          }
+        ]
+      },
+      {
+        "id": "chat_chain",
+        "dataset": "headline",
+        "sourceId": "live_evidence",
+        "description": "Invalid Chat Hash Chain entries across the audited 1,038-row corpus.",
+        "metrics": [
+          {
+            "label": "Invalid Chat chain",
+            "field": "invalidChatChain",
+            "format": "number"
+          }
+        ]
+      }
+    ],
+    "charts": [
+      {
+        "id": "maturity_chart",
+        "title": "V1.0 target maturity by security domain",
+        "subtitle": "0 = missing; 3 = locally implemented; 5 = continuously enforced and independently proven.",
+        "type": "bar",
+        "dataset": "maturity",
+        "sourceId": "live_evidence",
+        "encodings": {
+          "x": {
+            "field": "domain",
+            "type": "ordinal",
+            "label": "Domain"
+          },
+          "y": {
+            "field": "score",
+            "type": "quantitative",
+            "label": "Maturity",
+            "format": "number"
+          }
+        },
+        "yAxisTitle": "Maturity / 5",
+        "valueFormat": "number",
+        "layout": "full",
+        "referenceLines": [
+          {
+            "value": 4,
+            "label": "Enterprise enforced target"
+          }
+        ]
+      },
+      {
+        "id": "status_chart",
+        "title": "Control implementation status",
+        "subtitle": "A control is counted as externally proven only when runtime or deployment evidence exists.",
+        "type": "bar",
+        "dataset": "controlStatus",
+        "sourceId": "live_evidence",
+        "encodings": {
+          "x": {
+            "field": "status",
+            "type": "ordinal",
+            "label": "Status"
+          },
+          "y": {
+            "field": "count",
+            "type": "quantitative",
+            "label": "Controls",
+            "format": "number"
+          }
+        },
+        "yAxisTitle": "Control count",
+        "valueFormat": "number",
+        "layout": "full"
+      },
+      {
+        "id": "priority_chart",
+        "title": "Recommended optimization backlog by priority",
+        "subtitle": "P0 closes exploitable or fail-open paths; later phases establish enterprise proof and operating maturity.",
+        "type": "bar",
+        "dataset": "priorityCounts",
+        "sourceId": "live_evidence",
+        "encodings": {
+          "x": {
+            "field": "priority",
+            "type": "ordinal",
+            "label": "Priority"
+          },
+          "y": {
+            "field": "items",
+            "type": "quantitative",
+            "label": "Workstreams",
+            "format": "number"
+          }
+        },
+        "yAxisTitle": "Workstream count",
+        "valueFormat": "number",
+        "layout": "full"
+      }
+    ],
+    "tables": [
+      {
+        "id": "verification_summary",
+        "title": "Verified Local Evidence",
+        "subtitle": "Short-form evidence table; detailed controls use wrapping audit tables below.",
+        "showDescription": true,
+        "dataset": "verificationSummary",
+        "sourceId": "live_evidence",
+        "defaultSort": {
+          "field": "check",
+          "direction": "asc"
+        },
+        "density": "dense",
+        "layout": "full",
+        "columns": [
+          {
+            "field": "check",
+            "label": "Check",
+            "type": "text"
+          },
+          {
+            "field": "result",
+            "label": "Result",
+            "type": "text"
+          }
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "live_evidence",
+        "label": "Athena V1.0 security gap evidence snapshot",
+        "path": "output/security/athena-v1-security-architecture-gap-evidence-v2.3.json",
+        "query": {
+          "engine": "repository-runtime-review",
+          "language": "json",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "filters": [
+            "Authorized local development environment only",
+            "Read-only evidence collection",
+            "Secrets, tokens, raw hashes and personal content excluded"
+          ],
+          "sql": "SELECT 7.4 AS productScore, 61.1 AS blueprintCompletion, 4 AS confirmedHigh, 0 AS routeFindings, 0 AS syncConflicts, 0 AS invalidChatChain, (SELECT COUNT(*) FROM workspace_chats) AS auditedChats, (SELECT COUNT(*) FROM sync_nodes) AS syncNodes;",
+          "tables_used": [
+            "workspace_chats",
+            "sync_nodes"
+          ],
+          "metric_definitions": {
+            "productScore": "Architecture committee judgment on a 0-10 current product-security scale; not certification.",
+            "blueprintCompletion": "Weighted average of 12 target domains on a 0-5 maturity scale, multiplied by 20.",
+            "confirmedHigh": "Deduplicated confirmed High code-path findings in this authorized read-only review."
+          },
+          "description": "Database, encryption, Sync V2, route, runtime, ledger, supply-chain and code-path evidence used by this report."
+        }
+      },
+      {
+        "id": "target_blueprint",
+        "label": "User-provided Athena enterprise network security and confidentiality architecture V1.0",
+        "query": {
+          "engine": "document-review",
+          "language": "text",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Target-state control catalogue covering edge, zero trust, workload, data/crypto, SecOps, supply chain, organization and incident recovery."
+        }
+      },
+      {
+        "id": "nist_zta",
+        "label": "NIST SP 800-207 Zero Trust Architecture",
+        "query": {
+          "engine": "web-document",
+          "language": "text",
+          "url": "https://csrc.nist.gov/pubs/sp/800/207/final",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Official NIST Zero Trust Architecture publication."
+        }
+      },
+      {
+        "id": "owasp_asvs",
+        "label": "OWASP ASVS 5.0",
+        "query": {
+          "engine": "web-document",
+          "language": "text",
+          "url": "https://owasp.org/www-project-application-security-verification-standard/",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Official OWASP Application Security Verification Standard project page."
+        }
+      },
+      {
+        "id": "owasp_aisvs",
+        "label": "OWASP AISVS 1.0",
+        "query": {
+          "engine": "web-document",
+          "language": "text",
+          "url": "https://owasp.org/www-project-artificial-intelligence-security-verification-standard-aisvs-docs/",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Official OWASP Artificial Intelligence Security Verification Standard documentation."
+        }
+      },
+      {
+        "id": "nist_csf",
+        "label": "NIST Cybersecurity Framework 2.0",
+        "query": {
+          "engine": "web-document",
+          "language": "text",
+          "url": "https://www.nist.gov/news-events/news/2024/02/nist-releases-version-20-landmark-cybersecurity-framework",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Official NIST CSF 2.0 overview and six-function model."
+        }
+      },
+      {
+        "id": "slsa",
+        "label": "SLSA specification 1.2",
+        "query": {
+          "engine": "web-document",
+          "language": "text",
+          "url": "https://slsa.dev/spec/v1.2/",
+          "executed_at": "2026-07-20T12:45:48.647Z",
+          "description": "Official SLSA source/build provenance and artifact assurance specification."
+        }
+      }
+    ],
+    "blocks": [
+      {
+        "id": "title",
+        "type": "markdown",
+        "body": "# Athena V1.0 Security Architecture Gap Assessment & Optimization Report\n\n**Athena v2.3 · Enterprise / Financial-grade Target Review · 2026-07-20**"
+      },
+      {
+        "id": "classification",
+        "type": "markdown",
+        "body": "**Classification:** Internal Architecture & Security Review  \n**Assessment mode:** authorized, local, read-only, non-destructive  \n**Audience:** CTO, Architecture Committee, Security Committee, Product Infrastructure and Engineering Leadership"
+      },
+      {
+        "id": "technical_summary",
+        "type": "markdown",
+        "sourceId": "live_evidence",
+        "body": "## Technical Summary — 产品级安全基础成熟，但距离 V1.0 金融级完整运营模型仍有 39% 证据与控制缺口\n\n**结论：Athena 不需要推倒重写。** 当前产品安全姿态维持 **7.4/10**；按用户提供的 V1.0 大型互联网/金融级完整目标重新衡量，加权完成度为 **61.0%**。两者不是矛盾：前者评价产品当前防护，后者还包含外部 WAF/DDoS、工作负载身份与 mTLS、HSM/KMS、DLP、SIEM/SOAR、JIT/PAM、独立安全账户和跨区域灾备等组织与基础设施能力。\n\nAthena 的领先部分是：**业务权威、同步一致性、实时通知、内容对象和完整性证明彼此解耦**。Sync V2 的 version/hash/outbox/cursor 并不替代 WebSocket/SSE，Chat Hash Chain 不替代加密，NATS 也不成为业务数据库。当前 1,038 条 Chat prompt/response 全部加密且链断裂为 0；263 个 Sync 节点和 186 个投影没有 Hash、权限或正文冲突；338 个高风险路由静态审计为 0 finding。\n\n本次仍确认 **4 个 High**：WebSocket 未统一执行权威 Session V2；Collector 开发入口接受 absolutePath；Collector 继承过宽 .env/存储挂载；workspace rag-memory 缺少 provenance/taint/候选审批。它们应先闭环，再推进 KMS、mTLS、SIEM 或多账户治理。"
+      },
+      {
+        "id": "headline",
+        "type": "metric-strip",
+        "cardIds": [
+          "product_score",
+          "blueprint_completion",
+          "confirmed_high",
+          "route_findings",
+          "sync_conflicts",
+          "chat_chain"
+        ]
+      },
+      {
+        "id": "verification_summary_block",
+        "type": "table",
+        "tableId": "verification_summary",
+        "layout": "full"
+      },
+      {
+        "id": "evidence_contract",
+        "type": "markdown",
+        "body": "## Evidence Contract — 不把代码适配、开发运行态和生产证明混为一谈\n\n- **已验证实现**：当前仓库、开发数据库、运行中的 Web/API/Collector、只读审计脚本和静态控制扫描。\n- **适配/故障测试准备**：PostgreSQL、NATS JetStream、S3/MinIO、OTel、Key Custody 外接边界；证明接口与失败语义，不证明生产容量或可用性。\n- **外部控制不可见**：CDN/WAF/DDoS/DNSSEC、云账户隔离、KMS/HSM、SIEM/SOAR、对象锁与跨区域灾备，需要部署平台证据。\n- **评分尺度**：0 缺失；1 设计/占位；2 部分实现；3 本地实现；4 强制+监控；5 独立证明+周期演练。"
+      },
+      {
+        "id": "architecture_heading",
+        "type": "markdown",
+        "body": "## 1. Current Architecture vs. V1.0 Target"
+      },
+      {
+        "id": "architecture_diagram",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:16px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">Athena 当前安全架构与 V1.0 目标控制面</h3><svg viewBox=\"0 0 1200 630\" width=\"100%\" role=\"img\" aria-label=\"Athena 当前安全架构与 V1.0 目标控制面\" style=\"display:block;max-width:100%;height:auto\"><defs><marker id=\"athenaArrow\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 278 91 L 345 91\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"311.5\" y=\"84\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">认证</text><path d=\"M 595 91 L 662 91\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"628.5\" y=\"84\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">主体</text><path d=\"M 912 91 L 929 91\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"920.5\" y=\"84\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">入口策略</text><path d=\"M 470 150 L 470 238\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"470\" y=\"187\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">请求</text><path d=\"M 787 150 L 787 238\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"787\" y=\"187\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">授权</text><path d=\"M 153 150 L 153 238\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"153\" y=\"187\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">交互</text><path d=\"M 1050 150 L 1050 238\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"1050\" y=\"187\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">隔离</text><path d=\"M 278 304 L 345 304\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"311.5\" y=\"297\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">状态</text><path d=\"M 595 304 L 662 304\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"628.5\" y=\"297\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">事务</text><path d=\"M 912 304 L 929 304\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"920.5\" y=\"297\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">任务</text><path d=\"M 470 370 L 245 470\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"357.5\" y=\"413\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">持久化</text><path d=\"M 595 370 L 600 470\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"597.5\" y=\"413\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">监控</text><path d=\"M 787 370 L 955 470\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow)\"/><text x=\"871\" y=\"413\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">证据</text><g><rect x=\"28\" y=\"32\" width=\"250\" height=\"118\" rx=\"16\" fill=\"#eef2ff\" stroke=\"#6366f1\" stroke-width=\"2\"/><text x=\"46\" y=\"61\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">用户与终端</text><text x=\"46\" y=\"88\" font-size=\"13\" fill=\"#334155\">Web · iOS/iPadOS · Desktop</text><text x=\"46\" y=\"109\" font-size=\"13\" fill=\"#334155\">P-256 设备签名 · Keychain</text><text x=\"46\" y=\"130\" font-size=\"13\" fill=\"#334155\">本地加密缓存与游标</text></g><g><rect x=\"345\" y=\"32\" width=\"250\" height=\"118\" rx=\"16\" fill=\"#ecfeff\" stroke=\"#0891b2\" stroke-width=\"2\"/><text x=\"363\" y=\"61\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">入口与身份</text><text x=\"363\" y=\"88\" font-size=\"13\" fill=\"#334155\">TLS/HSTS · Body Limits</text><text x=\"363\" y=\"109\" font-size=\"13\" fill=\"#334155\">Passkey/OPAQUE · Session V2</text><text x=\"363\" y=\"130\" font-size=\"13\" fill=\"#334155\">REST 权威校验；WS 尚未统一</text></g><g><rect x=\"662\" y=\"32\" width=\"250\" height=\"118\" rx=\"16\" fill=\"#f0fdf4\" stroke=\"#16a34a\" stroke-width=\"2\"/><text x=\"680\" y=\"61\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">授权与策略</text><text x=\"680\" y=\"88\" font-size=\"13\" fill=\"#334155\">资源级 Workspace/Thread/AuthZ</text><text x=\"680\" y=\"109\" font-size=\"13\" fill=\"#334155\">请求签名 · 设备绑定</text><text x=\"680\" y=\"130\" font-size=\"13\" fill=\"#334155\">统一 PE/PA/PEP 与风险引擎待建</text></g><g><rect x=\"929\" y=\"32\" width=\"243\" height=\"118\" rx=\"16\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"947\" y=\"61\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">边缘与外部防护</text><text x=\"947\" y=\"88\" font-size=\"13\" fill=\"#334155\">应用内 CORS/Rate Limit</text><text x=\"947\" y=\"109\" font-size=\"13\" fill=\"#334155\">WAF/CDN/DDoS/DNSSEC</text><text x=\"947\" y=\"130\" font-size=\"13\" fill=\"#334155\">需由部署平台补齐与证明</text></g><g><rect x=\"28\" y=\"238\" width=\"250\" height=\"132\" rx=\"16\" fill=\"#f8fafc\" stroke=\"#64748b\" stroke-width=\"2\"/><text x=\"46\" y=\"267\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">业务与 AI 数据面</text><text x=\"46\" y=\"294\" font-size=\"13\" fill=\"#334155\">Workspace · Chat · Reader</text><text x=\"46\" y=\"315\" font-size=\"13\" fill=\"#334155\">Agent · MCP · Connector</text><text x=\"46\" y=\"336\" font-size=\"13\" fill=\"#334155\">RAG provenance/taint 仍不完整</text></g><g><rect x=\"345\" y=\"238\" width=\"250\" height=\"132\" rx=\"16\" fill=\"#eef2ff\" stroke=\"#4f46e5\" stroke-width=\"2\"/><text x=\"363\" y=\"267\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">Sync V2 控制面</text><text x=\"363\" y=\"294\" font-size=\"13\" fill=\"#334155\">version · hash · cursor</text><text x=\"363\" y=\"315\" font-size=\"13\" fill=\"#334155\">Outbox · receipt · reconcile</text><text x=\"363\" y=\"336\" font-size=\"13\" fill=\"#334155\">WS/SSE/Push 为通知副链路</text></g><g><rect x=\"662\" y=\"238\" width=\"250\" height=\"132\" rx=\"16\" fill=\"#fdf4ff\" stroke=\"#a21caf\" stroke-width=\"2\"/><text x=\"680\" y=\"267\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">数据与密码平面</text><text x=\"680\" y=\"294\" font-size=\"13\" fill=\"#334155\">AES-256-GCM · HKDF · DEK</text><text x=\"680\" y=\"315\" font-size=\"13\" fill=\"#334155\">Chat/Audit Hash Chain</text><text x=\"680\" y=\"336\" font-size=\"13\" fill=\"#334155\">KMS/HSM 外接尚未落地</text></g><g><rect x=\"929\" y=\"238\" width=\"243\" height=\"132\" rx=\"16\" fill=\"#fff1f2\" stroke=\"#e11d48\" stroke-width=\"2\"/><text x=\"947\" y=\"267\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">工作负载隔离</text><text x=\"947\" y=\"294\" font-size=\"13\" fill=\"#334155\">Collector SSRF/归档/资源上限</text><text x=\"947\" y=\"315\" font-size=\"13\" fill=\"#334155\">Plugin capability broker</text><text x=\"947\" y=\"336\" font-size=\"13\" fill=\"#334155\">挂载、env、mTLS/egress 待收紧</text></g><g><rect x=\"105\" y=\"470\" width=\"280\" height=\"128\" rx=\"16\" fill=\"#f8fafc\" stroke=\"#475569\" stroke-width=\"2\"/><text x=\"123\" y=\"499\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">数据权威与恢复</text><text x=\"123\" y=\"526\" font-size=\"13\" fill=\"#334155\">SQLite 当前权威</text><text x=\"123\" y=\"547\" font-size=\"13\" fill=\"#334155\">PostgreSQL/S3 适配已准备</text><text x=\"123\" y=\"568\" font-size=\"13\" fill=\"#334155\">跨区域不可变备份待证明</text></g><g><rect x=\"460\" y=\"470\" width=\"280\" height=\"128\" rx=\"16\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"2\"/><text x=\"478\" y=\"499\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">运行与可观测</text><text x=\"478\" y=\"526\" font-size=\"13\" fill=\"#334155\">Runtime Coordinator · DLQ</text><text x=\"478\" y=\"547\" font-size=\"13\" fill=\"#334155\">OTel/Prometheus 适配</text><text x=\"478\" y=\"568\" font-size=\"13\" fill=\"#334155\">生产 SIEM/SOC 联动待落地</text></g><g><rect x=\"815\" y=\"470\" width=\"280\" height=\"128\" rx=\"16\" fill=\"#fffbeb\" stroke=\"#d97706\" stroke-width=\"2\"/><text x=\"833\" y=\"499\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">证据与供应链</text><text x=\"833\" y=\"526\" font-size=\"13\" fill=\"#334155\">Ed25519 审计检查点</text><text x=\"833\" y=\"547\" font-size=\"13\" fill=\"#334155\">SBOM · provenance · VEX</text><text x=\"833\" y=\"568\" font-size=\"13\" fill=\"#334155\">WORM/admission/signing 仍需闭环</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "architecture_reading",
+        "type": "markdown",
+        "body": "### Architecture reading\n\n当前架构已具备清晰的控制面/数据面/通知面分离，但 V1.0 把目标扩大为‘产品 + 云平台 + 安全运营 + 组织治理’。因此最小侵入路线不是把 Athena 改成一套庞大安全总线，而是：统一所有入口的 principal 校验；让数据分类驱动既有 Repository/Outbox/对象层；将外部 WAF、KMS、SIEM、DR 作为可替换平台能力接入。"
+      },
+      {
+        "id": "maturity_heading",
+        "type": "markdown",
+        "body": "## 2. Maturity & Control Coverage"
+      },
+      {
+        "id": "maturity_chart_block",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:16px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 4px;font:700 20px system-ui;color:#0f172a\">V1.0 target maturity by security domain</h3><p style=\"margin:0 0 10px;font:13px system-ui;color:#475569\">0 = missing; 3 = locally implemented; 5 = continuously enforced and independently proven.</p><svg viewBox=\"0 0 1200 631\" width=\"100%\" role=\"img\" aria-label=\"V1.0 target maturity by security domain\" style=\"display:block;max-width:100%;height:auto\"><line x1=\"250\" y1=\"95\" x2=\"250\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"250\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">0</text><line x1=\"422\" y1=\"95\" x2=\"422\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"422\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">1</text><line x1=\"594\" y1=\"95\" x2=\"594\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"594\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">2</text><line x1=\"766\" y1=\"95\" x2=\"766\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"766\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">3</text><line x1=\"938\" y1=\"95\" x2=\"938\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"938\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">4</text><line x1=\"1110\" y1=\"95\" x2=\"1110\" y2=\"583\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"1110\" y=\"607\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">5</text><line x1=\"938\" y1=\"89\" x2=\"938\" y2=\"583\" stroke=\"#e11d48\" stroke-width=\"2\" stroke-dasharray=\"7 6\"/><text x=\"945\" y=\"81\" font-size=\"11\" fill=\"#be123c\">target 4</text><text x=\"234\" y=\"124\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">边缘与源站</text><rect x=\"250\" y=\"109\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"109\" width=\"275.2\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"535.2\" y=\"125\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">1.6</text><text x=\"234\" y=\"162\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">身份与会话</text><rect x=\"250\" y=\"147\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"147\" width=\"567.5999999999999\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"827.5999999999999\" y=\"163\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3.3</text><text x=\"234\" y=\"200\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">授权与策略</text><rect x=\"250\" y=\"185\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"185\" width=\"602\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"862\" y=\"201\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3.5</text><text x=\"234\" y=\"238\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">设备信任</text><rect x=\"250\" y=\"223\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"223\" width=\"430\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"690\" y=\"239\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">2.5</text><text x=\"234\" y=\"276\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">密码与密钥</text><rect x=\"250\" y=\"261\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"261\" width=\"653.6\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"913.6\" y=\"277\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3.8</text><text x=\"234\" y=\"314\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">数据保护</text><rect x=\"250\" y=\"299\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"299\" width=\"636.4\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"896.4\" y=\"315\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3.7</text><text x=\"234\" y=\"352\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">同步安全</text><rect x=\"250\" y=\"337\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"337\" width=\"705.1999999999999\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"965.1999999999999\" y=\"353\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">4.1</text><text x=\"234\" y=\"390\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">AI 与 Agent</text><rect x=\"250\" y=\"375\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"375\" width=\"464.40000000000003\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"724.4000000000001\" y=\"391\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">2.7</text><text x=\"234\" y=\"428\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">工作负载隔离</text><rect x=\"250\" y=\"413\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"413\" width=\"344\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"604\" y=\"429\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">2</text><text x=\"234\" y=\"466\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">供应链</text><rect x=\"250\" y=\"451\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"451\" width=\"550.4\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"810.4\" y=\"467\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3.2</text><text x=\"234\" y=\"504\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">审计与 SecOps</text><rect x=\"250\" y=\"489\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"489\" width=\"516\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"776\" y=\"505\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">3</text><text x=\"234\" y=\"542\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">备份与灾备</text><rect x=\"250\" y=\"527\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"527\" width=\"309.59999999999997\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"569.5999999999999\" y=\"543\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">1.8</text></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "maturity_native_chart_block",
+        "type": "chart",
+        "chartId": "maturity_chart",
+        "layout": "full"
+      },
+      {
+        "id": "status_chart_block",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:16px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 4px;font:700 20px system-ui;color:#0f172a\">Control implementation status</h3><p style=\"margin:0 0 10px;font:13px system-ui;color:#475569\">Only controls with code or runtime evidence are counted as implemented.</p><svg viewBox=\"0 0 1200 327\" width=\"100%\" role=\"img\" aria-label=\"Control implementation status\" style=\"display:block;max-width:100%;height:auto\"><line x1=\"250\" y1=\"95\" x2=\"250\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"250\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">0</text><line x1=\"422\" y1=\"95\" x2=\"422\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"422\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">3.2</text><line x1=\"594\" y1=\"95\" x2=\"594\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"594\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">6.4</text><line x1=\"766\" y1=\"95\" x2=\"766\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"766\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">9.6</text><line x1=\"938\" y1=\"95\" x2=\"938\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"938\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">12.8</text><line x1=\"1110\" y1=\"95\" x2=\"1110\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"1110\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">16</text><text x=\"234\" y=\"124\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">已实现且本地验证</text><rect x=\"250\" y=\"109\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"109\" width=\"806.25\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"1066.25\" y=\"125\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">15</text><text x=\"234\" y=\"162\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">部分实现/未统一强制</text><rect x=\"250\" y=\"147\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"147\" width=\"698.75\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"958.75\" y=\"163\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">13</text><text x=\"234\" y=\"200\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">适配已存在/未外部证明</text><rect x=\"250\" y=\"185\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"185\" width=\"322.5\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"582.5\" y=\"201\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">6</text><text x=\"234\" y=\"238\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">目标控制缺失</text><rect x=\"250\" y=\"223\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"223\" width=\"430\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"690\" y=\"239\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">8</text></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "control_table_intro",
+        "type": "markdown",
+        "body": "### V1.0 Control Coverage Matrix\n\nEach printable audit row contains the current evidence, residual gap and minimum-intrusion action."
+      },
+      {
+        "id": "control_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Passkey / OPAQUE / Session V2</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Passkey 与 OPAQUE 路径、Auth DB session、吊销与 tokenVersion 已实现；REST middleware 权威校验。<br/>GAP — Broadcast、Agent、Crypto WebSocket 未复用同一权威校验；query token 增加泄露面。<br/>ACTION — P0：统一 WS auth adapter，短期 ticket，撤销后主动 close。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">RBAC + 资源级关系授权</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Workspace、Thread、Chat、文件、Agent invocation 均有 owner/resource 约束；338 路由审计 0 finding。<br/>GAP — 尚无统一 PE/PA/PEP 与设备/风险/数据等级上下文。<br/>ACTION — P1：保留领域查询，抽出统一决策接口与 reason code。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">设备签名与反重放</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — P-256、nonce、timestamp、body hash、高风险请求验证与设备撤销能力存在。<br/>GAP — 开发环境仍为 warn-only；WebSocket 低风险控制消息可降级；iOS 私钥可导出后写 Keychain。<br/>ACTION — P0/P1：生产强制；iOS 迁移 Secure Enclave 非导出密钥。</div></div></section>"
+      },
+      {
+        "id": "control_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">传输安全</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — TLS/HSTS、生产 HTTPS fail-closed、CORS allowlist、SSE 安全头、TLS 1.2+ 测试。<br/>GAP — TLS 1.3 非强制；外部 WAF/CDN/DDoS/DNSSEC 与源站 mTLS 不在仓库证据内。<br/>ACTION — P1：部署基线与证据采集；兼容期优先 TLS 1.3。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">请求入口与滥用防护</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — 按路由 body limits、登录持久限流、Passkey 限流、Collector 资源上限。<br/>GAP — 没有统一 API Gateway schema/risk quota；/ready 暴露内部 worker 与审计细节。<br/>ACTION — P0：拆分 public liveness 与 authenticated diagnostics。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">静态数据加密</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — AES-256-GCM/HKDF、DEK 信封、Chat 1,038/1,038、文档/向量/缓存全覆盖，链断裂 0。<br/>GAP — system_settings 依赖字段判定；缺统一 S0–S4 数据目录与保留/驻留策略。<br/>ACTION — P1：分类 registry 驱动加密、日志、导出与保留。</div></div></section>"
+      },
+      {
+        "id": "control_row_3",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">密钥托管与轮换</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Key Custody provider、keyId/keyring、pending/activate/retire、secret-file、冲突 fail-closed。<br/>GAP — 当前根密钥仍是 env/file；KMS/Vault/HSM、双人审批与硬件根未落地。<br/>ACTION — P1/P2：staging 接 KMS/Vault；高价值租户再评估 HSM。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">iOS 设备密钥</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Keychain ThisDeviceOnly 与 userPresence 已使用。<br/>GAP — RequestSigningCenter 生成 CryptoKit 私钥后持久化 rawRepresentation，未使用 Secure Enclave。<br/>ACTION — P1：版本化注册新公钥，双钥迁移，旧钥定期退役。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Sync V2 一致性与完整性</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — 263 节点、186 投影；version/hash/outbox/cursor/receipt/reconcile；0 hash/权限/正文冲突。<br/>GAP — 当前环境 enabled=false；最大 cursor lag 696；需要授权多设备 E2E 与灰度证明。<br/>ACTION — P1：deterministic cohort 与 SLO 门禁，不扩大状态树边界。</div></div></section>"
+      },
+      {
+        "id": "control_row_4",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Chat 与审计完整性</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Chat Hash Chain；安全账本 Hash Chain + Ed25519 checkpoint，13 entries/4 checkpoints 均有效。<br/>GAP — 外部不可变归档默认关闭；未接 SIEM/WORM，ready 暴露 head hash。<br/>ACTION — P1：对象锁/WORM、导出重试、仅内部诊断展示链状态。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Collector SSRF 与解析隔离</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — 私网/元数据阻断、重定向重校验、压缩包/大小/超时/并发保护、非 root/read-only。<br/>GAP — 开发态跳过 integrity；absolutePath 公开 DTO；可读取进程可见任意文件。<br/>ACTION — P0：opaque staging handle；absolutePath 仅进程内私有调用。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Collector 爆炸半径</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — cap_drop ALL、no-new-privileges、tmpfs、任务并发限制。<br/>GAP — 容器挂载完整 server/storage 且继承 .env；缺出站网络默认拒绝与独立服务身份。<br/>ACTION — P0：最小目录、独立 env、network policy、只读输入/只写输出。</div></div></section>"
+      },
+      {
+        "id": "control_row_5",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Agent 与插件能力</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — capability manifest/broker、短期签名凭据、工具审批、超时、路径与网络约束、容器策略。<br/>GAP — 控制主要覆盖 scheduled/MCP；内建工具未全部进入统一 broker；高风险 worker 未生产隔离证明。<br/>ACTION — P1：统一 tool execution context 与 capability enforcement。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">RAG / Memory 安全</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — save_memory 需要显式意图与用户审批；账户记忆有独立模型。<br/>GAP — rag-memory.store 可直接写 workspace vector；检索结果未标记 untrusted/provenance，存在持久化污染。<br/>ACTION — P0：候选态、来源签名、taint envelope、敏感/指令过滤。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">NATS / 内部服务通信</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — JetStream adapter、durable consumer、eventId 去重、subject scope HMAC、lag/health/drain。<br/>GAP — 客户端未配置 TLS/mTLS/nkey；当前仅 adapter/fault-test，未多实例实网。<br/>ACTION — P1：生产 profile 强制 tls://、证书轮换、subject ACL、workload identity。</div></div></section>"
+      },
+      {
+        "id": "control_row_6",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">数据库与对象存储</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — SQLite 当前权威；PostgreSQL schema/CDC/cutover 与 S3/MinIO provider 已准备。<br/>GAP — 没有外部多节点、池耗尽、网络分区和反向影子七日证明。<br/>ACTION — P1：隔离 staging 执行故障矩阵后再切权威。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">供应链</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Actions 固定 SHA、远程脚本校验、SBOM/provenance/VEX、reachable Critical=0 门禁。<br/>GAP — raw High：server 114、collector 40、frontend 11；未见统一镜像签名/admission policy。<br/>ACTION — P1：Reachability owner/expiry；Cosign + deploy admission。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">可观测与自愈</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — Runtime Coordinator、outbox DLQ/lease、receipt sweeper、reconcile、OTel/Prometheus adapters。<br/>GAP — 开发进程内指标不能证明长期 p95/错误预算；外部 telemetry/SIEM 未部署。<br/>ACTION — P1：staging collector + trace correlation + SLO burn alerts。</div></div></section>"
+      },
+      {
+        "id": "control_row_7",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">备份与灾备</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — 迁移/修复前本地备份、校验、可恢复脚本、内容对象不可变键。<br/>GAP — 无独立账户/跨区域 immutable backup、RPO/RTO 证据、完整恢复演练。<br/>ACTION — P2：3-2-1、隔离密钥、季度 restore drill、审计证据。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">高权限运维</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">CURRENT — 角色层级、会话吊销、账户删除工作流、dry-run/--execute 安全语义。<br/>GAP — 无 JIT/PAM、break-glass 审批、双人控制和统一 incident console。<br/>ACTION — P2：短期管理员授权、双人审批、统一 kill switches。</div></div></section>"
+      },
+      {
+        "id": "findings_heading",
+        "type": "markdown",
+        "body": "## 3. Findings — Exploitable Paths First, Maturity Gaps Second"
+      },
+      {
+        "id": "findings_intro",
+        "type": "markdown",
+        "body": "四个 High 都可以在不改变用户业务语义的前提下修复：会话与设备仍使用现有 Auth DB；Collector 仍支持现有上传和解析，只把路径能力收回服务端；Memory 仍可保存，只先进入候选态。KMS、WAF、SIEM 等未外部证明项属于发布与成熟度门槛，不应误报为当前本机漏洞。"
+      },
+      {
+        "id": "finding_table_intro",
+        "type": "markdown",
+        "body": "### Confirmed Findings & Assurance Gaps\n\nConfirmed defects are separated from deployment and operating-model assurance gaps."
+      },
+      {
+        "id": "finding_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-001 · High · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 撤销/窃取 JWT → Broadcast/Agent/Crypto WS → decodeJWT/resource lookup，但不查 AuthSession.validate。<br/>IMPACT — 会话吊销不能保证立即终止长连接；query token 可能进入代理、历史或日志。<br/>ACTION — P0：权威 WS principal adapter + 60–120 秒 ticket + 周期复核 + revoke-close。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-002 · High · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 开发 Collector /parse 接收 options.absolutePath；完整性校验在 development 跳过。<br/>IMPACT — 本机/开发环境中，调用者可请求解析 Collector OS 权限可读文件。<br/>ACTION — P0：删除公开字段；API 签发 opaque file handle；loopback bind 和开发签名。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-003 · High · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — Collector 容器继承 .env，并读写挂载完整 server/storage。<br/>IMPACT — 解析器 RCE、依赖漏洞或恶意文档可扩大到应用数据与 Secret。<br/>ACTION — P0：独立身份与 env；最小挂载；默认无网络；一次性任务目录。</div></div></section>"
+      },
+      {
+        "id": "finding_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-004 · High · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — rag-memory.store 直接写 workspace vector；search 以 Additional context 原样返回。<br/>IMPACT — 间接 Prompt Injection 可转为长期知识污染并影响后续 Agent 决策。<br/>ACTION — P0：memory candidate + provenance/taint + approval + recall-time untrusted wrapper。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-005 · Medium · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 公共 /ready 返回 hostname/pid 关联 workerId、计数器、审计 chainId/head hash。<br/>IMPACT — 扩大侦察信息和内部运行拓扑暴露；高敏诊断不应匿名公开。<br/>ACTION — P0：/live 极简；/ready 仅状态；/internal/diagnostics 强认证。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-006 · Medium · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — iOS P-256 私钥 rawRepresentation 写入 Keychain，而非 Secure Enclave 非导出密钥。<br/>IMPACT — Keychain 提供良好静态保护，但未达到报告要求的硬件不可导出。<br/>ACTION — P1：Secure Enclave key agreement/signing，保留设备兼容降级策略。</div></div></section>"
+      },
+      {
+        "id": "finding_row_3",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-007 · Medium · 已确认</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 服务端凭据主路径仍使用 bcryptjs；报告目标为 Argon2id + HSM pepper。<br/>IMPACT — 不构成直接绕过，但抗离线破解与密钥分离未达到金融级目标。<br/>ACTION — P1：登录时渐迁 Argon2id；pepper 仅在 KMS/HSM 阶段启用。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-008 · Medium · 条件性</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 开发 security policy 为 requestSigningWarnOnly=true、deviceRequired=false、strictReady=false。<br/>IMPACT — 若错误带入生产会形成安全降级；当前只能证明开发态配置。<br/>ACTION — P0 发布门禁：production profile fail-closed，禁止 warn-only/开发 bypass。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-009 · Medium · 发布前</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — NATS adapter 支持 user/pass/token，但 connect 未配置 TLS/CA/client cert/nkey。<br/>IMPACT — 启用跨实例后，内部事件的服务身份和链路机密性不足。<br/>ACTION — P1：在 ATHENA_BROADCAST_TRANSPORT=nats 时强制 tls:// 与 ACL。</div></div></section>"
+      },
+      {
+        "id": "finding_row_4",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-010 · Medium · 成熟度</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 安全账本签名有效；immutable archive 默认 disabled，未见生产 SIEM/SOAR 证据。<br/>IMPACT — 本机证据链强，但独立留存、集中检测与响应闭环不足。<br/>ACTION — P1：WORM/object lock + SIEM + retry/alert + incident runbook。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-011 · Medium · 成熟度</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — DataAccessCenter 有 public/internal/user/sensitive/secret/ephemeral 分类，但非统一 S0–S4 策略。<br/>IMPACT — 分类尚未统一驱动 DLP、驻留、导出、保留和水印。<br/>ACTION — P1：建立可机读数据目录与 policy-as-code；逐域映射，不批量重写。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-012 · Medium · 成熟度</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — Key provider 当前 env-file/secret-file/environment；external KMS/Vault 标为 reserved。<br/>IMPACT — 密钥材料和应用工作负载仍在同一管理域，无法证明硬件根与职责分离。<br/>ACTION — P1/P2：先 Vault/KMS staging，再按客户需求升级 HSM/双人恢复。</div></div></section>"
+      },
+      {
+        "id": "finding_row_5",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-013 · Medium · 证据缺口</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 应用内 TLS/CORS/header 存在；WAF/CDN/DDoS/DNSSEC/源站 mTLS 不在仓库与本机范围。<br/>IMPACT — 不能对边缘抗压、Bot、源站隐藏做金融级声明。<br/>ACTION — P1：把 edge 配置、健康与演练证据纳入 release evidence bundle。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">ATH-V1-014 · Medium · 证据缺口</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PATH — 有本地备份与修复脚本，但无跨账户/跨区域恢复演练证据。<br/>IMPACT — 勒索、区域故障、密钥损坏下的 RPO/RTO 不可证明。<br/>ACTION — P2：独立密钥域、不可变备份、季度 restore test。</div></div></section>"
+      },
+      {
+        "id": "zero_trust_heading",
+        "type": "markdown",
+        "body": "## 4. Recommended Zero Trust Enforcement Loop"
+      },
+      {
+        "id": "zero_trust_diagram",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:16px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 12px;font:700 20px system-ui;color:#0f172a\">推荐 Zero Trust 闭环：每次请求、每条长连接、每次工具调用都重新证明</h3><svg viewBox=\"0 0 1200 470\" width=\"100%\" role=\"img\" aria-label=\"推荐 Zero Trust 闭环\" style=\"display:block;max-width:100%;height:auto\"><defs><marker id=\"athenaArrow2\" markerWidth=\"10\" markerHeight=\"10\" refX=\"8\" refY=\"3\" orient=\"auto\"><path d=\"M0,0 L0,6 L9,3 z\" fill=\"#475569\"/></marker></defs><path d=\"M 270 109 L 330 109\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><path d=\"M 565 109 L 625 109\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><path d=\"M 860 109 L 920 109\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><path d=\"M 1037 173 L 905 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><text x=\"971\" y=\"229.5\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">telemetry</text><path d=\"M 742 173 L 610 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><text x=\"676\" y=\"229.5\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">policy</text><path d=\"M 447 173 L 315 300\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><text x=\"381\" y=\"229.5\" text-anchor=\"middle\" font-size=\"11\" fill=\"#475569\">evidence</text><path d=\"M 450 366 L 475 366\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><path d=\"M 745 366 L 770 366\" stroke=\"#475569\" stroke-width=\"2\" fill=\"none\" marker-end=\"url(#athenaArrow2)\"/><g><rect x=\"35\" y=\"45\" width=\"235\" height=\"128\" rx=\"16\" fill=\"#eef2ff\" stroke=\"#4f46e5\" stroke-width=\"2\"/><text x=\"53\" y=\"74\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">请求主体</text><text x=\"53\" y=\"101\" font-size=\"13\" fill=\"#334155\">用户/设备/服务/Agent</text><text x=\"53\" y=\"122\" font-size=\"13\" fill=\"#334155\">Session + device key</text><text x=\"53\" y=\"143\" font-size=\"13\" fill=\"#334155\">网络位置不授予信任</text></g><g><rect x=\"330\" y=\"45\" width=\"235\" height=\"128\" rx=\"16\" fill=\"#ecfeff\" stroke=\"#0891b2\" stroke-width=\"2\"/><text x=\"348\" y=\"74\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">策略输入</text><text x=\"348\" y=\"101\" font-size=\"13\" fill=\"#334155\">身份强度 · 设备姿态</text><text x=\"348\" y=\"122\" font-size=\"13\" fill=\"#334155\">资源关系 · 操作风险</text><text x=\"348\" y=\"143\" font-size=\"13\" fill=\"#334155\">数据等级 · 会话状态</text></g><g><rect x=\"625\" y=\"45\" width=\"235\" height=\"128\" rx=\"16\" fill=\"#f0fdf4\" stroke=\"#16a34a\" stroke-width=\"2\"/><text x=\"643\" y=\"74\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">统一策略决策</text><text x=\"643\" y=\"101\" font-size=\"13\" fill=\"#334155\">RBAC + ABAC + ReBAC</text><text x=\"643\" y=\"122\" font-size=\"13\" fill=\"#334155\">deny by default</text><text x=\"643\" y=\"143\" font-size=\"13\" fill=\"#334155\">可解释 reason code</text></g><g><rect x=\"920\" y=\"45\" width=\"235\" height=\"128\" rx=\"16\" fill=\"#fff7ed\" stroke=\"#ea580c\" stroke-width=\"2\"/><text x=\"938\" y=\"74\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">执行与再验证</text><text x=\"938\" y=\"101\" font-size=\"13\" fill=\"#334155\">REST/WS/Agent/Connector</text><text x=\"938\" y=\"122\" font-size=\"13\" fill=\"#334155\">短期凭据 · 权限收敛</text><text x=\"938\" y=\"143\" font-size=\"13\" fill=\"#334155\">撤销即断连/停止工具</text></g><g><rect x=\"180\" y=\"300\" width=\"270\" height=\"132\" rx=\"16\" fill=\"#fffbeb\" stroke=\"#d97706\" stroke-width=\"2\"/><text x=\"198\" y=\"329\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">审计与检测</text><text x=\"198\" y=\"356\" font-size=\"13\" fill=\"#334155\">traceId · requestId · actor</text><text x=\"198\" y=\"377\" font-size=\"13\" fill=\"#334155\">Hash Chain + checkpoint</text><text x=\"198\" y=\"398\" font-size=\"13\" fill=\"#334155\">SIEM/UEBA/SOAR 待接入</text></g><g><rect x=\"475\" y=\"300\" width=\"270\" height=\"132\" rx=\"16\" fill=\"#fff1f2\" stroke=\"#e11d48\" stroke-width=\"2\"/><text x=\"493\" y=\"329\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">隔离与降权</text><text x=\"493\" y=\"356\" font-size=\"13\" fill=\"#334155\">Collector/Plugin sandbox</text><text x=\"493\" y=\"377\" font-size=\"13\" fill=\"#334155\">egress allowlist · DLP</text><text x=\"493\" y=\"398\" font-size=\"13\" fill=\"#334155\">高风险操作人工确认</text></g><g><rect x=\"770\" y=\"300\" width=\"270\" height=\"132\" rx=\"16\" fill=\"#ecfdf5\" stroke=\"#059669\" stroke-width=\"2\"/><text x=\"788\" y=\"329\" font-size=\"16\" font-weight=\"700\" fill=\"#0f172a\">恢复与自愈</text><text x=\"788\" y=\"356\" font-size=\"13\" fill=\"#334155\">Outbox replay · reconcile</text><text x=\"788\" y=\"377\" font-size=\"13\" fill=\"#334155\">session revoke · kill switch</text><text x=\"788\" y=\"398\" font-size=\"13\" fill=\"#334155\">immutable backup/restore drill</text></g></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "zero_trust_notes",
+        "type": "markdown",
+        "body": "### Design rule\n\nZero Trust 的实施单元不是一个新‘安全中心’数据库，而是一个稳定的 `AuthorizationContext` 和少量 enforcement adapters：REST middleware、WebSocket handshake/refresh、Agent tool invocation、Connector egress、Data export。领域 Repository 继续决定业务关系；策略层只做组合决策、记录 reason code，并在撤销或风险变化时终止能力。"
+      },
+      {
+        "id": "p0_heading",
+        "type": "markdown",
+        "body": "## 5. P0 Optimization Plan — 0 to 14 Days"
+      },
+      {
+        "id": "p0_table_intro",
+        "type": "markdown",
+        "body": "### P0 Closed-loop Optimization Plan\n\nEvery change includes an acceptance gate and rollback boundary; no key rotation is required."
+      },
+      {
+        "id": "p0_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">1. 长连接身份统一</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — 建立 authoritativeRealtimePrincipal(request)：Session V2、authUser、clientId、tokenVersion、设备状态统一校验；禁止新增 query JWT；引入一次性短期 WS ticket。<br/>GATE — 退出/封禁/设备吊销 ≤5 秒断开；旧客户端双读迁移；REST/WS principal 一致。<br/>ROLLBACK — 短期保留 Bearer 双读开关；ticket 失败退回旧握手但仍执行 Session V2。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">2. Collector 文件句柄</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — 外部 DTO 只接受 uploadId/objectRef；absolutePath 仅内部不可序列化调用；每次 realpath 限制到 staging root。<br/>GATE — 任意绝对路径、symlink、目录穿越全部拒绝；合法上传兼容；无 Secret/路径出现在响应。<br/>ROLLBACK — 旧字段仅允许 loopback + 内部签名 + 7 日 telemetry，随后移除。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">3. Collector 隔离</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — 拆分 Collector env；移除整库挂载；输入只读、输出只写；network none 默认；必要域名经 egress proxy。<br/>GATE — 恶意文档无法读取 Auth DB/.env/主库；容器 RCE 影响限制在一次性目录；功能格式回归通过。<br/>ROLLBACK — 按格式 allowlist 回退到受限 legacy worker，不回退为全存储挂载。</div></div></section>"
+      },
+      {
+        "id": "p0_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">4. RAG/Memory 污染防护</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — rag-memory.store 写 candidate；记录来源、actor、thread、hash、信任级别；审批后进入可检索索引；检索内容包装为 untrusted evidence。<br/>GATE — 间接指令不能直接写长期向量；用户可查看/拒绝/删除；召回不会覆盖 system/tool policy。<br/>ROLLBACK — 候选功能关闭时禁用 store，只保留 search；不丢弃现有向量。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">5. 生产策略配置门禁</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — 生产启动校验 request signing/device required、strict readiness、CORS allowlist、HTTPS、dev bypass off；失败即 not-ready。<br/>GATE — 错误生产配置无法启动；开发体验不变；密钥内容与时间戳不修改。<br/>ROLLBACK — 按单控制 feature flag 回滚，但保持显式告警与审计，不提供静默 global bypass。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">6. 健康与诊断分层</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">IMPLEMENT — `/live` 只返回存活；`/ready` 只返回 ready/reasonCode；计数、worker、链状态移到强认证 internal diagnostics。<br/>GATE — 匿名响应不包含 pid/hostname/hash/内部计数；监控探针继续 200/503；运维诊断信息不丢失。<br/>ROLLBACK — 保留内部 legacy payload 端点，不恢复公共详细响应。</div></div></section>"
+      },
+      {
+        "id": "p0_sequence",
+        "type": "markdown",
+        "body": "### Required sequence\n\n1. 先引入共享 WS principal adapter 和只读 telemetry，验证新旧 principal 一致。\n2. 再签发短期 WS ticket，并保留旧 Bearer 双读；确认 revoke-close 后禁止 query JWT。\n3. Collector 先影子生成 opaque handle，再切读路径；隔离挂载与 env 最后启用。\n4. Memory 先记录候选而不改变 search；候选 UI/审批可用后关闭 direct store。\n5. 生产门禁和健康端点分层可独立上线，不依赖数据迁移。"
+      },
+      {
+        "id": "roadmap_heading",
+        "type": "markdown",
+        "body": "## 6. P1/P2/P3 Evolution Roadmap"
+      },
+      {
+        "id": "priority_chart_block",
+        "type": "html",
+        "body": "<section style=\"width:100%;overflow:hidden;border:1px solid #dbe3ee;border-radius:18px;background:#fff;padding:16px;box-sizing:border-box;break-inside:avoid\"><h3 style=\"margin:0 0 4px;font:700 20px system-ui;color:#0f172a\">Recommended optimization backlog by priority</h3><p style=\"margin:0 0 10px;font:13px system-ui;color:#475569\">P0 closes exploitable or fail-open paths; later phases establish enterprise proof.</p><svg viewBox=\"0 0 1200 327\" width=\"100%\" role=\"img\" aria-label=\"Recommended optimization backlog by priority\" style=\"display:block;max-width:100%;height:auto\"><line x1=\"250\" y1=\"95\" x2=\"250\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"250\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">0</text><line x1=\"422\" y1=\"95\" x2=\"422\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"422\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">1.6</text><line x1=\"594\" y1=\"95\" x2=\"594\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"594\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">3.2</text><line x1=\"766\" y1=\"95\" x2=\"766\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"766\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">4.8</text><line x1=\"938\" y1=\"95\" x2=\"938\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"938\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">6.4</text><line x1=\"1110\" y1=\"95\" x2=\"1110\" y2=\"279\" stroke=\"#cbd5e1\" stroke-width=\"1\"/><text x=\"1110\" y=\"303\" text-anchor=\"middle\" font-size=\"11\" fill=\"#64748b\">8</text><text x=\"234\" y=\"124\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">P0</text><rect x=\"250\" y=\"109\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"109\" width=\"645\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"905\" y=\"125\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">6</text><text x=\"234\" y=\"162\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">P1</text><rect x=\"250\" y=\"147\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"147\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"1120\" y=\"163\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">8</text><text x=\"234\" y=\"200\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">P2</text><rect x=\"250\" y=\"185\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"185\" width=\"645\" height=\"22\" rx=\"7\" fill=\"#4f46e5\"/><text x=\"905\" y=\"201\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">6</text><text x=\"234\" y=\"238\" text-anchor=\"end\" font-size=\"13\" fill=\"#334155\">P3</text><rect x=\"250\" y=\"223\" width=\"860\" height=\"22\" rx=\"7\" fill=\"#e2e8f0\"/><rect x=\"250\" y=\"223\" width=\"430\" height=\"22\" rx=\"7\" fill=\"#0891b2\"/><text x=\"690\" y=\"239\" font-size=\"12\" font-weight=\"700\" fill=\"#0f172a\">4</text></svg></section>",
+        "layout": "full"
+      },
+      {
+        "id": "roadmap_table_intro",
+        "type": "markdown",
+        "body": "### Security Evolution Roadmap\n\nReduce exploitability first, then establish enterprise operating proof."
+      },
+      {
+        "id": "roadmap_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P0 · 0–14 天</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — WS Session、Collector 句柄/隔离、RAG taint、生产门禁、健康端点<br/>VALUE — 关闭 4 个已确认 High 与 1 个信息泄露面；不改业务数据模型。<br/>COST/RISK — 中等；主要风险是旧客户端握手和文档导入兼容。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P1 · 15–45 天</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — 统一 policy adapter、Secure Enclave、Argon2id 渐迁、NATS TLS、数据目录<br/>VALUE — 让身份、设备、关系、风险、数据等级进入统一决策；为多实例上线建立安全前提。<br/>COST/RISK — 中高；必须按 adapter 渐迁，禁止一次性替换领域授权。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P1 · 30–60 天</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — KMS/Vault staging、WORM audit、SIEM/OTel、SBOM 签名与 admission<br/>VALUE — 从本地可验证升级为跨系统可证明，建立检测与供应链证据链。<br/>COST/RISK — 中高；依赖外部基础设施与轮换/故障演练。</div></div></section>"
+      },
+      {
+        "id": "roadmap_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P2 · 60–120 天</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — Service identity/mTLS、egress+DLP、JIT/PAM、统一 incident console<br/>VALUE — 缩小横向移动和数据外泄半径，支撑企业管理员与高权限 Agent。<br/>COST/RISK — 高；需要平台工程和安全运营共同所有。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P2 · 90–180 天</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — 跨账户/跨区域 immutable backup、RPO/RTO、完整恢复演练<br/>VALUE — 把‘有备份’提升为‘可恢复’，覆盖勒索、区域故障与密钥事故。<br/>COST/RISK — 高；需要真实云资源与演练窗口。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">P3 · 6–18 月</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">SCOPE — HSM root、客户管理密钥、机密空间、阈值/分片恢复、PQ agility<br/>VALUE — 服务高价值企业和监管场景；按需求启用，不强行覆盖搜索/AI 主链。<br/>COST/RISK — 很高；只有明确合规和客户收益时引入。</div></div></section>"
+      },
+      {
+        "id": "crypto_decisions",
+        "type": "markdown",
+        "body": "## 7. Cryptography & Confidentiality Decisions\n\n- **立即保留**：AES-256-GCM + HKDF + per-object DEK；Chat/Audit Hash Chain；Ed25519 审计 checkpoint；Passkey/OPAQUE；P-256 设备签名。\n- **下一阶段接入**：KMS/Vault provider、Secure Enclave、NATS mTLS、对象锁/WORM；先 staging 轮换和故障演练，不修改现有密钥。\n- **按需求引入**：HSM root、客户管理密钥、Threshold Signature、Shamir Secret Sharing，仅用于高价值密钥恢复或多方审批。\n- **暂不普遍引入**：Signal/MLS E2EE 会与服务端搜索、RAG、Agent 推理和合规检索冲突；只适合未来明确的‘机密空间’，不能覆盖普通 Workspace。\n- **不作为安全替代品**：Merkle Tree/CRDT/Event Stream 解决对账、协作和历史，不替代身份、授权、加密或审计。"
+      },
+      {
+        "id": "ai_security",
+        "type": "markdown",
+        "body": "## 8. AI, Agent, MCP & Memory Security\n\nAthena 已经比普通 Agent 平台更成熟：工具审批、能力清单、短期凭据、容器约束、文件路径和网络域限制、成本/超时治理都存在。但控制覆盖不均衡：scheduled/MCP 路径较强，内建工具和 rag-memory 没有全部穿过同一 capability broker。建议以 [OWASP AISVS 1.0](https://owasp.org/www-project-artificial-intelligence-security-verification-standard-aisvs-docs/) Level 2 为生产目标，优先覆盖 Memory/Vector、Agentic Action、MCP、Monitoring 四章。"
+      },
+      {
+        "id": "data_security",
+        "type": "markdown",
+        "body": "## 9. Data Classification, DLP & Privacy\n\nDataAccessCenter 已有 public/internal/user/sensitive/secret/ephemeral 分类，这是重要基础，并非从零开始。下一步应把它升级为可机读目录：owner、legal basis、residency、retention、encryption profile、export policy、log policy、AI usage policy。用户报告中的 S0–S4 可以作为展示与审计等级，但内部仍可保留现有语义枚举，通过映射层避免大规模 Repository 重写。DLP、水印、导出审批应只针对 S3/S4 和高风险动作，避免给普通聊天与设置带来全局性能回退。"
+      },
+      {
+        "id": "operations",
+        "type": "markdown",
+        "body": "## 10. SecOps, Incident Response & Self-healing\n\n现有 Runtime Coordinator、Outbox DLQ/lease、receipt sweeper、auth-session reconcile、Hash 校验和 immutable object key 已形成自愈基础。企业级闭环还需要统一 incident control plane：租户隔离、Connector all-off、Agent high-risk tools off、export freeze、read-only mode、session mass revoke、key disable。所有动作必须进入签名审计链，并能通过 SIEM/SOAR 触发，但不得让 SIEM 成为业务请求的同步依赖。"
+      },
+      {
+        "id": "validation_heading",
+        "type": "markdown",
+        "body": "## 11. Testing, Release Gates & Rollback"
+      },
+      {
+        "id": "validation_table_intro",
+        "type": "markdown",
+        "body": "### Verification, Fault Injection & Release Gates\n\nA control is complete only when failure semantics and operational evidence are verified."
+      },
+      {
+        "id": "validation_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Identity/WS</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 创建 session → WS 连接 → revoke/device revoke/ban/logout → 观察断连与后续握手。<br/>GATE — 全部路径 ≤5 秒生效；不得仅等 JWT 过期。<br/>EVIDENCE — 自动化 E2E + audit event + socket close code。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Collector path</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — absolute path、symlink、hardlink、目录穿越、文件替换竞态、超大文件。<br/>GATE — 仅 opaque staging handle 可成功；路径不出现在日志/响应。<br/>EVIDENCE — fault injection + container mount inventory。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Collector sandbox</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 恶意解析器尝试读取 /app/server/.env、Auth DB、网络元数据与任意域名。<br/>GATE — 全部 fail-closed；合法格式回归不超过既有 p95 10%。<br/>EVIDENCE — container integration + egress log。</div></div></section>"
+      },
+      {
+        "id": "validation_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">RAG memory</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 网页/PDF 中嵌入保存指令、越权工具指令、伪造系统提示。<br/>GATE — 只生成候选或拒绝；未经用户确认不进入长期索引。<br/>EVIDENCE — OWASP AISVS L2 adversarial suite。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Sync</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 重复/乱序/丢失 WS/SSE/Push、缓存写失败、Hash 不同、权限撤销。<br/>GATE — cursor/ACK 不提前；Hash mismatch &lt;0.01%；full reconcile &lt;1%。<br/>EVIDENCE — Web+iOS 授权多设备 E2E。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Crypto</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — key provider 断连、旧 key 解密、轮换中断、对象写成功 DB 失败。<br/>GATE — 不产生孤儿引用或不可恢复密文；不输出 key material。<br/>EVIDENCE — staging KMS/Vault rotation drill。</div></div></section>"
+      },
+      {
+        "id": "validation_row_3",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">NATS/mTLS</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 无证书、错误 subject、证书轮换、网络分区、consumer redelivery。<br/>GATE — 未授权连接拒绝；Outbox 可补拉；Gateway not-ready。<br/>EVIDENCE — distributed staging fault matrix。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Audit/SIEM</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 篡改 ledger、删除 archive、archive provider 故障、告警链路中断。<br/>GATE — 验证失败可见；导出重试；WORM 对象不可覆盖；SOC 收到告警。<br/>EVIDENCE — signed checkpoint + object lock + alert receipt。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">Supply chain</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 依赖 Critical、未固定 Action、无 provenance、未签名镜像、过期 High waiver。<br/>GATE — 发布全部阻断；reachable Critical=0；High 有 owner/expiry。<br/>EVIDENCE — CI policy report + signature verification。</div></div></section>"
+      },
+      {
+        "id": "validation_row_4",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">DR</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">TEST — 在隔离账户从数据库、对象、向量、Auth、密钥与 Outbox 恢复。<br/>GATE — 满足正式 RPO/RTO；权限/Session/Hash Chain/Sync 全部复核。<br/>EVIDENCE — 季度 restore report 与 CTO/Security sign-off。</div></div></section>"
+      },
+      {
+        "id": "performance",
+        "type": "markdown",
+        "body": "## 12. Performance, Cost & Complexity Impact\n\n- WS 权威 Session 校验可复用 5 秒正向缓存；握手增加一次 Auth DB 读取，稳定连接只做周期轻量复核，预计普通 REST 无回退。\n- Collector opaque handle 消除任意路径分支，隔离容器会增加冷启动与文件复制成本；通过 worker 池、内容对象引用与流式处理控制在 10% p95 门槛内。\n- Memory 候选态增加一次元数据写和审批交互，但避免污染导致的长期召回成本与安全事故。\n- 数据分类映射应在 Repository/Outbox 边界计算，不扫描全文，不进入每次 Token 流。\n- KMS 只封装/解封 DEK，不对每个字节远程加密；热点 DEK 使用短期内存缓存并受进程生命周期约束。\n- SIEM、WORM、OTel 采用异步可靠投递；安全审计本地事务失败必须 fail-closed，高容量遥测失败则降级并告警。"
+      },
+      {
+        "id": "standards_heading",
+        "type": "markdown",
+        "body": "## 13. Standards & Assurance Mapping"
+      },
+      {
+        "id": "standards_table_intro",
+        "type": "markdown",
+        "body": "### Standards Mapping\n\nStandards guide verification; this report does not claim certification or compliance."
+      },
+      {
+        "id": "standards_row_1",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">NIST SP 800-207 / 207A</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PURPOSE — Zero Trust：不因网络位置授信；用户、设备与工作负载身份都需要策略决策与执行。<br/>ATHENA — 资源级 AuthZ、Session/设备签名已有；统一 PE/PA/PEP、service identity/mTLS 待补。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">OWASP ASVS 5.0</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PURPOSE — 应用安全可验证需求基线，用于身份、会话、输入、文件、API、日志与配置门禁。<br/>ATHENA — 现有 route/security audit 可转为 ASVS requirement ID 的机器可读 control ledger。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">OWASP AISVS 1.0</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PURPOSE — AI 系统 L1–L3 验证，覆盖 memory/vector、Agent action、MCP、监控与对抗鲁棒性。<br/>ATHENA — 建议生产面向敏感数据达到 L2；Memory/Agent/Connector 是首个缺口域。</div></div></section>"
+      },
+      {
+        "id": "standards_row_2",
+        "type": "html",
+        "layout": "full",
+        "body": "<section style=\"width:100%;border:1px solid #dbe3ee;border-radius:12px;background:#fff;padding:3px 13px;box-sizing:border-box;break-inside:avoid;page-break-inside:avoid\"><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;border-bottom:1px solid #e2e8f0\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">NIST CSF 2.0</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PURPOSE — Govern、Identify、Protect、Detect、Respond、Recover 的运营闭环。<br/>ATHENA — Protect 较强；Govern/Detect/Respond/Recover 需要 SIEM、incident console 与 DR 演练。</div></div><div style=\"display:grid;grid-template-columns:minmax(130px,24%) minmax(0,1fr);gap:14px;align-items:start;padding:10px 0;\"><div style=\"font:700 12px/1.45 system-ui;color:#0f172a;overflow-wrap:anywhere;word-break:break-word\">SLSA 1.2</div><div style=\"font:12px/1.5 system-ui;color:#334155;white-space:normal;overflow-wrap:anywhere;word-break:break-word\">PURPOSE — Source/Build provenance、逐级保证、artifact verification。<br/>ATHENA — SBOM/provenance 与 pinned Actions 已有；镜像签名、admission、source control policy 需闭环。</div></div></section>"
+      },
+      {
+        "id": "standards_links",
+        "type": "markdown",
+        "body": "### Primary references\n\n[NIST SP 800-207 Zero Trust Architecture](https://csrc.nist.gov/pubs/sp/800/207/final) · [OWASP ASVS 5.0](https://owasp.org/www-project-application-security-verification-standard/) · [OWASP AISVS 1.0](https://owasp.org/www-project-artificial-intelligence-security-verification-standard-aisvs-docs/) · [NIST CSF 2.0](https://www.nist.gov/news-events/news/2024/02/nist-releases-version-20-landmark-cybersecurity-framework) · [SLSA 1.2](https://slsa.dev/spec/v1.2/)"
+      },
+      {
+        "id": "limitations",
+        "type": "markdown",
+        "body": "## 14. Limitations, Uncertainty & Robustness\n\n- 本轮未使用用户凭据，浏览器动态审计只覆盖匿名页面；授权多设备 E2E 是后续必要证据。\n- 本机没有获准的外部 PostgreSQL/NATS/S3/KMS/SIEM、WAF 或跨区域环境，因此只能评估代码边界与本地故障语义。\n- 开发环境策略为 warn-only 不能推断生产必然同样配置；报告将其作为发布门禁，而非已暴露生产漏洞。\n- 依赖 raw High 反映 package tree，不等于 165 个可利用漏洞；当前门禁证明 reachable Critical=0，但每个 High 仍需 owner、mitigation 和 expiry。\n- 架构评分包含专家判断，不是渗透测试、合规认证或金融监管批准。"
+      },
+      {
+        "id": "next_steps",
+        "type": "markdown",
+        "body": "## 15. Recommended Next Steps\n\n1. 把本报告 6 个 P0 workstream 建成单独 feature flags，先 shadow/telemetry，再双读、强制、移除旧路径。\n2. 建立机器可读 `security-control-ledger.json`，每个控制关联 owner、code path、test、runtime evidence、exception、expiry。\n3. 在 Docker-capable staging 完成 NATS mTLS、Collector sandbox、KMS/Vault、WORM audit 与 OTel/SIEM 演练。\n4. 建立 Web+iOS/Desktop 授权多设备安全 E2E，覆盖 session revoke、permission revoke、offline replay、account switch 和 push loss。\n5. P0 全部关闭后再做外部边缘、JIT/PAM、DLP 和跨区域 DR；不为了贴合报告名词强行引入 HSM、Threshold 或全面 E2EE。"
+      },
+      {
+        "id": "further_questions",
+        "type": "markdown",
+        "body": "## 16. Further Questions for the Security Committee\n\n- Athena 首个需要金融级保护的资产是用户私密记忆、企业知识库、Agent 操作权限还是交易/账务？\n- 企业客户是否要求 BYOK/HYOK、数据驻留、WORM、双人审批或特定 RPO/RTO？\n- 哪些 Agent 工具必须具备网络访问，哪些可以完全无网络？\n- ‘机密空间’是否允许牺牲全文搜索、RAG 和服务端 Agent 推理以换取 E2EE？\n- 第一阶段安全运营由内部团队还是外部 MSSP/SOC 承担？这决定 SIEM/SOAR 与 on-call 设计。"
+      },
+      {
+        "id": "final_assessment",
+        "type": "markdown",
+        "sourceId": "live_evidence",
+        "body": "## Final Assessment\n\n**当前产品安全姿态：7.4/10。V1.0 金融级完整蓝图完成度：61.0%。**\n\nAthena 的密码、数据完整性、状态同步和资源授权基础已经领先于同阶段 AI 产品；真正的短板不是缺少更多密码学名词，而是四条高风险路径尚未统一执行已有控制，以及外部分布式与安全运营能力尚未获得生产证据。按本报告 P0→P1→P2 顺序推进，可以在保留现有 REST、SSE、WebSocket、Sync V2、领域 Repository 与客户端缓存语义的前提下，逐步达到大型互联网平台的可审计、可回滚、可恢复安全架构。"
+      }
+    ]
+  },
+  "snapshot": {
+    "version": 1,
+    "status": "ready",
+    "generatedAt": "2026-07-20T12:45:48.647Z",
+    "datasets": {
+      "headline": [
+        {
+          "productScore": 7.4,
+          "blueprintCompletion": 61,
+          "confirmedHigh": 4,
+          "routeFindings": 0,
+          "syncConflicts": 0,
+          "invalidChatChain": 0
+        }
+      ],
+      "maturity": [
+        {
+          "domain": "边缘与源站",
+          "score": 1.6,
+          "target": 4,
+          "weight": 8
+        },
+        {
+          "domain": "身份与会话",
+          "score": 3.3,
+          "target": 4.5,
+          "weight": 12
+        },
+        {
+          "domain": "授权与策略",
+          "score": 3.5,
+          "target": 4.5,
+          "weight": 10
+        },
+        {
+          "domain": "设备信任",
+          "score": 2.5,
+          "target": 4,
+          "weight": 8
+        },
+        {
+          "domain": "密码与密钥",
+          "score": 3.8,
+          "target": 4.5,
+          "weight": 12
+        },
+        {
+          "domain": "数据保护",
+          "score": 3.7,
+          "target": 4.5,
+          "weight": 10
+        },
+        {
+          "domain": "同步安全",
+          "score": 4.1,
+          "target": 4.5,
+          "weight": 8
+        },
+        {
+          "domain": "AI 与 Agent",
+          "score": 2.7,
+          "target": 4,
+          "weight": 10
+        },
+        {
+          "domain": "工作负载隔离",
+          "score": 2,
+          "target": 4,
+          "weight": 8
+        },
+        {
+          "domain": "供应链",
+          "score": 3.2,
+          "target": 4,
+          "weight": 6
+        },
+        {
+          "domain": "审计与 SecOps",
+          "score": 3,
+          "target": 4,
+          "weight": 5
+        },
+        {
+          "domain": "备份与灾备",
+          "score": 1.8,
+          "target": 4,
+          "weight": 3
+        }
+      ],
+      "controlStatus": [
+        {
+          "status": "已实现且本地验证",
+          "count": 15
+        },
+        {
+          "status": "部分实现/未统一强制",
+          "count": 13
+        },
+        {
+          "status": "适配已存在/未外部证明",
+          "count": 6
+        },
+        {
+          "status": "目标控制缺失",
+          "count": 8
+        }
+      ],
+      "controls": [
+        {
+          "control": "Passkey / OPAQUE / Session V2",
+          "evidence": "Passkey 与 OPAQUE 路径、Auth DB session、吊销与 tokenVersion 已实现；REST middleware 权威校验。",
+          "gap": "Broadcast、Agent、Crypto WebSocket 未复用同一权威校验；query token 增加泄露面。",
+          "action": "P0：统一 WS auth adapter，短期 ticket，撤销后主动 close。"
+        },
+        {
+          "control": "RBAC + 资源级关系授权",
+          "evidence": "Workspace、Thread、Chat、文件、Agent invocation 均有 owner/resource 约束；338 路由审计 0 finding。",
+          "gap": "尚无统一 PE/PA/PEP 与设备/风险/数据等级上下文。",
+          "action": "P1：保留领域查询，抽出统一决策接口与 reason code。"
+        },
+        {
+          "control": "设备签名与反重放",
+          "evidence": "P-256、nonce、timestamp、body hash、高风险请求验证与设备撤销能力存在。",
+          "gap": "开发环境仍为 warn-only；WebSocket 低风险控制消息可降级；iOS 私钥可导出后写 Keychain。",
+          "action": "P0/P1：生产强制；iOS 迁移 Secure Enclave 非导出密钥。"
+        },
+        {
+          "control": "传输安全",
+          "evidence": "TLS/HSTS、生产 HTTPS fail-closed、CORS allowlist、SSE 安全头、TLS 1.2+ 测试。",
+          "gap": "TLS 1.3 非强制；外部 WAF/CDN/DDoS/DNSSEC 与源站 mTLS 不在仓库证据内。",
+          "action": "P1：部署基线与证据采集；兼容期优先 TLS 1.3。"
+        },
+        {
+          "control": "请求入口与滥用防护",
+          "evidence": "按路由 body limits、登录持久限流、Passkey 限流、Collector 资源上限。",
+          "gap": "没有统一 API Gateway schema/risk quota；/ready 暴露内部 worker 与审计细节。",
+          "action": "P0：拆分 public liveness 与 authenticated diagnostics。"
+        },
+        {
+          "control": "静态数据加密",
+          "evidence": "AES-256-GCM/HKDF、DEK 信封、Chat 1,038/1,038、文档/向量/缓存全覆盖，链断裂 0。",
+          "gap": "system_settings 依赖字段判定；缺统一 S0–S4 数据目录与保留/驻留策略。",
+          "action": "P1：分类 registry 驱动加密、日志、导出与保留。"
+        },
+        {
+          "control": "密钥托管与轮换",
+          "evidence": "Key Custody provider、keyId/keyring、pending/activate/retire、secret-file、冲突 fail-closed。",
+          "gap": "当前根密钥仍是 env/file；KMS/Vault/HSM、双人审批与硬件根未落地。",
+          "action": "P1/P2：staging 接 KMS/Vault；高价值租户再评估 HSM。"
+        },
+        {
+          "control": "iOS 设备密钥",
+          "evidence": "Keychain ThisDeviceOnly 与 userPresence 已使用。",
+          "gap": "RequestSigningCenter 生成 CryptoKit 私钥后持久化 rawRepresentation，未使用 Secure Enclave。",
+          "action": "P1：版本化注册新公钥，双钥迁移，旧钥定期退役。"
+        },
+        {
+          "control": "Sync V2 一致性与完整性",
+          "evidence": "263 节点、186 投影；version/hash/outbox/cursor/receipt/reconcile；0 hash/权限/正文冲突。",
+          "gap": "当前环境 enabled=false；最大 cursor lag 696；需要授权多设备 E2E 与灰度证明。",
+          "action": "P1：deterministic cohort 与 SLO 门禁，不扩大状态树边界。"
+        },
+        {
+          "control": "Chat 与审计完整性",
+          "evidence": "Chat Hash Chain；安全账本 Hash Chain + Ed25519 checkpoint，13 entries/4 checkpoints 均有效。",
+          "gap": "外部不可变归档默认关闭；未接 SIEM/WORM，ready 暴露 head hash。",
+          "action": "P1：对象锁/WORM、导出重试、仅内部诊断展示链状态。"
+        },
+        {
+          "control": "Collector SSRF 与解析隔离",
+          "evidence": "私网/元数据阻断、重定向重校验、压缩包/大小/超时/并发保护、非 root/read-only。",
+          "gap": "开发态跳过 integrity；absolutePath 公开 DTO；可读取进程可见任意文件。",
+          "action": "P0：opaque staging handle；absolutePath 仅进程内私有调用。"
+        },
+        {
+          "control": "Collector 爆炸半径",
+          "evidence": "cap_drop ALL、no-new-privileges、tmpfs、任务并发限制。",
+          "gap": "容器挂载完整 server/storage 且继承 .env；缺出站网络默认拒绝与独立服务身份。",
+          "action": "P0：最小目录、独立 env、network policy、只读输入/只写输出。"
+        },
+        {
+          "control": "Agent 与插件能力",
+          "evidence": "capability manifest/broker、短期签名凭据、工具审批、超时、路径与网络约束、容器策略。",
+          "gap": "控制主要覆盖 scheduled/MCP；内建工具未全部进入统一 broker；高风险 worker 未生产隔离证明。",
+          "action": "P1：统一 tool execution context 与 capability enforcement。"
+        },
+        {
+          "control": "RAG / Memory 安全",
+          "evidence": "save_memory 需要显式意图与用户审批；账户记忆有独立模型。",
+          "gap": "rag-memory.store 可直接写 workspace vector；检索结果未标记 untrusted/provenance，存在持久化污染。",
+          "action": "P0：候选态、来源签名、taint envelope、敏感/指令过滤。"
+        },
+        {
+          "control": "NATS / 内部服务通信",
+          "evidence": "JetStream adapter、durable consumer、eventId 去重、subject scope HMAC、lag/health/drain。",
+          "gap": "客户端未配置 TLS/mTLS/nkey；当前仅 adapter/fault-test，未多实例实网。",
+          "action": "P1：生产 profile 强制 tls://、证书轮换、subject ACL、workload identity。"
+        },
+        {
+          "control": "数据库与对象存储",
+          "evidence": "SQLite 当前权威；PostgreSQL schema/CDC/cutover 与 S3/MinIO provider 已准备。",
+          "gap": "没有外部多节点、池耗尽、网络分区和反向影子七日证明。",
+          "action": "P1：隔离 staging 执行故障矩阵后再切权威。"
+        },
+        {
+          "control": "供应链",
+          "evidence": "Actions 固定 SHA、远程脚本校验、SBOM/provenance/VEX、reachable Critical=0 门禁。",
+          "gap": "raw High：server 114、collector 40、frontend 11；未见统一镜像签名/admission policy。",
+          "action": "P1：Reachability owner/expiry；Cosign + deploy admission。"
+        },
+        {
+          "control": "可观测与自愈",
+          "evidence": "Runtime Coordinator、outbox DLQ/lease、receipt sweeper、reconcile、OTel/Prometheus adapters。",
+          "gap": "开发进程内指标不能证明长期 p95/错误预算；外部 telemetry/SIEM 未部署。",
+          "action": "P1：staging collector + trace correlation + SLO burn alerts。"
+        },
+        {
+          "control": "备份与灾备",
+          "evidence": "迁移/修复前本地备份、校验、可恢复脚本、内容对象不可变键。",
+          "gap": "无独立账户/跨区域 immutable backup、RPO/RTO 证据、完整恢复演练。",
+          "action": "P2：3-2-1、隔离密钥、季度 restore drill、审计证据。"
+        },
+        {
+          "control": "高权限运维",
+          "evidence": "角色层级、会话吊销、账户删除工作流、dry-run/--execute 安全语义。",
+          "gap": "无 JIT/PAM、break-glass 审批、双人控制和统一 incident console。",
+          "action": "P2：短期管理员授权、双人审批、统一 kill switches。"
+        }
+      ],
+      "findings": [
+        {
+          "idRisk": "ATH-V1-001 · High · 已确认",
+          "pathEvidence": "撤销/窃取 JWT → Broadcast/Agent/Crypto WS → decodeJWT/resource lookup，但不查 AuthSession.validate。",
+          "impact": "会话吊销不能保证立即终止长连接；query token 可能进入代理、历史或日志。",
+          "recommendation": "P0：权威 WS principal adapter + 60–120 秒 ticket + 周期复核 + revoke-close。"
+        },
+        {
+          "idRisk": "ATH-V1-002 · High · 已确认",
+          "pathEvidence": "开发 Collector /parse 接收 options.absolutePath；完整性校验在 development 跳过。",
+          "impact": "本机/开发环境中，调用者可请求解析 Collector OS 权限可读文件。",
+          "recommendation": "P0：删除公开字段；API 签发 opaque file handle；loopback bind 和开发签名。"
+        },
+        {
+          "idRisk": "ATH-V1-003 · High · 已确认",
+          "pathEvidence": "Collector 容器继承 .env，并读写挂载完整 server/storage。",
+          "impact": "解析器 RCE、依赖漏洞或恶意文档可扩大到应用数据与 Secret。",
+          "recommendation": "P0：独立身份与 env；最小挂载；默认无网络；一次性任务目录。"
+        },
+        {
+          "idRisk": "ATH-V1-004 · High · 已确认",
+          "pathEvidence": "rag-memory.store 直接写 workspace vector；search 以 Additional context 原样返回。",
+          "impact": "间接 Prompt Injection 可转为长期知识污染并影响后续 Agent 决策。",
+          "recommendation": "P0：memory candidate + provenance/taint + approval + recall-time untrusted wrapper。"
+        },
+        {
+          "idRisk": "ATH-V1-005 · Medium · 已确认",
+          "pathEvidence": "公共 /ready 返回 hostname/pid 关联 workerId、计数器、审计 chainId/head hash。",
+          "impact": "扩大侦察信息和内部运行拓扑暴露；高敏诊断不应匿名公开。",
+          "recommendation": "P0：/live 极简；/ready 仅状态；/internal/diagnostics 强认证。"
+        },
+        {
+          "idRisk": "ATH-V1-006 · Medium · 已确认",
+          "pathEvidence": "iOS P-256 私钥 rawRepresentation 写入 Keychain，而非 Secure Enclave 非导出密钥。",
+          "impact": "Keychain 提供良好静态保护，但未达到报告要求的硬件不可导出。",
+          "recommendation": "P1：Secure Enclave key agreement/signing，保留设备兼容降级策略。"
+        },
+        {
+          "idRisk": "ATH-V1-007 · Medium · 已确认",
+          "pathEvidence": "服务端凭据主路径仍使用 bcryptjs；报告目标为 Argon2id + HSM pepper。",
+          "impact": "不构成直接绕过，但抗离线破解与密钥分离未达到金融级目标。",
+          "recommendation": "P1：登录时渐迁 Argon2id；pepper 仅在 KMS/HSM 阶段启用。"
+        },
+        {
+          "idRisk": "ATH-V1-008 · Medium · 条件性",
+          "pathEvidence": "开发 security policy 为 requestSigningWarnOnly=true、deviceRequired=false、strictReady=false。",
+          "impact": "若错误带入生产会形成安全降级；当前只能证明开发态配置。",
+          "recommendation": "P0 发布门禁：production profile fail-closed，禁止 warn-only/开发 bypass。"
+        },
+        {
+          "idRisk": "ATH-V1-009 · Medium · 发布前",
+          "pathEvidence": "NATS adapter 支持 user/pass/token，但 connect 未配置 TLS/CA/client cert/nkey。",
+          "impact": "启用跨实例后，内部事件的服务身份和链路机密性不足。",
+          "recommendation": "P1：在 ATHENA_BROADCAST_TRANSPORT=nats 时强制 tls:// 与 ACL。"
+        },
+        {
+          "idRisk": "ATH-V1-010 · Medium · 成熟度",
+          "pathEvidence": "安全账本签名有效；immutable archive 默认 disabled，未见生产 SIEM/SOAR 证据。",
+          "impact": "本机证据链强，但独立留存、集中检测与响应闭环不足。",
+          "recommendation": "P1：WORM/object lock + SIEM + retry/alert + incident runbook。"
+        },
+        {
+          "idRisk": "ATH-V1-011 · Medium · 成熟度",
+          "pathEvidence": "DataAccessCenter 有 public/internal/user/sensitive/secret/ephemeral 分类，但非统一 S0–S4 策略。",
+          "impact": "分类尚未统一驱动 DLP、驻留、导出、保留和水印。",
+          "recommendation": "P1：建立可机读数据目录与 policy-as-code；逐域映射，不批量重写。"
+        },
+        {
+          "idRisk": "ATH-V1-012 · Medium · 成熟度",
+          "pathEvidence": "Key provider 当前 env-file/secret-file/environment；external KMS/Vault 标为 reserved。",
+          "impact": "密钥材料和应用工作负载仍在同一管理域，无法证明硬件根与职责分离。",
+          "recommendation": "P1/P2：先 Vault/KMS staging，再按客户需求升级 HSM/双人恢复。"
+        },
+        {
+          "idRisk": "ATH-V1-013 · Medium · 证据缺口",
+          "pathEvidence": "应用内 TLS/CORS/header 存在；WAF/CDN/DDoS/DNSSEC/源站 mTLS 不在仓库与本机范围。",
+          "impact": "不能对边缘抗压、Bot、源站隐藏做金融级声明。",
+          "recommendation": "P1：把 edge 配置、健康与演练证据纳入 release evidence bundle。"
+        },
+        {
+          "idRisk": "ATH-V1-014 · Medium · 证据缺口",
+          "pathEvidence": "有本地备份与修复脚本，但无跨账户/跨区域恢复演练证据。",
+          "impact": "勒索、区域故障、密钥损坏下的 RPO/RTO 不可证明。",
+          "recommendation": "P2：独立密钥域、不可变备份、季度 restore test。"
+        }
+      ],
+      "p0Plan": [
+        {
+          "workstream": "1. 长连接身份统一",
+          "change": "建立 authoritativeRealtimePrincipal(request)：Session V2、authUser、clientId、tokenVersion、设备状态统一校验；禁止新增 query JWT；引入一次性短期 WS ticket。",
+          "acceptance": "退出/封禁/设备吊销 ≤5 秒断开；旧客户端双读迁移；REST/WS principal 一致。",
+          "rollback": "短期保留 Bearer 双读开关；ticket 失败退回旧握手但仍执行 Session V2。"
+        },
+        {
+          "workstream": "2. Collector 文件句柄",
+          "change": "外部 DTO 只接受 uploadId/objectRef；absolutePath 仅内部不可序列化调用；每次 realpath 限制到 staging root。",
+          "acceptance": "任意绝对路径、symlink、目录穿越全部拒绝；合法上传兼容；无 Secret/路径出现在响应。",
+          "rollback": "旧字段仅允许 loopback + 内部签名 + 7 日 telemetry，随后移除。"
+        },
+        {
+          "workstream": "3. Collector 隔离",
+          "change": "拆分 Collector env；移除整库挂载；输入只读、输出只写；network none 默认；必要域名经 egress proxy。",
+          "acceptance": "恶意文档无法读取 Auth DB/.env/主库；容器 RCE 影响限制在一次性目录；功能格式回归通过。",
+          "rollback": "按格式 allowlist 回退到受限 legacy worker，不回退为全存储挂载。"
+        },
+        {
+          "workstream": "4. RAG/Memory 污染防护",
+          "change": "rag-memory.store 写 candidate；记录来源、actor、thread、hash、信任级别；审批后进入可检索索引；检索内容包装为 untrusted evidence。",
+          "acceptance": "间接指令不能直接写长期向量；用户可查看/拒绝/删除；召回不会覆盖 system/tool policy。",
+          "rollback": "候选功能关闭时禁用 store，只保留 search；不丢弃现有向量。"
+        },
+        {
+          "workstream": "5. 生产策略配置门禁",
+          "change": "生产启动校验 request signing/device required、strict readiness、CORS allowlist、HTTPS、dev bypass off；失败即 not-ready。",
+          "acceptance": "错误生产配置无法启动；开发体验不变；密钥内容与时间戳不修改。",
+          "rollback": "按单控制 feature flag 回滚，但保持显式告警与审计，不提供静默 global bypass。"
+        },
+        {
+          "workstream": "6. 健康与诊断分层",
+          "change": "`/live` 只返回存活；`/ready` 只返回 ready/reasonCode；计数、worker、链状态移到强认证 internal diagnostics。",
+          "acceptance": "匿名响应不包含 pid/hostname/hash/内部计数；监控探针继续 200/503；运维诊断信息不丢失。",
+          "rollback": "保留内部 legacy payload 端点，不恢复公共详细响应。"
+        }
+      ],
+      "roadmap": [
+        {
+          "phase": "P0 · 0–14 天",
+          "focus": "WS Session、Collector 句柄/隔离、RAG taint、生产门禁、健康端点",
+          "value": "关闭 4 个已确认 High 与 1 个信息泄露面；不改业务数据模型。",
+          "costRisk": "中等；主要风险是旧客户端握手和文档导入兼容。"
+        },
+        {
+          "phase": "P1 · 15–45 天",
+          "focus": "统一 policy adapter、Secure Enclave、Argon2id 渐迁、NATS TLS、数据目录",
+          "value": "让身份、设备、关系、风险、数据等级进入统一决策；为多实例上线建立安全前提。",
+          "costRisk": "中高；必须按 adapter 渐迁，禁止一次性替换领域授权。"
+        },
+        {
+          "phase": "P1 · 30–60 天",
+          "focus": "KMS/Vault staging、WORM audit、SIEM/OTel、SBOM 签名与 admission",
+          "value": "从本地可验证升级为跨系统可证明，建立检测与供应链证据链。",
+          "costRisk": "中高；依赖外部基础设施与轮换/故障演练。"
+        },
+        {
+          "phase": "P2 · 60–120 天",
+          "focus": "Service identity/mTLS、egress+DLP、JIT/PAM、统一 incident console",
+          "value": "缩小横向移动和数据外泄半径，支撑企业管理员与高权限 Agent。",
+          "costRisk": "高；需要平台工程和安全运营共同所有。"
+        },
+        {
+          "phase": "P2 · 90–180 天",
+          "focus": "跨账户/跨区域 immutable backup、RPO/RTO、完整恢复演练",
+          "value": "把‘有备份’提升为‘可恢复’，覆盖勒索、区域故障与密钥事故。",
+          "costRisk": "高；需要真实云资源与演练窗口。"
+        },
+        {
+          "phase": "P3 · 6–18 月",
+          "focus": "HSM root、客户管理密钥、机密空间、阈值/分片恢复、PQ agility",
+          "value": "服务高价值企业和监管场景；按需求启用，不强行覆盖搜索/AI 主链。",
+          "costRisk": "很高；只有明确合规和客户收益时引入。"
+        }
+      ],
+      "validations": [
+        {
+          "domain": "Identity/WS",
+          "test": "创建 session → WS 连接 → revoke/device revoke/ban/logout → 观察断连与后续握手。",
+          "gate": "全部路径 ≤5 秒生效；不得仅等 JWT 过期。",
+          "evidence": "自动化 E2E + audit event + socket close code。"
+        },
+        {
+          "domain": "Collector path",
+          "test": "absolute path、symlink、hardlink、目录穿越、文件替换竞态、超大文件。",
+          "gate": "仅 opaque staging handle 可成功；路径不出现在日志/响应。",
+          "evidence": "fault injection + container mount inventory。"
+        },
+        {
+          "domain": "Collector sandbox",
+          "test": "恶意解析器尝试读取 /app/server/.env、Auth DB、网络元数据与任意域名。",
+          "gate": "全部 fail-closed；合法格式回归不超过既有 p95 10%。",
+          "evidence": "container integration + egress log。"
+        },
+        {
+          "domain": "RAG memory",
+          "test": "网页/PDF 中嵌入保存指令、越权工具指令、伪造系统提示。",
+          "gate": "只生成候选或拒绝；未经用户确认不进入长期索引。",
+          "evidence": "OWASP AISVS L2 adversarial suite。"
+        },
+        {
+          "domain": "Sync",
+          "test": "重复/乱序/丢失 WS/SSE/Push、缓存写失败、Hash 不同、权限撤销。",
+          "gate": "cursor/ACK 不提前；Hash mismatch <0.01%；full reconcile <1%。",
+          "evidence": "Web+iOS 授权多设备 E2E。"
+        },
+        {
+          "domain": "Crypto",
+          "test": "key provider 断连、旧 key 解密、轮换中断、对象写成功 DB 失败。",
+          "gate": "不产生孤儿引用或不可恢复密文；不输出 key material。",
+          "evidence": "staging KMS/Vault rotation drill。"
+        },
+        {
+          "domain": "NATS/mTLS",
+          "test": "无证书、错误 subject、证书轮换、网络分区、consumer redelivery。",
+          "gate": "未授权连接拒绝；Outbox 可补拉；Gateway not-ready。",
+          "evidence": "distributed staging fault matrix。"
+        },
+        {
+          "domain": "Audit/SIEM",
+          "test": "篡改 ledger、删除 archive、archive provider 故障、告警链路中断。",
+          "gate": "验证失败可见；导出重试；WORM 对象不可覆盖；SOC 收到告警。",
+          "evidence": "signed checkpoint + object lock + alert receipt。"
+        },
+        {
+          "domain": "Supply chain",
+          "test": "依赖 Critical、未固定 Action、无 provenance、未签名镜像、过期 High waiver。",
+          "gate": "发布全部阻断；reachable Critical=0；High 有 owner/expiry。",
+          "evidence": "CI policy report + signature verification。"
+        },
+        {
+          "domain": "DR",
+          "test": "在隔离账户从数据库、对象、向量、Auth、密钥与 Outbox 恢复。",
+          "gate": "满足正式 RPO/RTO；权限/Session/Hash Chain/Sync 全部复核。",
+          "evidence": "季度 restore report 与 CTO/Security sign-off。"
+        }
+      ],
+      "standards": [
+        {
+          "standard": "NIST SP 800-207 / 207A",
+          "use": "Zero Trust：不因网络位置授信；用户、设备与工作负载身份都需要策略决策与执行。",
+          "athenaMapping": "资源级 AuthZ、Session/设备签名已有；统一 PE/PA/PEP、service identity/mTLS 待补。"
+        },
+        {
+          "standard": "OWASP ASVS 5.0",
+          "use": "应用安全可验证需求基线，用于身份、会话、输入、文件、API、日志与配置门禁。",
+          "athenaMapping": "现有 route/security audit 可转为 ASVS requirement ID 的机器可读 control ledger。"
+        },
+        {
+          "standard": "OWASP AISVS 1.0",
+          "use": "AI 系统 L1–L3 验证，覆盖 memory/vector、Agent action、MCP、监控与对抗鲁棒性。",
+          "athenaMapping": "建议生产面向敏感数据达到 L2；Memory/Agent/Connector 是首个缺口域。"
+        },
+        {
+          "standard": "NIST CSF 2.0",
+          "use": "Govern、Identify、Protect、Detect、Respond、Recover 的运营闭环。",
+          "athenaMapping": "Protect 较强；Govern/Detect/Respond/Recover 需要 SIEM、incident console 与 DR 演练。"
+        },
+        {
+          "standard": "SLSA 1.2",
+          "use": "Source/Build provenance、逐级保证、artifact verification。",
+          "athenaMapping": "SBOM/provenance 与 pinned Actions 已有；镜像签名、admission、source control policy 需闭环。"
+        }
+      ],
+      "controlsPrint": [
+        {
+          "control": "Passkey / OPAQUE / Session V2",
+          "assessment": "CURRENT — Passkey 与 OPAQUE 路径、Auth DB session、吊销与 tokenVersion 已实现；REST middleware 权威校验。\nGAP — Broadcast、Agent、Crypto WebSocket 未复用同一权威校验；query token 增加泄露面。\nACTION — P0：统一 WS auth adapter，短期 ticket，撤销后主动 close。"
+        },
+        {
+          "control": "RBAC + 资源级关系授权",
+          "assessment": "CURRENT — Workspace、Thread、Chat、文件、Agent invocation 均有 owner/resource 约束；338 路由审计 0 finding。\nGAP — 尚无统一 PE/PA/PEP 与设备/风险/数据等级上下文。\nACTION — P1：保留领域查询，抽出统一决策接口与 reason code。"
+        },
+        {
+          "control": "设备签名与反重放",
+          "assessment": "CURRENT — P-256、nonce、timestamp、body hash、高风险请求验证与设备撤销能力存在。\nGAP — 开发环境仍为 warn-only；WebSocket 低风险控制消息可降级；iOS 私钥可导出后写 Keychain。\nACTION — P0/P1：生产强制；iOS 迁移 Secure Enclave 非导出密钥。"
+        },
+        {
+          "control": "传输安全",
+          "assessment": "CURRENT — TLS/HSTS、生产 HTTPS fail-closed、CORS allowlist、SSE 安全头、TLS 1.2+ 测试。\nGAP — TLS 1.3 非强制；外部 WAF/CDN/DDoS/DNSSEC 与源站 mTLS 不在仓库证据内。\nACTION — P1：部署基线与证据采集；兼容期优先 TLS 1.3。"
+        },
+        {
+          "control": "请求入口与滥用防护",
+          "assessment": "CURRENT — 按路由 body limits、登录持久限流、Passkey 限流、Collector 资源上限。\nGAP — 没有统一 API Gateway schema/risk quota；/ready 暴露内部 worker 与审计细节。\nACTION — P0：拆分 public liveness 与 authenticated diagnostics。"
+        },
+        {
+          "control": "静态数据加密",
+          "assessment": "CURRENT — AES-256-GCM/HKDF、DEK 信封、Chat 1,038/1,038、文档/向量/缓存全覆盖，链断裂 0。\nGAP — system_settings 依赖字段判定；缺统一 S0–S4 数据目录与保留/驻留策略。\nACTION — P1：分类 registry 驱动加密、日志、导出与保留。"
+        },
+        {
+          "control": "密钥托管与轮换",
+          "assessment": "CURRENT — Key Custody provider、keyId/keyring、pending/activate/retire、secret-file、冲突 fail-closed。\nGAP — 当前根密钥仍是 env/file；KMS/Vault/HSM、双人审批与硬件根未落地。\nACTION — P1/P2：staging 接 KMS/Vault；高价值租户再评估 HSM。"
+        },
+        {
+          "control": "iOS 设备密钥",
+          "assessment": "CURRENT — Keychain ThisDeviceOnly 与 userPresence 已使用。\nGAP — RequestSigningCenter 生成 CryptoKit 私钥后持久化 rawRepresentation，未使用 Secure Enclave。\nACTION — P1：版本化注册新公钥，双钥迁移，旧钥定期退役。"
+        },
+        {
+          "control": "Sync V2 一致性与完整性",
+          "assessment": "CURRENT — 263 节点、186 投影；version/hash/outbox/cursor/receipt/reconcile；0 hash/权限/正文冲突。\nGAP — 当前环境 enabled=false；最大 cursor lag 696；需要授权多设备 E2E 与灰度证明。\nACTION — P1：deterministic cohort 与 SLO 门禁，不扩大状态树边界。"
+        },
+        {
+          "control": "Chat 与审计完整性",
+          "assessment": "CURRENT — Chat Hash Chain；安全账本 Hash Chain + Ed25519 checkpoint，13 entries/4 checkpoints 均有效。\nGAP — 外部不可变归档默认关闭；未接 SIEM/WORM，ready 暴露 head hash。\nACTION — P1：对象锁/WORM、导出重试、仅内部诊断展示链状态。"
+        },
+        {
+          "control": "Collector SSRF 与解析隔离",
+          "assessment": "CURRENT — 私网/元数据阻断、重定向重校验、压缩包/大小/超时/并发保护、非 root/read-only。\nGAP — 开发态跳过 integrity；absolutePath 公开 DTO；可读取进程可见任意文件。\nACTION — P0：opaque staging handle；absolutePath 仅进程内私有调用。"
+        },
+        {
+          "control": "Collector 爆炸半径",
+          "assessment": "CURRENT — cap_drop ALL、no-new-privileges、tmpfs、任务并发限制。\nGAP — 容器挂载完整 server/storage 且继承 .env；缺出站网络默认拒绝与独立服务身份。\nACTION — P0：最小目录、独立 env、network policy、只读输入/只写输出。"
+        },
+        {
+          "control": "Agent 与插件能力",
+          "assessment": "CURRENT — capability manifest/broker、短期签名凭据、工具审批、超时、路径与网络约束、容器策略。\nGAP — 控制主要覆盖 scheduled/MCP；内建工具未全部进入统一 broker；高风险 worker 未生产隔离证明。\nACTION — P1：统一 tool execution context 与 capability enforcement。"
+        },
+        {
+          "control": "RAG / Memory 安全",
+          "assessment": "CURRENT — save_memory 需要显式意图与用户审批；账户记忆有独立模型。\nGAP — rag-memory.store 可直接写 workspace vector；检索结果未标记 untrusted/provenance，存在持久化污染。\nACTION — P0：候选态、来源签名、taint envelope、敏感/指令过滤。"
+        },
+        {
+          "control": "NATS / 内部服务通信",
+          "assessment": "CURRENT — JetStream adapter、durable consumer、eventId 去重、subject scope HMAC、lag/health/drain。\nGAP — 客户端未配置 TLS/mTLS/nkey；当前仅 adapter/fault-test，未多实例实网。\nACTION — P1：生产 profile 强制 tls://、证书轮换、subject ACL、workload identity。"
+        },
+        {
+          "control": "数据库与对象存储",
+          "assessment": "CURRENT — SQLite 当前权威；PostgreSQL schema/CDC/cutover 与 S3/MinIO provider 已准备。\nGAP — 没有外部多节点、池耗尽、网络分区和反向影子七日证明。\nACTION — P1：隔离 staging 执行故障矩阵后再切权威。"
+        },
+        {
+          "control": "供应链",
+          "assessment": "CURRENT — Actions 固定 SHA、远程脚本校验、SBOM/provenance/VEX、reachable Critical=0 门禁。\nGAP — raw High：server 114、collector 40、frontend 11；未见统一镜像签名/admission policy。\nACTION — P1：Reachability owner/expiry；Cosign + deploy admission。"
+        },
+        {
+          "control": "可观测与自愈",
+          "assessment": "CURRENT — Runtime Coordinator、outbox DLQ/lease、receipt sweeper、reconcile、OTel/Prometheus adapters。\nGAP — 开发进程内指标不能证明长期 p95/错误预算；外部 telemetry/SIEM 未部署。\nACTION — P1：staging collector + trace correlation + SLO burn alerts。"
+        },
+        {
+          "control": "备份与灾备",
+          "assessment": "CURRENT — 迁移/修复前本地备份、校验、可恢复脚本、内容对象不可变键。\nGAP — 无独立账户/跨区域 immutable backup、RPO/RTO 证据、完整恢复演练。\nACTION — P2：3-2-1、隔离密钥、季度 restore drill、审计证据。"
+        },
+        {
+          "control": "高权限运维",
+          "assessment": "CURRENT — 角色层级、会话吊销、账户删除工作流、dry-run/--execute 安全语义。\nGAP — 无 JIT/PAM、break-glass 审批、双人控制和统一 incident console。\nACTION — P2：短期管理员授权、双人审批、统一 kill switches。"
+        }
+      ],
+      "findingsPrint": [
+        {
+          "idRisk": "ATH-V1-001 · High · 已确认",
+          "assessment": "PATH — 撤销/窃取 JWT → Broadcast/Agent/Crypto WS → decodeJWT/resource lookup，但不查 AuthSession.validate。\nIMPACT — 会话吊销不能保证立即终止长连接；query token 可能进入代理、历史或日志。\nACTION — P0：权威 WS principal adapter + 60–120 秒 ticket + 周期复核 + revoke-close。"
+        },
+        {
+          "idRisk": "ATH-V1-002 · High · 已确认",
+          "assessment": "PATH — 开发 Collector /parse 接收 options.absolutePath；完整性校验在 development 跳过。\nIMPACT — 本机/开发环境中，调用者可请求解析 Collector OS 权限可读文件。\nACTION — P0：删除公开字段；API 签发 opaque file handle；loopback bind 和开发签名。"
+        },
+        {
+          "idRisk": "ATH-V1-003 · High · 已确认",
+          "assessment": "PATH — Collector 容器继承 .env，并读写挂载完整 server/storage。\nIMPACT — 解析器 RCE、依赖漏洞或恶意文档可扩大到应用数据与 Secret。\nACTION — P0：独立身份与 env；最小挂载；默认无网络；一次性任务目录。"
+        },
+        {
+          "idRisk": "ATH-V1-004 · High · 已确认",
+          "assessment": "PATH — rag-memory.store 直接写 workspace vector；search 以 Additional context 原样返回。\nIMPACT — 间接 Prompt Injection 可转为长期知识污染并影响后续 Agent 决策。\nACTION — P0：memory candidate + provenance/taint + approval + recall-time untrusted wrapper。"
+        },
+        {
+          "idRisk": "ATH-V1-005 · Medium · 已确认",
+          "assessment": "PATH — 公共 /ready 返回 hostname/pid 关联 workerId、计数器、审计 chainId/head hash。\nIMPACT — 扩大侦察信息和内部运行拓扑暴露；高敏诊断不应匿名公开。\nACTION — P0：/live 极简；/ready 仅状态；/internal/diagnostics 强认证。"
+        },
+        {
+          "idRisk": "ATH-V1-006 · Medium · 已确认",
+          "assessment": "PATH — iOS P-256 私钥 rawRepresentation 写入 Keychain，而非 Secure Enclave 非导出密钥。\nIMPACT — Keychain 提供良好静态保护，但未达到报告要求的硬件不可导出。\nACTION — P1：Secure Enclave key agreement/signing，保留设备兼容降级策略。"
+        },
+        {
+          "idRisk": "ATH-V1-007 · Medium · 已确认",
+          "assessment": "PATH — 服务端凭据主路径仍使用 bcryptjs；报告目标为 Argon2id + HSM pepper。\nIMPACT — 不构成直接绕过，但抗离线破解与密钥分离未达到金融级目标。\nACTION — P1：登录时渐迁 Argon2id；pepper 仅在 KMS/HSM 阶段启用。"
+        },
+        {
+          "idRisk": "ATH-V1-008 · Medium · 条件性",
+          "assessment": "PATH — 开发 security policy 为 requestSigningWarnOnly=true、deviceRequired=false、strictReady=false。\nIMPACT — 若错误带入生产会形成安全降级；当前只能证明开发态配置。\nACTION — P0 发布门禁：production profile fail-closed，禁止 warn-only/开发 bypass。"
+        },
+        {
+          "idRisk": "ATH-V1-009 · Medium · 发布前",
+          "assessment": "PATH — NATS adapter 支持 user/pass/token，但 connect 未配置 TLS/CA/client cert/nkey。\nIMPACT — 启用跨实例后，内部事件的服务身份和链路机密性不足。\nACTION — P1：在 ATHENA_BROADCAST_TRANSPORT=nats 时强制 tls:// 与 ACL。"
+        },
+        {
+          "idRisk": "ATH-V1-010 · Medium · 成熟度",
+          "assessment": "PATH — 安全账本签名有效；immutable archive 默认 disabled，未见生产 SIEM/SOAR 证据。\nIMPACT — 本机证据链强，但独立留存、集中检测与响应闭环不足。\nACTION — P1：WORM/object lock + SIEM + retry/alert + incident runbook。"
+        },
+        {
+          "idRisk": "ATH-V1-011 · Medium · 成熟度",
+          "assessment": "PATH — DataAccessCenter 有 public/internal/user/sensitive/secret/ephemeral 分类，但非统一 S0–S4 策略。\nIMPACT — 分类尚未统一驱动 DLP、驻留、导出、保留和水印。\nACTION — P1：建立可机读数据目录与 policy-as-code；逐域映射，不批量重写。"
+        },
+        {
+          "idRisk": "ATH-V1-012 · Medium · 成熟度",
+          "assessment": "PATH — Key provider 当前 env-file/secret-file/environment；external KMS/Vault 标为 reserved。\nIMPACT — 密钥材料和应用工作负载仍在同一管理域，无法证明硬件根与职责分离。\nACTION — P1/P2：先 Vault/KMS staging，再按客户需求升级 HSM/双人恢复。"
+        },
+        {
+          "idRisk": "ATH-V1-013 · Medium · 证据缺口",
+          "assessment": "PATH — 应用内 TLS/CORS/header 存在；WAF/CDN/DDoS/DNSSEC/源站 mTLS 不在仓库与本机范围。\nIMPACT — 不能对边缘抗压、Bot、源站隐藏做金融级声明。\nACTION — P1：把 edge 配置、健康与演练证据纳入 release evidence bundle。"
+        },
+        {
+          "idRisk": "ATH-V1-014 · Medium · 证据缺口",
+          "assessment": "PATH — 有本地备份与修复脚本，但无跨账户/跨区域恢复演练证据。\nIMPACT — 勒索、区域故障、密钥损坏下的 RPO/RTO 不可证明。\nACTION — P2：独立密钥域、不可变备份、季度 restore test。"
+        }
+      ],
+      "p0PlanPrint": [
+        {
+          "workstream": "1. 长连接身份统一",
+          "details": "IMPLEMENT — 建立 authoritativeRealtimePrincipal(request)：Session V2、authUser、clientId、tokenVersion、设备状态统一校验；禁止新增 query JWT；引入一次性短期 WS ticket。\nGATE — 退出/封禁/设备吊销 ≤5 秒断开；旧客户端双读迁移；REST/WS principal 一致。\nROLLBACK — 短期保留 Bearer 双读开关；ticket 失败退回旧握手但仍执行 Session V2。"
+        },
+        {
+          "workstream": "2. Collector 文件句柄",
+          "details": "IMPLEMENT — 外部 DTO 只接受 uploadId/objectRef；absolutePath 仅内部不可序列化调用；每次 realpath 限制到 staging root。\nGATE — 任意绝对路径、symlink、目录穿越全部拒绝；合法上传兼容；无 Secret/路径出现在响应。\nROLLBACK — 旧字段仅允许 loopback + 内部签名 + 7 日 telemetry，随后移除。"
+        },
+        {
+          "workstream": "3. Collector 隔离",
+          "details": "IMPLEMENT — 拆分 Collector env；移除整库挂载；输入只读、输出只写；network none 默认；必要域名经 egress proxy。\nGATE — 恶意文档无法读取 Auth DB/.env/主库；容器 RCE 影响限制在一次性目录；功能格式回归通过。\nROLLBACK — 按格式 allowlist 回退到受限 legacy worker，不回退为全存储挂载。"
+        },
+        {
+          "workstream": "4. RAG/Memory 污染防护",
+          "details": "IMPLEMENT — rag-memory.store 写 candidate；记录来源、actor、thread、hash、信任级别；审批后进入可检索索引；检索内容包装为 untrusted evidence。\nGATE — 间接指令不能直接写长期向量；用户可查看/拒绝/删除；召回不会覆盖 system/tool policy。\nROLLBACK — 候选功能关闭时禁用 store，只保留 search；不丢弃现有向量。"
+        },
+        {
+          "workstream": "5. 生产策略配置门禁",
+          "details": "IMPLEMENT — 生产启动校验 request signing/device required、strict readiness、CORS allowlist、HTTPS、dev bypass off；失败即 not-ready。\nGATE — 错误生产配置无法启动；开发体验不变；密钥内容与时间戳不修改。\nROLLBACK — 按单控制 feature flag 回滚，但保持显式告警与审计，不提供静默 global bypass。"
+        },
+        {
+          "workstream": "6. 健康与诊断分层",
+          "details": "IMPLEMENT — `/live` 只返回存活；`/ready` 只返回 ready/reasonCode；计数、worker、链状态移到强认证 internal diagnostics。\nGATE — 匿名响应不包含 pid/hostname/hash/内部计数；监控探针继续 200/503；运维诊断信息不丢失。\nROLLBACK — 保留内部 legacy payload 端点，不恢复公共详细响应。"
+        }
+      ],
+      "roadmapPrint": [
+        {
+          "phase": "P0 · 0–14 天",
+          "details": "SCOPE — WS Session、Collector 句柄/隔离、RAG taint、生产门禁、健康端点\nVALUE — 关闭 4 个已确认 High 与 1 个信息泄露面；不改业务数据模型。\nCOST/RISK — 中等；主要风险是旧客户端握手和文档导入兼容。"
+        },
+        {
+          "phase": "P1 · 15–45 天",
+          "details": "SCOPE — 统一 policy adapter、Secure Enclave、Argon2id 渐迁、NATS TLS、数据目录\nVALUE — 让身份、设备、关系、风险、数据等级进入统一决策；为多实例上线建立安全前提。\nCOST/RISK — 中高；必须按 adapter 渐迁，禁止一次性替换领域授权。"
+        },
+        {
+          "phase": "P1 · 30–60 天",
+          "details": "SCOPE — KMS/Vault staging、WORM audit、SIEM/OTel、SBOM 签名与 admission\nVALUE — 从本地可验证升级为跨系统可证明，建立检测与供应链证据链。\nCOST/RISK — 中高；依赖外部基础设施与轮换/故障演练。"
+        },
+        {
+          "phase": "P2 · 60–120 天",
+          "details": "SCOPE — Service identity/mTLS、egress+DLP、JIT/PAM、统一 incident console\nVALUE — 缩小横向移动和数据外泄半径，支撑企业管理员与高权限 Agent。\nCOST/RISK — 高；需要平台工程和安全运营共同所有。"
+        },
+        {
+          "phase": "P2 · 90–180 天",
+          "details": "SCOPE — 跨账户/跨区域 immutable backup、RPO/RTO、完整恢复演练\nVALUE — 把‘有备份’提升为‘可恢复’，覆盖勒索、区域故障与密钥事故。\nCOST/RISK — 高；需要真实云资源与演练窗口。"
+        },
+        {
+          "phase": "P3 · 6–18 月",
+          "details": "SCOPE — HSM root、客户管理密钥、机密空间、阈值/分片恢复、PQ agility\nVALUE — 服务高价值企业和监管场景；按需求启用，不强行覆盖搜索/AI 主链。\nCOST/RISK — 很高；只有明确合规和客户收益时引入。"
+        }
+      ],
+      "validationsPrint": [
+        {
+          "domain": "Identity/WS",
+          "details": "TEST — 创建 session → WS 连接 → revoke/device revoke/ban/logout → 观察断连与后续握手。\nGATE — 全部路径 ≤5 秒生效；不得仅等 JWT 过期。\nEVIDENCE — 自动化 E2E + audit event + socket close code。"
+        },
+        {
+          "domain": "Collector path",
+          "details": "TEST — absolute path、symlink、hardlink、目录穿越、文件替换竞态、超大文件。\nGATE — 仅 opaque staging handle 可成功；路径不出现在日志/响应。\nEVIDENCE — fault injection + container mount inventory。"
+        },
+        {
+          "domain": "Collector sandbox",
+          "details": "TEST — 恶意解析器尝试读取 /app/server/.env、Auth DB、网络元数据与任意域名。\nGATE — 全部 fail-closed；合法格式回归不超过既有 p95 10%。\nEVIDENCE — container integration + egress log。"
+        },
+        {
+          "domain": "RAG memory",
+          "details": "TEST — 网页/PDF 中嵌入保存指令、越权工具指令、伪造系统提示。\nGATE — 只生成候选或拒绝；未经用户确认不进入长期索引。\nEVIDENCE — OWASP AISVS L2 adversarial suite。"
+        },
+        {
+          "domain": "Sync",
+          "details": "TEST — 重复/乱序/丢失 WS/SSE/Push、缓存写失败、Hash 不同、权限撤销。\nGATE — cursor/ACK 不提前；Hash mismatch <0.01%；full reconcile <1%。\nEVIDENCE — Web+iOS 授权多设备 E2E。"
+        },
+        {
+          "domain": "Crypto",
+          "details": "TEST — key provider 断连、旧 key 解密、轮换中断、对象写成功 DB 失败。\nGATE — 不产生孤儿引用或不可恢复密文；不输出 key material。\nEVIDENCE — staging KMS/Vault rotation drill。"
+        },
+        {
+          "domain": "NATS/mTLS",
+          "details": "TEST — 无证书、错误 subject、证书轮换、网络分区、consumer redelivery。\nGATE — 未授权连接拒绝；Outbox 可补拉；Gateway not-ready。\nEVIDENCE — distributed staging fault matrix。"
+        },
+        {
+          "domain": "Audit/SIEM",
+          "details": "TEST — 篡改 ledger、删除 archive、archive provider 故障、告警链路中断。\nGATE — 验证失败可见；导出重试；WORM 对象不可覆盖；SOC 收到告警。\nEVIDENCE — signed checkpoint + object lock + alert receipt。"
+        },
+        {
+          "domain": "Supply chain",
+          "details": "TEST — 依赖 Critical、未固定 Action、无 provenance、未签名镜像、过期 High waiver。\nGATE — 发布全部阻断；reachable Critical=0；High 有 owner/expiry。\nEVIDENCE — CI policy report + signature verification。"
+        },
+        {
+          "domain": "DR",
+          "details": "TEST — 在隔离账户从数据库、对象、向量、Auth、密钥与 Outbox 恢复。\nGATE — 满足正式 RPO/RTO；权限/Session/Hash Chain/Sync 全部复核。\nEVIDENCE — 季度 restore report 与 CTO/Security sign-off。"
+        }
+      ],
+      "standardsPrint": [
+        {
+          "standard": "NIST SP 800-207 / 207A",
+          "details": "PURPOSE — Zero Trust：不因网络位置授信；用户、设备与工作负载身份都需要策略决策与执行。\nATHENA — 资源级 AuthZ、Session/设备签名已有；统一 PE/PA/PEP、service identity/mTLS 待补。"
+        },
+        {
+          "standard": "OWASP ASVS 5.0",
+          "details": "PURPOSE — 应用安全可验证需求基线，用于身份、会话、输入、文件、API、日志与配置门禁。\nATHENA — 现有 route/security audit 可转为 ASVS requirement ID 的机器可读 control ledger。"
+        },
+        {
+          "standard": "OWASP AISVS 1.0",
+          "details": "PURPOSE — AI 系统 L1–L3 验证，覆盖 memory/vector、Agent action、MCP、监控与对抗鲁棒性。\nATHENA — 建议生产面向敏感数据达到 L2；Memory/Agent/Connector 是首个缺口域。"
+        },
+        {
+          "standard": "NIST CSF 2.0",
+          "details": "PURPOSE — Govern、Identify、Protect、Detect、Respond、Recover 的运营闭环。\nATHENA — Protect 较强；Govern/Detect/Respond/Recover 需要 SIEM、incident console 与 DR 演练。"
+        },
+        {
+          "standard": "SLSA 1.2",
+          "details": "PURPOSE — Source/Build provenance、逐级保证、artifact verification。\nATHENA — SBOM/provenance 与 pinned Actions 已有；镜像签名、admission、source control policy 需闭环。"
+        }
+      ],
+      "priorityCounts": [
+        {
+          "priority": "P0",
+          "items": 6
+        },
+        {
+          "priority": "P1",
+          "items": 8
+        },
+        {
+          "priority": "P2",
+          "items": 6
+        },
+        {
+          "priority": "P3",
+          "items": 4
+        }
+      ],
+      "verificationSummary": [
+        {
+          "check": "Main DB",
+          "result": "quick_check=ok; foreign_key=0"
+        },
+        {
+          "check": "Auth DB",
+          "result": "quick_check=ok; foreign_key=0"
+        },
+        {
+          "check": "Chat crypto",
+          "result": "1,038/1,038 encrypted; invalid chain=0"
+        },
+        {
+          "check": "Sync V2",
+          "result": "263 nodes; 186 projections; conflicts=0"
+        },
+        {
+          "check": "Route audit",
+          "result": "338 routes; findings=0"
+        },
+        {
+          "check": "Supply chain",
+          "result": "reachable Critical=0"
+        }
+      ]
+    },
+    "accessIssues": []
+  },
+  "sources": [
+    {
+      "id": "live_evidence",
+      "label": "Athena V1.0 security gap evidence snapshot",
+      "path": "output/security/athena-v1-security-architecture-gap-evidence-v2.3.json",
+      "query": {
+        "engine": "repository-runtime-review",
+        "language": "json",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "filters": [
+          "Authorized local development environment only",
+          "Read-only evidence collection",
+          "Secrets, tokens, raw hashes and personal content excluded"
+        ],
+        "sql": "SELECT 7.4 AS productScore, 61.1 AS blueprintCompletion, 4 AS confirmedHigh, 0 AS routeFindings, 0 AS syncConflicts, 0 AS invalidChatChain, (SELECT COUNT(*) FROM workspace_chats) AS auditedChats, (SELECT COUNT(*) FROM sync_nodes) AS syncNodes;",
+        "tables_used": [
+          "workspace_chats",
+          "sync_nodes"
+        ],
+        "metric_definitions": {
+          "productScore": "Architecture committee judgment on a 0-10 current product-security scale; not certification.",
+          "blueprintCompletion": "Weighted average of 12 target domains on a 0-5 maturity scale, multiplied by 20.",
+          "confirmedHigh": "Deduplicated confirmed High code-path findings in this authorized read-only review."
+        },
+        "description": "Database, encryption, Sync V2, route, runtime, ledger, supply-chain and code-path evidence used by this report."
+      }
+    },
+    {
+      "id": "target_blueprint",
+      "label": "User-provided Athena enterprise network security and confidentiality architecture V1.0",
+      "query": {
+        "engine": "document-review",
+        "language": "text",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Target-state control catalogue covering edge, zero trust, workload, data/crypto, SecOps, supply chain, organization and incident recovery."
+      }
+    },
+    {
+      "id": "nist_zta",
+      "label": "NIST SP 800-207 Zero Trust Architecture",
+      "query": {
+        "engine": "web-document",
+        "language": "text",
+        "url": "https://csrc.nist.gov/pubs/sp/800/207/final",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Official NIST Zero Trust Architecture publication."
+      }
+    },
+    {
+      "id": "owasp_asvs",
+      "label": "OWASP ASVS 5.0",
+      "query": {
+        "engine": "web-document",
+        "language": "text",
+        "url": "https://owasp.org/www-project-application-security-verification-standard/",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Official OWASP Application Security Verification Standard project page."
+      }
+    },
+    {
+      "id": "owasp_aisvs",
+      "label": "OWASP AISVS 1.0",
+      "query": {
+        "engine": "web-document",
+        "language": "text",
+        "url": "https://owasp.org/www-project-artificial-intelligence-security-verification-standard-aisvs-docs/",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Official OWASP Artificial Intelligence Security Verification Standard documentation."
+      }
+    },
+    {
+      "id": "nist_csf",
+      "label": "NIST Cybersecurity Framework 2.0",
+      "query": {
+        "engine": "web-document",
+        "language": "text",
+        "url": "https://www.nist.gov/news-events/news/2024/02/nist-releases-version-20-landmark-cybersecurity-framework",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Official NIST CSF 2.0 overview and six-function model."
+      }
+    },
+    {
+      "id": "slsa",
+      "label": "SLSA specification 1.2",
+      "query": {
+        "engine": "web-document",
+        "language": "text",
+        "url": "https://slsa.dev/spec/v1.2/",
+        "executed_at": "2026-07-20T12:45:48.647Z",
+        "description": "Official SLSA source/build provenance and artifact assurance specification."
+      }
+    }
+  ],
+  "package_info": {
+    "format": "athena-portable-security-report-v1",
+    "classification": "internal",
+    "assessmentMode": "read-only"
+  }
+}

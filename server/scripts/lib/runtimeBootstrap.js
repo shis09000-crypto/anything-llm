@@ -11,6 +11,7 @@ const {
 const VALID_ENVIRONMENTS = new Set(["development", "production"]);
 const STORAGE_APPLIED_ENV = "ANYTHINGLLM_ENV_STORAGE_APPLIED";
 const STORAGE_BASE_ENV = "ANYTHINGLLM_STORAGE_BASE_DIR";
+const CLI_DATABASE_ACCESS_ENV = "ATHENA_CLI_DATABASE_ACCESS";
 
 class ScriptRuntimeError extends Error {
   constructor(code, message, details = null) {
@@ -321,6 +322,7 @@ async function assertDatabaseSchema({
   const url = new URL(`file:${databasePath}`);
   url.searchParams.set("connection_limit", "1");
   url.searchParams.set("pool_timeout", "5");
+  url.searchParams.set("mode", "ro");
   const inspector = new PrismaClient({
     log: [],
     datasources: { db: { url: url.toString() } },
@@ -355,6 +357,7 @@ async function bootstrapCliRuntime({
   announce = true,
 } = {}) {
   const runtime = resolveRuntimeConfiguration({ env, argv, serverRoot });
+  env[CLI_DATABASE_ACCESS_ENV] = access;
   if (access === "write") {
     if (!execute) {
       throw new ScriptRuntimeError(
@@ -402,6 +405,7 @@ async function bootstrapCliRuntime({
 }
 
 module.exports = {
+  CLI_DATABASE_ACCESS_ENV,
   ScriptRuntimeError,
   assertDatabaseFile,
   assertDatabaseSchema,

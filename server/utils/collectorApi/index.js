@@ -1,6 +1,10 @@
 const { EncryptionManager } = require("../EncryptionManager");
 const { Agent } = require("undici");
 const { redactLogObject, redactLogText } = require("../security/redaction");
+const crypto = require("crypto");
+const fs = require("fs");
+const path = require("path");
+const { hotdirPath, isWithin, normalizePath } = require("../files");
 
 /**
  * @typedef {Object} CollectorOptions
@@ -65,6 +69,51 @@ class CollectorApi {
     );
   }
 
+  #safeHotdirInput(filename) {
+    const uploadId = String(filename || "").trim();
+    if (!uploadId || path.basename(uploadId) !== uploadId) {
+      throw new Error("collector_invalid_upload_handle");
+    }
+    const candidate = normalizePath(path.resolve(hotdirPath, uploadId));
+    if (!isWithin(hotdirPath, candidate)) {
+      throw new Error("collector_invalid_upload_handle");
+    }
+    return { uploadId, path: candidate, staged: false };
+  }
+
+  #copyToOpaqueHotdirHandle(sourcePath, displayName = null) {
+    const source = normalizePath(path.resolve(sourcePath));
+    const extension = path.extname(displayName || source).slice(0, 16);
+    const uploadId = `upload_${crypto.randomUUID()}${extension}`;
+    fs.mkdirSync(hotdirPath, { recursive: true });
+    const destination = normalizePath(path.resolve(hotdirPath, uploadId));
+    if (!isWithin(hotdirPath, destination)) {
+      throw new Error("collector_invalid_upload_handle");
+    }
+    fs.copyFileSync(source, destination, fs.constants.COPYFILE_EXCL);
+    return { uploadId, path: destination, staged: true };
+  }
+
+  #stageExistingHotdirInput(filename) {
+    const source = this.#safeHotdirInput(filename);
+    const staged = this.#copyToOpaqueHotdirHandle(source.path, filename);
+    return { ...staged, originalPath: source.path };
+  }
+
+  #removeStagedInput(stagedInput) {
+    if (!stagedInput?.path) return;
+    try {
+      const candidate = normalizePath(path.resolve(stagedInput.path));
+      if (isWithin(hotdirPath, candidate))
+        fs.rmSync(candidate, { force: true });
+      if (stagedInput.originalPath) {
+        const original = normalizePath(path.resolve(stagedInput.originalPath));
+        if (isWithin(hotdirPath, original))
+          fs.rmSync(original, { force: true });
+      }
+    } catch {}
+  }
+
   /**
    * Attach options to the request passed to the collector API
    * @returns {CollectorOptions}
@@ -112,34 +161,37 @@ class CollectorApi {
    */
   async processDocument(filename = "", metadata = {}) {
     if (!filename) return false;
+    let stagedInput = null;
 
-    const data = JSON.stringify({
-      filename,
-      metadata,
-      options: this.#attachOptions(),
-    });
+    try {
+      stagedInput = this.#stageExistingHotdirInput(filename);
 
-    return await fetch(`${this.endpoint}/process`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
-      body: data,
-      dispatcher: new Agent({ headersTimeout: 600000 }),
-    })
-      .then(async (res) => {
-        await this.#throwIfFailed(res, "POST /process");
-        return res.json();
-      })
-      .then((res) => res)
-      .catch((e) => {
-        this.log(e.message);
-        return { success: false, reason: e.message, documents: [] };
+      const data = JSON.stringify({
+        uploadId: stagedInput.uploadId,
+        metadata,
+        options: this.#attachOptions(),
       });
+
+      const response = await fetch(`${this.endpoint}/process`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Integrity": this.comkey.sign(data),
+          "X-Payload-Signer": this.comkey.encrypt(
+            new EncryptionManager().xPayload
+          ),
+        },
+        body: data,
+        dispatcher: new Agent({ headersTimeout: 600000 }),
+      });
+      await this.#throwIfFailed(response, "POST /process");
+      return await response.json();
+    } catch (error) {
+      this.log(error.message);
+      return { success: false, reason: error.message, documents: [] };
+    } finally {
+      this.#removeStagedInput(stagedInput);
+    }
   }
 
   /**
@@ -289,11 +341,13 @@ class CollectorApi {
    * - Will append the options to the request body
    * @param {string} filename - The filename of the document to parse
    * @param {Object} parseOptions - Additional options for parsing
-   * @param {string} parseOptions.absolutePath - If provided, use this absolute path instead of looking in the hotdir
+   * Absolute paths are resolved and copied into an opaque hotdir handle inside
+   * this trusted server process. They are never sent across the Collector API.
    * @returns {Promise<Object>} - The response from the collector API
    */
   async parseDocument(filename = "", parseOptions = {}) {
     if (!filename) return false;
+    let sourcePath = parseOptions.absolutePath || null;
     if (parseOptions.absolutePath && !parseOptions.skipFileAccessPolicy) {
       const { validateReadPath } = require("../fileAccessPolicy");
       const validation = await validateReadPath(
@@ -308,38 +362,44 @@ class CollectorApi {
           documents: [],
         };
       }
-      parseOptions.absolutePath = validation.path;
+      sourcePath = validation.path;
     }
 
-    const data = JSON.stringify({
-      filename,
-      options: {
-        ...this.#attachOptions(),
-        absolutePath: parseOptions.absolutePath || null,
-        displayName: parseOptions.displayName || null,
-      },
-    });
-
-    return await fetch(`${this.endpoint}/parse`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
-      body: data,
-    })
-      .then(async (res) => {
-        await this.#throwIfFailed(res, "POST /parse");
-        return res.json();
-      })
-      .then((res) => res)
-      .catch((e) => {
-        this.log(e.message);
-        return { success: false, reason: e.message, documents: [] };
+    let stagedInput = null;
+    try {
+      stagedInput = sourcePath
+        ? this.#copyToOpaqueHotdirHandle(
+            sourcePath,
+            parseOptions.displayName || filename
+          )
+        : this.#stageExistingHotdirInput(filename);
+      const data = JSON.stringify({
+        uploadId: stagedInput.uploadId,
+        options: {
+          ...this.#attachOptions(),
+          displayName: parseOptions.displayName || filename,
+        },
       });
+
+      const response = await fetch(`${this.endpoint}/parse`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Integrity": this.comkey.sign(data),
+          "X-Payload-Signer": this.comkey.encrypt(
+            new EncryptionManager().xPayload
+          ),
+        },
+        body: data,
+      });
+      await this.#throwIfFailed(response, "POST /parse");
+      return await response.json();
+    } catch (error) {
+      this.log(error.message);
+      return { success: false, reason: error.message, documents: [] };
+    } finally {
+      this.#removeStagedInput(stagedInput);
+    }
   }
 }
 

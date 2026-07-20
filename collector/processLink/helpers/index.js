@@ -158,6 +158,7 @@ async function processAsFile({ uri, saveAsDocument = true }) {
    */
   const processSingleFileResult = await processSingleFile(targetFilename, {
     parseOnly: saveAsDocument === false,
+    internalSourcePath: fileFilePath,
   });
   if (!processSingleFileResult.success) {
     return returnResult({

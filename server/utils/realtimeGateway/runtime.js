@@ -1,5 +1,6 @@
 const { broadcastCenter } = require("../broadcast");
 const { broadcastTransportSummary } = require("../broadcast/transportRegistry");
+const { DataAccessCenter } = require("../dataAccess");
 
 class RealtimeGatewayRuntime {
   constructor({ now = () => new Date() } = {}) {
@@ -11,9 +12,15 @@ class RealtimeGatewayRuntime {
 
   async start() {
     const transport = broadcastTransportSummary();
+    const tickets = DataAccessCenter.adminSystem.realtimeTicket.storeSummary();
     if (!transport.gatewaySafe) {
       this.status = "not-ready";
       this.lastError = "shared_broadcast_transport_required";
+      return this.snapshot();
+    }
+    if (!tickets.gatewaySafe) {
+      this.status = "not-ready";
+      this.lastError = "shared_realtime_ticket_store_required";
       return this.snapshot();
     }
     try {
@@ -48,6 +55,8 @@ class RealtimeGatewayRuntime {
       startedAt: this.startedAt,
       now: this.now().toISOString(),
       transport: broadcastTransportSummary(),
+      realtimeTickets:
+        DataAccessCenter.adminSystem.realtimeTicket.storeSummary(),
       broadcast: broadcastCenter.snapshot(),
       lastError: this.lastError,
       boundary: {

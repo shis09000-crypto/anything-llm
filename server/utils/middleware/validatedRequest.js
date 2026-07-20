@@ -159,10 +159,7 @@ async function validateMultiUserRequest(request, response, next) {
     }
     authSession = sessionResult.session;
     response.locals.authSession = authSession;
-  } else if (
-    AuthSession.enabled() &&
-    process.env.ATHENA_SESSION_V2_REQUIRE_MULTI === "true"
-  ) {
+  } else if (AuthSession.enabled() && multiUserSessionRequired()) {
     return sessionRejected(response, "session_missing");
   }
 
@@ -237,6 +234,12 @@ function requiresAuthoritativeSession(request) {
   return /\/(security|sessions?|auth|passkey|trusted-device|client|account|user|admin|sync\/v2\/mutations)/.test(
     path
   );
+}
+
+function multiUserSessionRequired(env = process.env) {
+  if (env.ATHENA_SESSION_V2_REQUIRE_MULTI === "true") return true;
+  if (env.ATHENA_SESSION_V2_REQUIRE_MULTI === "false") return false;
+  return env.NODE_ENV === "production";
 }
 
 function sessionRejected(response, reason = "session_revoked") {

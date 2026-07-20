@@ -3,6 +3,7 @@ const mockCreate = jest.fn();
 const mockFindMany = jest.fn();
 const mockTransaction = jest.fn();
 const mockRecordNodeChange = jest.fn();
+const mockSyncNodeFindUnique = jest.fn();
 
 const mockTx = {
   athena_clients: {
@@ -15,6 +16,9 @@ const mockTx = {
 const mockClientFacade = {
   db: {
     $transaction: (...args) => mockTransaction(...args),
+    sync_nodes: {
+      findUnique: (...args) => mockSyncNodeFindUnique(...args),
+    },
   },
 };
 
@@ -41,6 +45,7 @@ describe("client identity Sync V2 transaction", () => {
     mockSyncFacade.enabled.mockResolvedValue(true);
     mockSyncFacade.schemaReady.mockResolvedValue(true);
     mockFindUnique.mockResolvedValue(null);
+    mockSyncNodeFindUnique.mockResolvedValue(null);
     mockCreate.mockResolvedValue({
       id: 11,
       userId: 7,
@@ -104,5 +109,33 @@ describe("client identity Sync V2 transaction", () => {
     expect(mockTransaction).not.toHaveBeenCalled();
     expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(mockRecordNodeChange).not.toHaveBeenCalled();
+  });
+
+  test("keeps an existing shadow security node current during device-key enrollment", async () => {
+    mockSyncFacade.enabled.mockReturnValue(false);
+    mockSyncNodeFindUnique.mockResolvedValue({
+      nodeKey: "users/7/security/clients",
+    });
+
+    await registerClient({
+      userId: 7,
+      clientId: "client-sync",
+      platform: "ios",
+      publicKey: JSON.stringify({ kty: "EC", crv: "P-256" }),
+      deviceFingerprintVersion: "p256-secure-enclave-v1",
+    });
+
+    expect(mockSyncNodeFindUnique).toHaveBeenCalledWith({
+      where: { nodeKey: "users/7/security/clients" },
+      select: { nodeKey: true },
+    });
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockRecordNodeChange).toHaveBeenCalledWith(
+      mockTx,
+      expect.objectContaining({
+        nodeKey: "users/7/security/clients",
+        eventType: "client.registered",
+      })
+    );
   });
 });

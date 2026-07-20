@@ -375,6 +375,7 @@ model users {
   reader_library_categories    reader_library_categories[]
   vault_items                  vault_items[]
   auth_sessions                auth_sessions[]
+  auth_realtime_tickets        auth_realtime_tickets[]
 
   @@index([originEnv])
   @@index([role])
@@ -401,6 +402,25 @@ model auth_sessions {
   @@index([clientId, revokedAt])
   @@index([idleExpiresAt])
   @@index([absoluteExpiresAt])
+}
+
+model auth_realtime_tickets {
+  ticketHash String    @id
+  purpose    String
+  appEnv     String
+  resourceId String?
+  claimsJson String
+  multiUser  Boolean
+  clientId   String?
+  authUserId Int?
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  consumedAt DateTime?
+  authUser   users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@index([appEnv, expiresAt])
+  @@index([authUserId, consumedAt])
 }
 
 model vault_items {
@@ -742,25 +762,28 @@ model TrustedLoginDevice {
 }
 
 model athena_clients {
-  id                       Int       @id @default(autoincrement())
-  clientId                 String
-  userId                   Int
-  platform                 String
-  deviceName               String?
-  appVersion               String?
-  trustLevel               String    @default("low")
-  capabilities             String?
-  capabilitySource         String    @default("unknown")
-  publicKey                String?
-  deviceFingerprintVersion String?
-  signingSecretEncrypted   String?
-  signingSecretVersion     String?
-  signingSecretIssuedAt    DateTime?
-  signingSecretRotatedAt   DateTime?
-  createdAt                DateTime  @default(now())
-  lastSeenAt               DateTime  @default(now())
-  revokedAt                DateTime?
-  user                     users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                        Int       @id @default(autoincrement())
+  clientId                  String
+  userId                    Int
+  platform                  String
+  deviceName                String?
+  appVersion                String?
+  trustLevel                String    @default("low")
+  capabilities              String?
+  capabilitySource          String    @default("unknown")
+  publicKey                 String?
+  deviceFingerprintVersion  String?
+  pendingPublicKey          String?
+  pendingDeviceKeyAlgorithm String?
+  pendingDeviceKeyExpiresAt DateTime?
+  signingSecretEncrypted    String?
+  signingSecretVersion      String?
+  signingSecretIssuedAt     DateTime?
+  signingSecretRotatedAt    DateTime?
+  createdAt                 DateTime  @default(now())
+  lastSeenAt                DateTime  @default(now())
+  revokedAt                 DateTime?
+  user                      users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, clientId])
   @@index([clientId])
@@ -789,6 +812,7 @@ model user_state_preferences {
   scope     String   @default("global")
   value     String
   version   String   @default("1")
+  monotonicCursor Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @default(now())
   user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)

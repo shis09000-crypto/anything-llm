@@ -264,7 +264,7 @@ metadata 为 0 缺失、0 断链。绝对毫秒值是本机并行门禁结果，
 | 加密覆盖 | 1,038/1,038 Chat prompt/response；metadata 1,038/1,038；断链 0 |
 | 安全硬化 | 338 routes，0 finding；Key Custody 915 files，0 finding |
 | 供应链 | Server/Collector/Frontend reachable Critical=0，门禁通过 |
-| 维护性 | v2.3 收敛为 7 个既有受治理 God File、19 个非新增 fallback，0 growth finding |
+| 维护性 | v2.3 收敛为 7 个既有受治理 God File、4 个明确的输入级 fail-closed fallback，0 growth finding |
 | Runtime | Frontend 3000、API 3002、Collector 8889 均 HTTP 200 |
 | Browser storage | 静态 14/14；未登录真实 Chromium 0 finding |
 | Workflow/Shell | 11 个 workflow YAML 与 Shell syntax 通过 |

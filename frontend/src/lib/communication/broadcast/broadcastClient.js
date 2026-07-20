@@ -1,5 +1,4 @@
 import { API_BASE } from "@/utils/constants";
-import { getAuthToken } from "@/utils/authTokenStorage";
 import { getStoredAuthUser } from "@/utils/authUserStorage";
 import { getAppEnvironment } from "@/utils/appEnvironment";
 import {
@@ -23,6 +22,7 @@ import { broadcastEventReducer } from "./broadcastEventReducer";
 import { broadcastSubscriptionManager } from "./broadcastSubscriptionManager";
 import { syncV2Runtime } from "@/utils/syncV2/syncV2Runtime";
 import { syncV2Client } from "../syncV2Client";
+import { issueRealtimeTicket } from "../realtimeTicketClient";
 
 const RECONNECT_BASE_MS = 800;
 const RECONNECT_MAX_MS = 8_000;
@@ -83,10 +83,9 @@ function writeLastAckedEventId(eventId) {
   } catch {}
 }
 
-function broadcastUrl() {
+function broadcastUrl(ticket = null) {
   const query = new URLSearchParams();
-  const token = getAuthToken();
-  if (token) query.set("token", token);
+  if (ticket) query.set("realtimeTicket", ticket);
   if (isCodexDevAuthBypassEnabled()) {
     query.set(CODEX_DEV_AUTH_BYPASS_QUERY, CODEX_DEV_AUTH_BYPASS_KEY);
   }
@@ -288,8 +287,20 @@ export async function connectBroadcast({ signal = null, onEvent = null } = {}) {
   let attempt = 0;
   while (!signal?.aborted) {
     state.connecting = true;
+    let realtimeTicket = null;
+    try {
+      realtimeTicket = await issueRealtimeTicket("broadcast", null, { signal });
+    } catch (error) {
+      state.lastError =
+        error?.code || error?.message || "realtime_ticket_failed";
+      state.connecting = false;
+      startSyncV2Fallback({ signal, onEvent });
+      await sleep(backoff(attempt), signal);
+      attempt += 1;
+      continue;
+    }
     const socket = createWebSocket({
-      url: broadcastUrl(),
+      url: broadcastUrl(realtimeTicket),
       task: {
         kind: "broadcast-websocket",
         priority: "P1",

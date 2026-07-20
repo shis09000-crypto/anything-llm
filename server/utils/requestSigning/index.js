@@ -222,6 +222,15 @@ function canonicalPublicKey(value = null) {
   }
 }
 
+function normalizeDeviceKeyAlgorithm(value = null) {
+  const algorithm = compactString(value, 64) || "p256-v1";
+  return new Set(["p256-v1", "p256-software-v1", "p256-secure-enclave-v1"]).has(
+    algorithm
+  )
+    ? algorithm
+    : null;
+}
+
 function verifyDeviceSignature({ publicKey, signingString, signature } = {}) {
   const canonicalKey = canonicalPublicKey(publicKey);
   if (!canonicalKey) return false;
@@ -247,9 +256,11 @@ async function ensureClientDevicePublicKey({
   context = null,
   publicKey,
   deviceKeyAlgorithm,
+  allowPending = false,
 } = {}) {
   const canonicalKey = canonicalPublicKey(publicKey);
-  if (!canonicalKey) {
+  const normalizedAlgorithm = normalizeDeviceKeyAlgorithm(deviceKeyAlgorithm);
+  if (!canonicalKey || !normalizedAlgorithm) {
     return { ok: false, reasonCode: "invalid_device_public_key" };
   }
 
@@ -269,13 +280,22 @@ async function ensureClientDevicePublicKey({
       capabilities: context.capabilities,
       capabilitySource: context.capabilitySource,
       publicKey: canonicalKey,
-      deviceFingerprintVersion:
-        compactString(deviceKeyAlgorithm, 32) || "p256-v1",
+      deviceFingerprintVersion: normalizedAlgorithm,
     });
     return { ok: true, publicKey: canonicalKey, client: null };
   }
   if (!client) return { ok: false, reasonCode: "missing_client" };
-  if (client.publicKey && client.publicKey !== canonicalKey) {
+  const pendingAllowed =
+    allowPending &&
+    client.pendingPublicKey === canonicalKey &&
+    client.pendingDeviceKeyAlgorithm === normalizedAlgorithm &&
+    client.pendingDeviceKeyExpiresAt &&
+    new Date(client.pendingDeviceKeyExpiresAt).getTime() > Date.now();
+  if (
+    client.publicKey &&
+    client.publicKey !== canonicalKey &&
+    !pendingAllowed
+  ) {
     return { ok: false, reasonCode: "device_key_mismatch" };
   }
 
@@ -289,14 +309,18 @@ async function ensureClientDevicePublicKey({
       },
       data: {
         publicKey: canonicalKey,
-        deviceFingerprintVersion:
-          compactString(deviceKeyAlgorithm, 32) || "p256-v1",
+        deviceFingerprintVersion: normalizedAlgorithm,
         trustLevel: "medium",
       },
     });
   }
 
-  return { ok: true, publicKey: canonicalKey, client };
+  return {
+    ok: true,
+    publicKey: canonicalKey,
+    client,
+    pendingKey: pendingAllowed,
+  };
 }
 
 function isHighRiskSignedRequest({ method, path } = {}) {
@@ -328,6 +352,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/auth\/trusted-devices\/enable$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/client-identity\/device-key-rotation\/(?:prepare|commit)$/,
     },
     {
       methods: ["POST"],
@@ -948,6 +976,9 @@ async function verifySignatureParts({
       context,
       publicKey: devicePublicKey,
       deviceKeyAlgorithm,
+      allowPending:
+        highRiskComparablePath(canonicalPath) ===
+        "/client-identity/device-key-rotation/commit",
     });
     if (!keyBinding.ok) return signingFailure(keyBinding.reasonCode);
     if (
@@ -1173,11 +1204,13 @@ module.exports = {
   DEVICE_SIGNATURE_PREFIX,
   SIGNING_HEADERS,
   canonicalSigningString,
+  canonicalPublicKey,
   deviceSignatureRequired,
   ensureClientSigningSecret,
   signingErrorCode,
   hmacBase64Url,
   isHighRiskSignedRequest,
+  normalizeDeviceKeyAlgorithm,
   requireSignedHighRiskRequest,
   rotateAllSigningSecrets,
   rotateSigningSecret,

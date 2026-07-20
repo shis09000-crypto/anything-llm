@@ -1,5 +1,7 @@
 const crypto = require("crypto");
+const fs = require("fs");
 const os = require("os");
+const path = require("path");
 const {
   DiscardPolicy,
   JSONCodec,
@@ -7,7 +9,9 @@ const {
   StorageType,
   connect,
   consumerOpts,
+  credsAuthenticator,
   headers,
+  nkeyAuthenticator,
 } = require("nats");
 const { appEnvironment } = require("../../environment");
 const { resolveActiveKey } = require("../../security/keyCustody");
@@ -33,9 +37,130 @@ function settings(env = process.env) {
     token: env.ATHENA_NATS_TOKEN || undefined,
     user: env.ATHENA_NATS_USER || undefined,
     pass: env.ATHENA_NATS_PASSWORD || undefined,
+    credentialsFile:
+      String(env.ATHENA_NATS_CREDENTIALS_FILE || "").trim() || undefined,
+    nkeySeedFile:
+      String(env.ATHENA_NATS_NKEY_SEED_FILE || "").trim() || undefined,
+    tls: {
+      caFile: String(env.ATHENA_NATS_TLS_CA_FILE || "").trim() || undefined,
+      certFile: String(env.ATHENA_NATS_TLS_CERT_FILE || "").trim() || undefined,
+      keyFile: String(env.ATHENA_NATS_TLS_KEY_FILE || "").trim() || undefined,
+      serverName:
+        String(env.ATHENA_NATS_TLS_SERVER_NAME || "").trim() || undefined,
+    },
     stream: String(env.ATHENA_NATS_STREAM || STREAM),
     consumer: instance,
     maxAgeNs: Number(env.ATHENA_NATS_MAX_AGE_NS || DEFAULT_MAX_AGE_NS),
+  };
+}
+
+function natsSecurityFindings(env = process.env) {
+  if (String(env.ATHENA_BROADCAST_TRANSPORT || "memory") !== "nats") return [];
+  const config = settings(env);
+  const production = env.NODE_ENV === "production";
+  const findings = [];
+  if (!config.servers.length) findings.push("ATHENA_NATS_SERVERS is required.");
+  if (
+    production &&
+    config.servers.some((server) => !String(server).startsWith("tls://"))
+  )
+    findings.push("Production NATS servers must use tls:// endpoints.");
+  const workloadIdentities = [
+    Boolean(config.credentialsFile),
+    Boolean(config.nkeySeedFile),
+  ].filter(Boolean).length;
+  if (workloadIdentities > 1)
+    findings.push("Configure only one NATS workload identity source.");
+  if (production && workloadIdentities !== 1)
+    findings.push(
+      "Production NATS requires exactly one credentials or NKey workload identity file."
+    );
+  if (production && (config.token || config.user || config.pass))
+    findings.push(
+      "Production NATS forbids shared token and username/password authentication."
+    );
+  if (
+    production &&
+    (!config.tls.caFile || !config.tls.certFile || !config.tls.keyFile)
+  )
+    findings.push(
+      "Production NATS requires CA, client certificate, and client key files for mTLS."
+    );
+  for (const [label, filePath] of [
+    ["credentials", config.credentialsFile],
+    ["NKey seed", config.nkeySeedFile],
+    ["TLS CA", config.tls.caFile],
+    ["TLS certificate", config.tls.certFile],
+    ["TLS private key", config.tls.keyFile],
+  ]) {
+    if (!filePath) continue;
+    try {
+      const stat = fs.statSync(path.resolve(filePath));
+      if (!stat.isFile()) findings.push(`NATS ${label} path is not a file.`);
+      if (
+        production &&
+        [
+          config.credentialsFile,
+          config.nkeySeedFile,
+          config.tls.keyFile,
+        ].includes(filePath) &&
+        (stat.mode & 0o077) !== 0
+      ) {
+        findings.push(
+          `NATS ${label} file permissions expose private material.`
+        );
+      }
+    } catch {
+      findings.push(`NATS ${label} file is missing or unreadable.`);
+    }
+  }
+  return findings;
+}
+
+function assertSecureCredentialFile(filePath, label) {
+  const target = path.resolve(filePath);
+  const stat = fs.statSync(target);
+  if ((stat.mode & 0o077) !== 0) {
+    const error = new Error(`${label}_permissions_unsafe`);
+    error.code = "NATS_CREDENTIAL_FILE_PERMISSIONS_UNSAFE";
+    throw error;
+  }
+  return target;
+}
+
+function connectionSecurityOptions(config) {
+  let authenticator;
+  if (config.credentialsFile) {
+    const target = assertSecureCredentialFile(
+      config.credentialsFile,
+      "nats_credentials_file"
+    );
+    authenticator = credsAuthenticator(fs.readFileSync(target));
+  } else if (config.nkeySeedFile) {
+    const target = assertSecureCredentialFile(
+      config.nkeySeedFile,
+      "nats_nkey_seed_file"
+    );
+    authenticator = nkeyAuthenticator(fs.readFileSync(target));
+  }
+  const tlsConfigured = Object.values(config.tls).some(Boolean);
+  const tls = tlsConfigured
+    ? {
+        ...(config.tls.caFile
+          ? { ca: fs.readFileSync(path.resolve(config.tls.caFile), "utf8") }
+          : {}),
+        ...(config.tls.certFile
+          ? { cert: fs.readFileSync(path.resolve(config.tls.certFile), "utf8") }
+          : {}),
+        ...(config.tls.keyFile
+          ? { key: fs.readFileSync(path.resolve(config.tls.keyFile), "utf8") }
+          : {}),
+        ...(config.tls.serverName ? { servername: config.tls.serverName } : {}),
+      }
+    : null;
+  return {
+    ...(authenticator ? { authenticator } : {}),
+    ...(tls ? { tls } : {}),
   };
 }
 
@@ -126,12 +251,21 @@ class NatsJetStreamTransport {
       error.code = "NATS_SERVERS_MISSING";
       throw error;
     }
+    const securityFindings = natsSecurityFindings(this.env);
+    if (securityFindings.length) {
+      const error = new Error(
+        `nats_security_policy_failed: ${securityFindings.join(" ")}`
+      );
+      error.code = "NATS_SECURITY_POLICY_FAILED";
+      throw error;
+    }
     this.connection = await connect({
       servers: config.servers,
       name: `athena-${config.consumer}`,
       token: config.token,
       user: config.user,
       pass: config.pass,
+      ...connectionSecurityOptions(config),
       maxReconnectAttempts: -1,
       reconnectTimeWait: 1_000,
       timeout: 5_000,
@@ -244,7 +378,9 @@ class NatsJetStreamTransport {
 
 module.exports = {
   NatsJetStreamTransport,
+  connectionSecurityOptions,
   irreversibleScope,
+  natsSecurityFindings,
   settings,
   subjectFor,
 };

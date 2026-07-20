@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 
 const PROFILE_VERSION = "workspace-profile-v1";
@@ -104,6 +107,21 @@ function bookRow(row = null) {
 
 async function ensureTables() {
   if (tablesReady) return;
+  if (
+    await ensureMigrationOwnedTables(
+      prisma,
+      [
+        "WorkspaceKnowledgeProfile",
+        "BookStructureAnalysis",
+        "NodeChunkBinding",
+        "NodeLearningState",
+      ],
+      { context: "workspace-knowledge-profile" }
+    )
+  ) {
+    tablesReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "WorkspaceKnowledgeProfile" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

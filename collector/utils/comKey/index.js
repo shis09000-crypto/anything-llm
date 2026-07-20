@@ -35,7 +35,7 @@ class CommunicationKey {
     return false;
   }
 
-  // Use the rolling public-key to decrypt arbitrary data that was encrypted via the private key on the server side CommunicationKey class
+  // Use the IPC public key to decrypt arbitrary data that was encrypted via the private key on the server side CommunicationKey class
   // that we know was done with the same key-pair and the given input is in base64 format already.
   // Returns plaintext string of the data that was encrypted.
   decrypt(base64String = "") {

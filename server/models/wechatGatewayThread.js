@@ -2,9 +2,23 @@ const {
   throwModelDataAccessError,
 } = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
+
+let tableReady = false;
 
 const WeChatGatewayThread = {
   ensureTable: async function () {
+    if (tableReady) return;
+    if (
+      await ensureMigrationOwnedTables(prisma, ["wechat_gateway_threads"], {
+        context: "wechat-gateway-thread",
+      })
+    ) {
+      tableReady = true;
+      return;
+    }
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "wechat_gateway_threads" (
         "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -28,6 +42,7 @@ const WeChatGatewayThread = {
       CREATE INDEX IF NOT EXISTS "wechat_gateway_threads_thread_slug_idx"
       ON "wechat_gateway_threads"("thread_slug")
     `);
+    tableReady = true;
   },
 
   getByWxid: async function (wxid = null) {

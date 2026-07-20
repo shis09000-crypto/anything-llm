@@ -70,4 +70,14 @@ describe("ApiKey secret storage", () => {
     expect(result[1].secret).toBe("legacy-s...alue");
     expect(result[1].secretMasked).toBe(true);
   });
+
+  it("does not turn a failed enriched listing into an empty result", async () => {
+    mockApiKeys.findMany.mockRejectedValueOnce(new Error("database offline"));
+    const { ApiKey } = require("../../models/apiKeys");
+
+    await expect(ApiKey.whereWithUser({})).rejects.toMatchObject({
+      code: "database_operation_failed",
+      operation: "apiKeys.where",
+    });
+  });
 });

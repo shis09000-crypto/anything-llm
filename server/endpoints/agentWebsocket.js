@@ -30,6 +30,10 @@ const {
   signingWarnOnly,
   verifySignedWebSocketMessage,
 } = require("../utils/requestSigning");
+const {
+  authenticateRealtimeRequest,
+  monitorRealtimePrincipal,
+} = require("../utils/authz/realtimePrincipal");
 
 const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
 const activeAgentSessions = new Map();
@@ -451,18 +455,28 @@ function agentWebsocket(app) {
 
     const uuid = String(request.params.uuid);
     try {
+      const principal = await authenticateRealtimeRequest({
+        request,
+        purpose: "agent",
+        resourceId: uuid,
+        authoritative: true,
+      });
+      const stopPrincipalMonitor = monitorRealtimePrincipal({
+        request,
+        socket,
+      });
       const authorized = await getAuthorizedAgentInvocation({
         request,
         uuid,
-        token: request.query?.token,
       });
       if (!authorized) {
+        stopPrincipalMonitor();
         socket.close(1008);
         return;
       }
       await attachAuthenticatedClientContext({
         request,
-        user: authorized.user,
+        user: principal.user || authorized.user,
       });
       const invocation = authorized.invocation;
       const requestedLastSeq = Number(request.query?.lastEventSeq || 0);

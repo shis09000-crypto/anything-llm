@@ -90,10 +90,12 @@ function authDatabasePath() {
 function authDatabaseUrl() {
   if (process.env.AUTH_DATABASE_URL) return process.env.AUTH_DATABASE_URL;
   const dbPath = authDatabasePath();
-  fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+  const readOnlyCli = process.env.ATHENA_CLI_DATABASE_ACCESS === "read";
+  if (!readOnlyCli) fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const url = new URL(`file:${dbPath}`);
   url.searchParams.set("connection_limit", "1");
   url.searchParams.set("pool_timeout", "10");
+  if (readOnlyCli) url.searchParams.set("mode", "ro");
   return url.toString();
 }
 

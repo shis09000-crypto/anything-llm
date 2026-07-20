@@ -58,11 +58,29 @@ export function useCryptoCenterSocket(
       }
     }
 
-    function connect() {
+    async function connect() {
       if (cancelled) return;
       onStatus(attempts === 0 ? "connecting" : "degraded");
 
-      socket = createCryptoCenterSocket(range);
+      try {
+        socket = await createCryptoCenterSocket(range);
+      } catch (error) {
+        if (cancelled) return;
+        attempts += 1;
+        onStatus(
+          "degraded",
+          error instanceof Error
+            ? error.message
+            : "Realtime authentication failed."
+        );
+        const delay = Math.min(15000, 1000 * 2 ** Math.min(attempts, 4));
+        reconnectTimer = window.setTimeout(() => void connect(), delay);
+        return;
+      }
+      if (cancelled) {
+        socket.close();
+        return;
+      }
       socket.onopen = () => {
         attempts = 0;
         onStatus("connected");
@@ -82,11 +100,11 @@ export function useCryptoCenterSocket(
         attempts += 1;
         onStatus("disconnected", "Crypto stream disconnected.");
         const delay = Math.min(15000, 1000 * 2 ** Math.min(attempts, 4));
-        reconnectTimer = window.setTimeout(connect, delay);
+        reconnectTimer = window.setTimeout(() => void connect(), delay);
       };
     }
 
-    loadSnapshot().finally(connect);
+    loadSnapshot().finally(() => void connect());
 
     return () => {
       cancelled = true;

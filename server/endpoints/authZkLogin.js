@@ -1,5 +1,4 @@
 const crypto = require("crypto");
-const bcrypt = require("bcryptjs");
 const {
   generateAuthenticationOptions,
   verifyAuthenticationResponse,
@@ -17,6 +16,7 @@ const {
 } = require("../utils/sessionIdle");
 const { getClientContext } = require("../utils/clientIdentity");
 const { readSecret, saveSecret } = require("../utils/security");
+const { verifyPassword } = require("../utils/security/passwordCredential");
 const {
   DEFAULT_REAUTH_TTL_MS,
   issueReauthToken,
@@ -53,7 +53,8 @@ function authZkLoginEndpoints(app) {
         const { currentPassword } = reqBody(request) || {};
         if (
           !user ||
-          !bcrypt.compareSync(String(currentPassword || ""), user.password)
+          !(await verifyPassword(String(currentPassword || ""), user.password))
+            .valid
         ) {
           await audit(request, "zk_login_reauth_failed", {
             userId: response.locals.user.id,

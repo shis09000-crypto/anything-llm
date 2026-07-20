@@ -55,12 +55,13 @@ After at least one verified manifest has been cached for the current user, a tra
 
 ## Feature flags
 
-- `ATHENA_SYNC_V2_ENABLED=true` enables the server protocol and dispatcher.
+- `ATHENA_SYNC_V2_ENABLED=true` enables client protocol/cohort reads. The internal transactional Outbox dispatcher is deliberately independent and defaults to shadow mode while client rollout is disabled, so already-materialized nodes cannot accumulate undelivered events.
+- `ATHENA_SYNC_V2_OUTBOX_DISPATCH=false` is an emergency pre-rollout kill switch. Once client Sync V2 is enabled, Outbox dispatch remains mandatory. Shadow mode polls at 5 seconds by default; active mode polls at 250 ms. `SYNC_V2_OUTBOX_INTERVAL_MS` can override either interval.
 - `ATHENA_SYNC_V2_DOMAINS=core` expands to profile, preferences, workspace, and chat. Staged domains `security`, `memory`, `cognition`, `agents`, `meetings`, `documents`, `tasks`, `workflows`, `notifications`, `entitlements`, and `integrations` can be enabled independently after their shadow audit is clean.
 - `ATHENA_SYNC_V2_RETENTION_MS` controls event retention and defaults to 30 days.
 - `VITE_SYNC_V2_ENABLED=false` is the Web kill switch.
 
-The server flag defaults off. Roll out by enabling shadow materialization and dual delivery first, then Web cohorts, then iOS/TestFlight. Disabling V2 leaves metadata and Outbox rows intact and immediately returns clients to legacy reads.
+The client protocol flag defaults off. The internal control plane still drains durable shadow events through the existing Broadcast transport; clients remain on legacy reads until their deterministic cohort is enabled. Roll out by validating shadow materialization and dual delivery first, then Web cohorts, then iOS/TestFlight. Disabling client V2 leaves metadata and Outbox rows intact and immediately returns clients to legacy reads without stopping shadow correctness maintenance.
 
 ## Operational checks
 
@@ -83,7 +84,10 @@ Run `yarn sync-v2:audit` for a read-only projection and Hash audit, `yarn sync-v
 - Passkeys: version plus Hash over sanitized display metadata, projected from the shared auth authority. Cross-database reconciliation is intentionally a side chain, not a claim of atomic commit.
 - Long-term memory candidates: event cursor. Structured memory and persona: version plus Hash over sanitized projections; sensitive plaintext, encrypted payloads, and reveal grants never enter the state tree.
 - Chat: append/edit/delete Outbox events plus thread cursor/revision and existing incremental `afterChatId`/ETag reads. Event-cursor nodes intentionally omit object Hashes; the full message list is not a normal state object.
-- Read position: monotonic cursor when migrated.
+- Read position: a dedicated server-side `monotonicCursor` is advanced by an
+  atomic database UPSERT guard and overlaid on the decoded projection. It does
+  not depend on client timestamps or JSON extraction from encrypted state and
+  cannot move backward under concurrent devices.
 - Collaborative documents: event cursor or future OT/CRDT; document bodies and blobs do not enter the ordinary state tree.
 - Task/Agent/meeting/cognition histories: append-only domain logs exposed by cursor rather than object replacement.
 - Cognition and meetings: transactional Outbox events are emitted at user-visible mutations, candidate review, profile rebuild, packet/session changes, and meeting audit append boundaries. Background intermediate extraction rows remain domain-internal until they reach a stable boundary.

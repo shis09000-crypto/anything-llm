@@ -108,7 +108,7 @@ Reader Worker、Background Worker 和 Realtime Gateway 复用相同有界停机�
 - 数据库迁移全为 additive；旧代码可忽略新列和表。
 - `ATHENA_PLUGIN_SECURITY_V2=warn|off` 可分阶段回退插件强制策略。
 - 不启用 OTLP 不影响请求；Prometheus 指标仍可按需拉取。
-- Sync V2 总开关关闭时 Outbox dispatcher 不运行，但 mutation receipt、安全审计和 Auth 对账维护器仍保持各自正确语义。
+- Sync V2 客户端放量开关关闭时，Outbox dispatcher 以低频 shadow 模式继续运行；客户端仍走 legacy 读取，但已经物化节点的事务事件不会积压。mutation receipt、安全审计和 Auth 对账维护器继续保持独立生命周期。
 - 本轮没有生成、轮换、覆盖或输出任何现有密钥。
 
 ## 静态完善性判定

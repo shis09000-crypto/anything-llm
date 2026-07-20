@@ -149,17 +149,26 @@ services:
     read_only: true
     tmpfs:
       - /tmp:rw,nosuid,size=1g
+      - /app/server/storage/${APP_ENV:-production}/tmp:rw,nosuid,size=1g
     volumes:
-      - "./.env:/app/server/.env"
-      - "../server/storage:/app/server/storage"
-      - "../collector/hotdir/:/app/collector/hotdir"
+      - "../server/storage/${APP_ENV:-production}/comkey:/app/server/storage/${APP_ENV:-production}/comkey:ro"
+      - "../server/storage/${APP_ENV:-production}/documents:/app/server/storage/${APP_ENV:-production}/documents"
+      - "../server/storage/${APP_ENV:-production}/direct-uploads:/app/server/storage/${APP_ENV:-production}/direct-uploads"
+      - "../server/storage/${APP_ENV:-production}/models:/app/server/storage/${APP_ENV:-production}/models"
+      - "../collector/hotdir/:/app/collector/hotdir:ro"
       - "../collector/outputs/:/app/collector/outputs"
     user: "${UID:-1000}:${GID:-1000}"
-    env_file:
-      - .env
     environment:
+      NODE_ENV: production
+      APP_ENV: ${APP_ENV:-production}
       ATHENA_RUNTIME_ROLE: collector
+      ATHENA_COLLECTOR_GUARD_V2: "true"
       COLLECTOR_PORT: 8888
+      COLLECTOR_BIND_HOST: 0.0.0.0
+      COLLECTOR_PRIVATE_NETWORK_ALLOWLIST: ${COLLECTOR_PRIVATE_NETWORK_ALLOWLIST:-}
+      COLLECTOR_MAX_CONCURRENCY: ${COLLECTOR_MAX_CONCURRENCY:-2}
+      COLLECTOR_MAX_QUEUE: ${COLLECTOR_MAX_QUEUE:-20}
+      COLLECTOR_TASK_TIMEOUT_MS: ${COLLECTOR_TASK_TIMEOUT_MS:-300000}
       HOME: /tmp/collector-home
     networks:
       - anything-llm

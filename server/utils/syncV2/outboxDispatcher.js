@@ -1,6 +1,10 @@
 const { DataAccessCenter } = require("../dataAccess");
 const { publishBroadcastEventDurably } = require("../broadcast");
-const { syncV2Enabled } = require("./config");
+const {
+  syncV2ControlPlaneMode,
+  syncV2OutboxDispatchEnabled,
+  syncV2OutboxIntervalMs,
+} = require("./config");
 const { hostname } = require("os");
 const { randomUUID } = require("crypto");
 const { metrics } = require("../observability/metrics");
@@ -9,7 +13,6 @@ const { withCorrelation } = require("../observability/context");
 const outboxTracer = telemetry.trace.getTracer("athena-sync-outbox");
 
 const SyncV2 = DataAccessCenter.syncV2;
-const DEFAULT_INTERVAL_MS = 250;
 const PRUNE_INTERVAL_MS = 60 * 60 * 1_000;
 const DEFAULT_LEASE_MS = 30_000;
 const DEFAULT_LANE_CONCURRENCY = 4;
@@ -274,7 +277,10 @@ async function processLane(lane, leaseOwner) {
 }
 
 async function flushSyncV2Outbox({ limit = 100, drain = false } = {}) {
-  if (!syncV2Enabled()) return { skipped: true, reason: "disabled" };
+  if (!syncV2OutboxDispatchEnabled())
+    return { skipped: true, reason: "disabled" };
+  if (!(await SyncV2.schemaReady()))
+    return { skipped: true, reason: "schema_unavailable" };
   if (activeFlush) return activeFlush;
   healthState.lastAttemptAt = new Date().toISOString();
   activeFlush = (async () => {
@@ -379,11 +385,14 @@ async function flushSyncV2Outbox({ limit = 100, drain = false } = {}) {
   return activeFlush;
 }
 
-async function startSyncV2OutboxDispatcher({
-  intervalMs = DEFAULT_INTERVAL_MS,
-} = {}) {
-  if (!syncV2Enabled() || timer) return false;
+async function startSyncV2OutboxDispatcher({ intervalMs = null } = {}) {
+  if (!syncV2OutboxDispatchEnabled() || timer) return false;
+  if (!(await SyncV2.schemaReady())) return false;
   await flushSyncV2Outbox();
+  const configuredIntervalMs =
+    intervalMs === null || intervalMs === undefined
+      ? syncV2OutboxIntervalMs()
+      : positiveInteger(intervalMs, syncV2OutboxIntervalMs(), 60 * 60_000);
   timer = setInterval(
     () => {
       void flushSyncV2Outbox().catch((error) =>
@@ -392,7 +401,7 @@ async function startSyncV2OutboxDispatcher({
         })
       );
     },
-    Math.max(Number(intervalMs) || DEFAULT_INTERVAL_MS, 50)
+    Math.max(configuredIntervalMs, 50)
   );
   timer.unref?.();
   return true;
@@ -412,6 +421,9 @@ function syncV2OutboxSnapshot() {
     24 * 60 * 60_000
   );
   return {
+    enabled: syncV2OutboxDispatchEnabled(),
+    mode: syncV2ControlPlaneMode(),
+    intervalMs: syncV2OutboxIntervalMs(),
     running: Boolean(timer),
     workerId: WORKER_ID,
     healthy: healthState.consecutiveFailures < 3,

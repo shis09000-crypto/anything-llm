@@ -710,7 +710,9 @@ struct ConversationHomeView: View {
             }
 
             if let agentSession,
-               !agentSession.phase.isTerminal || agentSession.hasAssistantContent {
+               !agentSession.phase.isTerminal ||
+                agentSession.hasAssistantContent ||
+                agentSession.phase == .failed {
                 AgentInlineSessionView(
                     store: agentSession,
                     agentControlKit: dependencies.agentControlKit
@@ -2368,58 +2370,6 @@ private extension AthenaChatMessage {
     }
 }
 
-enum MessageActionKind: String, CaseIterable, Hashable {
-    case copy
-    case edit
-    case speech
-    case regenerate
-    case fork
-    case delete
-}
-
-struct MessageActionCapabilities: Equatable {
-    let visibleActions: [MessageActionKind]
-    let enabledActions: Set<MessageActionKind>
-
-    func isEnabled(_ action: MessageActionKind) -> Bool {
-        enabledActions.contains(action)
-    }
-
-    static func user(isConfirmed: Bool, canEdit: Bool) -> Self {
-        Self(
-            visibleActions: [.copy, .edit],
-            enabledActions: isConfirmed && canEdit ? [.copy, .edit] : [.copy]
-        )
-    }
-
-    static func assistant(
-        isConfirmed: Bool,
-        isLastConfirmedAssistant: Bool,
-        hasStableServerIdentity: Bool,
-        canRegenerate: Bool,
-        canFork: Bool,
-        canDelete: Bool
-    ) -> Self {
-        guard isConfirmed else {
-            return Self(visibleActions: [], enabledActions: [])
-        }
-        var enabledActions: Set<MessageActionKind> = [.copy, .speech]
-        if isLastConfirmedAssistant && canRegenerate {
-            enabledActions.insert(.regenerate)
-        }
-        if hasStableServerIdentity && canFork {
-            enabledActions.insert(.fork)
-        }
-        if hasStableServerIdentity && canDelete {
-            enabledActions.insert(.delete)
-        }
-        return Self(
-            visibleActions: [.copy, .speech, .regenerate, .fork, .delete],
-            enabledActions: enabledActions
-        )
-    }
-}
-
 private struct ChatScrollMetrics: Equatable {
     let distanceFromBottom: CGFloat
     let offsetY: CGFloat
@@ -2431,52 +2381,6 @@ private struct ChatScrollMetrics: Equatable {
 
     var isAtBottom: Bool {
         distanceFromBottom <= 12
-    }
-}
-
-struct ComposerLayoutPolicy {
-    static let bottomContentSpacing: CGFloat = 12
-    static let defaultBottomContentClearance: CGFloat = 52 + bottomContentSpacing
-
-    static func bottomContentClearance(
-        composerHeight: CGFloat,
-        bottomGap: CGFloat
-    ) -> CGFloat {
-        max(
-            defaultBottomContentClearance,
-            composerHeight + max(bottomGap, 0) + bottomContentSpacing
-        )
-    }
-
-    static func shouldExpand(
-        hasText: Bool,
-        containsExplicitLineBreak: Bool,
-        hasMarkedText: Bool,
-        compactMeasuredHeight: CGFloat,
-        compactTextHeight: CGFloat,
-        editingMessage: Bool,
-        wasExpanded: Bool
-    ) -> Bool {
-        if editingMessage {
-            return true
-        }
-        guard hasText else { return false }
-        if containsExplicitLineBreak {
-            return true
-        }
-        if hasMarkedText, wasExpanded {
-            return true
-        }
-        return ceil(compactMeasuredHeight) > ceil(compactTextHeight)
-    }
-}
-
-struct ConversationKeyboardLayoutPolicy {
-    static func keyboardIsFullyDismissed(
-        keyboardTop: CGFloat,
-        viewportBottom: CGFloat
-    ) -> Bool {
-        keyboardTop >= viewportBottom - 1
     }
 }
 
@@ -2529,7 +2433,7 @@ private struct ChatScrollSurface<Content: View>: View {
         ScrollView(showsIndicators: false) {
             content
         }
-        .defaultScrollAnchor(.bottom, for: .alignment)
+        .defaultScrollAnchor(.top, for: .alignment)
         .defaultScrollAnchor(sizeChangeAnchor, for: .sizeChanges)
         .contentMargins(.bottom, bottomContentClearance, for: .scrollContent)
         .scrollPosition($scrollPosition)
@@ -2682,7 +2586,7 @@ private struct AthenaChatMessageRow: View {
         Group {
             switch snapshot.message.role {
             case .user:
-                TrailingMessageRail(maximumContentFraction: 0.78, minimumContentWidth: 220) {
+                TrailingMessageRail(maximumContentFraction: 0.78) {
                     MockUserMessageBubble(
                         message: snapshot.message,
                         onEdit: onEditUserMessage
@@ -2778,10 +2682,23 @@ private struct MockUserMessageBubble: View {
 
 private struct TrailingMessageRail: Layout {
     let maximumContentFraction: CGFloat
-    let minimumContentWidth: CGFloat
 
-    private func contentWidth(for rowWidth: CGFloat) -> CGFloat {
-        min(rowWidth, max(rowWidth * maximumContentFraction, minimumContentWidth))
+    private func childSize(
+        for subview: LayoutSubview,
+        rowWidth: CGFloat
+    ) -> CGSize {
+        let maximumWidth = UserMessageBubbleWidthPolicy.maximumWidth(
+            rowWidth: rowWidth,
+            maximumContentFraction: maximumContentFraction
+        )
+        let idealSize = subview.sizeThatFits(.unspecified)
+        let fittedWidth = UserMessageBubbleWidthPolicy.fittedWidth(
+            idealWidth: idealSize.width,
+            maximumWidth: maximumWidth
+        )
+        return subview.sizeThatFits(
+            ProposedViewSize(width: fittedWidth, height: nil)
+        )
     }
 
     func sizeThatFits(
@@ -2794,12 +2711,7 @@ private struct TrailingMessageRail: Layout {
         }
 
         let rowWidth = max(proposal.width ?? 0, 0)
-        let childSize = subview.sizeThatFits(
-            ProposedViewSize(
-                width: contentWidth(for: rowWidth),
-                height: nil
-            )
-        )
+        let childSize = childSize(for: subview, rowWidth: rowWidth)
         return CGSize(width: rowWidth, height: childSize.height)
     }
 
@@ -2813,12 +2725,7 @@ private struct TrailingMessageRail: Layout {
             return
         }
 
-        let childSize = subview.sizeThatFits(
-            ProposedViewSize(
-                width: contentWidth(for: bounds.width),
-                height: nil
-            )
-        )
+        let childSize = childSize(for: subview, rowWidth: bounds.width)
         subview.place(
             at: CGPoint(x: bounds.maxX, y: bounds.minY),
             anchor: .topTrailing,

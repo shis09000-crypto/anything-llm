@@ -127,8 +127,7 @@ const DocumentSyncQueue = {
       );
       return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("documentSyncQueue.unwatch", error);
     }
   },
 

@@ -201,6 +201,34 @@ describe("script runtime bootstrap", () => {
     expect(fs.existsSync(expected)).toBe(false);
   });
 
+  test("read-only bootstrap freezes SQLite access without touching the database", async () => {
+    const serverRoot = fixtureRoot();
+    roots.push(serverRoot);
+    const database = path.join(
+      serverRoot,
+      "storage",
+      "development",
+      "anythingllm.db"
+    );
+    await sqliteDatabase(database, ["sync_nodes"]);
+    const before = fs.statSync(database);
+    const env = { APP_ENV: "development" };
+
+    await bootstrapCliRuntime({
+      env,
+      serverRoot,
+      argv: [],
+      access: "read",
+      requiredTables: ["sync_nodes"],
+      announce: false,
+    });
+
+    const after = fs.statSync(database);
+    expect(env.ATHENA_CLI_DATABASE_ACCESS).toBe("read");
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+  });
+
   test("wrong schema is rejected before the application Prisma module loads", async () => {
     const serverRoot = fixtureRoot();
     roots.push(serverRoot);

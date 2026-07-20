@@ -193,6 +193,18 @@ function loadAgentRoutes() {
   jest.doMock("../../utils/security/transportSecurity", () => ({
     ensureSecureWebSocketRequest: jest.fn(() => true),
   }));
+  jest.doMock("../../utils/authz/realtimePrincipal", () => ({
+    authenticateRealtimeRequest: jest.fn(async ({ request }) => {
+      const principal = {
+        user: { id: 10 },
+        claims: { id: 10, sid: "session-p0-test" },
+        clientContext: { clientId: "p0-test-client", platform: "web" },
+      };
+      request.realtimePrincipal = principal;
+      return principal;
+    }),
+    monitorRealtimePrincipal: jest.fn(() => jest.fn()),
+  }));
 
   const app = captureApp();
   const { agentWebsocket } = require("../../endpoints/agentWebsocket");

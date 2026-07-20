@@ -212,7 +212,8 @@ describe("request signing", () => {
 
   afterAll(() => {
     process.env.NODE_ENV = originalNodeEnv;
-    if (originalWarnOnly === undefined) delete process.env.ATHENA_SIGNING_WARN_ONLY;
+    if (originalWarnOnly === undefined)
+      delete process.env.ATHENA_SIGNING_WARN_ONLY;
     else process.env.ATHENA_SIGNING_WARN_ONLY = originalWarnOnly;
     if (originalRequireSigned === undefined)
       delete process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
@@ -271,6 +272,57 @@ describe("request signing", () => {
     expect(mockNonceCreate).toHaveBeenCalledTimes(1);
   });
 
+  it("accepts a pending device key only on the rotation commit route", async () => {
+    const body = JSON.stringify({ publicKey: "pending" });
+    const path = "/api/client-identity/device-key-rotation/commit";
+    const headers = deviceSignedHeaders({ body, path });
+    mockFindFirst.mockResolvedValue({
+      id: 1,
+      clientId: "client_abc",
+      userId: 10,
+      publicKey: JSON.stringify({
+        kty: "EC",
+        crv: "P-256",
+        x: "old",
+        y: "old",
+      }),
+      pendingPublicKey: headers["X-Athena-Device-Public-Key"],
+      pendingDeviceKeyAlgorithm: "p256-v1",
+      pendingDeviceKeyExpiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    });
+    await expect(
+      verifySignedRequest(requestDouble({ body, path, headers }))
+    ).resolves.toMatchObject({ ok: true });
+
+    const otherPath = "/api/workspace/demo/tool-approval";
+    const otherHeaders = deviceSignedHeaders({
+      body,
+      path: otherPath,
+      nonce: "pending-other-route",
+    });
+    mockFindFirst.mockResolvedValue({
+      id: 1,
+      clientId: "client_abc",
+      userId: 10,
+      publicKey: JSON.stringify({
+        kty: "EC",
+        crv: "P-256",
+        x: "old",
+        y: "old",
+      }),
+      pendingPublicKey: otherHeaders["X-Athena-Device-Public-Key"],
+      pendingDeviceKeyAlgorithm: "p256-v1",
+      pendingDeviceKeyExpiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    });
+    await expect(
+      verifySignedRequest(
+        requestDouble({ body, path: otherPath, headers: otherHeaders })
+      )
+    ).resolves.toMatchObject({ ok: false, reasonCode: "device_key_mismatch" });
+  });
+
   it("rejects body tampering, expired timestamps, replay, mismatch, and missing signature", async () => {
     const headers = signedHeaders({ body: JSON.stringify({ ok: true }) });
     await expect(
@@ -305,7 +357,9 @@ describe("request signing", () => {
       )
     ).resolves.toMatchObject({ ok: false, reasonCode: "client_mismatch" });
 
-    await expect(verifySignedRequest(requestDouble({ headers: {} }))).resolves.toMatchObject({
+    await expect(
+      verifySignedRequest(requestDouble({ headers: {} }))
+    ).resolves.toMatchObject({
       ok: false,
       reasonCode: "missing_signature",
     });
@@ -607,11 +661,18 @@ describe("request signing", () => {
     });
     expect(result.count).toBe(2);
     expect(result.currentClient.secret).toBeTruthy();
-    expect(result.clients.find((client) => client.client.clientId === "client_other").secret).toBeNull();
+    expect(
+      result.clients.find((client) => client.client.clientId === "client_other")
+        .secret
+    ).toBeNull();
   });
 
   it("verifies websocket signed envelopes and exposes only inner payload", async () => {
-    const payload = { type: "toolApprovalResponse", requestId: "r1", approved: true };
+    const payload = {
+      type: "toolApprovalResponse",
+      requestId: "r1",
+      approved: true,
+    };
     const body = JSON.stringify(payload);
     const path = "/api/agent-invocation/uuid";
     const headers = signedHeaders({
@@ -647,7 +708,11 @@ describe("request signing", () => {
   });
 
   it("verifies websocket envelopes against stable path when connection has query params", async () => {
-    const payload = { type: "clarificationResponse", requestId: "r2", answers: [] };
+    const payload = {
+      type: "clarificationResponse",
+      requestId: "r2",
+      answers: [],
+    };
     const body = JSON.stringify(payload);
     const signedPath = "/api/agent-invocation/uuid";
     const requestPath =
@@ -685,7 +750,11 @@ describe("request signing", () => {
   });
 
   it("temporarily accepts legacy websocket envelopes signed with query params", async () => {
-    const payload = { type: "clarificationResponse", requestId: "r3", answers: [] };
+    const payload = {
+      type: "clarificationResponse",
+      requestId: "r3",
+      answers: [],
+    };
     const body = JSON.stringify(payload);
     const path = "/api/agent-invocation/uuid?token=token&resume=1";
     const headers = signedHeaders({

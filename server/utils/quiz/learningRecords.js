@@ -2,6 +2,9 @@ const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const QuizData = lazyDataAccessFacade("quiz");
 const quizDb = QuizData.db;
 const { safeJsonParse } = require("../http");
+const {
+  ensureMigrationOwnedTables,
+} = require("../database/schemaIntrospection");
 
 let tablesReady = false;
 
@@ -29,6 +32,21 @@ async function ensureColumn(tableName, columnName, definition) {
 
 async function ensureQuizLearningTables() {
   if (tablesReady) return;
+  if (
+    await ensureMigrationOwnedTables(
+      quizDb,
+      [
+        "workspace_quiz_attempts",
+        "workspace_quiz_question_results",
+        "workspace_quiz_wrong_questions",
+        "workspace_quiz_favorite_questions",
+      ],
+      { context: "quiz-learning-records" }
+    )
+  ) {
+    tablesReady = true;
+    return;
+  }
   await quizDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_quiz_attempts" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

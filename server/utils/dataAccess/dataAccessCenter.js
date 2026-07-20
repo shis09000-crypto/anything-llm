@@ -1903,6 +1903,9 @@ const adminSystem = {
   get authSession() {
     return repositoryObject("adminSystem").authSession;
   },
+  get realtimeTicket() {
+    return repositoryObject("adminSystem").realtimeTicket;
+  },
   get browserExtensionApiKey() {
     return repositoryObject("adminSystem").browserExtensionApiKey;
   },

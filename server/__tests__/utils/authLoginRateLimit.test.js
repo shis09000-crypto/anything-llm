@@ -49,7 +49,7 @@ describe("authLoginRateLimit", () => {
     );
   });
 
-  it("performs a fixed-cost dummy bcrypt comparison", async () => {
+  it("performs a fixed-cost dummy Argon2id comparison", async () => {
     await expect(dummyPasswordCompare("unknown-password")).resolves.toBe(false);
   });
 });

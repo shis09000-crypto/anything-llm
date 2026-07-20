@@ -1,5 +1,8 @@
 const { v4: uuidv4 } = require("uuid");
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 const { SENSITIVE_FIELD_KEY } = require("../utils/dataAccess/dataAccessPolicy");
 
@@ -7,6 +10,7 @@ const CATALOG_TABLE = "reader_book_catalog";
 const ITEM_TABLE = "reader_library_items";
 const CATEGORY_TABLE = "reader_library_categories";
 const UNKNOWN_CATEGORY_ID = "unknown";
+let tablesReady = false;
 function stringify(value, fallback = {}) {
   try {
     return JSON.stringify(value ?? fallback);
@@ -211,6 +215,17 @@ const ReaderLibraryRepository = {
   catalogKey,
 
   ensureTable: async function () {
+    if (tablesReady) return;
+    if (
+      await ensureMigrationOwnedTables(
+        prisma,
+        [CATALOG_TABLE, ITEM_TABLE, CATEGORY_TABLE],
+        { context: "reader-library" }
+      )
+    ) {
+      tablesReady = true;
+      return;
+    }
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "${CATALOG_TABLE}" (
         "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -310,6 +325,7 @@ const ReaderLibraryRepository = {
     await prisma.$executeRawUnsafe(
       `CREATE INDEX IF NOT EXISTS "reader_library_categories_userId_idx" ON "${CATEGORY_TABLE}"("userId")`
     );
+    tablesReady = true;
   },
 
   upsertCatalog: async function ({

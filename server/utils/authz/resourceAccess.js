@@ -101,6 +101,14 @@ async function requestAuthContext({
   response = null,
   token = null,
 } = {}) {
+  if (request?.realtimePrincipal) {
+    const principal = request.realtimePrincipal;
+    return {
+      multiUser: !!principal.multiUser,
+      user: principal.user || null,
+      authenticated: principal.multiUser ? !!principal.user : true,
+    };
+  }
   if (isCodexDevAuthBypassEnabled(request)) {
     return {
       multiUser: false,

@@ -41,6 +41,7 @@ async function runSecurityAuditMaintenance() {
         throw error;
       }
       state.lastArchive = await exportSecurityAuditArchive();
+      metrics.securityAuditArchiveHealthy.set(1);
     }
     state.lastError = null;
     state.consecutiveFailures = 0;
@@ -50,6 +51,8 @@ async function runSecurityAuditMaintenance() {
       state.lastError =
         error?.code || error?.message || "audit_maintenance_failed";
       state.consecutiveFailures += 1;
+      metrics.securityAuditArchiveHealthy.set(0);
+      metrics.securityAuditEvents.inc({ outcome: "maintenance_failure" });
       throw error;
     })
     .finally(() => {

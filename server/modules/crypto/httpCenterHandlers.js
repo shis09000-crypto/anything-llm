@@ -1,5 +1,5 @@
 const { DataAccessCenter } = require("../../utils/dataAccess");
-const { decodeJWT, reqBody, safeJsonParse } = require("../../utils/http");
+const { reqBody, safeJsonParse } = require("../../utils/http");
 const {
   flexUserRoleValid,
   ROLES,
@@ -14,6 +14,10 @@ const {
   ensureSecureWebSocketRequest,
 } = require("../../utils/security/transportSecurity");
 const { recordClientTrustCheckpoint } = require("../../utils/clientIdentity");
+const {
+  authenticateRealtimeRequest,
+  monitorRealtimePrincipal,
+} = require("../../utils/authz/realtimePrincipal");
 
 const CRYPTO_COMPONENT_EXPERIMENT_CONFIG_KEY =
   "anythingllm_crypto_trading_pair_detail_config_v1";
@@ -23,7 +27,6 @@ const OPEN_FUTURES_POSITIONS_CONFIG_KEY =
   "anythingllm_crypto_open_futures_positions_config_v1";
 const TRADE_RECORDS_CONFIG_KEY = "anythingllm_crypto_trade_records_config_v1";
 const CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER = "x-crypto-center-dev-auth-bypass";
-const User = DataAccessCenter.user;
 
 function isCryptoCenterDevAuthBypassEnabled(request) {
   if (process.env.NODE_ENV === "production") return false;
@@ -77,21 +80,13 @@ function recordCryptoConfigCheckpoint(request, action, kind) {
 
 async function isCryptoSocketAuthorized(request) {
   if (isCryptoCenterDevAuthBypassEnabled(request)) return true;
-
-  const multiUserMode = await DataAccessCenter.adminSystem.isMultiUserMode();
-  if (!multiUserMode) return true;
-
-  const rawToken =
-    request.query?.token ||
-    request.headers?.authorization?.replace(/^Bearer\s+/i, "");
-  const token = rawToken ? decodeURIComponent(String(rawToken)) : null;
-  if (!token) return false;
-
-  const valid = decodeJWT(token);
-  if (!valid?.id) return false;
-
-  const user = await User.get({ id: valid.id });
-  return canAccessAdmin(user) && !user?.suspended;
+  const principal = await authenticateRealtimeRequest({
+    request,
+    purpose: "crypto",
+    authoritative: true,
+  });
+  if (!principal.multiUser) return true;
+  return canAccessAdmin(principal.user) && !principal.user?.suspended;
 }
 
 function cryptoCenterEndpoints(app) {
@@ -469,9 +464,10 @@ function cryptoCenterEndpoints(app) {
     try {
       const authorized = await isCryptoSocketAuthorized(request);
       if (!authorized) {
-        socket.close();
+        socket.close(1008, "auth_required");
         return;
       }
+      monitorRealtimePrincipal({ request, socket });
 
       const range = request.query?.range || "24h";
       const snapshot = cryptoCenterSnapshot(range);

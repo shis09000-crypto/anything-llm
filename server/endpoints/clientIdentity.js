@@ -6,6 +6,8 @@ const {
   recordClientTrustCheckpoint,
   revokeAllOtherClients,
   revokeClient,
+  commitClientDeviceKeyRotation,
+  prepareClientDeviceKeyRotation,
 } = require("../utils/clientIdentity");
 const {
   CLIENT_REVOKED_ERROR,
@@ -13,6 +15,8 @@ const {
   ensureClientSigningSecret,
   rotateAllSigningSecrets,
   rotateSigningSecret,
+  canonicalPublicKey,
+  normalizeDeviceKeyAlgorithm,
 } = require("../utils/requestSigning");
 const { publishBroadcastEvent } = require("../utils/broadcast");
 
@@ -68,6 +72,122 @@ function clientIdentityEndpoints(app) {
         signingSecretVersion: secret.signingSecretVersion || null,
         issuedAt: secret.issuedAt || null,
         rotatedAt: secret.rotatedAt || null,
+      });
+    }
+  );
+
+  app.post(
+    "/client-identity/device-key-rotation/prepare",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (!context?.userId || context.legacy) {
+        return response
+          .status(401)
+          .json({ success: false, error: "client_identity_required" });
+      }
+      const body = reqBody(request);
+      const publicKey = canonicalPublicKey(body.publicKey);
+      const deviceKeyAlgorithm = normalizeDeviceKeyAlgorithm(
+        body.deviceKeyAlgorithm
+      );
+      if (!publicKey || !deviceKeyAlgorithm) {
+        return response.status(400).json({
+          success: false,
+          error: "invalid_device_public_key",
+        });
+      }
+      const result = await prepareClientDeviceKeyRotation({
+        userId: context.userId,
+        clientId: context.clientId,
+        publicKey,
+        deviceKeyAlgorithm,
+      });
+      if (!result) {
+        return response
+          .status(404)
+          .json({ success: false, error: "client_not_found" });
+      }
+      await recordClientTrustCheckpoint(request, {
+        action: "client_device_key_rotation_prepared",
+        resourceType: "athena_client",
+        resourceId: context.clientId,
+        outcome: result.prepared ? "prepared" : "already_current",
+        metadata: {
+          result: result.prepared ? "prepared" : "already_current",
+          deviceKeyAlgorithm,
+        },
+      });
+      return response.status(200).json({
+        success: true,
+        rotated: false,
+        prepared: result.prepared,
+        deviceKeyAlgorithm,
+      });
+    }
+  );
+
+  app.post(
+    "/client-identity/device-key-rotation/commit",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (!context?.userId || context.legacy) {
+        return response
+          .status(401)
+          .json({ success: false, error: "client_identity_required" });
+      }
+      const body = reqBody(request);
+      const publicKey = canonicalPublicKey(body.publicKey);
+      const deviceKeyAlgorithm = normalizeDeviceKeyAlgorithm(
+        body.deviceKeyAlgorithm
+      );
+      if (!publicKey || !deviceKeyAlgorithm) {
+        return response.status(400).json({
+          success: false,
+          error: "invalid_device_public_key",
+        });
+      }
+      const result = await commitClientDeviceKeyRotation({
+        userId: context.userId,
+        clientId: context.clientId,
+        publicKey,
+        deviceKeyAlgorithm,
+      });
+      if (!result) {
+        return response
+          .status(404)
+          .json({ success: false, error: "client_not_found" });
+      }
+      if (result.pendingMismatch) {
+        return response.status(409).json({
+          success: false,
+          error: "device_key_rotation_not_prepared",
+        });
+      }
+      await recordClientTrustCheckpoint(request, {
+        action: "client_device_key_rotated",
+        resourceType: "athena_client",
+        resourceId: context.clientId,
+        outcome: result.rotated ? "rotated" : "already_current",
+        metadata: {
+          result: result.rotated ? "rotated" : "already_current",
+          deviceKeyAlgorithm,
+        },
+      });
+      publishBroadcastEvent({
+        namespace: "client",
+        type: "deviceKeyRotated",
+        eventPriority: "critical",
+        visibility: "client",
+        scope: { userId: context.userId, clientId: context.clientId },
+        sourceClientId: context.clientId,
+        payload: { clientId: context.clientId, deviceKeyAlgorithm },
+      });
+      return response.status(200).json({
+        success: true,
+        rotated: result.rotated,
+        deviceKeyAlgorithm,
       });
     }
   );

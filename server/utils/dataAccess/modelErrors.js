@@ -15,6 +15,7 @@ function modelDataAccessError(operation, cause, context = {}) {
 }
 
 function throwModelDataAccessError(operation, cause, context = {}) {
+  if (cause instanceof ModelDataAccessError) throw cause;
   const error = modelDataAccessError(operation, cause, context);
   console.error("[ModelDataAccess] database operation failed", {
     operation: error.operation,

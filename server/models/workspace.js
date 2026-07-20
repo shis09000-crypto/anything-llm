@@ -909,8 +909,7 @@ const Workspace = {
       const results = await PromptHistory.forWorkspace(workspaceId);
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("workspace.promptHistory", error);
     }
   },
 
@@ -924,8 +923,7 @@ const Workspace = {
     try {
       return await PromptHistory.delete({ workspaceId });
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspace.deleteAllPromptHistory", error);
     }
   },
 
@@ -940,8 +938,7 @@ const Workspace = {
     try {
       return await PromptHistory.delete({ id, workspaceId });
     } catch (error) {
-      console.error(error.message);
-      return false;
+      throwModelDataAccessError("workspace.deletePromptHistory", error);
     }
   },
 

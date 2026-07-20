@@ -57,6 +57,8 @@ jobs:
           yarn --cwd server p0:db-audit
           yarn --cwd server key-custody:audit
           yarn --cwd server data-access:enforce
+          yarn --cwd server data-security:audit
+          yarn --cwd server security:drill
           yarn check:maintainability
           node scripts/p0-supply-chain-gate.js
       - name: Lint and frontend build

@@ -125,8 +125,7 @@ const EventLogs = {
 
       return results;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("eventLogs.whereWithData", error);
     }
   },
 

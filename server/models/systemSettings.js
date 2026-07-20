@@ -73,11 +73,7 @@ function setSecretField(target, source, fieldName) {
 }
 
 function secretEncryptionConfigured() {
-  try {
-    return Boolean(resolveActiveKey());
-  } catch {
-    return false;
-  }
+  return Boolean(resolveActiveKey());
 }
 
 function encryptSettingSecret(value = null) {
@@ -875,12 +871,7 @@ const SystemSettings = {
   },
 
   getValueOrFallback: async function (clause = {}, fallback = null) {
-    try {
-      return (await this.get(clause))?.value ?? fallback;
-    } catch (error) {
-      console.error(error.message);
-      return fallback;
-    }
+    return (await this.get(clause))?.value ?? fallback;
   },
 
   where: async function (clause = {}, limit) {
@@ -963,69 +954,52 @@ const SystemSettings = {
   },
 
   isMultiUserMode: async function () {
-    try {
-      const setting = await this.get({ label: "multi_user_mode" });
-      return setting?.value === "true";
-    } catch (error) {
-      console.error(error.message);
-      return false;
-    }
+    const setting = await this.get({ label: "multi_user_mode" });
+    return setting?.value === "true";
   },
 
   allowPublicRegistration: async function () {
     if (process.env.ALLOW_PUBLIC_REGISTRATION === "true") return true;
     if (process.env.ALLOW_PUBLIC_REGISTRATION === "false") return false;
 
-    try {
-      const setting = await this.get({ label: "allow_public_registration" });
-      return setting?.value === "true";
-    } catch (error) {
-      console.error(error.message);
-      return false;
-    }
+    const setting = await this.get({ label: "allow_public_registration" });
+    return setting?.value === "true";
   },
 
   isOnboardingComplete: async function () {
-    try {
-      const setting = await this.get({ label: "onboarding_complete" });
-      return setting?.value === "true";
-    } catch (error) {
-      console.error(error.message);
-      return false;
-    }
+    const setting = await this.get({ label: "onboarding_complete" });
+    return setting?.value === "true";
   },
 
   markOnboardingComplete: async function () {
+    const result = await this._updateSettings({ onboarding_complete: true });
+    if (!result.success) {
+      throwModelDataAccessError(
+        "systemSettings.markOnboardingComplete",
+        new Error(result.error || "database_operation_failed")
+      );
+    }
+
     try {
-      await this._updateSettings({ onboarding_complete: true });
       const { Telemetry } = require("./telemetry");
       await Telemetry.sendTelemetry("onboarding_complete");
-      return true;
     } catch (error) {
-      console.error(error.message);
-      return false;
+      console.warn("Failed to send onboarding telemetry", {
+        code: error?.code || error?.name || "telemetry_error",
+      });
     }
+    return true;
   },
 
   currentLogoFilename: async function () {
-    try {
-      const setting = await this.get({ label: "logo_filename" });
-      return setting?.value || null;
-    } catch (error) {
-      console.error(error.message);
-      return null;
-    }
+    const setting = await this.get({ label: "logo_filename" });
+    return setting?.value || null;
   },
 
   hasEmbeddings: async function () {
-    try {
-      const { Document } = require("./documents");
-      const count = await Document.count({}, 1);
-      return count > 0;
-    } catch (error) {
-      console.error(error.message);
-      return false;
-    }
+    const { Document } = require("./documents");
+    const count = await Document.count({}, 1);
+    return count > 0;
   },
 
   vectorDBPreferenceKeys: function () {
@@ -1311,13 +1285,8 @@ const SystemSettings = {
    * @returns {Promise<{connectionKey: string}>}
    */
   hubSettings: async function () {
-    try {
-      const hubKey = await this.get({ label: "hub_api_key" });
-      return { connectionKey: readSecret(hubKey?.value) || null };
-    } catch (error) {
-      console.error(error.message);
-      return { connectionKey: null };
-    }
+    const hubKey = await this.get({ label: "hub_api_key" });
+    return { connectionKey: readSecret(hubKey?.value) || null };
   },
 
   simpleSSO: {

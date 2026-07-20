@@ -2,6 +2,7 @@ jest.mock("../../utils/authPrisma", () => ({
   invites: {
     create: jest.fn(),
     findFirst: jest.fn(),
+    findMany: jest.fn(),
   },
 }));
 
@@ -113,6 +114,17 @@ describe("secure invite model", () => {
     });
     expect(authPrisma.invites.findFirst).toHaveBeenLastCalledWith({
       where: { code: "legacy-token", tokenHash: null },
+    });
+  });
+
+  it("does not report an empty invite list when the auth database is unavailable", async () => {
+    authPrisma.invites.findMany.mockRejectedValueOnce(
+      new Error("auth database offline")
+    );
+
+    await expect(Invite.whereWithUsers({})).rejects.toMatchObject({
+      code: "database_operation_failed",
+      operation: "invite.where",
     });
   });
 });

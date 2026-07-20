@@ -10,7 +10,7 @@ const { CommunicationKey } = require("../utils/comKey");
 // property so that if can be used to encrypt/decrypt arbitrary data via response object.
 // eg: Encrypting API keys in chunk sources.
 
-// The way this functions is that the rolling RSA Communication Key is used server-side to private-key encrypt the raw
+// The persisted RSA Communication Key is used server-side to private-key encrypt the raw
 // key of the persistent EncryptionManager credentials. Since EncryptionManager credentials do _not_ roll, we should not send them
 // even between server<>collector in plaintext because if the user configured the server/collector to be public they could technically
 // be exposing the key in transit via the X-Payload-Signer header. Even if this risk is minimal we should not do this.

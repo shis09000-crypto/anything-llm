@@ -2,6 +2,9 @@ const { WorkspaceThread } = require("../models/workspaceThread");
 const { createModelRepository } = require("./createModelRepository");
 const prisma = require("../utils/prisma");
 const {
+  databaseTableColumns,
+} = require("../utils/database/schemaIntrospection");
+const {
   throwModelDataAccessError,
 } = require("../utils/dataAccess/modelErrors");
 
@@ -126,10 +129,7 @@ WorkspaceThreadRepository.titleMetadataSchemaReady = async function (
     return { ready: false, prismaReady, dbReady: false };
   }
 
-  const columns = await prisma.$queryRawUnsafe(
-    'PRAGMA table_info("workspace_threads")'
-  );
-  const columnNames = new Set(columns.map((column) => column.name));
+  const columnNames = await databaseTableColumns(prisma, "workspace_threads");
   const dbReady = requiredFields.every((field) => columnNames.has(field));
 
   return { ready: prismaReady && dbReady, prismaReady, dbReady };

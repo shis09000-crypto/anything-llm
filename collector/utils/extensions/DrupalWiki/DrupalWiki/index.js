@@ -18,10 +18,7 @@ const { default: slugify } = require("slugify");
 const path = require("path");
 const fs = require("fs");
 const { processSingleFile } = require("../../../../processSingleFile");
-const {
-  WATCH_DIRECTORY,
-  SUPPORTED_FILETYPE_CONVERTERS,
-} = require("../../../constants");
+const { SUPPORTED_FILETYPE_CONVERTERS } = require("../../../constants");
 const {
   readResponseBufferLimited,
   readResponseJsonLimited,
@@ -325,20 +322,30 @@ class DrupalWiki {
           attachmentResponse,
           MAX_CONNECTOR_FILE_BYTES
         );
+        const { currentTaskDirectory } = require("../../../../taskContext");
+        const taskDirectory = currentTaskDirectory();
+        if (!taskDirectory) {
+          console.error("[DrupalWiki Loader]: Task isolation is unavailable.");
+          continue;
+        }
+        const safeFileName = path.basename(sanitizeFileName(fileName));
         const localFilePath = normalizePath(
-          sanitizeFileName(path.resolve(WATCH_DIRECTORY, fileName))
+          path.resolve(taskDirectory, safeFileName)
         );
-        if (!isWithin(path.resolve(WATCH_DIRECTORY), localFilePath)) {
+        if (!isWithin(path.resolve(taskDirectory), localFilePath)) {
           console.error(
-            `[DrupalWiki Loader]: File name ${localFilePath} is not within the storage path ${path.resolve(
-              WATCH_DIRECTORY
-            )}`
+            "[DrupalWiki Loader]: Attachment path left the isolated task directory."
           );
           continue;
         }
 
-        require("fs").writeFileSync(localFilePath, buffer);
-        await processSingleFile(localFilePath);
+        require("fs").writeFileSync(localFilePath, buffer, {
+          flag: "wx",
+          mode: 0o600,
+        });
+        await processSingleFile(safeFileName, {
+          internalSourcePath: localFilePath,
+        });
       }
     } catch (err) {
       console.error(`Fetching/processing attachments failed:`, err);

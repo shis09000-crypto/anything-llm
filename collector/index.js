@@ -8,7 +8,6 @@ applyEnvironmentStorage();
 
 require("./utils/logger")();
 const express = require("express");
-const cors = require("cors");
 const path = require("path");
 const { ACCEPTED_MIMES } = require("./utils/constants");
 const { reqBody } = require("./utils/http");
@@ -41,7 +40,6 @@ if (
     })
   );
 }
-app.use(cors({ origin: true }));
 app.use((request, response, next) => {
   if (!isCollectorProcessingRoute(request)) return next();
   return collectorTaskGuard(request, response, next);
@@ -52,27 +50,32 @@ app.post(
   "/process",
   [verifyPayloadIntegrity],
   async function (request, response) {
-    const { filename, options = {}, metadata = {} } = reqBody(request);
+    const { uploadId, options = {}, metadata = {} } = reqBody(request);
     try {
-      const targetFilename = path
-        .normalize(filename)
-        .replace(/^(\.\.(\/|\\|$))+/, "");
+      const targetFilename = safeUploadId(uploadId);
+      const safeOptions = { ...options };
+      delete safeOptions.internalSourcePath;
       const {
         success,
         reason,
         documents = [],
-      } = await processSingleFile(targetFilename, options, metadata);
+      } = await processSingleFile(targetFilename, safeOptions, metadata);
       response
         .status(200)
-        .json({ filename: targetFilename, success, reason, documents });
+        .json({ uploadId: targetFilename, success, reason, documents });
     } catch (e) {
       console.error(e);
-      response.status(200).json({
-        filename: filename,
-        success: false,
-        reason: "A processing error occurred.",
-        documents: [],
-      });
+      response
+        .status(e?.code === "collector_invalid_upload_handle" ? 400 : 200)
+        .json({
+          uploadId: null,
+          success: false,
+          reason:
+            e?.code === "collector_invalid_upload_handle"
+              ? e.code
+              : "A processing error occurred.",
+          documents: [],
+        });
     }
     return;
   }
@@ -82,11 +85,11 @@ app.post(
   "/parse",
   [verifyPayloadIntegrity],
   async function (request, response) {
-    const { filename, options = {} } = reqBody(request);
+    const { uploadId, options = {} } = reqBody(request);
     try {
-      const targetFilename = path
-        .normalize(filename)
-        .replace(/^(\.\.(\/|\\|$))+/, "");
+      const targetFilename = safeUploadId(uploadId);
+      const safeOptions = { ...options };
+      delete safeOptions.internalSourcePath;
       const {
         success,
         reason,
@@ -94,9 +97,8 @@ app.post(
       } = await processSingleFile(
         targetFilename,
         {
-          ...options,
+          ...safeOptions,
           parseOnly: true,
-          absolutePath: options.absolutePath || null,
         },
         {
           title: options.displayName || path.basename(targetFilename),
@@ -104,15 +106,20 @@ app.post(
       );
       response
         .status(200)
-        .json({ filename: targetFilename, success, reason, documents });
+        .json({ uploadId: targetFilename, success, reason, documents });
     } catch (e) {
       console.error(e);
-      response.status(200).json({
-        filename: filename,
-        success: false,
-        reason: "A processing error occurred.",
-        documents: [],
-      });
+      response
+        .status(e?.code === "collector_invalid_upload_handle" ? 400 : 200)
+        .json({
+          uploadId: null,
+          success: false,
+          reason:
+            e?.code === "collector_invalid_upload_handle"
+              ? e.code
+              : "A processing error occurred.",
+          documents: [],
+        });
     }
     return;
   }
@@ -230,12 +237,15 @@ app.use((error, _request, response, _next) => {
 async function start() {
   await assertCollectorRuntimeSecurity();
   await wipeCollectorStorage();
-  httpServer = app.listen(process.env.COLLECTOR_PORT || 8888, () => {
+  const bindHost =
+    process.env.COLLECTOR_BIND_HOST ||
+    (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
+  httpServer = app.listen(process.env.COLLECTOR_PORT || 8888, bindHost, () => {
     ready = true;
     console.log(
       `Document processor app listening on port ${
         process.env.COLLECTOR_PORT || 8888
-      }`
+      } on ${bindHost}`
     );
   });
   httpServer.on("error", function (_) {
@@ -246,6 +256,21 @@ async function start() {
       process.kill(process.pid, "SIGINT");
     });
   });
+}
+
+function safeUploadId(value) {
+  const uploadId = String(value || "").trim();
+  if (
+    !uploadId ||
+    uploadId.length > 255 ||
+    path.basename(uploadId) !== uploadId ||
+    !/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(uploadId)
+  ) {
+    const error = new Error("collector_invalid_upload_handle");
+    error.code = "collector_invalid_upload_handle";
+    throw error;
+  }
+  return uploadId;
 }
 
 async function shutdown(signal) {

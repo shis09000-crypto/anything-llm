@@ -149,6 +149,10 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     },
     {
       methods: ["POST"],
+      pattern: /^\/client-identity\/device-key-rotation\/(?:prepare|commit)$/,
+    },
+    {
+      methods: ["POST"],
       pattern: /^\/agent-invocation\/[^/]+\/clarification-response$/,
     },
     {

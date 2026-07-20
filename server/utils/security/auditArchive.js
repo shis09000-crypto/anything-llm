@@ -8,6 +8,7 @@ const {
 } = require("../../providers/storage/contentObjectProvider");
 const { contentStoreProvider } = require("../contentObjects/policy");
 const { canonicalJson } = require("../syncV2/canonicalJson");
+const { publishSecurityArchiveNotice } = require("./securitySiemSink");
 
 function securityAuditArchiveEnabled(env = process.env) {
   return (
@@ -131,6 +132,19 @@ async function exportSecurityAuditArchive() {
     objectKey,
     body: payload,
     ciphertextSha256: payloadHash,
+    retentionDays:
+      Number(process.env.ATHENA_SECURITY_AUDIT_OBJECT_LOCK_DAYS || 0) || null,
+  });
+  await publishSecurityArchiveNotice({
+    format: "athena-security-audit-notice-v1",
+    chainId: checkpoint.chainId,
+    throughSequence: checkpoint.throughSequence,
+    throughHash: checkpoint.throughHash,
+    objectKey,
+    provider: providerName,
+    payloadSha256: payloadHash,
+    entryCount: entries.length,
+    createdAt: new Date().toISOString(),
   });
   const nextState = {
     throughSequence: checkpoint.throughSequence,

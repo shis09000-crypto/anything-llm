@@ -132,8 +132,7 @@ const ApiKey = {
 
       return apiKeys;
     } catch (error) {
-      console.error("FAILED TO GET API KEYS WITH USER.", error.message);
-      return [];
+      throwModelDataAccessError("apiKeys.whereWithUser", error);
     }
   },
 };

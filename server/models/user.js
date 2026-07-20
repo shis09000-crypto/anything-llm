@@ -29,6 +29,7 @@ const {
   normalizeRole,
   normalizeStatus,
 } = require("../utils/authz/accountRoles");
+const { hashPassword } = require("../utils/security/passwordCredential");
 
 /**
  * @typedef {Object} User
@@ -203,8 +204,7 @@ const User = {
       // Validate username format (validation function handles all checks)
       const validatedUsername = this.validations.username(username);
 
-      const bcrypt = require("bcryptjs");
-      const hashedPassword = bcrypt.hashSync(password, 10);
+      const hashedPassword = await hashPassword(password);
       const displayName = this.validations.displayName(username);
       const normalizedEmail = email ? AuthIdentity.normalizeEmail(email) : null;
       const normalizedPhone = phone ? AuthIdentity.normalizePhone(phone) : null;
@@ -344,8 +344,7 @@ const User = {
         if (!passwordCheck.checkedOK) {
           return { success: false, error: passwordCheck.error };
         }
-        const bcrypt = require("bcryptjs");
-        updates.password = bcrypt.hashSync(updates.password, 10);
+        updates.password = await hashPassword(updates.password);
       }
 
       const updateFields = Object.keys(updates);

@@ -1,6 +1,5 @@
 import { API_BASE, fullApiUrl } from "@/utils/constants";
 import { assertSecureWebSocketUrl } from "../transportSecurity";
-import { getAuthToken } from "@/utils/authTokenStorage";
 
 export const CRYPTO_CENTER_DEV_AUTH_BYPASS_HEADER =
   "x-crypto-center-dev-auth-bypass";
@@ -52,11 +51,10 @@ function cleanQuery(query = {}) {
   );
 }
 
-export function cryptoCenterStreamUrl(range) {
-  const token = typeof window === "undefined" ? null : getAuthToken();
+export function cryptoCenterStreamUrl(range, realtimeTicket = null) {
   const url = new URL("crypto-center/stream", `${fullApiUrl()}/`);
   url.searchParams.set("range", range);
-  if (token) url.searchParams.set("token", token);
+  if (realtimeTicket) url.searchParams.set("realtimeTicket", realtimeTicket);
   if (cryptoDevBypassActive())
     url.searchParams.set("cryptoCenterAuthBypass", "1");
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";

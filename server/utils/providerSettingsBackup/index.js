@@ -150,11 +150,16 @@ function applyValuesToEnv(values = {}, { overwrite = false } = {}) {
   const skipped = {};
 
   for (const [key, value] of Object.entries(values)) {
+    const normalizedValue = value === null ? "" : String(value);
+    if (process.env[key] === normalizedValue) {
+      skipped[key] = "unchanged";
+      continue;
+    }
     if (!overwrite && isFilled(process.env[key])) {
       skipped[key] = "already_set";
       continue;
     }
-    process.env[key] = value === null ? "" : String(value);
+    process.env[key] = normalizedValue;
     applied[key] = process.env[key];
   }
 

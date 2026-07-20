@@ -1,9 +1,27 @@
 const crypto = require("crypto");
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 const { cachedVectorInformation, fileData } = require("../utils/files");
 
 let tablesReady = false;
+const KNOWLEDGE_GRAPH_TABLES = [
+  "KnowledgeNode",
+  "KnowledgeEdge",
+  "EdgeEvidence",
+  "ConceptChunkMap",
+  "GraphExtractionJob",
+  "GraphRetrievalCache",
+  "GraphLabelTranslationCache",
+  "KnowledgeGraphRepairIssue",
+  "KnowledgeGraphEvidenceUsage",
+  "KnowledgeNodeMetrics",
+  "KnowledgeNodeMetricsSnapshot",
+  "KnowledgeNodeMetricsRecomputeRun",
+  "KnowledgeGraphRepairRun",
+];
 
 function safeJSONStringify(value, fallback = "[]") {
   try {
@@ -157,6 +175,14 @@ function countFrom(rows) {
 
 async function ensureTables() {
   if (tablesReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, KNOWLEDGE_GRAPH_TABLES, {
+      context: "knowledge-graph",
+    })
+  ) {
+    tablesReady = true;
+    return;
+  }
   const statements = [
     `CREATE TABLE IF NOT EXISTS "KnowledgeNode" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -950,15 +976,18 @@ const KnowledgeGraph = {
   } = {}) {
     await ensureTables();
     const workspaceClause = workspaceId ? `AND "workspaceId" = ?` : "";
+    const staleBefore = new Date(
+      Date.now() - Math.max(1, Number(staleMinutes || 15)) * 60_000
+    );
     await prisma.$executeRawUnsafe(
       `UPDATE "GraphExtractionJob"
       SET "status" = 'pending', "errorMessage" = ?,
         "updatedAt" = CURRENT_TIMESTAMP
       WHERE "status" = 'processing'
-        AND "updatedAt" <= datetime('now', ?)
+        AND "updatedAt" <= ?
         ${workspaceClause}`,
       reason,
-      `-${Math.max(1, Number(staleMinutes || 15))} minutes`,
+      staleBefore,
       ...(workspaceId ? [Number(workspaceId)] : [])
     );
   },
@@ -1223,7 +1252,7 @@ const KnowledgeGraph = {
       String(status),
       Number(priorityScore || 0),
       priorityReason,
-      rootConceptHit ? 1 : 0,
+      Boolean(rootConceptHit),
       Number(workspaceImportanceScore || 0),
       Number(traversalUsageCount || 0),
       retryCount === null ? 0 : Number(retryCount || 0),
@@ -1479,8 +1508,9 @@ const KnowledgeGraph = {
       prisma.$queryRawUnsafe(
         `SELECT COUNT(*) AS count FROM "KnowledgeGraphRepairIssue"
         WHERE "workspaceId" = ? AND "lastError" IS NOT NULL
-          AND "updatedAt" >= datetime('now', '-7 days')`,
-        Number(workspaceId)
+          AND "updatedAt" >= ?`,
+        Number(workspaceId),
+        new Date(Date.now() - 7 * 24 * 60 * 60_000)
       ),
       prisma.$queryRawUnsafe(
         `SELECT ${REPAIR_ISSUE_SELECT}
@@ -1815,6 +1845,7 @@ const KnowledgeGraph = {
     await ensureTables();
     await this.ensureMissingNodeMetricRows({ workspaceId, formulaVersion });
     const lockSeconds = Math.max(60, Math.round(Number(lockTtlMs) / 1000));
+    const lockExpiredBefore = new Date(Date.now() - lockSeconds * 1_000);
     const workspaceClause = workspaceId ? `AND n."workspaceId" = ?` : "";
     const rows = await prisma.$queryRawUnsafe(
       `WITH ranked_metrics AS (
@@ -1853,7 +1884,7 @@ const KnowledgeGraph = {
         ) evidenceStats ON evidenceStats."workspaceId" = m."workspaceId" AND evidenceStats."nodeId" = m."nodeId"
         WHERE (m."stale" = true OR m."formulaVersion" != ?)
           ${workspaceClause}
-          AND (m."lockedAt" IS NULL OR m."lockedAt" < datetime('now', '-' || ? || ' seconds'))
+          AND (m."lockedAt" IS NULL OR m."lockedAt" < ?)
       )
       SELECT * FROM ranked_metrics
       ORDER BY
@@ -1866,7 +1897,7 @@ const KnowledgeGraph = {
       LIMIT ?`,
       formulaVersion,
       ...(workspaceId ? [Number(workspaceId)] : []),
-      lockSeconds,
+      lockExpiredBefore,
       Number(limit || 50)
     );
     return rows.map(toNodeMetrics);
@@ -1876,14 +1907,15 @@ const KnowledgeGraph = {
     await ensureTables();
     if (!id || !lockedBy) return null;
     const lockSeconds = Math.max(60, Math.round(Number(lockTtlMs) / 1000));
+    const lockExpiredBefore = new Date(Date.now() - lockSeconds * 1_000);
     await prisma.$executeRawUnsafe(
       `UPDATE "KnowledgeNodeMetrics"
       SET "lockedAt" = CURRENT_TIMESTAMP, "lockedBy" = ?
       WHERE "id" = ?
-        AND ("lockedAt" IS NULL OR "lockedAt" < datetime('now', '-' || ? || ' seconds'))`,
+        AND ("lockedAt" IS NULL OR "lockedAt" < ?)`,
       String(lockedBy),
       Number(id),
-      lockSeconds
+      lockExpiredBefore
     );
     const row = (
       await prisma.$queryRawUnsafe(
@@ -1952,7 +1984,7 @@ const KnowledgeGraph = {
       safeJSONStringify(reasons, "{}"),
       safeJSONStringify(normalizedInputs, "{}"),
       formulaVersion,
-      stale ? 1 : 0,
+      Boolean(stale),
       warning
     );
     return await this.getNodeMetrics({ workspaceId, nodeId, formulaVersion });

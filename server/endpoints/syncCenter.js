@@ -28,7 +28,6 @@ const {
   signingWarnOnly,
 } = require("../utils/requestSigning");
 
-const SystemSettings = DataAccessCenter.adminSystem;
 const Workspace = DataAccessCenter.workspace;
 const WorkspaceThread = DataAccessCenter.workspaceThread;
 const IOSPushToken = DataAccessCenter.iosPushToken;
@@ -56,6 +55,10 @@ const {
 } = require("../utils/chats/threadChatModel");
 const { withCorrelation } = require("../utils/observability/context");
 const { metrics } = require("../utils/observability/metrics");
+const {
+  authenticateRealtimeRequest,
+  monitorRealtimePrincipal,
+} = require("../utils/authz/realtimePrincipal");
 
 const User = DataAccessCenter.adminSystem.user;
 const MutationReceipt = DataAccessCenter.athenaMutationReceipt;
@@ -458,27 +461,25 @@ function sendSocket(socket, payload) {
   }
 }
 
-function attachQueryAuthHeader(request) {
-  const token = Array.isArray(request.query?.token)
-    ? request.query.token[0]
-    : request.query?.token;
-  if (!token || request.headers?.authorization) return;
-  request.headers.authorization = `Bearer ${token}`;
-}
-
 async function authenticateBroadcastRequest(request, socket) {
-  attachQueryAuthHeader(request);
-  const user = await userFromSession(request);
-  const multiUserMode = await SystemSettings.isMultiUserMode();
-  if (multiUserMode && !user) {
-    socket.close(1008, "auth_required");
+  try {
+    const principal = await authenticateRealtimeRequest({
+      request,
+      purpose: "broadcast",
+      authoritative: true,
+    });
+    return {
+      principal,
+      user: principal.user,
+      userId: principal.user?.id ?? null,
+      clientContext:
+        principal.clientContext ||
+        getClientContext(request, { user: principal.user }),
+    };
+  } catch (error) {
+    socket.close(1008, error.code || "auth_required");
     return null;
   }
-  return {
-    user,
-    userId: user?.id ?? null,
-    clientContext: getClientContext(request, { user }),
-  };
 }
 
 function parseJsonMessage(message) {
@@ -948,6 +949,7 @@ function syncCenterEndpoints(app) {
 
     const auth = await authenticateBroadcastRequest(request, socket);
     if (!auth) return;
+    const stopPrincipalMonitor = monitorRealtimePrincipal({ request, socket });
 
     const connection = broadcastCenter.registerConnection({
       socket,
@@ -955,6 +957,8 @@ function syncCenterEndpoints(app) {
       clientId: auth.clientContext?.clientId || null,
       platform: auth.clientContext?.platform || null,
     });
+    socket.once("close", stopPrincipalMonitor);
+    socket.once("error", stopPrincipalMonitor);
 
     sendSocket(socket, {
       type: "broadcast.ready",

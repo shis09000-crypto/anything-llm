@@ -27,7 +27,7 @@ enum AgentSessionPhase: String, Codable, Equatable, Sendable {
     case failed
 
     var isTerminal: Bool {
-        self == .finalized || self == .closed
+        self == .finalized || self == .closed || self == .failed
     }
 }
 
@@ -256,6 +256,7 @@ final class AgentControlKit {
     var lastError: String?
 
     var onSessionFinalized: ((AgentSessionSnapshot) -> Void)?
+    var onSessionFailed: ((AgentSessionSnapshot, String) -> Void)?
     var onThreadRenamed: ((String, String, String) -> Void)?
 
     private let apiClient: APIClient?
@@ -827,10 +828,13 @@ final class AgentControlKit {
             replaceAssistant(string(content["content"]) ?? "", invocationID: invocationID)
             updateFinalIdentifiers(content, invocationID: invocationID)
         case "toolCallInvocation":
+            guard let toolName = resolvedToolName(from: content) else {
+                return
+            }
             appendTimeline(
                 kind: .toolCall,
                 sequence: sequence,
-                title: "使用工具 · \(string(content["toolName"]) ?? "未知工具")",
+                title: "使用工具 · \(toolName)",
                 detail: String((string(content["content"]) ?? "").prefix(500)),
                 requestID: nil,
                 questions: [],
@@ -862,6 +866,31 @@ final class AgentControlKit {
         default:
             break
         }
+    }
+
+    private func resolvedToolName(from content: [String: Any]) -> String? {
+        if let explicit = string(content["toolName"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !explicit.isEmpty {
+            return explicit
+        }
+
+        let detail = (string(content["content"]) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !detail.hasPrefix("Assembling Tool Call:") else {
+            return nil
+        }
+        for prefix in ["Parsed Tool Call:", "Tool Call:", "Calling "] {
+            guard detail.hasPrefix(prefix) else { continue }
+            let remainder = detail.dropFirst(prefix.count)
+            let name = remainder.prefix { character in
+                character != "(" && character != "." && !character.isWhitespace
+            }
+            let normalized = String(name)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized.isEmpty ? nil : normalized
+        }
+        return nil
     }
 
     private func sendSigned<Payload: Encodable>(
@@ -981,6 +1010,9 @@ final class AgentControlKit {
             invocationID: invocationID
         )
         persistSessions()
+        if let index = sessionIndex(invocationID) {
+            onSessionFailed?(sessions[index], message)
+        }
     }
 
     private func setPhase(_ phase: AgentSessionPhase, invocationID: String) {

@@ -1,8 +1,10 @@
 const mockCreate = jest.fn();
+const mockFindMany = jest.fn();
 
 jest.mock("../../utils/prisma", () => ({
   event_logs: {
     create: (...args) => mockCreate(...args),
+    findMany: (...args) => mockFindMany(...args),
   },
 }));
 
@@ -37,5 +39,14 @@ describe("EventLogs redaction", () => {
     );
     expect(metadata.title).toMatch(/^\[redacted-title:[a-f0-9]{12}\]$/);
     expect(metadata.url).toBe("https://example.com/doc?[redacted]#[redacted]");
+  });
+
+  it("propagates data-access failures from enriched listings", async () => {
+    mockFindMany.mockRejectedValueOnce(new Error("database offline"));
+
+    await expect(EventLogs.whereWithData({})).rejects.toMatchObject({
+      code: "database_operation_failed",
+      operation: "eventLogs.where",
+    });
   });
 });

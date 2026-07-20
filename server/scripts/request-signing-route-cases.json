@@ -1,5 +1,7 @@
 {
   "signed": [
+    ["POST", "/api/client-identity/device-key-rotation/prepare"],
+    ["POST", "/api/client-identity/device-key-rotation/commit"],
     ["POST", "/workspace/new"],
     ["POST", "/workspace/demo/thread/new"],
     ["POST", "/workspace/demo/tool-approval"],

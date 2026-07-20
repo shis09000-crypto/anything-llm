@@ -83,7 +83,12 @@ const IOSPushToken = {
       try {
         const token = readSecret(row.tokenEncrypted);
         return token ? [{ ...row, deviceToken: token }] : [];
-      } catch {
+      } catch (error) {
+        console.warn("[IOSPushToken] failed to decrypt active token", {
+          id: row.id,
+          clientId: row.clientId,
+          code: error?.code || error?.name || "push_token_decrypt_failed",
+        });
         return [];
       }
     });

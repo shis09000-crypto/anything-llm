@@ -15,8 +15,8 @@ const SecretStoreProvider = {
       revealPlaintextByDefault: false,
       auditRequired: true,
       adapterTargets: {
-        externalKms: "reserved",
-        vaultBackend: "reserved",
+        externalKms: "short-lived-lease-ready",
+        vaultBackend: "short-lived-lease-ready",
       },
     };
   },

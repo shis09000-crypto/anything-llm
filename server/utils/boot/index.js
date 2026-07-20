@@ -109,11 +109,13 @@ const STRONG_TLS_12_CIPHERS = [
   "ECDHE-RSA-AES128-GCM-SHA256",
 ].join(":");
 
-function httpsServerOptions({ key, cert }) {
+function httpsServerOptions({ key, cert }, env = process.env) {
   return {
     key,
     cert,
-    minVersion: "TLSv1.2",
+    minVersion:
+      env.ATHENA_TLS_MIN_VERSION ||
+      (env.NODE_ENV === "production" ? "TLSv1.3" : "TLSv1.2"),
     honorCipherOrder: true,
     ciphers: STRONG_TLS_12_CIPHERS,
   };

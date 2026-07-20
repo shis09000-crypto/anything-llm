@@ -2,6 +2,9 @@ const fs = require("fs");
 const path = require("path");
 const { v4: uuidv4 } = require("uuid");
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 const { normalizePath, isWithin } = require("../utils/files");
 const {
@@ -89,6 +92,14 @@ function normalizeRow(row = null, { workspaceSlug = null } = {}) {
 
 async function ensureTable() {
   if (tableReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, ["WorkspaceVisualAsset"], {
+      context: "workspace-visual-asset",
+    })
+  ) {
+    tableReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "WorkspaceVisualAsset" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

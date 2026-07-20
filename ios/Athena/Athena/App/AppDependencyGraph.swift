@@ -231,6 +231,9 @@ final class AppDependencies {
                 }
             }
         }
+        agentControlKit.onSessionFailed = { [weak workspaceCenter] session, message in
+            workspaceCenter?.reconcileFailedAgentSession(session, message: message)
+        }
         agentControlKit.onThreadRenamed = { [weak workspaceCenter] workspaceID, threadID, title in
             Task { @MainActor in
                 await workspaceCenter?.applySyncedThreadMetadata(
@@ -644,6 +647,11 @@ final class AppDependencies {
         sessionState = .loadingWorkspace
         try await runSecurityTask(label: "security:refresh-signing-secret") { [self] in
             try await self.requestSigningCenter.refreshSigningSecret(using: self.apiClient)
+        }
+        _ = try await runSecurityTask(label: "security:migrate-device-key") { [self] in
+            try await self.requestSigningCenter.migrateDeviceKeyToSecureEnclave(
+                using: self.apiClient
+            )
         }
         let ownerScope = authCenter.cacheOwnerScope(
             fallbackClientID: clientIdentityCenter.clientID

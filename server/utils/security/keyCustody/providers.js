@@ -6,6 +6,7 @@ const { EncryptionConfigError } = require("../errors");
 
 const SERVER_DATA_PURPOSE = "server-data-at-rest";
 const KEYRING_VERSION = "athena-keyring:v1";
+const EXTERNAL_KEY_LEASE_VERSION = "athena-key-lease:v1";
 
 function normalizeKey(value, label = MASTER_KEY_ENV) {
   const normalized = String(value || "")
@@ -432,6 +433,157 @@ class EnvironmentKeyProvider {
   }
 }
 
+class ExternalLeaseKeyProvider {
+  constructor({
+    env = process.env,
+    filePath = null,
+    providerType = null,
+  } = {}) {
+    this.env = env;
+    this.providerType =
+      providerType ||
+      String(env.ATHENA_KEY_PROVIDER || "external-lease")
+        .trim()
+        .toLowerCase();
+    this.filePath = path.resolve(
+      filePath ||
+        env.ATHENA_KEY_LEASE_FILE ||
+        "/run/secrets/athena_key_lease.json"
+    );
+  }
+
+  readLease() {
+    assertSecureFile(this.filePath);
+    let lease;
+    try {
+      lease = JSON.parse(fs.readFileSync(this.filePath, "utf8"));
+    } catch {
+      throw new EncryptionConfigError("external_key_lease_invalid_json");
+    }
+    if (lease?.format !== EXTERNAL_KEY_LEASE_VERSION) {
+      throw new EncryptionConfigError("external_key_lease_format_invalid");
+    }
+    if (
+      !new Set(["vault", "aws-kms", "gcp-kms", "azure-key-vault"]).has(
+        lease.provider
+      )
+    ) {
+      throw new EncryptionConfigError("external_key_lease_provider_invalid");
+    }
+    if (lease.purpose !== SERVER_DATA_PURPOSE) {
+      throw new EncryptionConfigError("external_key_lease_purpose_invalid");
+    }
+    const issuedAt = Date.parse(lease.issuedAt);
+    const expiresAt = Date.parse(lease.expiresAt);
+    const maximumLeaseMs = Math.max(
+      Number(this.env.ATHENA_KEY_LEASE_MAX_TTL_MS || 3_600_000),
+      60_000
+    );
+    if (
+      !Number.isFinite(issuedAt) ||
+      !Number.isFinite(expiresAt) ||
+      issuedAt > Date.now() + 60_000 ||
+      expiresAt <= Date.now() ||
+      expiresAt - issuedAt > maximumLeaseMs
+    ) {
+      throw new EncryptionConfigError(
+        "external_key_lease_expired_or_oversized"
+      );
+    }
+    const entries = (
+      Array.isArray(lease.keys) && lease.keys.length
+        ? lease.keys
+        : [
+            {
+              material: lease.material,
+              keyId: lease.keyId,
+              status: "active",
+            },
+          ]
+    ).map((entry) => {
+      const material = normalizeKey(
+        entry.material,
+        "external key lease material"
+      );
+      const derivedKeyId = keyIdFor(material);
+      if (entry.keyId && entry.keyId !== derivedKeyId) {
+        throw new EncryptionConfigError("external_key_lease_key_id_mismatch");
+      }
+      return {
+        material,
+        keyId: derivedKeyId,
+        status: entry.status === "decrypt_only" ? "decrypt_only" : "active",
+      };
+    });
+    const activeEntries = entries.filter(
+      (entry) =>
+        entry.keyId === lease.activeKeyId ||
+        (!lease.activeKeyId && entry.status === "active")
+    );
+    if (activeEntries.length !== 1) {
+      throw new EncryptionConfigError("external_key_lease_active_key_invalid");
+    }
+    return { ...lease, entries, activeEntry: activeEntries[0] };
+  }
+
+  resolveActiveKey() {
+    const lease = this.readLease();
+    return {
+      keyId: lease.activeEntry.keyId,
+      purpose: SERVER_DATA_PURPOSE,
+      fingerprint: fingerprint(lease.activeEntry.material),
+      status: "active",
+      providerType: this.providerType,
+      material: Buffer.from(lease.activeEntry.material, "hex"),
+      expiresAt: lease.expiresAt,
+      attestationId: lease.attestationId || null,
+    };
+  }
+
+  resolveKey(keyId) {
+    const lease = this.readLease();
+    const entry = lease.entries.find((candidate) => candidate.keyId === keyId);
+    if (!entry) return null;
+    return {
+      keyId: entry.keyId,
+      purpose: SERVER_DATA_PURPOSE,
+      fingerprint: fingerprint(entry.material),
+      status: entry.status,
+      providerType: this.providerType,
+      material: Buffer.from(entry.material, "hex"),
+      expiresAt: lease.expiresAt,
+      attestationId: lease.attestationId || null,
+    };
+  }
+
+  health() {
+    try {
+      const lease = this.readLease();
+      const active = this.resolveActiveKey();
+      return {
+        ok: true,
+        providerType: this.providerType,
+        source: "external-short-lived-lease",
+        sourceMode: safeFileMode(this.filePath)?.toString(8),
+        keyId: active.keyId,
+        fingerprint: active.fingerprint,
+        expiresAt: active.expiresAt,
+        attested: Boolean(active.attestationId),
+        decryptOnlyKeyCount: lease.entries.filter(
+          (entry) => entry.status === "decrypt_only"
+        ).length,
+        mutable: false,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        providerType: this.providerType,
+        error: error.message,
+      };
+    }
+  }
+}
+
 function createKeyProvider({ env = process.env } = {}) {
   const configured = String(env.ATHENA_KEY_PROVIDER || "")
     .trim()
@@ -446,6 +598,9 @@ function createKeyProvider({ env = process.env } = {}) {
     return new SecretFileKeyProvider({ env });
   }
   if (configured === "environment") return new EnvironmentKeyProvider({ env });
+  if (["external-lease", "vault-agent", "kms-sidecar"].includes(configured)) {
+    return new ExternalLeaseKeyProvider({ env, providerType: configured });
+  }
   if (!configured || configured === "env-file")
     return new EnvFileKeyProvider({ env });
   throw new EncryptionConfigError(
@@ -455,6 +610,8 @@ function createKeyProvider({ env = process.env } = {}) {
 
 module.exports = {
   EnvironmentKeyProvider,
+  EXTERNAL_KEY_LEASE_VERSION,
+  ExternalLeaseKeyProvider,
   EnvFileKeyProvider,
   KEYRING_VERSION,
   SERVER_DATA_PURPOSE,

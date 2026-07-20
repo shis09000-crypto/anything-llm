@@ -3,6 +3,7 @@ const envPath =
     ? `.env.${process.env.NODE_ENV}`
     : process.env.DESKTOP_ENV_PATH || ".env";
 require("dotenv").config({ path: envPath });
+const bcrypt = require("bcryptjs");
 const { viewLocalFiles, normalizePath, isWithin } = require("../utils/files");
 const { purgeDocument, purgeFolder } = require("../utils/files/purgeDocument");
 const { getVectorDbClass } = require("../utils/helpers");
@@ -127,6 +128,7 @@ const { apiErrorStatus: httpStatus } = require("../utils/http/apiError");
 const {
   filterSettingsBySections,
 } = require("../utils/providerSettingsBootstrap");
+const { verifyPassword } = require("../utils/security/passwordCredential");
 
 function publishUserProfileUpdatedEvent({
   request,
@@ -1482,8 +1484,6 @@ function systemEndpoints(app) {
 
   app.post("/request-token", async (request, response) => {
     try {
-      const bcrypt = require("bcryptjs");
-
       if (await SystemSettings.isMultiUserMode()) {
         if (simpleSSOLoginDisabled()) {
           response.status(403).json({
@@ -1534,10 +1534,31 @@ function systemEndpoints(app) {
         }
 
         let verifiedAuthUser = authUser;
-        let passwordValid = await bcrypt.compare(
+        let passwordVerification = await verifyPassword(
           String(password),
           verifiedAuthUser.password
         );
+        let passwordValid = passwordVerification.valid;
+        if (passwordValid && passwordVerification.needsUpgrade) {
+          verifiedAuthUser = await AuthIdentity.upgradePasswordHash(
+            verifiedAuthUser,
+            password
+          );
+          passwordVerification = {
+            valid: true,
+            kind: "argon2id",
+            needsUpgrade: false,
+          };
+          await EventLogs.logEvent(
+            "login_password_hash_upgraded",
+            {
+              ip: request.ip || "Unknown IP",
+              username: loginIdentifier || "Unknown user",
+              algorithm: "argon2id",
+            },
+            null
+          );
+        }
         if (!passwordValid) {
           const repaired = await AuthIdentity.repairPasswordFromLocalShadow(
             verifiedAuthUser,
@@ -1554,10 +1575,9 @@ function systemEndpoints(app) {
               },
               null
             );
-            passwordValid = await bcrypt.compare(
-              String(password),
-              verifiedAuthUser.password
-            );
+            passwordValid = (
+              await verifyPassword(String(password), verifiedAuthUser.password)
+            ).valid;
           }
         }
 
@@ -3241,13 +3261,14 @@ function systemEndpoints(app) {
 
         if (!reauth && !sensitiveGrant.ok) {
           const storedUser = await User._get({ id: Number(sessionUser.id) });
-          const bcrypt = require("bcryptjs");
           if (
             !storedUser?.password ||
-            !bcrypt.compareSync(
-              String(currentPassword || ""),
-              storedUser.password
-            )
+            !(
+              await verifyPassword(
+                String(currentPassword || ""),
+                storedUser.password
+              )
+            ).valid
           ) {
             response.status(401).json({
               success: false,
@@ -3523,10 +3544,10 @@ function systemEndpoints(app) {
         }
 
         const storedUser = await User._get({ id });
-        const bcrypt = require("bcryptjs");
         if (
           !storedUser?.password ||
-          !bcrypt.compareSync(String(currentPassword), storedUser.password)
+          !(await verifyPassword(String(currentPassword), storedUser.password))
+            .valid
         ) {
           response.status(400).json({
             success: false,
@@ -3597,10 +3618,10 @@ function systemEndpoints(app) {
         const sessionUser = await userFromSession(request, response);
         const user = await User._get({ id: sessionUser.id });
         const { currentPassword } = reqBody(request) || {};
-        const bcrypt = require("bcryptjs");
         if (
           !user ||
-          !(await bcrypt.compare(String(currentPassword || ""), user.password))
+          !(await verifyPassword(String(currentPassword || ""), user.password))
+            .valid
         ) {
           response.status(401).json({
             success: false,

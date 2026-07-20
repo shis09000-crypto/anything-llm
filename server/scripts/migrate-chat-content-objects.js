@@ -4,6 +4,10 @@ const path = require("path");
 const Database = require("better-sqlite3");
 const { bootstrapCliRuntime } = require("./lib/runtimeBootstrap");
 const { compactAgentEvents } = require("../utils/agents/toolResultStore");
+const {
+  assertMigrationCapacity,
+  inspectMigrationCapacity,
+} = require("../utils/contentObjects/migrationCapacity");
 
 const execute = process.argv.includes("--execute");
 const backupOnly = process.argv.includes("--backup-only");
@@ -185,8 +189,18 @@ async function main() {
     encryptedResponseBytesBefore: 0,
     encryptedResponseBytesAfter: 0,
     backupPath: null,
+    capacity: inspectMigrationCapacity({
+      databasePath: runtime.databasePath,
+      storageRoot: runtime.storageRoot,
+      existingBackup: Boolean(suppliedBackupPath),
+    }),
   };
   if (execute) {
+    summary.capacity = assertMigrationCapacity({
+      databasePath: runtime.databasePath,
+      storageRoot: runtime.storageRoot,
+      existingBackup: Boolean(suppliedBackupPath),
+    });
     summary.backupPath = suppliedBackupPath
       ? await verifiedBackup(suppliedBackupPath, runtime.storageRoot)
       : await backupDatabase(runtime.databasePath, runtime.storageRoot);

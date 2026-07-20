@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 const {
   normalizeScopeType,
@@ -58,6 +61,14 @@ function normalizeRow(row = null) {
 
 async function ensureTable() {
   if (tableReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, ["WorkspaceSupplement"], {
+      context: "workspace-supplement",
+    })
+  ) {
+    tableReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "WorkspaceSupplement" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

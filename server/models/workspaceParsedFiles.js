@@ -187,53 +187,44 @@ const WorkspaceParsedFiles = {
     thread = null,
     user = null
   ) {
-    try {
-      if (!workspace) throw new Error("Workspace is required");
-      const files = await this.where({
-        workspaceId: workspace.id,
-        threadId: thread?.id || null,
-        ...(user ? { userId: user.id } : {}),
+    if (!workspace) throw new Error("Workspace is required");
+    const files = await this.where({
+      workspaceId: workspace.id,
+      threadId: thread?.id || null,
+      ...(user ? { userId: user.id } : {}),
+    });
+
+    const results = [];
+    let totalTokens = 0;
+
+    for (const file of files) {
+      const metadata = safeJsonParse(file.metadata, {});
+      totalTokens += file.tokenCountEstimate || 0;
+      results.push({
+        id: file.id,
+        title: metadata.title || metadata.location,
+        location: metadata.location,
+        token_count_estimate: file.tokenCountEstimate,
       });
-
-      const results = [];
-      let totalTokens = 0;
-
-      for (const file of files) {
-        const metadata = safeJsonParse(file.metadata, {});
-        totalTokens += file.tokenCountEstimate || 0;
-        results.push({
-          id: file.id,
-          title: metadata.title || metadata.location,
-          location: metadata.location,
-          token_count_estimate: file.tokenCountEstimate,
-        });
-      }
-
-      return {
-        files: results,
-        contextWindow: workspace.contextWindow,
-        currentContextTokenCount: totalTokens,
-      };
-    } catch (error) {
-      console.error("Failed to get context metadata:", error);
-      return {
-        files: [],
-        contextWindow: Infinity,
-        currentContextTokenCount: 0,
-      };
     }
+
+    return {
+      files: results,
+      contextWindow: workspace.contextWindow,
+      currentContextTokenCount: totalTokens,
+    };
   },
 
   getContextFiles: async function (workspace, thread = null, user = null) {
-    try {
-      const files = await this.where({
-        workspaceId: workspace.id,
-        threadId: thread?.id || null,
-        ...(user ? { userId: user.id } : {}),
-      });
+    const files = await this.where({
+      workspaceId: workspace.id,
+      threadId: thread?.id || null,
+      ...(user ? { userId: user.id } : {}),
+    });
 
-      const results = [];
-      for (const file of files) {
+    const results = [];
+    for (const file of files) {
+      try {
         const metadata = safeJsonParse(file.metadata, {});
         const location = metadata.location;
         if (!location) continue;
@@ -253,13 +244,15 @@ const WorkspaceParsedFiles = {
           token_count_estimate: file.tokenCountEstimate,
           ...metadata,
         });
+      } catch (error) {
+        console.warn("Failed to read parsed context file", {
+          fileId: file.id,
+          code: error?.code || error?.name || "context_file_read_failed",
+        });
       }
-
-      return results;
-    } catch (error) {
-      console.error("Failed to get context files:", error);
-      return [];
     }
+
+    return results;
   },
 };
 

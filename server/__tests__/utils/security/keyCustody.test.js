@@ -3,6 +3,7 @@ const os = require("os");
 const path = require("path");
 const {
   EnvFileKeyProvider,
+  ExternalLeaseKeyProvider,
 } = require("../../../utils/security/keyCustody/providers");
 const {
   activateKey,
@@ -151,5 +152,50 @@ describe("key custody env-file provider", () => {
       rotated.keyId,
       "server-data-at-rest"
     );
+  });
+
+  it("accepts a short-lived attested external key lease", () => {
+    const leasePath = path.join(directory, "lease.json");
+    fs.writeFileSync(
+      leasePath,
+      JSON.stringify({
+        format: "athena-key-lease:v1",
+        provider: "vault",
+        purpose: "server-data-at-rest",
+        material: KEY_A,
+        issuedAt: new Date(Date.now() - 1_000).toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        attestationId: "vault-request-1",
+      }),
+      { mode: 0o600 }
+    );
+    const provider = new ExternalLeaseKeyProvider({
+      env: { ATHENA_KEY_LEASE_MAX_TTL_MS: "120000" },
+      filePath: leasePath,
+      providerType: "vault-agent",
+    });
+    expect(provider.resolveActiveKey()).toMatchObject({
+      providerType: "vault-agent",
+      attestationId: "vault-request-1",
+    });
+    expect(provider.health()).toMatchObject({ ok: true, attested: true });
+  });
+
+  it("rejects expired or over-permissive external key leases", () => {
+    const leasePath = path.join(directory, "lease.json");
+    fs.writeFileSync(
+      leasePath,
+      JSON.stringify({
+        format: "athena-key-lease:v1",
+        provider: "aws-kms",
+        purpose: "server-data-at-rest",
+        material: KEY_A,
+        issuedAt: new Date(Date.now() - 120_000).toISOString(),
+        expiresAt: new Date(Date.now() - 60_000).toISOString(),
+      }),
+      { mode: 0o644 }
+    );
+    const provider = new ExternalLeaseKeyProvider({ filePath: leasePath });
+    expect(() => provider.resolveActiveKey()).toThrow(/permissions/);
   });
 });

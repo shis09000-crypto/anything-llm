@@ -252,8 +252,7 @@ const Invite = {
       }
       return safeInvites;
     } catch (error) {
-      console.error(error.message);
-      return [];
+      throwModelDataAccessError("invite.whereWithUsers", error);
     }
   },
 };

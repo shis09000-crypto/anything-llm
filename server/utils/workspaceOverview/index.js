@@ -627,7 +627,7 @@ async function getNodes(workspaceId) {
       SELECT e."workspaceId", x."nodeId",
         COUNT(ev."id") AS "evidenceCount",
         COUNT(DISTINCT ev."documentId") AS "documentCount",
-        SUM(CASE WHEN ev."createdAt" >= datetime('now', '-7 days') THEN 1 ELSE 0 END) AS "recentEvidenceCount"
+        SUM(CASE WHEN ev."createdAt" >= ? THEN 1 ELSE 0 END) AS "recentEvidenceCount"
       FROM "KnowledgeEdge" e
       JOIN (
         SELECT "id", "sourceNodeId" AS "nodeId" FROM "KnowledgeEdge"
@@ -647,6 +647,7 @@ async function getNodes(workspaceId) {
     WHERE n."workspaceId" = ?
     ORDER BY (n."recentImportanceScore" * 0.55 + n."workspaceImportanceScore" * 0.45) DESC
     LIMIT 200`,
+    new Date(Date.now() - 7 * 24 * 60 * 60_000),
     Number(workspaceId)
   );
 
@@ -750,7 +751,7 @@ async function getRecentChats(workspaceId, userId = 0, threadSlug = null) {
   const rows = await optionalQuery(
     `SELECT "id", "prompt", "response", "thread_id", "createdAt", "lastUpdatedAt"
     FROM "workspace_chats"
-    WHERE "workspaceId" = ? AND "include" = 1 ${userClause} ${threadClause}
+    WHERE "workspaceId" = ? AND "include" = TRUE ${userClause} ${threadClause}
     ORDER BY "lastUpdatedAt" DESC LIMIT 20`,
     ...params
   );

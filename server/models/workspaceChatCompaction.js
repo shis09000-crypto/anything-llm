@@ -1,5 +1,9 @@
 const prisma = require("../utils/prisma");
 const {
+  databaseTableColumns,
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
+const {
   chatHistoryEncryptionEnabled,
   decryptSecretIfNeeded,
   decryptWorkspaceChatRecordsAsync,
@@ -112,6 +116,14 @@ function decryptCompactionField(value = null) {
 
 async function ensureTable() {
   if (tableReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, ["workspace_chat_compactions"], {
+      context: "workspace-chat-compaction",
+    })
+  ) {
+    tableReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_chat_compactions" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -134,16 +146,17 @@ async function ensureTable() {
       "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  const columns = await prisma.$queryRawUnsafe(
-    `PRAGMA table_info("workspace_chat_compactions")`
+  const columns = await databaseTableColumns(
+    prisma,
+    "workspace_chat_compactions"
   );
-  if (!columns.some((column) => column.name === "metadata_json")) {
+  if (!columns.has("metadata_json")) {
     await prisma.$executeRawUnsafe(`
       ALTER TABLE "workspace_chat_compactions"
       ADD COLUMN "metadata_json" TEXT NOT NULL DEFAULT '{}'
     `);
   }
-  if (!columns.some((column) => column.name === "capsule_json")) {
+  if (!columns.has("capsule_json")) {
     await prisma.$executeRawUnsafe(`
       ALTER TABLE "workspace_chat_compactions"
       ADD COLUMN "capsule_json" TEXT
@@ -186,41 +199,27 @@ const WorkspaceChatCompaction = {
   async create(data = {}) {
     await ensureTable();
     const scope = normalizeScope(data);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO "workspace_chat_compactions" (
-        "workspace_id", "user_id", "thread_id", "api_session_id",
-        "summary", "summary_format", "capsule_json", "covered_chat_ids",
-        "covered_from_chat_id", "covered_to_chat_id", "covered_message_count",
-        "token_before", "token_after", "metadata_json", "reason", "created_at", "updated_at"
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      scope.workspace_id,
-      scope.user_id,
-      scope.thread_id,
-      scope.api_session_id,
-      encryptCompactionField(String(data.summary || "")),
-      data.summary_format || SUMMARY_FORMAT,
-      data.capsule_json
-        ? encryptCompactionField(String(data.capsule_json))
-        : null,
-      data.covered_chat_ids || "[]",
-      data.covered_from_chat_id ?? null,
-      data.covered_to_chat_id ?? null,
-      Number(data.covered_message_count || 0),
-      Number(data.token_before || 0),
-      Number(data.token_after || 0),
-      data.metadata_json || "{}",
-      data.reason ? String(data.reason) : null
-    );
-
-    const row = (
-      await prisma.$queryRawUnsafe(
-        `SELECT *, CAST("created_at" AS TEXT) AS "created_at",
-          CAST("updated_at" AS TEXT) AS "updated_at"
-        FROM "workspace_chat_compactions"
-        WHERE "id" = last_insert_rowid()
-        LIMIT 1`
-      )
-    )?.[0];
+    const row = await prisma.workspace_chat_compactions.create({
+      data: {
+        workspace_id: scope.workspace_id,
+        user_id: scope.user_id,
+        thread_id: scope.thread_id,
+        api_session_id: scope.api_session_id,
+        summary: encryptCompactionField(String(data.summary || "")),
+        summary_format: data.summary_format || SUMMARY_FORMAT,
+        capsule_json: data.capsule_json
+          ? encryptCompactionField(String(data.capsule_json))
+          : null,
+        covered_chat_ids: data.covered_chat_ids || "[]",
+        covered_from_chat_id: data.covered_from_chat_id ?? null,
+        covered_to_chat_id: data.covered_to_chat_id ?? null,
+        covered_message_count: Number(data.covered_message_count || 0),
+        token_before: Number(data.token_before || 0),
+        token_after: Number(data.token_after || 0),
+        metadata_json: data.metadata_json || "{}",
+        reason: data.reason ? String(data.reason) : null,
+      },
+    });
     return normalizeRow(row);
   },
 
@@ -231,7 +230,7 @@ const WorkspaceChatCompaction = {
     await ensureTable();
     const scoped = chatScopeWhere(scope, "wc");
     const params = [...scoped.params];
-    const clauses = [scoped.where, `wc."include" = 1`];
+    const clauses = [scoped.where, `wc."include" = TRUE`];
     if (afterChatId !== null) {
       clauses.push(`wc."id" > ?`);
       params.push(Number(afterChatId));

@@ -81,7 +81,7 @@ function installWindow({ search = "", token = "jwt-secret" } = {}) {
   };
 }
 
-test("crypto shared keeps dev bypass scoped and builds token query websocket URLs", async () => {
+test("crypto shared keeps dev bypass scoped and uses one-time realtime tickets", async () => {
   installWindow({ search: "?cryptoCenterAuthBypass=1", token: "jwt-secret" });
   const shared = await loadCryptoShared({ prod: false });
 
@@ -93,10 +93,11 @@ test("crypto shared keeps dev bypass scoped and builds token query websocket URL
       Accept: "application/json",
     }
   );
-  const url = new URL(shared.cryptoCenterStreamUrl("24h"));
+  const url = new URL(shared.cryptoCenterStreamUrl("24h", "rt-one-time"));
   assert.equal(url.protocol, "ws:");
   assert.equal(url.searchParams.get("range"), "24h");
-  assert.equal(url.searchParams.get("token"), "jwt-secret");
+  assert.equal(url.searchParams.get("token"), null);
+  assert.equal(url.searchParams.get("realtimeTicket"), "rt-one-time");
   assert.equal(url.searchParams.get("cryptoCenterAuthBypass"), "1");
 
   const prodShared = await loadCryptoShared({ prod: true });

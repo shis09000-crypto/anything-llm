@@ -144,4 +144,29 @@ describe("ContentObjectS3Provider", () => {
       code: "CONTENT_OBJECT_S3_COMMIT_VERIFICATION_FAILED",
     });
   });
+
+  it("requires COMPLIANCE object lock when a retention window is requested", async () => {
+    const body = Buffer.from("signed-audit-archive");
+    mockSend.mockResolvedValueOnce({}).mockResolvedValueOnce({
+      ContentLength: body.length,
+      Metadata: { "athena-cipher-sha256": digest },
+      ObjectLockMode: "COMPLIANCE",
+      ObjectLockRetainUntilDate: new Date(Date.now() + 400 * 86_400_000),
+    });
+
+    await expect(
+      ContentObjectS3Provider.putImmutable({
+        objectKey: "security-audit/archive.json",
+        body,
+        ciphertextSha256: digest,
+        retentionDays: 365,
+      })
+    ).resolves.toMatchObject({ created: true });
+    expect(mockSend.mock.calls[0][0].input).toEqual(
+      expect.objectContaining({
+        ObjectLockMode: "COMPLIANCE",
+        ObjectLockRetainUntilDate: expect.any(Date),
+      })
+    );
+  });
 });

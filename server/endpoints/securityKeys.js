@@ -1,4 +1,3 @@
-const bcrypt = require("bcryptjs");
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { reqBody, userFromSession } = require("../utils/http");
 const {
@@ -22,6 +21,7 @@ const {
   prepareRotation,
   runSecurityPreflight,
 } = require("../utils/security/keyLifecycle");
+const { verifyPassword } = require("../utils/security/passwordCredential");
 
 const KEY_CONTROL_RESOURCE = "key-control";
 const KEY_CONTROL_OWNER_SCOPE = "system:key-control";
@@ -92,10 +92,12 @@ function securityKeyEndpoints(app) {
         const { currentPassword } = reqBody(request) || {};
         if (
           !storedUser?.password ||
-          !bcrypt.compareSync(
-            String(currentPassword || ""),
-            storedUser.password
-          )
+          !(
+            await verifyPassword(
+              String(currentPassword || ""),
+              storedUser.password
+            )
+          ).valid
         ) {
           return response.status(401).json({
             success: false,

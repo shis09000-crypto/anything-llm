@@ -1,10 +1,13 @@
-const bcrypt = require("bcryptjs");
 const fs = require("fs");
 const path = require("path");
 const { PrismaClient } = require("@prisma/client");
 const prisma = require("../utils/prisma");
 const authPrisma = require("../utils/authPrisma");
 const { appEnvironment, storageBaseDir } = require("../utils/environment");
+const {
+  hashPassword,
+  verifyPassword,
+} = require("../utils/security/passwordCredential");
 const {
   ROLES,
   assertValidRole,
@@ -142,7 +145,6 @@ function copyAuthFields(authUser = {}) {
 function authUserCreateData({
   username,
   passwordHash,
-  password,
   role = ROLES.user,
   status = null,
   allowedEnvs = null,
@@ -181,7 +183,7 @@ function authUserCreateData({
   return {
     username,
     displayName: displayName || username,
-    password: passwordHash || bcrypt.hashSync(String(password || ""), 10),
+    password: passwordHash,
     role: roleDefaults.role,
     status: roleDefaults.status,
     allowedEnvs: roleDefaults.allowedEnvs,
@@ -230,7 +232,11 @@ async function identityExists(clause = {}) {
 }
 
 async function createAuthUser(params = {}) {
-  return authPrisma.users.create({ data: authUserCreateData(params) });
+  const passwordHash =
+    params.passwordHash || (await hashPassword(String(params.password || "")));
+  return authPrisma.users.create({
+    data: authUserCreateData({ ...params, passwordHash }),
+  });
 }
 
 async function ensureShadowUser(authUser = null, syncRepair = {}) {
@@ -443,7 +449,7 @@ async function matchingLocalShadowPassword(authUser = null, password = "") {
 
       if (
         shadow?.password &&
-        bcrypt.compareSync(String(password), shadow.password)
+        (await verifyPassword(String(password), shadow.password)).valid
       ) {
         return { envName, shadow };
       }
@@ -459,11 +465,26 @@ async function repairPasswordFromLocalShadow(authUser = null, password = "") {
   const match = await matchingLocalShadowPassword(authUser, password);
   if (!match) return null;
 
+  const passwordHash = await hashPassword(password);
   const repairedAuthUser = await authPrisma.users.update({
     where: { id: Number(authUser.id) },
-    data: { password: match.shadow.password },
+    data: { password: passwordHash },
   });
   return { authUser: repairedAuthUser, repairedFromEnv: match.envName };
+}
+
+async function upgradePasswordHash(authUser = null, password = "") {
+  if (!authUser?.id) return null;
+  const passwordHash = await hashPassword(password);
+  const upgraded = await authPrisma.users.update({
+    where: { id: Number(authUser.id) },
+    data: { password: passwordHash },
+  });
+  await prisma.users.updateMany({
+    where: { authUserId: Number(authUser.id) },
+    data: { password: passwordHash },
+  });
+  return upgraded;
 }
 
 async function bootstrapAuthUserFromShadow(shadowUser = null) {
@@ -509,6 +530,7 @@ module.exports = {
     normalizeOriginEnv,
     normalizePhone,
     repairPasswordFromLocalShadow,
+    upgradePasswordHash,
     updateAuthUser,
   },
 };

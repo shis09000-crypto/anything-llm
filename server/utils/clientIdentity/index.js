@@ -58,6 +58,23 @@ async function recordClientNodeChange(
   });
 }
 
+async function clientSecuritySyncReady({
+  userId,
+  maintainShadow = false,
+} = {}) {
+  const domainEnabled = await SyncV2.enabled("security");
+  if (!domainEnabled && !maintainShadow) return false;
+  if (!(await SyncV2.schemaReady())) return false;
+  if (domainEnabled) return true;
+
+  const nodeKey = nodeKeys.userSecurityClients(userId);
+  const existingNode = await clientIdentityDb.sync_nodes.findUnique({
+    where: { nodeKey },
+    select: { nodeKey: true },
+  });
+  return Boolean(existingNode);
+}
+
 function headerValue(request, name) {
   return request?.header?.(name) || request?.headers?.[name.toLowerCase()];
 }
@@ -361,8 +378,13 @@ async function registerClient({
     capabilitySource: normalizeCapabilitySource(capabilitySource),
   };
 
-  const syncReady =
-    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  const syncReady = await clientSecuritySyncReady({
+    userId,
+    // Initial device-key enrollment is a security transition. If a shadow
+    // node already exists, keep it authoritative even while client rollout is
+    // disabled; ordinary request metadata keeps the zero-extra-query path.
+    maintainShadow: Boolean(publicKey),
+  });
   if (!syncReady) {
     const existing = await clientIdentityDb.athena_clients.findUnique({
       where,
@@ -514,6 +536,95 @@ async function listUserClients({ userId, currentClientId = null } = {}) {
   return clients.map((client) => safeClientRecord(client, { currentClientId }));
 }
 
+async function prepareClientDeviceKeyRotation({
+  userId,
+  clientId,
+  publicKey,
+  deviceKeyAlgorithm,
+} = {}) {
+  if (!userId || !clientId || clientId === "legacy") return null;
+  const client = await getClientRecord({ userId, clientId });
+  if (!client) return null;
+  if (client.publicKey === publicKey) {
+    return { client, prepared: false, alreadyCurrent: true };
+  }
+  const expiresAt = new Date(Date.now() + 10 * 60_000);
+  const updated = await clientIdentityDb.athena_clients.update({
+    where: { id: client.id },
+    data: {
+      pendingPublicKey: publicKey,
+      pendingDeviceKeyAlgorithm: deviceKeyAlgorithm,
+      pendingDeviceKeyExpiresAt: expiresAt,
+    },
+  });
+  return { client: updated, prepared: true, alreadyCurrent: false, expiresAt };
+}
+
+async function commitClientDeviceKeyRotation({
+  userId,
+  clientId,
+  publicKey,
+  deviceKeyAlgorithm,
+} = {}) {
+  if (!userId || !clientId || clientId === "legacy") return null;
+  const syncReady = await clientSecuritySyncReady({
+    userId,
+    maintainShadow: true,
+  });
+  const update = async (tx) => {
+    const client = await tx.athena_clients.findFirst({
+      where: {
+        userId: Number(userId),
+        clientId: String(clientId),
+        revokedAt: null,
+      },
+    });
+    if (!client) return null;
+    if (client.publicKey === publicKey) {
+      return { client, rotated: false, alreadyCurrent: true };
+    }
+    if (
+      client.pendingPublicKey !== publicKey ||
+      client.pendingDeviceKeyAlgorithm !== deviceKeyAlgorithm ||
+      !client.pendingDeviceKeyExpiresAt ||
+      new Date(client.pendingDeviceKeyExpiresAt).getTime() <= Date.now()
+    ) {
+      return { client, rotated: false, pendingMismatch: true };
+    }
+    const saved = await tx.athena_clients.update({
+      where: { id: client.id },
+      data: {
+        publicKey,
+        deviceFingerprintVersion: deviceKeyAlgorithm,
+        trustLevel: "high",
+        pendingPublicKey: null,
+        pendingDeviceKeyAlgorithm: null,
+        pendingDeviceKeyExpiresAt: null,
+      },
+    });
+    if (syncReady) {
+      await recordClientNodeChange(tx, {
+        userId,
+        eventType: "client.device_key_rotated",
+        changedPaths: [
+          `clients.${String(clientId)}.hasDevicePublicKey`,
+          `clients.${String(clientId)}.deviceFingerprintVersion`,
+        ],
+        payloadHint: {
+          operation: "device-key-rotate",
+          clientId: String(clientId),
+          deviceKeyAlgorithm,
+        },
+        originClientId: clientId,
+      });
+    }
+    return { client: saved, rotated: true, alreadyCurrent: false };
+  };
+  return syncReady
+    ? clientIdentityDb.$transaction(update)
+    : update(clientIdentityDb);
+}
+
 async function revokeClient({ userId, clientId } = {}) {
   const client = await getClientRecord({
     userId,
@@ -526,8 +637,10 @@ async function revokeClient({ userId, clientId } = {}) {
   }
 
   const revokedAt = new Date();
-  const syncReady =
-    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  const syncReady = await clientSecuritySyncReady({
+    userId,
+    maintainShadow: true,
+  });
   const result = syncReady
     ? await clientIdentityDb.$transaction(async (tx) => {
         const updated = await tx.athena_clients.updateMany({
@@ -577,8 +690,10 @@ async function revokeAllOtherClients({ userId, currentClientId } = {}) {
     where,
     select: { clientId: true },
   });
-  const syncReady =
-    (await SyncV2.enabled("security")) && (await SyncV2.schemaReady());
+  const syncReady = await clientSecuritySyncReady({
+    userId,
+    maintainShadow: true,
+  });
   if (!syncReady) {
     const result = await clientIdentityDb.athena_clients.updateMany({
       where,
@@ -757,6 +872,8 @@ module.exports = {
   listUserClients,
   recordClientTrustCheckpoint,
   registerClient,
+  commitClientDeviceKeyRotation,
+  prepareClientDeviceKeyRotation,
   revokeAllOtherClients,
   revokeClient,
   resolveTrustLevel,

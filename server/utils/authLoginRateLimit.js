@@ -1,14 +1,12 @@
-const bcrypt = require("bcryptjs");
 const { lazyDataAccessFacade } = require("./dataAccess/lazyFacade");
+const {
+  dummyPasswordCompare: compareAgainstDummyArgon2,
+} = require("./security/passwordCredential");
 const EmailVerificationRateLimit =
   lazyDataAccessFacade("adminSystem").emailVerificationRateLimit;
 
 const WINDOW_MS = 15 * 60 * 1_000;
 const PURPOSE = "credential_login";
-const DUMMY_HASH_PROMISE = bcrypt.hash(
-  "athena-login-dummy-password-never-valid",
-  10
-);
 
 function normalizeIdentifier(value = "") {
   return String(value || "")
@@ -80,7 +78,7 @@ async function clearLoginSuccess(context) {
 }
 
 async function dummyPasswordCompare(password = "") {
-  return bcrypt.compare(String(password), await DUMMY_HASH_PROMISE);
+  return compareAgainstDummyArgon2(password);
 }
 
 function sendLoginRateLimited(response, retryAfterSeconds) {

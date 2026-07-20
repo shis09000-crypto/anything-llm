@@ -1,0 +1,50 @@
+name: Enterprise Security Release Evidence Gate
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-platform-evidence:
+    runs-on: ubuntu-latest
+    environment: production-security
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: server/yarn.lock
+      - name: Install server dependencies
+        run: yarn --cwd server install --frozen-lockfile
+      - name: Materialize signed evidence without logging it
+        env:
+          EDGE_EVIDENCE_B64: ${{ secrets.ATHENA_EDGE_SECURITY_EVIDENCE_B64 }}
+          EDGE_PUBLIC_KEY_B64: ${{ secrets.ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_B64 }}
+          DR_EVIDENCE_B64: ${{ secrets.ATHENA_DR_EVIDENCE_B64 }}
+          DR_PUBLIC_KEY_B64: ${{ secrets.ATHENA_DR_EVIDENCE_PUBLIC_KEY_B64 }}
+        run: |
+          set -eu
+          umask 077
+          test -n "$EDGE_EVIDENCE_B64"
+          test -n "$EDGE_PUBLIC_KEY_B64"
+          test -n "$DR_EVIDENCE_B64"
+          test -n "$DR_PUBLIC_KEY_B64"
+          mkdir -p "$RUNNER_TEMP/athena-evidence"
+          printf '%s' "$EDGE_EVIDENCE_B64" | base64 --decode > "$RUNNER_TEMP/athena-evidence/edge.json"
+          printf '%s' "$EDGE_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/athena-evidence/edge.pem"
+          printf '%s' "$DR_EVIDENCE_B64" | base64 --decode > "$RUNNER_TEMP/athena-evidence/dr.json"
+          printf '%s' "$DR_PUBLIC_KEY_B64" | base64 --decode > "$RUNNER_TEMP/athena-evidence/dr.pem"
+      - name: Verify Ed25519-signed edge and disaster-recovery evidence
+        env:
+          APP_ENV: production
+          NODE_ENV: production
+          ATHENA_EDGE_SECURITY_EVIDENCE_FILE: ${{ runner.temp }}/athena-evidence/edge.json
+          ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE: ${{ runner.temp }}/athena-evidence/edge.pem
+          ATHENA_DR_EVIDENCE_FILE: ${{ runner.temp }}/athena-evidence/dr.json
+          ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE: ${{ runner.temp }}/athena-evidence/dr.pem
+        run: yarn --cwd server security:evidence

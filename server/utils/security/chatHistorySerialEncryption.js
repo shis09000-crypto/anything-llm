@@ -1,6 +1,9 @@
 const crypto = require("crypto");
 const prisma = require("../prisma");
 const {
+  ensureMigrationOwnedTables,
+} = require("../database/schemaIntrospection");
+const {
   decryptSecretIfNeeded,
   encryptSecret,
   isEncryptedSecret,
@@ -149,6 +152,20 @@ function keyIdForScope(scope = {}) {
 
 async function ensureSerialEncryptionTables(client = prisma) {
   if (tablesReady && client === prisma) return;
+  if (
+    await ensureMigrationOwnedTables(
+      client,
+      [
+        "workspace_chats",
+        "workspace_chat_conversation_keys",
+        "workspace_chat_crypto_metadata",
+      ],
+      { context: "chat-history-serial-encryption" }
+    )
+  ) {
+    if (client === prisma) tablesReady = true;
+    return;
+  }
   // The existing history index places `include` before `id`, so the chain-tail
   // safety query cannot satisfy ORDER BY id DESC from the index and becomes
   // history-length dependent. This additive index keeps the business tail

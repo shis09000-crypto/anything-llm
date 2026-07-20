@@ -104,6 +104,13 @@ function setupBrowserGlobals() {
   globalThis.WebSocket = FakeWebSocket;
 }
 
+async function latestSocket() {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const socket = FakeWebSocket.instances.at(-1);
+  assert(socket, "Agent WebSocket should be created after ticket issuance");
+  return socket;
+}
+
 async function loadAgentClient() {
   setupBrowserGlobals();
   globalThis.__agentWsRequestJson = async () => ({
@@ -202,8 +209,8 @@ export function isRecoverableSigningError(code) {
         'const API_BASE = "/api";'
       )
       .replace(
-        'import { getAuthToken } from "@/utils/authTokenStorage";',
-        'const getAuthToken = () => "jwt-secret";'
+        'import { issueRealtimeTicket } from "./realtimeTicketClient";',
+        'const issueRealtimeTicket = async () => "rt-test-ticket";'
       )
       .replace(
         'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
@@ -275,7 +282,13 @@ test("Agent session reuse helper requires matching non-terminal invocation", asy
       false
     );
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
+    const socketUrl = new URL(socket.url);
+    assert.equal(
+      socketUrl.searchParams.get("realtimeTicket"),
+      "rt-test-ticket"
+    );
+    assert.equal(socketUrl.searchParams.has("token"), false);
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(
@@ -315,7 +328,7 @@ test("Agent session ignores duplicate final and blocks reconnect/feedback after 
       onState: (state) => states.push(state),
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket.message(reportFinal("done", 1));
@@ -358,7 +371,7 @@ test("Agent stop emits one stop and suppresses close/error assistant errors", as
       onClose: (...args) => closes.push(args),
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(await controller.stop("test_stop"), { ok: true });
@@ -390,7 +403,7 @@ test("Agent waiting_on_input allows clarification and is not terminal", async ()
       onState: (state) => states.push(state),
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket.message({ type: "WAITING_ON_INPUT", seq: 1, question: "continue?" });
@@ -432,7 +445,7 @@ test("Agent clarification request enters waiting state and resumes after answer"
       onState: (state) => states.push(state),
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket.message({
@@ -484,7 +497,7 @@ test("Agent clarification wait pauses silence reconnect timer", async () => {
       silenceTimeoutMs: 20,
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket.message({
@@ -531,7 +544,7 @@ test("Agent clarification send failure keeps waiting state for retry", async () 
       websocketUUID: "debug-clarification-failure",
     });
 
-    const socket = FakeWebSocket.instances.at(-1);
+    const socket = await latestSocket();
     socket.open();
     await new Promise((resolve) => setTimeout(resolve, 0));
     socket.message({

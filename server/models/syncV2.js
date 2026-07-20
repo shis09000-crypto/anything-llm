@@ -6,6 +6,9 @@ const { contentHash } = require("../utils/syncV2/canonicalJson");
 const { currentCorrelation } = require("../utils/observability/context");
 const { metrics } = require("../utils/observability/metrics");
 const {
+  databaseTablesReady,
+} = require("../utils/database/schemaIntrospection");
+const {
   decodeUserStateValue,
 } = require("../utils/security/userStateValueProtection");
 const {
@@ -686,10 +689,12 @@ const SyncV2 = {
     if (!force && now - schemaReadyCache.checkedAt < SCHEMA_READY_TTL_MS)
       return schemaReadyCache.ready;
     try {
-      const rows = await prisma.$queryRawUnsafe(
-        `SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('sync_nodes', 'sync_outbox', 'sync_client_cursors')`
-      );
-      schemaReadyCache = { checkedAt: now, ready: rows.length === 3 };
+      const ready = await databaseTablesReady(prisma, [
+        "sync_nodes",
+        "sync_outbox",
+        "sync_client_cursors",
+      ]);
+      schemaReadyCache = { checkedAt: now, ready };
     } catch {
       schemaReadyCache = { checkedAt: now, ready: false };
     }

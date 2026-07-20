@@ -25,6 +25,26 @@ const {
   REQUEST_USER_INPUT_TOOL_NAME,
 } = require("./plugins/request-user-input.js");
 
+function shouldForwardProviderStreamEvent(type, data) {
+  if (type !== "reportStreamEvent") return true;
+  if (data?.type !== "toolCallInvocation") return true;
+  return data?.phase === "ready" && Boolean(data?.toolName);
+}
+
+function readyToolInvocationEvent(functionCall, depth, fallbackUuid) {
+  const name = String(functionCall?.name || "").trim();
+  if (!name) return null;
+  const callId =
+    functionCall?.id || functionCall?.call_id || `${fallbackUuid}:${depth}`;
+  return {
+    type: "toolCallInvocation",
+    uuid: `tool_call:${callId}`,
+    toolName: name,
+    phase: "ready",
+    content: `Calling ${name}.`,
+  };
+}
+
 /**
  * AIbitat is a class that manages the conversation between agents.
  * It is designed to solve a task with LLM.
@@ -1042,6 +1062,7 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
   ) {
     let emittedFullTextResponse = false;
     const eventHandler = (type, data) => {
+      if (!shouldForwardProviderStreamEvent(type, data)) return;
       if (type === "reportStreamEvent" && data?.type === "fullTextResponse") {
         emittedFullTextResponse = true;
       }
@@ -1100,6 +1121,14 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       this.handlerProps?.log?.(
         `[debug]: ${fn.caller} is attempting to call \`${name}\` tool ${JSON.stringify(args, null, 2)}`
       );
+
+      const toolInvocationEvent = readyToolInvocationEvent(
+        completionStream.functionCall,
+        depth,
+        completionStream.uuid || v4()
+      );
+      if (toolInvocationEvent)
+        eventHandler("reportStreamEvent", toolInvocationEvent);
 
       const result = await this.#executeToolHandler(fn, args, name);
       const toolRun = await storeToolRun({
@@ -1285,6 +1314,14 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       this.handlerProps?.log?.(
         `[debug]: ${fn.caller} is attempting to call \`${name}\` tool`
       );
+
+      const toolInvocationEvent = readyToolInvocationEvent(
+        completion.functionCall,
+        depth,
+        msgUUID
+      );
+      if (toolInvocationEvent)
+        eventHandler("reportStreamEvent", toolInvocationEvent);
 
       const result = await this.#executeToolHandler(fn, args, name);
       const toolRun = await storeToolRun({
@@ -1562,3 +1599,6 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
 }
 
 module.exports = AIbitat;
+module.exports.readyToolInvocationEvent = readyToolInvocationEvent;
+module.exports.shouldForwardProviderStreamEvent =
+  shouldForwardProviderStreamEvent;

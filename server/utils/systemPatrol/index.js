@@ -4,6 +4,9 @@ const path = require("path");
 const { execFileSync } = require("child_process");
 const { lazyDataAccessFacade } = require("../dataAccess/lazyFacade");
 const { isPostgresql } = require("../database/databaseProvider");
+const {
+  ensureMigrationOwnedTables,
+} = require("../database/schemaIntrospection");
 const { ContentObject } = require("../../models/contentObject");
 const SystemPatrolData = lazyDataAccessFacade("systemPatrol");
 const systemPatrolDb = SystemPatrolData.db;
@@ -104,7 +107,14 @@ function summarizeChecks(checks = []) {
 async function ensurePatrolTables() {
   // PostgreSQL schemas are migration-owned. Runtime DDL would require elevated
   // privileges and would bypass the migrator/API role separation.
-  if (isPostgresql()) return;
+  if (
+    await ensureMigrationOwnedTables(
+      systemPatrolDb,
+      [RUN_TABLE, REPAIR_TABLE],
+      { context: "system-patrol" }
+    )
+  )
+    return;
   await systemPatrolDb.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "${RUN_TABLE}" (
       "id" INTEGER PRIMARY KEY AUTOINCREMENT,

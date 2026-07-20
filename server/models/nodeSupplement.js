@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 const {
   buildNodeKey,
@@ -57,6 +60,14 @@ function documentDisplayName(document = {}, metadata = {}) {
 
 async function ensureTable() {
   if (tableReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, ["NodeSupplement"], {
+      context: "node-supplement",
+    })
+  ) {
+    tableReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "NodeSupplement" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

@@ -186,7 +186,8 @@ function transportSecurityStatus(env = process.env) {
     forceHttps: envFlag(env.FORCE_HTTPS),
     publicAppUrlHttps: isHttpsUrl(env.PUBLIC_APP_URL),
     hstsConfigured: production && mode.mode !== "invalid",
-    tlsMinVersion: "TLSv1.2",
+    tlsMinVersion:
+      env.ATHENA_TLS_MIN_VERSION || (production ? "TLSv1.3" : "TLSv1.2"),
     tls13Recommended: true,
     sseHeaders: { ...SSE_TRANSPORT_HEADERS },
     webSocketSecureRequired: production,

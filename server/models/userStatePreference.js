@@ -1,4 +1,7 @@
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { SyncV2 } = require("./syncV2");
 const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
 const {
@@ -10,6 +13,7 @@ const { userStateMergePolicy } = require("../utils/userStatePreferencePolicy");
 const TABLE_NAME = "user_state_preferences";
 const DEFAULT_SCOPE = "global";
 const DEFAULT_VERSION = "1";
+let tableReady = false;
 
 function placeholders(values = []) {
   return values.map(() => "?").join(",");
@@ -17,15 +21,30 @@ function placeholders(values = []) {
 
 function rowToState(row = {}) {
   if (!row) return null;
+  const decodedValue = decodeUserStateValue({
+    userId: row.userId,
+    namespace: row.namespace,
+    scope: row.scope || DEFAULT_SCOPE,
+    storedValue: row.value,
+  });
+  const value =
+    row.monotonicCursor !== null &&
+    row.monotonicCursor !== undefined &&
+    decodedValue &&
+    typeof decodedValue === "object" &&
+    !Array.isArray(decodedValue)
+      ? {
+          ...decodedValue,
+          cursor: Math.max(
+            Number(decodedValue.cursor || 0),
+            Number(row.monotonicCursor || 0)
+          ),
+        }
+      : decodedValue;
   return {
     namespace: row.namespace,
     scope: row.scope || DEFAULT_SCOPE,
-    value: decodeUserStateValue({
-      userId: row.userId,
-      namespace: row.namespace,
-      scope: row.scope || DEFAULT_SCOPE,
-      storedValue: row.value,
-    }),
+    value,
     version: row.version || DEFAULT_VERSION,
     updatedAt: row.updatedAt,
     createdAt: row.createdAt,
@@ -81,7 +100,7 @@ async function currentStateResult(
     row ||
     (
       await tx.$queryRawUnsafe(
-        `SELECT "userId", "namespace", "scope", "value", "version", "updatedAt", "createdAt" FROM "${TABLE_NAME}"
+        `SELECT "userId", "namespace", "scope", "value", "version", "monotonicCursor", "updatedAt", "createdAt" FROM "${TABLE_NAME}"
          WHERE "userId" = ? AND "namespace" = ? AND "scope" = ?
          LIMIT 1`,
         Number(userId),
@@ -134,6 +153,15 @@ const UserStatePreference = {
   DEFAULT_VERSION,
 
   ensureTable: async function () {
+    if (tableReady) return;
+    if (
+      await ensureMigrationOwnedTables(prisma, [TABLE_NAME], {
+        context: "user-state-preferences",
+      })
+    ) {
+      tableReady = true;
+      return;
+    }
     await prisma.$executeRawUnsafe(`
       CREATE TABLE IF NOT EXISTS "${TABLE_NAME}" (
         "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
@@ -142,6 +170,7 @@ const UserStatePreference = {
         "scope" TEXT NOT NULL DEFAULT 'global',
         "value" TEXT NOT NULL,
         "version" TEXT NOT NULL DEFAULT '1',
+        "monotonicCursor" INTEGER,
         "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
         CONSTRAINT "user_state_preferences_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users" ("id") ON DELETE CASCADE ON UPDATE CASCADE
@@ -156,6 +185,7 @@ const UserStatePreference = {
     await prisma.$executeRawUnsafe(
       `CREATE INDEX IF NOT EXISTS "user_state_preferences_updatedAt_idx" ON "${TABLE_NAME}"("updatedAt")`
     );
+    tableReady = true;
   },
 
   where: async function ({ userId, namespaces = null, scopes = null } = {}) {
@@ -174,7 +204,7 @@ const UserStatePreference = {
     }
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT "userId", "namespace", "scope", "value", "version", "updatedAt", "createdAt"
+      `SELECT "userId", "namespace", "scope", "value", "version", "monotonicCursor", "updatedAt", "createdAt"
         FROM "${TABLE_NAME}"
         WHERE ${clauses.join(" AND ")}
         ORDER BY "updatedAt" DESC`,
@@ -213,7 +243,7 @@ const UserStatePreference = {
           currentRow =
             (
               await tx.$queryRawUnsafe(
-                `SELECT "userId", "namespace", "scope", "value", "version", "updatedAt", "createdAt" FROM "${TABLE_NAME}"
+                `SELECT "userId", "namespace", "scope", "value", "version", "monotonicCursor", "updatedAt", "createdAt" FROM "${TABLE_NAME}"
                WHERE "userId" = ? AND "namespace" = ? AND "scope" = ?
                LIMIT 1`,
                 Number(userId),
@@ -244,7 +274,11 @@ const UserStatePreference = {
         if (
           mergePolicy === "monotonic-cursor" &&
           currentRow &&
-          Number(cleanValue?.cursor || 0) <= Number(currentValue?.cursor || 0)
+          Number(cleanValue?.cursor || 0) <=
+            Math.max(
+              Number(currentRow.monotonicCursor || 0),
+              Number(currentValue?.cursor || 0)
+            )
         ) {
           saved.push(
             await currentStateResult(tx, {
@@ -266,26 +300,29 @@ const UserStatePreference = {
         });
         const monotonicUpdateGuard =
           mergePolicy === "monotonic-cursor"
-            ? ` WHERE COALESCE(CAST(json_extract("${TABLE_NAME}"."value", '$.cursor') AS INTEGER), 0) < ?`
+            ? ` WHERE COALESCE("${TABLE_NAME}"."monotonicCursor", 0) < excluded."monotonicCursor"`
             : "";
+        const monotonicCursor =
+          mergePolicy === "monotonic-cursor"
+            ? Number(cleanValue?.cursor || 0)
+            : null;
         const writeCount = await tx.$executeRawUnsafe(
           `INSERT INTO "${TABLE_NAME}"
-            ("userId", "namespace", "scope", "value", "version", "createdAt", "updatedAt")
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ("userId", "namespace", "scope", "value", "version", "monotonicCursor", "createdAt", "updatedAt")
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT("userId", "namespace", "scope") DO UPDATE SET
               "value" = excluded."value",
               "version" = excluded."version",
+              "monotonicCursor" = excluded."monotonicCursor",
               "updatedAt" = excluded."updatedAt"${monotonicUpdateGuard}`,
           Number(userId),
           namespace,
           scope,
           value,
           version,
+          monotonicCursor,
           now,
-          now,
-          ...(mergePolicy === "monotonic-cursor"
-            ? [Number(cleanValue?.cursor || 0)]
-            : [])
+          now
         );
         // A concurrent device may have committed a higher cursor after our
         // read. The guarded UPSERT then changes zero rows; return the winner

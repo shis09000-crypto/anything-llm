@@ -1,0 +1,227 @@
+{
+  "generatedAt": "2026-07-20T12:45:48.647Z",
+  "scope": "Authorized local development repository/runtime, read-only assessment",
+  "repository": {
+    "branch": "codex/v2.3",
+    "commit": "2bd6e486b60b45ab3e6a97bdce522cb94c4e551c"
+  },
+  "runtime": {
+    "frontend": 200,
+    "api": 200,
+    "apiReady": 200,
+    "collector": 200
+  },
+  "database": {
+    "mainQuickCheck": "ok",
+    "mainForeignKeys": 0,
+    "authQuickCheck": "ok",
+    "authForeignKeys": 0
+  },
+  "encryption": {
+    "chats": 1038,
+    "chatPromptEncrypted": 1038,
+    "chatResponseEncrypted": 1038,
+    "chatChainInvalid": 0,
+    "documentsEncrypted": "31/31",
+    "vectorCacheEncrypted": "30/30",
+    "lanceTextEncrypted": "695/695"
+  },
+  "syncV2": {
+    "enabled": false,
+    "nodes": 263,
+    "projectionsChecked": 186,
+    "hashMismatches": 0,
+    "permissionConflicts": 0,
+    "payloadConflicts": 0,
+    "maxCursorLag": 696
+  },
+  "securityLedger": {
+    "entries": 13,
+    "checkpoints": 4,
+    "valid": true,
+    "archiveEnabled": false
+  },
+  "staticAudits": {
+    "routeCount": 338,
+    "routeFindings": 0,
+    "resourceAccessFindings": 0,
+    "keyCustodyFindings": 0,
+    "desktopPolicyFindings": 0
+  },
+  "supplyChain": {
+    "reachableCritical": 0,
+    "rawHigh": {
+      "server": 114,
+      "collector": 40,
+      "frontend": 11
+    },
+    "sbom": true,
+    "provenance": true
+  },
+  "limitations": [
+    "No authenticated browser multi-device E2E in this run",
+    "No external PostgreSQL/NATS/S3/KMS/SIEM environment",
+    "Edge WAF/CDN/DDoS/DNSSEC not observable from local repository",
+    "Scores are architecture judgment, not compliance certification"
+  ],
+  "maturity": [
+    {
+      "domain": "边缘与源站",
+      "score": 1.6,
+      "target": 4,
+      "weight": 8
+    },
+    {
+      "domain": "身份与会话",
+      "score": 3.3,
+      "target": 4.5,
+      "weight": 12
+    },
+    {
+      "domain": "授权与策略",
+      "score": 3.5,
+      "target": 4.5,
+      "weight": 10
+    },
+    {
+      "domain": "设备信任",
+      "score": 2.5,
+      "target": 4,
+      "weight": 8
+    },
+    {
+      "domain": "密码与密钥",
+      "score": 3.8,
+      "target": 4.5,
+      "weight": 12
+    },
+    {
+      "domain": "数据保护",
+      "score": 3.7,
+      "target": 4.5,
+      "weight": 10
+    },
+    {
+      "domain": "同步安全",
+      "score": 4.1,
+      "target": 4.5,
+      "weight": 8
+    },
+    {
+      "domain": "AI 与 Agent",
+      "score": 2.7,
+      "target": 4,
+      "weight": 10
+    },
+    {
+      "domain": "工作负载隔离",
+      "score": 2,
+      "target": 4,
+      "weight": 8
+    },
+    {
+      "domain": "供应链",
+      "score": 3.2,
+      "target": 4,
+      "weight": 6
+    },
+    {
+      "domain": "审计与 SecOps",
+      "score": 3,
+      "target": 4,
+      "weight": 5
+    },
+    {
+      "domain": "备份与灾备",
+      "score": 1.8,
+      "target": 4,
+      "weight": 3
+    }
+  ],
+  "findings": [
+    {
+      "idRisk": "ATH-V1-001 · High · 已确认",
+      "pathEvidence": "撤销/窃取 JWT → Broadcast/Agent/Crypto WS → decodeJWT/resource lookup，但不查 AuthSession.validate。",
+      "impact": "会话吊销不能保证立即终止长连接；query token 可能进入代理、历史或日志。",
+      "recommendation": "P0：权威 WS principal adapter + 60–120 秒 ticket + 周期复核 + revoke-close。"
+    },
+    {
+      "idRisk": "ATH-V1-002 · High · 已确认",
+      "pathEvidence": "开发 Collector /parse 接收 options.absolutePath；完整性校验在 development 跳过。",
+      "impact": "本机/开发环境中，调用者可请求解析 Collector OS 权限可读文件。",
+      "recommendation": "P0：删除公开字段；API 签发 opaque file handle；loopback bind 和开发签名。"
+    },
+    {
+      "idRisk": "ATH-V1-003 · High · 已确认",
+      "pathEvidence": "Collector 容器继承 .env，并读写挂载完整 server/storage。",
+      "impact": "解析器 RCE、依赖漏洞或恶意文档可扩大到应用数据与 Secret。",
+      "recommendation": "P0：独立身份与 env；最小挂载；默认无网络；一次性任务目录。"
+    },
+    {
+      "idRisk": "ATH-V1-004 · High · 已确认",
+      "pathEvidence": "rag-memory.store 直接写 workspace vector；search 以 Additional context 原样返回。",
+      "impact": "间接 Prompt Injection 可转为长期知识污染并影响后续 Agent 决策。",
+      "recommendation": "P0：memory candidate + provenance/taint + approval + recall-time untrusted wrapper。"
+    },
+    {
+      "idRisk": "ATH-V1-005 · Medium · 已确认",
+      "pathEvidence": "公共 /ready 返回 hostname/pid 关联 workerId、计数器、审计 chainId/head hash。",
+      "impact": "扩大侦察信息和内部运行拓扑暴露；高敏诊断不应匿名公开。",
+      "recommendation": "P0：/live 极简；/ready 仅状态；/internal/diagnostics 强认证。"
+    },
+    {
+      "idRisk": "ATH-V1-006 · Medium · 已确认",
+      "pathEvidence": "iOS P-256 私钥 rawRepresentation 写入 Keychain，而非 Secure Enclave 非导出密钥。",
+      "impact": "Keychain 提供良好静态保护，但未达到报告要求的硬件不可导出。",
+      "recommendation": "P1：Secure Enclave key agreement/signing，保留设备兼容降级策略。"
+    },
+    {
+      "idRisk": "ATH-V1-007 · Medium · 已确认",
+      "pathEvidence": "服务端凭据主路径仍使用 bcryptjs；报告目标为 Argon2id + HSM pepper。",
+      "impact": "不构成直接绕过，但抗离线破解与密钥分离未达到金融级目标。",
+      "recommendation": "P1：登录时渐迁 Argon2id；pepper 仅在 KMS/HSM 阶段启用。"
+    },
+    {
+      "idRisk": "ATH-V1-008 · Medium · 条件性",
+      "pathEvidence": "开发 security policy 为 requestSigningWarnOnly=true、deviceRequired=false、strictReady=false。",
+      "impact": "若错误带入生产会形成安全降级；当前只能证明开发态配置。",
+      "recommendation": "P0 发布门禁：production profile fail-closed，禁止 warn-only/开发 bypass。"
+    },
+    {
+      "idRisk": "ATH-V1-009 · Medium · 发布前",
+      "pathEvidence": "NATS adapter 支持 user/pass/token，但 connect 未配置 TLS/CA/client cert/nkey。",
+      "impact": "启用跨实例后，内部事件的服务身份和链路机密性不足。",
+      "recommendation": "P1：在 ATHENA_BROADCAST_TRANSPORT=nats 时强制 tls:// 与 ACL。"
+    },
+    {
+      "idRisk": "ATH-V1-010 · Medium · 成熟度",
+      "pathEvidence": "安全账本签名有效；immutable archive 默认 disabled，未见生产 SIEM/SOAR 证据。",
+      "impact": "本机证据链强，但独立留存、集中检测与响应闭环不足。",
+      "recommendation": "P1：WORM/object lock + SIEM + retry/alert + incident runbook。"
+    },
+    {
+      "idRisk": "ATH-V1-011 · Medium · 成熟度",
+      "pathEvidence": "DataAccessCenter 有 public/internal/user/sensitive/secret/ephemeral 分类，但非统一 S0–S4 策略。",
+      "impact": "分类尚未统一驱动 DLP、驻留、导出、保留和水印。",
+      "recommendation": "P1：建立可机读数据目录与 policy-as-code；逐域映射，不批量重写。"
+    },
+    {
+      "idRisk": "ATH-V1-012 · Medium · 成熟度",
+      "pathEvidence": "Key provider 当前 env-file/secret-file/environment；external KMS/Vault 标为 reserved。",
+      "impact": "密钥材料和应用工作负载仍在同一管理域，无法证明硬件根与职责分离。",
+      "recommendation": "P1/P2：先 Vault/KMS staging，再按客户需求升级 HSM/双人恢复。"
+    },
+    {
+      "idRisk": "ATH-V1-013 · Medium · 证据缺口",
+      "pathEvidence": "应用内 TLS/CORS/header 存在；WAF/CDN/DDoS/DNSSEC/源站 mTLS 不在仓库与本机范围。",
+      "impact": "不能对边缘抗压、Bot、源站隐藏做金融级声明。",
+      "recommendation": "P1：把 edge 配置、健康与演练证据纳入 release evidence bundle。"
+    },
+    {
+      "idRisk": "ATH-V1-014 · Medium · 证据缺口",
+      "pathEvidence": "有本地备份与修复脚本，但无跨账户/跨区域恢复演练证据。",
+      "impact": "勒索、区域故障、密钥损坏下的 RPO/RTO 不可证明。",
+      "recommendation": "P2：独立密钥域、不可变备份、季度 restore test。"
+    }
+  ]
+}

@@ -2,6 +2,7 @@ const prisma = require("../utils/prisma");
 const { ApiKey } = require("../models/apiKeys");
 const { AuthIdentity } = require("../models/authIdentity");
 const { AuthSession } = require("../models/authSession");
+const { RealtimeTicket } = require("../models/realtimeTicket");
 const { BrowserExtensionApiKey } = require("../models/browserExtensionApiKey");
 const {
   EmailVerificationCode,
@@ -69,6 +70,10 @@ const AdminSystemRepository = {
 
   get authSession() {
     return AuthSession;
+  },
+
+  get realtimeTicket() {
+    return RealtimeTicket;
   },
 
   get browserExtensionApiKey() {

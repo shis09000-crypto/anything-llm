@@ -85,6 +85,11 @@ const securityAuditChainValid = new client.Gauge({
   help: "Whether the most recent security audit chain verification passed.",
   registers: [registry],
 });
+const securityAuditArchiveHealthy = new client.Gauge({
+  name: "athena_security_audit_archive_healthy",
+  help: "Whether immutable archive and SIEM delivery last completed successfully.",
+  registers: [registry],
+});
 const pluginPolicyDecisions = new client.Counter({
   name: "athena_plugin_policy_decisions_total",
   help: "Plugin and scheduled tool capability decisions.",
@@ -242,6 +247,7 @@ module.exports = {
     runtimeShutdowns,
     securityAuditEvents,
     securityAuditChainValid,
+    securityAuditArchiveHealthy,
     syncCursorLag,
     syncOutboxEvents,
     syncOutboxOldestAge,

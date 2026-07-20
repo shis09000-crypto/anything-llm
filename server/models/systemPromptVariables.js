@@ -369,11 +369,7 @@ function normalizeUserBioForPrompt(bio = "") {
 }
 
 function promptVariableEncryptionConfigured() {
-  try {
-    return Boolean(resolveActiveKey());
-  } catch {
-    return false;
-  }
+  return Boolean(resolveActiveKey());
 }
 
 function encryptPromptVariableValue(value = "") {

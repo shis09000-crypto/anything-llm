@@ -116,6 +116,40 @@ describe("user state merge policies", () => {
     expect(mockSyncV2.recordNodeChange).not.toHaveBeenCalled();
   });
 
+  test("server monotonic cursor remains authoritative when the encrypted value projection is stale", async () => {
+    const tx = {
+      $queryRawUnsafe: jest.fn().mockResolvedValue([
+        {
+          userId: 7,
+          namespace: "thread.read-state",
+          scope: "thread:ws-a:thread-a",
+          value: { cursor: 20, messageId: 20 },
+          version: "1",
+          monotonicCursor: 40,
+        },
+      ]),
+      $executeRawUnsafe: jest.fn(),
+      sync_nodes: { findUnique: jest.fn().mockResolvedValue(null) },
+    };
+    mockPrisma.$transaction.mockImplementation((callback) => callback(tx));
+
+    const result = await UserStatePreference.upsertMany({
+      userId: 7,
+      states: [
+        {
+          namespace: "thread.read-state",
+          scope: "thread:ws-a:thread-a",
+          mutationOperation: "merge",
+          mutationPayload: { cursor: 30, messageId: 30 },
+        },
+      ],
+    });
+
+    expect(tx.$executeRawUnsafe).not.toHaveBeenCalled();
+    expect(mockSyncV2.recordNodeChange).not.toHaveBeenCalled();
+    expect(result[0].value.cursor).toBe(40);
+  });
+
   test("database guard rejects a losing concurrent cursor without stale Outbox", async () => {
     const tx = {
       $queryRawUnsafe: jest
@@ -159,7 +193,11 @@ describe("user state merge policies", () => {
       ],
     });
 
-    expect(tx.$executeRawUnsafe.mock.calls[0][0]).toContain("json_extract");
+    expect(tx.$executeRawUnsafe.mock.calls[0][0]).toContain(
+      'COALESCE("user_state_preferences"."monotonicCursor", 0)'
+    );
+    expect(tx.$executeRawUnsafe.mock.calls[0][0]).not.toContain("json_extract");
+    expect(tx.$executeRawUnsafe.mock.calls[0]).toContain(25);
     expect(result[0]).toEqual(
       expect.objectContaining({ value: { cursor: 30, messageId: 30 } })
     );

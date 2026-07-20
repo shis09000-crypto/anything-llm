@@ -1,4 +1,5 @@
 const { createKeyProvider, SERVER_DATA_PURPOSE } = require("./providers");
+const crypto = require("crypto");
 
 let provider = null;
 let runtimeActiveKey = null;
@@ -83,6 +84,39 @@ function health() {
   return keyProvider().health();
 }
 
+function verifyKeyCustodyRoundTrip() {
+  const active = resolveActiveKey();
+  const recovered = resolveKey(active.keyId);
+  if (!recovered?.material?.equals(active.material)) {
+    throw new Error("key_custody_recovery_lookup_failed");
+  }
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", recovered.material, iv);
+  const ciphertext = Buffer.concat([
+    cipher.update("athena-key-custody-probe"),
+    cipher.final(),
+  ]);
+  const tag = cipher.getAuthTag();
+  const decipher = crypto.createDecipheriv(
+    "aes-256-gcm",
+    recovered.material,
+    iv
+  );
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([
+    decipher.update(ciphertext),
+    decipher.final(),
+  ]);
+  if (plaintext.toString("utf8") !== "athena-key-custody-probe") {
+    throw new Error("key_custody_round_trip_failed");
+  }
+  return {
+    keyId: active.keyId,
+    providerType: active.providerType,
+    roundTrip: true,
+  };
+}
+
 module.exports = {
   activateKey,
   clearRuntimeActiveKey,
@@ -94,4 +128,5 @@ module.exports = {
   resolveKey,
   retireKey,
   setRuntimeActiveKey,
+  verifyKeyCustodyRoundTrip,
 };

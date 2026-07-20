@@ -21,8 +21,8 @@ import {
   clearSigningSecretCache,
   isRecoverableSigningError,
 } from "./requestSigningClient";
-import { getAuthToken } from "@/utils/authTokenStorage";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
+import { issueRealtimeTicket } from "./realtimeTicketClient";
 
 export const AgentSessionState = {
   IDLE: "idle",
@@ -89,11 +89,10 @@ export function agentWebSocketURI() {
 
 export function agentWebSocketUrl(
   websocketUUID,
-  { resume = false, lastEventSeq = 0 } = {}
+  { resume = false, lastEventSeq = 0, realtimeTicket = null } = {}
 ) {
   const query = new URLSearchParams();
-  const token = typeof window !== "undefined" ? getAuthToken() : null;
-  if (token) query.set("token", token);
+  if (realtimeTicket) query.set("realtimeTicket", realtimeTicket);
   if (isCodexDevAuthBypassEnabled()) {
     query.set(CODEX_DEV_AUTH_BYPASS_QUERY, CODEX_DEV_AUTH_BYPASS_KEY);
   }
@@ -715,10 +714,24 @@ export function createAgentWebSocketSession({
       transition(AgentSessionState.CONNECTING, "connect");
     }
 
+    let realtimeTicket = null;
+    try {
+      realtimeTicket = await issueRealtimeTicket("agent", websocketUUID);
+    } catch (error) {
+      session.closeReason = error?.message || "Realtime authentication failed.";
+      handleAgentRecovery(error, {
+        background: false,
+      });
+      onError?.(error, snapshot({ reason: "realtime_ticket_failed" }));
+      scheduleReconnect(session.closeReason);
+      return false;
+    }
+
     socket = createWebSocket({
       url: agentWebSocketUrl(websocketUUID, {
         resume: session.lastEventSeq > 0 || session.retryCount > 0,
         lastEventSeq: session.lastEventSeq,
+        realtimeTicket,
       }),
       task: {
         kind: "agent-websocket",

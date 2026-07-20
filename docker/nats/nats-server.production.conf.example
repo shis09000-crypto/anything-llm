@@ -1,0 +1,26 @@
+# Production contract only. Operator/account JWTs and certificates are created
+# by the platform PKI/NATS operator and must never be committed here.
+server_name: athena-production-nats
+port: 4222
+jetstream {
+  store_dir: "/data/jetstream"
+  max_memory_store: 1GB
+  max_file_store: 100GB
+}
+
+tls {
+  cert_file: "/run/secrets/nats_server.pem"
+  key_file: "/run/secrets/nats_server.key"
+  ca_file: "/run/secrets/athena_nats_ca.pem"
+  verify: true
+  timeout: 2
+}
+
+operator: "/run/nats/operator.jwt"
+resolver: full
+resolver_preload: {}
+system_account: "ACCOUNT_PUBLIC_KEY_FROM_OPERATOR"
+
+# Publish/subscribe ACLs live in signed account/user JWTs. Provision distinct
+# API, Realtime Gateway and Push Worker identities and scope each to the minimum
+# `athena.production.>` subjects it needs.

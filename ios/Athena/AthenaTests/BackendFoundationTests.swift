@@ -118,9 +118,10 @@ final class BackendFoundationTests: XCTestCase {
                 request.value(forHTTPHeaderField: "X-Athena-Signature-Version"),
                 "v2-device-p256"
             )
-            XCTAssertEqual(
-                request.value(forHTTPHeaderField: "X-Athena-Device-Key-Algorithm"),
-                "p256-v1"
+            XCTAssertTrue(
+                ["p256-software-v1", "p256-secure-enclave-v1"].contains(
+                    request.value(forHTTPHeaderField: "X-Athena-Device-Key-Algorithm") ?? ""
+                )
             )
             XCTAssertNotNil(request.value(forHTTPHeaderField: "X-Athena-Signature"))
             XCTAssertNotNil(request.value(forHTTPHeaderField: "X-Athena-Device-Public-Key"))
@@ -1062,17 +1063,23 @@ final class BackendFoundationTests: XCTestCase {
     func testServerStateCacheDeduplicatesConcurrentFetches() async throws {
         let cache = ServerStateCache()
         let fetchCount = InvocationCounter()
+        let firstFetchStarted = expectation(description: "first cache fetch started")
 
-        async let first: Int = cache.load(
-            Int.self,
-            key: "workspaces",
-            ownerScope: "user:1",
-            ttl: 30
-        ) {
-            await fetchCount.increment()
-            try await Task.sleep(for: .milliseconds(20))
-            return 42
+        let first = Task { @MainActor in
+            try await cache.load(
+                Int.self,
+                key: "workspaces",
+                ownerScope: "user:1",
+                ttl: 30
+            ) {
+                await fetchCount.increment()
+                firstFetchStarted.fulfill()
+                try await Task.sleep(for: .milliseconds(20))
+                return 42
+            }
         }
+        await fulfillment(of: [firstFetchStarted], timeout: 1)
+
         async let second: Int = cache.load(
             Int.self,
             key: "workspaces",
@@ -1083,7 +1090,7 @@ final class BackendFoundationTests: XCTestCase {
             return 99
         }
 
-        let values = try await [first, second]
+        let values = try await [first.value, second]
         XCTAssertEqual(values, [42, 42])
         let invocationCount = await fetchCount.value
         XCTAssertEqual(invocationCount, 1)
@@ -1679,6 +1686,57 @@ final class BackendFoundationTests: XCTestCase {
         XCTAssertEqual(finalized?.finalChatID, 22)
         XCTAssertEqual(finalized?.finalPublicChatID, "public-22")
         XCTAssertEqual(finalized?.assistantText, "最终回答")
+    }
+
+    @MainActor
+    func testAgentFailureTerminatesGenerationAndReportsClientTurn() async {
+        let kit = AgentControlKit(events: [])
+        var failedSession: AgentSessionSnapshot?
+        var failureMessage: String?
+        kit.onSessionFailed = { session, message in
+            failedSession = session
+            failureMessage = message
+        }
+        await kit.startSession(
+            invocationID: "invocation-failed",
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-failed"
+        )
+
+        kit.applySocketEventData(
+            Data(#"{"seq":1,"type":"wssFailure","content":"Market provider unavailable."}"#.utf8),
+            invocationID: "invocation-failed"
+        )
+
+        XCTAssertEqual(kit.sessions.first?.phase, .failed)
+        XCTAssertTrue(kit.sessions.first?.phase.isTerminal == true)
+        XCTAssertEqual(failedSession?.clientTurnID, "turn-failed")
+        XCTAssertEqual(failureMessage, "Market provider unavailable.")
+    }
+
+    @MainActor
+    func testAgentIgnoresProvisionalUnknownToolFragments() async {
+        let kit = AgentControlKit(events: [])
+        await kit.startSession(
+            invocationID: "invocation-tools",
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-tools"
+        )
+
+        kit.applySocketEventData(
+            Data(#"{"seq":1,"type":"reportStreamEvent","content":{"type":"toolCallInvocation","uuid":"tool-1","content":"Assembling Tool Call: crypto("}}"#.utf8),
+            invocationID: "invocation-tools"
+        )
+        kit.applySocketEventData(
+            Data(#"{"seq":2,"type":"reportStreamEvent","content":{"type":"toolCallInvocation","uuid":"tool-1","toolName":"crypto-market","phase":"ready","content":"Calling crypto-market."}}"#.utf8),
+            invocationID: "invocation-tools"
+        )
+
+        let toolEvents = kit.sessions.first?.events.filter { $0.kind == .toolCall } ?? []
+        XCTAssertEqual(toolEvents.count, 1)
+        XCTAssertEqual(toolEvents.first?.title, "使用工具 · crypto-market")
     }
 
     @MainActor

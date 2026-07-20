@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 const path = require("path");
-const bcrypt = require("bcryptjs");
+const { hashPassword } = require("../utils/security/passwordCredential");
 const {
   assertDatabaseSchema,
   bootstrapCliRuntime,
@@ -324,7 +324,7 @@ async function resetPassword({ authDb, envClients, envs, identifier, logger }) {
   }
 
   const password = await promptNewPassword();
-  const passwordHash = await bcrypt.hash(password, 10);
+  const passwordHash = await hashPassword(password);
   await authDb.users.update({
     where: { id: authUser.id },
     data: { password: passwordHash },

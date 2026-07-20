@@ -266,7 +266,7 @@ describe("production transport security helpers", () => {
       forceHttps: true,
       publicAppUrlHttps: true,
       hstsConfigured: true,
-      tlsMinVersion: "TLSv1.2",
+      tlsMinVersion: "TLSv1.3",
       tls13Recommended: true,
       webSocketSecureRequired: true,
     });
@@ -330,7 +330,7 @@ describe("SSL boot transport fallback", () => {
     }));
   }
 
-  it("passes TLS1.2+ and strong cipher options to HTTPS server", () => {
+  it("passes TLS1.3+ and strong cipher options to HTTPS server", () => {
     mockBootDependencies();
     const server = {
       listen: jest.fn(function () {
@@ -368,7 +368,7 @@ describe("SSL boot transport fallback", () => {
 
     expect(createServer).toHaveBeenCalledWith(
       expect.objectContaining({
-        minVersion: "TLSv1.2",
+        minVersion: "TLSv1.3",
         honorCipherOrder: true,
         ciphers: expect.stringContaining("ECDHE-RSA-AES256-GCM-SHA384"),
       }),

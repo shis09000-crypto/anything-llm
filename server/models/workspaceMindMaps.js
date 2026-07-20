@@ -2,6 +2,9 @@ const {
   throwModelDataAccessError,
 } = require("../utils/dataAccess/modelErrors");
 const prisma = require("../utils/prisma");
+const {
+  ensureMigrationOwnedTables,
+} = require("../utils/database/schemaIntrospection");
 const { safeJsonParse } = require("../utils/http");
 
 let tableReady = false;
@@ -46,6 +49,14 @@ function toPayload(record = null) {
 
 async function ensureTable() {
   if (tableReady) return;
+  if (
+    await ensureMigrationOwnedTables(prisma, ["workspace_mind_maps"], {
+      context: "workspace-mind-maps",
+    })
+  ) {
+    tableReady = true;
+    return;
+  }
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS "workspace_mind_maps" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

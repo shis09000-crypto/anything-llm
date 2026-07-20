@@ -10,6 +10,76 @@ const DATA_ACCESS_CLASSIFICATIONS = Object.freeze({
   ephemeral: "ephemeral",
 });
 
+const DATA_SECURITY_LEVELS = Object.freeze({
+  S0: "S0",
+  S1: "S1",
+  S2: "S2",
+  S3: "S3",
+  S4: "S4",
+});
+
+const CLASSIFICATION_LEVEL_MAP = Object.freeze({
+  public: DATA_SECURITY_LEVELS.S0,
+  internal: DATA_SECURITY_LEVELS.S1,
+  user: DATA_SECURITY_LEVELS.S2,
+  sensitive: DATA_SECURITY_LEVELS.S3,
+  secret: DATA_SECURITY_LEVELS.S4,
+  ephemeral: DATA_SECURITY_LEVELS.S3,
+});
+
+const DATA_HANDLING_POLICIES = Object.freeze({
+  S0: Object.freeze({
+    encryptionRequired: false,
+    auditRequired: false,
+    exportPolicy: "public",
+    logPolicy: "allowed",
+    defaultRetention: "product-defined",
+    residencyPolicy: "unrestricted-approved-regions",
+    dlpPolicy: "none",
+    watermarkPolicy: "optional",
+  }),
+  S1: Object.freeze({
+    encryptionRequired: true,
+    auditRequired: true,
+    exportPolicy: "internal-only",
+    logPolicy: "metadata-only",
+    defaultRetention: "operational",
+    residencyPolicy: "company-approved-regions",
+    dlpPolicy: "metadata-classification",
+    watermarkPolicy: "internal-export",
+  }),
+  S2: Object.freeze({
+    encryptionRequired: true,
+    auditRequired: true,
+    exportPolicy: "owner-authorized",
+    logPolicy: "redacted",
+    defaultRetention: "account-lifecycle",
+    residencyPolicy: "tenant-policy",
+    dlpPolicy: "content-and-identifier",
+    watermarkPolicy: "account-and-export-id",
+  }),
+  S3: Object.freeze({
+    encryptionRequired: true,
+    auditRequired: true,
+    exportPolicy: "step-up-and-owner-authorized",
+    logPolicy: "identifier-and-metadata-only",
+    defaultRetention: "minimum-necessary",
+    residencyPolicy: "tenant-and-regulatory-policy",
+    dlpPolicy: "block-and-review",
+    watermarkPolicy: "mandatory-on-export",
+  }),
+  S4: Object.freeze({
+    encryptionRequired: true,
+    auditRequired: true,
+    exportPolicy: "non-exportable-by-default",
+    logPolicy: "presence-only",
+    defaultRetention: "credential-lifecycle",
+    residencyPolicy: "key-bound-regulatory-policy",
+    dlpPolicy: "non-exportable",
+    watermarkPolicy: "not-applicable-non-exportable",
+  }),
+});
+
 const DOMAIN_CLASSIFICATIONS = Object.freeze({
   accountDeletion: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   adminSystem: DATA_ACCESS_CLASSIFICATIONS.sensitive,
@@ -167,6 +237,27 @@ function domainClassification(domain = "") {
   );
 }
 
+function securityLevelForClassification(classification = "") {
+  return CLASSIFICATION_LEVEL_MAP[classification] || DATA_SECURITY_LEVELS.S1;
+}
+
+function dataHandlingPolicy(domain = "") {
+  const classification = domainClassification(domain);
+  const securityLevel = securityLevelForClassification(classification);
+  return {
+    domain: String(domain || "unknown"),
+    classification,
+    securityLevel,
+    ...DATA_HANDLING_POLICIES[securityLevel],
+  };
+}
+
+function dataSecurityCatalog() {
+  return Object.keys(DOMAIN_CLASSIFICATIONS)
+    .sort()
+    .map((domain) => dataHandlingPolicy(domain));
+}
+
 function sensitiveFieldSummary(value = {}, depth = 0, prefix = "") {
   if (!value || typeof value !== "object" || depth > 4) return [];
   const entries = Array.isArray(value)
@@ -214,19 +305,22 @@ function accessAuditEnvelope({
   payload = null,
 } = {}) {
   const sensitiveFields = sensitiveFieldSummary(payload || {});
+  const classification =
+    sensitiveFields.length > 0
+      ? sensitiveFields.some(
+          (field) => field.classification === DATA_ACCESS_CLASSIFICATIONS.secret
+        )
+        ? DATA_ACCESS_CLASSIFICATIONS.secret
+        : DATA_ACCESS_CLASSIFICATIONS.sensitive
+      : domainClassification(domain);
+  const securityLevel = securityLevelForClassification(classification);
   return {
     domain,
     operation,
     accessType,
-    classification:
-      sensitiveFields.length > 0
-        ? sensitiveFields.some(
-            (field) =>
-              field.classification === DATA_ACCESS_CLASSIFICATIONS.secret
-          )
-          ? DATA_ACCESS_CLASSIFICATIONS.secret
-          : DATA_ACCESS_CLASSIFICATIONS.sensitive
-        : domainClassification(domain),
+    classification,
+    securityLevel,
+    handling: DATA_HANDLING_POLICIES[securityLevel],
     ownerScope: compactOwnerScope(ownerScope),
     sensitiveFields: sensitiveFields.slice(0, 20),
     revision:
@@ -284,7 +378,10 @@ function isStaleRevision({ currentRevision = null, incomingRevision = null }) {
 }
 
 module.exports = {
+  CLASSIFICATION_LEVEL_MAP,
   DATA_ACCESS_CLASSIFICATIONS,
+  DATA_HANDLING_POLICIES,
+  DATA_SECURITY_LEVELS,
   DOMAIN_CLASSIFICATIONS,
   SENSITIVE_FIELD_KEY,
   USER_STATE_NAMESPACE_POLICIES,
@@ -292,6 +389,8 @@ module.exports = {
   assertUserScope,
   compactOwnerScope,
   compactString,
+  dataHandlingPolicy,
+  dataSecurityCatalog,
   domainClassification,
   fieldClassification,
   isStaleRevision,
@@ -301,6 +400,7 @@ module.exports = {
   sanitizeItems,
   sanitizePatch,
   sanitizeValue,
+  securityLevelForClassification,
   sensitiveFieldSummary,
   userStateNamespaceSummary,
 };

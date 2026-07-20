@@ -5,6 +5,14 @@ const mockMarkOutboxDispatched = jest.fn();
 const mockFailOutboxClaim = jest.fn();
 const mockReleaseOutboxClaims = jest.fn();
 const mockPublishDurably = jest.fn();
+const mockSchemaReady = jest.fn();
+const mockClaimOutbox = jest.fn();
+const mockRenewOutboxClaims = jest.fn();
+const mockPruneExpired = jest.fn();
+const mockOutboxHealth = jest.fn();
+const mockOutboxDispatchEnabled = jest.fn();
+const mockControlPlaneMode = jest.fn();
+const mockOutboxIntervalMs = jest.fn();
 
 jest.mock("../../utils/dataAccess", () => ({
   DataAccessCenter: {
@@ -13,6 +21,11 @@ jest.mock("../../utils/dataAccess", () => ({
       markOutboxDispatched: mockMarkOutboxDispatched,
       failOutboxClaim: mockFailOutboxClaim,
       releaseOutboxClaims: mockReleaseOutboxClaims,
+      schemaReady: mockSchemaReady,
+      claimOutbox: mockClaimOutbox,
+      renewOutboxClaims: mockRenewOutboxClaims,
+      pruneExpired: mockPruneExpired,
+      outboxHealth: mockOutboxHealth,
     },
   },
 }));
@@ -22,10 +35,16 @@ jest.mock("../../utils/broadcast", () => ({
 }));
 
 jest.mock("../../utils/syncV2/config", () => ({
-  syncV2Enabled: () => true,
+  syncV2ControlPlaneMode: (...args) => mockControlPlaneMode(...args),
+  syncV2OutboxDispatchEnabled: (...args) =>
+    mockOutboxDispatchEnabled(...args),
+  syncV2OutboxIntervalMs: (...args) => mockOutboxIntervalMs(...args),
 }));
 
 const {
+  flushSyncV2Outbox,
+  startSyncV2OutboxDispatcher,
+  stopSyncV2OutboxDispatcher,
   _internals: { dispatchRow, partitionLanes, processLane },
 } = require("../../utils/syncV2/outboxDispatcher");
 
@@ -58,6 +77,23 @@ describe("Sync V2 Outbox dispatcher", () => {
       deadLettered: false,
     });
     mockReleaseOutboxClaims.mockResolvedValue({ count: 1 });
+    mockSchemaReady.mockResolvedValue(true);
+    mockClaimOutbox.mockResolvedValue([]);
+    mockRenewOutboxClaims.mockResolvedValue({ count: 0 });
+    mockPruneExpired.mockResolvedValue({ count: 0 });
+    mockOutboxHealth.mockResolvedValue({
+      pending: 0,
+      retrying: 0,
+      deadLetters: 0,
+      oldestPendingAgeMs: 0,
+    });
+    mockOutboxDispatchEnabled.mockReturnValue(true);
+    mockControlPlaneMode.mockReturnValue("shadow");
+    mockOutboxIntervalMs.mockReturnValue(5_000);
+  });
+
+  afterEach(async () => {
+    await stopSyncV2OutboxDispatcher({ drain: false });
   });
 
   test("acknowledges the Outbox row only after durable broadcast commit", async () => {
@@ -114,5 +150,32 @@ describe("Sync V2 Outbox dispatcher", () => {
       seqs: [11, 12],
       leaseOwner: "worker-1",
     });
+  });
+
+  test("runs the internal shadow dispatcher independently of client rollout", async () => {
+    await expect(
+      startSyncV2OutboxDispatcher({ intervalMs: 60_000 })
+    ).resolves.toBe(true);
+    expect(mockSchemaReady).toHaveBeenCalled();
+    expect(mockClaimOutbox).toHaveBeenCalled();
+  });
+
+  test("does not claim or acknowledge when the migrated schema is unavailable", async () => {
+    mockSchemaReady.mockResolvedValue(false);
+    await expect(flushSyncV2Outbox()).resolves.toEqual({
+      skipped: true,
+      reason: "schema_unavailable",
+    });
+    expect(mockClaimOutbox).not.toHaveBeenCalled();
+    expect(mockMarkOutboxDispatched).not.toHaveBeenCalled();
+  });
+
+  test("honors the emergency Outbox dispatch kill switch", async () => {
+    mockOutboxDispatchEnabled.mockReturnValue(false);
+    await expect(flushSyncV2Outbox()).resolves.toEqual({
+      skipped: true,
+      reason: "disabled",
+    });
+    expect(mockSchemaReady).not.toHaveBeenCalled();
   });
 });

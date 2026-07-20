@@ -113,7 +113,7 @@ async function metricsSummary(workspaceId) {
     latestMetricsUpdate,
   ] = await Promise.all([
     optionalQuery(
-      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ? AND "stale" = 1`,
+      `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics" WHERE "workspaceId" = ? AND "stale" = TRUE`,
       Number(workspaceId)
     ),
     optionalQuery(
@@ -122,21 +122,22 @@ async function metricsSummary(workspaceId) {
     ),
     optionalQuery(
       `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
-       WHERE "workspaceId" = ? AND "stale" = 0
+       WHERE "workspaceId" = ? AND "stale" = FALSE
          AND "warning" IS NOT NULL AND "warning" != ''`,
       Number(workspaceId)
     ),
     optionalQuery(
       `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
-       WHERE "workspaceId" = ? AND "stale" = 1
+       WHERE "workspaceId" = ? AND "stale" = TRUE
          AND "warning" IS NOT NULL AND "warning" != ''`,
       Number(workspaceId)
     ),
     optionalQuery(
       `SELECT COUNT(*) AS count FROM "KnowledgeNodeMetrics"
        WHERE "workspaceId" = ? AND "lockedAt" IS NOT NULL
-         AND "lockedAt" >= datetime('now', '-15 minutes')`,
-      Number(workspaceId)
+         AND "lockedAt" >= ?`,
+      Number(workspaceId),
+      new Date(Date.now() - 15 * 60_000)
     ),
     optionalQuery(
       `SELECT * FROM "KnowledgeNodeMetricsRecomputeRun"

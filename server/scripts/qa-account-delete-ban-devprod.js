@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const path = require("path");
 const readline = require("readline");
 const { PrismaClient } = require("@prisma/client");
-const bcrypt = require("bcryptjs");
+const { hashPassword } = require("../utils/security/passwordCredential");
 const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
 
@@ -426,7 +426,7 @@ async function snapshotNormal() {
 
 async function seedTempData() {
   const password = `QaTemp!${timestamp}`;
-  const passwordHash = bcrypt.hashSync(password, 10);
+  const passwordHash = await hashPassword(password);
   const cases = [
     { key: "user", role: "user", ownerType: null },
     { key: "admin", role: "admin", ownerType: null },

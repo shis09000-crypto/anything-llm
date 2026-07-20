@@ -1,4 +1,4 @@
-const { WATCH_DIRECTORY, ACCEPTED_MIMES } = require("../constants");
+const { ACCEPTED_MIMES } = require("../constants");
 const fs = require("fs");
 const path = require("path");
 const { pipeline } = require("stream/promises");
@@ -71,10 +71,10 @@ async function downloadURIToFile(url, maxTimeout = 5 * 60_000) {
       }
     }
 
-    const localFilePath = path.join(WATCH_DIRECTORY, filename);
     const taskDirectory = currentTaskDirectory();
     if (!taskDirectory)
       throw new Error("Collector task isolation context is unavailable.");
+    const localFilePath = path.join(taskDirectory, path.basename(filename));
     const partialPath = path.join(taskDirectory, `${filename}.part`);
     let bytes = 0;
     const byteLimit = new Transform({
@@ -94,12 +94,16 @@ async function downloadURIToFile(url, maxTimeout = 5 * 60_000) {
     );
     await fs.promises.rename(partialPath, localFilePath);
 
-    console.log(`[SUCCESS]: File ${localFilePath} downloaded to hotdir.`);
+    console.log(
+      `[SUCCESS]: Remote file downloaded into isolated task storage.`
+    );
     return { success: true, fileLocation: localFilePath, reason: null };
   } catch (error) {
     if (error?.code === "collector_destination_forbidden") throw error;
     console.error(
-      `Error writing to hotdir: ${error} for URL: ${redactUrl(url)}`
+      `Error writing to isolated task storage: ${error} for URL: ${redactUrl(
+        url
+      )}`
     );
     return { success: false, reason: error.message, fileLocation: null };
   }

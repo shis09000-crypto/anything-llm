@@ -39,7 +39,7 @@ struct AgentSessionContentView: View {
                 AthenaMarkdownView(
                     session.assistantText,
                     cacheKey: "agent:\(session.invocationID)",
-                    isStreaming: !session.phase.isTerminal
+                    isStreaming: session.phase.isActive
                 )
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -419,6 +419,15 @@ private struct AgentSessionActions: View {
 }
 
 extension AgentSessionPhase {
+    var isActive: Bool {
+        switch self {
+        case .idle, .connecting, .open, .reconnecting, .waitingOnInput, .stopping:
+            true
+        case .finalized, .closed, .failed:
+            false
+        }
+    }
+
     var title: String {
         switch self {
         case .idle: "待开始"

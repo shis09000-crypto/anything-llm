@@ -5,26 +5,6 @@ import SwiftUI
 @MainActor
 @Observable
 final class WorkspaceCenter {
-    enum BootstrapRefreshMode: Equatable {
-        case cacheFirst
-        case authoritative
-
-        var forceRefresh: Bool { self == .authoritative }
-    }
-
-    enum Source: Equatable {
-        case live
-        case preview
-    }
-
-    enum LoadState: Equatable {
-        case idle
-        case loading
-        case ready
-        case stale(String)
-        case failed(String)
-    }
-
     private enum OptimisticMutationSnapshot {
         case workspaceTitle(workspaceID: String, previousTitle: String)
         case threadTitle(workspaceID: String, threadID: String, previousTitle: String)
@@ -2194,6 +2174,25 @@ final class WorkspaceCenter {
             agentHandoffClientTurnIDs.remove(clientTurnID)
         }
         return await refreshHistoryAfterAgentFinalized(threadID: session.threadID)
+    }
+
+    func reconcileFailedAgentSession(
+        _ session: AgentSessionSnapshot,
+        message: String
+    ) {
+        guard source == .live,
+              workspaceID(containing: session.threadID) != nil,
+              let clientTurnID = session.clientTurnID else {
+            return
+        }
+        markClientTurn(clientTurnID, in: session.threadID, deliveryState: .failed)
+        sendErrorByThreadID[session.threadID] = message
+        optimisticActionCenter.fail(clientTurnID)
+        agentHandoffClientTurnIDs.remove(clientTurnID)
+        if activeClientTurnIDByThreadID[session.threadID] == clientTurnID {
+            activeClientTurnIDByThreadID[session.threadID] = nil
+        }
+        sendingThreadIDs.remove(session.threadID)
     }
 
     func applyUnifiedSyncInvalidation(

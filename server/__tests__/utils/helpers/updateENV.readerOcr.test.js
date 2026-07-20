@@ -105,8 +105,7 @@ describe("Reader OCR updateENV settings", () => {
     expect(backup.values).toMatchObject({
       READER_OCR_PROVIDER: "alibaba",
       READER_OCR_API_KEY: "sk-reader-ocr",
-      READER_OCR_BASE_URL:
-        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      READER_OCR_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1",
       READER_OCR_MODEL_PREF: "qwen3.5-ocr",
       SEARCH_MODEL_PROVIDER: "alibaba",
       SEARCH_MODEL_API_KEY: "sk-search-model",
@@ -206,5 +205,26 @@ describe("Reader OCR updateENV settings", () => {
     });
     expect(imported.success).toBe(true);
     expect(process.env.ENCRYPTION_MASTER_KEY).toBe(originalMasterKey);
+  });
+
+  it("does not rewrite the env file when backup values are unchanged", () => {
+    const { hydrateProviderSettingsBackup, persistProviderSettingsBackup } =
+      loadUpdateENV();
+    process.env.LLM_PROVIDER = "deepseek";
+    process.env.VECTOR_DB = "lancedb";
+
+    expect(persistProviderSettingsBackup().success).toBe(true);
+    const originalContent = "# operator-managed environment\n";
+    fs.writeFileSync(envPath, originalContent, "utf8");
+
+    const result = hydrateProviderSettingsBackup();
+
+    expect(result.success).toBe(true);
+    expect(result.applied).toEqual({});
+    expect(result.skipped).toMatchObject({
+      LLM_PROVIDER: "unchanged",
+      VECTOR_DB: "unchanged",
+    });
+    expect(fs.readFileSync(envPath, "utf8")).toBe(originalContent);
   });
 });

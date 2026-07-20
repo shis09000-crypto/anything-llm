@@ -2,8 +2,13 @@ jest.mock("../../utils/security/keyCustody", () => ({
   resolveActiveKey: () => ({ material: Buffer.alloc(32, 7) }),
 }));
 
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
 const {
   irreversibleScope,
+  natsSecurityFindings,
   settings,
   subjectFor,
 } = require("../../utils/broadcast/transports/natsJetStreamTransport");
@@ -48,5 +53,46 @@ describe("NATS JetStream transport metadata", () => {
       servers: ["nats://a:4222", "nats://b:4222"],
       consumer: "gateway-blue",
     });
+  });
+
+  it("fails closed on production plaintext or shared credentials", () => {
+    const findings = natsSecurityFindings({
+      NODE_ENV: "production",
+      ATHENA_BROADCAST_TRANSPORT: "nats",
+      ATHENA_NATS_SERVERS: "nats://nats.internal:4222",
+      ATHENA_NATS_USER: "shared-user",
+      ATHENA_NATS_PASSWORD: "shared-password",
+    });
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        "Production NATS servers must use tls:// endpoints.",
+        "Production NATS requires exactly one credentials or NKey workload identity file.",
+        "Production NATS forbids shared token and username/password authentication.",
+        "Production NATS requires CA, client certificate, and client key files for mTLS.",
+      ])
+    );
+  });
+
+  it("accepts a production mTLS and NKey workload identity contract", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "athena-nats-"));
+    const files = Object.fromEntries(
+      ["nkey", "ca", "cert", "key"].map((name) => {
+        const filePath = path.join(directory, name);
+        fs.writeFileSync(filePath, name, { mode: 0o600 });
+        return [name, filePath];
+      })
+    );
+    expect(
+      natsSecurityFindings({
+        NODE_ENV: "production",
+        ATHENA_BROADCAST_TRANSPORT: "nats",
+        ATHENA_NATS_SERVERS: "tls://nats.internal:4222",
+        ATHENA_NATS_NKEY_SEED_FILE: files.nkey,
+        ATHENA_NATS_TLS_CA_FILE: files.ca,
+        ATHENA_NATS_TLS_CERT_FILE: files.cert,
+        ATHENA_NATS_TLS_KEY_FILE: files.key,
+      })
+    ).toEqual([]);
+    fs.rmSync(directory, { recursive: true, force: true });
   });
 });
