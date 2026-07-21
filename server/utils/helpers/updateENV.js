@@ -1733,6 +1733,55 @@ function dumpENV() {
   const fs = require("fs");
   const path = require("path");
 
+  function replaceManagedEnvFile(temporary, destination) {
+    try {
+      fs.renameSync(temporary, destination);
+      return;
+    } catch (error) {
+      // Docker cannot rename over a file that is itself a bind mount. Keep the
+      // atomic path for normal files and only fall back to an in-place,
+      // fsynced write for mount-point replacement errors.
+      if (!["EBUSY", "EXDEV"].includes(error?.code)) throw error;
+    }
+
+    const replacement = fs.readFileSync(temporary);
+    const previous = fs.readFileSync(destination);
+    const descriptor = fs.openSync(destination, "r+");
+    try {
+      fs.ftruncateSync(descriptor, 0);
+      let offset = 0;
+      while (offset < replacement.length) {
+        offset += fs.writeSync(
+          descriptor,
+          replacement,
+          offset,
+          replacement.length - offset,
+          offset
+        );
+      }
+      fs.fsyncSync(descriptor);
+    } catch (writeError) {
+      try {
+        fs.ftruncateSync(descriptor, 0);
+        let offset = 0;
+        while (offset < previous.length) {
+          offset += fs.writeSync(
+            descriptor,
+            previous,
+            offset,
+            previous.length - offset,
+            offset
+          );
+        }
+        fs.fsyncSync(descriptor);
+      } catch {}
+      throw writeError;
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    fs.unlinkSync(temporary);
+  }
+
   const frozenEnvs = {};
   const protectedKeys = [
     ...Object.values(KEY_MAPPING).map((values) => values.envKey),
@@ -1894,7 +1943,7 @@ function dumpENV() {
     mode: 0o600,
   });
   fs.chmodSync(temporary, 0o600);
-  fs.renameSync(temporary, envPath);
+  replaceManagedEnvFile(temporary, envPath);
   fs.chmodSync(envPath, 0o600);
   return true;
 }
