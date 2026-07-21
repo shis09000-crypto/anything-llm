@@ -22,6 +22,7 @@ run_server() {
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     node scripts/prisma-runtime.js --execute migrate deploy &&
+    node scripts/auth-prisma-runtime.js --execute migrate deploy &&
     exec node /app/server/index.js
 }
 
