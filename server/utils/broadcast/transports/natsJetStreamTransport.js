@@ -321,6 +321,7 @@ class NatsJetStreamTransport {
     const config = settings(this.env);
     const options = consumerOpts();
     options.durable(config.consumer);
+    options.bindStream(config.stream);
     options.deliverTo(deliverySubject(config.consumer));
     options.manualAck();
     options.ackExplicit();

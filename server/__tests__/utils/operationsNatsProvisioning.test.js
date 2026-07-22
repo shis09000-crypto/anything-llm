@@ -29,6 +29,18 @@ describe("AI Operations NATS provisioning", () => {
     expect(compose).toContain('ATHENA_NATS_MAX_BYTES: "536870912"');
   });
 
+  test("binds the operations consumer to its dedicated stream", () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../utils/operations/jetStreamTransport.js"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("options.bindStream(this.config.stream)");
+  });
+
   test("creates a private Prometheus-owned metrics credential", () => {
     const script = fs.readFileSync(
       path.resolve(

@@ -65,6 +65,18 @@ describe("NATS JetStream transport metadata", () => {
     );
   });
 
+  it("binds broadcast consumers to the dedicated broadcast stream", () => {
+    const source = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../utils/broadcast/transports/natsJetStreamTransport.js"
+      ),
+      "utf8"
+    );
+
+    expect(source).toContain("options.bindStream(config.stream)");
+  });
+
   it("fails closed on production plaintext or shared credentials", () => {
     const findings = natsSecurityFindings({
       NODE_ENV: "production",

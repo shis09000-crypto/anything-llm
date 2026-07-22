@@ -140,6 +140,7 @@ class OperationsJetStreamTransport {
     await this.connect();
     const options = consumerOpts();
     options.durable(this.config.consumer);
+    options.bindStream(this.config.stream);
     options.queue(this.config.consumer);
     options.deliverTo(deliverySubject(this.config.consumer));
     options.manualAck();
