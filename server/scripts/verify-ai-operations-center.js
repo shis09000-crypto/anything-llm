@@ -737,6 +737,7 @@ async function main() {
     };
   } finally {
     console.info = originalConsoleInfo;
+    if (liveInfrastructure) await transport.deleteConsumer().catch(() => null);
     await plane.stop().catch(() => null);
     await shutdownOpenTelemetry().catch(() => null);
     await DataAccessCenter.runtimeLifecycle

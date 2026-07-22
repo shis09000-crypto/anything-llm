@@ -186,6 +186,23 @@ class OperationsJetStreamTransport {
     this.consumeTask = null;
   }
 
+  async deleteConsumer() {
+    if (!this.connection || this.connection.isClosed()) return false;
+    await this.subscription?.drain?.().catch(() => null);
+    this.subscription = null;
+    const manager = await this.connection.jetstreamManager();
+    try {
+      return await manager.consumers.delete(
+        this.config.stream,
+        this.config.consumer
+      );
+    } catch (error) {
+      if (String(error?.code || error?.api_error?.err_code) === "404")
+        return false;
+      throw error;
+    }
+  }
+
   async consumerState() {
     if (!this.connection || this.connection.isClosed())
       return { pending: null, ackPending: null, redelivered: null };
