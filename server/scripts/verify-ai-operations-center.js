@@ -355,8 +355,12 @@ async function main() {
   process.env.ATHENA_OPERATIONS_ENABLED = "true";
   process.env.ATHENA_OPERATIONS_ACTIONS_ENABLED = "true";
   process.env.ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED = "true";
-  if (!liveInfrastructure)
+  if (liveInfrastructure) {
+    process.env.ATHENA_OPERATIONS_NATS_CONSUMER =
+      "athena-operations-acceptance";
+  } else {
     process.env.ATHENA_NATS_SERVERS = "nats://127.0.0.1:4222";
+  }
   initializeActionDatabase(temporaryRoot, process.env.APP_ENV);
 
   const otlp = await startOtlpReceiver();
