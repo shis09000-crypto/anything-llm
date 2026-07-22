@@ -1,6 +1,15 @@
 server:
   http_listen_port: 3200
 
+query_frontend:
+  max_outstanding_per_tenant: 100
+  search:
+    concurrent_jobs: 16
+    target_bytes_per_job: 16777216
+
+querier:
+  max_concurrent_queries: 2
+
 distributor:
   receivers:
     otlp:

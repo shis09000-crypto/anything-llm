@@ -136,10 +136,12 @@ services:
     image: grafana/tempo:2.8.1
     restart: unless-stopped
     command: ["-config.file=/etc/tempo.yaml"]
+    environment:
+      GOMEMLIMIT: 300MiB
     volumes:
       - /data/anythingllm/app/docker/observability/tempo.yaml:/etc/tempo.yaml:ro
       - athena-tempo-data:/var/tempo
-    mem_limit: 256m
+    mem_limit: 384m
     cpus: 0.50
 
   loki:

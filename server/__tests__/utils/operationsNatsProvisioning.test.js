@@ -72,4 +72,24 @@ describe("AI Operations NATS provisioning", () => {
     expect(tempo).toContain("endpoint: 0.0.0.0:4317");
     expect(tempo).toContain("endpoint: 0.0.0.0:4318");
   });
+
+  test("bounds Tempo search concurrency and memory", () => {
+    const tempo = fs.readFileSync(
+      path.resolve(__dirname, "../../../docker/observability/tempo.yaml"),
+      "utf8"
+    );
+    const compose = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../../docker/docker-compose.ai-operations.production.yml"
+      ),
+      "utf8"
+    );
+
+    expect(tempo).toContain("max_outstanding_per_tenant: 100");
+    expect(tempo).toContain("concurrent_jobs: 16");
+    expect(tempo).toContain("max_concurrent_queries: 2");
+    expect(compose).toContain("GOMEMLIMIT: 300MiB");
+    expect(compose).toMatch(/tempo:[\s\S]*mem_limit: 384m/);
+  });
 });
