@@ -8,6 +8,7 @@ const path = require("path");
 const { createUser } = require("nkeys.js");
 
 const {
+  broadcastSubjectRoot,
   connectionSecurityOptions,
   deliverySubject,
   irreversibleScope,
@@ -39,11 +40,20 @@ describe("NATS JetStream transport metadata", () => {
       scope: { userId: 123, workspaceId: 456, threadId: 789 },
     };
     const subject = subjectFor(event);
-    expect(subject).toMatch(/^athena\.development\.workspace\.[a-f0-9]{32}$/);
+    expect(subject).toMatch(
+      /^athena\.development\.broadcast\.workspace\.[a-f0-9]{32}$/
+    );
     expect(subject).not.toContain("123");
     expect(subject).not.toContain("456");
     expect(subject).not.toContain("789");
     expect(irreversibleScope(event)).toHaveLength(32);
+  });
+
+  it("isolates broadcast subjects from operations subjects", () => {
+    expect(broadcastSubjectRoot()).toBe("athena.development.broadcast");
+    expect(subjectFor({ namespace: "operations" })).not.toMatch(
+      /^athena\.development\.operations\./
+    );
   });
 
   it("normalizes server lists and consumer identity", () => {

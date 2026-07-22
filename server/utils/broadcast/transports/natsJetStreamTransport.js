@@ -186,6 +186,10 @@ function namespace(value) {
     .slice(0, 48);
 }
 
+function broadcastSubjectRoot() {
+  return `athena.${appEnvironment()}.broadcast`;
+}
+
 function deliverySubject(consumer) {
   const stable = String(consumer || "athena-broadcast")
     .replace(/[^A-Za-z0-9_-]/g, "-")
@@ -222,8 +226,7 @@ function irreversibleScope(event = {}) {
 
 function subjectFor(event = {}) {
   return [
-    "athena",
-    appEnvironment(),
+    broadcastSubjectRoot(),
     namespace(event.namespace),
     irreversibleScope(event),
   ].join(".");
@@ -250,7 +253,7 @@ class NatsJetStreamTransport {
     const manager = await this.connection.jetstreamManager();
     try {
       const info = await manager.streams.info(config.stream);
-      const expectedSubject = `athena.${appEnvironment()}.>`;
+      const expectedSubject = `${broadcastSubjectRoot()}.>`;
       if (
         !info.config.subjects?.includes(expectedSubject) ||
         Number(info.config.max_age) !== config.maxAgeNs ||
@@ -270,7 +273,7 @@ class NatsJetStreamTransport {
         throw error;
       await manager.streams.add({
         name: config.stream,
-        subjects: [`athena.${appEnvironment()}.>`],
+        subjects: [`${broadcastSubjectRoot()}.>`],
         retention: RetentionPolicy.Limits,
         storage: StorageType.File,
         duplicate_window: 2 * 60 * 1_000_000_000,
@@ -326,9 +329,9 @@ class NatsJetStreamTransport {
     options.manualAck();
     options.ackExplicit();
     options.deliverNew();
-    options.filterSubject(`athena.${appEnvironment()}.>`);
+    options.filterSubject(`${broadcastSubjectRoot()}.>`);
     this.subscription = await this.jetstream.subscribe(
-      `athena.${appEnvironment()}.>`,
+      `${broadcastSubjectRoot()}.>`,
       options
     );
     this.consumeTask = (async () => {
@@ -418,6 +421,7 @@ class NatsJetStreamTransport {
 
 module.exports = {
   NatsJetStreamTransport,
+  broadcastSubjectRoot,
   connectionSecurityOptions,
   deliverySubject,
   irreversibleScope,
