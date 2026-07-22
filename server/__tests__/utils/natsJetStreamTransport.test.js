@@ -9,6 +9,7 @@ const { createUser } = require("nkeys.js");
 
 const {
   connectionSecurityOptions,
+  deliverySubject,
   irreversibleScope,
   natsSecurityFindings,
   settings,
@@ -55,6 +56,12 @@ describe("NATS JetStream transport metadata", () => {
       servers: ["nats://a:4222", "nats://b:4222"],
       consumer: "gateway-blue",
     });
+  });
+
+  it("assigns a stable delivery subject to push consumers", () => {
+    expect(deliverySubject("gateway/blue")).toBe(
+      "_INBOX.ATHENA.BROADCAST.gateway-blue"
+    );
   });
 
   it("fails closed on production plaintext or shared credentials", () => {

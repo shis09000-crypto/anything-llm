@@ -181,6 +181,13 @@ function namespace(value) {
     .slice(0, 48);
 }
 
+function deliverySubject(consumer) {
+  const stable = String(consumer || "athena-broadcast")
+    .replace(/[^A-Za-z0-9_-]/g, "-")
+    .slice(0, 96);
+  return `_INBOX.ATHENA.BROADCAST.${stable}`;
+}
+
 function subjectScope(event = {}) {
   const scope = event.scope || {};
   return JSON.stringify({
@@ -293,6 +300,7 @@ class NatsJetStreamTransport {
     const config = settings(this.env);
     const options = consumerOpts();
     options.durable(config.consumer);
+    options.deliverTo(deliverySubject(config.consumer));
     options.manualAck();
     options.ackExplicit();
     options.deliverNew();
@@ -389,6 +397,7 @@ class NatsJetStreamTransport {
 module.exports = {
   NatsJetStreamTransport,
   connectionSecurityOptions,
+  deliverySubject,
   irreversibleScope,
   natsSecurityFindings,
   readNKeySeedFile,
