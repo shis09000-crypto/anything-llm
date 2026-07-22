@@ -35,4 +35,14 @@ describe("AI Operations NATS provisioning", () => {
     expect(compose).toContain("athena_metrics_token_prometheus:");
     expect(compose).toContain("source: athena_metrics_token_prometheus");
   });
+
+  test("exposes Tempo OTLP receivers to the collector network", () => {
+    const tempo = fs.readFileSync(
+      path.resolve(__dirname, "../../../docker/observability/tempo.yaml"),
+      "utf8"
+    );
+
+    expect(tempo).toContain("endpoint: 0.0.0.0:4317");
+    expect(tempo).toContain("endpoint: 0.0.0.0:4318");
+  });
 });
