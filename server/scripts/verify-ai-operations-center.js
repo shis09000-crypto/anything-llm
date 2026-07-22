@@ -190,9 +190,9 @@ class LoopbackJetStreamContract {
   }
 }
 
-function initializeActionDatabase(root) {
+function initializeActionDatabase(root, environment = "development") {
   const Database = require("better-sqlite3");
-  const storage = path.join(root, "development");
+  const storage = path.join(root, environment);
   fs.mkdirSync(storage, { recursive: true });
   const databasePath = path.join(storage, "anythingllm.db");
   const migration = fs.readFileSync(
@@ -357,7 +357,7 @@ async function main() {
   process.env.ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED = "true";
   if (!liveInfrastructure)
     process.env.ATHENA_NATS_SERVERS = "nats://127.0.0.1:4222";
-  initializeActionDatabase(temporaryRoot);
+  initializeActionDatabase(temporaryRoot, process.env.APP_ENV);
 
   const otlp = await startOtlpReceiver();
   process.env.ATHENA_OTEL_ENABLED = "true";
