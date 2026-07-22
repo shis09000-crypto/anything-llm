@@ -19,6 +19,7 @@ const { metrics } = require("../../observability/metrics");
 
 const STREAM = "ATHENA_BROADCAST";
 const DEFAULT_MAX_AGE_NS = 30 * 24 * 60 * 60 * 1_000_000_000;
+const DEFAULT_MAX_BYTES = 512 * 1024 * 1024;
 const codec = JSONCodec();
 
 function settings(env = process.env) {
@@ -51,6 +52,10 @@ function settings(env = process.env) {
     stream: String(env.ATHENA_NATS_STREAM || STREAM),
     consumer: instance,
     maxAgeNs: Number(env.ATHENA_NATS_MAX_AGE_NS || DEFAULT_MAX_AGE_NS),
+    maxBytes: Math.max(
+      64 * 1024 * 1024,
+      Number(env.ATHENA_NATS_MAX_BYTES || DEFAULT_MAX_BYTES)
+    ),
   };
 }
 
@@ -244,7 +249,22 @@ class NatsJetStreamTransport {
     const config = settings(this.env);
     const manager = await this.connection.jetstreamManager();
     try {
-      await manager.streams.info(config.stream);
+      const info = await manager.streams.info(config.stream);
+      const expectedSubject = `athena.${appEnvironment()}.>`;
+      if (
+        !info.config.subjects?.includes(expectedSubject) ||
+        Number(info.config.max_age) !== config.maxAgeNs ||
+        Number(info.config.max_bytes) !== config.maxBytes
+      ) {
+        await manager.streams.update(config.stream, {
+          ...info.config,
+          subjects: [
+            ...new Set([...(info.config.subjects || []), expectedSubject]),
+          ],
+          max_age: config.maxAgeNs,
+          max_bytes: config.maxBytes,
+        });
+      }
     } catch (error) {
       if (String(error?.code || error?.api_error?.err_code) !== "404")
         throw error;
@@ -255,6 +275,7 @@ class NatsJetStreamTransport {
         storage: StorageType.File,
         duplicate_window: 2 * 60 * 1_000_000_000,
         max_age: config.maxAgeNs,
+        max_bytes: config.maxBytes,
         discard: DiscardPolicy.Old,
       });
     }

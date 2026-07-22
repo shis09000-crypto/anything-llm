@@ -55,6 +55,7 @@ describe("NATS JetStream transport metadata", () => {
     ).toMatchObject({
       servers: ["nats://a:4222", "nats://b:4222"],
       consumer: "gateway-blue",
+      maxBytes: 512 * 1024 * 1024,
     });
   });
 

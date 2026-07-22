@@ -86,7 +86,11 @@ class OperationsJetStreamTransport {
     try {
       const info = await manager.streams.info(this.config.stream);
       const expected = `${subjectRoot(this.env)}.>`;
-      if (!info.config.subjects?.includes(expected)) {
+      if (
+        !info.config.subjects?.includes(expected) ||
+        Number(info.config.max_age) !== this.config.maxAgeNs ||
+        Number(info.config.max_bytes) !== this.config.maxBytes
+      ) {
         await manager.streams.update(this.config.stream, {
           ...info.config,
           subjects: [...new Set([...(info.config.subjects || []), expected])],

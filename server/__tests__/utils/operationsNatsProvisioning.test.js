@@ -14,6 +14,21 @@ describe("AI Operations NATS provisioning", () => {
     expect(script).toContain('"\\$JS.ACK.>"');
   });
 
+  test("reserves separate JetStream budgets for operations and broadcast", () => {
+    const compose = fs.readFileSync(
+      path.resolve(
+        __dirname,
+        "../../../docker/docker-compose.ai-operations.production.yml"
+      ),
+      "utf8"
+    );
+
+    expect(compose).toContain(
+      'ATHENA_OPERATIONS_NATS_MAX_BYTES: "3221225472"'
+    );
+    expect(compose).toContain('ATHENA_NATS_MAX_BYTES: "536870912"');
+  });
+
   test("creates a private Prometheus-owned metrics credential", () => {
     const script = fs.readFileSync(
       path.resolve(
