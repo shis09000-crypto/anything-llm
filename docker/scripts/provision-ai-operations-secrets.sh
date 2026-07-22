@@ -107,7 +107,7 @@ authorization {
     {
       nkey: "${nats_public_key}"
       permissions: {
-        publish: ["athena.production.>", "\$JS.API.>", "_INBOX.>"]
+        publish: ["athena.production.>", "\$JS.API.>", "\$JS.ACK.>", "_INBOX.>"]
         subscribe: ["athena.production.>", "\$JS.API.>", "_INBOX.>"]
       }
     }
