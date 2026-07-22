@@ -348,7 +348,9 @@ async function main() {
     process.env.ATHENA_OPERATIONS_VERIFY_LIVE === "true";
   const temporaryRoot = fs.mkdtempSync(path.join(os.tmpdir(), "athena-aiops-"));
   process.env.NODE_ENV = "test";
-  process.env.APP_ENV = "development";
+  process.env.APP_ENV = liveInfrastructure
+    ? process.env.ATHENA_OPERATIONS_VERIFY_APP_ENV || "production"
+    : "development";
   process.env.ANYTHINGLLM_STORAGE_BASE_DIR = temporaryRoot;
   process.env.ATHENA_OPERATIONS_ENABLED = "true";
   process.env.ATHENA_OPERATIONS_ACTIONS_ENABLED = "true";
