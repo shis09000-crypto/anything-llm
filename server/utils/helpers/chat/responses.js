@@ -321,6 +321,26 @@ function safeJSONStringify(obj) {
 }
 
 function writeResponseChunk(response, data) {
+  if (
+    data?.type === "textResponseChunk" &&
+    typeof data?.textResponse === "string" &&
+    data.textResponse.length > 0
+  ) {
+    require("../../observability/goldenJourneys").markGoldenJourneyMilestone(
+      response,
+      "first_response"
+    );
+  }
+  if (
+    ["finalizeResponseStream", "fullTextResponse", "chatId"].includes(
+      data?.type
+    )
+  ) {
+    require("../../observability/goldenJourneys").markGoldenJourneyMilestone(
+      response,
+      "final_response"
+    );
+  }
   response.write(`data: ${safeJSONStringify(data)}\n\n`);
   return;
 }

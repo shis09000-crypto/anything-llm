@@ -6,6 +6,7 @@ function otelEnabled(env = process.env) {
     String(env.ATHENA_OTEL_ENABLED || "false").toLowerCase() === "true" ||
     Boolean(
       env.OTEL_EXPORTER_OTLP_ENDPOINT || env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+      || env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
     )
   );
 }
@@ -38,6 +39,8 @@ function startOpenTelemetry() {
 }
 
 async function shutdownOpenTelemetry() {
+  const { flushSemanticEvents } = require("./semanticEvents");
+  await flushSemanticEvents();
   if (!provider) return { stopped: true, skipped: true };
   await provider.shutdown();
   provider = null;

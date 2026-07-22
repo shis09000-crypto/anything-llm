@@ -2354,6 +2354,10 @@ async function stopWorkspaceCognitionWorker(options = {}) {
   return await workerLifecycle.stop(options);
 }
 
+function workspaceCognitionWorkerSnapshot() {
+  return workerLifecycle.snapshot();
+}
+
 async function candidateReviewState(candidateIds = []) {
   const events = candidateIds.length
     ? await prisma.workspace_cognitive_candidate_events.findMany({
@@ -3633,6 +3637,7 @@ module.exports = {
   backfillLegacyCognition,
   startWorkspaceCognitionWorker,
   stopWorkspaceCognitionWorker,
+  workspaceCognitionWorkerSnapshot,
   deleteWorkspaceBatchData,
   validateScreening,
   validateRefinement,

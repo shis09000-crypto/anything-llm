@@ -28,6 +28,8 @@
     "key-custody:audit": "node scripts/audit-key-custody-boundaries.js",
     "sync-v2:audit": "node scripts/sync-v2-shadow-audit.js",
     "sync-v2:benchmark": "node scripts/sync-v2-benchmark.js",
+    "operations:shadow:evaluate": "node scripts/evaluate-operations-shadow-agents.js",
+    "operations:verify": "node scripts/verify-ai-operations-center.js",
     "user-state:drafts:migrate": "node scripts/migrate-user-state-draft-encryption.js",
     "chat-chain:benchmark": "node scripts/chat-chain-incremental-benchmark.js",
     "chat-objects:migrate": "node scripts/migrate-chat-content-objects.js",

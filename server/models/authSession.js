@@ -87,6 +87,37 @@ async function publishSessionChange(options = {}) {
 const AuthSession = {
   enabled,
 
+  cacheSnapshot: function () {
+    return {
+      sessionEntries: sessionCache.size,
+      lastSeenEntries: lastSeenWrites.size,
+    };
+  },
+
+  refreshCache: function ({ sessionIds = [] } = {}) {
+    const normalized = [
+      ...new Set(
+        (Array.isArray(sessionIds) ? sessionIds : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .slice(0, 100)
+      ),
+    ];
+    const before = this.cacheSnapshot();
+    if (!normalized.length) {
+      sessionCache.clear();
+      lastSeenWrites.clear();
+    } else {
+      normalized.forEach(invalidate);
+    }
+    return {
+      scope: normalized.length ? "selected" : "all",
+      selected: normalized.length,
+      before,
+      after: this.cacheSnapshot(),
+    };
+  },
+
   create: async function ({
     subjectType,
     authUserId = null,

@@ -103,6 +103,7 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   iosPushToken: DATA_ACCESS_CLASSIFICATIONS.secret,
   mobile: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   nodeSupplement: DATA_ACCESS_CLASSIFICATIONS.user,
+  operationsAction: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   quiz: DATA_ACCESS_CLASSIFICATIONS.user,
   readerLibrary: DATA_ACCESS_CLASSIFICATIONS.user,
   "reader-library": DATA_ACCESS_CLASSIFICATIONS.user,

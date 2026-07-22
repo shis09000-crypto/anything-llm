@@ -1,0 +1,302 @@
+{
+  "schema": "athena.ops.incident-evaluation-corpus",
+  "version": "1.0",
+  "createdAt": "2026-07-22T00:00:00.000Z",
+  "sources": [
+    "docs/athena-distributed-architecture-upgrade-defect-ledger-2026-07-20.md",
+    "server/__tests__/utils/agents/aibitatToolTimeouts.test.js",
+    "output/security/drills/final-seal-20260721/drill-result.json"
+  ],
+  "cases": [
+    {
+      "id": "historical-dist-t04-database-outage-masked",
+      "kind": "incident",
+      "provenance": "historical-defect-ledger",
+      "sourceRef": "DIST-T04",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-dist-t04",
+            "eventType": "database.query.failed",
+            "category": "database",
+            "severity": "error",
+            "outcome": "failed",
+            "occurredAt": "2026-07-20T01:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "main-database",
+              "component": "main-database"
+            },
+            "impact": { "userEffect": "empty_data_returned_during_outage" },
+            "evidence": [{ "type": "defect-ledger", "ref": "defect:DIST-T04" }]
+          }
+        ]
+      },
+      "expected": {
+        "agents": ["ops-monitoring-agent", "ops-rca-agent"],
+        "rootCause": "main-database",
+        "evidenceRefs": ["defect:DIST-T04"]
+      }
+    },
+    {
+      "id": "historical-dist-t15-runtime-readiness",
+      "kind": "incident",
+      "provenance": "historical-defect-ledger",
+      "sourceRef": "DIST-T15",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-dist-t15",
+            "eventType": "runtime.database_readiness.failed",
+            "category": "database",
+            "severity": "critical",
+            "outcome": "failed",
+            "occurredAt": "2026-07-20T02:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "main-database",
+              "component": "main-database"
+            },
+            "impact": { "userEffect": "api_startup_blocked" },
+            "evidence": [{ "type": "defect-ledger", "ref": "defect:DIST-T15" }]
+          }
+        ]
+      },
+      "expected": {
+        "agents": ["ops-monitoring-agent", "ops-rca-agent"],
+        "rootCause": "main-database",
+        "evidenceRefs": ["defect:DIST-T15"]
+      }
+    },
+    {
+      "id": "historical-dist-t20-key-custody-authority",
+      "kind": "incident",
+      "provenance": "historical-defect-ledger",
+      "sourceRef": "DIST-T20",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-dist-t20",
+            "eventType": "key.custody.runtime_authority_mismatch",
+            "category": "security",
+            "severity": "critical",
+            "outcome": "failed",
+            "occurredAt": "2026-07-20T03:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "key-custody",
+              "component": "key-custody"
+            },
+            "impact": { "userEffect": "api_quarantined" },
+            "evidence": [{ "type": "defect-ledger", "ref": "defect:DIST-T20" }]
+          }
+        ]
+      },
+      "expected": {
+        "agents": [
+          "ops-monitoring-agent",
+          "ops-rca-agent",
+          "ops-security-agent"
+        ],
+        "rootCause": "key-custody",
+        "evidenceRefs": ["defect:DIST-T20"]
+      }
+    },
+    {
+      "id": "historical-dist-t02-object-checksum",
+      "kind": "incident",
+      "provenance": "historical-defect-ledger",
+      "sourceRef": "DIST-T02",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-dist-t02",
+            "eventType": "content_object.checksum.mismatch",
+            "category": "security",
+            "severity": "error",
+            "outcome": "failed",
+            "occurredAt": "2026-07-20T04:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "knowledge-ingest",
+              "component": "knowledge-ingest"
+            },
+            "impact": { "userEffect": "object_completion_rejected" },
+            "evidence": [{ "type": "defect-ledger", "ref": "defect:DIST-T02" }]
+          }
+        ]
+      },
+      "expected": {
+        "agents": [
+          "ops-monitoring-agent",
+          "ops-rca-agent",
+          "ops-security-agent"
+        ],
+        "rootCause": "knowledge-ingest",
+        "evidenceRefs": ["defect:DIST-T02"]
+      }
+    },
+    {
+      "id": "historical-dist-t03-frontend-bundle",
+      "kind": "incident",
+      "provenance": "historical-defect-ledger",
+      "sourceRef": "DIST-T03",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-dist-t03",
+            "eventType": "frontend.initial_bundle.slow",
+            "category": "performance",
+            "severity": "warning",
+            "outcome": "degraded",
+            "occurredAt": "2026-07-20T05:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "athena-web",
+              "component": "athena-web"
+            },
+            "metadata": { "durationMs": "1800" },
+            "impact": { "userEffect": "cold_start_latency_increased" },
+            "evidence": [{ "type": "defect-ledger", "ref": "defect:DIST-T03" }]
+          }
+        ]
+      },
+      "expected": {
+        "agents": ["ops-performance-agent"],
+        "evidenceRefs": ["defect:DIST-T03"]
+      }
+    },
+    {
+      "id": "regression-agent-tool-timeout",
+      "kind": "incident",
+      "provenance": "regression-fixture",
+      "sourceRef": "aibitatToolTimeouts.test.js",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-agent-timeout",
+            "eventType": "agent.tool.timed_out",
+            "category": "agent_tool",
+            "severity": "error",
+            "outcome": "timeout",
+            "occurredAt": "2026-07-20T06:00:00.000Z",
+            "subject": {
+              "type": "tool",
+              "id": "tool-runtime",
+              "component": "tool-runtime"
+            },
+            "metadata": { "durationMs": "30000" },
+            "impact": { "userEffect": "agent_task_degraded" },
+            "evidence": [
+              { "type": "test", "ref": "fixture:agent-tool-timeout" }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "agents": [
+          "ops-monitoring-agent",
+          "ops-rca-agent",
+          "ops-performance-agent"
+        ],
+        "rootCause": "tool-runtime",
+        "evidenceRefs": ["fixture:agent-tool-timeout"]
+      }
+    },
+    {
+      "id": "fault-injection-model-cost-window",
+      "kind": "incident",
+      "provenance": "fault-injection",
+      "sourceRef": "no-historical-cost-incident-recorded",
+      "observations": {
+        "metrics": [
+          {
+            "name": "athena_ai_cost_micros_total",
+            "labels": { "provider": "deepseek" },
+            "delta": 2500000,
+            "threshold": 1000000,
+            "observedAt": "2026-07-20T07:00:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "agents": ["ops-cost-agent"],
+        "evidenceRefs": [
+          "metric:athena_ai_cost_micros_total{provider=deepseek}"
+        ]
+      }
+    },
+    {
+      "id": "control-healthy-chat",
+      "kind": "control",
+      "provenance": "regression-fixture",
+      "sourceRef": "healthy-chat-control",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-healthy-chat",
+            "eventType": "chat.completed",
+            "category": "chat",
+            "severity": "info",
+            "outcome": "success",
+            "occurredAt": "2026-07-20T08:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "chat-runtime",
+              "component": "chat-runtime"
+            },
+            "metadata": { "durationMs": "320" },
+            "evidence": [{ "type": "trace", "ref": "trace:healthy-chat" }]
+          }
+        ]
+      },
+      "expected": { "agents": [], "evidenceRefs": [] }
+    },
+    {
+      "id": "control-single-invalid-password",
+      "kind": "control",
+      "provenance": "regression-fixture",
+      "sourceRef": "single-auth-failure-control",
+      "observations": {
+        "events": [
+          {
+            "eventId": "eval-single-auth-failure",
+            "eventType": "login.failed",
+            "category": "golden_journey",
+            "severity": "warning",
+            "outcome": "failure",
+            "occurredAt": "2026-07-20T09:00:00.000Z",
+            "subject": {
+              "type": "service",
+              "id": "authentication",
+              "component": "authentication"
+            },
+            "metadata": { "statusCode": "401" },
+            "evidence": [
+              { "type": "trace", "ref": "trace:single-auth-failure" }
+            ]
+          }
+        ]
+      },
+      "expected": { "agents": [], "evidenceRefs": [] }
+    },
+    {
+      "id": "control-model-cost-within-budget",
+      "kind": "control",
+      "provenance": "fault-injection",
+      "sourceRef": "cost-threshold-control",
+      "observations": {
+        "metrics": [
+          {
+            "name": "athena_ai_cost_micros_total",
+            "labels": { "provider": "deepseek" },
+            "delta": 400000,
+            "threshold": 1000000,
+            "observedAt": "2026-07-20T10:00:00.000Z"
+          }
+        ]
+      },
+      "expected": { "agents": [], "evidenceRefs": [] }
+    }
+  ]
+}

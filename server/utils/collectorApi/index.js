@@ -5,6 +5,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { hotdirPath, isWithin, normalizePath } = require("../files");
+const api = require("@opentelemetry/api");
+const {
+  currentOperationContext,
+  withOperationSpan,
+} = require("../observability/operationContext");
 
 /**
  * @typedef {Object} CollectorOptions
@@ -133,14 +138,49 @@ class CollectorApi {
     };
   }
 
+  async #fetch(url, options = {}) {
+    return withOperationSpan(
+      "http.client.collector",
+      {
+        kind: api.SpanKind.CLIENT,
+        attributes: {
+          "server.address": "collector",
+          "http.request.method": String(options.method || "GET").toUpperCase(),
+        },
+      },
+      async () => {
+        const carrier = {};
+        api.propagation.inject(api.context.active(), carrier);
+        const context = currentOperationContext() || {};
+        const correlationHeaders = {
+          ...(context.operationId
+            ? { "X-Athena-Operation-Id": context.operationId }
+            : {}),
+          ...(context.interactionId
+            ? { "X-Athena-Interaction-Id": context.interactionId }
+            : {}),
+          ...(context.requestId ? { "X-Request-Id": context.requestId } : {}),
+        };
+        return fetch(url, {
+          ...options,
+          headers: {
+            ...carrier,
+            ...correlationHeaders,
+            ...(options.headers || {}),
+          },
+        });
+      }
+    );
+  }
+
   async online() {
-    return await fetch(this.endpoint)
+    return await this.#fetch(this.endpoint)
       .then((res) => res.ok)
       .catch(() => false);
   }
 
   async acceptedFileTypes() {
-    return await fetch(`${this.endpoint}/accepts`)
+    return await this.#fetch(`${this.endpoint}/accepts`)
       .then((res) => {
         if (!res.ok) throw new Error("failed to GET /accepts");
         return res.json();
@@ -172,7 +212,7 @@ class CollectorApi {
         options: this.#attachOptions(),
       });
 
-      const response = await fetch(`${this.endpoint}/process`, {
+      const response = await this.#fetch(`${this.endpoint}/process`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -212,7 +252,7 @@ class CollectorApi {
       metadata: metadata,
     });
 
-    return await fetch(`${this.endpoint}/process-link`, {
+    return await this.#fetch(`${this.endpoint}/process-link`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -247,7 +287,7 @@ class CollectorApi {
       metadata,
       options: this.#attachOptions(),
     });
-    return await fetch(`${this.endpoint}/process-raw-text`, {
+    return await this.#fetch(`${this.endpoint}/process-raw-text`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -274,7 +314,7 @@ class CollectorApi {
   // on the document processor.
   async forwardExtensionRequest({ endpoint, method, body }) {
     const data = typeof body === "string" ? body : JSON.stringify(body);
-    return await fetch(`${this.endpoint}${endpoint}`, {
+    return await this.#fetch(`${this.endpoint}${endpoint}`, {
       method,
       body: data,
       headers: {
@@ -314,7 +354,7 @@ class CollectorApi {
       captureAs,
       options: this.#attachOptions(),
     });
-    return await fetch(`${this.endpoint}/util/get-link`, {
+    return await this.#fetch(`${this.endpoint}/util/get-link`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -381,7 +421,7 @@ class CollectorApi {
         },
       });
 
-      const response = await fetch(`${this.endpoint}/parse`, {
+      const response = await this.#fetch(`${this.endpoint}/parse`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

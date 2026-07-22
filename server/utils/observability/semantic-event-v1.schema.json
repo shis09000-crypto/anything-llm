@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://athena.local/schemas/operations/semantic-event-v1.json",
+  "title": "Athena Semantic Event v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "schemaVersion",
+    "eventId",
+    "eventType",
+    "category",
+    "severity",
+    "outcome",
+    "occurredAt",
+    "producer",
+    "correlation",
+    "sensitivity",
+    "retentionClass"
+  ],
+  "properties": {
+    "schema": { "const": "athena.ops.event" },
+    "schemaVersion": { "const": "1.0" },
+    "eventId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "eventType": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "category": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "severity": { "enum": ["debug", "info", "warning", "error", "critical"] },
+    "outcome": { "type": "string", "maxLength": 48 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "producer": {
+      "type": "object",
+      "required": ["service", "version", "runtimeRole"],
+      "additionalProperties": false,
+      "properties": {
+        "service": { "type": "string" },
+        "version": { "type": "string" },
+        "runtimeRole": { "type": "string" }
+      }
+    },
+    "subject": { "$ref": "#/$defs/subject" },
+    "actor": { "$ref": "#/$defs/actor" },
+    "correlation": { "$ref": "#/$defs/correlation" },
+    "stateTransition": { "$ref": "#/$defs/stateTransition" },
+    "impact": { "$ref": "#/$defs/impact" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "evidence": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/evidence" }
+    },
+    "hypotheses": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/hypothesis" }
+    },
+    "recommendation": { "$ref": "#/$defs/recommendation" },
+    "sensitivity": { "type": "string", "maxLength": 48 },
+    "retentionClass": { "type": "string", "maxLength": 64 }
+  },
+  "$defs": {
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" },
+        "component": { "type": "string" },
+        "operation": { "type": "string" }
+      }
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "id": { "type": "string" }
+      }
+    },
+    "correlation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "operationId": { "type": "string" },
+        "interactionId": { "type": "string" },
+        "requestId": { "type": "string" },
+        "traceId": { "type": "string" },
+        "spanId": { "type": "string" },
+        "sourceActionId": { "type": "string" },
+        "clientTurnId": { "type": "string" },
+        "invocationId": { "type": "string" },
+        "toolCallId": { "type": "string" },
+        "clientId": { "type": "string" }
+      }
+    },
+    "stateTransition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "string" },
+        "to": { "type": "string" },
+        "reasonCode": { "type": "string" }
+      }
+    },
+    "impact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "userEffect": { "type": "string" },
+        "slo": { "type": "string" },
+        "scope": { "type": "string" },
+        "status": { "type": "string" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "errorCode": { "type": "string" },
+        "statusCode": { "type": "string" },
+        "durationMs": { "type": "string" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "backend": { "type": "string" }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string" },
+        "ref": { "type": "string" },
+        "metric": { "type": "string" },
+        "comparison": { "type": "string" }
+      }
+    },
+    "hypothesis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reason", "confidence", "counterEvidence"],
+      "properties": {
+        "reason": { "type": "string" },
+        "component": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "counterEvidence": {
+          "type": "array",
+          "maxItems": 6,
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "recommendation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "actionId": { "type": "string" },
+        "risk": { "type": "string" },
+        "permission": { "type": "string" }
+      }
+    }
+  }
+}

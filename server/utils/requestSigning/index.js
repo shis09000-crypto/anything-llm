@@ -509,6 +509,11 @@ function isHighRiskSignedRequest({ method, path } = {}) {
       methods: ["POST"],
       pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
     },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/operations\/actions\/runs(?:\/[^/]+\/(?:approve|reject|execute|reconcile))?$/,
+    },
   ];
   if (
     highRiskRoutes.some(

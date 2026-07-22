@@ -1,8 +1,15 @@
-const crypto = require("crypto");
-const { AsyncLocalStorage } = require("async_hooks");
 const api = require("@opentelemetry/api");
+const crypto = require("crypto");
+const { classifyGoldenJourney } = require("./goldenJourneys");
+const {
+  currentOperationContext,
+  enrichOperationContext,
+  operationAttributes,
+  runWithOperationContext,
+  startOperationSpan,
+  withOperationSpan,
+} = require("./operationContext");
 
-const storage = new AsyncLocalStorage();
 const tracer = api.trace.getTracer("athena-server");
 
 function compact(value, max) {
@@ -18,11 +25,11 @@ function incomingTraceId(request) {
 }
 
 function currentCorrelation() {
-  return storage.getStore() || null;
+  return currentOperationContext();
 }
 
 function withCorrelation(correlation, fn) {
-  return storage.run({ ...(currentCorrelation() || {}), ...correlation }, fn);
+  return runWithOperationContext(correlation, fn);
 }
 
 function observabilityContextMiddleware(request, response, next) {
@@ -55,9 +62,23 @@ function observabilityContextMiddleware(request, response, next) {
     spanContext.spanId && spanContext.spanId !== "0".repeat(16)
       ? spanContext.spanId
       : crypto.randomBytes(8).toString("hex");
-  const correlation = { requestId, traceId, spanId };
+  const correlation = {
+    operationId: compact(request.headers["x-athena-operation-id"], 160),
+    interactionId:
+      compact(request.headers["x-athena-interaction-id"], 160) ||
+      crypto.randomUUID(),
+    requestId,
+    sourceActionId: compact(request.headers["x-athena-source-action-id"], 160),
+    clientTurnId: compact(request.headers["x-athena-client-turn-id"], 160),
+    invocationId: compact(request.headers["x-athena-invocation-id"], 160),
+    clientId: compact(request.headers["x-athena-client-id"], 160),
+    platform: compact(request.headers["x-athena-platform"], 32),
+    journey: classifyGoldenJourney(request),
+    traceId,
+    spanId,
+  };
+  if (!correlation.operationId) correlation.operationId = requestId;
   request.correlationRequestId = requestId;
-  request.athenaTraceContext = correlation;
   response.setHeader("X-Request-Id", requestId);
   response.setHeader("Traceparent", `00-${traceId}-${spanId}-01`);
   let ended = false;
@@ -74,12 +95,41 @@ function observabilityContextMiddleware(request, response, next) {
   };
   response.once("finish", end);
   response.once("close", end);
+  span.setAttributes(operationAttributes(correlation));
   const active = api.trace.setSpan(extracted, span);
-  storage.run(correlation, () => api.context.with(active, next));
+  runWithOperationContext(correlation, () => {
+    request.athenaTraceContext = currentOperationContext();
+    return api.context.with(active, next);
+  });
+}
+
+function operationContextBodyMiddleware(request, _response, next) {
+  const body =
+    request.body &&
+    typeof request.body === "object" &&
+    !Buffer.isBuffer(request.body)
+      ? request.body
+      : {};
+  enrichOperationContext({
+    sourceActionId:
+      body.sourceActionId ||
+      body.editContext?.sourceActionId ||
+      body.regenerateContext?.sourceActionId,
+    clientTurnId: body.clientTurnId,
+    invocationId: body.invocationId || body.invocationUuid,
+    toolCallId: body.toolCallId,
+  });
+  return next();
 }
 
 module.exports = {
   currentCorrelation,
+  currentOperationContext,
+  enrichOperationContext,
   observabilityContextMiddleware,
+  operationContextBodyMiddleware,
+  startOperationSpan,
+  withOperationSpan,
   withCorrelation,
+  runWithOperationContext,
 };

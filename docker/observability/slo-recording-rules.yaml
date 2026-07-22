@@ -1,0 +1,58 @@
+groups:
+  - name: athena-golden-journey-slos
+    interval: 30s
+    rules:
+      - record: athena:golden_journey:success_ratio_5m
+        expr: |
+          sum by (journey) (rate(athena_golden_journey_operations_total{outcome="success"}[5m]))
+          /
+          clamp_min(sum by (journey) (rate(athena_golden_journey_operations_total[5m])), 0.000001)
+      - record: athena:golden_journey:success_ratio_30m
+        expr: |
+          sum by (journey) (rate(athena_golden_journey_operations_total{outcome="success"}[30m]))
+          /
+          clamp_min(sum by (journey) (rate(athena_golden_journey_operations_total[30m])), 0.000001)
+      - record: athena:golden_journey:latency_p95_seconds_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (journey, le) (rate(athena_golden_journey_duration_seconds_bucket[5m])))
+      - record: athena:operation_context:coverage_ratio_15m
+        expr: |
+          sum(rate(athena_operation_context_total{coverage="complete",journey!="background"}[15m]))
+          /
+          clamp_min(sum(rate(athena_operation_context_total{journey!="background"}[15m])), 0.000001)
+
+      - alert: AthenaOperationCorrelationCoverageLow
+        expr: athena:operation_context:coverage_ratio_15m < 0.95
+        for: 15m
+        labels:
+          severity: critical
+          owner: ai-operations
+        annotations:
+          summary: Critical-flow OperationContext coverage is below 95 percent
+
+      - alert: AthenaLoginJourneySLOBurn
+        expr: athena:golden_journey:success_ratio_30m{journey="login"} < 0.999
+        for: 10m
+        labels: { severity: critical, journey: login }
+        annotations: { summary: "Login journey is burning its 99.9% availability SLO" }
+      - alert: AthenaChatJourneySLOBurn
+        expr: athena:golden_journey:success_ratio_30m{journey="chat"} < 0.99
+        for: 10m
+        labels: { severity: critical, journey: chat }
+        annotations: { summary: "Chat journey is burning its 99% availability SLO" }
+      - alert: AthenaAgentToolJourneySLOBurn
+        expr: athena:golden_journey:success_ratio_30m{journey="agent_tool"} < 0.98
+        for: 10m
+        labels: { severity: warning, journey: agent_tool }
+        annotations: { summary: "Agent tool journey is burning its 98% availability SLO" }
+      - alert: AthenaKnowledgeIngestJourneySLOBurn
+        expr: athena:golden_journey:success_ratio_30m{journey="knowledge_ingest"} < 0.99
+        for: 10m
+        labels: { severity: critical, journey: knowledge_ingest }
+        annotations: { summary: "Knowledge ingest journey is burning its 99% availability SLO" }
+      - alert: AthenaCrossDeviceSyncJourneySLOBurn
+        expr: athena:golden_journey:success_ratio_30m{journey="cross_device_sync"} < 0.995
+        for: 10m
+        labels: { severity: critical, journey: cross_device_sync }
+        annotations: { summary: "Cross-device sync journey is burning its 99.5% availability SLO" }

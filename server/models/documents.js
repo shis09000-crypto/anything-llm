@@ -438,6 +438,82 @@ const Document = {
     return true;
   },
 
+  reindexDocuments: async function (workspace, docIds = [], userId = null) {
+    const normalized = [
+      ...new Set(
+        (Array.isArray(docIds) ? docIds : [])
+          .map((value) => String(value || "").trim())
+          .filter(Boolean)
+          .slice(0, 200)
+      ),
+    ];
+    if (!workspace?.id || !workspace?.slug || !normalized.length)
+      return { rebuilt: [], failed: [] };
+    const documents = await this.where({
+      workspaceId: Number(workspace.id),
+      docId: { in: normalized },
+    });
+    const VectorDb = getVectorDbClass();
+    const { fileData } = require("../utils/files");
+    const rebuilt = [];
+    const failed = [];
+    for (const document of documents) {
+      try {
+        const data = await fileData(document.docpath);
+        if (!data?.pageContent) throw new Error("document_source_unavailable");
+        await DocumentIndexStatus.markIndexing({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: document.docpath,
+        });
+        await VectorDb.deleteDocumentFromNamespace(
+          workspace.slug,
+          document.docId
+        );
+        await prisma.document_vectors.deleteMany({
+          where: { docId: document.docId },
+        });
+        const result = await VectorDb.addDocumentToNamespace(
+          workspace.slug,
+          { ...data, docId: document.docId },
+          document.docpath
+        );
+        if (!result?.vectorized)
+          throw new Error(result?.error || "document_reindex_failed");
+        await DocumentIndexStatus.markIndexed({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: document.docpath,
+        });
+        rebuilt.push(document.docId);
+      } catch (error) {
+        await DocumentIndexStatus.markFailed({
+          workspaceId: workspace.id,
+          docId: document.docId,
+          filePath: document.docpath,
+          errorMessage: error?.code || error?.message || "reindex_failed",
+        });
+        failed.push({
+          docId: document.docId,
+          errorCode: String(
+            error?.code || error?.message || "reindex_failed"
+          ).slice(0, 160),
+        });
+      }
+    }
+    await EventLogs.logEvent(
+      "workspace_documents_reindexed",
+      {
+        workspaceId: Number(workspace.id),
+        requested: normalized.length,
+        rebuilt: rebuilt.length,
+        failed: failed.length,
+      },
+      userId
+    );
+    return { rebuilt, failed };
+  },
+
   count: async function (clause = {}, limit = null) {
     try {
       const count = await prisma.workspace_documents.count({

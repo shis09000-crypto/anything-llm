@@ -1,0 +1,164 @@
+name: anythingllm-v2
+
+volumes:
+  athena-nats-data:
+  athena-clickhouse-data:
+  athena-prometheus-data:
+  athena-grafana-data:
+  athena-tempo-data:
+  athena-loki-data:
+
+secrets:
+  athena_metrics_token:
+    file: ${ATHENA_METRICS_TOKEN_FILE:?ATHENA_METRICS_TOKEN_FILE is required}
+
+services:
+  anythingllm:
+    environment:
+      ATHENA_OPERATIONS_ENABLED: "true"
+      ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED: "true"
+      ATHENA_OPERATIONS_SHADOW_INTERVAL_MS: "60000"
+      ATHENA_OPERATIONS_SHADOW_LOOKBACK_MS: "900000"
+      ATHENA_OPERATIONS_SHADOW_COST_THRESHOLD_MICROS: "25000000"
+      ATHENA_OPERATIONS_SHADOW_TOKEN_THRESHOLD: "5000000"
+      ATHENA_OPERATIONS_ACTIONS_ENABLED: "true"
+      ATHENA_BROADCAST_TRANSPORT: nats
+      ATHENA_NATS_SERVERS: tls://nats:4222
+      ATHENA_NATS_NKEY_SEED_FILE: /run/secrets/athena_nats_nkey_seed
+      ATHENA_NATS_TLS_CA_FILE: /run/secrets/athena_nats_ca
+      ATHENA_NATS_TLS_CERT_FILE: /run/secrets/athena_nats_client_cert
+      ATHENA_NATS_TLS_KEY_FILE: /run/secrets/athena_nats_client_key
+      ATHENA_NATS_TLS_SERVER_NAME: nats
+      ATHENA_NATS_CONSUMER_NAME: api-production-1
+      ATHENA_OPERATIONS_NATS_STREAM: ATHENA_OPERATIONS
+      ATHENA_OPERATIONS_NATS_SUBJECT: operations.semantic.v1
+      ATHENA_OPERATIONS_NATS_CONSUMER: athena-operations-clickhouse
+      ATHENA_OPERATIONS_NATS_MAX_BYTES: "4294967296"
+      ATHENA_CLICKHOUSE_URL: http://clickhouse:8123
+      ATHENA_CLICKHOUSE_DATABASE: athena_operations
+      ATHENA_CLICKHOUSE_USER: athena_ops
+      ATHENA_CLICKHOUSE_PASSWORD_FILE: /run/secrets/athena_clickhouse_password
+      ATHENA_OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAME: athena-server
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      ATHENA_METRICS_TOKEN_FILE: /run/secrets/athena_metrics_token
+    volumes:
+      - ${ATHENA_CLICKHOUSE_APP_PASSWORD_FILE:?ATHENA_CLICKHOUSE_APP_PASSWORD_FILE is required}:/run/secrets/athena_clickhouse_password:ro
+      - ${ATHENA_NATS_NKEY_SEED_HOST_FILE:?ATHENA_NATS_NKEY_SEED_HOST_FILE is required}:/run/secrets/athena_nats_nkey_seed:ro
+      - ${ATHENA_NATS_TLS_CA_HOST_FILE:?ATHENA_NATS_TLS_CA_HOST_FILE is required}:/run/secrets/athena_nats_ca:ro
+      - ${ATHENA_NATS_TLS_CERT_HOST_FILE:?ATHENA_NATS_TLS_CERT_HOST_FILE is required}:/run/secrets/athena_nats_client_cert:ro
+      - ${ATHENA_NATS_TLS_KEY_HOST_FILE:?ATHENA_NATS_TLS_KEY_HOST_FILE is required}:/run/secrets/athena_nats_client_key:ro
+    secrets: [athena_metrics_token]
+    depends_on:
+      nats:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    networks:
+      default:
+        aliases: [anything-llm]
+
+  nats:
+    image: nats:2.10.27-alpine
+    restart: unless-stopped
+    command: ["-c", "/etc/nats/nats-server.conf"]
+    volumes:
+      - athena-nats-data:/data/jetstream
+      - ${ATHENA_NATS_CONFIG_FILE:?ATHENA_NATS_CONFIG_FILE is required}:/etc/nats/nats-server.conf:ro
+      - ${ATHENA_NATS_TLS_CA_HOST_FILE:?ATHENA_NATS_TLS_CA_HOST_FILE is required}:/run/secrets/athena_nats_ca.pem:ro
+      - ${ATHENA_NATS_SERVER_CERT_HOST_FILE:?ATHENA_NATS_SERVER_CERT_HOST_FILE is required}:/run/secrets/nats_server.pem:ro
+      - ${ATHENA_NATS_SERVER_KEY_HOST_FILE:?ATHENA_NATS_SERVER_KEY_HOST_FILE is required}:/run/secrets/nats_server.key:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8222/healthz | grep -q ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 192m
+    cpus: 0.50
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.6.3.116
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: athena_operations
+      CLICKHOUSE_USER: athena_ops
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/athena_clickhouse_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - athena-clickhouse-data:/var/lib/clickhouse
+      - /data/anythingllm/app/docker/clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ${ATHENA_CLICKHOUSE_SERVER_PASSWORD_FILE:?ATHENA_CLICKHOUSE_SERVER_PASSWORD_FILE is required}:/run/secrets/athena_clickhouse_password:ro
+    healthcheck:
+      test: ["CMD-SHELL", "clickhouse-client --user athena_ops --password \"$$(cat /run/secrets/athena_clickhouse_password)\" --query 'SELECT 1' >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    mem_limit: 768m
+    cpus: 1.00
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - /data/anythingllm/app/docker/observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on: [tempo, loki]
+    mem_limit: 256m
+    cpus: 0.50
+
+  prometheus:
+    image: prom/prometheus:v3.4.2
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+      - --storage.tsdb.retention.size=4GB
+    volumes:
+      - /data/anythingllm/app/docker/observability/prometheus.production.yaml:/etc/prometheus/prometheus.yml:ro
+      - /data/anythingllm/app/docker/observability/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - /data/anythingllm/app/docker/observability/slo-recording-rules.yaml:/etc/prometheus/slo-recording-rules.yaml:ro
+      - athena-prometheus-data:/prometheus
+    secrets: [athena_metrics_token]
+    depends_on: [anythingllm, otel-collector]
+    mem_limit: 384m
+    cpus: 0.50
+
+  tempo:
+    image: grafana/tempo:2.8.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - /data/anythingllm/app/docker/observability/tempo.yaml:/etc/tempo.yaml:ro
+      - athena-tempo-data:/var/tempo
+    mem_limit: 256m
+    cpus: 0.50
+
+  loki:
+    image: grafana/loki:3.5.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - /data/anythingllm/app/docker/observability/loki.yaml:/etc/loki/local-config.yaml:ro
+      - athena-loki-data:/loki
+    mem_limit: 384m
+    cpus: 0.50
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${ATHENA_GRAFANA_ADMIN_USER:-athena_admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${ATHENA_GRAFANA_ADMIN_PASSWORD:?ATHENA_GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - /data/anythingllm/app/docker/observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/athena.yaml:ro
+      - athena-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${ATHENA_GRAFANA_PORT:-53000}:3000"
+    depends_on: [prometheus, tempo, loki]
+    mem_limit: 256m
+    cpus: 0.50

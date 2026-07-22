@@ -113,6 +113,7 @@ const {
 const {
   communicationDebugEndpoints,
 } = require("./endpoints/communicationDebug");
+const { operationsEndpoints } = require("./endpoints/operations");
 const { syncCenterEndpoints } = require("./endpoints/syncCenter");
 const { clientIdentityEndpoints } = require("./endpoints/clientIdentity");
 const { vaultEndpoints } = require("./endpoints/vault");
@@ -143,6 +144,7 @@ const {
 const { runtimeCoordinator } = require("./utils/runtimeCoordinator");
 const {
   observabilityContextMiddleware,
+  operationContextBodyMiddleware,
 } = require("./utils/observability/context");
 const { metricsEndpoint } = require("./utils/observability/metrics");
 const {
@@ -177,6 +179,7 @@ app.use(communicationMetricsMiddleware);
 app.use(clientIdentityMiddleware);
 app.use(cors(corsOptionsForEnvironment()));
 app.use(requestBodyPolicy);
+app.use(operationContextBodyMiddleware);
 app.use(requestBodyLimitErrorHandler);
 app.get("/metrics", metricsEndpoint);
 app.get("/live", (_request, response) =>
@@ -280,6 +283,7 @@ cryptoGateProbeEndpoints(apiRouter);
 outlookAgentEndpoints(apiRouter);
 googleAgentSkillEndpoints(apiRouter);
 communicationDebugEndpoints(apiRouter);
+operationsEndpoints(apiRouter);
 // Externally facing embedder endpoints
 embeddedEndpoints(apiRouter);
 
@@ -309,6 +313,13 @@ const {
   startAuthSessionSyncReconciler,
   stopAuthSessionSyncReconciler,
 } = require("./utils/security/authSessionSyncReconciler");
+const { operationsPlane } = require("./utils/operations/operationsPlane");
+const {
+  operationsShadowRuntime,
+} = require("./utils/operations/shadowAgents/runtime");
+const {
+  operationsActionRuntime,
+} = require("./utils/operations/actions/orchestrator");
 runtimeCoordinator.register({
   name: "database-readiness",
   order: 1,
@@ -324,6 +335,27 @@ runtimeCoordinator.register({
   stopOrder: 80,
   start: async () => startSyncV2OutboxDispatcher(),
   stop: stopSyncV2OutboxDispatcher,
+});
+runtimeCoordinator.register({
+  name: "ai-operations-plane",
+  order: 11,
+  stopOrder: 85,
+  start: async () => operationsPlane.start(),
+  stop: async () => operationsPlane.stop(),
+});
+runtimeCoordinator.register({
+  name: "ai-operations-shadow-agents",
+  order: 11.5,
+  stopOrder: 84,
+  start: async () => operationsShadowRuntime.start(),
+  stop: async () => operationsShadowRuntime.stop(),
+});
+runtimeCoordinator.register({
+  name: "ai-operations-actions",
+  order: 11.75,
+  stopOrder: 83,
+  start: async () => operationsActionRuntime.start(),
+  stop: async () => operationsActionRuntime.stop(),
 });
 runtimeCoordinator.register({
   name: "opentelemetry",

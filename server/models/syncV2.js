@@ -1469,6 +1469,95 @@ const SyncV2 = {
     });
   },
 
+  async deadLetterOutbox({ seqs = [], limit = 100 } = {}) {
+    if (!(await this.schemaReady())) return [];
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    return await prisma.sync_outbox.findMany({
+      where: {
+        status: "dead_letter",
+        ...(normalized.length ? { seq: { in: normalized } } : {}),
+      },
+      orderBy: { seq: "asc" },
+      take: Math.max(1, Math.min(Number(limit) || 100, 200)),
+      select: {
+        seq: true,
+        eventId: true,
+        nodeKey: true,
+        attemptCount: true,
+        lastErrorCode: true,
+        deadLetteredAt: true,
+        requestId: true,
+        traceId: true,
+      },
+    });
+  },
+
+  async outboxRows(seqs = []) {
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    if (!normalized.length || !(await this.schemaReady())) return [];
+    return await prisma.sync_outbox.findMany({
+      where: { seq: { in: normalized } },
+      orderBy: { seq: "asc" },
+      select: {
+        seq: true,
+        status: true,
+        dispatchedAt: true,
+        attemptCount: true,
+        lastErrorCode: true,
+        deadLetteredAt: true,
+      },
+    });
+  },
+
+  async requeueDeadLetters(seqs = []) {
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    if (!normalized.length) return { count: 0 };
+    return await prisma.sync_outbox.updateMany({
+      where: { seq: { in: normalized }, status: "dead_letter" },
+      data: {
+        status: "retry",
+        attemptCount: 0,
+        nextAttemptAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastErrorCode: null,
+        lastErrorDetail: null,
+        deadLetteredAt: null,
+      },
+    });
+  },
+
+  async restoreDeadLetters(snapshots = []) {
+    const safe = (Array.isArray(snapshots) ? snapshots : [])
+      .filter((row) => Number.isInteger(Number(row?.seq)))
+      .slice(0, 100);
+    if (!safe.length) return { restored: 0, skipped: 0 };
+    let restored = 0;
+    for (const row of safe) {
+      const result = await prisma.sync_outbox.updateMany({
+        where: {
+          seq: Number(row.seq),
+          dispatchedAt: null,
+          status: { in: ["pending", "retry"] },
+        },
+        data: {
+          status: "dead_letter",
+          attemptCount: Math.max(1, Number(row.attemptCount) || 1),
+          nextAttemptAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          lastErrorCode: String(
+            row.lastErrorCode || "operations_requeue_rolled_back"
+          ).slice(0, 160),
+          lastErrorDetail: null,
+          deadLetteredAt: new Date(row.deadLetteredAt || Date.now()),
+        },
+      });
+      restored += Number(result.count || 0);
+    }
+    return { restored, skipped: safe.length - restored };
+  },
+
   async claimOutbox({
     limit = 100,
     leaseOwner,

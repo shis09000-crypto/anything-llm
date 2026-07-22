@@ -18,6 +18,14 @@ const {
   runtimeBypassSnapshot,
   scanBypassAccess,
 } = require("./dataAccessMigrationGuard");
+const api = require("@opentelemetry/api");
+const {
+  withOperationSpan,
+  correlationCoverage,
+  currentOperationContext,
+} = require("../observability/operationContext");
+const { requirementsForJourney } = require("../observability/goldenJourneys");
+const { metrics } = require("../observability/metrics");
 
 const MAX_RECENT_OPERATIONS = 80;
 
@@ -54,6 +62,8 @@ const repositoryLoaders = {
   iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
+  operationsAction: () =>
+    require("../../repositories/operationsActionRepository"),
   quiz: () => require("../../repositories/quizRepository"),
   readerLibrary: () => require("../../repositories/readerLibraryRepository"),
   readerWorkerJob: () =>
@@ -130,6 +140,7 @@ const repositoryExports = {
   iosPushToken: "IOSPushTokenRepository",
   mobile: "MobileRepository",
   nodeSupplement: "NodeSupplementRepository",
+  operationsAction: "OperationsActionRepository",
   quiz: "QuizRepository",
   readerLibrary: "ReaderLibraryRepository",
   readerWorkerJob: "ReaderWorkerJobRepository",
@@ -221,8 +232,20 @@ async function runAccess({
   fn,
 }) {
   const startedAt = Date.now();
+  let outcome = "success";
   try {
-    const result = await fn();
+    const result = await withOperationSpan(
+      `data_access.${domain}.${operation}`,
+      {
+        kind: api.SpanKind.INTERNAL,
+        attributes: {
+          "athena.data.domain": domain,
+          "athena.data.operation": operation,
+          "athena.data.access_type": accessType,
+        },
+      },
+      fn
+    );
     recordOperation({
       domain,
       operation,
@@ -233,6 +256,7 @@ async function runAccess({
     });
     return result;
   } catch (error) {
+    outcome = "failure";
     recordOperation({
       domain,
       operation,
@@ -243,6 +267,17 @@ async function runAccess({
       error,
     });
     throw error;
+  } finally {
+    const labels = { domain, access_type: accessType, outcome };
+    metrics.dataAccessOperations.inc(labels);
+    metrics.dataAccessDuration.observe(labels, (Date.now() - startedAt) / 1000);
+    const journey = currentOperationContext()?.journey || "background";
+    const coverage = correlationCoverage(requirementsForJourney(journey));
+    metrics.operationCorrelation.inc({
+      component: "data_access",
+      journey,
+      coverage: coverage.complete ? "complete" : "incomplete",
+    });
   }
 }
 
@@ -1119,6 +1154,10 @@ const syncV2 = makeRepositoryFacade(
     eventsAfter: "read",
     updateCursor: "write",
     pendingOutbox: "read",
+    deadLetterOutbox: "read",
+    outboxRows: "read",
+    requeueDeadLetters: "maintenance",
+    restoreDeadLetters: "maintenance",
     claimOutbox: "maintenance",
     releaseOutboxClaims: "maintenance",
     renewOutboxClaims: "maintenance",
@@ -1225,6 +1264,7 @@ const document = makeRepositoryFacade(
     create: "write",
     addDocuments: "write",
     removeDocuments: "write",
+    reindexDocuments: "maintenance",
     update: "write",
     _updateAll: "write",
     delete: "write",
@@ -1493,6 +1533,9 @@ const workspaceCognition = makeRepositoryFacade(
     backfillLegacyCognition: "maintenance",
     deleteWorkspaceBatchData: "write",
     deleteWorkspaceData: "write",
+    startWorker: "maintenance",
+    stopWorker: "maintenance",
+    workerSnapshot: "read",
   },
   workspaceCognitiveScopeFromArgs
 );
@@ -1800,6 +1843,23 @@ const runtimeLifecycle = makeRepositoryFacade(
 );
 const scheduledJob = repositoryBoundaryFacade("scheduledJob");
 const systemPatrol = repositoryBoundaryFacade("systemPatrol");
+const operationsAction = makeRepositoryFacade(
+  "operationsAction",
+  {
+    createRun: "write",
+    getRun: "read",
+    getRunBySourceActionId: "read",
+    listRuns: "read",
+    transitionRun: "write",
+    updateRun: "write",
+    addApproval: "write",
+    approvalsForRun: "read",
+    acquireLease: "maintenance",
+    releaseLease: "maintenance",
+    expiredLeasedRuns: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
+);
 const workspaceOverview = repositoryBoundaryFacade("workspaceOverview");
 const workspaceSupplement = repositoryBoundaryFacade("workspaceSupplement");
 
@@ -2051,6 +2111,7 @@ const DataAccessCenter = {
   iosPushToken,
   mobile,
   nodeSupplement,
+  operationsAction,
   quiz,
   readerLibrary,
   readerWorkerJob,

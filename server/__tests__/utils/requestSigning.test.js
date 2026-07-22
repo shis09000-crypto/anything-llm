@@ -431,6 +431,16 @@ describe("request signing", () => {
     });
   });
 
+  test.each([
+    ["POST", "/operations/actions/runs"],
+    ["POST", "/operations/actions/runs/run-1/approve"],
+    ["POST", "/operations/actions/runs/run-1/reject"],
+    ["POST", "/operations/actions/runs/run-1/execute"],
+    ["POST", "/operations/actions/runs/run-1/reconcile"],
+  ])("protects operations control mutation %s %s", (method, path) => {
+    expect(isHighRiskSignedRequest({ method, path })).toBe(true);
+  });
+
   it("requires device signatures for high-risk production requests unless HMAC compatibility is enabled", async () => {
     process.env.NODE_ENV = "production";
     const hmacRequest = requestDouble({ headers: signedHeaders() });

@@ -21,6 +21,15 @@ const {
   appendUserLongTermMemoryToSystemPrompt,
 } = require("../../chats/longTermMemoryContext.js");
 const { toolExecutionTimeoutMs } = require("./toolTimeouts.js");
+const api = require("@opentelemetry/api");
+const {
+  runWithOperationContext,
+  withOperationSpan,
+  correlationCoverage,
+  currentOperationContext,
+} = require("../../observability/operationContext.js");
+const { emitSemanticEvent } = require("../../observability/semanticEvents.js");
+const { metrics } = require("../../observability/metrics.js");
 const {
   REQUEST_USER_INPUT_TOOL_NAME,
 } = require("./plugins/request-user-input.js");
@@ -980,15 +989,76 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
    * @returns {Promise<any>} - The result of the provider call
    * @throws {APIError} - If the provider call fails
    */
-  async #safeProviderCall(providerCall) {
-    try {
-      return await providerCall();
-    } catch (error) {
-      console.error(`[AIbitat] Provider error: ${error.message}`, {
-        hide_meta: true,
-      });
-      throw new APIError(`The agent model failed to respond: ${error.message}`);
-    }
+  async #safeProviderCall(providerCall, provider = null) {
+    const providerName = String(
+      provider?.provider || this.provider || "unknown"
+    ).slice(0, 64);
+    const startedAt = Date.now();
+    let outcome = "success";
+    return runWithOperationContext(
+      {
+        invocationId: this.handlerProps?.invocation?.uuid,
+        clientTurnId: this.handlerProps?.invocation?.clientTurnId,
+        workspaceId: this.handlerProps?.invocation?.workspace_id,
+        threadId: this.handlerProps?.invocation?.thread_id,
+        journey: "agent_tool",
+      },
+      async () => {
+        try {
+          return await withOperationSpan(
+            "gen_ai.agent.invoke",
+            {
+              kind: api.SpanKind.CLIENT,
+              attributes: {
+                "gen_ai.operation.name": "agent",
+                "gen_ai.provider.name": providerName,
+                "gen_ai.request.model": String(
+                  provider?.model || this.model || "unknown"
+                ).slice(0, 128),
+              },
+            },
+            providerCall
+          );
+        } catch (error) {
+          outcome = "failure";
+          emitSemanticEvent({
+            eventType: "agent.model.failed",
+            category: "agent",
+            severity: "error",
+            outcome,
+            subject: {
+              type: "agent",
+              component: providerName,
+              operation: "model_invoke",
+            },
+            impact: { userEffect: "agent_response_unavailable" },
+            evidence: [
+              {
+                type: "trace",
+                ref: currentOperationContext()?.traceId || "unavailable",
+              },
+            ],
+            metadata: {
+              errorCode: error?.code || "agent_model_failed",
+              provider: providerName,
+            },
+          });
+          console.error(`[AIbitat] Provider error: ${error.message}`, {
+            hide_meta: true,
+          });
+          throw new APIError(
+            `The agent model failed to respond: ${error.message}`
+          );
+        } finally {
+          const labels = { task: "agent", provider: providerName, outcome };
+          metrics.modelOperations.inc(labels);
+          metrics.modelDuration.observe(
+            labels,
+            (Date.now() - startedAt) / 1000
+          );
+        }
+      }
+    );
   }
 
   /**
@@ -1000,26 +1070,62 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
    * @param {string} name - Tool name.
    * @returns {Promise<any>} Tool result or a timeout error string.
    */
-  async #executeToolHandler(fn, args = {}, name = "") {
+  async #executeToolHandler(fn, args = {}, name = "", toolCallId = null) {
     const timeoutMs = toolExecutionTimeoutMs(name);
     const startedAt = Date.now();
     let timeoutId = null;
     const timeoutResult = Symbol("tool-timeout");
+    let outcome = "success";
+    let toolCoverage = null;
+    let toolCorrelation = null;
+    const invocation = this.handlerProps?.invocation || {};
 
     this.handlerProps?.log?.(
       `[debug]: Tool ${name} handler started with timeout ${timeoutMs}ms`
     );
 
     try {
-      const result = await Promise.race([
-        fn.handler(args),
-        new Promise((resolve) => {
-          timeoutId = setTimeout(() => resolve(timeoutResult), timeoutMs);
-        }),
-      ]);
+      const result = await runWithOperationContext(
+        {
+          invocationId: invocation.uuid,
+          clientTurnId: invocation.clientTurnId,
+          workspaceId: invocation.workspace_id,
+          threadId: invocation.thread_id,
+          toolCallId: toolCallId || v4(),
+          journey: "agent_tool",
+        },
+        () =>
+          withOperationSpan(
+            "gen_ai.tool.execute",
+            {
+              kind: api.SpanKind.INTERNAL,
+              attributes: {
+                "gen_ai.operation.name": "execute_tool",
+                "gen_ai.tool.name": String(name || "unknown").slice(0, 96),
+              },
+            },
+            () => {
+              toolCoverage = correlationCoverage([
+                "invocationId",
+                "toolCallId",
+              ]);
+              toolCorrelation = { ...(currentOperationContext() || {}) };
+              return Promise.race([
+                fn.handler(args),
+                new Promise((resolve) => {
+                  timeoutId = setTimeout(
+                    () => resolve(timeoutResult),
+                    timeoutMs
+                  );
+                }),
+              ]);
+            }
+          )
+      );
 
       const elapsedMs = Date.now() - startedAt;
       if (result === timeoutResult) {
+        outcome = "timeout";
         const message = `Tool ${name} timed out after ${timeoutMs}ms.`;
         this.handlerProps?.log?.(`[warning]: ${message}`);
         this?.introspect?.(`${message} Continuing with a timeout result.`);
@@ -1033,12 +1139,59 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
         return `Tool ${name} completed but returned no content.`;
       return result;
     } catch (error) {
+      outcome = "failure";
       this.handlerProps?.log?.(
         `[error]: Tool ${name} handler failed after ${Date.now() - startedAt}ms: ${error.message}`
       );
       throw error;
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+      const tool = String(name || "unknown").slice(0, 96);
+      metrics.agentToolOperations.inc({ tool, outcome });
+      metrics.agentToolDuration.observe(
+        { tool, outcome },
+        (Date.now() - startedAt) / 1000
+      );
+      metrics.goldenJourneyOperations.inc({
+        journey: "agent_tool",
+        outcome: outcome === "success" ? "success" : "failure",
+      });
+      metrics.goldenJourneyDuration.observe(
+        {
+          journey: "agent_tool",
+          outcome: outcome === "success" ? "success" : "failure",
+        },
+        (Date.now() - startedAt) / 1000
+      );
+      const coverage =
+        toolCoverage || correlationCoverage(["invocationId", "toolCallId"]);
+      metrics.operationCorrelation.inc({
+        component: "agent_tool",
+        journey: "agent_tool",
+        coverage: coverage.complete ? "complete" : "incomplete",
+      });
+      if (outcome !== "success") {
+        emitSemanticEvent({
+          eventType:
+            outcome === "timeout"
+              ? "agent.tool.timed_out"
+              : "agent.tool.failed",
+          category: "agent_tool",
+          severity: "error",
+          outcome,
+          subject: { type: "tool", component: tool, operation: "execute" },
+          impact: { userEffect: "agent_task_degraded" },
+          evidence: [
+            { type: "trace", ref: toolCorrelation?.traceId || "unavailable" },
+          ],
+          correlation: toolCorrelation,
+          metadata: {
+            errorCode:
+              outcome === "timeout" ? "tool_timeout" : "tool_execution_failed",
+            durationMs: Date.now() - startedAt,
+          },
+        });
+      }
     }
   }
 
@@ -1070,12 +1223,14 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     };
 
     /** @type {{ functionCall: { name: string, arguments: string }, textResponse: string }} */
-    const completionStream = await this.#safeProviderCall(() =>
-      provider.stream(
-        appendCurrentDateTimeToLastUserMessage(messages),
-        functions,
-        eventHandler
-      )
+    const completionStream = await this.#safeProviderCall(
+      () =>
+        provider.stream(
+          appendCurrentDateTimeToLastUserMessage(messages),
+          functions,
+          eventHandler
+        ),
+      provider
     );
 
     if (completionStream.functionCall) {
@@ -1130,7 +1285,14 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
-      const result = await this.#executeToolHandler(fn, args, name);
+      const result = await this.#executeToolHandler(
+        fn,
+        args,
+        name,
+        completionStream.functionCall?.id ||
+          completionStream.functionCall?.call_id ||
+          toolInvocationEvent?.uuid
+      );
       const toolRun = await storeToolRun({
         toolName: name,
         arguments: args,
@@ -1263,11 +1425,13 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
     };
 
     // get the chat completion
-    const completion = await this.#safeProviderCall(() =>
-      provider.complete(
-        appendCurrentDateTimeToLastUserMessage(messages),
-        functions
-      )
+    const completion = await this.#safeProviderCall(
+      () =>
+        provider.complete(
+          appendCurrentDateTimeToLastUserMessage(messages),
+          functions
+        ),
+      provider
     );
 
     if (completion.functionCall) {
@@ -1323,7 +1487,14 @@ https://docs.anythingllm.com/agent/intelligent-tool-selection
       if (toolInvocationEvent)
         eventHandler("reportStreamEvent", toolInvocationEvent);
 
-      const result = await this.#executeToolHandler(fn, args, name);
+      const result = await this.#executeToolHandler(
+        fn,
+        args,
+        name,
+        completion.functionCall?.id ||
+          completion.functionCall?.call_id ||
+          toolInvocationEvent?.uuid
+      );
       const toolRun = await storeToolRun({
         toolName: name,
         arguments: args,

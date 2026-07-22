@@ -1,4 +1,12 @@
 const { vectorNamespace } = require("../environment");
+const api = require("@opentelemetry/api");
+const {
+  withOperationSpan,
+  correlationCoverage,
+  currentOperationContext,
+} = require("../observability/operationContext");
+const { emitSemanticEvent } = require("../observability/semanticEvents");
+const { metrics } = require("../observability/metrics");
 
 const FIRST_ARG_NAMESPACE_METHODS = new Set([
   "addDocumentToNamespace",
@@ -12,10 +20,72 @@ const SECOND_ARG_NAMESPACE_METHODS = new Set([
   "deleteVectorsInNamespace",
 ]);
 const BODY_NAMESPACE_METHODS = new Set(["namespace-stats", "delete-namespace"]);
+const RAG_METHODS = new Set([
+  "similarityResponse",
+  "rerankedSimilarityResponse",
+  "performSimilaritySearch",
+  "addDocumentToNamespace",
+  "deleteDocumentFromNamespace",
+  "deleteVectorsInNamespace",
+]);
 
 function scopedVectorBody(body = {}) {
   if (!body || typeof body !== "object") return body;
   return { ...body, namespace: vectorNamespace(body.namespace) };
+}
+
+function observeVectorOperation(target, operation, invoke) {
+  if (!RAG_METHODS.has(operation)) return invoke();
+  return observeInstrumentedVectorOperation(target, operation, invoke);
+}
+
+async function observeInstrumentedVectorOperation(target, operation, invoke) {
+  const backend = String(
+    process.env.VECTOR_DB || target?.constructor?.name || "unknown"
+  ).slice(0, 64);
+  const startedAt = Date.now();
+  let outcome = "success";
+  try {
+    return await withOperationSpan(
+      `rag.${operation}`,
+      {
+        kind: api.SpanKind.CLIENT,
+        attributes: {
+          "athena.rag.operation": operation,
+          "db.system.name": backend,
+        },
+      },
+      invoke
+    );
+  } catch (error) {
+    outcome = "failure";
+    emitSemanticEvent({
+      eventType: "knowledge.retrieval.failed",
+      category: "knowledge",
+      severity: "error",
+      outcome,
+      subject: { type: "knowledge", component: backend, operation },
+      impact: { userEffect: "answer_grounding_degraded" },
+      evidence: [
+        {
+          type: "trace",
+          ref: currentOperationContext()?.traceId || "unavailable",
+        },
+      ],
+      metadata: { errorCode: error?.code || "rag_operation_failed", backend },
+    });
+    throw error;
+  } finally {
+    const labels = { operation, backend, outcome };
+    metrics.ragOperations.inc(labels);
+    metrics.ragDuration.observe(labels, (Date.now() - startedAt) / 1000);
+    const coverage = correlationCoverage(["requestId", "clientTurnId"]);
+    metrics.operationCorrelation.inc({
+      component: "rag",
+      journey: "chat",
+      coverage: coverage.complete ? "complete" : "incomplete",
+    });
+  }
 }
 
 function scopeVectorDatabase(vectorDb) {
@@ -26,30 +96,41 @@ function scopeVectorDatabase(vectorDb) {
 
       if (FIRST_ARG_NAMESPACE_METHODS.has(prop)) {
         return function scopedFirstNamespace(namespace, ...args) {
-          return value.call(target, vectorNamespace(namespace), ...args);
+          return observeVectorOperation(target, prop, () =>
+            value.call(target, vectorNamespace(namespace), ...args)
+          );
         };
       }
 
       if (SECOND_ARG_NAMESPACE_METHODS.has(prop)) {
         return function scopedSecondNamespace(client, namespace, ...args) {
-          return value.call(
-            target,
-            client,
-            vectorNamespace(namespace),
-            ...args
+          return observeVectorOperation(target, prop, () =>
+            value.call(target, client, vectorNamespace(namespace), ...args)
           );
         };
       }
 
       if (BODY_NAMESPACE_METHODS.has(prop)) {
         return function scopedBodyNamespace(body = {}, ...args) {
-          return value.call(target, scopedVectorBody(body), ...args);
+          return observeVectorOperation(target, prop, () =>
+            value.call(target, scopedVectorBody(body), ...args)
+          );
         };
       }
 
       if (prop === "performSimilaritySearch") {
         return function scopedSimilaritySearch(options = {}) {
-          return value.call(target, scopedVectorBody(options));
+          return observeVectorOperation(target, prop, () =>
+            value.call(target, scopedVectorBody(options))
+          );
+        };
+      }
+
+      if (RAG_METHODS.has(prop)) {
+        return function observedVectorOperation(...args) {
+          return observeVectorOperation(target, prop, () =>
+            value.call(target, ...args)
+          );
         };
       }
 

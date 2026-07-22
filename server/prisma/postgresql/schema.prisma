@@ -314,6 +314,51 @@ model system_patrol_repairs {
   @@index([action])
 }
 
+model operations_action_runs {
+  id              String    @id
+  sourceActionId  String    @unique
+  actionId        String
+  actionVersion   String
+  riskLevel       String
+  status          String    @default("proposed")
+  requestedBy     Int?
+  requestedByType String    @default("human")
+  scopeJson       String    @default("{}")
+  parametersJson  String    @default("{}")
+  policyJson      String    @default("{}")
+  dryRunJson      String    @default("{}")
+  canaryJson      String    @default("{}")
+  resultJson      String    @default("{}")
+  validationJson  String    @default("{}")
+  rollbackJson    String    @default("{}")
+  errorCode       String?
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  approvedAt      DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  rolledBackAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([actionId, status])
+  @@index([status, createdAt])
+  @@index([requestedBy, createdAt])
+}
+
+model operations_action_approvals {
+  id             Int      @id @default(autoincrement())
+  runId          String
+  approverUserId Int
+  decision       String
+  reasonCode     String?
+  createdAt      DateTime @default(now())
+
+  @@unique([runId, approverUserId])
+  @@index([runId, decision])
+  @@index([approverUserId, createdAt])
+}
+
 model users {
   id                           Int                           @id @default(autoincrement())
   authUserId                   Int?                          @unique
@@ -806,16 +851,16 @@ model athena_request_nonces {
 }
 
 model user_state_preferences {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  namespace String
-  scope     String   @default("global")
-  value     String
-  version   String   @default("1")
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  namespace       String
+  scope           String   @default("global")
+  value           String
+  version         String   @default("1")
   monotonicCursor Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+  user            users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, namespace, scope])
   @@index([userId, namespace])

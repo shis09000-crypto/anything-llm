@@ -337,6 +337,11 @@ function getClientContext(request, { user = null } = {}) {
     userId: user?.id ? Number(user.id) : existing?.userId || null,
   };
   if (request) request.clientContext = next;
+  require("../observability/operationContext").enrichOperationContext({
+    clientId: next.clientId,
+    platform: next.platform,
+    requestId: next.requestId,
+  });
   return next;
 }
 

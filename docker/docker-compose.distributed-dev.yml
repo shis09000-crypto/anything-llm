@@ -114,6 +114,7 @@ services:
     volumes:
       - ./observability/prometheus.yaml:/etc/prometheus/prometheus.yml:ro
       - ./observability/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - ./observability/slo-recording-rules.yaml:/etc/prometheus/slo-recording-rules.yaml:ro
       - athena-prometheus-data:/prometheus
     ports:
       - "127.0.0.1:59090:9090"
