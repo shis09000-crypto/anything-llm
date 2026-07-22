@@ -5,8 +5,10 @@ jest.mock("../../utils/security/keyCustody", () => ({
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { createUser } = require("nkeys.js");
 
 const {
+  connectionSecurityOptions,
   irreversibleScope,
   natsSecurityFindings,
   settings,
@@ -93,6 +95,28 @@ describe("NATS JetStream transport metadata", () => {
         ATHENA_NATS_TLS_KEY_FILE: files.key,
       })
     ).toEqual([]);
+    fs.rmSync(directory, { recursive: true, force: true });
+  });
+
+  it("authenticates with a provisioned NKey seed that ends in a newline", () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "athena-nkey-"));
+    const seedPath = path.join(directory, "nkey");
+    const keyPair = createUser();
+    fs.writeFileSync(
+      seedPath,
+      Buffer.concat([Buffer.from(keyPair.getSeed()), Buffer.from("\n")]),
+      { mode: 0o600 }
+    );
+
+    const { authenticator } = connectionSecurityOptions({
+      nkeySeedFile: seedPath,
+      tls: {},
+    });
+    expect(authenticator("production-nonce")).toMatchObject({
+      nkey: keyPair.getPublicKey(),
+    });
+
+    keyPair.clear();
     fs.rmSync(directory, { recursive: true, force: true });
   });
 });

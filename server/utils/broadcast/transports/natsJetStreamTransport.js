@@ -128,6 +128,16 @@ function assertSecureCredentialFile(filePath, label) {
   return target;
 }
 
+function readNKeySeedFile(filePath) {
+  const seed = fs.readFileSync(filePath, "utf8").trim();
+  if (!seed) {
+    const error = new Error("nats_nkey_seed_file_empty");
+    error.code = "NATS_NKEY_SEED_EMPTY";
+    throw error;
+  }
+  return Buffer.from(seed, "ascii");
+}
+
 function connectionSecurityOptions(config) {
   let authenticator;
   if (config.credentialsFile) {
@@ -141,7 +151,7 @@ function connectionSecurityOptions(config) {
       config.nkeySeedFile,
       "nats_nkey_seed_file"
     );
-    authenticator = nkeyAuthenticator(fs.readFileSync(target));
+    authenticator = nkeyAuthenticator(readNKeySeedFile(target));
   }
   const tlsConfigured = Object.values(config.tls).some(Boolean);
   const tls = tlsConfigured
@@ -381,6 +391,7 @@ module.exports = {
   connectionSecurityOptions,
   irreversibleScope,
   natsSecurityFindings,
+  readNKeySeedFile,
   settings,
   subjectFor,
 };
