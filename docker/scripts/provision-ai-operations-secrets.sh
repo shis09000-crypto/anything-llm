@@ -26,6 +26,7 @@ if [[ ! -s "${secret_dir}/clickhouse-password.server" ]]; then
   cp "${secret_dir}/clickhouse-password.app" "${secret_dir}/clickhouse-password.server"
 fi
 write_random_secret "${secret_dir}/metrics-token"
+cp "${secret_dir}/metrics-token" "${secret_dir}/metrics-token.prometheus"
 write_random_secret "${secret_dir}/grafana-admin-password"
 
 if [[ ! -s "${secret_dir}/nats-client.nkey" ]]; then
@@ -126,6 +127,7 @@ ATHENA_NATS_SERVER_KEY_HOST_FILE=${secret_dir}/nats-server.key
 ATHENA_CLICKHOUSE_APP_PASSWORD_FILE=${secret_dir}/clickhouse-password.app
 ATHENA_CLICKHOUSE_SERVER_PASSWORD_FILE=${secret_dir}/clickhouse-password.server
 ATHENA_METRICS_TOKEN_FILE=${secret_dir}/metrics-token
+ATHENA_METRICS_PROMETHEUS_TOKEN_FILE=${secret_dir}/metrics-token.prometheus
 ATHENA_GRAFANA_ADMIN_USER=athena_admin
 ATHENA_GRAFANA_ADMIN_PASSWORD=$(tr -d '\r\n' <"${secret_dir}/grafana-admin-password")
 ATHENA_GRAFANA_PORT=53000
@@ -146,6 +148,9 @@ chmod 0400 \
   "${secret_dir}/nats-client.nkey" \
   "${secret_dir}/nats-client.key" \
   "${secret_dir}/nats-server.key"
+
+chown 65534:65534 "${secret_dir}/metrics-token.prometheus"
+chmod 0400 "${secret_dir}/metrics-token.prometheus"
 
 chown 101:101 "${secret_dir}/clickhouse-password.server"
 chmod 0400 "${secret_dir}/clickhouse-password.server"
