@@ -8,6 +8,7 @@ const {
 const { DataAccessCenter } = require("../utils/dataAccess");
 const ApiKey = DataAccessCenter.adminSystem.apiKey;
 const AuthIdentity = DataAccessCenter.adminSystem.authIdentity;
+const AuthSession = DataAccessCenter.adminSystem.authSession;
 const Invite = DataAccessCenter.adminSystem.invite;
 const User = DataAccessCenter.adminSystem.user;
 const {
@@ -61,8 +62,12 @@ const { recordClientTrustCheckpoint } = require("../utils/clientIdentity");
 const { getClientContext } = require("../utils/clientIdentity");
 const {
   authSessionFingerprintFromRequest,
+  revokeVaultAccessGrants,
 } = require("../utils/authz/vaultAccessGrants");
-const { issueSensitiveSession } = require("../utils/authz/sensitiveSessions");
+const {
+  issueSensitiveSession,
+  revokeSensitiveSessions,
+} = require("../utils/authz/sensitiveSessions");
 const SystemSettings = DataAccessCenter.adminSystem;
 
 const DEFAULT_ADMIN_PAGE_LIMIT = 50;
@@ -402,6 +407,9 @@ function adminEndpoints(app) {
           );
           throw new Error(disableError || "封禁账号失败。");
         }
+        await AuthSession.revokeAllForUser(targetAuth.id, "account_disabled");
+        revokeVaultAccessGrants({ userId: target.id });
+        revokeSensitiveSessions({ userId: target.id });
         await EventLogs.logEvent(
           "account_banned",
           {

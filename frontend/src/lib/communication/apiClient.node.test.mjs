@@ -310,6 +310,55 @@ test("requestJson clears stale signing secret and retries recoverable signature 
   }
 });
 
+test("requestJson resets a mismatched device identity instead of retrying it", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "INVALID_SIGNATURE",
+        recovery: "CLIENT_IDENTITY_REAUTH_REQUIRED",
+      }),
+      { status: 401 }
+    );
+  };
+
+  try {
+    const { requestJson } = await loadApiClient({
+      signingOverrides: {
+        maybeSignedRequestHeaders: async () => ({
+          headers: { "X-Athena-Signature": "sig" },
+          signed: true,
+        }),
+      },
+    });
+    await assert.rejects(
+      requestJson("/workspace/new", {
+        method: "POST",
+        body: { name: "Operations" },
+      }),
+      (error) =>
+        error.code === apiError.API_ERROR_CODES.INVALID_SIGNATURE &&
+        error.status === 401
+    );
+    assert.equal(fetchCount, 1);
+    assert.equal(globalThis.__apiClientTestSigning.cleared, 1);
+    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, [
+      { rotateDeviceKey: true },
+    ]);
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, [
+      {
+        reason: "client_identity_mismatch",
+        includeDurableCaches: false,
+      },
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("requestJson can skip base headers for unauthenticated JSON requests", async () => {
   const originalFetch = globalThis.fetch;
   let receivedInit;

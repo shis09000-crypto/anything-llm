@@ -68,6 +68,11 @@ import {
   dispatchThreadDeleteVisual,
 } from "@/utils/workspaceEvents";
 import { COMPOSER_EDIT_EVENT } from "./ChatHistory/MessageActionsContext";
+import {
+  readMemoryCompactionStatus,
+  writeMemoryCompactionStatus,
+} from "@/utils/chat/memoryCompactionStatusCache";
+import { recordChatStreamObservation } from "@/lib/communication/chatStreamObservability";
 
 function lastAssistantTurn(items = []) {
   return [...items].reverse().find((item) => isAssistantTurn(item));
@@ -84,6 +89,7 @@ const DEFAULT_CHAT_HISTORY_BOTTOM_INSET = 104;
 const CHAT_HISTORY_INPUT_GAP = 8;
 const DUAL_THREAD_CONTENT_PADDING = "px-4 md:px-6";
 const MEMORY_COMPACTION_STATUS_REFRESH_MS = 900;
+const MEMORY_COMPACTION_STATUS_RETRY_MS = [1_000, 3_000, 10_000, 30_000];
 const MEMORY_COMPACTION_TIMEOUT_MS = 5 * 60_000;
 const MEMORY_COMPACTION_SUCCESS_MS = 2_800;
 const MEMORY_COMPACTION_ERROR_MS = 4_500;
@@ -218,8 +224,13 @@ export default function ChatContainer({
   const [memoryCompactionStatus, setMemoryCompactionStatus] = useState(null);
   const [memoryCompactionLoading, setMemoryCompactionLoading] = useState(false);
   const [memoryCompactionPending, setMemoryCompactionPending] = useState(false);
+  const [memoryCompactionConnection, setMemoryCompactionConnection] =
+    useState("loading");
   const [memoryCompactionDivider, setMemoryCompactionDivider] = useState(null);
   const memoryStatusRequestRef = useRef({ id: 0, controller: null });
+  const memoryStatusRefreshRef = useRef(null);
+  const memoryStatusConnectionRef = useRef("loading");
+  const memoryStatusRetryRef = useRef({ attempt: 0, timer: null });
   const memoryStreamRefreshTimerRef = useRef(null);
   const memoryDividerTimerRef = useRef(null);
   const memoryCompactRef = useRef({
@@ -246,6 +257,29 @@ export default function ChatContainer({
       ].join(":"),
     [workspace?.slug, threadSlug, compactionUserId, compactionApiSessionId]
   );
+
+  const setMemoryConnectionState = useCallback((state) => {
+    memoryStatusConnectionRef.current = state;
+    setMemoryCompactionConnection(state);
+  }, []);
+
+  const scheduleMemoryStatusRetry = useCallback(() => {
+    clearTimeout(memoryStatusRetryRef.current.timer);
+    const attempt = memoryStatusRetryRef.current.attempt;
+    const delay =
+      MEMORY_COMPACTION_STATUS_RETRY_MS[
+        Math.min(attempt, MEMORY_COMPACTION_STATUS_RETRY_MS.length - 1)
+      ];
+    memoryStatusRetryRef.current.attempt = attempt + 1;
+    memoryStatusRetryRef.current.timer = window.setTimeout(() => {
+      memoryStatusRetryRef.current.timer = null;
+      if (document.hidden || !navigator.onLine) {
+        scheduleMemoryStatusRetry();
+        return;
+      }
+      void memoryStatusRefreshRef.current?.({ preserveOnError: true });
+    }, delay);
+  }, []);
   const branchChatKey = getChatKey(
     workspace?.slug,
     dualThreadFork.branchThreadSlug
@@ -378,6 +412,7 @@ export default function ChatContainer({
       if (!workspace?.slug || !threadSlug) {
         setMemoryCompactionStatus(null);
         setMemoryCompactionLoading(false);
+        setMemoryConnectionState("idle");
         return;
       }
 
@@ -398,14 +433,46 @@ export default function ChatContainer({
           }
         );
         if (memoryStatusRequestRef.current.id !== requestId) return;
-        if (result?.success) {
-          setMemoryCompactionStatus(result.status || null);
-        } else if (!preserveOnError) {
-          setMemoryCompactionStatus(null);
+        if (result?.success && result.status) {
+          const wasRetrying = memoryStatusConnectionRef.current === "retrying";
+          writeMemoryCompactionStatus(memoryCompactionScopeKey, result.status);
+          setMemoryCompactionStatus(result.status);
+          clearTimeout(memoryStatusRetryRef.current.timer);
+          memoryStatusRetryRef.current = { attempt: 0, timer: null };
+          setMemoryConnectionState("connected");
+          if (wasRetrying) {
+            recordChatStreamObservation({
+              event: "memory_status_recovered",
+              clientTurnId: `memory:${memoryCompactionScopeKey}`,
+              outcome: "recovered",
+            });
+          }
+        } else {
+          if (!preserveOnError) {
+            const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
+            if (cached) setMemoryCompactionStatus(cached);
+          }
+          setMemoryConnectionState("retrying");
+          recordChatStreamObservation({
+            event: "memory_status_failed",
+            clientTurnId: `memory:${memoryCompactionScopeKey}`,
+            outcome: "failed",
+          });
+          scheduleMemoryStatusRetry();
         }
       } catch (error) {
-        if (error?.name !== "AbortError" && !preserveOnError) {
-          setMemoryCompactionStatus(null);
+        if (error?.name !== "AbortError") {
+          if (!preserveOnError) {
+            const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
+            if (cached) setMemoryCompactionStatus(cached);
+          }
+          setMemoryConnectionState("retrying");
+          recordChatStreamObservation({
+            event: "memory_status_failed",
+            clientTurnId: `memory:${memoryCompactionScopeKey}`,
+            outcome: "failed",
+          });
+          scheduleMemoryStatusRetry();
         }
       } finally {
         if (memoryStatusRequestRef.current.id === requestId) {
@@ -413,8 +480,20 @@ export default function ChatContainer({
         }
       }
     },
-    [workspace?.slug, threadSlug, compactionUserId, compactionApiSessionId]
+    [
+      workspace?.slug,
+      threadSlug,
+      compactionUserId,
+      compactionApiSessionId,
+      memoryCompactionScopeKey,
+      scheduleMemoryStatusRetry,
+      setMemoryConnectionState,
+    ]
   );
+
+  useEffect(() => {
+    memoryStatusRefreshRef.current = refreshMemoryCompactionStatus;
+  }, [refreshMemoryCompactionStatus]);
 
   const scheduleMemoryStatusRefresh = useCallback(() => {
     clearTimeout(memoryStreamRefreshTimerRef.current);
@@ -498,7 +577,11 @@ export default function ChatContainer({
   useEffect(() => {
     clearMemoryCompactionDivider();
     setMemoryCompactionPending(false);
-    setMemoryCompactionStatus(null);
+    const cached = readMemoryCompactionStatus(memoryCompactionScopeKey);
+    setMemoryCompactionStatus(cached);
+    setMemoryConnectionState(cached ? "stale" : "loading");
+    clearTimeout(memoryStatusRetryRef.current.timer);
+    memoryStatusRetryRef.current = { attempt: 0, timer: null };
     clearTimeout(memoryCompactRef.current.timeout);
     memoryCompactRef.current.controller?.abort();
     refreshMemoryCompactionStatus({ preserveOnError: false });
@@ -506,6 +589,7 @@ export default function ChatContainer({
     return () => {
       memoryStatusRequestRef.current.controller?.abort();
       clearTimeout(memoryStreamRefreshTimerRef.current);
+      clearTimeout(memoryStatusRetryRef.current.timer);
       clearTimeout(memoryCompactRef.current.timeout);
       memoryCompactRef.current.controller?.abort();
     };
@@ -513,7 +597,23 @@ export default function ChatContainer({
     memoryCompactionScopeKey,
     clearMemoryCompactionDivider,
     refreshMemoryCompactionStatus,
+    setMemoryConnectionState,
   ]);
+
+  useEffect(() => {
+    const refreshWhenAvailable = () => {
+      if (document.hidden || !navigator.onLine) return;
+      void refreshMemoryCompactionStatus({ preserveOnError: true });
+    };
+    window.addEventListener("online", refreshWhenAvailable);
+    window.addEventListener("focus", refreshWhenAvailable);
+    document.addEventListener("visibilitychange", refreshWhenAvailable);
+    return () => {
+      window.removeEventListener("online", refreshWhenAvailable);
+      window.removeEventListener("focus", refreshWhenAvailable);
+      document.removeEventListener("visibilitychange", refreshWhenAvailable);
+    };
+  }, [refreshMemoryCompactionStatus]);
 
   const wasLoadingResponseRef = useRef(false);
   useEffect(() => {
@@ -1862,6 +1962,7 @@ export default function ChatContainer({
       status: memoryCompactionStatus,
       loading: memoryCompactionLoading,
       pending: memoryCompactionPending,
+      connectionState: memoryCompactionConnection,
       onCompact: compactThreadMemory,
     }),
     [
@@ -1870,6 +1971,7 @@ export default function ChatContainer({
       memoryCompactionStatus,
       memoryCompactionLoading,
       memoryCompactionPending,
+      memoryCompactionConnection,
       compactThreadMemory,
     ]
   );

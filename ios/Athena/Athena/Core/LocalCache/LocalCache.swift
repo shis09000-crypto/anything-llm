@@ -13,6 +13,7 @@ final class LocalCache {
     private let rootURL: URL
     private let agentDescriptorRetention: TimeInterval = 14 * 24 * 60 * 60
     private let maximumAgentDescriptors = 24
+    private let maximumChatStreamDescriptors = 24
 
     var mode: Mode = .metadataOnly
     var cachedWorkspaceCount = 0
@@ -252,6 +253,56 @@ final class LocalCache {
         try? fileManager.removeItem(at: agentSessionsURL(ownerScope: ownerScope, apiBase: apiBase))
     }
 
+    func loadChatStreamDescriptors(
+        ownerScope: String,
+        apiBase: URL
+    ) -> [PersistedChatStreamDescriptor] {
+        let url = chatStreamsURL(ownerScope: ownerScope, apiBase: apiBase)
+        guard let data = try? Data(contentsOf: url),
+              let envelope = try? JSONDecoder().decode(
+                  PersistedChatStreamEnvelope.self,
+                  from: data
+              ),
+              envelope.schemaVersion == PersistedChatStreamEnvelope.currentSchemaVersion else {
+            return []
+        }
+        let cutoff = Date().addingTimeInterval(-agentDescriptorRetention)
+        return envelope.runs
+            .filter { $0.updatedAt >= cutoff }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(maximumChatStreamDescriptors)
+            .map { $0 }
+    }
+
+    func saveChatStreamDescriptors(
+        _ runs: [PersistedChatStreamDescriptor],
+        ownerScope: String,
+        apiBase: URL
+    ) throws {
+        try fileManager.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete]
+        )
+        let retained = runs
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(maximumChatStreamDescriptors)
+            .map { $0 }
+        let data = try JSONEncoder().encode(
+            PersistedChatStreamEnvelope(runs: retained)
+        )
+        try data.write(
+            to: chatStreamsURL(ownerScope: ownerScope, apiBase: apiBase),
+            options: [.atomic, .completeFileProtection]
+        )
+    }
+
+    func clearChatStreamDescriptors(ownerScope: String, apiBase: URL) {
+        try? fileManager.removeItem(
+            at: chatStreamsURL(ownerScope: ownerScope, apiBase: apiBase)
+        )
+    }
+
     private func snapshotURL(ownerScope: String, apiBase: URL) -> URL {
         let digest = ownerDigest(ownerScope: ownerScope, apiBase: apiBase)
         return rootURL.appendingPathComponent("workspace-\(digest).json")
@@ -260,6 +311,11 @@ final class LocalCache {
     private func agentSessionsURL(ownerScope: String, apiBase: URL) -> URL {
         let digest = ownerDigest(ownerScope: ownerScope, apiBase: apiBase)
         return rootURL.appendingPathComponent("agent-sessions-\(digest).json")
+    }
+
+    private func chatStreamsURL(ownerScope: String, apiBase: URL) -> URL {
+        let digest = ownerDigest(ownerScope: ownerScope, apiBase: apiBase)
+        return rootURL.appendingPathComponent("chat-streams-\(digest).json")
     }
 
     private func conversationViewportURL(ownerScope: String, apiBase: URL) -> URL {

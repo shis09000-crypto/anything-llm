@@ -50,10 +50,17 @@ final class NativeRecoveryCenter {
         }
         if let apiError = error as? APIClientError {
             switch apiError {
-            case .authenticationRequired, .clientIdentityRequired, .signingUnavailable:
+            case .authenticationRequired, .clientIdentityRequired, .signingUnavailable,
+                 .clientIdentityReauthenticationRequired:
                 return NativeRecoveryDirective(
                     disposition: .securityRecovery,
                     message: "登录或设备安全状态已失效，请重新验证。",
+                    mayRetryOnce: false
+                )
+            case .postQuantumSigningUnavailable:
+                return NativeRecoveryDirective(
+                    disposition: .securityRecovery,
+                    message: "后量子签名契约或硬件密钥不可用，Athena 已阻止协议降级。",
                     mayRetryOnce: false
                 )
             case .httpStatus(let status, _, let message):

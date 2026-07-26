@@ -1383,8 +1383,6 @@ export default forwardRef(function (
       scheduleStickToBottom("items-follow:send-follow", { persist: true });
     } else if (shouldFollowOutputRef.current) {
       scrollToBottom(false, { reason: "items-follow" });
-    } else {
-      preserveParkedAnchor("items");
     }
   }, [
     isStreaming,
@@ -2059,15 +2057,15 @@ export default forwardRef(function (
 
     previousFirstItemIdRef.current = firstId;
     const handleInputLayoutChange = (reason) => {
-      rowVirtualizer.measure();
       if (hasRecentUserScrollControl() && !sendFollowRef.current.active) {
         debugChatTurn("ChatHistory:layoutInputMeasureOnly", {
           chatKey,
           reason,
-          result: "user-scroll-control",
+          result: "stream-row-observer-only",
         });
         return;
       }
+      rowVirtualizer.measure();
       if (layoutTransitionRef.current.active) {
         scheduleLayoutTransitionRestore(`${reason}:layout-transition`);
       } else if (
@@ -2237,18 +2235,42 @@ export default forwardRef(function (
         ].includes(event.key)
       ) {
         markUserScrollIntentFor("keyboard");
+        const movingUp =
+          ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
+          (event.key === " " && event.shiftKey);
+        if (movingUp) {
+          deactivateSendFollow("keyboard-up");
+          shouldFollowOutputRef.current = false;
+        }
       }
     },
-    [markUserScrollIntentFor]
+    [deactivateSendFollow, markUserScrollIntentFor]
   );
   const markPointerScrollIntent = useCallback(
     (event) => {
       if (event.target === event.currentTarget) {
         markUserScrollIntentFor("pointer");
+        deactivateSendFollow("pointer");
+        shouldFollowOutputRef.current = false;
       }
     },
-    [markUserScrollIntentFor]
+    [deactivateSendFollow, markUserScrollIntentFor]
   );
+  const markWheelScrollIntent = useCallback(
+    (event) => {
+      markUserScrollIntentFor("wheel");
+      if (event.deltaY < 0) {
+        deactivateSendFollow("wheel-up");
+        shouldFollowOutputRef.current = false;
+      }
+    },
+    [deactivateSendFollow, markUserScrollIntentFor]
+  );
+  const markTouchScrollIntent = useCallback(() => {
+    markUserScrollIntentFor("touch");
+    deactivateSendFollow("touch-drag");
+    shouldFollowOutputRef.current = false;
+  }, [deactivateSendFollow, markUserScrollIntentFor]);
 
   return (
     <MessageActionsProvider>
@@ -2258,8 +2280,9 @@ export default forwardRef(function (
           id="chat-history"
           ref={chatHistoryRef}
           onScroll={handleScroll}
-          onWheel={() => markUserScrollIntentFor("wheel")}
+          onWheel={markWheelScrollIntent}
           onTouchStart={() => markUserScrollIntentFor("touch")}
+          onTouchMove={markTouchScrollIntent}
           onPointerDown={markPointerScrollIntent}
           onKeyDown={markKeyboardScrollIntent}
           style={{
@@ -2293,6 +2316,10 @@ export default forwardRef(function (
                       ].join(":")}
                       virtualRow={virtualRow}
                       virtualizer={rowVirtualizer}
+                      isStreamingRow={
+                        item.type === "assistant_turn" &&
+                        item.status === "running"
+                      }
                     >
                       {renderMessageRow(item)}
                     </VirtualMessageRow>
@@ -2481,6 +2508,7 @@ function VirtualMessageRow({
   layoutSignature,
   virtualRow,
   virtualizer,
+  isStreamingRow = false,
   children,
 }) {
   const elementRef = useRef(null);
@@ -2511,12 +2539,14 @@ function VirtualMessageRow({
     measureFrameRef.current = requestAnimationFrame(() => {
       measureFrameRef.current = null;
       measure();
-      settleFrameRef.current = requestAnimationFrame(() => {
-        settleFrameRef.current = null;
-        measure();
-      });
+      if (!isStreamingRow) {
+        settleFrameRef.current = requestAnimationFrame(() => {
+          settleFrameRef.current = null;
+          measure();
+        });
+      }
     });
-  }, [clearMeasureFrames, measure]);
+  }, [clearMeasureFrames, isStreamingRow, measure]);
 
   const disconnectObservers = useCallback(() => {
     resizeObserverRef.current?.disconnect();
@@ -2538,7 +2568,7 @@ function VirtualMessageRow({
         resizeObserverRef.current = new ResizeObserver(scheduleMeasure);
         resizeObserverRef.current.observe(element);
       }
-      if (typeof MutationObserver !== "undefined") {
+      if (!isStreamingRow && typeof MutationObserver !== "undefined") {
         mutationObserverRef.current = new MutationObserver(scheduleMeasure);
         mutationObserverRef.current.observe(element, {
           childList: true,
@@ -2547,7 +2577,7 @@ function VirtualMessageRow({
         });
       }
     },
-    [disconnectObservers, scheduleMeasure, virtualizer]
+    [disconnectObservers, isStreamingRow, scheduleMeasure, virtualizer]
   );
 
   useLayoutEffect(() => {

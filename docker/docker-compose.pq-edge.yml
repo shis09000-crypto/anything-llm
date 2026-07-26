@@ -1,0 +1,43 @@
+services:
+  # Compatibility endpoint. The CDN/LB sends clients outside the PQ cohort
+  # here. Keeping it separate from the strict listener makes downgrade
+  # measurable instead of silently negotiating inside one TLS policy.
+  athena-pq-edge:
+    image: envoyproxy/envoy:v1.35.7
+    profiles: ["pq-edge"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    ports:
+      - "${ATHENA_EDGE_HTTPS_PORT:-443}:8443"
+    volumes:
+      - ./edge/envoy-pq.yaml:/etc/envoy/envoy.yaml:ro
+      - ${ATHENA_EDGE_TLS_CERT_HOST_FILE:?ATHENA_EDGE_TLS_CERT_HOST_FILE is required}:/run/secrets/athena_edge_tls_cert.pem:ro
+      - ${ATHENA_EDGE_TLS_KEY_HOST_FILE:?ATHENA_EDGE_TLS_KEY_HOST_FILE is required}:/run/secrets/athena_edge_tls_key.pem:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--mode", "serve"]
+    networks: [athena_internal]
+
+  athena-pq-edge-strict:
+    image: envoyproxy/envoy:v1.35.7
+    profiles: ["pq-edge"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:size=32m,noexec,nosuid,nodev
+    ports:
+      - "${ATHENA_EDGE_PQ_STRICT_HTTPS_PORT:-4443}:8443"
+    volumes:
+      - ./edge/envoy-pq-strict.yaml:/etc/envoy/envoy.yaml:ro
+      - ${ATHENA_EDGE_TLS_CERT_HOST_FILE:?ATHENA_EDGE_TLS_CERT_HOST_FILE is required}:/run/secrets/athena_edge_tls_cert.pem:ro
+      - ${ATHENA_EDGE_TLS_KEY_HOST_FILE:?ATHENA_EDGE_TLS_KEY_HOST_FILE is required}:/run/secrets/athena_edge_tls_key.pem:ro
+    command: ["envoy", "-c", "/etc/envoy/envoy.yaml", "--mode", "serve"]
+    networks: [athena_internal]
+
+networks:
+  athena_internal:
+    external: true

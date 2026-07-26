@@ -9,8 +9,19 @@ const {
   codexDevAuthUser,
   isCodexDevAuthBypassEnabled,
 } = require("../codexDevAuthBypass");
+const {
+  PURPOSES,
+  joseAlgorithmsForPurpose,
+  preferredCryptoSuite,
+} = require("../security/cryptoSuiteRegistry");
 
 const User = lazyDataAccessFacade("user");
+const SESSION_JWT_SUITE = preferredCryptoSuite(PURPOSES.SESSION_JWT);
+const SESSION_JWT_ALGORITHMS = Object.freeze(
+  joseAlgorithmsForPurpose(PURPOSES.SESSION_JWT)
+);
+if (!SESSION_JWT_SUITE || SESSION_JWT_ALGORITHMS.length === 0)
+  throw new Error("session_jwt_crypto_suite_unavailable");
 
 function reqBody(request) {
   return typeof request.body === "string"
@@ -31,7 +42,10 @@ function queryParams(request) {
 function makeJWT(info = {}, expiry = "30d") {
   if (!process.env.JWT_SECRET)
     throw new Error("Cannot create JWT as JWT_SECRET is unset.");
-  return JWT.sign(info, process.env.JWT_SECRET, { expiresIn: expiry });
+  return JWT.sign(info, process.env.JWT_SECRET, {
+    algorithm: SESSION_JWT_SUITE.joseAlgorithm,
+    expiresIn: expiry,
+  });
 }
 
 function jwtVerificationSecrets() {
@@ -81,7 +95,9 @@ async function userFromSession(request, response = null) {
 function decodeJWT(jwtToken) {
   for (const secret of jwtVerificationSecrets()) {
     try {
-      return JWT.verify(jwtToken, secret);
+      return JWT.verify(jwtToken, secret, {
+        algorithms: SESSION_JWT_ALGORITHMS,
+      });
     } catch {}
   }
   return { p: null, id: null, username: null };
@@ -156,6 +172,7 @@ module.exports = {
   makeJWT,
   decodeJWT,
   jwtVerificationSecrets,
+  SESSION_JWT_ALGORITHMS,
   userFromSession,
   parseAuthHeader,
   safeJsonParse,

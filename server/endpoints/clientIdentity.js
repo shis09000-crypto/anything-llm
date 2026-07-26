@@ -17,8 +17,23 @@ const {
   rotateSigningSecret,
   canonicalPublicKey,
   normalizeDeviceKeyAlgorithm,
+  registerClientHybridKEMKey,
 } = require("../utils/requestSigning");
 const { publishBroadcastEvent } = require("../utils/broadcast");
+const {
+  completeDeviceAttestation,
+  issueDeviceAttestationChallenge,
+} = require("../utils/security/deviceAttestation");
+const { metrics } = require("../utils/observability/metrics");
+const { observeVaultKem } = require("../utils/security/cryptoObservability");
+
+const VAULT_KEM_OBSERVATION_OUTCOMES = new Set([
+  "success",
+  "invalid_envelope",
+  "decapsulation_failed",
+  "aead_failed",
+  "epoch_mismatch",
+]);
 
 function clientIdentityEndpoints(app) {
   if (!app) return;
@@ -73,6 +88,256 @@ function clientIdentityEndpoints(app) {
         issuedAt: secret.issuedAt || null,
         rotatedAt: secret.rotatedAt || null,
       });
+    }
+  );
+
+  app.post(
+    "/client-identity/vault-kem-key",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (
+        !context?.userId ||
+        context.legacy ||
+        !request.signedRequest?.ok ||
+        !request.signedRequest?.postQuantumVerified
+      ) {
+        return response.status(401).json({
+          success: false,
+          error: "hybrid_signed_client_identity_required",
+        });
+      }
+      const body = reqBody(request);
+      const result = await registerClientHybridKEMKey({
+        userId: context.userId,
+        clientId: context.clientId,
+        kemPublicKey: body.kemPublicKey || body.publicKey,
+        p256PublicKey: body.p256PublicKey,
+        mlDSA65PublicKey: body.mlDSA65PublicKey,
+        suiteId: body.suiteId,
+        keyGeneration: body.keyGeneration || 1,
+      });
+      if (!result.ok) {
+        observeVaultKem("register", "rejected");
+        return response
+          .status(409)
+          .json({ success: false, error: result.reasonCode });
+      }
+      observeVaultKem("register", "success");
+      await recordClientTrustCheckpoint(request, {
+        action: "client_vault_hybrid_kem_registered",
+        resourceType: "athena_client",
+        resourceId: context.clientId,
+        outcome: "registered",
+        metadata: { suiteId: result.suiteId },
+      });
+      return response.status(200).json({
+        success: true,
+        suiteId: result.suiteId,
+        keyGeneration: result.keyGeneration,
+      });
+    }
+  );
+
+  app.post(
+    "/client-identity/vault-kem-key/rotate",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (
+        !context?.userId ||
+        context.legacy ||
+        !request.signedRequest?.ok ||
+        !request.signedRequest?.postQuantumVerified
+      ) {
+        return response.status(401).json({
+          success: false,
+          error: "hybrid_signed_client_identity_required",
+        });
+      }
+      const body = reqBody(request);
+      const result = await registerClientHybridKEMKey({
+        userId: context.userId,
+        clientId: context.clientId,
+        kemPublicKey: body.kemPublicKey || body.publicKey,
+        p256PublicKey: body.p256PublicKey,
+        mlDSA65PublicKey: body.mlDSA65PublicKey,
+        suiteId: body.suiteId,
+        keyGeneration: body.keyGeneration,
+        allowRotation: true,
+      });
+      if (!result.ok) {
+        observeVaultKem("register", "rejected");
+        return response
+          .status(409)
+          .json({ success: false, error: result.reasonCode });
+      }
+      observeVaultKem("register", "success");
+      await recordClientTrustCheckpoint(request, {
+        action: "client_vault_hybrid_kem_rotated",
+        resourceType: "athena_client",
+        resourceId: context.clientId,
+        outcome: "rotated",
+        metadata: {
+          suiteId: result.suiteId,
+          keyGeneration: result.keyGeneration,
+        },
+      });
+      return response.status(200).json({
+        success: true,
+        suiteId: result.suiteId,
+        keyGeneration: result.keyGeneration,
+        rotated: true,
+      });
+    }
+  );
+
+  app.post(
+    "/client-identity/crypto-observations",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (
+        !context?.userId ||
+        context.legacy ||
+        !request.signedRequest?.ok ||
+        !request.signedRequest?.postQuantumVerified
+      ) {
+        return response.status(401).json({
+          success: false,
+          error: "hybrid_signed_client_identity_required",
+        });
+      }
+      const body = reqBody(request) || {};
+      if (
+        body.category !== "vault_kem" ||
+        body.operation !== "unseal" ||
+        body.suiteId !== "vault-xwing-mldsa65-v1" ||
+        !VAULT_KEM_OBSERVATION_OUTCOMES.has(body.outcome)
+      ) {
+        return response.status(400).json({
+          success: false,
+          error: "crypto_observation_invalid",
+        });
+      }
+      observeVaultKem("unseal", body.outcome);
+      return response.status(200).json({ success: true });
+    }
+  );
+
+  app.post(
+    "/client-identity/attestation/challenge",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (
+        !context?.userId ||
+        context.legacy ||
+        !["ios", "ipad"].includes(String(context.platform).toLowerCase()) ||
+        !request.signedRequest?.postQuantumVerified
+      )
+        return response.status(401).json({
+          success: false,
+          error: "hybrid_signed_ios_client_required",
+        });
+      try {
+        const challenge = await issueDeviceAttestationChallenge({
+          userId: context.userId,
+          clientId: context.clientId,
+        });
+        metrics.deviceAttestationOperations.inc({
+          operation: "challenge",
+          outcome: "issued",
+          provider: challenge.provider,
+        });
+        await recordClientTrustCheckpoint(request, {
+          action: "device_attestation_challenge_issued",
+          resourceType: "athena_client",
+          resourceId: context.clientId,
+          outcome: "issued",
+          metadata: { provider: challenge.provider },
+        });
+        return response.status(201).json({ success: true, ...challenge });
+      } catch (error) {
+        metrics.deviceAttestationOperations.inc({
+          operation: "challenge",
+          outcome: "rejected",
+          provider: "apple-app-attest",
+        });
+        return response.status(409).json({
+          success: false,
+          error: error?.message || "device_attestation_challenge_failed",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/client-identity/attestation/verify",
+    [validatedRequest],
+    async (request, response) => {
+      const context = getClientContext(request);
+      if (
+        !context?.userId ||
+        context.legacy ||
+        !["ios", "ipad"].includes(String(context.platform).toLowerCase()) ||
+        !request.signedRequest?.postQuantumVerified
+      )
+        return response.status(401).json({
+          success: false,
+          error: "hybrid_signed_ios_client_required",
+        });
+      try {
+        const body = reqBody(request) || {};
+        const result = await completeDeviceAttestation({
+          userId: context.userId,
+          clientId: context.clientId,
+          challengeId: body.challengeId,
+          keyId: body.keyId,
+          attestationObject: body.attestationObject,
+          assertionObject: body.assertionObject,
+          appId: body.appId,
+        });
+        metrics.deviceAttestationOperations.inc({
+          operation: "verify",
+          outcome: "verified",
+          provider: result.provider,
+        });
+        await recordClientTrustCheckpoint(request, {
+          action: "device_attestation_verified",
+          resourceType: "athena_client",
+          resourceId: context.clientId,
+          outcome: "verified",
+          metadata: { provider: result.provider },
+        });
+        publishBroadcastEvent({
+          namespace: "client",
+          type: "deviceAttestationVerified",
+          eventPriority: "critical",
+          visibility: "client",
+          scope: { userId: context.userId, clientId: context.clientId },
+          sourceClientId: context.clientId,
+          payload: { clientId: context.clientId },
+        });
+        return response.status(200).json({ success: true, ...result });
+      } catch (error) {
+        metrics.deviceAttestationOperations.inc({
+          operation: "verify",
+          outcome: "rejected",
+          provider: "apple-app-attest",
+        });
+        await recordClientTrustCheckpoint(request, {
+          action: "device_attestation_failed",
+          resourceType: "athena_client",
+          resourceId: context.clientId,
+          outcome: "rejected",
+          metadata: { reason: error?.message || "unknown" },
+        });
+        return response.status(409).json({
+          success: false,
+          error: error?.message || "device_attestation_verification_failed",
+        });
+      }
     }
   );
 

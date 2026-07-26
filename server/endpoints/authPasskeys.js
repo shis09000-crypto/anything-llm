@@ -5,6 +5,7 @@ const {
   verifyAuthenticationResponse,
   verifyRegistrationResponse,
 } = require("@simplewebauthn/server");
+const { decodeCredentialPublicKey } = require("@simplewebauthn/server/helpers");
 const authPrisma = require("../utils/authPrisma");
 const {
   EventLogRepository: EventLogs,
@@ -45,6 +46,26 @@ const APPLE_PASSKEY_AAGUIDS = new Map([
 const GOOGLE_PASSKEY_AAGUIDS = new Map([
   ["ea9b8d66-4d01-1d21-3ce4-b6b48cb575d4", "Google Password Manager"],
   ["adce0002-35bc-c60a-648b-0b25f1f05503", "Chrome Profile Passkey"],
+]);
+const COSE_ALGORITHMS = new Map([
+  [-7, "ES256"],
+  [-8, "EdDSA"],
+  [-35, "ES384"],
+  [-36, "ES512"],
+  [-37, "PS256"],
+  [-38, "PS384"],
+  [-39, "PS512"],
+  [-47, "ES256K"],
+  [-257, "RS256"],
+  [-258, "RS384"],
+  [-259, "RS512"],
+]);
+const COSE_PARAMETER_SETS = new Map([
+  [1, "P-256"],
+  [2, "P-384"],
+  [3, "P-521"],
+  [6, "Ed25519"],
+  [8, "secp256k1"],
 ]);
 
 function authPasskeyEndpoints(app) {
@@ -1034,10 +1055,51 @@ function sanitizePasskey(passkey) {
     provider: provider.provider,
     providerName: provider.providerName,
     backedUp: passkey.backedUp,
+    algorithm: passkey.algorithm || "unknown",
+    parameterSet: passkey.parameterSet || "unknown",
+    keyOrigin: passkey.keyOrigin || "unknown",
+    hardwareProtection: passkey.hardwareProtection || "unknown",
     transports: parseTransports(passkey.transports),
     createdAt: passkey.createdAt,
     lastUsedAt: passkey.lastUsedAt,
   };
+}
+
+function passkeyCryptoMetadata(
+  publicKey,
+  { credentialBackedUp = false, deviceType = "platform" } = {}
+) {
+  try {
+    const decoded = decodeCredentialPublicKey(publicKey);
+    const algorithmId = Number(decoded.get(3));
+    const curveId = Number(decoded.get(-1));
+    const keyType = Number(decoded.get(1));
+    const algorithm = COSE_ALGORITHMS.get(algorithmId) || `COSE:${algorithmId}`;
+    const parameterSet =
+      COSE_PARAMETER_SETS.get(curveId) ||
+      (keyType === 3 ? `RSA/${algorithm}` : `COSE-kty-${keyType}`);
+    return {
+      algorithm,
+      parameterSet,
+      keyOrigin: credentialBackedUp
+        ? "synced-passkey-provider"
+        : deviceType === "platform"
+          ? "platform-authenticator"
+          : "roaming-authenticator",
+      // Registration currently requests attestationType=none. Never infer a
+      // hardware guarantee merely from platform labels or AAGUID heuristics.
+      hardwareProtection: "not-attested",
+    };
+  } catch {
+    return {
+      algorithm: "unknown",
+      parameterSet: "unknown",
+      keyOrigin: credentialBackedUp
+        ? "synced-passkey-provider"
+        : "unknown-authenticator",
+      hardwareProtection: "not-attested",
+    };
+  }
 }
 
 function passkeyDisplayProvider(passkey) {
@@ -1304,11 +1366,16 @@ async function verifyAndStoreRegistration({ user, authUserId, body, request }) {
     platformName,
     providerName: provider.providerName,
   });
+  const cryptoMetadata = passkeyCryptoMetadata(credential.publicKey, {
+    credentialBackedUp: Boolean(credentialBackedUp),
+    deviceType,
+  });
   const passkey = await authPrisma.passkeyCredential.create({
     data: {
       userId: authUserId,
       credentialId,
       publicKey: bytesToBase64Url(credential.publicKey),
+      ...cryptoMetadata,
       counter: Number(credential.counter || 0),
       transports: JSON.stringify(credential.transports || []),
       deviceType,
@@ -1318,6 +1385,10 @@ async function verifyAndStoreRegistration({ user, authUserId, body, request }) {
       aaguid: normalizeAaguid(aaguid),
       provider: provider.provider,
       providerName: provider.providerName,
+      algorithm: cryptoMetadata.algorithm,
+      parameterSet: cryptoMetadata.parameterSet,
+      keyOrigin: cryptoMetadata.keyOrigin,
+      hardwareProtection: cryptoMetadata.hardwareProtection,
       backedUp: Boolean(credentialBackedUp),
     },
   });
@@ -1408,6 +1479,7 @@ module.exports = {
     nativeRegistrationRecord,
     normalizeNativeHandoffPurpose,
     normalizeBase64Url,
+    passkeyCryptoMetadata,
     providerMetadata,
     sanitizePasskey,
     safeOpaqueEqual,

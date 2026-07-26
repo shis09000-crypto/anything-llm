@@ -1,0 +1,6 @@
+ARG ATHENA_PQ_BASE_IMAGE=anythingllm-v2-anythingllm:pq-20260726
+FROM ${ATHENA_PQ_BASE_IMAGE}
+
+COPY --chown=anythingllm:anythingllm \
+  server/scripts/verify-crypto-runtime-capabilities.js \
+  /app/server/scripts/verify-crypto-runtime-capabilities.js

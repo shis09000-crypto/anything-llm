@@ -64,9 +64,12 @@ final class WorkspaceCenter {
     private var selectedWorkspaceID: String?
     private var navigationGeneration: UInt64 = 0
     private var chatStreamHandles: [String: ScheduledTaskHandle<Void>] = [:]
+    @ObservationIgnored private var chatReconnectTasks: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var chatStreamDisplayBuffers: [String: ChatStreamDisplayBuffer] = [:]
     @ObservationIgnored private var conversationInteractionActive = false
     private var activeClientTurnIDByThreadID: [String: String] = [:]
+    private var activeChatRunByThreadID: [String: PersistedChatStreamDescriptor] = [:]
+    private var applicationBackgrounded = false
     private var abortedStreamClientTurnIDs: Set<String> = []
     private var agentHandoffClientTurnIDs: Set<String> = []
     private var regenerateCommittedClientTurnIDs: Set<String> = []
@@ -176,6 +179,75 @@ final class WorkspaceCenter {
         conversationInteractionActive = active
         for buffer in chatStreamDisplayBuffers.values {
             buffer.setInteractionActive(active)
+        }
+    }
+
+    func hasRecoverableChatRun(in threadID: String) -> Bool {
+        activeChatRunByThreadID[threadID] != nil
+    }
+
+    func reconnectChatRun(in threadID: String) {
+        guard activeChatRunByThreadID[threadID] != nil else { return }
+        sendErrorByThreadID[threadID] = nil
+        beginChatReconnect(threadID: threadID, attempt: 0)
+    }
+
+    func setApplicationBackgrounded(_ backgrounded: Bool) async {
+        applicationBackgrounded = backgrounded
+        for descriptor in activeChatRunByThreadID.values {
+            await recordChatObservation(
+                event: "visibility_changed",
+                outcome: "observed",
+                descriptor: descriptor,
+                visibility: backgrounded ? "hidden" : "visible"
+            )
+        }
+        if backgrounded {
+            persistChatRuns()
+            for task in chatReconnectTasks.values {
+                task.cancel()
+            }
+            chatReconnectTasks.removeAll()
+            for handle in chatStreamHandles.values {
+                handle.cancel()
+            }
+            chatStreamHandles.removeAll()
+            for buffer in chatStreamDisplayBuffers.values {
+                buffer.finish()
+            }
+            chatStreamDisplayBuffers.removeAll()
+            return
+        }
+
+        for threadID in activeChatRunByThreadID.keys {
+            beginChatReconnect(threadID: threadID, attempt: 0)
+        }
+    }
+
+    func restorePersistedChatStreams() async {
+        guard source == .live,
+              let ownerScope,
+              let apiClient else {
+            return
+        }
+        let descriptors = localCache.loadChatStreamDescriptors(
+            ownerScope: ownerScope,
+            apiBase: apiClient.configuration.normalizedBaseURL
+        )
+        for descriptor in descriptors where workspaceID(containing: descriptor.threadID) != nil {
+            activeChatRunByThreadID[descriptor.threadID] = descriptor
+            activeClientTurnIDByThreadID[descriptor.threadID] = descriptor.clientTurnID
+            sendingThreadIDs.insert(descriptor.threadID)
+            markClientTurn(
+                descriptor.clientTurnID,
+                in: descriptor.threadID,
+                deliveryState: .reconciling
+            )
+        }
+        persistChatRuns()
+        for descriptor in descriptors {
+            guard activeChatRunByThreadID[descriptor.threadID] != nil else { continue }
+            beginChatReconnect(threadID: descriptor.threadID, attempt: 0)
         }
     }
 
@@ -1894,6 +1966,12 @@ final class WorkspaceCenter {
                 self?.agentHandoffClientTurnIDs.remove(clientTurnID ?? "")
             }
         }
+        let stoppedDescriptor = activeChatRunByThreadID[threadID]
+        chatReconnectTasks[threadID]?.cancel()
+        chatReconnectTasks[threadID] = nil
+        if stoppedDescriptor != nil {
+            removeActiveChatRun(threadID: threadID)
+        }
         chatStreamHandles[threadID]?.cancel()
         chatStreamHandles[threadID] = nil
         sendingThreadIDs.remove(threadID)
@@ -1903,6 +1981,47 @@ final class WorkspaceCenter {
             optimisticActionCenter.update(clientTurnID, status: .reconciling)
         }
         sendErrorByThreadID[threadID] = nil
+
+        guard agentSession?.phase.isTerminal != false,
+              let stoppedDescriptor,
+              let chatStreamClient else {
+            return
+        }
+        Task { @MainActor [weak self] in
+            do {
+                if stoppedDescriptor.sendsToWorkspace {
+                    try await chatStreamClient.cancelWorkspaceRun(
+                        workspaceID: stoppedDescriptor.workspaceID,
+                        clientTurnID: stoppedDescriptor.clientTurnID
+                    )
+                } else {
+                    try await chatStreamClient.cancelThreadRun(
+                        workspaceID: stoppedDescriptor.workspaceID,
+                        threadID: stoppedDescriptor.threadID,
+                        clientTurnID: stoppedDescriptor.clientTurnID
+                    )
+                }
+            } catch {
+                guard let self else { return }
+                self.activeChatRunByThreadID[threadID] = stoppedDescriptor
+                self.activeClientTurnIDByThreadID[threadID] =
+                    stoppedDescriptor.clientTurnID
+                self.sendingThreadIDs.insert(threadID)
+                self.sendErrorByThreadID[threadID] =
+                    "无法确认停止，正在重新连接同一任务。"
+                self.markClientTurn(
+                    stoppedDescriptor.clientTurnID,
+                    in: threadID,
+                    deliveryState: .reconciling
+                )
+                self.optimisticActionCenter.update(
+                    stoppedDescriptor.clientTurnID,
+                    status: .reconciling
+                )
+                self.persistChatRuns()
+                self.beginChatReconnect(threadID: threadID, attempt: 0)
+            }
+        }
     }
 
     func deleteAssistantMessage(messageID: String, in threadID: String) async throws {
@@ -1998,6 +2117,16 @@ final class WorkspaceCenter {
             }
         }
 
+        activeChatRunByThreadID[threadID] = PersistedChatStreamDescriptor(
+            workspaceID: workspaceID,
+            threadID: threadID,
+            clientTurnID: clientTurnID,
+            sendsToWorkspace: sendsToWorkspace,
+            lastRevision: activeChatRunByThreadID[threadID]?.lastRevision ?? 0,
+            updatedAt: Date()
+        )
+        persistChatRuns()
+
         do {
             let handle = try await taskScheduler.schedule(
                 AthenaTaskDescriptor(
@@ -2085,6 +2214,7 @@ final class WorkspaceCenter {
             chatStreamHandles[threadID] = handle
             optimisticActionCenter.update(actionID, status: .confirming, taskID: handle.id)
             Task { @MainActor [weak self] in
+                var reconnectAttempt: Int?
                 do {
                     try await handle.value
                     let handedOffToAgent = self?.agentHandoffClientTurnIDs.contains(clientTurnID) == true
@@ -2100,10 +2230,27 @@ final class WorkspaceCenter {
                         }
                     }
                 } catch is CancellationError {
-                    // Scope cancellation is expected during sign-out.
+                    if self?.applicationBackgrounded == false,
+                       self?.activeChatRunByThreadID[threadID] != nil {
+                        reconnectAttempt = 0
+                    }
                 } catch {
-                    let failureHandledByStream = self?.abortedStreamClientTurnIDs.remove(clientTurnID) != nil
-                    if !failureHandledByStream {
+                    let failureHandledByStream =
+                        self?.abortedStreamClientTurnIDs.remove(clientTurnID) != nil
+                    if !failureHandledByStream,
+                       self?.activeChatRunByThreadID[threadID] != nil,
+                       self?.isRecoverableChatTransportError(error) == true {
+                        self?.markClientTurn(
+                            clientTurnID,
+                            in: threadID,
+                            deliveryState: .reconciling
+                        )
+                        self?.optimisticActionCenter.update(
+                            actionID,
+                            status: .reconciling
+                        )
+                        reconnectAttempt = 0
+                    } else if !failureHandledByStream {
                         self?.sendErrorByThreadID[threadID] = error.localizedDescription
                         self?.markClientTurn(clientTurnID, in: threadID, deliveryState: .reconciling)
                         self?.optimisticActionCenter.update(actionID, status: .reconciling)
@@ -2116,17 +2263,367 @@ final class WorkspaceCenter {
                     return
                 }
                 self?.chatStreamHandles[threadID] = nil
+                if let reconnectAttempt {
+                    self?.beginChatReconnect(
+                        threadID: threadID,
+                        attempt: reconnectAttempt
+                    )
+                }
+                if self?.activeChatRunByThreadID[threadID] == nil,
+                   self?.agentControlKit?.session(for: threadID)?.phase.isTerminal != false {
+                    self?.sendingThreadIDs.remove(threadID)
+                    self?.activeClientTurnIDByThreadID[threadID] = nil
+                }
+            }
+        } catch {
+            if activeChatRunByThreadID[threadID] != nil,
+               isRecoverableChatTransportError(error) {
+                markClientTurn(clientTurnID, in: threadID, deliveryState: .reconciling)
+                optimisticActionCenter.update(actionID, status: .reconciling)
+                beginChatReconnect(threadID: threadID, attempt: 0)
+            } else {
+                removeActiveChatRun(threadID: threadID)
+                sendingThreadIDs.remove(threadID)
+                activeClientTurnIDByThreadID[threadID] = nil
+                sendErrorByThreadID[threadID] = error.localizedDescription
+                markClientTurn(clientTurnID, in: threadID, deliveryState: .reconciling)
+                optimisticActionCenter.update(actionID, status: .reconciling)
+                recoveryCenter.present(recoveryCenter.classify(error))
+            }
+        }
+    }
+
+    private func beginChatReconnect(threadID: String, attempt: Int) {
+        guard !applicationBackgrounded,
+              activeChatRunByThreadID[threadID] != nil else {
+            return
+        }
+        chatReconnectTasks[threadID]?.cancel()
+        chatReconnectTasks[threadID] = Task { @MainActor [weak self] in
+            guard let self else { return }
+            if attempt == 0,
+               let descriptor = self.activeChatRunByThreadID[threadID] {
+                await self.recordChatObservation(
+                    event: "reconnect_started",
+                    outcome: "observed",
+                    descriptor: descriptor
+                )
+            }
+            await Task.yield()
+            if attempt > 0 {
+                let delays: [Double] = [1, 2, 4, 8, 12]
+                let delay = delays[min(attempt - 1, delays.count - 1)]
+                try? await Task.sleep(for: .seconds(delay))
+            }
+            guard !Task.isCancelled,
+                  !self.applicationBackgrounded,
+                  self.activeChatRunByThreadID[threadID] != nil else {
+                return
+            }
+            await self.resumeChatRun(threadID: threadID, attempt: attempt)
+        }
+    }
+
+    private func resumeChatRun(threadID: String, attempt: Int) async {
+        guard !applicationBackgrounded,
+              chatStreamHandles[threadID] == nil,
+              let descriptor = activeChatRunByThreadID[threadID],
+              let chatStreamClient,
+              let agentControlKit else {
+            return
+        }
+        do {
+            let state: ChatStreamRunState
+            if descriptor.sendsToWorkspace {
+                state = try await chatStreamClient.workspaceRunState(
+                    workspaceID: descriptor.workspaceID,
+                    clientTurnID: descriptor.clientTurnID
+                )
+            } else {
+                state = try await chatStreamClient.threadRunState(
+                    workspaceID: descriptor.workspaceID,
+                    threadID: descriptor.threadID,
+                    clientTurnID: descriptor.clientTurnID
+                )
+            }
+
+            if state.terminal {
+                await recordChatObservation(
+                    event: "reconnect_recovered",
+                    outcome: "recovered",
+                    descriptor: descriptor
+                )
+                await reconcileTerminalChatRun(
+                    state,
+                    descriptor: descriptor
+                )
+                return
+            }
+            guard state.retryable else {
+                throw APIClientError.invalidResponse
+            }
+
+            // The state endpoint reports the server's newest revision. Keep the
+            // device cursor instead: advancing to the server revision here would
+            // skip snapshots produced while iOS was suspended or terminated.
+            var updated = descriptor
+            updated.updatedAt = Date()
+            activeChatRunByThreadID[threadID] = updated
+            await recordChatObservation(
+                event: "reconnect_recovered",
+                outcome: "recovered",
+                descriptor: updated
+            )
+            try await startResumedChatStream(
+                descriptor: updated,
+                chatStreamClient: chatStreamClient,
+                agentControlKit: agentControlKit
+            )
+        } catch {
+            guard activeChatRunByThreadID[threadID] != nil else { return }
+            if isRecoverableChatTransportError(error), attempt < 5 {
+                beginChatReconnect(threadID: threadID, attempt: attempt + 1)
+                return
+            }
+            sendErrorByThreadID[threadID] = "连接暂时中断，可重新连接同一任务。"
+            await recordChatObservation(
+                event: "reconnect_failed",
+                outcome: "failed",
+                descriptor: descriptor
+            )
+            markClientTurn(
+                descriptor.clientTurnID,
+                in: descriptor.threadID,
+                deliveryState: .reconciling
+            )
+            sendingThreadIDs.remove(threadID)
+        }
+    }
+
+    private func startResumedChatStream(
+        descriptor: PersistedChatStreamDescriptor,
+        chatStreamClient: ChatStreamClient,
+        agentControlKit: AgentControlKit
+    ) async throws {
+        let threadID = descriptor.threadID
+        let clientTurnID = descriptor.clientTurnID
+        guard let ownerScope else {
+            throw APIClientError.invalidResponse
+        }
+        let handle = try await taskScheduler.schedule(
+            AthenaTaskDescriptor(
+                label: "chat:stream:resume",
+                kind: "chat-stream",
+                priority: .p0,
+                intentRank: 0,
+                executionClass: .currentContent,
+                policy: .realtime,
+                resource: .realtime,
+                scope: workspaceScope(
+                    owner: ownerScope,
+                    surface: "chat-stream-resume",
+                    workspaceID: descriptor.workspaceID,
+                    threadID: threadID,
+                    transport: "sse"
+                ),
+                dedupeKey: "chat:stream:\(ownerScope):\(descriptor.workspaceID):\(threadID)",
+                isProtected: true,
+                isAbortable: false
+            )
+        ) { [weak self] context in
+            try context.checkCancellation()
+            guard let self else { throw CancellationError() }
+            let displayBuffer = await MainActor.run {
+                let buffer = ChatStreamDisplayBuffer { event in
+                    self.applyChatStreamEvent(
+                        event,
+                        workspaceID: descriptor.workspaceID,
+                        threadID: threadID,
+                        clientTurnID: clientTurnID,
+                        editContext: nil,
+                        regenerateContext: nil,
+                        agentControlKit: agentControlKit
+                    )
+                }
+                buffer.setInteractionActive(self.conversationInteractionActive)
+                self.chatStreamDisplayBuffers[threadID] = buffer
+                return buffer
+            }
+            do {
+                if descriptor.sendsToWorkspace {
+                    try await chatStreamClient.resumeWorkspaceStream(
+                        workspaceID: descriptor.workspaceID,
+                        clientTurnID: clientTurnID,
+                        afterRevision: descriptor.lastRevision
+                    ) { event in
+                        displayBuffer.submit(event)
+                    }
+                } else {
+                    try await chatStreamClient.resumeThreadStream(
+                        workspaceID: descriptor.workspaceID,
+                        threadID: threadID,
+                        clientTurnID: clientTurnID,
+                        afterRevision: descriptor.lastRevision
+                    ) { event in
+                        displayBuffer.submit(event)
+                    }
+                }
+            } catch {
+                await displayBuffer.finish()
+                await MainActor.run {
+                    if self.chatStreamDisplayBuffers[threadID] === displayBuffer {
+                        self.chatStreamDisplayBuffers[threadID] = nil
+                    }
+                }
+                throw error
+            }
+            await displayBuffer.finish()
+            await MainActor.run {
+                if self.chatStreamDisplayBuffers[threadID] === displayBuffer {
+                    self.chatStreamDisplayBuffers[threadID] = nil
+                }
+            }
+        }
+        chatStreamHandles[threadID] = handle
+        sendingThreadIDs.insert(threadID)
+        sendErrorByThreadID[threadID] = nil
+
+        Task { @MainActor [weak self] in
+            var reconnectAttempt: Int?
+            do {
+                try await handle.value
+                if self?.activeChatRunByThreadID[threadID] == nil {
+                    await self?.refreshServerConfirmedHistory(
+                        workspaceID: descriptor.workspaceID,
+                        threadID: threadID
+                    )
+                    self?.optimisticMutationSnapshots[clientTurnID] = nil
+                    self?.optimisticActionCenter.confirm(clientTurnID)
+                }
+            } catch is CancellationError {
+                if self?.applicationBackgrounded == false,
+                   self?.activeChatRunByThreadID[threadID] != nil {
+                    reconnectAttempt = 0
+                }
+            } catch {
+                if self?.activeChatRunByThreadID[threadID] != nil,
+                   self?.isRecoverableChatTransportError(error) == true {
+                    reconnectAttempt = 1
+                } else {
+                    self?.sendErrorByThreadID[threadID] = error.localizedDescription
+                }
+            }
+            guard self?.chatStreamHandles[threadID]?.id == handle.id else {
+                return
+            }
+            self?.chatStreamHandles[threadID] = nil
+            if let reconnectAttempt {
+                self?.beginChatReconnect(
+                    threadID: threadID,
+                    attempt: reconnectAttempt
+                )
+            }
+            if self?.activeChatRunByThreadID[threadID] == nil {
                 self?.sendingThreadIDs.remove(threadID)
                 self?.activeClientTurnIDByThreadID[threadID] = nil
             }
-        } catch {
-            sendingThreadIDs.remove(threadID)
-            activeClientTurnIDByThreadID[threadID] = nil
-            sendErrorByThreadID[threadID] = error.localizedDescription
-            markClientTurn(clientTurnID, in: threadID, deliveryState: .reconciling)
-            optimisticActionCenter.update(actionID, status: .reconciling)
-            recoveryCenter.present(recoveryCenter.classify(error))
         }
+    }
+
+    private func reconcileTerminalChatRun(
+        _ state: ChatStreamRunState,
+        descriptor: PersistedChatStreamDescriptor
+    ) async {
+        let threadID = descriptor.threadID
+        let clientTurnID = descriptor.clientTurnID
+        if state.status == "completed" {
+            confirmClientTurn(
+                clientTurnID,
+                in: threadID,
+                chatID: state.finalChatId,
+                publicChatID: state.finalPublicChatId
+            )
+            await refreshServerConfirmedHistory(
+                workspaceID: descriptor.workspaceID,
+                threadID: threadID
+            )
+            optimisticMutationSnapshots[clientTurnID] = nil
+            optimisticActionCenter.confirm(clientTurnID)
+            sendErrorByThreadID[threadID] = nil
+        } else if state.status == "cancelled" {
+            markClientTurn(clientTurnID, in: threadID, deliveryState: .stopped)
+            optimisticActionCenter.update(clientTurnID, status: .reconciling)
+        } else {
+            let message = state.errorCode ?? "任务未能完成。"
+            markClientTurn(clientTurnID, in: threadID, deliveryState: .failed)
+            optimisticActionCenter.fail(clientTurnID)
+            sendErrorByThreadID[threadID] = message
+        }
+        removeActiveChatRun(threadID: threadID)
+        sendingThreadIDs.remove(threadID)
+        activeClientTurnIDByThreadID[threadID] = nil
+    }
+
+    private func isRecoverableChatTransportError(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(urlError.code)
+        }
+        if let apiError = error as? APIClientError,
+           case .httpStatus(let status, _, _) = apiError {
+            return [502, 503, 504].contains(status)
+        }
+        return false
+    }
+
+    private func removeActiveChatRun(threadID: String) {
+        activeChatRunByThreadID[threadID] = nil
+        chatReconnectTasks[threadID]?.cancel()
+        chatReconnectTasks[threadID] = nil
+        persistChatRuns()
+    }
+
+    private func persistChatRuns() {
+        guard let ownerScope, let apiClient else { return }
+        do {
+            try localCache.saveChatStreamDescriptors(
+                Array(activeChatRunByThreadID.values),
+                ownerScope: ownerScope,
+                apiBase: apiClient.configuration.normalizedBaseURL
+            )
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    private func recordChatObservation(
+        event: String,
+        outcome: String,
+        descriptor: PersistedChatStreamDescriptor,
+        visibility: String? = nil
+    ) async {
+        guard let chatStreamClient else { return }
+        await chatStreamClient.recordObservation(
+            ConversationStreamObservation(
+                event: event,
+                visibility: visibility ?? (applicationBackgrounded ? "hidden" : "visible"),
+                outcome: outcome,
+                durationMs: 0,
+                clientTurnId: descriptor.clientTurnID,
+                invocationId: "",
+                runKind: "chat",
+                transport: "sse"
+            )
+        )
     }
 
     @discardableResult
@@ -2172,6 +2669,12 @@ final class WorkspaceCenter {
             optimisticMutationSnapshots[clientTurnID] = nil
             optimisticActionCenter.confirm(clientTurnID)
             agentHandoffClientTurnIDs.remove(clientTurnID)
+            let activeClientTurnID = activeClientTurnIDByThreadID[session.threadID]
+            if activeClientTurnID == nil || activeClientTurnID == clientTurnID {
+                activeClientTurnIDByThreadID[session.threadID] = nil
+                sendingThreadIDs.remove(session.threadID)
+                sendErrorByThreadID[session.threadID] = nil
+            }
         }
         return await refreshHistoryAfterAgentFinalized(threadID: session.threadID)
     }
@@ -2930,10 +3433,15 @@ final class WorkspaceCenter {
         for handle in chatStreamHandles.values {
             handle.cancel()
         }
+        for task in chatReconnectTasks.values {
+            task.cancel()
+        }
         for handle in threadModelUpdateHandles.values {
             handle.cancel()
         }
         chatStreamHandles.removeAll()
+        chatReconnectTasks.removeAll()
+        activeChatRunByThreadID.removeAll()
         threadModelUpdateHandles.removeAll()
         confirmedModelByThreadID.removeAll()
         modelActionIDByThreadID.removeAll()
@@ -2964,6 +3472,10 @@ final class WorkspaceCenter {
                     apiBase: apiClient.configuration.normalizedBaseURL
                 )
                 localCache.clearConversationViewport(
+                    ownerScope: ownerScope,
+                    apiBase: apiClient.configuration.normalizedBaseURL
+                )
+                localCache.clearChatStreamDescriptors(
                     ownerScope: ownerScope,
                     apiBase: apiClient.configuration.normalizedBaseURL
                 )
@@ -3646,9 +4158,20 @@ final class WorkspaceCenter {
         agentControlKit: AgentControlKit
     ) {
         switch event {
-        case .assistantText(let serverID, let text, let replaces, _):
+        case .checkpoint(let revision):
+            guard var descriptor = activeChatRunByThreadID[threadID],
+                  revision > descriptor.lastRevision else {
+                break
+            }
+            descriptor.lastRevision = revision
+            descriptor.updatedAt = Date()
+            activeChatRunByThreadID[threadID] = descriptor
+        case .assistantText(_, let text, let replaces, _):
             markClientTurn(clientTurnID, in: threadID, deliveryState: .streaming)
-            let messageID = "\(threadID):stream:\(serverID):assistant"
+            // Provider chunk and full-text events are not guaranteed to reuse
+            // the same UUID. The client turn is the stable identity of the one
+            // assistant response, so every event must update that same bubble.
+            let messageID = "\(threadID):stream:\(clientTurnID):assistant"
             var messages = messages(for: threadID)
             if let index = messageIndexByThreadID[threadID]?[messageID],
                messages.indices.contains(index) {
@@ -3693,8 +4216,10 @@ final class WorkspaceCenter {
                 chatEditSession = nil
             }
             regenerateCommittedClientTurnIDs.remove(clientTurnID)
+            removeActiveChatRun(threadID: threadID)
         case .agentInvocation(_, let invocationID):
             agentHandoffClientTurnIDs.insert(clientTurnID)
+            removeActiveChatRun(threadID: threadID)
             if chatEditSession?.clientTurnID == clientTurnID,
                chatEditSession?.phase == .historyTruncated {
                 chatEditSession = nil
@@ -3760,6 +4285,7 @@ final class WorkspaceCenter {
             optimisticMutationSnapshots[clientTurnID] = nil
             optimisticActionCenter.update(clientTurnID, status: .confirming)
         case .failure(let message, _):
+            removeActiveChatRun(threadID: threadID)
             sendErrorByThreadID[threadID] = message
             lastError = message
             if editContext != nil,

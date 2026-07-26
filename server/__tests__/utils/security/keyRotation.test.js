@@ -3,8 +3,11 @@ const {
 } = require("../../../utils/security/keyCustody");
 const {
   decryptEnvelope,
+  encryptedTreeMutation,
   encryptEnvelope,
+  envFileMutation,
   parseEnvelope,
+  wrapperMutation,
 } = require("../../../utils/security/keyRotation");
 const {
   assertEncryptionWriteAllowed,
@@ -69,5 +72,73 @@ describe("key rotation primitives", () => {
     );
     setRotationWriteBarrier(false);
     expect(assertEncryptionWriteAllowed()).toBe(true);
+  });
+
+  it("rewraps nested provider backup secrets without changing plain values", () => {
+    const encrypted = encryptEnvelope(
+      "provider-secret",
+      source,
+      "provider-settings-backup"
+    );
+    const mutation = encryptedTreeMutation({
+      value: {
+        version: 1,
+        values: { API_KEY: encrypted, MODEL: "plain-model" },
+      },
+      source,
+      target,
+      defaultPurpose: "provider-settings-backup",
+    });
+
+    expect(mutation.changed).toBe(1);
+    expect(mutation.value.values.MODEL).toBe("plain-model");
+    expect(parseEnvelope(mutation.value.values.API_KEY).keyId).toBe(
+      target.keyId
+    );
+    expect(decryptEnvelope(mutation.value.values.API_KEY, source).plaintext).toBe(
+      "provider-secret"
+    );
+  });
+
+  it("rewraps encrypted managed-env values without rewriting plain settings", () => {
+    const encrypted = encryptEnvelope(
+      "managed-secret",
+      source,
+      "managed-environment-secret"
+    );
+    const next = envFileMutation({
+      content: `PLAIN_SETTING='preserved'\nSECRET_SETTING='${encrypted}'\n`,
+      source,
+      target,
+    });
+    const parsed = require("dotenv").parse(next);
+
+    expect(parsed.PLAIN_SETTING).toBe("preserved");
+    expect(parseEnvelope(parsed.SECRET_SETTING).keyId).toBe(target.keyId);
+    expect(decryptEnvelope(parsed.SECRET_SETTING, source).plaintext).toBe(
+      "managed-secret"
+    );
+  });
+
+  it("rewraps nested document payload envelopes", () => {
+    const encrypted = encryptEnvelope(
+      JSON.stringify({ domain: "document-store", value: "document" }),
+      source,
+      "document-store"
+    );
+    const mutation = wrapperMutation({
+      value: {
+        version: 1,
+        payload: { encryptedPayload: encrypted, metadata: "preserved" },
+      },
+      source,
+      target,
+      defaultPurpose: "document-store",
+    });
+
+    expect(mutation.payload.metadata).toBe("preserved");
+    expect(parseEnvelope(mutation.payload.encryptedPayload).keyId).toBe(
+      target.keyId
+    );
   });
 });

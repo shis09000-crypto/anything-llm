@@ -19,6 +19,12 @@ const {
 
 const DEFAULT_DEEPSEEK_MAX_TOKENS = 65_536;
 const DEFAULT_DEEPSEEK_REASONING_EFFORT = "high";
+const DEEPSEEK_CHAT_MODELS = new Set([
+  "deepseek-v4-flash",
+  "deepseek-v4-pro",
+  "deepseek-chat",
+  "deepseek-reasoner",
+]);
 
 function toValidDeepSeekMaxTokens(value = null) {
   const parsed = Number(value);
@@ -40,12 +46,14 @@ function deepSeekCompletionOptions({
   return {
     max_tokens: toValidDeepSeekMaxTokens(maxTokens),
     ...(thinkingType === "enabled" ? {} : { temperature }),
-    extra_body: {
-      thinking: { type: thinkingType },
-      ...(thinkingType === "enabled" && reasoningEffort
-        ? { reasoning_effort: reasoningEffort }
-        : {}),
-    },
+    // The JavaScript OpenAI client accepts DeepSeek's extension fields directly
+    // on the request body. `extra_body` is the Python SDK escape hatch; sending
+    // that literal wrapper from the JS SDK causes DeepSeek to ignore the toggle
+    // and fall back to its default (thinking enabled).
+    thinking: { type: thinkingType },
+    ...(thinkingType === "enabled" && reasoningEffort
+      ? { reasoning_effort: reasoningEffort }
+      : {}),
     ...(Array.isArray(tools) && tools.length ? { tools } : {}),
     ...(toolChoice ? { tool_choice: toolChoice } : {}),
     ...(responseFormat ? { response_format: responseFormat } : {}),
@@ -114,6 +122,10 @@ class DeepSeekLLM {
   }
 
   async isValidChatCompletionModel(modelName = "") {
+    // Do not turn a transient `/models` failure into a false model rejection.
+    // These are the official chat model ids; the completion request remains the
+    // authoritative validation for credentials and provider availability.
+    if (DEEPSEEK_CHAT_MODELS.has(modelName)) return true;
     const models = await this.openai.models.list().catch(() => ({ data: [] }));
     return models.data.some((model) => model.id === modelName);
   }
@@ -198,12 +210,25 @@ class DeepSeekLLM {
       );
 
     const usage = result.output.usage || {};
+    const choice = result.output.choices[0] || {};
     const completionTokens = usage.completion_tokens || 0;
+    const reasoningTokens =
+      usage?.completion_tokens_details?.reasoning_tokens ||
+      usage?.reasoning_tokens ||
+      0;
+    const finishReason = choice.finish_reason || null;
+    const requestedMaxTokens = toValidDeepSeekMaxTokens(maxTokens);
     const metrics = {
       prompt_tokens: usage.prompt_tokens || 0,
       completion_tokens: completionTokens,
       total_tokens: usage.total_tokens || 0,
       ...deepSeekUsageMetrics(usage),
+      reasoning_tokens: reasoningTokens,
+      finish_reason: finishReason,
+      thinking_mode: thinking === "enabled" ? "enabled" : "disabled",
+      requested_max_tokens: requestedMaxTokens,
+      hit_output_limit:
+        finishReason === "length" || completionTokens >= requestedMaxTokens,
       outputTps: completionTokens / result.duration,
       duration: result.duration,
       model: this.model,
@@ -212,7 +237,7 @@ class DeepSeekLLM {
     };
 
     return {
-      textResponse: this.#parseReasoningFromResponse(result.output.choices[0]),
+      textResponse: this.#parseReasoningFromResponse(choice),
       metrics,
     };
   }

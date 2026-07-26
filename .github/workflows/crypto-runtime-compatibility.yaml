@@ -1,0 +1,77 @@
+name: Crypto Runtime Compatibility
+
+on:
+  pull_request:
+    paths:
+      - "server/utils/security/**"
+      - "server/scripts/verify-crypto-runtime-capabilities.js"
+      - "server/package.json"
+      - ".github/workflows/crypto-runtime-compatibility.yaml"
+  workflow_dispatch:
+
+concurrency:
+  group: crypto-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-probe:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 22, 24]
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+          cache-dependency-path: |
+            yarn.lock
+            server/yarn.lock
+      - name: Verify compatibility baseline
+        run: node server/scripts/verify-crypto-runtime-capabilities.js
+      - name: Require the complete Node 24 PQ provider
+        if: matrix.node == 24
+        run: node server/scripts/verify-crypto-runtime-capabilities.js --require-node24-pq
+      - name: Reject a PQ production requirement on legacy Node
+        if: matrix.node != 24
+        run: |
+          if node server/scripts/verify-crypto-runtime-capabilities.js \
+            --require-node24-pq > "$RUNNER_TEMP/pq-runtime-probe.json"; then
+            echo "Legacy Node unexpectedly satisfied the Node 24 PQ gate."
+            exit 1
+          fi
+          grep -q '"node24_required:' "$RUNNER_TEMP/pq-runtime-probe.json"
+      - name: Verify hybrid composition, downgrade resistance, and key corruption
+        if: matrix.node == 24
+        run: node server/scripts/verify-pq-hybrid-interoperability.js
+      - name: Verify normal, fault-injection, and bounded extreme PQ environments
+        if: matrix.node == 24
+        run: node server/scripts/verify-pq-resilience.js --profile all --ci
+      - name: Install root and server test dependencies
+        if: matrix.node == 24
+        run: |
+          yarn install --frozen-lockfile
+          yarn --cwd server install --frozen-lockfile
+      - name: Run post-quantum control-plane regression tests
+        if: matrix.node == 24
+        run: |
+          yarn test \
+            server/__tests__/utils/cryptoRuntimeCapabilities.test.js \
+            server/__tests__/utils/cryptoProductionConfiguration.test.js \
+            server/__tests__/utils/cryptoSuiteRegistry.test.js \
+            server/__tests__/utils/cryptoObservability.test.js \
+            server/__tests__/utils/pqResilienceOperations.test.js \
+            server/__tests__/utils/releaseEvidence.test.js \
+            server/__tests__/utils/securityAuditLedger.test.js \
+            server/__tests__/utils/agentRegistry.test.js \
+            server/__tests__/utils/requestSigning.test.js \
+            server/__tests__/utils/startupValidation.test.js \
+            server/__tests__/endpoints/vault.security.test.js \
+            server/__tests__/repositories/vaultRepository.test.js \
+            --runInBand
+      - name: Validate static crypto registry and asset inventory
+        run: |
+          node server/scripts/audit-crypto-agility-boundaries.js
+          node server/scripts/audit-crypto-asset-inventory.js

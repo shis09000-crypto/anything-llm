@@ -21,6 +21,8 @@ import {
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
 
+const CLIENT_IDENTITY_REAUTH_RECOVERY = "CLIENT_IDENTITY_REAUTH_REQUIRED";
+
 function nowMs() {
   return globalThis.performance?.now?.() ?? Date.now();
 }
@@ -113,6 +115,22 @@ function clearSensitiveAuthState(response, data) {
           : "auth_error",
       includeDurableCaches: false,
     });
+  }
+}
+
+function requiresClientIdentityReauth(data) {
+  return data?.recovery === CLIENT_IDENTITY_REAUTH_RECOVERY;
+}
+
+async function recoverMismatchedClientIdentity() {
+  clearSigningSecretCache();
+  await resetClientIdentity({ rotateDeviceKey: true }).catch(() => null);
+  clearSensitiveClientSession({
+    reason: "client_identity_mismatch",
+    includeDurableCaches: false,
+  });
+  if (typeof window !== "undefined" && window.location?.pathname !== "/login") {
+    window.location.assign("/login?reason=device-identity-reset");
   }
 }
 
@@ -246,7 +264,12 @@ async function requestJsonCore(path, options = {}) {
       return { response, data: null, requestId, notModified: true };
     }
     if (!response.ok) {
+      const clientIdentityReauthRequired = requiresClientIdentityReauth(data);
+      if (clientIdentityReauthRequired) {
+        await recoverMismatchedClientIdentity();
+      }
       if (
+        !clientIdentityReauthRequired &&
         signingResult.signed &&
         retryAttempt < 1 &&
         isRecoverableSigningError(data?.error)
@@ -296,7 +319,9 @@ async function requestJsonCore(path, options = {}) {
           ...rest,
         });
       }
-      clearSensitiveAuthState(response, data);
+      if (!clientIdentityReauthRequired) {
+        clearSensitiveAuthState(response, data);
+      }
       const apiError = normalizeApiError(null, response, {
         code:
           data?.error === API_ERROR_CODES.CLIENT_REVOKED

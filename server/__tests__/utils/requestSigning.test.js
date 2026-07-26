@@ -42,6 +42,7 @@ jest.mock("../../models/eventLogs", () => ({
 }));
 
 const {
+  CLIENT_IDENTITY_REAUTH_RECOVERY,
   CLIENT_REVOKED_ERROR,
   DEVICE_SIGNATURE_PREFIX,
   DEVICE_SIGNATURE_VERSION,
@@ -57,6 +58,7 @@ const {
   sha256Base64Url,
   verifySignedRequest,
   verifySignedWebSocketMessage,
+  _hybridInternals,
 } = require("../../utils/requestSigning");
 
 function requestDouble({
@@ -66,14 +68,16 @@ function requestDouble({
   clientId = "client_abc",
   userId = 10,
   headers = {},
+  originalPath = path,
+  routerPath = path,
 } = {}) {
   const lowerHeaders = Object.fromEntries(
     Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])
   );
   return {
     method,
-    originalUrl: path,
-    url: path,
+    originalUrl: originalPath,
+    url: routerPath,
     rawBody: body,
     headers: lowerHeaders,
     clientContext: {
@@ -186,6 +190,9 @@ describe("request signing", () => {
   const originalRequireSigned = process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
   const originalDeviceRequired = process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
   const originalHmacCompat = process.env.REQUEST_SIGNING_HMAC_COMPAT;
+  const originalAttestationMode = process.env.ATHENA_DEVICE_ATTESTATION_MODE;
+  const originalIOSPQRequired =
+    process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -208,6 +215,8 @@ describe("request signing", () => {
     delete process.env.ATHENA_REQUIRE_SIGNED_HIGH_RISK;
     delete process.env.REQUEST_SIGNING_DEVICE_REQUIRED;
     delete process.env.REQUEST_SIGNING_HMAC_COMPAT;
+    delete process.env.ATHENA_DEVICE_ATTESTATION_MODE;
+    delete process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
   });
 
   afterAll(() => {
@@ -224,6 +233,100 @@ describe("request signing", () => {
     if (originalHmacCompat === undefined)
       delete process.env.REQUEST_SIGNING_HMAC_COMPAT;
     else process.env.REQUEST_SIGNING_HMAC_COMPAT = originalHmacCompat;
+    if (originalAttestationMode === undefined)
+      delete process.env.ATHENA_DEVICE_ATTESTATION_MODE;
+    else process.env.ATHENA_DEVICE_ATTESTATION_MODE = originalAttestationMode;
+    if (originalIOSPQRequired === undefined)
+      delete process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
+    else
+      process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED =
+        originalIOSPQRequired;
+  });
+
+  test("requires device attestation only for iOS high-risk routes after bootstrap", () => {
+    process.env.ATHENA_DEVICE_ATTESTATION_MODE = "required";
+    expect(
+      _hybridInternals.iosDeviceAttestationRequired(
+        { platform: "ios" },
+        "/api/vault/items/vlt_1"
+      )
+    ).toBe(true);
+    expect(
+      _hybridInternals.iosDeviceAttestationRequired(
+        { platform: "ios" },
+        "/api/client-identity/attestation/verify"
+      )
+    ).toBe(false);
+    expect(
+      _hybridInternals.iosDeviceAttestationRequired(
+        { platform: "ios" },
+        "/api/client-identity/vault-kem-key"
+      )
+    ).toBe(false);
+    expect(
+      _hybridInternals.iosDeviceAttestationRequired(
+        { platform: "web" },
+        "/api/vault/items/vlt_1"
+      )
+    ).toBe(false);
+    expect(
+      _hybridInternals.iosDeviceAttestationRequired(
+        { platform: "ios", surface: "browser" },
+        "/api/vault/items/vlt_1"
+      )
+    ).toBe(false);
+  });
+
+  test("requires iOS hybrid signatures only under the explicit production gate", () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED;
+    expect(
+      _hybridInternals.iosHybridRequired(
+        { platform: "ios" },
+        null,
+        requestDouble()
+      )
+    ).toBe(false);
+
+    process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED = "true";
+    expect(
+      _hybridInternals.iosHybridRequired(
+        { platform: "ios" },
+        null,
+        requestDouble()
+      )
+    ).toBe(true);
+    expect(
+      _hybridInternals.iosHybridRequired(
+        { platform: "ios", surface: "browser" },
+        null,
+        requestDouble()
+      )
+    ).toBe(false);
+    expect(
+      _hybridInternals.iosHybridRequired(
+        {
+          platform: "ipad",
+          capabilityProfile: { surface: "pwa" },
+        },
+        null,
+        requestDouble()
+      )
+    ).toBe(false);
+    expect(
+      _hybridInternals.iosHybridRequired(
+        { platform: "ios", surface: "mobile-app" },
+        null,
+        requestDouble()
+      )
+    ).toBe(true);
+    expect(
+      _hybridInternals.iosHybridRequired(
+        { platform: "web" },
+        null,
+        requestDouble()
+      )
+    ).toBe(false);
   });
 
   it("accepts a valid signed high-risk request and claims nonce", async () => {
@@ -270,6 +373,30 @@ describe("request signing", () => {
       })
     );
     expect(mockNonceCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("never treats partial post-quantum headers as a verified hybrid request", async () => {
+    mockFindFirst.mockResolvedValueOnce({
+      id: 1,
+      clientId: "client_abc",
+      userId: 10,
+      publicKey: null,
+      pqPublicKey: null,
+      revokedAt: null,
+    });
+    const body = JSON.stringify({ requestId: "approval-1", approved: true });
+    const headers = {
+      ...deviceSignedHeaders({ body, nonce: "partial-pq-envelope" }),
+      "X-Athena-PQ-Signature": "attacker-controlled-marker",
+    };
+
+    await expect(
+      verifySignedRequest(requestDouble({ body, headers }))
+    ).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "post_quantum_signature_incomplete",
+    });
+    expect(mockNonceCreate).not.toHaveBeenCalled();
   });
 
   it("accepts a pending device key only on the rotation commit route", async () => {
@@ -363,6 +490,20 @@ describe("request signing", () => {
       ok: false,
       reasonCode: "missing_signature",
     });
+
+    await expect(
+      verifySignedRequest(
+        requestDouble({
+          headers: {
+            ...signedHeaders({ nonce: "unknown-suite" }),
+            "X-Athena-Signature-Version": "device-pq-unknown-v9",
+          },
+        })
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "unsupported_signature_suite",
+    });
   });
 
   it("warn-only mode does not block but production enforcement does", async () => {
@@ -429,6 +570,16 @@ describe("request signing", () => {
       success: false,
       error: "invalid_signed_request",
     });
+  });
+
+  test.each([
+    ["POST", "/operations/actions/runs"],
+    ["POST", "/operations/actions/runs/run-1/approve"],
+    ["POST", "/operations/actions/runs/run-1/reject"],
+    ["POST", "/operations/actions/runs/run-1/execute"],
+    ["POST", "/operations/actions/runs/run-1/reconcile"],
+  ])("protects operations control mutation %s %s", (method, path) => {
+    expect(isHighRiskSignedRequest({ method, path })).toBe(true);
   });
 
   it("requires device signatures for high-risk production requests unless HMAC compatibility is enabled", async () => {
@@ -749,6 +900,125 @@ describe("request signing", () => {
     });
   });
 
+  it.each([
+    ["/api/realtime/broadcast", "/realtime/broadcast"],
+    ["/realtime/broadcast", "/api/realtime/broadcast"],
+  ])(
+    "accepts only the equivalent api mount path (%s signed, %s mounted)",
+    async (signedPath, requestPath) => {
+      const payload = { type: "ping", requestId: "mount-view" };
+      const body = JSON.stringify(payload);
+      const headers = signedHeaders({
+        method: "WS",
+        path: signedPath,
+        body,
+        nonce: `ws_mount_${signedPath.startsWith("/api") ? "api" : "root"}`,
+      });
+      const message = JSON.stringify({
+        type: "athenaSignedMessage",
+        signatureVersion: SIGNATURE_VERSION,
+        signed: {
+          clientId: headers["X-Athena-Client-Id"],
+          requestId: headers["X-Athena-Request-Id"],
+          timestamp: headers["X-Athena-Timestamp"],
+          nonce: headers["X-Athena-Nonce"],
+          bodySha256: headers["X-Athena-Body-SHA256"],
+          signature: headers["X-Athena-Signature"],
+        },
+        payload,
+      });
+
+      await expect(
+        verifySignedWebSocketMessage(
+          requestDouble({
+            method: "GET",
+            path: `${requestPath}?token=ignored`,
+            body: "",
+            headers,
+          }),
+          message
+        )
+      ).resolves.toMatchObject({ ok: true, payload });
+    }
+  );
+
+  it("uses the active router view when proxy originalUrl differs", async () => {
+    const payload = { type: "ping", requestId: "router-view" };
+    const body = JSON.stringify(payload);
+    const headers = signedHeaders({
+      method: "WS",
+      path: "/api/realtime/broadcast",
+      body,
+      nonce: "ws_router_view",
+    });
+    const message = JSON.stringify({
+      type: "athenaSignedMessage",
+      signatureVersion: SIGNATURE_VERSION,
+      signed: {
+        clientId: headers["X-Athena-Client-Id"],
+        requestId: headers["X-Athena-Request-Id"],
+        timestamp: headers["X-Athena-Timestamp"],
+        nonce: headers["X-Athena-Nonce"],
+        bodySha256: headers["X-Athena-Body-SHA256"],
+        signature: headers["X-Athena-Signature"],
+      },
+      payload,
+    });
+
+    await expect(
+      verifySignedWebSocketMessage(
+        requestDouble({
+          method: "GET",
+          originalPath:
+            "/gateway/internal/realtime/broadcast/.websocket?opaque=1",
+          routerPath:
+            "/realtime/broadcast/.websocket?realtimeTicket=ignored",
+          headers,
+        }),
+        message
+      )
+    ).resolves.toMatchObject({ ok: true, payload });
+  });
+
+  it("rejects a websocket signature for a non-equivalent route", async () => {
+    const payload = { type: "ping", requestId: "tampered-route" };
+    const body = JSON.stringify(payload);
+    const headers = signedHeaders({
+      method: "WS",
+      path: "/api/realtime/broadcast",
+      body,
+      nonce: "ws_tampered_route",
+    });
+    const message = JSON.stringify({
+      type: "athenaSignedMessage",
+      signatureVersion: SIGNATURE_VERSION,
+      signed: {
+        clientId: headers["X-Athena-Client-Id"],
+        requestId: headers["X-Athena-Request-Id"],
+        timestamp: headers["X-Athena-Timestamp"],
+        nonce: headers["X-Athena-Nonce"],
+        bodySha256: headers["X-Athena-Body-SHA256"],
+        signature: headers["X-Athena-Signature"],
+      },
+      payload,
+    });
+
+    await expect(
+      verifySignedWebSocketMessage(
+        requestDouble({
+          method: "GET",
+          path: "/api/realtime/private",
+          body: "",
+          headers,
+        }),
+        message
+      )
+    ).resolves.toMatchObject({
+      ok: false,
+      reasonCode: "signature_mismatch",
+    });
+  });
+
   it("temporarily accepts legacy websocket envelopes signed with query params", async () => {
     const payload = {
       type: "clarificationResponse",
@@ -856,6 +1126,52 @@ describe("request signing", () => {
     expect(response.json).toHaveBeenCalledWith({
       success: false,
       error: INVALID_SIGNATURE_ERROR,
+      reason: "signature_mismatch",
+    });
+  });
+
+  it("instructs a mismatched device identity to reauthenticate", async () => {
+    process.env.NODE_ENV = "production";
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+    const next = jest.fn();
+    const headers = deviceSignedHeaders({
+      path: "/api/workspace/new",
+      body: JSON.stringify({ name: "Operations" }),
+      nonce: "mismatched-device-key",
+    });
+    mockFindFirst.mockResolvedValue({
+      id: 1,
+      clientId: "client_abc",
+      userId: 10,
+      publicKey: JSON.stringify({
+        kty: "EC",
+        crv: "P-256",
+        x: "different",
+        y: "different",
+      }),
+      revokedAt: null,
+    });
+
+    await requireSignedHighRiskRequest(
+      requestDouble({
+        path: "/api/workspace/new",
+        body: JSON.stringify({ name: "Operations" }),
+        headers,
+      }),
+      response,
+      next
+    );
+
+    expect(next).not.toHaveBeenCalled();
+    expect(response.status).toHaveBeenCalledWith(401);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: INVALID_SIGNATURE_ERROR,
+      reason: "device_key_mismatch",
+      recovery: CLIENT_IDENTITY_REAUTH_RECOVERY,
     });
   });
 });

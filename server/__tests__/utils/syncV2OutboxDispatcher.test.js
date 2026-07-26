@@ -45,6 +45,7 @@ const {
   flushSyncV2Outbox,
   startSyncV2OutboxDispatcher,
   stopSyncV2OutboxDispatcher,
+  syncV2OutboxSnapshot,
   _internals: { dispatchRow, partitionLanes, processLane },
 } = require("../../utils/syncV2/outboxDispatcher");
 
@@ -158,6 +159,39 @@ describe("Sync V2 Outbox dispatcher", () => {
     ).resolves.toBe(true);
     expect(mockSchemaReady).toHaveBeenCalled();
     expect(mockClaimOutbox).toHaveBeenCalled();
+  });
+
+  test("keeps startup available through repeated P2028 and recovers later", async () => {
+    const transactionExpired = Object.assign(
+      new Error("Transaction already closed"),
+      { code: "P2028" }
+    );
+    mockClaimOutbox
+      .mockRejectedValueOnce(transactionExpired)
+      .mockRejectedValueOnce(transactionExpired)
+      .mockRejectedValueOnce(transactionExpired)
+      .mockResolvedValue([]);
+
+    await expect(
+      startSyncV2OutboxDispatcher({ intervalMs: 60_000 })
+    ).resolves.toBe(true);
+    await expect(flushSyncV2Outbox()).rejects.toMatchObject({ code: "P2028" });
+    await expect(flushSyncV2Outbox()).rejects.toMatchObject({ code: "P2028" });
+
+    expect(syncV2OutboxSnapshot()).toMatchObject({
+      running: true,
+      consecutiveFailures: 3,
+      lastError: "P2028",
+    });
+    await expect(flushSyncV2Outbox()).resolves.toMatchObject({
+      claimed: 0,
+      dispatched: 0,
+    });
+    expect(syncV2OutboxSnapshot()).toMatchObject({
+      running: true,
+      consecutiveFailures: 0,
+      lastError: null,
+    });
   });
 
   test("does not claim or acknowledge when the migrated schema is unavailable", async () => {

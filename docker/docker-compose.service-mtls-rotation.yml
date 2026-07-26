@@ -1,0 +1,46 @@
+# Optional overlay used only during a workload certificate overlap window.
+#
+# Usage:
+#   docker compose \
+#     -f docker-compose.modular.yml \
+#     -f docker-compose.service-mtls.yml \
+#     -f docker-compose.service-mtls-rotation.yml \
+#     up -d
+#
+# The next certificate and key remain optional during normal operation. This
+# overlay makes them fail-closed requirements only while an operator is
+# performing a planned rotation.
+services:
+  anything-llm-api:
+    environment:
+      ATHENA_API_MTLS_NEXT_CERT_FILE: /run/secrets/athena_api_next.pem
+      ATHENA_API_MTLS_NEXT_KEY_FILE: /run/secrets/athena_api_next.key
+    volumes:
+      - ${ATHENA_API_MTLS_NEXT_CERT_HOST_FILE:?required}:/run/secrets/athena_api_next.pem:ro
+      - ${ATHENA_API_MTLS_NEXT_KEY_HOST_FILE:?required}:/run/secrets/athena_api_next.key:ro
+
+  anything-llm-background-worker:
+    environment:
+      ATHENA_BACKGROUND_WORKER_MTLS_NEXT_CERT_FILE: /run/secrets/athena_background_worker_next.pem
+      ATHENA_BACKGROUND_WORKER_MTLS_NEXT_KEY_FILE: /run/secrets/athena_background_worker_next.key
+      ATHENA_API_MTLS_NEXT_CERT_FILE: /run/secrets/athena_background_worker_next.pem
+      ATHENA_API_MTLS_NEXT_KEY_FILE: /run/secrets/athena_background_worker_next.key
+    volumes:
+      - ${ATHENA_BACKGROUND_WORKER_MTLS_NEXT_CERT_HOST_FILE:?required}:/run/secrets/athena_background_worker_next.pem:ro
+      - ${ATHENA_BACKGROUND_WORKER_MTLS_NEXT_KEY_HOST_FILE:?required}:/run/secrets/athena_background_worker_next.key:ro
+
+  anything-llm-realtime-gateway:
+    environment:
+      ATHENA_REALTIME_GATEWAY_MTLS_NEXT_CERT_FILE: /run/secrets/athena_realtime_gateway_next.pem
+      ATHENA_REALTIME_GATEWAY_MTLS_NEXT_KEY_FILE: /run/secrets/athena_realtime_gateway_next.key
+    volumes:
+      - ${ATHENA_GATEWAY_MTLS_NEXT_CERT_HOST_FILE:?required}:/run/secrets/athena_realtime_gateway_next.pem:ro
+      - ${ATHENA_GATEWAY_MTLS_NEXT_KEY_HOST_FILE:?required}:/run/secrets/athena_realtime_gateway_next.key:ro
+
+  anything-llm-collector:
+    environment:
+      COLLECTOR_MTLS_NEXT_CERT_FILE: /run/secrets/athena_collector_next.pem
+      COLLECTOR_MTLS_NEXT_KEY_FILE: /run/secrets/athena_collector_next.key
+    volumes:
+      - ${ATHENA_COLLECTOR_MTLS_NEXT_CERT_HOST_FILE:?required}:/run/secrets/athena_collector_next.pem:ro
+      - ${ATHENA_COLLECTOR_MTLS_NEXT_KEY_HOST_FILE:?required}:/run/secrets/athena_collector_next.key:ro

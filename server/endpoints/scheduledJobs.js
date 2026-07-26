@@ -1,7 +1,7 @@
 const { DataAccessCenter } = require("../utils/dataAccess");
 const { validatedRequest } = require("../utils/middleware/validatedRequest");
 const { isSingleUserMode } = require("../utils/middleware/multiUserProtected");
-const { reqBody, safeJsonParse } = require("../utils/http");
+const { reqBody, safeJsonParse, userFromSession } = require("../utils/http");
 const { BackgroundService } = require("../utils/BackgroundWorkers");
 const {
   TelemetryRepository: Telemetry,
@@ -16,6 +16,90 @@ const {
 // the codebase returns the same instance that `server/index.js` booted. We
 // grab that reference once and reuse it across handlers.
 const backgroundService = new BackgroundService();
+const CRYPTO_ACCOUNT_TOOL_PREFIX = "crypto-account-agent#";
+
+async function schedulerOwner(request, response) {
+  const user =
+    response.locals?.user || (await userFromSession(request, response));
+  if (!user?.id || !user?.authUserId) return null;
+  return user;
+}
+
+function scheduledJobBelongsTo(job, owner) {
+  return (
+    Boolean(job && owner) &&
+    Number(job.ownerUserId) === Number(owner.id) &&
+    Number(job.ownerAuthUserId) === Number(owner.authUserId)
+  );
+}
+
+async function ownedScheduledJob(request, response, id) {
+  const owner = await schedulerOwner(request, response);
+  if (!owner) {
+    response
+      .status(401)
+      .json({ job: null, error: "Scheduled job owner unavailable" });
+    return null;
+  }
+
+  const job = await ScheduledJob.get({ id: Number(id) });
+  if (!job) {
+    response.status(404).json({ job: null, error: "Job not found" });
+    return null;
+  }
+  if (!scheduledJobBelongsTo(job, owner)) {
+    response
+      .status(403)
+      .json({ job: null, error: "Scheduled job owner mismatch" });
+    return null;
+  }
+  return job;
+}
+
+function privateFunctionsFromTools(tools = []) {
+  return (Array.isArray(tools) ? tools : [])
+    .filter((tool) => String(tool).startsWith(CRYPTO_ACCOUNT_TOOL_PREFIX))
+    .map((tool) => String(tool).slice(CRYPTO_ACCOUNT_TOOL_PREFIX.length));
+}
+
+async function accountPrivateGrant({ user, tools, confirmed }) {
+  const privateTools = (Array.isArray(tools) ? tools : []).filter((tool) =>
+    String(tool).startsWith(CRYPTO_ACCOUNT_TOOL_PREFIX)
+  );
+  const functions = privateFunctionsFromTools(privateTools);
+  if (!functions.length) return null;
+  if (confirmed !== true) {
+    const error = new Error("ACCOUNT_PRIVATE_READ_CONFIRMATION_REQUIRED");
+    error.code = "ACCOUNT_PRIVATE_READ_CONFIRMATION_REQUIRED";
+    throw error;
+  }
+  const { agentSkillsFromSystemSettings } = require("../utils/agents/defaults");
+  const enabledFunctions = new Set(await agentSkillsFromSystemSettings(user));
+  if (privateTools.some((tool) => !enabledFunctions.has(String(tool)))) {
+    const error = new Error("CRYPTO_ACCOUNT_TOOL_UNAVAILABLE");
+    error.code = "CRYPTO_ACCOUNT_TOOL_UNAVAILABLE";
+    throw error;
+  }
+  const { cryptoAccountEligibility } = require("../utils/cryptoAccount");
+  const eligibility = await cryptoAccountEligibility(user);
+  if (!eligibility.available) {
+    const error = new Error(eligibility.reason || "CRYPTO_ACCOUNT_UNAVAILABLE");
+    error.code = eligibility.reason || "CRYPTO_ACCOUNT_UNAVAILABLE";
+    throw error;
+  }
+  return {
+    approved: true,
+    provider: "gate",
+    functions,
+    symbols: ["*"],
+    maxDays: 90,
+    maxLimit: 100,
+    credentialVersion: eligibility.credentialVersion,
+    rootKeyId: eligibility.rootKeyId,
+    domainKeyVersion: eligibility.domainKeyVersion,
+    approvedAt: new Date().toISOString(),
+  };
+}
 
 function scheduledJobEndpoints(app) {
   if (!app) return;
@@ -24,13 +108,14 @@ function scheduledJobEndpoints(app) {
   app.get(
     "/scheduled-jobs/available-tools",
     [validatedRequest, isSingleUserMode],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const tools = await ScheduledJob.availableTools();
+        const user = await schedulerOwner(request, response);
+        const tools = await ScheduledJob.availableTools(user);
         return response.status(200).json({ tools });
       } catch (e) {
         console.error(e.message, e);
-        response.sendStatus(e.httpStatus || 500).json({ tools: [] });
+        response.status(e.httpStatus || 500).json({ tools: [] });
       }
     }
   );
@@ -50,7 +135,8 @@ function scheduledJobEndpoints(app) {
             .json({ run: null, error: "Run not found" });
         }
 
-        const job = await ScheduledJob.get({ id: run.jobId });
+        const job = await ownedScheduledJob(request, response, run.jobId);
+        if (!job) return;
         return response.status(200).json({
           run: {
             ...run,
@@ -76,16 +162,21 @@ function scheduledJobEndpoints(app) {
         if (!["read", "continue", "kill"].includes(action))
           throw new Error("Invalid action");
 
+        const run = await ScheduledJobRun.get({
+          id: Number(request.params.runId),
+        });
+        if (!run) return response.status(404).json({ error: "Run not found" });
+        const job = await ownedScheduledJob(request, response, run.jobId);
+        if (!job) return;
+
         if (action === "read") {
-          await ScheduledJobRun.markRead(Number(request.params.runId));
+          await ScheduledJobRun.markRead(run.id);
           return response.status(200).json({ success: true });
         }
 
         if (action === "continue") {
           const { workspace, thread, error } =
-            await ScheduledJobRun.continueInThread(
-              Number(request.params.runId)
-            );
+            await ScheduledJobRun.continueInThread(run.id);
           if (error) return response.status(500).json({ error });
 
           return response.status(200).json({
@@ -95,11 +186,6 @@ function scheduledJobEndpoints(app) {
         }
 
         if (action === "kill") {
-          const run = await ScheduledJobRun.get({
-            id: Number(request.params.runId),
-          });
-          if (!run)
-            return response.status(404).json({ error: "Run not found" });
           if (!["queued", "running"].includes(run.status)) {
             return response.status(400).json({
               error: "Only running or queued jobs can be killed",
@@ -120,14 +206,28 @@ function scheduledJobEndpoints(app) {
   app.get(
     "/scheduled-jobs",
     [validatedRequest, isSingleUserMode],
-    async (_request, response) => {
+    async (request, response) => {
       try {
-        const jobs = await ScheduledJob.where({}, null, null, {
-          runs: {
-            take: 1,
-            orderBy: { startedAt: "desc" },
+        const owner = await schedulerOwner(request, response);
+        if (!owner) {
+          return response
+            .status(401)
+            .json({ jobs: [], error: "Scheduled job owner unavailable" });
+        }
+        const jobs = await ScheduledJob.where(
+          {
+            ownerUserId: owner.id,
+            ownerAuthUserId: owner.authUserId,
           },
-        });
+          null,
+          null,
+          {
+            runs: {
+              take: 1,
+              orderBy: { startedAt: "desc" },
+            },
+          }
+        );
 
         const jobsWithStatus = jobs.map(({ runs, ...job }) => ({
           ...job,
@@ -148,8 +248,14 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const { name, prompt, tools, schedule, capabilityManifest } =
-          reqBody(request);
+        const {
+          name,
+          prompt,
+          tools,
+          schedule,
+          capabilityManifest,
+          accountPrivateReadApproval,
+        } = reqBody(request);
         let errorMessage = null;
 
         if (!name?.trim()) {
@@ -183,19 +289,36 @@ function scheduledJobEndpoints(app) {
           });
         }
 
+        const owner = await schedulerOwner(request, response);
+        if (!owner) {
+          return response
+            .status(401)
+            .json({ job: null, error: "Scheduled job owner unavailable" });
+        }
+        const privateGrant = await accountPrivateGrant({
+          user: owner,
+          tools: tools || [],
+          confirmed: accountPrivateReadApproval,
+        });
+        const normalizedManifest = normalizeCapabilityManifest(
+          capabilityManifest || {
+            tools: tools || [],
+            scheduledAutoApprove: tools || [],
+            allowHighRisk: false,
+            maxToolCalls: 10,
+          }
+        );
         const { job, error } = await ScheduledJob.create({
           name: name.trim(),
           prompt: prompt.trim(),
           tools: tools || null,
           schedule: schedule.trim(),
-          capabilityManifest: normalizeCapabilityManifest(
-            capabilityManifest || {
-              tools: tools || [],
-              scheduledAutoApprove: tools || [],
-              allowHighRisk: false,
-              maxToolCalls: 10,
-            }
-          ),
+          capabilityManifest: {
+            ...normalizedManifest,
+            accountPrivateRead: privateGrant,
+          },
+          ownerUserId: owner.id,
+          ownerAuthUserId: owner.authUserId,
         });
 
         if (error) {
@@ -218,14 +341,12 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const job = await ScheduledJob.get({
-          id: Number(request.params.id),
-        });
-        if (!job) {
-          return response
-            .status(404)
-            .json({ job: null, error: "Job not found" });
-        }
+        const job = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
+        );
+        if (!job) return;
         return response.status(200).json({ job });
       } catch (e) {
         console.error(e.message, e);
@@ -240,17 +361,23 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const { name, prompt, tools, schedule, enabled, capabilityManifest } =
-          reqBody(request);
+        const {
+          name,
+          prompt,
+          tools,
+          schedule,
+          enabled,
+          capabilityManifest,
+          accountPrivateReadApproval,
+        } = reqBody(request);
         const updates = {};
-        const currentJob = await ScheduledJob.get({
-          id: Number(request.params.id),
-        });
-        if (!currentJob) {
-          return response
-            .status(404)
-            .json({ job: null, error: "Job not found" });
-        }
+        const currentJob = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
+        );
+        if (!currentJob) return;
+        const owner = await schedulerOwner(request, response);
 
         if (tools !== undefined && tools !== null && !Array.isArray(tools)) {
           return response
@@ -280,6 +407,22 @@ function scheduledJobEndpoints(app) {
             scheduledAutoApprove: tools || [],
           };
         }
+        const effectiveTools =
+          tools !== undefined
+            ? tools || []
+            : safeJsonParse(currentJob.tools, []);
+        const privateGrant = await accountPrivateGrant({
+          user: owner,
+          tools: effectiveTools,
+          confirmed: accountPrivateReadApproval,
+        });
+        const baseManifest = normalizeCapabilityManifest(
+          updates.capabilityManifest || currentJob.capabilityManifest
+        );
+        updates.capabilityManifest = {
+          ...baseManifest,
+          accountPrivateRead: privateGrant,
+        };
         if (schedule !== undefined) {
           if (!ScheduledJob.isValidCron(schedule)) {
             return response
@@ -329,9 +472,15 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        backgroundService.removeScheduledJob(Number(request.params.id));
+        const job = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
+        );
+        if (!job) return;
+        backgroundService.removeScheduledJob(job.id);
 
-        const success = await ScheduledJob.delete(Number(request.params.id));
+        const success = await ScheduledJob.delete(job.id);
         return response.status(200).json({ success });
       } catch (e) {
         console.error(e.message, e);
@@ -346,12 +495,12 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const job = await ScheduledJob.get({
-          id: Number(request.params.id),
-        });
-        if (!job) {
-          return response.status(404).json({ error: "Job not found" });
-        }
+        const job = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
+        );
+        if (!job) return;
 
         // Toggling a disabled job to enabled is an activation — enforce the cap.
         // Disabling never needs a check.
@@ -387,12 +536,12 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const job = await ScheduledJob.get({
-          id: Number(request.params.id),
-        });
-        if (!job) {
-          return response.status(404).json({ error: "Job not found" });
-        }
+        const job = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
+        );
+        if (!job) return;
 
         const run = await backgroundService.enqueueScheduledJob(job.id);
         return response
@@ -411,11 +560,15 @@ function scheduledJobEndpoints(app) {
     [validatedRequest, isSingleUserMode],
     async (request, response) => {
       try {
-        const runs = await ScheduledJobRun.where(
-          { jobId: Number(request.params.id) },
-          50,
-          { startedAt: "desc" }
+        const job = await ownedScheduledJob(
+          request,
+          response,
+          request.params.id
         );
+        if (!job) return;
+        const runs = await ScheduledJobRun.where({ jobId: job.id }, 50, {
+          startedAt: "desc",
+        });
         return response.status(200).json({ runs });
       } catch (e) {
         console.error(e.message, e);
@@ -425,4 +578,8 @@ function scheduledJobEndpoints(app) {
   );
 }
 
-module.exports = { scheduledJobEndpoints };
+module.exports = {
+  accountPrivateGrant,
+  scheduledJobBelongsTo,
+  scheduledJobEndpoints,
+};

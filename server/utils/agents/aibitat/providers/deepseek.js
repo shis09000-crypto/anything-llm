@@ -113,21 +113,30 @@ class DeepSeekProvider extends InheritMultiple([Provider, UnTooled]) {
   }
 
   #recordPromptCacheDiagnostics(messages = [], functions = []) {
-    const promptCacheDiagnostics = deepSeekPromptCacheDiagnostics({
-      provider: this.constructor.name,
-      model: this.model,
-      messages,
-      functions,
-      historyWindow: this.#historyWindow(),
-      compaction: this.#compaction(),
-      providerPath: "agent",
-    });
-    this.lastUsage = {
-      ...this.lastUsage,
-      promptCacheDiagnostics,
-      historyWindow: promptCacheDiagnostics.historyWindow,
-    };
-    return promptCacheDiagnostics;
+    try {
+      const promptCacheDiagnostics = deepSeekPromptCacheDiagnostics({
+        provider: this.constructor.name,
+        model: this.model,
+        messages,
+        functions,
+        historyWindow: this.#historyWindow(),
+        compaction: this.#compaction(),
+        providerPath: "agent",
+      });
+      this.lastUsage = {
+        ...this.lastUsage,
+        promptCacheDiagnostics,
+        historyWindow: promptCacheDiagnostics.historyWindow,
+      };
+      return promptCacheDiagnostics;
+    } catch (error) {
+      // Diagnostics are metadata-only observability. They must never turn a
+      // successfully generated model response into a failed invocation.
+      console.warn(
+        `[DeepSeekPromptCache] Diagnostics skipped: ${error?.message || "invalid diagnostics input"}`
+      );
+      return null;
+    }
   }
 
   recordUsage(usage = {}) {

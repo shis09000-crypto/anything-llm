@@ -1,0 +1,11 @@
+services:
+  anythingllm:
+    volumes:
+      - "/data/anythingllm/secrets/athena-password-pepper:/run/secrets/athena_password_pepper:ro"
+    environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
+      ATHENA_REQUIRE_NODE24_PQ_PROBE: "true"
+      ATHENA_PQ_RUNTIME_EXPECTED_CAPABILITIES: "ml_kem_768,ml_dsa_65,encapsulation_api,classical_provider_baseline"
+      ATHENA_IOS_HIGH_RISK_PQ_REQUIRED: "true"
+      ATHENA_IOS_MIN_SUPPORTED_APP_VERSION: "2.4.0"
+      ATHENA_IOS_RECOMMENDED_APP_VERSION: "2.4.0"

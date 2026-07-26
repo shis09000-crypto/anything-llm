@@ -1451,6 +1451,7 @@ function workspaceThreadEndpoints(app) {
           user,
           thread,
           apiSessionId,
+          historyRevision: thread.historyRevision,
         });
 
         response.status(200).json({

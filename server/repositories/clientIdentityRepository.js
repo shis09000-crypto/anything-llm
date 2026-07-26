@@ -9,6 +9,9 @@ const ClientIdentityRepository = {
       get athena_clients() {
         return prisma.athena_clients;
       },
+      get athena_device_attestation_challenges() {
+        return prisma.athena_device_attestation_challenges;
+      },
       get users() {
         return prisma.users;
       },

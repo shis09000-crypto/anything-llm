@@ -19,6 +19,7 @@ const DEFAULT_SKILLS = [
   AgentPlugins.webBrowsing.name,
   AgentPlugins.requestUserInput.name,
   AgentPlugins.cryptoMarketAgent.name,
+  AgentPlugins.cryptoAccountAgent.name,
   AgentPlugins.weatherAgent.name,
   AgentPlugins.globalMarketAgent.name,
   AgentPlugins.createFilesAgent.name,
@@ -52,6 +53,15 @@ const SKILL_FILTER_CONFIG = {
   },
   "shell-agent": {
     getAvailability: () => true,
+    disabledSettingKey: null,
+  },
+  "crypto-account-agent": {
+    getAvailability: async (user, { registryMode = false } = {}) => {
+      if (registryMode) return true;
+      if (!user) return false;
+      const { cryptoAccountEligibility } = require("../cryptoAccount");
+      return (await cryptoAccountEligibility(user)).available;
+    },
     disabledSettingKey: null,
   },
 };
@@ -107,7 +117,7 @@ const WORKSPACE_AGENT = {
         workspace,
         user,
       }),
-      agentSkillsFromSystemSettings(),
+      agentSkillsFromSystemSettings(user),
     ]);
 
     if (agentFunctions.includes(REQUEST_USER_INPUT_FUNCTION)) {
@@ -165,7 +175,7 @@ function pushSkillFunctions(
  * loaded later
  * @returns {Promise<string[]>}
  */
-async function agentSkillsFromSystemSettings() {
+async function agentSkillsFromSystemSettings(user = null, options = {}) {
   const systemFunctions = [];
 
   // Load non-imported built-in skills that are configurable, but are default enabled.
@@ -193,7 +203,7 @@ async function agentSkillsFromSystemSettings() {
     if (![...DEFAULT_SKILLS, ..._setting].includes(skillName)) continue;
     const config = SKILL_FILTER_CONFIG[skillName];
     skillFilterState[skillName] = {
-      available: await config.getAvailability(),
+      available: await config.getAvailability(user, options),
       disabledSubSkills: config.disabledSettingKey
         ? safeJsonParse(
             await SystemSettings.getValueOrFallback(

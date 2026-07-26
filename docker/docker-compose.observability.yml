@@ -1,0 +1,83 @@
+name: anythingllm
+
+volumes:
+  athena-prometheus-data:
+  athena-grafana-data:
+  athena-tempo-data:
+  athena-loki-data:
+
+secrets:
+  athena_metrics_token:
+    file: ${ATHENA_METRICS_TOKEN_FILE:?ATHENA_METRICS_TOKEN_FILE is required}
+
+services:
+  anything-llm:
+    environment:
+      ATHENA_OTEL_ENABLED: "true"
+      OTEL_SERVICE_NAME: athena-server
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      ATHENA_METRICS_TOKEN_FILE: /run/secrets/athena_metrics_token
+    secrets:
+      - athena_metrics_token
+    depends_on:
+      otel-collector:
+        condition: service_started
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.1
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./observability/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on: [tempo, loki]
+    networks: [anything-llm]
+
+  prometheus:
+    image: prom/prometheus:v3.4.2
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./observability/prometheus.production.yaml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/alert-rules.yaml:/etc/prometheus/alert-rules.yaml:ro
+      - ./observability/slo-recording-rules.yaml:/etc/prometheus/slo-recording-rules.yaml:ro
+      - athena-prometheus-data:/prometheus
+    secrets: [athena_metrics_token]
+    depends_on: [anything-llm, otel-collector]
+    networks: [anything-llm]
+
+  tempo:
+    image: grafana/tempo:2.8.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
+      - athena-tempo-data:/var/tempo
+    networks: [anything-llm]
+
+  loki:
+    image: grafana/loki:3.5.1
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./observability/loki.yaml:/etc/loki/local-config.yaml:ro
+      - athena-loki-data:/loki
+    networks: [anything-llm]
+
+  grafana:
+    image: grafana/grafana:12.0.2
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${ATHENA_GRAFANA_ADMIN_USER:-athena_admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${ATHENA_GRAFANA_ADMIN_PASSWORD:?ATHENA_GRAFANA_ADMIN_PASSWORD is required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/athena.yaml:ro
+      - athena-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${ATHENA_GRAFANA_PORT:-53000}:3000"
+    depends_on: [prometheus, tempo, loki]
+    networks: [anything-llm]

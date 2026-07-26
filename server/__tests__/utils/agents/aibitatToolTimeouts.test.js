@@ -1,5 +1,6 @@
 const {
   DEFAULT_TOOL_EXECUTION_TIMEOUT_MS,
+  CRYPTO_ACCOUNT_TOOL_EXECUTION_TIMEOUT_MS,
   REQUEST_USER_INPUT_TOOL_EXECUTION_TIMEOUT_MS,
   REQUEST_USER_INPUT_TOOL_NAME,
   toolExecutionTimeoutMs,
@@ -15,6 +16,15 @@ describe("AIbitat tool timeouts", () => {
   it("lets request-user-input wait for the clarification card", () => {
     expect(toolExecutionTimeoutMs(REQUEST_USER_INPUT_TOOL_NAME, {})).toBe(
       REQUEST_USER_INPUT_TOOL_EXECUTION_TIMEOUT_MS
+    );
+  });
+
+  it("lets private crypto tools wait for per-call approval and execution", () => {
+    expect(toolExecutionTimeoutMs("crypto_account_overview", {})).toBe(
+      CRYPTO_ACCOUNT_TOOL_EXECUTION_TIMEOUT_MS
+    );
+    expect(toolExecutionTimeoutMs("crypto_account_activity", {})).toBe(
+      CRYPTO_ACCOUNT_TOOL_EXECUTION_TIMEOUT_MS
     );
   });
 

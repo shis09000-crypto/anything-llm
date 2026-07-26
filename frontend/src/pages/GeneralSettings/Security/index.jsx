@@ -110,6 +110,41 @@ function KeyGovernance() {
     }
   };
 
+  const approveRotation = async (jobId) => {
+    if (!window.confirm("确认以当前管理员身份审批此密钥轮换任务？")) return;
+    setBusy(true);
+    try {
+      const result = await SecurityKeys.approveRotation(jobId);
+      if (!result?.success) throw new Error(result?.error || "审批失败");
+      showToast("轮换审批已记录，审批人与发起人必须不同。", "success");
+      await refresh();
+    } catch (error) {
+      showToast(error?.message || "无法审批轮换任务", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const executeRotation = async (jobId) => {
+    if (
+      !window.confirm(
+        "执行将进入写屏障、重加密和校验流程。确认审批窗口有效并继续？"
+      )
+    )
+      return;
+    setBusy(true);
+    try {
+      const result = await SecurityKeys.executeRotation(jobId);
+      if (!result?.success) throw new Error(result?.reason || result?.error);
+      showToast("密钥轮换已完成并通过校验。", "success");
+      await refresh();
+    } catch (error) {
+      showToast(error?.message || "密钥轮换执行失败", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runtime = status?.runtime;
   const provider = status?.provider;
   const active = status?.registry?.find((item) => item.status === "active");
@@ -193,6 +228,61 @@ function KeyGovernance() {
               ))}
             </div>
           </div>
+
+          {!!status?.rotations?.length && (
+            <div>
+              <p className="mb-2 font-semibold">轮换任务</p>
+              <div className="space-y-2">
+                {status.rotations.slice(0, 8).map((job) => {
+                  const awaitingApproval =
+                    Number(job.requiredApprovals || 0) > 0 && !job.approvedAt;
+                  const executable =
+                    !awaitingApproval &&
+                    !["running", "completed"].includes(job.status);
+                  return (
+                    <div
+                      key={job.jobId}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white/5 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="break-all font-mono text-xs">
+                          {job.jobId}
+                        </p>
+                        <p className="text-xs text-[var(--soft-text-secondary)]">
+                          {job.status} / {job.stage}
+                          {job.approvalExpiresAt
+                            ? ` · 审批截止 ${new Date(job.approvalExpiresAt).toLocaleString()}`
+                            : ""}
+                        </p>
+                      </div>
+                      {unlocked && job.status !== "completed" && (
+                        <div className="flex gap-2">
+                          {awaitingApproval && (
+                            <SoftButton
+                              type="button"
+                              disabled={busy}
+                              onClick={() => approveRotation(job.jobId)}
+                            >
+                              独立审批
+                            </SoftButton>
+                          )}
+                          {executable && (
+                            <SoftButton
+                              type="button"
+                              disabled={busy || runtime?.quarantined}
+                              onClick={() => executeRotation(job.jobId)}
+                            >
+                              执行轮换
+                            </SoftButton>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {!unlocked ? (
             <div className="flex max-w-xl items-end gap-2">

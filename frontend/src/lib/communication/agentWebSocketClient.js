@@ -183,12 +183,27 @@ function stateAllowsFinalize(state) {
   );
 }
 
-async function fetchAgentInvocationState(websocketUUID) {
+async function fetchAgentInvocationState(
+  websocketUUID,
+  { includeEvents = false, afterSeq = 0 } = {}
+) {
   if (!websocketUUID) return null;
+  const query = new URLSearchParams();
+  if (includeEvents) {
+    query.set("includeEvents", "1");
+    query.set("afterSeq", String(Math.max(0, Number(afterSeq) || 0)));
+  }
   const { data } = await requestJson(
-    `/agent-invocation/${websocketUUID}/state`
+    `/agent-invocation/${websocketUUID}/state${
+      query.toString() ? `?${query.toString()}` : ""
+    }`
   );
-  return data?.state || null;
+  return data?.state
+    ? {
+        ...data.state,
+        events: Array.isArray(data.events) ? data.events : [],
+      }
+    : null;
 }
 
 export async function respondToClarificationViaHttp(
@@ -281,6 +296,8 @@ export function createAgentWebSocketSession({
   let socket = null;
   let silenceTimer = null;
   let reconnectTimer = null;
+  let ledgerPollTimer = null;
+  let ledgerPollInFlight = false;
   let emittedStop = false;
   let emittedTurnFinal = false;
   let emittedFinalWithChatId = false;
@@ -412,9 +429,15 @@ export function createAgentWebSocketSession({
     reconnectTimer = null;
   }
 
+  function clearLedgerPollTimer() {
+    if (ledgerPollTimer) clearTimeout(ledgerPollTimer);
+    ledgerPollTimer = null;
+  }
+
   function clearTimers() {
     clearSilenceTimer();
     clearReconnectTimer();
+    clearLedgerPollTimer();
   }
 
   function isTerminal() {
@@ -640,6 +663,44 @@ export function createAgentWebSocketSession({
     }
   }
 
+  function scheduleLedgerPoll(delay = 750) {
+    clearLedgerPollTimer();
+    if (
+      isTerminal() ||
+      session.current === AgentSessionState.STOPPING ||
+      session.current === AgentSessionState.CLOSED
+    ) {
+      return;
+    }
+    ledgerPollTimer = setTimeout(pollLedgerEvents, delay);
+  }
+
+  async function pollLedgerEvents() {
+    ledgerPollTimer = null;
+    if (
+      ledgerPollInFlight ||
+      isTerminal() ||
+      session.current === AgentSessionState.STOPPING
+    ) {
+      return;
+    }
+    ledgerPollInFlight = true;
+    try {
+      const state = await fetchAgentInvocationState(websocketUUID, {
+        includeEvents: true,
+        afterSeq: session.lastEventSeq,
+      });
+      for (const payload of state?.events || []) {
+        handleMessage({ data: JSON.stringify(payload) });
+      }
+    } catch {
+      // The websocket remains primary; polling only recovers missed frames.
+    } finally {
+      ledgerPollInFlight = false;
+      scheduleLedgerPoll();
+    }
+  }
+
   function handleClose() {
     clearSilenceTimer();
     socket = null;
@@ -766,6 +827,7 @@ export function createAgentWebSocketSession({
           scheduleSilenceTimer();
         })
         .catch(() => scheduleSilenceTimer());
+      scheduleLedgerPoll(250);
     });
     socket.addEventListener("message", handleMessage);
     socket.addEventListener("close", handleClose);

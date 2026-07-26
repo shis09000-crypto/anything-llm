@@ -13,14 +13,38 @@ const {
   registerClient,
 } = require("../clientIdentity");
 const { safeJsonParse } = require("../http");
+const {
+  PURPOSES,
+  SUITE_IDS,
+  cryptoSuite,
+  preferredCryptoSuite,
+  keyMetadataForSuite,
+  supportsNodeSignatureSuite,
+  suiteSupportsClient,
+  verifyWithCryptoSuite,
+} = require("../security/cryptoSuiteRegistry");
+const {
+  mlDSA65PublicKey: importMLDSA65PublicKey,
+} = require("../security/postQuantumKeyEncoding");
+const {
+  deviceAttestationMode,
+  validDeviceAttestation,
+} = require("../security/deviceAttestation");
 
-const SIGNATURE_VERSION = "v1";
-const SIGNATURE_PREFIX = "ATHENA-SIGN-V1";
-const DEVICE_SIGNATURE_VERSION = "v2-device-p256";
-const DEVICE_SIGNATURE_PREFIX = "ATHENA-DEVICE-SIGN-V1";
+const HMAC_SIGNATURE_SUITE = cryptoSuite(SUITE_IDS.REQUEST_HMAC_V1, {
+  purpose: PURPOSES.REQUEST_SIGNATURE,
+});
+const DEVICE_SIGNATURE_SUITE = preferredCryptoSuite(PURPOSES.REQUEST_SIGNATURE);
+if (!HMAC_SIGNATURE_SUITE || !DEVICE_SIGNATURE_SUITE)
+  throw new Error("request_signature_crypto_suite_unavailable");
+const SIGNATURE_VERSION = HMAC_SIGNATURE_SUITE.suiteId;
+const SIGNATURE_PREFIX = HMAC_SIGNATURE_SUITE.protocolPrefix;
+const DEVICE_SIGNATURE_VERSION = DEVICE_SIGNATURE_SUITE.suiteId;
+const DEVICE_SIGNATURE_PREFIX = DEVICE_SIGNATURE_SUITE.protocolPrefix;
 const CLIENT_REVOKED_ERROR = "CLIENT_REVOKED";
 const INVALID_SIGNATURE_ERROR = "INVALID_SIGNATURE";
 const SIGNING_SECRET_ROTATED_ERROR = "SIGNING_SECRET_ROTATED";
+const CLIENT_IDENTITY_REAUTH_RECOVERY = "CLIENT_IDENTITY_REAUTH_REQUIRED";
 const DEFAULT_SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_NONCE_TTL_MS = 10 * 60 * 1000;
 const NONCE_CLEANUP_INTERVAL_MS = 60 * 1000;
@@ -37,6 +61,12 @@ const SIGNING_HEADERS = {
   signatureVersion: "X-Athena-Signature-Version",
   devicePublicKey: "X-Athena-Device-Public-Key",
   deviceKeyAlgorithm: "X-Athena-Device-Key-Algorithm",
+  hybridSignatureVersion: "X-Athena-Hybrid-Signature-Version",
+  pqSignature: "X-Athena-PQ-Signature",
+  pqPublicKey: "X-Athena-PQ-Public-Key",
+  pqKeyAlgorithm: "X-Athena-PQ-Key-Algorithm",
+  pqKeyOrigin: "X-Athena-PQ-Key-Origin",
+  pqHardwareProtection: "X-Athena-PQ-Hardware-Protection",
 };
 
 function compactString(value, maxLength = 512) {
@@ -89,6 +119,248 @@ function deviceSignatureRequired() {
 
 function productionRuntime() {
   return process.env.NODE_ENV === "production";
+}
+
+function nativeAppleMobileContext(context = {}) {
+  const platform = String(context.platform || "").toLowerCase();
+  if (!["ios", "ipad"].includes(platform)) return false;
+  const surface = String(
+    context.surface || context.capabilityProfile?.surface || ""
+  ).toLowerCase();
+  // Native clients released before capability profiles did not send a
+  // surface. Browser/PWA clients do, and cannot access the native Secure
+  // Enclave ML-DSA implementation.
+  return !surface || ["mobile-app", "mobileapp"].includes(surface);
+}
+
+function iosHybridRequired(context = {}, client = null) {
+  if (client?.pqPublicKey) return true;
+  if (!nativeAppleMobileContext(context)) return false;
+  if (!productionRuntime()) return false;
+  return process.env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED === "true";
+}
+
+function isDeviceAttestationBootstrapPath(path = "") {
+  const comparablePath = highRiskComparablePath(path);
+  return (
+    /^\/client-identity\/attestation\/(?:challenge|verify)$/.test(
+      comparablePath
+    ) ||
+    comparablePath === "/client-identity/vault-kem-key" ||
+    /^\/client-identity\/device-key-rotation\/(?:prepare|commit)$/.test(
+      comparablePath
+    )
+  );
+}
+
+function iosDeviceAttestationRequired(context = {}, path = "") {
+  return (
+    deviceAttestationMode() === "required" &&
+    nativeAppleMobileContext(context) &&
+    !isDeviceAttestationBootstrapPath(path)
+  );
+}
+
+async function registerClientHybridKEMKey({
+  userId,
+  clientId,
+  publicKey = null,
+  kemPublicKey = null,
+  p256PublicKey,
+  mlDSA65PublicKey,
+  suiteId,
+  keyGeneration = 1,
+  allowRotation = false,
+} = {}) {
+  const suite = cryptoSuite(suiteId, {
+    purpose: PURPOSES.VAULT_DEVICE_AUTHORIZATION,
+  });
+  const normalizedKEMPublicKey = String(kemPublicKey || publicKey || "");
+  const normalizedP256PublicKey = String(p256PublicKey || "");
+  const normalizedMLDSA65PublicKey = String(mlDSA65PublicKey || "");
+  const raw = Buffer.from(normalizedKEMPublicKey, "base64url");
+  const rawP256 = Buffer.from(normalizedP256PublicKey, "base64url");
+  const rawMLDSA65 = Buffer.from(normalizedMLDSA65PublicKey, "base64url");
+  const normalizedKeyGeneration = Number(keyGeneration);
+  let p256Valid = false;
+  let mlDSA65Valid = false;
+  try {
+    p256Valid =
+      rawP256.length === 65 &&
+      rawP256[0] === 0x04 &&
+      crypto.ECDH.convertKey(
+        rawP256,
+        "prime256v1",
+        undefined,
+        undefined,
+        "uncompressed"
+      ).equals(rawP256);
+    mlDSA65Valid = Boolean(importMLDSA65PublicKey(normalizedMLDSA65PublicKey));
+  } catch {}
+  if (
+    !suite ||
+    suite.suiteId !== SUITE_IDS.VAULT_XWING_MLDSA65_V1 ||
+    raw.length !== 1216 ||
+    raw.toString("base64url") !== normalizedKEMPublicKey ||
+    rawMLDSA65.length !== 1952 ||
+    rawMLDSA65.toString("base64url") !== normalizedMLDSA65PublicKey ||
+    !Number.isSafeInteger(normalizedKeyGeneration) ||
+    normalizedKeyGeneration < 1 ||
+    !p256Valid ||
+    !mlDSA65Valid
+  )
+    return { ok: false, reasonCode: "invalid_hybrid_kem_key" };
+  const existing = await getClientRecord({
+    userId,
+    clientId,
+    includeRevoked: true,
+  });
+  if (!existing || existing.revokedAt)
+    return { ok: false, reasonCode: "client_revoked_or_missing" };
+  const existingBinding = [
+    existing.hybridKemPublicKey,
+    existing.vaultSigningP256PublicKey,
+    existing.vaultSigningMLDSA65PublicKey,
+  ];
+  const requestedBinding = [
+    normalizedKEMPublicKey,
+    normalizedP256PublicKey,
+    normalizedMLDSA65PublicKey,
+  ];
+  const currentGeneration = Math.max(
+    Number(existing.vaultKeyGeneration || 0),
+    1
+  );
+  const bindingChanged =
+    existingBinding.some(Boolean) &&
+    existingBinding.some((value, index) => value !== requestedBinding[index]);
+  if (
+    bindingChanged &&
+    (!allowRotation || normalizedKeyGeneration !== currentGeneration + 1)
+  )
+    return { ok: false, reasonCode: "hybrid_kem_key_rotation_required" };
+  if (
+    existingBinding.every(
+      (value, index) => value === requestedBinding[index]
+    ) &&
+    Number(existing.vaultKeyGeneration || 0) > 0
+  )
+    return {
+      ok: normalizedKeyGeneration === currentGeneration,
+      suiteId: suite.suiteId,
+      keyGeneration: currentGeneration,
+      reasonCode:
+        normalizedKeyGeneration === currentGeneration
+          ? undefined
+          : "vault_key_generation_mismatch",
+    };
+  let bound;
+  try {
+    bound = await requestSigningDb.$transaction(async (tx) => {
+      if (bindingChanged) {
+        await tx.vault_device_key_registrations.upsert({
+          where: {
+            userId_clientId_keyGeneration: {
+              userId: Number(userId),
+              clientId: String(clientId),
+              keyGeneration: currentGeneration,
+            },
+          },
+          create: {
+            id: `vkdkr_${crypto.randomUUID()}`,
+            userId: Number(userId),
+            clientId: String(clientId),
+            keyGeneration: currentGeneration,
+            suiteId: existing.vaultSigningSuiteId || suite.suiteId,
+            kemPublicKey: existing.hybridKemPublicKey,
+            p256PublicKey: existing.vaultSigningP256PublicKey,
+            mlDSA65PublicKey: existing.vaultSigningMLDSA65PublicKey,
+            status: "superseded",
+            supersededAt: new Date(),
+          },
+          update: { status: "superseded", supersededAt: new Date() },
+        });
+      }
+      const registration = await tx.vault_device_key_registrations.upsert({
+        where: {
+          userId_clientId_keyGeneration: {
+            userId: Number(userId),
+            clientId: String(clientId),
+            keyGeneration: normalizedKeyGeneration,
+          },
+        },
+        create: {
+          id: `vkdkr_${crypto.randomUUID()}`,
+          userId: Number(userId),
+          clientId: String(clientId),
+          keyGeneration: normalizedKeyGeneration,
+          suiteId: suite.suiteId,
+          kemPublicKey: normalizedKEMPublicKey,
+          p256PublicKey: normalizedP256PublicKey,
+          mlDSA65PublicKey: normalizedMLDSA65PublicKey,
+          status: "active",
+          hardwareProtection: existing.pqPublicKeyHardwareProtection || null,
+        },
+        update: {},
+      });
+      if (
+        registration.suiteId !== suite.suiteId ||
+        registration.kemPublicKey !== normalizedKEMPublicKey ||
+        registration.p256PublicKey !== normalizedP256PublicKey ||
+        registration.mlDSA65PublicKey !== normalizedMLDSA65PublicKey
+      )
+        throw new Error("vault_device_key_generation_conflict");
+      const updated = await tx.athena_clients.updateMany({
+        where: {
+          userId: Number(userId),
+          clientId: String(clientId),
+          revokedAt: null,
+          ...(bindingChanged
+            ? { vaultKeyGeneration: Number(existing.vaultKeyGeneration || 0) }
+            : {
+                hybridKemPublicKey: null,
+                vaultSigningP256PublicKey: null,
+                vaultSigningMLDSA65PublicKey: null,
+              }),
+        },
+        data: {
+          hybridKemPublicKey: normalizedKEMPublicKey,
+          hybridKemSuiteId: suite.suiteId,
+          vaultSigningP256PublicKey: normalizedP256PublicKey,
+          vaultSigningMLDSA65PublicKey: normalizedMLDSA65PublicKey,
+          vaultSigningSuiteId: suite.suiteId,
+          vaultKeyGeneration: normalizedKeyGeneration,
+        },
+      });
+      if (updated.count !== 1)
+        throw new Error("vault_device_key_registration_race");
+      return updated;
+    });
+  } catch (error) {
+    if (error?.message !== "vault_device_key_registration_race") throw error;
+    bound = { count: 0 };
+  }
+  if (bound.count !== 1) {
+    const current = await getClientRecord({
+      userId,
+      clientId,
+      includeRevoked: true,
+    });
+    if (
+      current?.revokedAt ||
+      current?.hybridKemPublicKey !== normalizedKEMPublicKey ||
+      current?.vaultSigningP256PublicKey !== normalizedP256PublicKey ||
+      current?.vaultSigningMLDSA65PublicKey !== normalizedMLDSA65PublicKey ||
+      Number(current?.vaultKeyGeneration || 0) !== normalizedKeyGeneration
+    )
+      return { ok: false, reasonCode: "hybrid_kem_key_rotation_required" };
+  }
+  return {
+    ok: true,
+    suiteId: suite.suiteId,
+    keyGeneration: normalizedKeyGeneration,
+    rotated: bindingChanged,
+  };
 }
 
 function consoleAuditMetadata(request) {
@@ -145,6 +417,15 @@ function signingErrorCode(reasonCode) {
       "signature_mismatch",
       "device_key_mismatch",
       "invalid_device_public_key",
+      "unsupported_device_key_suite",
+      "unsupported_signature_suite",
+      "unsupported_signature_suite_for_client",
+      "post_quantum_signature_required",
+      "post_quantum_signature_incomplete",
+      "unsupported_post_quantum_signature_suite",
+      "unsupported_hybrid_signature_suite",
+      "post_quantum_device_key_mismatch",
+      "post_quantum_signature_mismatch",
     ].includes(reasonCode)
   ) {
     return INVALID_SIGNATURE_ERROR;
@@ -165,8 +446,51 @@ function canonicalPathForRequest(request) {
   return request?.originalUrl || request?.url || "/";
 }
 
+function externalWebSocketPath(value = "/") {
+  const raw = String(value || "/");
+  const queryIndex = raw.indexOf("?");
+  const path = queryIndex >= 0 ? raw.slice(0, queryIndex) : raw;
+  const query = queryIndex >= 0 ? raw.slice(queryIndex) : "";
+  const externalPath = path.endsWith("/.websocket")
+    ? path.slice(0, -"/.websocket".length) || "/"
+    : path || "/";
+  return `${externalPath}${query}`;
+}
+
 function canonicalWebSocketPathForRequest(request) {
-  return canonicalPathForRequest(request).split("?")[0] || "/";
+  // Router-mounted websocket requests can retain a proxy-facing originalUrl
+  // that is not the route view used by the browser. Prefer the active router
+  // URL. express-ws adds one internal /.websocket route sentinel, which is
+  // never part of the client-visible path and must be removed before signing.
+  return (
+    externalWebSocketPath(request?.url || request?.originalUrl || "/").split(
+      "?"
+    )[0] || "/"
+  );
+}
+
+function equivalentWebSocketApiPath(path = "/") {
+  const stablePath = String(path || "/");
+  if (stablePath === "/api") return "/";
+  if (stablePath.startsWith("/api/")) return stablePath.slice(4) || "/";
+  return stablePath === "/" ? "/api" : `/api${stablePath}`;
+}
+
+function canonicalWebSocketPathCandidates(request) {
+  const stablePath = canonicalWebSocketPathForRequest(request);
+  const legacyPath = externalWebSocketPath(canonicalPathForRequest(request));
+  const candidates = [
+    { path: stablePath, mode: "stable_path" },
+    {
+      path: equivalentWebSocketApiPath(stablePath),
+      mode: "api_mount_equivalent_path",
+    },
+    { path: legacyPath, mode: "legacy_query_path" },
+  ];
+  return candidates.filter(
+    (candidate, index) =>
+      candidates.findIndex((entry) => entry.path === candidate.path) === index
+  );
 }
 
 function canonicalSigningString({
@@ -223,15 +547,27 @@ function canonicalPublicKey(value = null) {
 }
 
 function normalizeDeviceKeyAlgorithm(value = null) {
-  const algorithm = compactString(value, 64) || "p256-v1";
-  return new Set(["p256-v1", "p256-software-v1", "p256-secure-enclave-v1"]).has(
-    algorithm
-  )
-    ? algorithm
-    : null;
+  const algorithm = compactString(value, 96) || "p256-v1";
+  return (
+    cryptoSuite(algorithm, { purpose: PURPOSES.DEVICE_KEY })?.suiteId || null
+  );
 }
 
-function verifyDeviceSignature({ publicKey, signingString, signature } = {}) {
+function isDeviceSignatureVersion(value) {
+  return (
+    cryptoSuite(value, { purpose: PURPOSES.REQUEST_SIGNATURE })
+      ?.authentication === "device-bound"
+  );
+}
+
+function verifyDeviceSignature({
+  publicKey,
+  signingString,
+  signature,
+  suite = DEVICE_SIGNATURE_SUITE,
+} = {}) {
+  if (!suite || suite.purpose !== PURPOSES.REQUEST_SIGNATURE) return false;
+  if (!supportsNodeSignatureSuite(suite)) return false;
   const canonicalKey = canonicalPublicKey(publicKey);
   if (!canonicalKey) return false;
   try {
@@ -239,12 +575,12 @@ function verifyDeviceSignature({ publicKey, signingString, signature } = {}) {
       key: JSON.parse(canonicalKey),
       format: "jwk",
     });
-    return crypto.verify(
-      "sha256",
-      Buffer.from(String(signingString)),
-      { key: publicKeyObject, dsaEncoding: "ieee-p1363" },
-      Buffer.from(String(signature || ""), "base64url")
-    );
+    return verifyWithCryptoSuite({
+      suite,
+      data: Buffer.from(String(signingString)),
+      publicKey: publicKeyObject,
+      signature,
+    });
   } catch {
     return false;
   }
@@ -262,6 +598,15 @@ async function ensureClientDevicePublicKey({
   const normalizedAlgorithm = normalizeDeviceKeyAlgorithm(deviceKeyAlgorithm);
   if (!canonicalKey || !normalizedAlgorithm) {
     return { ok: false, reasonCode: "invalid_device_public_key" };
+  }
+  const deviceKeySuite = cryptoSuite(normalizedAlgorithm, {
+    purpose: PURPOSES.DEVICE_KEY,
+  });
+  if (!deviceKeySuite) {
+    return { ok: false, reasonCode: "unsupported_device_key_suite" };
+  }
+  if (!suiteSupportsClient(deviceKeySuite, context?.appVersion)) {
+    return { ok: false, reasonCode: "unsupported_device_key_suite" };
   }
 
   const client = await getClientRecord({
@@ -282,7 +627,12 @@ async function ensureClientDevicePublicKey({
       publicKey: canonicalKey,
       deviceFingerprintVersion: normalizedAlgorithm,
     });
-    return { ok: true, publicKey: canonicalKey, client: null };
+    return {
+      ok: true,
+      publicKey: canonicalKey,
+      client: null,
+      deviceKeySuite,
+    };
   }
   if (!client) return { ok: false, reasonCode: "missing_client" };
   const pendingAllowed =
@@ -300,6 +650,9 @@ async function ensureClientDevicePublicKey({
   }
 
   if (!client.publicKey) {
+    const keyMetadata = keyMetadataForSuite(normalizedAlgorithm, {
+      purpose: PURPOSES.DEVICE_KEY,
+    });
     await requestSigningDb.athena_clients.updateMany({
       where: {
         userId: Number(userId),
@@ -310,7 +663,12 @@ async function ensureClientDevicePublicKey({
       data: {
         publicKey: canonicalKey,
         deviceFingerprintVersion: normalizedAlgorithm,
+        publicKeyAlgorithm: keyMetadata?.algorithm || null,
+        publicKeyParameterSet: keyMetadata?.parameterSet || null,
+        publicKeyOrigin: keyMetadata?.keyOrigin || null,
+        publicKeyHardwareProtection: keyMetadata?.hardwareProtection || null,
         trustLevel: "medium",
+        attestationStatus: "unverified",
       },
     });
   }
@@ -320,6 +678,7 @@ async function ensureClientDevicePublicKey({
     publicKey: canonicalKey,
     client,
     pendingKey: pendingAllowed,
+    deviceKeySuite,
   };
 }
 
@@ -328,13 +687,25 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   const comparablePath = highRiskComparablePath(path);
   if (
     normalizedMethod === "GET" &&
-    /^\/vault\/items\/[^/]+$/.test(comparablePath)
+    (/^\/vault\/items\/[^/]+$/.test(comparablePath) ||
+      comparablePath === "/vault/key-epochs" ||
+      comparablePath === "/vault/device-key-envelopes" ||
+      comparablePath === "/vault/user-root-key" ||
+      comparablePath === "/vault/user-root-key/authorization-targets" ||
+      comparablePath === "/vault/user-root-key/envelopes" ||
+      /^\/vault\/recovery-packages\/[^/]+$/.test(comparablePath))
   ) {
     return true;
   }
   if (
     normalizedMethod === "GET" &&
     /^\/sync\/events\/replay$/.test(comparablePath)
+  ) {
+    return true;
+  }
+  if (
+    normalizedMethod === "GET" &&
+    /^\/vault\/user-domain-wraps(?:\/coverage)?$/.test(comparablePath)
   ) {
     return true;
   }
@@ -356,6 +727,41 @@ function isHighRiskSignedRequest({ method, path } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/client-identity\/device-key-rotation\/(?:prepare|commit)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/client-identity\/(?:vault-kem-key(?:\/rotate)?|crypto-observations)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/client-identity\/attestation\/(?:challenge|verify)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/admin\/security\/keys\/(?:session|preflight|rotations(?:\/[^/]+\/(?:approve|execute))?|recovery\/verify)$/,
+    },
+    {
+      methods: ["POST", "GET"],
+      pattern: /^\/vault\/device-key-envelopes(?:\/[^/]+\/consume)?$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/vault\/user-root-key(?:\/initialize|\/challenge|\/envelopes(?:\/[^/]+\/consume)?)?$/,
+    },
+    {
+      methods: ["POST", "PUT"],
+      pattern: /^\/vault\/user-domain-wraps\/[^/]+(?:\/prepare)?$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/vault\/key-epochs\/(?:rotate|[^/]+\/(?:ack|retire|cancel))$/,
+    },
+    {
+      methods: ["POST", "DELETE"],
+      pattern: /^\/vault\/recovery-packages(?:\/[^/]+)?$/,
     },
     {
       methods: ["POST"],
@@ -509,6 +915,11 @@ function isHighRiskSignedRequest({ method, path } = {}) {
       methods: ["POST"],
       pattern: /^\/workspace\/[^/]+\/thread\/[^/]+\/update$/,
     },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/operations\/actions\/runs(?:\/[^/]+\/(?:approve|reject|execute|reconcile))?$/,
+    },
   ];
   if (
     highRiskRoutes.some(
@@ -613,7 +1024,7 @@ function requestSigningHeaders(request) {
     ),
     signatureVersion: compactString(
       headerValue(request, SIGNING_HEADERS.signatureVersion),
-      32
+      96
     ),
     devicePublicKey: compactString(
       headerValue(request, SIGNING_HEADERS.devicePublicKey),
@@ -621,7 +1032,31 @@ function requestSigningHeaders(request) {
     ),
     deviceKeyAlgorithm: compactString(
       headerValue(request, SIGNING_HEADERS.deviceKeyAlgorithm),
-      64
+      96
+    ),
+    hybridSignatureVersion: compactString(
+      headerValue(request, SIGNING_HEADERS.hybridSignatureVersion),
+      96
+    ),
+    pqSignature: compactString(
+      headerValue(request, SIGNING_HEADERS.pqSignature),
+      8192
+    ),
+    pqPublicKey: compactString(
+      headerValue(request, SIGNING_HEADERS.pqPublicKey),
+      4096
+    ),
+    pqKeyAlgorithm: compactString(
+      headerValue(request, SIGNING_HEADERS.pqKeyAlgorithm),
+      96
+    ),
+    pqKeyOrigin: compactString(
+      headerValue(request, SIGNING_HEADERS.pqKeyOrigin),
+      96
+    ),
+    pqHardwareProtection: compactString(
+      headerValue(request, SIGNING_HEADERS.pqHardwareProtection),
+      96
     ),
   };
 }
@@ -922,10 +1357,20 @@ async function verifySignatureParts({
   const nonce = compactString(signed.nonce, 256);
   const bodySha256 = compactString(signed.bodySha256, 256);
   const signature = compactString(signed.signature, 1024);
-  const signatureVersion = compactString(signed.signatureVersion, 32);
+  const signatureVersion = compactString(signed.signatureVersion, 96);
   const devicePublicKey = compactString(signed.devicePublicKey, 2048);
-  const deviceKeyAlgorithm = compactString(signed.deviceKeyAlgorithm, 64);
+  const deviceKeyAlgorithm = compactString(signed.deviceKeyAlgorithm, 96);
+  const hybridSignatureVersion = compactString(
+    signed.hybridSignatureVersion,
+    96
+  );
+  const pqSignature = compactString(signed.pqSignature, 8192);
+  const pqPublicKey = compactString(signed.pqPublicKey, 4096);
+  const pqKeyAlgorithm = compactString(signed.pqKeyAlgorithm, 96);
 
+  const signatureSuite = cryptoSuite(signatureVersion, {
+    purpose: PURPOSES.REQUEST_SIGNATURE,
+  });
   if (
     !clientId ||
     !requestId ||
@@ -933,9 +1378,13 @@ async function verifySignatureParts({
     !nonce ||
     !bodySha256 ||
     !signature ||
-    ![SIGNATURE_VERSION, DEVICE_SIGNATURE_VERSION].includes(signatureVersion)
+    !signatureVersion
   ) {
     return signingFailure("missing_signature");
+  }
+  if (!signatureSuite) return signingFailure("unsupported_signature_suite");
+  if (!suiteSupportsClient(signatureSuite, context.appVersion)) {
+    return signingFailure("unsupported_signature_suite_for_client");
   }
   if (context.legacy || !context.userId) {
     return signingFailure("missing_authenticated_client");
@@ -963,13 +1412,10 @@ async function verifySignatureParts({
     requestId,
     clientId,
     bodySha256,
-    prefix:
-      signatureVersion === DEVICE_SIGNATURE_VERSION
-        ? DEVICE_SIGNATURE_PREFIX
-        : SIGNATURE_PREFIX,
+    prefix: signatureSuite.protocolPrefix,
   });
 
-  if (signatureVersion === DEVICE_SIGNATURE_VERSION) {
+  if (signatureSuite.authentication === "device-bound") {
     const keyBinding = await ensureClientDevicePublicKey({
       userId: context.userId,
       clientId,
@@ -986,10 +1432,90 @@ async function verifySignatureParts({
         publicKey: keyBinding.publicKey,
         signingString,
         signature,
+        suite: signatureSuite,
       })
     ) {
       return signingFailure("signature_mismatch");
     }
+    const client =
+      keyBinding.client ||
+      (await getClientRecord({
+        userId: context.userId,
+        clientId,
+        includeRevoked: true,
+      }));
+    const pqRequired = iosHybridRequired(context, client, request);
+    const pqSuite = cryptoSuite(pqKeyAlgorithm, {
+      purpose: PURPOSES.REQUEST_SIGNATURE,
+    });
+    const hybridSuite = cryptoSuite(hybridSignatureVersion, {
+      purpose: PURPOSES.REQUEST_SIGNATURE,
+    });
+    const pqHeaderPresent = Boolean(
+      pqSignature || pqPublicKey || pqKeyAlgorithm || hybridSignatureVersion
+    );
+    const completePQEnvelope = Boolean(
+      pqSignature && pqPublicKey && pqKeyAlgorithm && hybridSignatureVersion
+    );
+    if (pqHeaderPresent && !completePQEnvelope)
+      return signingFailure("post_quantum_signature_incomplete");
+    if (pqRequired && !completePQEnvelope)
+      return signingFailure("post_quantum_signature_required");
+    let postQuantumVerified = false;
+    if (completePQEnvelope) {
+      if (pqSuite?.suiteId !== SUITE_IDS.REQUEST_DEVICE_MLDSA65_V1)
+        return signingFailure("unsupported_post_quantum_signature_suite");
+      if (hybridSuite?.suiteId !== SUITE_IDS.DEVICE_HYBRID_P256_MLDSA65_V1)
+        return signingFailure("unsupported_hybrid_signature_suite");
+      if (client?.pqPublicKey && client.pqPublicKey !== pqPublicKey)
+        return signingFailure("post_quantum_device_key_mismatch");
+      let pqValid = false;
+      try {
+        pqValid = verifyWithCryptoSuite({
+          suite: pqSuite,
+          data: Buffer.from(signingString),
+          publicKey: importMLDSA65PublicKey(pqPublicKey),
+          signature: pqSignature,
+        });
+      } catch {}
+      if (!pqValid) return signingFailure("post_quantum_signature_mismatch");
+      if (!client?.pqPublicKey) {
+        const bound = await requestSigningDb.athena_clients.updateMany({
+          where: {
+            userId: Number(context.userId),
+            clientId: String(clientId),
+            revokedAt: null,
+            pqPublicKey: null,
+          },
+          data: {
+            pqPublicKey,
+            pqKeyAlgorithm: pqSuite.suiteId,
+            pqPublicKeyParameterSet: pqSuite.parameterSet,
+            pqPublicKeyOrigin: `client-asserted:${compactString(signed.pqKeyOrigin, 72) || "unknown"}`,
+            pqPublicKeyHardwareProtection: `client-asserted:${compactString(signed.pqHardwareProtection, 72) || "not-attested"}`,
+            attestationStatus: "unverified",
+          },
+        });
+        if (bound.count !== 1) {
+          const current = await getClientRecord({
+            userId: context.userId,
+            clientId,
+            includeRevoked: true,
+          });
+          if (current?.pqPublicKey !== pqPublicKey)
+            return signingFailure("post_quantum_device_key_mismatch");
+        }
+      }
+      postQuantumVerified = true;
+    }
+    const attestationVerified = validDeviceAttestation(client);
+    if (
+      iosDeviceAttestationRequired(context, canonicalPath) &&
+      !attestationVerified
+    )
+      return signingFailure("device_attestation_required");
+    signed.deviceAttestationVerified = attestationVerified;
+    signed.postQuantumVerified = postQuantumVerified;
   } else {
     const secretRecord = await clientSigningSecret({
       userId: context.userId,
@@ -1019,6 +1545,10 @@ async function verifySignatureParts({
     clientContext: context,
     requestId,
     signatureVersion,
+    cryptoSuiteId: signatureSuite.suiteId,
+    hybridSignatureVersion: hybridSignatureVersion || null,
+    postQuantumVerified: signed.postQuantumVerified === true,
+    deviceAttestationVerified: signed.deviceAttestationVerified === true,
   };
 }
 
@@ -1070,7 +1600,7 @@ async function requireSignedHighRiskRequest(request, response, next) {
   if (
     result.ok &&
     deviceSignatureRequired() &&
-    result.signatureVersion !== DEVICE_SIGNATURE_VERSION
+    !isDeviceSignatureVersion(result.signatureVersion)
   ) {
     const rejected = {
       ok: false,
@@ -1103,9 +1633,18 @@ async function requireSignedHighRiskRequest(request, response, next) {
       .json({ success: false, error: CLIENT_REVOKED_ERROR });
   }
   if (errorCode === INVALID_SIGNATURE_ERROR) {
-    return response
-      .status(401)
-      .json({ success: false, error: INVALID_SIGNATURE_ERROR });
+    const reauthenticationRequired = [
+      "device_key_mismatch",
+      "post_quantum_device_key_mismatch",
+    ].includes(result.reasonCode);
+    return response.status(401).json({
+      success: false,
+      error: INVALID_SIGNATURE_ERROR,
+      reason: result.reasonCode,
+      ...(reauthenticationRequired
+        ? { recovery: CLIENT_IDENTITY_REAUTH_RECOVERY }
+        : {}),
+    });
   }
 
   return response
@@ -1122,9 +1661,9 @@ function parseSocketMessage(rawMessage) {
   }
   if (
     parsed.type === "athenaSignedMessage" &&
-    [SIGNATURE_VERSION, DEVICE_SIGNATURE_VERSION].includes(
-      parsed.signatureVersion
-    ) &&
+    cryptoSuite(parsed.signatureVersion, {
+      purpose: PURPOSES.REQUEST_SIGNATURE,
+    }) &&
     parsed.signed &&
     Object.prototype.hasOwnProperty.call(parsed, "payload")
   ) {
@@ -1151,37 +1690,23 @@ async function verifySignedWebSocketMessage(request, rawMessage) {
   }
 
   const payloadString = JSON.stringify(parsed.payload ?? null);
-  const stableCanonicalPath = canonicalWebSocketPathForRequest(request);
-  const legacyCanonicalPath = canonicalPathForRequest(request);
   const signed = {
     ...parsed.envelope.signed,
     signatureVersion: parsed.envelope.signatureVersion,
   };
-  let result = await verifySignatureParts({
-    request,
-    method: "WS",
-    canonicalPath: stableCanonicalPath,
-    bodyString: payloadString,
-    signed,
-  });
-  let canonicalPathMode = "stable_path";
-
-  if (
-    !result.ok &&
-    result.reasonCode === "signature_mismatch" &&
-    legacyCanonicalPath !== stableCanonicalPath
-  ) {
-    const legacyResult = await verifySignatureParts({
+  const candidates = canonicalWebSocketPathCandidates(request);
+  let result;
+  let canonicalPathMode = candidates[0].mode;
+  for (const candidate of candidates) {
+    result = await verifySignatureParts({
       request,
       method: "WS",
-      canonicalPath: legacyCanonicalPath,
+      canonicalPath: candidate.path,
       bodyString: payloadString,
       signed,
     });
-    if (legacyResult.ok) {
-      result = legacyResult;
-      canonicalPathMode = "legacy_query_path";
-    }
+    canonicalPathMode = candidate.mode;
+    if (result.ok || result.reasonCode !== "signature_mismatch") break;
   }
   await recordSigningAudit(request, result, {
     transport: "websocket",
@@ -1199,6 +1724,7 @@ module.exports = {
   SIGNATURE_VERSION,
   DEVICE_SIGNATURE_VERSION,
   CLIENT_REVOKED_ERROR,
+  CLIENT_IDENTITY_REAUTH_RECOVERY,
   INVALID_SIGNATURE_ERROR,
   SIGNING_SECRET_ROTATED_ERROR,
   DEVICE_SIGNATURE_PREFIX,
@@ -1210,7 +1736,9 @@ module.exports = {
   signingErrorCode,
   hmacBase64Url,
   isHighRiskSignedRequest,
+  isDeviceSignatureVersion,
   normalizeDeviceKeyAlgorithm,
+  registerClientHybridKEMKey,
   requireSignedHighRiskRequest,
   rotateAllSigningSecrets,
   rotateSigningSecret,
@@ -1218,4 +1746,10 @@ module.exports = {
   signingWarnOnly,
   verifySignedRequest,
   verifySignedWebSocketMessage,
+  _hybridInternals: {
+    iosDeviceAttestationRequired,
+    iosHybridRequired,
+    isDeviceAttestationBootstrapPath,
+    nativeAppleMobileContext,
+  },
 };

@@ -395,7 +395,7 @@ If the user asks about book structure, reading order, timeline, person relations
     this.aibitat.agent(WORKSPACE_AGENT.name, workspaceAgentDef);
 
     this.#funcsToLoad = [
-      ...(await agentSkillsFromSystemSettings()),
+      ...(await agentSkillsFromSystemSettings(user)),
       ...ImportedPlugin.activeImportedPlugins(),
       ...AgentFlows.activeFlowPlugins(),
       ...(await new MCPCompatibilityLayer().activeMCPServers()),
@@ -565,9 +565,12 @@ If the user asks about book structure, reading order, timeline, person relations
 
     // Override tools if specified (e.g., for scheduled jobs with per-job tool selection)
     if (args.toolOverrides) {
-      this.#funcsToLoad = args.toolOverrides;
+      const currentlyAvailable = new Set(this.#funcsToLoad);
+      this.#funcsToLoad = args.toolOverrides.filter((name) =>
+        currentlyAvailable.has(name)
+      );
       const agentDef = this.aibitat.agents.get("@agent");
-      if (agentDef) agentDef.functions = args.toolOverrides;
+      if (agentDef) agentDef.functions = this.#funcsToLoad;
     }
 
     // Attach all required plugins for functions to operate.

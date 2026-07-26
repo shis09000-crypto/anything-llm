@@ -268,14 +268,16 @@ const System = {
 
   /**
    * Checks if the onboarding is complete.
-   * @returns {Promise<boolean>}
+   * `null` means the server could not answer. Callers must not interpret a
+   * transient outage as an incomplete installation.
+   * @returns {Promise<boolean|null>}
    */
   isOnboardingComplete: async function () {
     return await getJson("/onboarding", {
       communicationScene: "onboarding",
     })
       .then(({ data }) => data.onboardingComplete)
-      .catch(() => false);
+      .catch(() => null);
   },
   /**
    * Marks the onboarding as complete.
@@ -302,8 +304,9 @@ const System = {
         if (results) {
           systemKeysCache = results;
           systemKeysCacheAt = Date.now();
+          return results;
         }
-        return results;
+        return systemKeysCache;
       })
       .finally(() => {
         systemKeysInflight = null;
@@ -1602,6 +1605,20 @@ const System = {
     })
       .then(({ data }) => data?.available ?? false)
       .catch(() => false);
+  },
+
+  cryptoAccountAgentStatus: async function () {
+    return getJson("/agent-skills/crypto-account-agent/status", {
+      communicationScene: "workspace-chat",
+    })
+      .then(({ data }) => data)
+      .catch(() => ({
+        registered: true,
+        available: false,
+        approvalRequired: true,
+        schedulable: false,
+        provider: "gate",
+      }));
   },
 
   experimentalFeatures: {

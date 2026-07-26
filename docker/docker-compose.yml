@@ -22,6 +22,7 @@ services:
       - no-new-privileges:true
     volumes:
       - "./.env:/app/server/.env"
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
       - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
@@ -31,7 +32,12 @@ services:
     env_file:
       - .env
     environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_COLLECTOR_INLINE: "false"
+      ATHENA_REQUIRE_NODE24_PQ_PROBE: "true"
+      ATHENA_IOS_HIGH_RISK_PQ_REQUIRED: "true"
+      ATHENA_IOS_MIN_SUPPORTED_APP_VERSION: "2.4.0"
+      ATHENA_IOS_RECOMMENDED_APP_VERSION: "2.4.0"
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
     networks:
       - anything-llm
@@ -68,6 +74,8 @@ services:
       APP_ENV: ${APP_ENV:-production}
       ATHENA_RUNTIME_ROLE: collector
       ATHENA_COLLECTOR_GUARD_V2: "true"
+      ATHENA_COLLECTOR_IPC_REPLAY_WINDOW_MS: ${ATHENA_COLLECTOR_IPC_REPLAY_WINDOW_MS:-300000}
+      ATHENA_COLLECTOR_LEGACY_PAYLOAD_DECRYPT: ${ATHENA_COLLECTOR_LEGACY_PAYLOAD_DECRYPT:-false}
       COLLECTOR_PORT: 8888
       COLLECTOR_BIND_HOST: 0.0.0.0
       COLLECTOR_PRIVATE_NETWORK_ALLOWLIST: ${COLLECTOR_PRIVATE_NETWORK_ALLOWLIST:-}

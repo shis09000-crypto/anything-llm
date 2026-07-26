@@ -55,6 +55,24 @@ function generatePendingKey(purpose = SERVER_DATA_PURPOSE) {
   return activeProvider.generatePendingKey(purpose);
 }
 
+function keyState(keyId, purpose = SERVER_DATA_PURPOSE) {
+  if (purpose !== SERVER_DATA_PURPOSE) {
+    throw new Error(`Unsupported key purpose: ${purpose}`);
+  }
+  const activeProvider = keyProvider();
+  if (typeof activeProvider.keyState === "function") {
+    return activeProvider.keyState(keyId, purpose);
+  }
+  const descriptor = resolveKey(keyId, purpose);
+  return descriptor
+    ? {
+        keyId: descriptor.keyId,
+        status: descriptor.status,
+        materialPresent: Boolean(descriptor.material),
+      }
+    : null;
+}
+
 function activateKey(keyId, purpose = SERVER_DATA_PURPOSE) {
   const activeProvider = keyProvider();
   if (typeof activeProvider.activateKey !== "function") {
@@ -70,7 +88,18 @@ function activateKey(keyId, purpose = SERVER_DATA_PURPOSE) {
   return activated;
 }
 
-function retireKey(keyId, purpose = SERVER_DATA_PURPOSE) {
+function retireKey(
+  keyId,
+  purpose = SERVER_DATA_PURPOSE,
+  retirementProof = null,
+  closureProof = null
+) {
+  const {
+    assertPlatformKeyRetirementProof,
+  } = require("../userDomainRetirementGuard");
+  const { assertKeyClosureRetirementProof } = require("../keyClosure");
+  assertPlatformKeyRetirementProof(retirementProof, keyId);
+  assertKeyClosureRetirementProof(closureProof, keyId);
   const activeProvider = keyProvider();
   if (typeof activeProvider.retireKey !== "function") {
     const error = new Error("key_provider_read_only");
@@ -84,10 +113,11 @@ function health() {
   return keyProvider().health();
 }
 
-function verifyKeyCustodyRoundTrip() {
-  const active = resolveActiveKey();
-  const recovered = resolveKey(active.keyId);
-  if (!recovered?.material?.equals(active.material)) {
+function verifyKeyCustodyRoundTrip(keyId = null) {
+  const descriptor = keyId ? resolveKey(keyId) : resolveActiveKey();
+  if (!descriptor?.material) throw new Error("key_custody_key_unavailable");
+  const recovered = resolveKey(descriptor.keyId);
+  if (!recovered?.material?.equals(descriptor.material)) {
     throw new Error("key_custody_recovery_lookup_failed");
   }
   const iv = crypto.randomBytes(12);
@@ -111,8 +141,9 @@ function verifyKeyCustodyRoundTrip() {
     throw new Error("key_custody_round_trip_failed");
   }
   return {
-    keyId: active.keyId,
-    providerType: active.providerType,
+    keyId: descriptor.keyId,
+    status: descriptor.status || null,
+    providerType: descriptor.providerType,
     roundTrip: true,
   };
 }
@@ -123,6 +154,7 @@ module.exports = {
   generatePendingKey,
   health,
   keyProvider,
+  keyState,
   resetKeyProviderForTests,
   resolveActiveKey,
   resolveKey,

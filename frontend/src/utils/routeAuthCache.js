@@ -18,11 +18,24 @@ export function routeAuthCacheKey({
 
 export function readRouteAuthCache(
   key,
-  { now = Date.now(), ttlMs = ROUTE_AUTH_CACHE_TTL_MS } = {}
+  { now = Date.now(), ttlMs = ROUTE_AUTH_CACHE_TTL_MS, allowStale = false } = {}
 ) {
   if (!key || routeAuthCache?.key !== key) return null;
-  if (now - routeAuthCache.storedAt > ttlMs) return null;
+  if (!allowStale && now - routeAuthCache.storedAt > ttlMs) return null;
   return routeAuthCache.value;
+}
+
+export function preserveRouteAuthOnTransient(key, result) {
+  if (!result?.authUnavailable) return result;
+  const stale = readRouteAuthCache(key, { allowStale: true });
+  if (!stale?.isAuthd) return result;
+  return {
+    ...stale,
+    authUnavailable: false,
+    reconnecting: true,
+    mode: `${stale.mode || "authenticated"}-reconnecting`,
+    cacheable: false,
+  };
 }
 
 export function clearRouteAuthCache() {

@@ -18,6 +18,13 @@ const DATA_SECURITY_LEVELS = Object.freeze({
   S4: "S4",
 });
 
+const CONFIDENTIALITY_HORIZONS = Object.freeze({
+  LESS_THAN_ONE_YEAR: "less-than-1-year",
+  ONE_TO_FIVE_YEARS: "1-to-5-years",
+  FIVE_TO_TEN_YEARS: "5-to-10-years",
+  TEN_YEARS_OR_MORE: "10-years-or-more",
+});
+
 const CLASSIFICATION_LEVEL_MAP = Object.freeze({
   public: DATA_SECURITY_LEVELS.S0,
   internal: DATA_SECURITY_LEVELS.S1,
@@ -103,6 +110,8 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   iosPushToken: DATA_ACCESS_CLASSIFICATIONS.secret,
   mobile: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   nodeSupplement: DATA_ACCESS_CLASSIFICATIONS.user,
+  chatStreamRun: DATA_ACCESS_CLASSIFICATIONS.sensitive,
+  operationsAction: DATA_ACCESS_CLASSIFICATIONS.sensitive,
   quiz: DATA_ACCESS_CLASSIFICATIONS.user,
   readerLibrary: DATA_ACCESS_CLASSIFICATIONS.user,
   "reader-library": DATA_ACCESS_CLASSIFICATIONS.user,
@@ -133,6 +142,33 @@ const DOMAIN_CLASSIFICATIONS = Object.freeze({
   workspaceSupplement: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceThread: DATA_ACCESS_CLASSIFICATIONS.user,
   workspaceVisualAsset: DATA_ACCESS_CLASSIFICATIONS.user,
+});
+
+const CLASSIFICATION_CONFIDENTIALITY_HORIZONS = Object.freeze({
+  public: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  internal: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  user: CONFIDENTIALITY_HORIZONS.FIVE_TO_TEN_YEARS,
+  sensitive: CONFIDENTIALITY_HORIZONS.TEN_YEARS_OR_MORE,
+  secret: CONFIDENTIALITY_HORIZONS.TEN_YEARS_OR_MORE,
+  ephemeral: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+});
+
+// These overrides express how long a captured ciphertext would remain useful
+// to an attacker. They are not retention periods and do not extend storage.
+const DOMAIN_CONFIDENTIALITY_HORIZONS = Object.freeze({
+  athenaMutationReceipt: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  documentEmbeddingBatch: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  documentIndexStatus: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  documentSyncQueue: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  documentSyncRun: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  eventLog: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  iosPushToken: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  scheduledJob: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  syncEvent: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  syncV2: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
+  systemPatrol: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  telemetry: CONFIDENTIALITY_HORIZONS.LESS_THAN_ONE_YEAR,
+  userState: CONFIDENTIALITY_HORIZONS.ONE_TO_FIVE_YEARS,
 });
 
 const USER_STATE_NAMESPACE_POLICIES = Object.freeze({
@@ -244,10 +280,14 @@ function securityLevelForClassification(classification = "") {
 function dataHandlingPolicy(domain = "") {
   const classification = domainClassification(domain);
   const securityLevel = securityLevelForClassification(classification);
+  const confidentialityHorizon =
+    DOMAIN_CONFIDENTIALITY_HORIZONS[String(domain)] ||
+    CLASSIFICATION_CONFIDENTIALITY_HORIZONS[classification];
   return {
     domain: String(domain || "unknown"),
     classification,
     securityLevel,
+    confidentialityHorizon,
     ...DATA_HANDLING_POLICIES[securityLevel],
   };
 }
@@ -379,10 +419,13 @@ function isStaleRevision({ currentRevision = null, incomingRevision = null }) {
 
 module.exports = {
   CLASSIFICATION_LEVEL_MAP,
+  CLASSIFICATION_CONFIDENTIALITY_HORIZONS,
+  CONFIDENTIALITY_HORIZONS,
   DATA_ACCESS_CLASSIFICATIONS,
   DATA_HANDLING_POLICIES,
   DATA_SECURITY_LEVELS,
   DOMAIN_CLASSIFICATIONS,
+  DOMAIN_CONFIDENTIALITY_HORIZONS,
   SENSITIVE_FIELD_KEY,
   USER_STATE_NAMESPACE_POLICIES,
   accessAuditEnvelope,

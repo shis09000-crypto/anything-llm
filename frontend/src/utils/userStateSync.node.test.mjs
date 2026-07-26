@@ -162,3 +162,31 @@ test("originating browser self-heals a legacy local draft envelope", async () =>
   assert.equal(writes[0].value.text, "legacy text");
   assert.equal(writes[0].version, "3");
 });
+
+test("a submitted prompt tombstone rejects a slow stale remote hydration", async () => {
+  let resolveRemote;
+  const remoteGate = new Promise((resolve) => {
+    resolveRemote = resolve;
+  });
+  const sync = await loadSync({
+    getUserStates: async () => await remoteGate,
+  });
+
+  const hydration = sync.hydratePromptDraft("thread:ws-a:thread-a", "cleared");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  sync.clearPromptDraft("thread:ws-a:thread-a");
+  resolveRemote([
+    {
+      namespace: "chat.draft",
+      scope: "thread:ws-a:thread-a",
+      updatedAt: new Date(Date.now() - 1_000).toISOString(),
+      value: {
+        text: "already submitted prompt",
+        updatedAt: Date.now() - 1_000,
+        expiresAt: Date.now() + 60_000,
+      },
+    },
+  ]);
+
+  assert.equal(await hydration, "cleared");
+});

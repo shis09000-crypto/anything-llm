@@ -11,10 +11,12 @@ const CRYPTO_IMPLEMENTATION_ALLOWLIST = new Set([
   "server/utils/security/keyLifecycle.js",
   "server/utils/security/keyRotation.js",
   "server/utils/security/mixedKeyDatabaseRecovery.js",
+  "server/utils/security/userDomainWrapping.js",
   "server/utils/EncryptionManager/index.js",
   "server/scripts/athena-keyctl.js",
   "server/scripts/recover-document-store-encryption.js",
   "server/scripts/migrate-chat-history-serial-encryption.js",
+  "server/scripts/verify-user-domain-wrap-e2e.js",
 ]);
 
 function isCryptoImplementationAllowed(rel) {

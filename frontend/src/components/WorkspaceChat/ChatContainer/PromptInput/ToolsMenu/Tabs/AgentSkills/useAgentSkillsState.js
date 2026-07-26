@@ -21,6 +21,7 @@ export default function useAgentSkillsState(defaultSkills) {
   // Core skill state
   const [fileSystemAgentAvailable, setFileSystemAgentAvailable] =
     useState(false);
+  const [cryptoAccountAvailable, setCryptoAccountAvailable] = useState(false);
   const [disabledDefaults, setDisabledDefaults] = useState([]);
   const [enabledConfigurable, setEnabledConfigurable] = useState([]);
   const [settings, setSettings] = useState({});
@@ -42,18 +43,24 @@ export default function useAgentSkillsState(defaultSkills) {
   async function fetchSkillSettings() {
     try {
       const subSkillPrefKeys = getSubSkillPreferenceKeys();
-      const [prefs, flowsRes, fsAgentAvailable, systemSettings] =
-        await Promise.all([
-          Admin.systemPreferencesByFields([
-            "disabled_agent_skills",
-            "default_agent_skills",
-            "imported_agent_skills",
-            ...subSkillPrefKeys,
-          ]),
-          AgentFlows.listFlows(),
-          System.isFileSystemAgentAvailable(),
-          System.keys(),
-        ]);
+      const [
+        prefs,
+        flowsRes,
+        fsAgentAvailable,
+        systemSettings,
+        cryptoAccountStatus,
+      ] = await Promise.all([
+        Admin.systemPreferencesByFields([
+          "disabled_agent_skills",
+          "default_agent_skills",
+          "imported_agent_skills",
+          ...subSkillPrefKeys,
+        ]),
+        AgentFlows.listFlows(),
+        System.isFileSystemAgentAvailable(),
+        System.keys(),
+        System.cryptoAccountAgentStatus(),
+      ]);
 
       if (prefs?.settings) {
         setDisabledDefaults(prefs.settings.disabled_agent_skills ?? []);
@@ -68,6 +75,7 @@ export default function useAgentSkillsState(defaultSkills) {
       setSettings(systemSettings || {});
       if (flowsRes?.flows) setFlows(flowsRes.flows);
       setFileSystemAgentAvailable(fsAgentAvailable);
+      setCryptoAccountAvailable(cryptoAccountStatus?.available === true);
     } catch (e) {
       console.error(e);
     } finally {
@@ -186,6 +194,7 @@ export default function useAgentSkillsState(defaultSkills) {
   return {
     // State
     fileSystemAgentAvailable,
+    cryptoAccountAvailable,
     disabledDefaults,
     enabledConfigurable,
     importedSkills,

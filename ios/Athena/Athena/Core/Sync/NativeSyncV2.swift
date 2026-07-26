@@ -417,7 +417,7 @@ final class NativeSyncV2Coordinator {
                 NativeSyncV2Manifest.self,
                 path: manifestPath,
                 authorization: .required,
-                signing: .whenAvailable,
+                signing: .required,
                 retryOnConnectionLoss: true
             )
             let manifestNodes = manifest.unchanged == true
@@ -585,7 +585,7 @@ final class NativeSyncV2Coordinator {
                     path: "/api/sync/v2/mutations:batch",
                     body: NativeSyncV2MutationBatchRequest(mutations: batch),
                     authorization: .required,
-                    signing: .whenAvailable,
+                    signing: .required,
                     retryOnConnectionLoss: true
                 )
             } catch APIClientError.httpStatus(let status, let code, let message) where
@@ -684,7 +684,7 @@ final class NativeSyncV2Coordinator {
                     URLQueryItem(name: "limit", value: "200"),
                 ],
                 authorization: .required,
-                signing: .whenAvailable,
+                signing: .required,
                 retryOnConnectionLoss: true
             )
             if page.requiresFullSync {
@@ -692,7 +692,7 @@ final class NativeSyncV2Coordinator {
                     NativeSyncV2Manifest.self,
                     path: "/api/sync/v2/manifest",
                     authorization: .required,
-                    signing: .whenAvailable
+                    signing: .required
                 )
                 _ = try await applyRequests(manifest.nodes.filter {
                     $0.hydration != "lazy"
@@ -729,7 +729,7 @@ final class NativeSyncV2Coordinator {
                 path: "/api/sync/v2/nodes:batchGet",
                 body: NativeSyncV2BatchRequest(nodes: batch),
                 authorization: .required,
-                signing: .whenAvailable,
+                signing: .required,
                 retryOnConnectionLoss: true
             )
             nodes.append(contentsOf: response.nodes)
@@ -823,7 +823,7 @@ final class NativeSyncV2Coordinator {
             path: "/api/sync/v2/cursor",
             body: NativeSyncV2CursorRequest(lastAppliedSeq: cursor),
             authorization: .required,
-            signing: .whenAvailable
+            signing: .required
         )
         syncCursorAcks += 1
     }

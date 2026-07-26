@@ -71,6 +71,8 @@ const ScheduledJob = {
     tools = null,
     schedule,
     capabilityManifest = {},
+    ownerUserId = null,
+    ownerAuthUserId = null,
   } = {}) {
     try {
       const nextRunAt = this.computeNextRunAt(schedule);
@@ -80,6 +82,8 @@ const ScheduledJob = {
           prompt: String(prompt),
           tools: tools ? JSON.stringify(tools) : null,
           capabilityManifest: JSON.stringify(capabilityManifest || {}),
+          ownerUserId: ownerUserId ? Number(ownerUserId) : null,
+          ownerAuthUserId: ownerAuthUserId ? Number(ownerAuthUserId) : null,
           schedule: String(schedule),
           nextRunAt,
         },
@@ -262,7 +266,7 @@ const ScheduledJob = {
    *   items: Array<{ id: string, name: string, description?: string, requiresSetup?: boolean }>
    * }[]>}
    */
-  availableTools: async function () {
+  availableTools: async function (user = null) {
     const AgentPlugins = require("../utils/agents/aibitat/plugins");
     const ImportedPlugin = require("../utils/agents/imported");
     const { AgentFlows } = require("../utils/agentFlows");
@@ -386,6 +390,31 @@ const ScheduledJob = {
         description: subPlugin.description || null,
       }));
     };
+
+    if (user) {
+      const {
+        agentSkillsFromSystemSettings,
+      } = require("../utils/agents/defaults");
+      const enabledFunctions = new Set(
+        await agentSkillsFromSystemSettings(user)
+      );
+      const privateItems = buildSubSkillItems(
+        "cryptoAccountAgent",
+        "crypto_account"
+      ).filter((item) => enabledFunctions.has(item.id));
+      if (privateItems.length) {
+        categories.push({
+          category: "crypto-account-agent",
+          name: "加密账户信息（需预批准）",
+          approvalRequired: true,
+          items: privateItems.map((item) => ({
+            ...item,
+            approvalRequired: true,
+            approvalClass: "account-private-read",
+          })),
+        });
+      }
+    }
 
     // Filesystem Agent (has sub-skills)
     const filesystemItems = buildSubSkillItems("filesystemAgent", "filesystem");

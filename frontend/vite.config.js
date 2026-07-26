@@ -96,9 +96,25 @@ export default defineConfig({
             proxyReq.setHeader("origin", apiProxyTargetUrl.origin)
             proxyReq.setHeader("referer", `${apiProxyTargetUrl.origin}/`)
           })
-          proxy.on("error", (error) => {
+          proxy.on("error", (error, _request, response) => {
             console.error(
               `[vite:api-proxy] ${apiProxyTarget} failed: ${error?.message || error}`
+            )
+            if (
+              typeof response?.writeHead !== "function" ||
+              response.headersSent ||
+              response.writableEnded
+            )
+              return
+            response.writeHead(502, {
+              "Content-Type": "application/json; charset=utf-8",
+              "Cache-Control": "no-store"
+            })
+            response.end(
+              JSON.stringify({
+                success: false,
+                error: "development_api_proxy_unavailable"
+              })
             )
           })
         }

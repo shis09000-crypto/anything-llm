@@ -67,6 +67,9 @@ function archivePayload({ entries, checkpoint }) {
           keyId: checkpoint.keyId,
           publicKey: checkpoint.publicKey,
           signature: checkpoint.signature,
+          signatureEnvelope: checkpoint.signatureEnvelopeJson
+            ? JSON.parse(checkpoint.signatureEnvelopeJson)
+            : null,
           createdAt: checkpoint.createdAt,
         },
         entries: entries.map((entry) => ({

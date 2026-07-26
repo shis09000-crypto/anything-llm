@@ -8,6 +8,7 @@ let keyProvider;
 let health;
 let keyGovernanceStatus;
 let prepareRotation;
+let reconcileProviderWithRegistry;
 let runSecurityPreflight;
 let recoverMixedKeyDatabase;
 let executeRotationJob;
@@ -32,12 +33,15 @@ Usage:
   node server/scripts/athena-keyctl.js bootstrap [--apply --execute --env development|production]
   node server/scripts/athena-keyctl.js preflight
   node server/scripts/athena-keyctl.js verify
+  node server/scripts/athena-keyctl.js reconcile [--apply --execute --env development|production]
   node server/scripts/athena-keyctl.js rotate [--apply --execute --env development|production --recovery-bundle <path>]
   node server/scripts/athena-keyctl.js recover --apply --execute --env development|production --recovery-bundle <path>
   node server/scripts/athena-keyctl.js recover-mixed-db --candidate-source <path> [--apply --execute --env development|production --backup <path>]
 
 Rotation and recovery require ATHENA_KEY_RECOVERY_PASSPHRASE. Key material is
-never printed. Commands that mutate provider or registry state require --apply.`;
+never printed. Commands that mutate provider or registry state require --apply.
+Production rotation must use the authenticated maker-checker admin API; the CLI
+cannot bypass approval or execution ownership.`;
 }
 
 function recoveryPassphrase() {
@@ -128,6 +132,7 @@ async function main() {
     "rotate",
     "recover",
     "recover-mixed-db",
+    "reconcile",
   ].includes(command);
   await bootstrapCliRuntime({
     access: writeCommand && apply ? "write" : "read",
@@ -138,6 +143,7 @@ async function main() {
   ({
     keyGovernanceStatus,
     prepareRotation,
+    reconcileProviderWithRegistry,
     runSecurityPreflight,
   } = require("../utils/security/keyLifecycle"));
   recoverMixedKeyDatabase =
@@ -193,11 +199,34 @@ async function main() {
     });
     const fullCoverage =
       command === "verify" ? await verifyAllKeyDomains() : null;
+    const success =
+      !result.quarantined && (fullCoverage ? fullCoverage.ok : true);
     safeOutput({
-      success: !result.quarantined,
+      success,
       runtime: result,
       ...(fullCoverage ? { fullCoverage } : {}),
     });
+    if (!success) process.exitCode = 1;
+    return;
+  }
+
+  if (command === "reconcile") {
+    const result = await reconcileProviderWithRegistry({ apply });
+    if (!apply) {
+      safeOutput({
+        ...result,
+        requestedApply,
+        instruction:
+          requestedApply && !execute
+            ? "Repeat with explicit APP_ENV or --env plus --execute to mutate."
+            : null,
+      });
+      return;
+    }
+    const runtime = await runSecurityPreflight({
+      runtimeRole: "keyctl-reconcile",
+    });
+    safeOutput({ ...result, runtime });
     return;
   }
 
@@ -219,6 +248,12 @@ async function main() {
       return;
     }
     if (!bundlePath) throw new Error("--recovery-bundle is required.");
+    if (
+      String(process.env.APP_ENV || process.env.NODE_ENV).toLowerCase() ===
+      "production"
+    ) {
+      throw new Error("key_rotation_production_dual_control_api_required");
+    }
     const provider = keyProvider();
     if (typeof provider.exportRecoveryState !== "function") {
       throw new Error("key_provider_does_not_support_local_recovery_export");

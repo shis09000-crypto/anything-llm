@@ -2,8 +2,14 @@ const fs = require("fs");
 const http2 = require("http2");
 const jwt = require("jsonwebtoken");
 const { DataAccessCenter } = require("../dataAccess");
+const {
+  PURPOSES,
+  preferredCryptoSuite,
+} = require("../security/cryptoSuiteRegistry");
 
 const IOSPushToken = DataAccessCenter.iosPushToken;
+const APNS_JWT_SUITE = preferredCryptoSuite(PURPOSES.APNS_PROVIDER_JWT);
+if (!APNS_JWT_SUITE) throw new Error("apns_jwt_crypto_suite_unavailable");
 
 const pendingByUser = new Map();
 const activeDeliveries = new Set();
@@ -47,9 +53,9 @@ function providerToken(config) {
   }
   const privateKey = fs.readFileSync(config.keyPath, "utf8");
   cachedProviderToken = jwt.sign({}, privateKey, {
-    algorithm: "ES256",
+    algorithm: APNS_JWT_SUITE.joseAlgorithm,
     issuer: config.teamId,
-    header: { alg: "ES256", kid: config.keyId },
+    header: { alg: APNS_JWT_SUITE.joseAlgorithm, kid: config.keyId },
   });
   cachedProviderTokenAt = now;
   return cachedProviderToken;

@@ -36,6 +36,12 @@ export function normalizeChatStreamEvent(raw = {}) {
     });
   }
 
+  if (rawType === "streamReconnectState") {
+    return streamEvent("connection_status", raw, {
+      state: raw.state === "connected" ? "connected" : "reconnecting",
+    });
+  }
+
   if (
     rawType === "editSessionReady" ||
     rawType === "editHistoryTruncated" ||
@@ -61,8 +67,22 @@ export function normalizeChatStreamEvent(raw = {}) {
         chatId: raw.chatId ?? null,
         publicChatId: raw.publicChatId ?? null,
         metrics: raw.metrics || {},
+        revision: raw.runRevision ?? null,
       }
     );
+  }
+
+  if (rawType === "fullTextResponse") {
+    return streamEvent("assistant_snapshot", raw, {
+      uuid: raw.uuid,
+      text: raw.textResponse || "",
+      sources: raw.sources || [],
+      close: !!raw.close,
+      chatId: raw.chatId ?? null,
+      publicChatId: raw.publicChatId ?? null,
+      metrics: raw.metrics || {},
+      revision: raw.runRevision ?? null,
+    });
   }
 
   if (rawType === "textResponse" || rawType === "finalizeResponseStream") {
@@ -183,6 +203,12 @@ export function normalizeChatTurnEvent(raw = {}) {
       },
       protocolEvent: normalizedStreamEvent,
     };
+  } else if (type === "streamReconnectState") {
+    normalized = {
+      type: "connection_status",
+      state: raw.state === "connected" ? "connected" : "reconnecting",
+      protocolEvent: normalizedStreamEvent,
+    };
   } else if (type === "timeline_event" && event) {
     normalized = {
       type: "timeline_event",
@@ -240,6 +266,7 @@ export function normalizeChatTurnEvent(raw = {}) {
         chatId,
         publicChatId,
         metrics,
+        revision: raw.runRevision ?? null,
         closed: true,
         protocolEvent: normalizedStreamEvent,
       };
@@ -255,12 +282,14 @@ export function normalizeChatTurnEvent(raw = {}) {
               chatId,
               publicChatId,
               metrics,
+              revision: raw.runRevision ?? null,
               protocolEvent: normalizedStreamEvent,
             }
           : {
               type: "assistant_patch",
               uuid,
               patch: { metrics },
+              revision: raw.runRevision ?? null,
               closed: true,
               protocolEvent: normalizedStreamEvent,
             };
@@ -274,6 +303,7 @@ export function normalizeChatTurnEvent(raw = {}) {
         chatId,
         publicChatId,
         metrics,
+        revision: raw.runRevision ?? null,
         protocolEvent: normalizedStreamEvent,
       };
     }
@@ -286,6 +316,19 @@ export function normalizeChatTurnEvent(raw = {}) {
       chatId,
       publicChatId,
       metrics,
+      closed: !!close,
+      protocolEvent: normalizedStreamEvent,
+    };
+  } else if (type === "fullTextResponse") {
+    normalized = {
+      type: "assistant_snapshot",
+      uuid,
+      content: textResponse || "",
+      sources,
+      chatId,
+      publicChatId,
+      metrics,
+      revision: raw.runRevision ?? null,
       closed: !!close,
       protocolEvent: normalizedStreamEvent,
     };

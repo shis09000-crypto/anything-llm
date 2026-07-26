@@ -1,10 +1,15 @@
-const { EncryptionManager } = require("../EncryptionManager");
 const { Agent } = require("undici");
 const { redactLogObject, redactLogText } = require("../security/redaction");
 const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { hotdirPath, isWithin, normalizePath } = require("../files");
+const api = require("@opentelemetry/api");
+const {
+  currentOperationContext,
+  withOperationSpan,
+} = require("../observability/operationContext");
+const { loadServiceIdentity } = require("../security/serviceIdentity");
 
 /**
  * @typedef {Object} CollectorOptions
@@ -36,6 +41,30 @@ class CollectorApi {
       `http://${
         process.env.NODE_ENV === "development" ? "localhost" : "0.0.0.0"
       }:${process.env.COLLECTOR_PORT || 8888}`;
+    this.serviceIdentityAgent = null;
+    if (this.endpoint.startsWith("https://")) {
+      const serviceRole =
+        process.env.ATHENA_RUNTIME_ROLE === "background-worker"
+          ? "background-worker"
+          : "api";
+      const identity = loadServiceIdentity(serviceRole, { required: true });
+      const connect = {
+        ca: identity.ca,
+        cert: identity.cert,
+        key: identity.key,
+        servername: identity.serverName || new URL(this.endpoint).hostname,
+        rejectUnauthorized: true,
+        minVersion: "TLSv1.3",
+      };
+      this.serviceIdentityAgent = new Agent({
+        connect,
+        headersTimeout: this.extensionRequestTimeout,
+        bodyTimeout: this.extensionRequestTimeout,
+      });
+      this.extensionRequestAgent = this.serviceIdentityAgent;
+    } else if (process.env.ATHENA_SERVICE_MTLS_REQUIRED === "true") {
+      throw new Error("collector_production_mtls_required");
+    }
   }
 
   log(text, ...args) {
@@ -133,14 +162,61 @@ class CollectorApi {
     };
   }
 
+  #protectedHeaders(requestPath, method, body) {
+    return {
+      "Content-Type": "application/json",
+      ...this.comkey.signRequest({
+        method,
+        requestPath,
+        body,
+      }),
+    };
+  }
+
+  async #fetch(url, options = {}) {
+    return withOperationSpan(
+      "http.client.collector",
+      {
+        kind: api.SpanKind.CLIENT,
+        attributes: {
+          "server.address": "collector",
+          "http.request.method": String(options.method || "GET").toUpperCase(),
+        },
+      },
+      async () => {
+        const carrier = {};
+        api.propagation.inject(api.context.active(), carrier);
+        const context = currentOperationContext() || {};
+        const correlationHeaders = {
+          ...(context.operationId
+            ? { "X-Athena-Operation-Id": context.operationId }
+            : {}),
+          ...(context.interactionId
+            ? { "X-Athena-Interaction-Id": context.interactionId }
+            : {}),
+          ...(context.requestId ? { "X-Request-Id": context.requestId } : {}),
+        };
+        return fetch(url, {
+          ...options,
+          headers: {
+            ...carrier,
+            ...correlationHeaders,
+            ...(options.headers || {}),
+          },
+          dispatcher: options.dispatcher || this.serviceIdentityAgent,
+        });
+      }
+    );
+  }
+
   async online() {
-    return await fetch(this.endpoint)
+    return await this.#fetch(this.endpoint)
       .then((res) => res.ok)
       .catch(() => false);
   }
 
   async acceptedFileTypes() {
-    return await fetch(`${this.endpoint}/accepts`)
+    return await this.#fetch(`${this.endpoint}/accepts`)
       .then((res) => {
         if (!res.ok) throw new Error("failed to GET /accepts");
         return res.json();
@@ -172,17 +248,12 @@ class CollectorApi {
         options: this.#attachOptions(),
       });
 
-      const response = await fetch(`${this.endpoint}/process`, {
+      const response = await this.#fetch(`${this.endpoint}/process`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Integrity": this.comkey.sign(data),
-          "X-Payload-Signer": this.comkey.encrypt(
-            new EncryptionManager().xPayload
-          ),
-        },
+        headers: this.#protectedHeaders("/process", "POST", data),
         body: data,
-        dispatcher: new Agent({ headersTimeout: 600000 }),
+        dispatcher:
+          this.serviceIdentityAgent || new Agent({ headersTimeout: 600000 }),
       });
       await this.#throwIfFailed(response, "POST /process");
       return await response.json();
@@ -212,15 +283,9 @@ class CollectorApi {
       metadata: metadata,
     });
 
-    return await fetch(`${this.endpoint}/process-link`, {
+    return await this.#fetch(`${this.endpoint}/process-link`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
+      headers: this.#protectedHeaders("/process-link", "POST", data),
       body: data,
     })
       .then(async (res) => {
@@ -247,15 +312,9 @@ class CollectorApi {
       metadata,
       options: this.#attachOptions(),
     });
-    return await fetch(`${this.endpoint}/process-raw-text`, {
+    return await this.#fetch(`${this.endpoint}/process-raw-text`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
+      headers: this.#protectedHeaders("/process-raw-text", "POST", data),
       body: data,
     })
       .then(async (res) => {
@@ -274,16 +333,10 @@ class CollectorApi {
   // on the document processor.
   async forwardExtensionRequest({ endpoint, method, body }) {
     const data = typeof body === "string" ? body : JSON.stringify(body);
-    return await fetch(`${this.endpoint}${endpoint}`, {
+    return await this.#fetch(`${this.endpoint}${endpoint}`, {
       method,
       body: data,
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
+      headers: this.#protectedHeaders(endpoint, method, data),
       // Extensions do a lot of work, and may take a while to complete so we need to increase the timeout
       // substantially so that they do not show a failure to the user early.
       dispatcher: this.extensionRequestAgent,
@@ -314,15 +367,9 @@ class CollectorApi {
       captureAs,
       options: this.#attachOptions(),
     });
-    return await fetch(`${this.endpoint}/util/get-link`, {
+    return await this.#fetch(`${this.endpoint}/util/get-link`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Integrity": this.comkey.sign(data),
-        "X-Payload-Signer": this.comkey.encrypt(
-          new EncryptionManager().xPayload
-        ),
-      },
+      headers: this.#protectedHeaders("/util/get-link", "POST", data),
       body: data,
     })
       .then(async (res) => {
@@ -381,15 +428,9 @@ class CollectorApi {
         },
       });
 
-      const response = await fetch(`${this.endpoint}/parse`, {
+      const response = await this.#fetch(`${this.endpoint}/parse`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Integrity": this.comkey.sign(data),
-          "X-Payload-Signer": this.comkey.encrypt(
-            new EncryptionManager().xPayload
-          ),
-        },
+        headers: this.#protectedHeaders("/parse", "POST", data),
         body: data,
       });
       await this.#throwIfFailed(response, "POST /parse");

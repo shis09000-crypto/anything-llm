@@ -9,6 +9,10 @@ function boolEnv(value, defaultValue = false) {
 }
 
 function backgroundRuntimeEnabled() {
+  const accountScoped = boolEnv(process.env.ATHENA_CRYPTO_ACCOUNT_SCOPED, true);
+  if (accountScoped) {
+    return boolEnv(process.env.CRYPTO_HUB_LEGACY_BACKGROUND_ENABLED, false);
+  }
   return boolEnv(process.env.CRYPTO_HUB_BACKGROUND_ENABLED, true);
 }
 

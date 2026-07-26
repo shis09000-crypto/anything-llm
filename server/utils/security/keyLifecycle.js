@@ -4,6 +4,7 @@ const path = require("path");
 const { DataAccessCenter } = require("../dataAccess");
 const { storagePath } = require("../environment");
 const {
+  activateKey,
   clearRuntimeActiveKey,
   generatePendingKey,
   health: custodyHealth,
@@ -23,10 +24,76 @@ const CANARY_VERSION = "athena-key-canary:v1";
 const CANARY_TEXT = "athena-key-custody-canary";
 const DEFAULT_DOMAINS = [
   "database-secrets",
+  "shared-auth-secrets",
   "chat-key-wraps",
   "document-store",
   "vector-cache",
 ];
+const DEFAULT_ROTATION_APPROVAL_TTL_MS = 30 * 60 * 1000;
+
+function keyDualControlRequired(env = process.env) {
+  const environment = String(env.APP_ENV || env.NODE_ENV || "development")
+    .trim()
+    .toLowerCase();
+  if (environment === "production") return true;
+  return env.ATHENA_KEY_DUAL_CONTROL_REQUIRED === "true";
+}
+
+function rotationApprovalPolicy({ createdBy = null, env = process.env } = {}) {
+  const required = keyDualControlRequired(env);
+  const actor = Number(createdBy);
+  if (required && (!Number.isSafeInteger(actor) || actor < 1)) {
+    throw new Error("key_rotation_authenticated_initiator_required");
+  }
+  const ttlMs = Math.max(
+    5 * 60 * 1000,
+    Math.min(
+      Number(env.ATHENA_KEY_ROTATION_APPROVAL_TTL_MS) ||
+        DEFAULT_ROTATION_APPROVAL_TTL_MS,
+      24 * 60 * 60 * 1000
+    )
+  );
+  return {
+    requiredApprovals: required ? 1 : 0,
+    approvalExpiresAt: required ? new Date(Date.now() + ttlMs) : null,
+  };
+}
+
+function rotationExecutionAuthorization({
+  job,
+  approvals = [],
+  actorUserId = null,
+  now = new Date(),
+} = {}) {
+  const required = Number(job?.requiredApprovals || 0);
+  if (required < 1) return { authorized: true, approvalCount: 0 };
+  const actor = Number(actorUserId);
+  if (!Number.isSafeInteger(actor) || actor < 1)
+    return { authorized: false, reason: "key_rotation_executor_required" };
+  if (
+    !job.approvalExpiresAt ||
+    Date.parse(job.approvalExpiresAt) <= now.getTime()
+  )
+    return { authorized: false, reason: "key_rotation_approval_expired" };
+  const distinctApprovers = new Set(
+    approvals
+      .filter(
+        (entry) =>
+          entry.decision === "approved" &&
+          Date.parse(entry.expiresAt) > now.getTime() &&
+          Number(entry.approverUserId) !== Number(job.createdBy)
+      )
+      .map((entry) => Number(entry.approverUserId))
+      .filter((entry) => Number.isSafeInteger(entry) && entry > 0)
+  );
+  if (distinctApprovers.size < required)
+    return {
+      authorized: false,
+      reason: "key_rotation_independent_approval_required",
+      approvalCount: distinctApprovers.size,
+    };
+  return { authorized: true, approvalCount: distinctApprovers.size };
+}
 
 function aadForV2(keyId, purpose) {
   return Buffer.from(
@@ -114,9 +181,11 @@ function verifyCanary(envelope, descriptor) {
   return true;
 }
 
-async function querySample(sql) {
+async function querySample(sql, database = "main") {
   try {
-    const rows = await DataAccessCenter.securityKey.probeSample({ sql });
+    const rows = await (database === "auth"
+      ? DataAccessCenter.securityKey.probeAuthSample({ sql })
+      : DataAccessCenter.securityKey.probeSample({ sql }));
     return rows?.[0]?.value ?? null;
   } catch {
     return null;
@@ -155,6 +224,11 @@ async function encryptedDataExists() {
     SELECT "value" AS value FROM "system_settings" WHERE "value" LIKE 'enc:%' LIMIT 1
   `);
   if (database) return true;
+  const sharedAuth = await querySample(
+    `SELECT "value" AS value FROM "system_settings" WHERE "value" LIKE 'enc:%' LIMIT 1`,
+    "auth"
+  );
+  if (sharedAuth) return true;
   const chat = await querySample(`
     SELECT "wrapped_key" AS value FROM "workspace_chat_conversation_keys" WHERE "wrapped_key" LIKE 'enc:%' LIMIT 1
   `);
@@ -182,6 +256,16 @@ async function probeDatabaseSecret() {
     return { state: "verified", sample: true };
   }
   return { state: "empty", sample: false };
+}
+
+async function probeSharedAuthSecret() {
+  const value = await querySample(
+    `SELECT "value" AS value FROM "system_settings" WHERE "value" LIKE 'enc:%' LIMIT 1`,
+    "auth"
+  );
+  if (!value) return { state: "empty", sample: false };
+  decryptEnvelopeWithCustody(value);
+  return { state: "verified", sample: true };
 }
 
 async function probeChatKeyWrap() {
@@ -223,6 +307,7 @@ async function probeDomains() {
   const results = [];
   for (const [domain, probe] of [
     ["database-secrets", probeDatabaseSecret],
+    ["shared-auth-secrets", probeSharedAuthSecret],
     ["chat-key-wraps", probeChatKeyWrap],
   ]) {
     try {
@@ -293,6 +378,7 @@ async function ensureRegistry(descriptor) {
         keyId: descriptor.keyId,
         purpose: SERVER_DATA_PURPOSE,
         providerType: descriptor.providerType,
+        ...keyRegistryCryptoMetadata(descriptor),
         fingerprint: descriptor.fingerprint,
         version:
           Math.max(0, ...versions.map((item) => Number(item.version) || 0)) + 1,
@@ -323,6 +409,23 @@ async function ensureRegistry(descriptor) {
   return active;
 }
 
+function keyRegistryCryptoMetadata(descriptor = {}) {
+  const providerType = String(descriptor.providerType || "unknown");
+  const hardwareProtection = /kms|vault|hsm|keychain|secure-enclave/i.test(
+    providerType
+  )
+    ? "provider-asserted-hardware-backed"
+    : /file|environment|env/i.test(providerType)
+      ? "software-protected"
+      : "unknown";
+  return {
+    algorithm: "AES-256-GCM",
+    parameterSet: "AES-256/GCM-96+HKDF-SHA256",
+    keyOrigin: providerType,
+    hardwareProtection,
+  };
+}
+
 function selectRuntimeDescriptor(providerDescriptor, activeRegistry = null) {
   if (!activeRegistry || activeRegistry.keyId === providerDescriptor?.keyId) {
     return providerDescriptor;
@@ -334,7 +437,57 @@ function selectRuntimeDescriptor(providerDescriptor, activeRegistry = null) {
   if (activeRegistry.canaryEnvelope) {
     verifyCanary(activeRegistry.canaryEnvelope, registeredDescriptor);
   }
-  return registeredDescriptor;
+  throw new Error("key_provider_registry_active_mismatch");
+}
+
+async function reconcileProviderWithRegistry({ apply = false } = {}) {
+  clearRuntimeActiveKey();
+  const providerDescriptor =
+    keyProvider().resolveActiveKey(SERVER_DATA_PURPOSE);
+  if (!providerDescriptor?.material) throw new Error("active_key_missing");
+  const activeRegistry = await DataAccessCenter.securityKey.activeRegistry({
+    purpose: SERVER_DATA_PURPOSE,
+  });
+  if (!activeRegistry || activeRegistry.keyId === providerDescriptor.keyId) {
+    return {
+      success: true,
+      mode: apply ? "apply" : "dry-run",
+      drift: false,
+      activeKeyId: providerDescriptor.keyId,
+    };
+  }
+
+  const registryDescriptor = resolveKey(activeRegistry.keyId);
+  if (!registryDescriptor?.material) {
+    throw new Error("key_registry_active_mismatch");
+  }
+  if (activeRegistry.canaryEnvelope) {
+    verifyCanary(activeRegistry.canaryEnvelope, registryDescriptor);
+  }
+  if (!apply) {
+    return {
+      success: true,
+      mode: "dry-run",
+      drift: true,
+      providerKeyId: providerDescriptor.keyId,
+      registryKeyId: activeRegistry.keyId,
+      action: "activate_registry_key_in_provider",
+    };
+  }
+
+  const reconciled = activateKey(activeRegistry.keyId, SERVER_DATA_PURPOSE);
+  await appendEvent("key_provider_registry_reconciled", reconciled, {
+    previousProviderKeyId: providerDescriptor.keyId,
+    registryKeyId: activeRegistry.keyId,
+  });
+  return {
+    success: true,
+    mode: "apply",
+    drift: false,
+    reconciled: true,
+    previousProviderKeyId: providerDescriptor.keyId,
+    activeKeyId: reconciled.keyId,
+  };
 }
 
 async function persistBindings(descriptor, domains) {
@@ -465,6 +618,7 @@ async function prepareRotation({ idempotencyKey, createdBy = null } = {}) {
     idempotencyKey,
   });
   if (existing) return existing;
+  const approvalPolicy = rotationApprovalPolicy({ createdBy });
   const active = resolveActiveKey();
   if (!active) throw new Error("active_key_missing");
   const pending = generatePendingKey();
@@ -472,6 +626,7 @@ async function prepareRotation({ idempotencyKey, createdBy = null } = {}) {
     keyId: pending.keyId,
     purpose: SERVER_DATA_PURPOSE,
     providerType: pending.providerType,
+    ...keyRegistryCryptoMetadata(pending),
     fingerprint: pending.fingerprint,
     version:
       (
@@ -495,6 +650,7 @@ async function prepareRotation({ idempotencyKey, createdBy = null } = {}) {
     stage: "prepare",
     progress: { domains: DEFAULT_DOMAINS, writeBarrier: false },
     createdBy,
+    ...approvalPolicy,
   });
   await DataAccessCenter.securityKey.appendEvent({
     event: "key_rotation_prepared",
@@ -507,15 +663,82 @@ async function prepareRotation({ idempotencyKey, createdBy = null } = {}) {
   return job;
 }
 
+async function approveRotation({
+  jobId,
+  approvalId,
+  approvedBy,
+  metadata = null,
+} = {}) {
+  const job = await DataAccessCenter.securityKey.rotationJob({ jobId });
+  if (!job) throw new Error("key_rotation_job_not_found");
+  if (!["pending", "approved"].includes(job.status))
+    throw new Error("key_rotation_not_approvable");
+  const actor = Number(approvedBy);
+  if (!Number.isSafeInteger(actor) || actor < 1)
+    throw new Error("key_rotation_approver_required");
+  if (actor === Number(job.createdBy))
+    throw new Error("key_rotation_self_approval_forbidden");
+  if (!String(approvalId || "").trim())
+    throw new Error("key_rotation_approval_id_required");
+  const deadline = Date.parse(job.approvalExpiresAt);
+  if (!Number.isFinite(deadline) || deadline <= Date.now())
+    throw new Error("key_rotation_approval_expired");
+  const result = await DataAccessCenter.securityKey.recordRotationApproval({
+    jobId: job.jobId,
+    approvalId: String(approvalId).slice(0, 256),
+    approverUserId: actor,
+    expiresAt: new Date(deadline),
+    metadata,
+  });
+  await DataAccessCenter.securityKey.appendEvent({
+    event: "key_rotation_approved",
+    keyId: job.targetKeyId,
+    purpose: job.purpose,
+    jobId: job.jobId,
+    metadata: {
+      approvalCount: result.approvalCount,
+      requiredApprovals: job.requiredApprovals,
+    },
+    createdBy: actor,
+  });
+  return result;
+}
+
+async function assertRotationExecutionAuthorized({
+  job,
+  actorUserId = null,
+} = {}) {
+  const approvals = await DataAccessCenter.securityKey.rotationApprovals({
+    jobId: job?.jobId,
+  });
+  const authorization = rotationExecutionAuthorization({
+    job,
+    approvals,
+    actorUserId,
+  });
+  if (!authorization.authorized) {
+    const error = new Error(authorization.reason);
+    error.code = authorization.reason;
+    throw error;
+  }
+  return authorization;
+}
+
 module.exports = {
   CANARY_VERSION,
+  approveRotation,
+  assertRotationExecutionAuthorized,
   bootstrapSecurityContext,
   createCanary,
   decryptEnvelopeWithCustody,
+  keyDualControlRequired,
   keyGovernanceStatus,
   prepareRotation,
   probeDomains,
+  reconcileProviderWithRegistry,
   runSecurityPreflight,
+  rotationApprovalPolicy,
+  rotationExecutionAuthorization,
   selectRuntimeDescriptor,
   startSecurityBootstrap,
   verifyCanary,

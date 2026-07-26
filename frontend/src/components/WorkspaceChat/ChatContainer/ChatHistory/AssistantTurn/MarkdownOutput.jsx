@@ -37,10 +37,12 @@ function hasHeavyMarkdown(content = "") {
 function MarkdownOutput({
   content = "",
   messageId,
+  isStreaming = false,
   deferEnhancement = false,
   onLayoutChange = null,
 }) {
-  const shouldDefer = deferEnhancement && hasHeavyMarkdown(content);
+  const shouldDefer =
+    !isStreaming && deferEnhancement && hasHeavyMarkdown(content);
   const [enhanced, setEnhanced] = useState(!shouldDefer);
   useEffect(() => {
     if (!shouldDefer) {
@@ -56,8 +58,11 @@ function MarkdownOutput({
     [content]
   );
   const html = useMemo(
-    () => (enhanced ? DOMPurify.sanitize(renderMarkdown(markdown)) : null),
-    [enhanced, markdown]
+    () =>
+      !isStreaming && enhanced
+        ? DOMPurify.sanitize(renderMarkdown(markdown))
+        : null,
+    [enhanced, isStreaming, markdown]
   );
 
   useEffect(() => {
@@ -76,7 +81,7 @@ function MarkdownOutput({
       {thoughtChain && (
         <ThoughtChainComponent content={thoughtChain} messageId={messageId} />
       )}
-      {markdown && enhanced && (
+      {markdown && enhanced && !isStreaming && (
         <div
           className="break-words flex flex-col gap-y-1 text-white light:text-slate-900"
           dangerouslySetInnerHTML={{
@@ -84,7 +89,7 @@ function MarkdownOutput({
           }}
         />
       )}
-      {markdown && !enhanced && (
+      {markdown && (isStreaming || !enhanced) && (
         <div className="whitespace-pre-wrap break-words text-white light:text-slate-900">
           {markdown}
         </div>

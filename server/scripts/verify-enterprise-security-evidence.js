@@ -9,16 +9,19 @@ const checks = [
     profile: "edge",
     evidenceFile: process.env.ATHENA_EDGE_SECURITY_EVIDENCE_FILE,
     publicKeyFile: process.env.ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE,
+    pqPublicKeyFile:
+      process.env.ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE,
   },
   {
     profile: "disasterRecovery",
     evidenceFile: process.env.ATHENA_DR_EVIDENCE_FILE,
     publicKeyFile: process.env.ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE,
+    pqPublicKeyFile: process.env.ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE,
   },
 ];
 
 const results = checks.map((check) => {
-  if (!check.evidenceFile || !check.publicKeyFile) {
+  if (!check.evidenceFile || !check.publicKeyFile || !check.pqPublicKeyFile) {
     return {
       valid: false,
       profile: check.profile,

@@ -1,5 +1,7 @@
 const mockFindUnique = jest.fn();
 const mockCreate = jest.fn();
+const mockUpsert = jest.fn();
+const mockUpdateMany = jest.fn();
 const mockFindMany = jest.fn();
 const mockTransaction = jest.fn();
 const mockRecordNodeChange = jest.fn();
@@ -9,6 +11,8 @@ const mockTx = {
   athena_clients: {
     findUnique: (...args) => mockFindUnique(...args),
     create: (...args) => mockCreate(...args),
+    upsert: (...args) => mockUpsert(...args),
+    updateMany: (...args) => mockUpdateMany(...args),
     findMany: (...args) => mockFindMany(...args),
   },
 };
@@ -54,6 +58,10 @@ describe("client identity Sync V2 transaction", () => {
       createdAt: new Date("2026-07-17T12:00:00.000Z"),
       revokedAt: null,
     });
+    mockUpsert.mockImplementation((args) =>
+      mockCreate({ data: args.create })
+    );
+    mockUpdateMany.mockResolvedValue({ count: 0 });
     mockFindMany.mockResolvedValue([]);
     mockRecordNodeChange.mockResolvedValue({
       node: { nodeKey: "users/7/security/clients", stateVersion: 2 },
@@ -98,6 +106,8 @@ describe("client identity Sync V2 transaction", () => {
     mockClientFacade.db.athena_clients = {
       findUnique: (...args) => mockFindUnique(...args),
       create: (...args) => mockCreate(...args),
+      upsert: (...args) => mockUpsert(...args),
+      updateMany: (...args) => mockUpdateMany(...args),
     };
 
     await registerClient({

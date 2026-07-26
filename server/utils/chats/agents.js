@@ -5,6 +5,7 @@ const WorkspaceAgentInvocation = lazyDataAccessFacade(
   "workspaceAgentInvocation"
 );
 const { writeResponseChunk } = require("../helpers/chat/responses");
+const { enrichOperationContext } = require("../observability/operationContext");
 
 /**
  * In-memory cache for attachments associated with agent invocations.
@@ -117,6 +118,14 @@ async function grepAgents({
       });
       return;
     }
+
+    enrichOperationContext({
+      invocationId: newInvocation.uuid,
+      clientTurnId,
+      workspaceId: workspace?.id || null,
+      threadId: thread?.id || null,
+      journey: "agent_tool",
+    });
 
     // Cache attachments for the websocket handler to retrieve later
     cacheInvocationAttachments(newInvocation.uuid, {

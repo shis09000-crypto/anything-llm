@@ -2,25 +2,35 @@ const mockFindUnique = jest.fn();
 const mockFindMany = jest.fn();
 const mockFindFirst = jest.fn();
 const mockCreate = jest.fn();
+const mockUpsert = jest.fn();
 const mockUpdate = jest.fn();
 const mockUpdateMany = jest.fn();
 const mockLogEvent = jest.fn();
 const mockUserFindUnique = jest.fn();
 const mockRevokeClientSessions = jest.fn();
+const mockVaultRegistrationUpdateMany = jest.fn();
 
-jest.mock("../../utils/prisma", () => ({
-  athena_clients: {
-    findUnique: (...args) => mockFindUnique(...args),
-    findMany: (...args) => mockFindMany(...args),
-    findFirst: (...args) => mockFindFirst(...args),
-    create: (...args) => mockCreate(...args),
-    update: (...args) => mockUpdate(...args),
-    updateMany: (...args) => mockUpdateMany(...args),
-  },
-  users: {
-    findUnique: (...args) => mockUserFindUnique(...args),
-  },
-}));
+jest.mock("../../utils/prisma", () => {
+  const database = {
+    athena_clients: {
+      findUnique: (...args) => mockFindUnique(...args),
+      findMany: (...args) => mockFindMany(...args),
+      findFirst: (...args) => mockFindFirst(...args),
+      create: (...args) => mockCreate(...args),
+      upsert: (...args) => mockUpsert(...args),
+      update: (...args) => mockUpdate(...args),
+      updateMany: (...args) => mockUpdateMany(...args),
+    },
+    vault_device_key_registrations: {
+      updateMany: (...args) => mockVaultRegistrationUpdateMany(...args),
+    },
+    users: {
+      findUnique: (...args) => mockUserFindUnique(...args),
+    },
+  };
+  database.$transaction = (callback) => callback(database);
+  return database;
+});
 
 jest.mock("../../models/authSession", () => ({
   AuthSession: {
@@ -45,6 +55,8 @@ const {
   resolveTrustLevel,
   attachAuthenticatedClientContext,
 } = require("../../utils/clientIdentity");
+const { clientIdentityEndpoints } = require("../../endpoints/clientIdentity");
+const { registry } = require("../../utils/observability/metrics");
 
 function requestDouble({ headers = {}, query = {} } = {}) {
   const lowerHeaders = Object.fromEntries(
@@ -70,11 +82,15 @@ describe("client identity helpers", () => {
     mockFindMany.mockResolvedValue([]);
     mockFindFirst.mockResolvedValue(null);
     mockCreate.mockResolvedValue({ id: 1 });
+    mockUpsert.mockImplementation((args) =>
+      mockCreate({ data: args.create })
+    );
     mockUpdate.mockResolvedValue({ id: 1 });
     mockUpdateMany.mockResolvedValue({ count: 1 });
     mockLogEvent.mockResolvedValue({ eventLog: { id: 1 }, message: null });
     mockUserFindUnique.mockResolvedValue({ authUserId: 100 });
     mockRevokeClientSessions.mockResolvedValue({ count: 1 });
+    mockVaultRegistrationUpdateMany.mockResolvedValue({ count: 1 });
   });
 
   it("parses client context from HTTP headers", () => {
@@ -100,6 +116,50 @@ describe("client identity helpers", () => {
       deviceFingerprintVersion: null,
       legacy: false,
     });
+  });
+
+  it("accepts only bounded hybrid-signed Vault KEM observations", async () => {
+    const routes = {};
+    const app = {
+      get: jest.fn(),
+      post(path, _middleware, handler) {
+        routes[`POST ${path}`] = handler;
+      },
+    };
+    clientIdentityEndpoints(app);
+    const response = {
+      status: jest.fn().mockReturnThis(),
+      json: jest.fn(),
+    };
+
+    await routes["POST /client-identity/crypto-observations"](
+      {
+        body: {
+          category: "vault_kem",
+          operation: "unseal",
+          suiteId: "vault-xwing-mldsa65-v1",
+          outcome: "aead_failed",
+        },
+        clientContext: {
+          userId: 10,
+          clientId: "client_abc",
+          platform: "ios",
+          legacy: false,
+        },
+        signedRequest: { ok: true, postQuantumVerified: true },
+      },
+      response
+    );
+
+    expect(response.status).toHaveBeenCalledWith(200);
+    expect(response.json).toHaveBeenCalledWith({ success: true });
+    const output = await registry.metrics();
+    expect(output).toContain(
+      'athena_crypto_vault_kem_operations_total{operation="unseal",outcome="aead_failed"'
+    );
+    expect(output).toContain(
+      'purpose="vault-device-authorization",suite="vault-xwing-mldsa65-v1",operation="unseal",outcome="aead_failed"'
+    );
   });
 
   it("parses websocket query metadata and preserves legacy fallback", () => {
@@ -296,6 +356,68 @@ describe("client identity helpers", () => {
     expect(payload.data.capabilities).toBe(JSON.stringify({ clipboard: true }));
   });
 
+  it("persists device public-key algorithm and protection metadata", async () => {
+    await registerClient({
+      userId: 10,
+      clientId: "client_secure_enclave",
+      platform: "ios",
+      publicKey: "public-jwk",
+      deviceFingerprintVersion: "p256-secure-enclave-v1",
+    });
+
+    expect(mockCreate.mock.calls[0][0].data).toMatchObject({
+      publicKey: "public-jwk",
+      deviceFingerprintVersion: "p256-secure-enclave-v1",
+      publicKeyAlgorithm: "ECDSA-P256-SHA256",
+      publicKeyParameterSet: "secp256r1",
+      publicKeyOrigin: "apple-secure-enclave",
+      publicKeyHardwareProtection: "client-asserted-hardware-backed",
+    });
+  });
+
+  it("serializes concurrent registration and never overwrites a bound device key", async () => {
+    let stored = null;
+    let creates = 0;
+    mockFindUnique.mockImplementation(async ({ where }) => {
+      if (where?.userId_clientId) return stored;
+      if (where?.id) return stored;
+      return null;
+    });
+    mockUpsert.mockImplementation(async ({ create, update }) => {
+      if (!stored) {
+        creates += 1;
+        stored = { id: 51, revokedAt: null, ...create };
+      } else {
+        stored = { ...stored, ...update };
+      }
+      return { ...stored };
+    });
+    mockUpdateMany.mockImplementation(async ({ where, data }) => {
+      if (where?.publicKey === null && stored && !stored.publicKey) {
+        stored = { ...stored, ...data };
+        return { count: 1 };
+      }
+      return { count: 0 };
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 50 }, (_, index) =>
+        registerClient({
+          userId: 10,
+          clientId: "client_race",
+          platform: "web",
+          appVersion: `1.0.${index}`,
+          publicKey: index === 0 ? "bound-device-key" : "competing-device-key",
+          deviceFingerprintVersion: "p256-v1",
+        })
+      )
+    );
+
+    expect(creates).toBe(1);
+    expect(results).toHaveLength(50);
+    expect(stored.publicKey).toBe("bound-device-key");
+  });
+
   it("does not revive revoked clients during registration", async () => {
     const revokedAt = new Date();
     mockFindUnique.mockResolvedValueOnce({
@@ -349,6 +471,11 @@ describe("client identity helpers", () => {
         createdAt: new Date(),
         lastSeenAt: new Date(),
         revokedAt,
+        hybridKemPublicKey: "vault-kem-public",
+        hybridKemSuiteId: "vault-xwing-mldsa65-v1",
+        vaultSigningP256PublicKey: "vault-p256-public",
+        vaultSigningMLDSA65PublicKey: "vault-mldsa65-public",
+        vaultSigningSuiteId: "vault-xwing-mldsa65-v1",
       },
     ]);
 
@@ -361,6 +488,13 @@ describe("client identity helpers", () => {
       isCurrentClient: true,
       revokedAt,
       capabilities: { clipboard: true },
+      vaultKeyDistribution: {
+        suiteId: "vault-xwing-mldsa65-v1",
+        keyGeneration: 1,
+        kemPublicKey: "vault-kem-public",
+        p256PublicKey: "vault-p256-public",
+        mlDSA65PublicKey: "vault-mldsa65-public",
+      },
     });
     expect(clients[0].signingSecretEncrypted).toBeUndefined();
     expect(clients[0].publicKey).toBeUndefined();

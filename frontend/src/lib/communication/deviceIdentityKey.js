@@ -1,8 +1,19 @@
+import {
+  CRYPTO_SUITE_IDS,
+  CRYPTO_SUITE_PURPOSES,
+  cryptoSuite,
+} from "./cryptoSuiteRegistry";
+
 const DB_NAME = "athena-device-identity";
 const DB_VERSION = 1;
 const STORE_NAME = "keys";
 const KEY_ID = "p256-signing-key-v1";
-const DEVICE_KEY_ALGORITHM = "p256-v1";
+const DEVICE_KEY_SUITE = cryptoSuite(
+  CRYPTO_SUITE_IDS.deviceP256WebCryptoV1,
+  CRYPTO_SUITE_PURPOSES.deviceKey
+);
+if (!DEVICE_KEY_SUITE) throw new Error("device_key_crypto_suite_unavailable");
+const DEVICE_KEY_ALGORITHM = DEVICE_KEY_SUITE.suiteId;
 
 let cachedKeyRecord = null;
 

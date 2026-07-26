@@ -18,6 +18,9 @@ const {
   sha256,
 } = require("../utils/contentObjects/policy");
 const { resolveActiveKey } = require("../utils/security/keyCustody");
+const {
+  queueUserDomainWrap,
+} = require("../utils/security/userDomainWrapService");
 const { metrics } = require("../utils/observability/metrics");
 const {
   FileStorageProvider,
@@ -521,7 +524,8 @@ const ContentObject = {
       });
       objectIds.push(contentRef.contentObjectId);
     }
-    for (const objectId of [...new Set(objectIds)]) {
+    const uniqueObjectIds = [...new Set(objectIds)];
+    for (const objectId of uniqueObjectIds) {
       const increments = objectIds.filter((id) => id === objectId).length;
       await tx.content_objects.update({
         where: { id: objectId },
@@ -531,6 +535,38 @@ const ContentObject = {
           deleteAfter: null,
           refCount: { increment: increments },
         },
+      });
+    }
+    if (!uniqueObjectIds.length) return;
+    if (
+      typeof tx.workspace_chats?.findUnique !== "function" ||
+      typeof tx.users?.findUnique !== "function" ||
+      typeof tx.user_domain_key_wraps?.upsert !== "function"
+    )
+      return;
+    const chat = await tx.workspace_chats.findUnique({
+      where: { id: Number(chatId) },
+      select: { user_id: true },
+    });
+    if (!chat?.user_id) return;
+    const user = await tx.users.findUnique({
+      where: { id: Number(chat.user_id) },
+      select: { id: true, authUserId: true },
+    });
+    if (!user?.authUserId) return;
+    const objects = await tx.content_objects.findMany({
+      where: { id: { in: uniqueObjectIds } },
+      select: { id: true, wrappedDek: true },
+    });
+    for (const object of objects) {
+      await queueUserDomainWrap({
+        userId: user.id,
+        authUserId: user.authUserId,
+        resourceType: "content-object",
+        resourceId: object.id,
+        domain: "file",
+        platformWrappedValue: object.wrappedDek,
+        client: tx,
       });
     }
   },

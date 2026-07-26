@@ -423,8 +423,19 @@ export default function CognitiveCenter({ workspace, threadSlug = null }) {
   }
 
   async function retryExtractionJob(job) {
+    const budgetOverride =
+      job.status === "budget_blocked"
+        ? window.confirm(
+            "该任务超过自动 Token 预算。是否授权本任务执行一次高成本重试？"
+          )
+          ? "once"
+          : null
+        : null;
+    if (job.status === "budget_blocked" && !budgetOverride) return;
     await runAction(`job:${job.id}`, () =>
-      WorkspaceCognition.retryJob(workspace.slug, job.id)
+      WorkspaceCognition.retryJob(workspace.slug, job.id, {
+        ...(budgetOverride ? { budgetOverride } : {}),
+      })
     );
   }
 
@@ -1117,6 +1128,26 @@ function CanonicalCandidatesTab({
                 来源：{candidate.origin} · Chat{" "}
                 {candidate.sourceChatIds?.join(", ") || "-"}
               </p>
+              {candidate.quality?.retentionReason && (
+                <p>
+                  保留理由：{candidate.quality.retentionReason} · 工作区相关度{" "}
+                  {Math.round(
+                    Number(candidate.quality.workspaceRelevance || 0) * 100
+                  )}
+                  % · 长期价值{" "}
+                  {Math.round(Number(candidate.quality.durability || 0) * 100)}%
+                  · 用户中心度{" "}
+                  {Math.round(
+                    Number(candidate.quality.userCentrality || 0) * 100
+                  )}
+                  %
+                </p>
+              )}
+              {candidate.quality?.possibleDuplicateCandidateId && (
+                <p>
+                  可能重复候选 #{candidate.quality.possibleDuplicateCandidateId}
+                </p>
+              )}
               {relation.relationType && (
                 <p>
                   模型建议：{relation.relationType} → Cognitive Item #
@@ -1167,7 +1198,9 @@ function LegacyCandidates({ candidates }) {
 
 function ExtractionStatus({ state, busyId, onRetry }) {
   const activeJobs = (state.jobs || []).filter((job) =>
-    ["pending", "running", "retry_wait", "failed"].includes(job.status)
+    ["pending", "running", "retry_wait", "failed", "budget_blocked"].includes(
+      job.status
+    )
   );
   return (
     <div className="rounded-2xl border border-[color:var(--overview-glass-border)] bg-white/40 p-4">
@@ -1209,6 +1242,9 @@ function ExtractionStatus({ state, busyId, onRetry }) {
               {job.errorCode && (
                 <span className="text-rose-700">{job.errorCode}</span>
               )}
+              {job.metadata?.assistantEvidenceDeferred && (
+                <span className="text-amber-700">AI 证据因预算延后</span>
+              )}
               {Number(job.tokenUsage?.totalTokens || 0) > 0 && (
                 <span>
                   Token {job.tokenUsage.promptTokens || 0}+
@@ -1216,12 +1252,30 @@ function ExtractionStatus({ state, busyId, onRetry }) {
                   {job.tokenUsage.totalTokens || 0}
                 </span>
               )}
-              {job.status === "failed" && (
+              {job.attempts?.length > 0 &&
+                (() => {
+                  const attempt = job.attempts[job.attempts.length - 1];
+                  return (
+                    <span>
+                      最近调用 {attempt.stage} · {attempt.model || "-"} · 预算
+                      {attempt.budgetDecision || "allowed"} · 预估输入
+                      {attempt.estimatedPromptTokens || 0} · 实际
+                      {attempt.promptTokens || 0}/
+                      {attempt.completionTokens || 0}· Thinking{" "}
+                      {attempt.thinkingMode || "disabled"} · Finish
+                      {attempt.finishReason || "-"} · Reasoning
+                      {attempt.reasoningTokens || 0}
+                    </span>
+                  );
+                })()}
+              {["failed", "budget_blocked"].includes(job.status) && (
                 <SmallButton
                   disabled={busyId === `job:${job.id}`}
                   onClick={() => onRetry(job)}
                 >
-                  手动重试
+                  {job.status === "budget_blocked"
+                    ? "授权一次高成本重试"
+                    : "手动重试"}
                 </SmallButton>
               )}
             </div>

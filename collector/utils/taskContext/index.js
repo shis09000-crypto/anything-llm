@@ -107,7 +107,16 @@ function startTask({ request, response, next }) {
       controller.abort(new Error("Collector client connection closed."));
     release();
   });
-  request.collectorTask = { directory, signal: controller.signal };
+  request.collectorTask = {
+    directory,
+    signal: controller.signal,
+    operationContext: {
+      operationId: request.headers?.["x-athena-operation-id"] || null,
+      interactionId: request.headers?.["x-athena-interaction-id"] || null,
+      requestId: request.headers?.["x-request-id"] || null,
+      traceparent: request.headers?.traceparent || null,
+    },
+  };
   taskStorage.run(request.collectorTask, next);
 }
 

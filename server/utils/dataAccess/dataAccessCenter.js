@@ -18,6 +18,14 @@ const {
   runtimeBypassSnapshot,
   scanBypassAccess,
 } = require("./dataAccessMigrationGuard");
+const api = require("@opentelemetry/api");
+const {
+  withOperationSpan,
+  correlationCoverage,
+  currentOperationContext,
+} = require("../observability/operationContext");
+const { requirementsForJourney } = require("../observability/goldenJourneys");
+const { metrics } = require("../observability/metrics");
 
 const MAX_RECENT_OPERATIONS = 80;
 
@@ -50,10 +58,13 @@ const repositoryLoaders = {
   eventLog: () => require("../../repositories/eventLogRepository"),
   externalCommunication: () =>
     require("../../repositories/externalCommunicationRepository"),
+  chatStreamRun: () => require("../../repositories/chatStreamRunRepository"),
   knowledgeGraph: () => require("../../repositories/knowledgeGraphRepository"),
   iosPushToken: () => require("../../repositories/iosPushTokenRepository"),
   mobile: () => require("../../repositories/mobileRepository"),
   nodeSupplement: () => require("../../repositories/nodeSupplementRepository"),
+  operationsAction: () =>
+    require("../../repositories/operationsActionRepository"),
   quiz: () => require("../../repositories/quizRepository"),
   readerLibrary: () => require("../../repositories/readerLibraryRepository"),
   readerWorkerJob: () =>
@@ -126,10 +137,12 @@ const repositoryExports = {
   embedChat: "EmbedChatRepository",
   eventLog: "EventLogRepository",
   externalCommunication: "ExternalCommunicationRepository",
+  chatStreamRun: "ChatStreamRunRepository",
   knowledgeGraph: "KnowledgeGraphRepository",
   iosPushToken: "IOSPushTokenRepository",
   mobile: "MobileRepository",
   nodeSupplement: "NodeSupplementRepository",
+  operationsAction: "OperationsActionRepository",
   quiz: "QuizRepository",
   readerLibrary: "ReaderLibraryRepository",
   readerWorkerJob: "ReaderWorkerJobRepository",
@@ -221,8 +234,20 @@ async function runAccess({
   fn,
 }) {
   const startedAt = Date.now();
+  let outcome = "success";
   try {
-    const result = await fn();
+    const result = await withOperationSpan(
+      `data_access.${domain}.${operation}`,
+      {
+        kind: api.SpanKind.INTERNAL,
+        attributes: {
+          "athena.data.domain": domain,
+          "athena.data.operation": operation,
+          "athena.data.access_type": accessType,
+        },
+      },
+      fn
+    );
     recordOperation({
       domain,
       operation,
@@ -233,6 +258,7 @@ async function runAccess({
     });
     return result;
   } catch (error) {
+    outcome = "failure";
     recordOperation({
       domain,
       operation,
@@ -243,6 +269,17 @@ async function runAccess({
       error,
     });
     throw error;
+  } finally {
+    const labels = { domain, access_type: accessType, outcome };
+    metrics.dataAccessOperations.inc(labels);
+    metrics.dataAccessDuration.observe(labels, (Date.now() - startedAt) / 1000);
+    const journey = currentOperationContext()?.journey || "background";
+    const coverage = correlationCoverage(requirementsForJourney(journey));
+    metrics.operationCorrelation.inc({
+      component: "data_access",
+      journey,
+      coverage: coverage.complete ? "complete" : "incomplete",
+    });
   }
 }
 
@@ -557,6 +594,17 @@ function workspaceAgentInvocationScopeFromArgs(method, args = []) {
   return clauseScope(args[0]);
 }
 
+function chatStreamRunScopeFromArgs(_method, args = []) {
+  const scope = args[0] || {};
+  return {
+    workspaceId: scope.workspaceId,
+    threadId: scope.threadId,
+    userId: scope.userId,
+    clientTurnId: scope.clientTurnId,
+    runId: scope.id,
+  };
+}
+
 function workspaceChatCompactionScopeFromArgs(method, args = []) {
   const scope = args[0] || {};
   return {
@@ -796,8 +844,11 @@ function vaultScopeFromArgs(method, args = []) {
   const options = args[0] || {};
   return {
     userId: options.userId,
+    authUserId: options.authUserId,
     itemId: options.itemId,
     itemType: options.itemType,
+    targetClientId: options.targetClientId,
+    rootEpoch: options.rootEpoch,
   };
 }
 
@@ -1119,6 +1170,10 @@ const syncV2 = makeRepositoryFacade(
     eventsAfter: "read",
     updateCursor: "write",
     pendingOutbox: "read",
+    deadLetterOutbox: "read",
+    outboxRows: "read",
+    requeueDeadLetters: "maintenance",
+    restoreDeadLetters: "maintenance",
     claimOutbox: "maintenance",
     releaseOutboxClaims: "maintenance",
     renewOutboxClaims: "maintenance",
@@ -1173,6 +1228,17 @@ const workspaceChat = makeRepositoryFacade(
   workspaceChatScopeFromArgs
 );
 
+const chatStreamRun = makeRepositoryFacade(
+  "chatStreamRun",
+  {
+    claim: "write",
+    getScoped: "read",
+    checkpoint: "write",
+    settle: "write",
+  },
+  chatStreamRunScopeFromArgs
+);
+
 const contentObject = makeRepositoryFacade(
   "contentObject",
   {
@@ -1225,6 +1291,7 @@ const document = makeRepositoryFacade(
     create: "write",
     addDocuments: "write",
     removeDocuments: "write",
+    reindexDocuments: "maintenance",
     update: "write",
     _updateAll: "write",
     delete: "write",
@@ -1493,6 +1560,9 @@ const workspaceCognition = makeRepositoryFacade(
     backfillLegacyCognition: "maintenance",
     deleteWorkspaceBatchData: "write",
     deleteWorkspaceData: "write",
+    startWorker: "maintenance",
+    stopWorker: "maintenance",
+    workerSnapshot: "read",
   },
   workspaceCognitiveScopeFromArgs
 );
@@ -1800,6 +1870,23 @@ const runtimeLifecycle = makeRepositoryFacade(
 );
 const scheduledJob = repositoryBoundaryFacade("scheduledJob");
 const systemPatrol = repositoryBoundaryFacade("systemPatrol");
+const operationsAction = makeRepositoryFacade(
+  "operationsAction",
+  {
+    createRun: "write",
+    getRun: "read",
+    getRunBySourceActionId: "read",
+    listRuns: "read",
+    transitionRun: "write",
+    updateRun: "write",
+    addApproval: "write",
+    approvalsForRun: "read",
+    acquireLease: "maintenance",
+    releaseLease: "maintenance",
+    expiredLeasedRuns: "maintenance",
+  },
+  repositoryBoundaryScopeFromArgs
+);
 const workspaceOverview = repositoryBoundaryFacade("workspaceOverview");
 const workspaceSupplement = repositoryBoundaryFacade("workspaceSupplement");
 
@@ -1952,6 +2039,14 @@ const crypto = makeRepositoryFacade(
     loadingProgress: "read",
     recentEvents: "read",
     snapshot: "read",
+    activeUserRoot: "read",
+    findAccountConnection: "read",
+    uniqueAccountConnection: "read",
+    upsertAccountConnection: "write",
+    listAccountConnections: "read",
+    updateAccountConnection: "write",
+    updateAccountConnections: "write",
+    findUserDomainWrap: "read",
   },
   cryptoScopeFromArgs
 );
@@ -1967,6 +2062,32 @@ const vault = makeRepositoryFacade(
     createOrUpdateEnvelope: "write",
     deleteItem: "write",
     softDelete: "write",
+    userRootStatus: "read",
+    issueUserRootChallenge: "write",
+    initializeUserRoot: "write",
+    storeUserRootEnvelope: "write",
+    pendingUserRootEnvelopes: "read",
+    consumeUserRootEnvelope: "write",
+    queueUserDomainWrap: "write",
+    listUserDomainWraps: "read",
+    prepareUserDomainWrap: "read",
+    completeUserDomainWrap: "write",
+    createOrResumeUserDomainMigration: "write",
+    advanceUserDomainMigration: "write",
+    userDomainWrapCoverage: "read",
+    storeDeviceKeyEnvelope: "write",
+    pendingDeviceKeyEnvelopes: "read",
+    consumeDeviceKeyEnvelope: "write",
+    beginKeyEpochRotation: "write",
+    listKeyEpochs: "read",
+    cancelKeyEpochRotation: "write",
+    getDeviceKeyRegistration: "read",
+    listUserRootAuthorizationTargets: "read",
+    acknowledgeKeyEpoch: "write",
+    retireKeyEpoch: "write",
+    storeRecoveryPackage: "write",
+    getRecoveryPackage: "read",
+    revokeRecoveryPackage: "write",
     snapshot: "read",
   },
   vaultScopeFromArgs
@@ -1987,6 +2108,7 @@ const securityKey = makeRepositoryFacade(
   "securityKey",
   {
     probeSample: "read",
+    probeAuthSample: "read",
     listRegistry: "read",
     activeRegistry: "read",
     registryByKeyId: "read",
@@ -1997,7 +2119,10 @@ const securityKey = makeRepositoryFacade(
     createRotationJob: "write",
     rotationJob: "read",
     updateRotationJob: "write",
+    claimRotationExecution: "write",
     listRotationJobs: "read",
+    rotationApprovals: "read",
+    recordRotationApproval: "write",
     appendEvent: "write",
     listEvents: "read",
   },
@@ -2036,6 +2161,7 @@ const DataAccessCenter = {
   authIdentity,
   clientIdentity,
   communityHub,
+  chatStreamRun,
   contentObject,
   crypto,
   document,
@@ -2051,6 +2177,7 @@ const DataAccessCenter = {
   iosPushToken,
   mobile,
   nodeSupplement,
+  operationsAction,
   quiz,
   readerLibrary,
   readerWorkerJob,

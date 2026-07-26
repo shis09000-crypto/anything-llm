@@ -9,7 +9,7 @@ const {
 } = require("./tradeRecordCycles");
 
 const DEFAULT_WINDOW_DAYS = 30;
-const MAX_BATCH_LIMIT = 50;
+const MAX_BATCH_LIMIT = 100;
 const DEFAULT_BATCH_LIMIT = 50;
 const DEFAULT_SETTLE = "usdt";
 const STABLE_FEE_ASSETS = new Set(["USD", "USDT", "USDC", "GUSD", "DAI"]);

@@ -235,12 +235,18 @@ function AssistantTurn({
               <MarkdownOutput
                 content={displayContent}
                 messageId={turn.id}
-                deferEnhancement={!isLastMessage}
+                isStreaming={isRunning}
+                deferEnhancement={isRunning || isLastMessage}
                 onLayoutChange={onContentLayoutChange}
               />
             ) : isRunning ? (
               <div className="mt-3 ml-1 dot-falling light:invert" />
             ) : null}
+            {isRunning && turn.streamConnectionState === "reconnecting" && (
+              <p className="mt-2 text-xs text-theme-text-secondary">
+                正在重连…
+              </p>
+            )}
             {turn.truncated && fullContent === null && (
               <button
                 type="button"

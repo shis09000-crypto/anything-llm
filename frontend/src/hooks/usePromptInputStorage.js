@@ -1,5 +1,5 @@
 import { USER_PROMPT_INPUT_MAP } from "@/utils/constants";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useParams } from "react-router-dom";
 import debounce from "lodash.debounce";
 import { safeJsonParse } from "@/utils/request";
@@ -54,7 +54,16 @@ export default function usePromptInputStorage({
   const { threadSlug = null, slug: workspaceSlug } = useParams();
   const scopedStorageKey = storageKey || threadSlug || workspaceSlug;
   const syncedDraftScope = promptDraftScope({ workspaceSlug, threadSlug });
+  const promptInputRef = useRef(promptInput);
+  const hydrationSequenceRef = useRef(0);
+
   useEffect(() => {
+    promptInputRef.current = promptInput;
+  }, [promptInput]);
+
+  useEffect(() => {
+    const hydrationSequence = hydrationSequenceRef.current + 1;
+    hydrationSequenceRef.current = hydrationSequence;
     const serializedPromptInputMap =
       localStorage.getItem(USER_PROMPT_INPUT_MAP) || "{}";
 
@@ -63,6 +72,7 @@ export default function usePromptInputStorage({
     const userPromptInputValue = promptInputMap[scopedStorageKey];
     if (userPromptInputValue) {
       setPromptInput(userPromptInputValue);
+      promptInputRef.current = userPromptInputValue;
       delete promptInputMap[scopedStorageKey];
       if (Object.keys(promptInputMap).length) {
         localStorage.setItem(
@@ -73,12 +83,23 @@ export default function usePromptInputStorage({
         localStorage.removeItem(USER_PROMPT_INPUT_MAP);
       }
     }
+    const hydrationBaseline = promptInputRef.current;
     void hydratePromptDraft(syncedDraftScope, userPromptInputValue || "").then(
       (remoteValue) => {
+        if (hydrationSequenceRef.current !== hydrationSequence) return;
         if (!remoteValue || remoteValue === userPromptInputValue) return;
+        // A slow hydration must never overwrite text that the user typed or
+        // cleared while the request was in flight.
+        if (promptInputRef.current !== hydrationBaseline) return;
         setPromptInput(remoteValue);
+        promptInputRef.current = remoteValue;
       }
     );
+    return () => {
+      if (hydrationSequenceRef.current === hydrationSequence) {
+        hydrationSequenceRef.current += 1;
+      }
+    };
   }, [scopedStorageKey, setPromptInput, syncedDraftScope]);
 
   const debouncedWriteToStorage = useMemo(

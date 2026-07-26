@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   clearRouteAuthCache,
+  preserveRouteAuthOnTransient,
   readRouteAuthCache,
   resolveRouteAuthCache,
   routeAuthCacheKey,
@@ -132,4 +133,45 @@ test("route auth cache key follows token, user, and dev bypass inputs", () => {
     "auth:no-token:no-user"
   );
   assert.equal(routeAuthCacheKey({ codexDevAuthBypass: true }), "codex-dev");
+});
+
+test("transient bootstrap outage preserves a previously authenticated route", async () => {
+  clearRouteAuthCache();
+  let now = 10_000;
+  const key = "auth:stable-token:stored-user";
+  await resolveRouteAuthCache(
+    key,
+    async () => ({
+      isAuthd: true,
+      multiUserMode: true,
+      mode: "multi",
+    }),
+    { now: () => now, ttlMs: 100 }
+  );
+
+  now += 1_000;
+  assert.equal(readRouteAuthCache(key, { now, ttlMs: 100 }), null);
+  const recovered = preserveRouteAuthOnTransient(key, {
+    isAuthd: false,
+    authUnavailable: true,
+    mode: "settings-unavailable",
+  });
+
+  assert.equal(recovered.isAuthd, true);
+  assert.equal(recovered.authUnavailable, false);
+  assert.equal(recovered.reconnecting, true);
+  assert.equal(recovered.shouldRedirectToOnboarding, undefined);
+});
+
+test("transient bootstrap outage does not invent authentication without a cache", () => {
+  clearRouteAuthCache();
+  const unavailable = {
+    isAuthd: false,
+    authUnavailable: true,
+    mode: "settings-unavailable",
+  };
+  assert.deepEqual(
+    preserveRouteAuthOnTransient("auth:unknown:stored-user", unavailable),
+    unavailable
+  );
 });

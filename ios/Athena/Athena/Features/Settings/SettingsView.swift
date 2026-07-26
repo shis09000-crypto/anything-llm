@@ -611,7 +611,7 @@ struct SettingsSectionView: View {
             VStack(spacing: AthenaSpacing.md) {
                 NativeSettingLine(title: "Client Identity", value: boolText(dependencies.runtime.bootstrap?.security.clientIdentityRequired), icon: "person.badge.key", tint: .orange)
                 NativeSettingLine(title: "Client ID Status", value: dependencies.clientIdentityCenter.status.displayTitle, icon: "iphone.gen3", tint: .blue)
-                NativeSettingLine(title: "Signature", value: dependencies.runtime.bootstrap?.security.preferredSignatureVersion ?? "v2-device-p256", icon: "signature", tint: .purple)
+                NativeSettingLine(title: "Signature", value: dependencies.runtime.bootstrap?.security.preferredSignatureVersion ?? AthenaCryptoSuiteRegistry.requestDeviceP256V2, icon: "signature", tint: .purple)
                 NativeSettingLine(title: "Signing Status", value: dependencies.requestSigningCenter.status.displayTitle, icon: "key.horizontal", tint: .orange)
                 NativeSettingLine(title: "Sensitive Header", value: dependencies.runtime.bootstrap?.security.sensitiveSessionHeader ?? "X-Athena-Sensitive-Session", icon: "lock.shield", tint: .red)
             }

@@ -314,73 +314,128 @@ model system_patrol_repairs {
   @@index([action])
 }
 
+model operations_action_runs {
+  id              String    @id
+  sourceActionId  String    @unique
+  actionId        String
+  actionVersion   String
+  riskLevel       String
+  status          String    @default("proposed")
+  requestedBy     Int?
+  requestedByType String    @default("human")
+  scopeJson       String    @default("{}")
+  parametersJson  String    @default("{}")
+  policyJson      String    @default("{}")
+  dryRunJson      String    @default("{}")
+  canaryJson      String    @default("{}")
+  resultJson      String    @default("{}")
+  validationJson  String    @default("{}")
+  rollbackJson    String    @default("{}")
+  errorCode       String?
+  leaseOwner      String?
+  leaseExpiresAt  DateTime?
+  approvedAt      DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  rolledBackAt    DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([actionId, status])
+  @@index([status, createdAt])
+  @@index([requestedBy, createdAt])
+}
+
+model operations_action_approvals {
+  id             Int      @id @default(autoincrement())
+  runId          String
+  approverUserId Int
+  decision       String
+  reasonCode     String?
+  createdAt      DateTime @default(now())
+
+  @@unique([runId, approverUserId])
+  @@index([runId, decision])
+  @@index([approverUserId, createdAt])
+}
+
 model users {
-  id                           Int                           @id @default(autoincrement())
-  authUserId                   Int?                          @unique
-  originEnv                    String?
-  username                     String?                       @unique
-  displayName                  String?
-  password                     String
-  pfpFilename                  String?
-  role                         String                        @default("default")
-  status                       String                        @default("active")
-  allowedEnvs                  String                        @default("[]")
-  ownerType                    String?
-  suspended                    Int                           @default(0)
-  previousRole                 String?
-  previousAllowedEnvs          String?
-  previousOwnerType            String?
-  banActorRole                 String?
-  banActorOwnerType            String?
-  banActorAuthUserId           Int?
-  bannedAt                     DateTime?
-  seen_recovery_codes          Boolean?                      @default(false)
-  email                        String?                       @unique
-  email_verified_at            DateTime?
-  phone                        String?                       @unique
-  phone_verified_at            DateTime?
-  createdAt                    DateTime                      @default(now())
-  lastUpdatedAt                DateTime                      @default(now())
-  dailyMessageLimit            Int?
-  bio                          String?                       @default("")
-  web_push_subscription_config String?
-  workspace_chats              workspace_chats[]
-  workspace_users              workspace_users[]
-  embed_configs                embed_configs[]
-  embed_chats                  embed_chats[]
-  threads                      workspace_threads[]
-  recovery_codes               recovery_codes[]
-  password_reset_tokens        password_reset_tokens[]
-  email_verification_codes     email_verification_codes[]
-  email_verification_grants    email_verification_grants[]
-  workspace_agent_invocations  workspace_agent_invocations[]
-  slash_command_presets        slash_command_presets[]
-  browser_extension_api_keys   browser_extension_api_keys[]
-  temporary_auth_tokens        temporary_auth_tokens[]
-  passkey_credentials          PasskeyCredential[]
-  passkey_challenges           PasskeyChallenge[]
-  trusted_login_devices        TrustedLoginDevice[]
-  zk_login_attempts            ZkLoginAttempt[]
-  system_prompt_variables      system_prompt_variables[]
-  prompt_history               prompt_history[]
-  desktop_mobile_devices       desktop_mobile_devices[]
-  workspace_parsed_files       workspace_parsed_files[]
-  workspace_mind_maps          workspace_mind_maps[]
-  athena_clients               athena_clients[]
-  athena_sync_events           athena_sync_events[]
-  athena_ios_push_tokens       athena_ios_push_tokens[]
-  athena_mutation_receipts     athena_mutation_receipts[]
-  user_state_preferences       user_state_preferences[]
-  reader_library_items         reader_library_items[]
-  reader_library_categories    reader_library_categories[]
-  vault_items                  vault_items[]
-  auth_sessions                auth_sessions[]
-  auth_realtime_tickets        auth_realtime_tickets[]
+  id                             Int                              @id @default(autoincrement())
+  authUserId                     Int?                             @unique
+  originEnv                      String?
+  username                       String?                          @unique
+  displayName                    String?
+  password                       String
+  credentialType                 String                           @default("password")
+  pfpFilename                    String?
+  role                           String                           @default("default")
+  status                         String                           @default("active")
+  allowedEnvs                    String                           @default("[]")
+  ownerType                      String?
+  suspended                      Int                              @default(0)
+  previousRole                   String?
+  previousAllowedEnvs            String?
+  previousOwnerType              String?
+  banActorRole                   String?
+  banActorOwnerType              String?
+  banActorAuthUserId             Int?
+  bannedAt                       DateTime?
+  seen_recovery_codes            Boolean?                         @default(false)
+  email                          String?                          @unique
+  email_verified_at              DateTime?
+  phone                          String?                          @unique
+  phone_verified_at              DateTime?
+  createdAt                      DateTime                         @default(now())
+  lastUpdatedAt                  DateTime                         @default(now())
+  dailyMessageLimit              Int?
+  bio                            String?                          @default("")
+  web_push_subscription_config   String?
+  workspace_chats                workspace_chats[]
+  workspace_users                workspace_users[]
+  embed_configs                  embed_configs[]
+  embed_chats                    embed_chats[]
+  threads                        workspace_threads[]
+  recovery_codes                 recovery_codes[]
+  password_reset_tokens          password_reset_tokens[]
+  email_verification_codes       email_verification_codes[]
+  email_verification_grants      email_verification_grants[]
+  workspace_agent_invocations    workspace_agent_invocations[]
+  slash_command_presets          slash_command_presets[]
+  browser_extension_api_keys     browser_extension_api_keys[]
+  temporary_auth_tokens          temporary_auth_tokens[]
+  passkey_credentials            PasskeyCredential[]
+  passkey_challenges             PasskeyChallenge[]
+  trusted_login_devices          TrustedLoginDevice[]
+  zk_login_attempts              ZkLoginAttempt[]
+  system_prompt_variables        system_prompt_variables[]
+  prompt_history                 prompt_history[]
+  desktop_mobile_devices         desktop_mobile_devices[]
+  workspace_parsed_files         workspace_parsed_files[]
+  workspace_mind_maps            workspace_mind_maps[]
+  athena_clients                 athena_clients[]
+  athena_sync_events             athena_sync_events[]
+  athena_ios_push_tokens         athena_ios_push_tokens[]
+  athena_mutation_receipts       athena_mutation_receipts[]
+  user_state_preferences         user_state_preferences[]
+  reader_library_items           reader_library_items[]
+  reader_library_categories      reader_library_categories[]
+  vault_items                    vault_items[]
+  vault_device_key_envelopes     vault_device_key_envelopes[]
+  vault_key_epochs               vault_key_epochs[]
+  vault_epoch_acknowledgements   vault_epoch_acknowledgements[]
+  vault_recovery_packages        vault_recovery_packages[]
+  vault_device_key_registrations vault_device_key_registrations[]
+  user_root_key_epochs           user_root_key_epochs[]
+  user_root_key_envelopes        user_root_key_envelopes[]
+  user_root_key_challenges       user_root_key_challenges[]
+  auth_sessions                  auth_sessions[]
+  auth_realtime_tickets          auth_realtime_tickets[]
 
   @@index([originEnv])
   @@index([role])
   @@index([status])
   @@index([ownerType])
+  @@index([credentialType])
 }
 
 model auth_sessions {
@@ -442,6 +497,228 @@ model vault_items {
   @@index([userId, deletedAt])
   @@index([userId, itemType])
   @@index([updatedAt])
+}
+
+model vault_device_key_envelopes {
+  id                  String    @id
+  userId              Int
+  sourceClientId      String
+  targetClientId      String
+  sourceKeyGeneration Int       @default(1)
+  targetKeyGeneration Int       @default(1)
+  keyEpoch            Int
+  envelopeJson        String
+  createdAt           DateTime  @default(now())
+  consumedAt          DateTime?
+  user                users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, targetClientId, keyEpoch])
+  @@index([userId, targetClientId, consumedAt])
+}
+
+model vault_key_epochs {
+  id                    String    @id
+  userId                Int
+  keyEpoch              Int
+  status                String    @default("staging")
+  createdByClientId     String
+  createdAt             DateTime  @default(now())
+  activatedAt           DateTime?
+  retirementRequestedAt DateTime?
+  retiredAt             DateTime?
+  user                  users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, keyEpoch])
+  @@index([userId, status, keyEpoch])
+}
+
+model vault_device_key_registrations {
+  id                 String    @id
+  userId             Int
+  clientId           String
+  keyGeneration      Int
+  suiteId            String
+  kemPublicKey       String
+  p256PublicKey      String
+  mlDSA65PublicKey   String
+  status             String    @default("active")
+  hardwareProtection String?
+  createdAt          DateTime  @default(now())
+  supersededAt       DateTime?
+  revokedAt          DateTime?
+  user               users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId, keyGeneration])
+  @@index([userId, clientId, status])
+}
+
+model vault_epoch_acknowledgements {
+  id             String   @id
+  userId         Int
+  clientId       String
+  keyEpoch       Int
+  keyGeneration  Int
+  inventoryHash  String?
+  acknowledgedAt DateTime @default(now())
+  user           users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, clientId, keyEpoch])
+  @@index([userId, keyEpoch])
+}
+
+model vault_recovery_packages {
+  id                   String    @id
+  userId               Int
+  recoveryKeyId        String
+  keyEpoch             Int
+  suiteId              String
+  encryptedPackageJson String
+  status               String    @default("ready")
+  createdByClientId    String
+  createdAt            DateTime  @default(now())
+  lastRecoveredAt      DateTime?
+  revokedAt            DateTime?
+  user                 users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, recoveryKeyId])
+  @@index([userId, status, keyEpoch])
+}
+
+model user_root_key_epochs {
+  id                    String    @id
+  authUserId            Int
+  rootEpoch             Int
+  rootKeyId             String
+  derivationSuiteId     String
+  transportSuiteId      String
+  status                String    @default("active")
+  initializedByClientId String
+  createdAt             DateTime  @default(now())
+  activatedAt           DateTime  @default(now())
+  retiredAt             DateTime?
+  user                  users     @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  @@unique([authUserId, rootEpoch])
+  @@index([authUserId, status, rootEpoch])
+  @@index([rootKeyId])
+}
+
+model user_root_key_envelopes {
+  id                  String    @id
+  authUserId          Int
+  sourceClientId      String
+  targetClientId      String
+  sourceKeyGeneration Int       @default(1)
+  targetKeyGeneration Int       @default(1)
+  rootEpoch           Int
+  rootKeyId           String
+  derivationSuiteId   String
+  transportSuiteId    String
+  envelopeVersion     String
+  envelopeJson        String
+  createdAt           DateTime  @default(now())
+  expiresAt           DateTime
+  consumedAt          DateTime?
+  user                users     @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  @@unique([authUserId, targetClientId, targetKeyGeneration, rootEpoch])
+  @@index([authUserId, targetClientId, consumedAt, expiresAt])
+  @@index([authUserId, rootEpoch, rootKeyId])
+}
+
+model user_root_key_challenges {
+  id             String    @id
+  authUserId     Int
+  sourceClientId String
+  targetClientId String
+  purpose        String
+  challengeHash  String
+  createdAt      DateTime  @default(now())
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  user           users     @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+
+  @@index([authUserId, sourceClientId, targetClientId, purpose, consumedAt])
+  @@index([expiresAt])
+}
+
+model user_domain_key_wraps {
+  id                  String    @id
+  userId              Int
+  authUserId          Int
+  resourceType        String
+  resourceId          String
+  domain              String
+  wrapVersion         String
+  rootKeyId           String
+  rootEpoch           Int
+  domainKeyVersion    Int       @default(1)
+  platformWrapVersion String?
+  platformKeyId       String?
+  userWrappedKeyJson  String?
+  status              String    @default("pending")
+  createdByClientId   String?
+  migrationJobId      String?
+  idempotencyKey      String    @unique
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now())
+  completedAt         DateTime?
+
+  @@unique([authUserId, resourceType, resourceId, domain, rootKeyId, domainKeyVersion], map: "user_domain_key_wraps_resource_key")
+  @@index([userId, status, createdAt])
+  @@index([authUserId, domain, status])
+  @@index([rootKeyId, domainKeyVersion])
+}
+
+model user_domain_migration_jobs {
+  id                String    @id
+  userId            Int
+  authUserId        Int
+  resourceType      String
+  domain            String
+  status            String    @default("pending")
+  checkpointJson    String    @default("{}")
+  batchSize         Int       @default(100)
+  scannedCount      Int       @default(0)
+  queuedCount       Int       @default(0)
+  completedCount    Int       @default(0)
+  failedCount       Int       @default(0)
+  idempotencyKey    String    @unique
+  createdByClientId String?
+  lastError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now())
+  completedAt       DateTime?
+
+  @@index([authUserId, status, updatedAt])
+  @@index([resourceType, domain, status])
+}
+
+model crypto_account_connections {
+  id                    String    @id
+  userId                Int
+  authUserId            Int
+  provider              String    @default("gate")
+  environment           String    @default("production")
+  status                String    @default("pending_wrap")
+  readOnly              Boolean   @default(true)
+  encryptedCredentials  String
+  platformWrappedDek    String
+  wrapVersion           String
+  rootKeyId             String
+  rootEpoch             Int
+  domainKeyVersion      Int       @default(1)
+  credentialVersion     Int       @default(1)
+  rotationState         String    @default("stable")
+  credentialFingerprint String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @default(now())
+  revokedAt             DateTime?
+
+  @@unique([authUserId, provider, environment], map: "crypto_account_connections_owner_provider_env")
+  @@index([userId, status])
+  @@index([authUserId, status, provider])
+  @@index([rootKeyId, domainKeyVersion])
 }
 
 model memory_candidates {
@@ -701,23 +978,27 @@ model email_verification_rate_limits {
 }
 
 model PasskeyCredential {
-  id           Int       @id @default(autoincrement())
-  userId       Int
-  credentialId String    @unique
-  publicKey    String
-  counter      Int       @default(0)
-  transports   String    @default("[]")
-  deviceType   String    @default("platform")
-  deviceName   String    @default("This Device")
-  browserName  String?
-  platformName String?
-  aaguid       String?
-  provider     String    @default("unknown")
-  providerName String    @default("来源待确认")
-  backedUp     Boolean?
-  createdAt    DateTime  @default(now())
-  lastUsedAt   DateTime?
-  user         users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 Int       @id @default(autoincrement())
+  userId             Int
+  credentialId       String    @unique
+  publicKey          String
+  algorithm          String    @default("unknown")
+  parameterSet       String    @default("unknown")
+  keyOrigin          String    @default("unknown")
+  hardwareProtection String    @default("unknown")
+  counter            Int       @default(0)
+  transports         String    @default("[]")
+  deviceType         String    @default("platform")
+  deviceName         String    @default("This Device")
+  browserName        String?
+  platformName       String?
+  aaguid             String?
+  provider           String    @default("unknown")
+  providerName       String    @default("来源待确认")
+  backedUp           Boolean?
+  createdAt          DateTime  @default(now())
+  lastUsedAt         DateTime?
+  user               users     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, createdAt])
@@ -762,32 +1043,75 @@ model TrustedLoginDevice {
 }
 
 model athena_clients {
-  id                        Int       @id @default(autoincrement())
-  clientId                  String
-  userId                    Int
-  platform                  String
-  deviceName                String?
-  appVersion                String?
-  trustLevel                String    @default("low")
-  capabilities              String?
-  capabilitySource          String    @default("unknown")
-  publicKey                 String?
-  deviceFingerprintVersion  String?
-  pendingPublicKey          String?
-  pendingDeviceKeyAlgorithm String?
-  pendingDeviceKeyExpiresAt DateTime?
-  signingSecretEncrypted    String?
-  signingSecretVersion      String?
-  signingSecretIssuedAt     DateTime?
-  signingSecretRotatedAt    DateTime?
-  createdAt                 DateTime  @default(now())
-  lastSeenAt                DateTime  @default(now())
-  revokedAt                 DateTime?
-  user                      users     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                                 Int                                    @id @default(autoincrement())
+  clientId                           String
+  userId                             Int
+  platform                           String
+  deviceName                         String?
+  appVersion                         String?
+  trustLevel                         String                                 @default("low")
+  capabilities                       String?
+  capabilitySource                   String                                 @default("unknown")
+  publicKey                          String?
+  deviceFingerprintVersion           String?
+  publicKeyAlgorithm                 String?
+  publicKeyParameterSet              String?
+  publicKeyOrigin                    String?
+  publicKeyHardwareProtection        String?
+  pqPublicKey                        String?
+  pqKeyAlgorithm                     String?
+  pqPublicKeyParameterSet            String?
+  pqPublicKeyOrigin                  String?
+  pqPublicKeyHardwareProtection      String?
+  hybridKemPublicKey                 String?
+  hybridKemSuiteId                   String?
+  vaultSigningP256PublicKey          String?
+  vaultSigningMLDSA65PublicKey       String?
+  vaultSigningSuiteId                String?
+  vaultKeyGeneration                 Int                                    @default(0)
+  attestationProvider                String?
+  attestationKeyIdHash               String?
+  attestationStatus                  String?                                @default("unverified")
+  attestationEnvironment             String?
+  attestationCounter                 Int                                    @default(0)
+  attestedAt                         DateTime?
+  attestationExpiresAt               DateTime?
+  pendingPublicKey                   String?
+  pendingDeviceKeyAlgorithm          String?
+  pendingPublicKeyParameterSet       String?
+  pendingPublicKeyOrigin             String?
+  pendingPublicKeyHardwareProtection String?
+  pendingDeviceKeyExpiresAt          DateTime?
+  signingSecretEncrypted             String?
+  signingSecretVersion               String?
+  signingSecretIssuedAt              DateTime?
+  signingSecretRotatedAt             DateTime?
+  createdAt                          DateTime                               @default(now())
+  lastSeenAt                         DateTime                               @default(now())
+  revokedAt                          DateTime?
+  user                               users                                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attestationChallenges              athena_device_attestation_challenges[]
 
   @@unique([userId, clientId])
   @@index([clientId])
   @@index([userId, revokedAt])
+}
+
+model athena_device_attestation_challenges {
+  id             String         @id
+  userId         Int
+  clientId       String
+  provider       String
+  clientDataHash String
+  keyBindingHash String
+  status         String         @default("pending")
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  client         athena_clients @relation(fields: [userId, clientId], references: [userId, clientId], onDelete: Cascade)
+
+  @@index([userId, clientId, status])
+  @@index([expiresAt])
 }
 
 model athena_request_nonces {
@@ -806,16 +1130,16 @@ model athena_request_nonces {
 }
 
 model user_state_preferences {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  namespace String
-  scope     String   @default("global")
-  value     String
-  version   String   @default("1")
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  namespace       String
+  scope           String   @default("global")
+  value           String
+  version         String   @default("1")
   monotonicCursor Int?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @default(now())
-  user      users    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+  user            users    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, namespace, scope])
   @@index([userId, namespace])
@@ -1527,15 +1851,19 @@ model security_audit_ledger {
 }
 
 model security_audit_checkpoints {
-  id              Int      @id @default(autoincrement())
-  chainId         String   @default("security-v1")
-  throughSequence Int
-  throughHash     String
-  algorithm       String   @default("ed25519")
-  keyId           String
-  publicKey       String
-  signature       String
-  createdAt       DateTime @default(now())
+  id                    Int      @id @default(autoincrement())
+  chainId               String   @default("security-v1")
+  throughSequence       Int
+  throughHash           String
+  algorithm             String   @default("ed25519")
+  parameterSet          String   @default("Ed25519")
+  keyOrigin             String   @default("unknown")
+  hardwareProtection    String   @default("unknown")
+  keyId                 String
+  publicKey             String
+  signature             String
+  signatureEnvelopeJson String?
+  createdAt             DateTime @default(now())
 
   @@unique([chainId, throughSequence])
   @@index([keyId, createdAt])
@@ -1593,6 +1921,27 @@ model workspace_chats {
   @@index([workspaceId, user_id, thread_id, api_session_id, include, id], map: "workspace_chats_thread_history_idx")
   @@index([workspaceId, user_id, thread_id, api_session_id, id], map: "workspace_chats_scope_tail_idx")
   @@index([workspaceId, user_id, api_session_id, include, thread_id, createdAt, id], map: "workspace_chats_thread_activity_idx")
+}
+
+model chat_stream_runs {
+  id                String    @id
+  clientTurnId      String    @unique
+  workspaceId       Int
+  threadId          Int?
+  userId            Int?
+  status            String    @default("running")
+  revision          Int       @default(0)
+  partialResponse   String    @default("")
+  finalChatId       Int?
+  finalPublicChatId String?
+  errorCode         String?
+  startedAt         DateTime  @default(now())
+  completedAt       DateTime?
+  lastUpdatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, threadId, userId, status])
+  @@index([status, lastUpdatedAt])
+  @@index([completedAt])
 }
 
 model content_objects {
@@ -1889,7 +2238,7 @@ model workspace_cognitive_extraction_jobs {
   heartbeatAt             DateTime?
   errorCode               String?
   errorDetail             String?
-  pipelineVersion         Int       @default(3)
+  pipelineVersion         Int       @default(4)
   jobType                 String    @default("rough_screen")
   priority                Int       @default(10)
   partialGroup            Boolean   @default(false)
@@ -1942,6 +2291,7 @@ model workspace_cognitive_rough_results {
   chatIdsJson      String   @default("[]")
   inputContentHash String
   segmentRefsJson  String   @default("[]")
+  selectionJson    String   @default("{}")
   outputHash       String
   status           String   @default("ready")
   readyAt          DateTime @default(now())
@@ -1966,25 +2316,30 @@ model workspace_cognitive_refine_inputs {
 }
 
 model workspace_cognitive_extraction_attempts {
-  id               Int      @id @default(autoincrement())
-  workspaceId      Int
-  jobId            Int
-  stage            String
-  attemptNo        Int
-  provider         String?
-  model            String?
-  promptTokens     Int      @default(0)
-  completionTokens Int      @default(0)
-  totalTokens      Int      @default(0)
-  cacheHitTokens   Int      @default(0)
-  cacheMissTokens  Int      @default(0)
-  durationMs       Int      @default(0)
-  inputHash        String?
-  outputHash       String?
-  outcome          String
-  errorCode        String?
-  metricsJson      String   @default("{}")
-  createdAt        DateTime @default(now())
+  id                    Int      @id @default(autoincrement())
+  workspaceId           Int
+  jobId                 Int
+  stage                 String
+  attemptNo             Int
+  provider              String?
+  model                 String?
+  promptTokens          Int      @default(0)
+  completionTokens      Int      @default(0)
+  totalTokens           Int      @default(0)
+  cacheHitTokens        Int      @default(0)
+  cacheMissTokens       Int      @default(0)
+  durationMs            Int      @default(0)
+  inputHash             String?
+  outputHash            String?
+  outcome               String
+  errorCode             String?
+  finishReason          String?
+  thinkingMode          String   @default("disabled")
+  reasoningTokens       Int      @default(0)
+  estimatedPromptTokens Int      @default(0)
+  budgetDecision        String   @default("allowed")
+  metricsJson           String   @default("{}")
+  createdAt             DateTime @default(now())
 
   @@unique([jobId, stage, attemptNo])
   @@index([workspaceId, createdAt])
@@ -2034,7 +2389,8 @@ model workspace_cognitive_candidates {
   suggestedRelationJson String   @default("{}")
   normalizedHash        String
   rawModelOutputJson    String   @default("{}")
-  pipelineVersion       Int      @default(3)
+  qualityJson           String   @default("{}")
+  pipelineVersion       Int      @default(4)
   legacyPipeline        Boolean  @default(false)
   createdAt             DateTime @default(now())
 
@@ -2568,6 +2924,8 @@ model scheduled_jobs {
   prompt             String
   tools              String? // JSON array of tool identifiers (null = use all enabled agent skills)
   capabilityManifest String               @default("{}")
+  ownerUserId        Int?
+  ownerAuthUserId    Int?
   schedule           String // Cron expression
   enabled            Boolean              @default(true)
   lastRunAt          DateTime?
@@ -2575,6 +2933,9 @@ model scheduled_jobs {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @default(now())
   runs               scheduled_job_runs[]
+
+  @@index([ownerUserId, enabled])
+  @@index([ownerAuthUserId, enabled])
 }
 
 model scheduled_job_runs {
@@ -2594,20 +2955,24 @@ model scheduled_job_runs {
 // Non-secret registry for application encryption keys. Raw key material is
 // deliberately held by Key Custody providers and never persisted here.
 model security_key_registry {
-  id               Int       @id @default(autoincrement())
-  keyId            String    @unique
-  purpose          String
-  providerType     String
-  fingerprint      String
-  version          Int       @default(1)
-  status           String    @default("pending")
-  canaryEnvelope   String?
-  sourceDescriptor String?
-  metadata         String?
-  createdAt        DateTime  @default(now())
-  activatedAt      DateTime?
-  retiredAt        DateTime?
-  lastVerifiedAt   DateTime?
+  id                 Int       @id @default(autoincrement())
+  keyId              String    @unique
+  purpose            String
+  providerType       String
+  algorithm          String    @default("AES-256-GCM")
+  parameterSet       String    @default("AES-256/GCM-96")
+  keyOrigin          String    @default("unknown")
+  hardwareProtection String    @default("unknown")
+  fingerprint        String
+  version            Int       @default(1)
+  status             String    @default("pending")
+  canaryEnvelope     String?
+  sourceDescriptor   String?
+  metadata           String?
+  createdAt          DateTime  @default(now())
+  activatedAt        DateTime?
+  retiredAt          DateTime?
+  lastVerifiedAt     DateTime?
 
   @@index([purpose, status])
   @@index([fingerprint])
@@ -2630,23 +2995,42 @@ model security_key_domain_bindings {
 }
 
 model security_key_rotation_jobs {
-  id             Int       @id @default(autoincrement())
-  jobId          String    @unique
-  idempotencyKey String    @unique
-  purpose        String
-  sourceKeyId    String?
-  targetKeyId    String?
-  status         String    @default("pending")
-  stage          String    @default("prepare")
-  progress       String?
-  failure        String?
-  createdBy      Int?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  completedAt    DateTime?
+  id                 Int       @id @default(autoincrement())
+  jobId              String    @unique
+  idempotencyKey     String    @unique
+  purpose            String
+  sourceKeyId        String?
+  targetKeyId        String?
+  status             String    @default("pending")
+  stage              String    @default("prepare")
+  progress           String?
+  failure            String?
+  createdBy          Int?
+  requiredApprovals  Int       @default(0)
+  approvalExpiresAt  DateTime?
+  approvedAt         DateTime?
+  executionStartedBy Int?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  completedAt        DateTime?
 
   @@index([purpose, status])
   @@index([createdAt])
+}
+
+model security_key_rotation_approvals {
+  id             Int      @id @default(autoincrement())
+  approvalId     String   @unique
+  jobId          String
+  approverUserId Int
+  decision       String   @default("approved")
+  metadata       String?
+  approvedAt     DateTime @default(now())
+  expiresAt      DateTime
+
+  @@unique([jobId, approverUserId])
+  @@index([jobId, decision, expiresAt])
+  @@index([approverUserId, approvedAt])
 }
 
 model security_key_events {

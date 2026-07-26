@@ -2,6 +2,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const prisma = require("../prisma");
+const authPrisma = require("../authPrisma");
 const { storagePath } = require("../environment");
 const { resolveActiveKey } = require("./keyCustody");
 
@@ -14,6 +15,12 @@ const FIELD_SPECS = [
     purpose: "database-secrets",
   },
   { table: "system_settings", field: "value", purpose: "database-secrets" },
+  {
+    database: "auth",
+    table: "system_settings",
+    field: "value",
+    purpose: "shared-auth-secrets",
+  },
   {
     table: "system_prompt_variables",
     field: "value",
@@ -30,6 +37,15 @@ const FIELD_SPECS = [
     table: "workspace_chat_conversation_keys",
     field: "wrapped_key",
     purpose: "chat-key-wraps",
+    resourceType: "chat-conversation-key",
+    resourceIdField: "key_id",
+  },
+  {
+    table: "content_objects",
+    field: "wrappedDek",
+    purpose: "content-object-dek",
+    resourceType: "content-object",
+    resourceIdField: "id",
   },
   {
     table: "workspace_chat_compactions",
@@ -115,7 +131,8 @@ function readCandidateMaterials(candidateSource, activeDescriptor) {
 }
 
 async function rowsForSpec(spec) {
-  return prisma.$queryRawUnsafe(
+  const client = spec.database === "auth" ? authPrisma : prisma;
+  return client.$queryRawUnsafe(
     `SELECT "id", "${spec.field}" AS "value" FROM "${spec.table}"
      WHERE "${spec.field}" LIKE 'enc:v1:%' ORDER BY "id" ASC`
   );
@@ -186,11 +203,21 @@ async function scanMixedKeyDatabase({ candidateSource }) {
         } catch {}
       }
       if (matches.length === 0) {
-        unresolved.push({ table: spec.table, field: spec.field, id: row.id });
+        unresolved.push({
+          database: spec.database || "main",
+          table: spec.table,
+          field: spec.field,
+          id: row.id,
+        });
         continue;
       }
       if (matches.length > 1) {
-        ambiguous.push({ table: spec.table, field: spec.field, id: row.id });
+        ambiguous.push({
+          database: spec.database || "main",
+          table: spec.table,
+          field: spec.field,
+          id: row.id,
+        });
         continue;
       }
       const [match] = matches;
@@ -208,6 +235,7 @@ async function scanMixedKeyDatabase({ candidateSource }) {
       });
     }
     byField.push({
+      database: spec.database || "main",
       table: spec.table,
       field: spec.field,
       legacyRows: rows.length,
@@ -258,6 +286,7 @@ async function recoverMixedKeyDatabase({
     activeKeyId: scan.active.keyId,
     records: scan.mutations.map((item) => ({
       table: item.table,
+      database: item.database || "main",
       field: item.field,
       id: item.id,
       ciphertext: item.previousValue,
@@ -266,22 +295,31 @@ async function recoverMixedKeyDatabase({
   };
   safeReport.backup = privateWrite(backupPath || defaultBackupPath(), backup);
 
-  await prisma.$transaction(async (transaction) => {
-    for (const item of scan.mutations) {
-      const changed = await transaction.$executeRawUnsafe(
-        `UPDATE "${item.table}" SET "${item.field}" = ?
+  for (const [database, client] of [
+    ["main", prisma],
+    ["auth", authPrisma],
+  ]) {
+    const mutations = scan.mutations.filter(
+      (item) => (item.database || "main") === database
+    );
+    if (!mutations.length) continue;
+    await client.$transaction(async (transaction) => {
+      for (const item of mutations) {
+        const changed = await transaction.$executeRawUnsafe(
+          `UPDATE "${item.table}" SET "${item.field}" = ?
          WHERE "id" = ? AND "${item.field}" = ?`,
-        item.nextValue,
-        item.id,
-        item.previousValue
-      );
-      if (Number(changed) !== 1) {
-        throw new Error(
-          `recovery_write_conflict:${item.table}.${item.field}:${item.id}`
+          item.nextValue,
+          item.id,
+          item.previousValue
         );
+        if (Number(changed) !== 1) {
+          throw new Error(
+            `recovery_write_conflict:${database}:${item.table}.${item.field}:${item.id}`
+          );
+        }
       }
-    }
-  });
+    });
+  }
   return safeReport;
 }
 

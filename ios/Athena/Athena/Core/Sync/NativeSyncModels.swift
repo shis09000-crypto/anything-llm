@@ -13,6 +13,38 @@ struct NativeSyncResource: Codable, Equatable, Sendable {
     let kind: String?
     let id: Int?
     let publicId: String?
+
+    init(kind: String?, id: Int?, publicId: String?) {
+        self.kind = kind
+        self.id = id
+        self.publicId = publicId
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind
+        case id
+        case publicId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind)
+        publicId = try container.decodeIfPresent(String.self, forKey: .publicId)
+        if let integerID = try? container.decode(Int.self, forKey: .id) {
+            id = integerID
+        } else if let stringID = try? container.decode(String.self, forKey: .id) {
+            id = Int(stringID)
+        } else {
+            id = nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(kind, forKey: .kind)
+        try container.encodeIfPresent(id, forKey: .id)
+        try container.encodeIfPresent(publicId, forKey: .publicId)
+    }
 }
 
 struct NativeSyncOrigin: Codable, Equatable, Sendable {

@@ -63,6 +63,60 @@ final class BackendFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testDeviceIdentityRecoveryHintIsSeparatedAndRecoveryIsCoalesced() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.signing.prepareDeviceKey()
+        try secured.auth.storeToken("session-token")
+        var incidents: [APISecurityIncident] = []
+        secured.client.securityRecoveryHandler = { incident in
+            incidents.append(incident)
+            return false
+        }
+        AthenaTestURLProtocol.handler = { request in
+            Self.response(
+                for: request,
+                status: 401,
+                json: """
+                {"success":false,"error":"INVALID_SIGNATURE","recovery":"CLIENT_IDENTITY_REAUTH_REQUIRED"}
+                """
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/system/user/state",
+                authorization: .required
+            )
+            XCTFail("Expected device identity recovery")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .clientIdentityReauthenticationRequired("INVALID_SIGNATURE")
+            )
+        }
+        XCTAssertEqual(incidents, [.clientIdentityReauthRequired])
+
+        let gate = APISecurityRecoveryGate()
+        var recoveryCount = 0
+        let tasks = (0..<10).map { _ in
+            Task { @MainActor in
+                await gate.run {
+                    recoveryCount += 1
+                    try? await Task.sleep(for: .milliseconds(25))
+                    return true
+                }
+            }
+        }
+        for task in tasks {
+            let recovered = await task.value
+            XCTAssertTrue(recovered)
+        }
+        XCTAssertEqual(recoveryCount, 1)
+    }
+
+    @MainActor
     func testProtectedRequestCannotRunWithoutClientIdentity() async throws {
         let secured = makeClient()
         try secured.auth.storeToken("session-token")
@@ -107,6 +161,238 @@ final class BackendFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testIdempotentGetRetriesGatewayFailureAndRecovers() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var requestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            requestCount += 1
+            if requestCount == 1 {
+                return Self.response(
+                    for: request,
+                    status: 502,
+                    json: #"{"error":"temporary gateway failure"}"#
+                )
+            }
+            return Self.response(for: request, json: "{}")
+        }
+
+        _ = try await secured.client.getJSON(
+            APIEmptyResponse.self,
+            path: "/api/workspaces",
+            authorization: .required
+        )
+
+        XCTAssertEqual(requestCount, 2)
+    }
+
+    @MainActor
+    func testMutationDoesNotRetryGatewayFailure() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var requestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            requestCount += 1
+            return Self.response(
+                for: request,
+                status: 502,
+                json: #"{"error":"temporary gateway failure"}"#
+            )
+        }
+
+        do {
+            _ = try await secured.client.requestJSON(
+                APIEmptyResponse.self,
+                method: .post,
+                path: "/api/workspace/new",
+                body: ["name": "Workspace"],
+                authorization: .required
+            )
+            XCTFail("Expected HTTP 502")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .httpStatus(
+                    status: 502,
+                    code: "temporary gateway failure",
+                    message: "temporary gateway failure"
+                )
+            )
+        }
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    @MainActor
+    func testAuthenticationFailureIsNeverRetriedAsTransient() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var requestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            requestCount += 1
+            return Self.response(
+                for: request,
+                status: 401,
+                json: #"{"error":"session_revoked"}"#
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/workspaces",
+                authorization: .required
+            )
+            XCTFail("Expected HTTP 401")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .httpStatus(
+                    status: 401,
+                    code: "session_revoked",
+                    message: "session_revoked"
+                )
+            )
+        }
+        XCTAssertEqual(requestCount, 1)
+    }
+
+    @MainActor
+    func testPostQuantumRequirementIsNotMisclassifiedAsSessionExpiry() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var requestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            requestCount += 1
+            return Self.response(
+                for: request,
+                status: 401,
+                json: #"{"success":false,"error":"INVALID_SIGNATURE","reason":"post_quantum_signature_required"}"#
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/sync/events/replay",
+                authorization: .required
+            )
+            XCTFail("Expected postQuantumSigningUnavailable")
+        } catch let error as APIClientError {
+            XCTAssertEqual(error, .postQuantumSigningUnavailable)
+        }
+        XCTAssertEqual(requestCount, 1)
+        XCTAssertEqual(secured.auth.accessToken, "session-token")
+    }
+
+    @MainActor
+    func testRootAuthorizationRequirementDoesNotClearValidSession() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var incidents: [APISecurityIncident] = []
+        secured.client.securityRecoveryHandler = { incident in
+            incidents.append(incident)
+            return false
+        }
+        AthenaTestURLProtocol.handler = { request in
+            Self.response(
+                for: request,
+                status: 401,
+                json: #"{"success":false,"error":"hybrid_signed_shared_identity_required"}"#
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/vault/user-root-key/authorization-targets",
+                authorization: .required
+            )
+            XCTFail("Expected Root authorization requirement")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .httpStatus(
+                    status: 401,
+                    code: "hybrid_signed_shared_identity_required",
+                    message: "hybrid_signed_shared_identity_required"
+                )
+            )
+        }
+        XCTAssertTrue(incidents.isEmpty)
+        XCTAssertEqual(secured.auth.accessToken, "session-token")
+    }
+
+    @MainActor
+    func testRevokedSessionStillTriggersSessionRecovery() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        var incidents: [APISecurityIncident] = []
+        secured.client.securityRecoveryHandler = { incident in
+            incidents.append(incident)
+            return false
+        }
+        AthenaTestURLProtocol.handler = { request in
+            Self.response(
+                for: request,
+                status: 401,
+                json: #"{"success":false,"error":"session_revoked"}"#
+            )
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/workspaces",
+                authorization: .required
+            )
+            XCTFail("Expected revoked session")
+        } catch let error as APIClientError {
+            XCTAssertEqual(
+                error,
+                .httpStatus(
+                    status: 401,
+                    code: "session_revoked",
+                    message: "session_revoked"
+                )
+            )
+        }
+        XCTAssertEqual(incidents, [.sessionExpired])
+    }
+
+    @MainActor
+    func testSignedRequestFailsClosedWithoutStrictPostQuantumContract() async throws {
+        let secured = makeClient(strictPostQuantum: false)
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        try secured.signing.prepareDeviceKey()
+        var requestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            requestCount += 1
+            return Self.response(for: request, json: "{}")
+        }
+
+        do {
+            _ = try await secured.client.getJSON(
+                APIEmptyResponse.self,
+                path: "/api/sync/events/replay",
+                authorization: .required,
+                signing: .required
+            )
+            XCTFail("Expected postQuantumSigningUnavailable")
+        } catch let error as APIClientError {
+            XCTAssertEqual(error, .postQuantumSigningUnavailable)
+        }
+        XCTAssertEqual(requestCount, 0)
+        XCTAssertFalse(secured.signing.postQuantumContractReady)
+    }
+
+    @MainActor
     func testSignedRequestUsesDeviceP256Headers() async throws {
         let secured = makeClient()
         _ = try secured.identity.prepare()
@@ -136,6 +422,45 @@ final class BackendFoundationTests: XCTestCase {
             body: ["value": "test"],
             authorization: .required,
             signing: .required
+        )
+    }
+
+    @MainActor
+    func testSignedWebSocketMessageUsesStrictHybridPostQuantumEnvelope() throws {
+        let secured = makeClient()
+        let clientID = try secured.identity.prepare()
+        try secured.signing.prepareDeviceKey()
+
+        let data = try secured.signing.signedWebSocketMessage(
+            payload: ["type": "hello"],
+            url: URL(string: "wss://athena.test/api/realtime/broadcast")!,
+            clientID: clientID
+        )
+        let envelope = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: data) as? [String: Any]
+        )
+        let signed = try XCTUnwrap(envelope["signed"] as? [String: Any])
+
+        XCTAssertEqual(envelope["signatureVersion"] as? String, "v2-device-p256")
+        XCTAssertEqual(
+            signed["hybridSignatureVersion"] as? String,
+            "device-hybrid-p256-mldsa65-v1"
+        )
+        XCTAssertEqual(
+            signed["pqKeyAlgorithm"] as? String,
+            "request-device-mldsa65-v1"
+        )
+        XCTAssertEqual(
+            Self.base64URLData(
+                try XCTUnwrap(signed["pqSignature"] as? String)
+            )?.count,
+            3_309
+        )
+        XCTAssertEqual(
+            Self.base64URLData(
+                try XCTUnwrap(signed["pqPublicKey"] as? String)
+            )?.count,
+            1_952
         )
     }
 
@@ -338,6 +663,141 @@ final class BackendFoundationTests: XCTestCase {
                 ),
                 .finalized(chatID: 43, publicChatID: nil, clientTurnID: "turn-43"),
             ]
+        )
+    }
+
+    @MainActor
+    func testChatStreamResumeUsesPersistedRevisionAndEmitsCheckpoints() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        let stream = """
+        data: {"runRevision":8,"uuid":"reply-resume","type":"fullTextResponse","textResponse":"后台完成的回复","close":true}
+
+        data: {"runRevision":9,"uuid":"reply-resume","type":"finalizeResponseStream","chatId":51,"publicChatId":"public-51","clientTurnId":"turn-resume","close":true}
+
+        """
+        AthenaTestURLProtocol.handler = { request in
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/workspace/alpha/thread/thread-a/chat-runs/turn-resume/stream"
+            )
+            XCTAssertEqual(request.url?.query, "afterRevision=4")
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Authorization"),
+                "Bearer session-token"
+            )
+            return Self.response(
+                for: request,
+                contentType: "text/event-stream",
+                data: Data(stream.utf8)
+            )
+        }
+
+        var events: [ChatStreamEvent] = []
+        try await ChatStreamClient(apiClient: secured.client).resumeThreadStream(
+            workspaceID: "alpha",
+            threadID: "thread-a",
+            clientTurnID: "turn-resume",
+            afterRevision: 4
+        ) { event in
+            events.append(event)
+        }
+
+        XCTAssertEqual(
+            events,
+            [
+                .checkpoint(revision: 8),
+                .assistantText(
+                    id: "reply-resume",
+                    text: "后台完成的回复",
+                    replaces: true,
+                    closes: true
+                ),
+                .checkpoint(revision: 9),
+                .finalized(
+                    chatID: 51,
+                    publicChatID: "public-51",
+                    clientTurnID: "turn-resume"
+                ),
+            ]
+        )
+    }
+
+    @MainActor
+    func testChatStreamStateUsesAuthenticatedOwnerScopedEndpoint() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        AthenaTestURLProtocol.handler = { request in
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/workspace/alpha/thread/thread-a/chat-runs/turn-state/state"
+            )
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Authorization"),
+                "Bearer session-token"
+            )
+            return Self.response(
+                for: request,
+                json: """
+                {
+                  "success": true,
+                  "run": {
+                    "kind": "thread",
+                    "clientTurnId": "turn-state",
+                    "status": "running",
+                    "revision": 17,
+                    "terminal": false,
+                    "retryable": true,
+                    "finalChatId": null,
+                    "finalPublicChatId": null,
+                    "errorCode": null
+                  }
+                }
+                """
+            )
+        }
+
+        let state = try await ChatStreamClient(apiClient: secured.client).threadRunState(
+            workspaceID: "alpha",
+            threadID: "thread-a",
+            clientTurnID: "turn-state"
+        )
+
+        XCTAssertEqual(state.status, "running")
+        XCTAssertEqual(state.revision, 17)
+        XCTAssertTrue(state.retryable)
+        XCTAssertFalse(state.terminal)
+    }
+
+    @MainActor
+    func testChatStreamExplicitStopUsesSignedServerCancellation() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        try secured.signing.prepareDeviceKey()
+        AthenaTestURLProtocol.handler = { request in
+            XCTAssertEqual(request.httpMethod, "POST")
+            XCTAssertEqual(
+                request.url?.path,
+                "/api/workspace/alpha/thread/thread-a/chat-runs/turn-stop/cancel"
+            )
+            XCTAssertEqual(
+                request.value(forHTTPHeaderField: "Authorization"),
+                "Bearer session-token"
+            )
+            XCTAssertNotNil(request.value(forHTTPHeaderField: "X-Athena-Signature"))
+            return Self.response(
+                for: request,
+                json: #"{"success":true,"status":"cancelling"}"#
+            )
+        }
+
+        try await ChatStreamClient(apiClient: secured.client).cancelThreadRun(
+            workspaceID: "alpha",
+            threadID: "thread-a",
+            clientTurnID: "turn-stop"
         )
     }
 
@@ -880,9 +1340,11 @@ final class BackendFoundationTests: XCTestCase {
                 let stream = """
                 data: {"action":"rename_thread","thread":{"slug":"thread-a","name":"即时对话标题","title":"即时对话标题","titleVersion":2,"animate":true}}
 
-                data: {"uuid":"reply","type":"textResponseChunk","textResponse":"Reply","close":false}
+                data: {"uuid":"reply-chunk","type":"textResponseChunk","textResponse":"Partial","close":false}
 
-                data: {"uuid":"reply","type":"finalizeResponseStream","chatId":10,"publicChatId":"public-10","clientTurnId":"\(turnID)","close":true}
+                data: {"uuid":"reply-final","type":"fullTextResponse","textResponse":"Reply","close":true}
+
+                data: {"uuid":"reply-final","type":"finalizeResponseStream","chatId":10,"publicChatId":"public-10","clientTurnId":"\(turnID)","close":true}
 
                 """
                 return Self.response(
@@ -914,6 +1376,208 @@ final class BackendFoundationTests: XCTestCase {
         XCTAssertEqual(center.syncMetadata(for: "thread-a")?.title, "即时对话标题")
         XCTAssertEqual(center.messages(for: "thread-a").map(\.text), ["Immediate", "Reply"])
         XCTAssertTrue(center.messages(for: "thread-a").allSatisfy { $0.deliveryState == .confirmed })
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
+    @MainActor
+    func testAgentIgnoresUserRootEchoAndWaitsForAuthoritativeFinalization() async {
+        let kit = AgentControlKit(events: [])
+        var finalized: AgentSessionSnapshot?
+        kit.onSessionFinalized = { finalized = $0 }
+        await kit.startSession(
+            invocationID: "invocation-direction",
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-direction"
+        )
+
+        kit.applySocketEventData(
+            Data(
+                #"{"seq":1,"to":"@agent","from":"USER","content":"original user input"}"#.utf8
+            ),
+            invocationID: "invocation-direction"
+        )
+
+        XCTAssertEqual(kit.sessions.first?.assistantText, "")
+        XCTAssertNil(finalized)
+
+        kit.applySocketEventData(
+            Data(
+                #"{"seq":2,"to":"USER","from":"@agent","content":"assistant answer","state":"success"}"#.utf8
+            ),
+            invocationID: "invocation-direction"
+        )
+
+        XCTAssertEqual(kit.sessions.first?.assistantText, "assistant answer")
+        XCTAssertNil(finalized)
+
+        kit.applySocketEventData(
+            Data(
+                #"{"seq":3,"type":"chatId","chatId":72,"publicChatId":"public-72","clientTurnId":"turn-direction"}"#.utf8
+            ),
+            invocationID: "invocation-direction"
+        )
+
+        XCTAssertEqual(finalized?.assistantText, "assistant answer")
+        XCTAssertEqual(finalized?.finalChatID, 72)
+    }
+
+    func testAgentInlineHidesWhenAuthoritativeFinalAnswerIsInHistory() {
+        let session = AgentSessionSnapshot(
+            invocationID: "invocation-inline",
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-inline",
+            phase: .finalized,
+            lastEventSequence: 5,
+            retryCount: 0,
+            assistantText: "same answer",
+            finalChatID: 72,
+            finalPublicChatID: "public-72",
+            events: [],
+            updatedAt: Date()
+        )
+        let authoritative = AthenaChatMessage(
+            id: "thread-a:72:assistant",
+            role: .assistant,
+            text: "same answer",
+            chatID: 72,
+            publicChatID: "public-72",
+            clientTurnID: "turn-inline",
+            deliveryState: .confirmed
+        )
+
+        XCTAssertFalse(
+            AgentInlinePresentationPolicy.shouldRender(
+                session: session,
+                messages: [authoritative]
+            )
+        )
+        XCTAssertTrue(
+            AgentInlinePresentationPolicy.shouldRender(
+                session: session,
+                messages: []
+            )
+        )
+    }
+
+    @MainActor
+    func testWorkspaceCenterRestoresBackgroundCompletedChatFromServerState() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let localCache = LocalCache(rootURL: cacheRoot)
+        let scheduler = TaskScheduler()
+        let agent = AgentControlKit(
+            events: [],
+            apiClient: secured.client,
+            taskScheduler: scheduler,
+            requestSigningCenter: secured.signing,
+            clientIdentityCenter: secured.identity,
+            localCache: localCache
+        )
+        let center = WorkspaceCenter(
+            api: WorkspaceAPI(apiClient: secured.client),
+            apiClient: secured.client,
+            chatStreamClient: ChatStreamClient(apiClient: secured.client),
+            agentControlKit: agent,
+            taskScheduler: scheduler,
+            optimisticActionCenter: NativeOptimisticActionCenter(),
+            recoveryCenter: NativeRecoveryCenter(),
+            serverStateCache: ServerStateCache(
+                scheduler: scheduler,
+                secureStore: InMemorySecureValueStore(),
+                persistentRootURL: cacheRoot
+            ),
+            localCache: localCache,
+            userStateSyncClient: UserStateSyncClient(),
+            source: .live
+        )
+        var historyRequestCount = 0
+        var stateRequestCount = 0
+        var observationRequestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/system/user/state":
+                return Self.response(for: request, json: #"{"success":true,"states":[]}"#)
+            case "/api/workspaces":
+                return Self.response(
+                    for: request,
+                    json: #"{"workspaces":[{"id":1,"name":"Alpha","slug":"alpha"}]}"#
+                )
+            case "/api/workspace/alpha/threads":
+                return Self.response(
+                    for: request,
+                    json: #"{"threads":[{"id":11,"name":"Thread A","slug":"thread-a","thread_type":"chat"}]}"#
+                )
+            case "/api/workspace/alpha/thread/thread-a/bootstrap":
+                historyRequestCount += 1
+                let history = historyRequestCount == 1
+                    ? #"[{"role":"user","content":"Background test","clientTurnId":"turn-background","sentAt":100}]"#
+                    : #"[{"role":"user","content":"Background test","chatId":88,"publicChatId":"public-88","clientTurnId":"turn-background","sentAt":100},{"role":"assistant","content":"Completed while suspended","chatId":88,"publicChatId":"public-88","clientTurnId":"turn-background","sentAt":101}]"#
+                return Self.response(
+                    for: request,
+                    json: """
+                    {"success":true,"workspace":{"id":1,"name":"Alpha","slug":"alpha"},"thread":{"id":11,"name":"Thread A","slug":"thread-a","thread_type":"chat"},"history":\(history),"page":{"limit":20,"hasOlder":false}}
+                    """
+                )
+            case "/api/workspace/alpha/thread/thread-a/chat-runs/turn-background/state":
+                stateRequestCount += 1
+                return Self.response(
+                    for: request,
+                    json: """
+                    {"success":true,"run":{"kind":"chat","clientTurnId":"turn-background","status":"completed","revision":12,"terminal":true,"retryable":false,"finalChatId":88,"finalPublicChatId":"public-88","errorCode":null}}
+                    """
+                )
+            case "/api/operations/client-chat-observations":
+                observationRequestCount += 1
+                return Self.response(
+                    for: request,
+                    json: #"{"success":true,"accepted":1}"#
+                )
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                return Self.response(for: request, status: 404, json: "{}")
+            }
+        }
+
+        try await center.bootstrap(ownerScope: "user:test")
+        try localCache.saveChatStreamDescriptors(
+            [
+                PersistedChatStreamDescriptor(
+                    workspaceID: "alpha",
+                    threadID: "thread-a",
+                    clientTurnID: "turn-background",
+                    sendsToWorkspace: false,
+                    lastRevision: 4,
+                    updatedAt: Date()
+                ),
+            ],
+            ownerScope: "user:test",
+            apiBase: secured.client.configuration.normalizedBaseURL
+        )
+
+        await center.restorePersistedChatStreams()
+        for _ in 0..<100 where center.hasRecoverableChatRun(in: "thread-a") {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        XCTAssertFalse(center.hasRecoverableChatRun(in: "thread-a"))
+        XCTAssertEqual(stateRequestCount, 1)
+        XCTAssertEqual(observationRequestCount, 2)
+        XCTAssertEqual(historyRequestCount, 2)
+        XCTAssertEqual(
+            center.messages(for: "thread-a").map(\.text),
+            ["Background test", "Completed while suspended"]
+        )
+        XCTAssertTrue(
+            localCache.loadChatStreamDescriptors(
+                ownerScope: "user:test",
+                apiBase: secured.client.configuration.normalizedBaseURL
+            ).isEmpty
+        )
         try? FileManager.default.removeItem(at: cacheRoot)
     }
 
@@ -1377,6 +2041,7 @@ final class BackendFoundationTests: XCTestCase {
     func testAvatarUploadKeepsCachedAvatarUntilUnifiedSyncRefresh() async throws {
         let secured = makeClient()
         _ = try secured.identity.prepare()
+        try secured.signing.prepareDeviceKey()
         try secured.auth.storeToken("session-token")
         let cacheRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1508,6 +2173,59 @@ final class BackendFoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testChatStreamDescriptorContainsOnlyRecoverableNonSecretMetadata() throws {
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = LocalCache(rootURL: cacheRoot)
+        let apiBase = URL(string: "https://athena.test")!
+        let descriptor = PersistedChatStreamDescriptor(
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-1",
+            sendsToWorkspace: false,
+            lastRevision: 7,
+            updatedAt: Date()
+        )
+
+        try cache.saveChatStreamDescriptors(
+            [descriptor],
+            ownerScope: "user:7",
+            apiBase: apiBase
+        )
+
+        let files = try FileManager.default.contentsOfDirectory(
+            at: cacheRoot.appendingPathComponent("Athena/AuthenticatedMetadata"),
+            includingPropertiesForKeys: nil
+        )
+        let file = try XCTUnwrap(files.first { $0.lastPathComponent.hasPrefix("chat-streams-") })
+        let data = try Data(contentsOf: file)
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(root["schemaVersion"] as? Int, 1)
+        let runs = try XCTUnwrap(root["runs"] as? [[String: Any]])
+        let keys = Set(try XCTUnwrap(runs.first).keys)
+        XCTAssertEqual(
+            keys,
+            [
+                "workspaceID", "threadID", "clientTurnID", "sendsToWorkspace",
+                "lastRevision", "updatedAt",
+            ]
+        )
+
+        let serialized = String(decoding: data, as: UTF8.self).lowercased()
+        for forbidden in ["token", "prompt", "secret", "authorization", "message", "assistanttext"] {
+            XCTAssertFalse(serialized.contains(forbidden), "Unexpected persisted key: \(forbidden)")
+        }
+        XCTAssertEqual(
+            cache.loadChatStreamDescriptors(ownerScope: "user:7", apiBase: apiBase),
+            [descriptor]
+        )
+        XCTAssertTrue(
+            cache.loadChatStreamDescriptors(ownerScope: "user:8", apiBase: apiBase).isEmpty
+        )
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
+    @MainActor
     func testAgentDescriptorContainsOnlyRecoverableNonSecretMetadata() throws {
         let cacheRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -1584,16 +2302,34 @@ final class BackendFoundationTests: XCTestCase {
             ownerScope: "user:7",
             apiBase: secured.client.configuration.normalizedBaseURL
         )
-        var requestCount = 0
+        var stateRequestCount = 0
+        var observationRequestCount = 0
         AthenaTestURLProtocol.handler = { request in
-            requestCount += 1
-            XCTAssertEqual(request.url?.path, "/api/agent-invocation/invocation-1/state")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer session-token")
-            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Athena-Client-Id"), secured.identity.clientID)
-            return Self.response(
-                for: request,
-                json: #"{"success":true,"state":{"closed":true,"retryable":false,"latestSeq":18}}"#
-            )
+            switch request.url?.path {
+            case "/api/agent-invocation/invocation-1/state":
+                stateRequestCount += 1
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: "Authorization"),
+                    "Bearer session-token"
+                )
+                XCTAssertEqual(
+                    request.value(forHTTPHeaderField: "X-Athena-Client-Id"),
+                    secured.identity.clientID
+                )
+                return Self.response(
+                    for: request,
+                    json: #"{"success":true,"state":{"closed":true,"retryable":false,"latestSeq":18}}"#
+                )
+            case "/api/operations/client-chat-observations":
+                observationRequestCount += 1
+                return Self.response(
+                    for: request,
+                    json: #"{"success":true,"accepted":1}"#
+                )
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                return Self.response(for: request, status: 404, json: "{}")
+            }
         }
         let kit = AgentControlKit(
             events: [],
@@ -1606,7 +2342,8 @@ final class BackendFoundationTests: XCTestCase {
 
         await kit.restorePersistedSessions(ownerScope: "user:7")
 
-        XCTAssertEqual(requestCount, 1)
+        XCTAssertEqual(stateRequestCount, 1)
+        XCTAssertEqual(observationRequestCount, 1)
         XCTAssertEqual(kit.sessions.first?.lastEventSequence, 18)
         XCTAssertEqual(kit.sessions.first?.phase, .closed)
         XCTAssertTrue(
@@ -1616,6 +2353,181 @@ final class BackendFoundationTests: XCTestCase {
             ).isEmpty
         )
         try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
+    @MainActor
+    func testAgentRestorePreservesTerminalFailureInsteadOfFinalizing() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = LocalCache(rootURL: cacheRoot)
+        try cache.saveAgentSessionDescriptors(
+            [
+                PersistedAgentSessionDescriptor(
+                    invocationID: "invocation-failed",
+                    workspaceID: "workspace-a",
+                    threadID: "thread-a",
+                    clientTurnID: "turn-failed",
+                    lastEventSequence: 4,
+                    phase: .reconnecting,
+                    updatedAt: Date()
+                ),
+            ],
+            ownerScope: "user:7",
+            apiBase: secured.client.configuration.normalizedBaseURL
+        )
+        AthenaTestURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/agent-invocation/invocation-failed/state":
+                return Self.response(
+                    for: request,
+                    json: """
+                    {"success":true,"state":{"status":"failed","terminal":true,"closed":true,"retryable":false,"latestSeq":7,"errorCode":"provider_timeout","clientTurnId":"turn-failed"}}
+                    """
+                )
+            case "/api/operations/client-chat-observations":
+                return Self.response(
+                    for: request,
+                    json: #"{"success":true,"accepted":1}"#
+                )
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                return Self.response(for: request, status: 404, json: "{}")
+            }
+        }
+        let kit = AgentControlKit(
+            events: [],
+            apiClient: secured.client,
+            taskScheduler: TaskScheduler(),
+            requestSigningCenter: secured.signing,
+            clientIdentityCenter: secured.identity,
+            localCache: cache
+        )
+
+        await kit.restorePersistedSessions(ownerScope: "user:7")
+
+        XCTAssertEqual(kit.sessions.first?.phase, .failed)
+        XCTAssertEqual(kit.lastError, "provider_timeout")
+        XCTAssertNil(kit.sessions.first?.finalChatID)
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
+    @MainActor
+    func testAgentRestoreFinalizesPersistedChatWhenProviderStateIsStillFinalizing() async throws {
+        let secured = makeClient()
+        _ = try secured.identity.prepare()
+        try secured.auth.storeToken("session-token")
+        let cacheRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let cache = LocalCache(rootURL: cacheRoot)
+        try cache.saveAgentSessionDescriptors(
+            [
+                PersistedAgentSessionDescriptor(
+                    invocationID: "invocation-finalizing",
+                    workspaceID: "workspace-a",
+                    threadID: "thread-a",
+                    clientTurnID: "turn-finalizing",
+                    lastEventSequence: 36,
+                    phase: .reconnecting,
+                    updatedAt: Date()
+                ),
+            ],
+            ownerScope: "user:7",
+            apiBase: secured.client.configuration.normalizedBaseURL
+        )
+        var observationRequestCount = 0
+        AthenaTestURLProtocol.handler = { request in
+            switch request.url?.path {
+            case "/api/agent-invocation/invocation-finalizing/state":
+                return Self.response(
+                    for: request,
+                    json: """
+                    {"success":true,"state":{"status":"finalizing","terminal":true,"closed":false,"retryable":false,"latestSeq":2075,"finalChatId":2550,"finalPublicChatId":"public-2550","clientTurnId":"turn-finalizing"}}
+                    """
+                )
+            case "/api/operations/client-chat-observations":
+                observationRequestCount += 1
+                return Self.response(
+                    for: request,
+                    json: #"{"success":true,"accepted":1}"#
+                )
+            default:
+                XCTFail("Unexpected request: \(request.url?.absoluteString ?? "nil")")
+                return Self.response(for: request, status: 404, json: "{}")
+            }
+        }
+        let kit = AgentControlKit(
+            events: [],
+            apiClient: secured.client,
+            taskScheduler: TaskScheduler(),
+            requestSigningCenter: secured.signing,
+            clientIdentityCenter: secured.identity,
+            localCache: cache
+        )
+        var finalized: AgentSessionSnapshot?
+        kit.onSessionFinalized = { finalized = $0 }
+
+        await kit.restorePersistedSessions(ownerScope: "user:7")
+
+        XCTAssertEqual(observationRequestCount, 2)
+        XCTAssertEqual(kit.sessions.first?.phase, .finalized)
+        XCTAssertEqual(finalized?.finalChatID, 2550)
+        XCTAssertEqual(finalized?.finalPublicChatID, "public-2550")
+        XCTAssertEqual(finalized?.clientTurnID, "turn-finalizing")
+        XCTAssertTrue(
+            cache.loadAgentSessionDescriptors(
+                ownerScope: "user:7",
+                apiBase: secured.client.configuration.normalizedBaseURL
+            ).isEmpty
+        )
+        try? FileManager.default.removeItem(at: cacheRoot)
+    }
+
+    @MainActor
+    func testAgentReplayDoesNotAdvanceCursorBeforeMissingEventsAreApplied() async {
+        let kit = AgentControlKit(events: [])
+        var finalized: AgentSessionSnapshot?
+        kit.onSessionFinalized = { finalized = $0 }
+        await kit.startSession(
+            invocationID: "invocation-replay",
+            workspaceID: "workspace-a",
+            threadID: "thread-a",
+            clientTurnID: "turn-replay"
+        )
+        kit.sessions[0].lastEventSequence = 36
+
+        kit.applySocketEventData(
+            Data(#"{"type":"agentReplayStart","latestSeq":40}"#.utf8),
+            invocationID: "invocation-replay"
+        )
+        kit.applySocketEventData(
+            Data(#"{"seq":37,"type":"reportStreamEvent","content":{"type":"textResponseChunk","content":"missing tail"}}"#.utf8),
+            invocationID: "invocation-replay"
+        )
+        kit.applySocketEventData(
+            Data(#"{"seq":38,"content":"complete replayed answer"}"#.utf8),
+            invocationID: "invocation-replay"
+        )
+        kit.applySocketEventData(
+            Data(#"{"seq":39,"type":"reportStreamEvent","content":{"type":"chatId","chatId":77,"publicChatId":"public-77","clientTurnId":"turn-replay"}}"#.utf8),
+            invocationID: "invocation-replay"
+        )
+
+        XCTAssertNil(finalized)
+        XCTAssertEqual(kit.sessions.first?.assistantText, "complete replayed answer")
+        XCTAssertEqual(kit.sessions.first?.lastEventSequence, 39)
+
+        kit.applySocketEventData(
+            Data(#"{"type":"agentReplayEnd","latestSeq":40}"#.utf8),
+            invocationID: "invocation-replay"
+        )
+
+        XCTAssertEqual(finalized?.assistantText, "complete replayed answer")
+        XCTAssertEqual(finalized?.finalChatID, 77)
+        XCTAssertEqual(finalized?.finalPublicChatID, "public-77")
+        XCTAssertEqual(finalized?.lastEventSequence, 40)
     }
 
     @MainActor
@@ -1823,6 +2735,8 @@ final class BackendFoundationTests: XCTestCase {
             events: [],
             updatedAt: Date()
         )
+        center.sendingThreadIDs.insert("thread-a")
+        center.sendErrorByThreadID["thread-a"] = "stale reconnect error"
 
         await center.reconcileFinalizedAgentSession(session)
 
@@ -1830,11 +2744,54 @@ final class BackendFoundationTests: XCTestCase {
         XCTAssertEqual(confirmed?.chatID, 22)
         XCTAssertEqual(confirmed?.publicChatID, "public-22")
         XCTAssertEqual(confirmed?.deliveryState, .confirmed)
+        XCTAssertFalse(center.sendingThreadIDs.contains("thread-a"))
+        XCTAssertNil(center.sendErrorByThreadID["thread-a"])
         try? FileManager.default.removeItem(at: cacheRoot)
     }
 
+    func testNativeSyncReplayAcceptsStringResourceIdentifiers() throws {
+        let response = try JSONDecoder().decode(
+            NativeSyncReplayResponse.self,
+            from: Data(
+                #"""
+                {
+                  "success": true,
+                  "events": [
+                    {
+                      "eventId": "event-a",
+                      "type": "system.provider.updated",
+                      "resource": {
+                        "kind": "provider",
+                        "id": "provider-a",
+                        "publicId": "provider-a"
+                      }
+                    },
+                    {
+                      "eventId": "event-b",
+                      "type": "thread.created",
+                      "resource": {
+                        "kind": "thread",
+                        "id": "42"
+                      }
+                    }
+                  ],
+                  "nextEventId": "event-b",
+                  "checkpointEventId": null,
+                  "hasMore": false,
+                  "requiresFullSync": false
+                }
+                """#.utf8
+            )
+        )
+
+        XCTAssertNil(response.events[0].resource?.id)
+        XCTAssertEqual(response.events[1].resource?.id, 42)
+    }
+
     @MainActor
-    private func makeClient() -> (
+    private func makeClient(
+        strictPostQuantum: Bool = true
+    ) -> (
         client: APIClient,
         auth: AuthCenter,
         identity: ClientIdentityCenter,
@@ -1845,16 +2802,37 @@ final class BackendFoundationTests: XCTestCase {
         let client = APIClient(
             configuration: APIClientConfiguration(
                 baseURL: URL(string: "https://athena.test")!,
-                appVersion: "1.0",
+                appVersion: "2.4.0",
                 osVersion: "26.0",
                 platform: "ios"
             ),
-            session: URLSession(configuration: configuration)
+            session: URLSession(configuration: configuration),
+            transientRetryDelaysNanoseconds: [0, 0, 0]
         )
         let store = InMemorySecureValueStore()
         let auth = AuthCenter(secureStore: store)
         let identity = ClientIdentityCenter(secureStore: store)
-        let signing = RequestSigningCenter(secureStore: store)
+        let signing = RequestSigningCenter(
+            secureStore: store,
+            postQuantumTestSignatureProvider: strictPostQuantum
+                ? { payload in
+                    (
+                        signature: Data(
+                            repeating: UInt8(payload.count % 251),
+                            count: 3_309
+                        ),
+                        publicKey: Data(repeating: 7, count: 1_952)
+                    )
+                }
+                : nil
+        )
+        if strictPostQuantum {
+            signing.applyBootstrap(
+                NativeCompatibilityContract.bootstrap(
+                    baseURL: URL(string: "https://athena.test")!
+                )
+            )
+        }
         client.configureSecurity(
             authCenter: auth,
             clientIdentityCenter: identity,
@@ -1875,6 +2853,17 @@ final class BackendFoundationTests: XCTestCase {
             headerFields: ["Content-Type": "application/json"]
         )!
         return (response, Data(json.utf8))
+    }
+
+    private static func base64URLData(_ value: String) -> Data? {
+        let standard = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let padding = String(
+            repeating: "=",
+            count: (4 - standard.count % 4) % 4
+        )
+        return Data(base64Encoded: standard + padding)
     }
 
     private static func response(

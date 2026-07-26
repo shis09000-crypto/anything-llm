@@ -25,6 +25,8 @@ export default function JobFormModal({ job = null, onClose, onSaved }) {
   const [form, setForm] = useState(setDefaultFormState(job));
   const [availableTools, setAvailableTools] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [accountPrivateReadApproval, setAccountPrivateReadApproval] =
+    useState(false);
   const [errors, setErrors] = useState({
     name: false,
     prompt: false,
@@ -79,6 +81,7 @@ export default function JobFormModal({ job = null, onClose, onSaved }) {
       prompt: form.prompt.trim(),
       schedule: form.schedule.trim(),
       tools: form.selectedTools,
+      accountPrivateReadApproval,
     };
 
     const result = isEditing
@@ -144,11 +147,35 @@ export default function JobFormModal({ job = null, onClose, onSaved }) {
           />
 
           {availableTools.length > 0 && (
-            <ToolsSelector
-              availableTools={availableTools}
-              selectedTools={form.selectedTools}
-              onChange={setSelectedTools}
-            />
+            <>
+              <ToolsSelector
+                availableTools={availableTools}
+                selectedTools={form.selectedTools}
+                onChange={(tools) => {
+                  setSelectedTools(tools);
+                  setAccountPrivateReadApproval(false);
+                }}
+              />
+              {form.selectedTools.some((tool) =>
+                String(tool).startsWith("crypto-account-agent#")
+              ) && (
+                <label className="flex items-start gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-theme-text-primary">
+                  <input
+                    type="checkbox"
+                    checked={accountPrivateReadApproval}
+                    onChange={(event) =>
+                      setAccountPrivateReadApproval(event.target.checked)
+                    }
+                    className="mt-0.5"
+                  />
+                  <span>
+                    我确认此任务可以在无人值守运行时，以当前账户身份只读访问所选
+                    Gate
+                    加密账户函数。凭据换绑、轮换或扩大函数范围后必须重新确认。
+                  </span>
+                </label>
+              )}
+            </>
           )}
 
           <FormActions

@@ -270,9 +270,20 @@ function workspaceCognitionEndpoints(app) {
     workspaceMiddleware,
     async (request, response) => {
       try {
+        const user = await userFromSession(request, response);
+        const body = reqBody(request);
+        if (body.budgetOverride === "once" && !canManageShared(response, user))
+          return response.status(403).json({
+            success: false,
+            error: "cognitive_budget_override_manager_required",
+          });
         const job = await WorkspaceCognition.retryExtractionJob(
           response.locals.workspace.id,
-          request.params.id
+          request.params.id,
+          {
+            budgetOverride: body.budgetOverride === "once" ? "once" : null,
+            actorUserId: user?.id || null,
+          }
         );
         if (!job)
           return response

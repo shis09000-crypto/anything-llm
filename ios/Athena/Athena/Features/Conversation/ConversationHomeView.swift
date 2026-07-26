@@ -295,7 +295,12 @@ struct ConversationHomeView: View {
                         workspaceCenter.stopGenerating(in: selectedThreadID)
                     },
                     cancelEditAction: cancelActiveChatEdit,
-                    content: chatConversationArea(drawerWidth: drawerWidth)
+                    content: chatConversationArea(
+                        drawerWidth: drawerWidth,
+                        topViewportInset: ComposerLayoutPolicy.topViewportInset(
+                            safeAreaTop: safeAreaInsets.top
+                        )
+                    )
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea(.container, edges: [.top, .bottom])
@@ -537,7 +542,10 @@ struct ConversationHomeView: View {
         )
     }
 
-    private func chatConversationArea(drawerWidth: CGFloat) -> some View {
+    private func chatConversationArea(
+        drawerWidth: CGFloat,
+        topViewportInset: CGFloat
+    ) -> some View {
         GeometryReader { geometry in
             let activeThreadID = selectedThreadID
             let messageStores = workspaceCenter.messageRenderStoresForDisplay(
@@ -560,6 +568,7 @@ struct ConversationHomeView: View {
                     ChatScrollSurface(
                         activeThreadID: activeThreadID,
                         sizeChangeAnchor: conversationLayoutState.sizeChangeAnchor,
+                        topViewportInset: topViewportInset,
                         bottomContentClearance: conversationLayoutState.bottomContentClearance,
                         scrollPosition: $chatScrollPosition
                     ) {
@@ -709,10 +718,27 @@ struct ConversationHomeView: View {
                     .transition(.opacity)
             }
 
+            if let reconnectMessage = workspaceCenter.sendErrorByThreadID[activeThreadID],
+               workspaceCenter.hasRecoverableChatRun(in: activeThreadID) {
+                VStack(alignment: .leading, spacing: AthenaSpacing.sm) {
+                    Text(reconnectMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Button("重新连接", systemImage: "arrow.clockwise") {
+                        workspaceCenter.reconnectChatRun(in: activeThreadID)
+                    }
+                    .buttonStyle(.glass)
+                }
+                .padding(AthenaSpacing.md)
+                .athenaGlass(interactive: false)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             if let agentSession,
-               !agentSession.phase.isTerminal ||
-                agentSession.hasAssistantContent ||
-                agentSession.phase == .failed {
+               AgentInlinePresentationPolicy.shouldRender(
+                session: agentSession.snapshot,
+                messages: messageStores.map(\.message)
+               ) {
                 AgentInlineSessionView(
                     store: agentSession,
                     agentControlKit: dependencies.agentControlKit
@@ -2425,6 +2451,7 @@ private final class ConversationLayoutState {
 private struct ChatScrollSurface<Content: View>: View {
     let activeThreadID: String
     let sizeChangeAnchor: UnitPoint
+    let topViewportInset: CGFloat
     let bottomContentClearance: CGFloat
     @Binding var scrollPosition: ScrollPosition
     @ViewBuilder let content: Content
@@ -2438,7 +2465,8 @@ private struct ChatScrollSurface<Content: View>: View {
         .contentMargins(.bottom, bottomContentClearance, for: .scrollContent)
         .scrollPosition($scrollPosition)
         .scrollEdgeEffectStyle(.soft, for: [.top, .bottom])
-        .scrollClipDisabled()
+        .clipped()
+        .padding(.top, topViewportInset)
         .scrollIndicators(.hidden)
         .id("chat-scroll:\(activeThreadID)")
     }
@@ -3888,15 +3916,13 @@ private final class KeyboardCoordinatedConversationController<Content: View>: UI
     private func updateConversationBottomClearance() {
         guard let contentView = contentController.view else { return }
         let composerFrame = composerHostView.composerFrame(in: contentView)
-        guard composerFrame.height.isFinite, composerFrame.height > 0 else { return }
-        let keyboardIsVisible = view.keyboardLayoutGuide.layoutFrame.minY
-            < view.bounds.maxY - 1
+        guard composerFrame.minY.isFinite,
+              composerFrame.height.isFinite,
+              composerFrame.height > 0 else { return }
         conversationLayoutState.scheduleBottomContentClearance(
             ComposerLayoutPolicy.bottomContentClearance(
-                composerHeight: composerFrame.height,
-                bottomGap: keyboardIsVisible
-                    ? composerHostView.keyboardGap
-                    : composerHostView.restingBottomGap
+                composerTop: composerFrame.minY,
+                viewportBottom: contentView.bounds.maxY
             )
         )
     }

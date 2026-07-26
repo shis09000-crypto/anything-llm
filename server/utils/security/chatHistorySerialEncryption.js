@@ -9,6 +9,7 @@ const {
   isEncryptedSecret,
 } = require("./encryption");
 const { resolveActiveKey } = require("./keyCustody");
+const { queueUserDomainWrap } = require("./userDomainWrapService");
 
 const CHAT_HISTORY_CRYPTO_VERSION = "athena-chat-history:v2";
 const CHAT_HISTORY_KEY_CRYPTO_VERSION = "athena-chat-key:v1";
@@ -252,6 +253,38 @@ function cacheKey(row = null) {
   return key;
 }
 
+async function queueConversationKeyUserWrap(
+  row,
+  normalizedScope,
+  client = prisma
+) {
+  if (!row?.key_id || !row?.wrapped_key || !normalizedScope?.userId) {
+    return { queued: false, reason: "user_scope_unavailable" };
+  }
+  if (
+    typeof client.users?.findUnique !== "function" ||
+    typeof client.user_domain_key_wraps?.upsert !== "function"
+  ) {
+    return { queued: false, reason: "user_domain_storage_unavailable" };
+  }
+  const user = await client.users.findUnique({
+    where: { id: Number(normalizedScope.userId) },
+    select: { id: true, authUserId: true },
+  });
+  if (!user?.authUserId) {
+    return { queued: false, reason: "shared_identity_unavailable" };
+  }
+  return queueUserDomainWrap({
+    userId: user.id,
+    authUserId: user.authUserId,
+    resourceType: "chat-conversation-key",
+    resourceId: row.key_id,
+    domain: "data",
+    platformWrappedValue: row.wrapped_key,
+    client,
+  });
+}
+
 async function getConversationKeyById(keyId, client = prisma) {
   if (keyCache.has(keyId)) return keyCache.get(keyId);
   await ensureSerialEncryptionTables(client);
@@ -273,6 +306,9 @@ async function getOrCreateConversationKey(scope, client = prisma) {
     hash
   );
   if (existing?.[0]) {
+    if (!keyCache.has(existing[0].key_id)) {
+      await queueConversationKeyUserWrap(existing[0], normalized, client);
+    }
     return { keyId: existing[0].key_id, key: cacheKey(existing[0]) };
   }
 
@@ -301,6 +337,7 @@ async function getOrCreateConversationKey(scope, client = prisma) {
   );
   const row = rows?.[0];
   if (!row) throw new Error("chat_history_conversation_key_create_failed");
+  await queueConversationKeyUserWrap(row, normalized, client);
   return { keyId: row.key_id, key: cacheKey(row) };
 }
 

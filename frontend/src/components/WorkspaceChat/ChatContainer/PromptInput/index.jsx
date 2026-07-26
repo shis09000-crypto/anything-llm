@@ -710,6 +710,7 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
   const status = memoryCompaction?.status || null;
   const pending = !!memoryCompaction?.pending;
   const loading = !!memoryCompaction?.loading;
+  const connectionState = memoryCompaction?.connectionState || "loading";
   const canCompactAtRatio = Number(status?.canCompactAtRatio || 0.8);
   const usedTokens = Number(status?.usedTokens || 0);
   const limitTokens = Number(status?.limitTokens || 0);
@@ -821,11 +822,13 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
 
   const disabledReason = pending
     ? "上下文记忆正在压缩"
-    : targetCompactableMessageCount <= 0
-      ? "暂无可压缩记忆"
-      : safeRatio < canCompactAtRatio
-        ? "达到 80% 后可压缩"
-        : null;
+    : connectionState === "retrying" && !status
+      ? "记忆状态正在自动重连"
+      : targetCompactableMessageCount <= 0
+        ? "暂无可压缩记忆"
+        : safeRatio < canCompactAtRatio
+          ? "达到 80% 后可压缩"
+          : null;
   const canCompact = !disabledReason;
 
   return (
@@ -874,6 +877,19 @@ function MemoryCompactionControl({ memoryCompaction = null }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="m-0 text-sm font-semibold">线程记忆占用</p>
+                <p
+                  className={`m-0 mt-1 text-[10px] ${
+                    connectionState === "retrying"
+                      ? "text-amber-300 light:text-amber-600"
+                      : "text-emerald-300 light:text-emerald-600"
+                  }`}
+                >
+                  {connectionState === "retrying"
+                    ? "连接波动，正在自动恢复"
+                    : connectionState === "connected"
+                      ? "已连接"
+                      : "正在同步"}
+                </p>
               </div>
               <div className="shrink-0 text-right">
                 <div className="text-sm font-semibold text-sky-300 light:text-sky-600">

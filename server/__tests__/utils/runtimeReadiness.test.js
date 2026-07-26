@@ -4,6 +4,7 @@ const mockReceiptSnapshot = jest.fn();
 const mockAuditSnapshot = jest.fn();
 const mockAuthSessionSnapshot = jest.fn();
 const mockOutboxDispatchEnabled = jest.fn();
+const mockSecurityState = jest.fn();
 
 jest.mock("../../utils/runtimeCoordinator", () => ({
   runtimeCoordinator: { snapshot: (...args) => mockRuntimeSnapshot(...args) },
@@ -22,8 +23,10 @@ jest.mock("../../utils/security/authSessionSyncReconciler", () => ({
     mockAuthSessionSnapshot(...args),
 }));
 jest.mock("../../utils/syncV2/config", () => ({
-  syncV2OutboxDispatchEnabled: (...args) =>
-    mockOutboxDispatchEnabled(...args),
+  syncV2OutboxDispatchEnabled: (...args) => mockOutboxDispatchEnabled(...args),
+}));
+jest.mock("../../utils/security/keyRuntimeState", () => ({
+  securityState: (...args) => mockSecurityState(...args),
 }));
 
 const {
@@ -51,6 +54,11 @@ describe("runtime readiness disclosure boundaries", () => {
     });
     mockAuthSessionSnapshot.mockReturnValue({ running: true, healthy: true });
     mockOutboxDispatchEnabled.mockReturnValue(true);
+    mockSecurityState.mockReturnValue({
+      status: "ready",
+      quarantined: false,
+      writeBarrier: false,
+    });
   });
 
   it("keeps public liveness and readiness free of internal topology", () => {
@@ -82,6 +90,20 @@ describe("runtime readiness disclosure boundaries", () => {
       status: "not_ready",
       ready: false,
       reasonCode: "control_plane_unhealthy",
+    });
+  });
+
+  it("fails readiness without disclosing key-custody internals", () => {
+    mockSecurityState.mockReturnValue({
+      status: "quarantined",
+      quarantined: true,
+      writeBarrier: false,
+      reason: "sensitive-provider-detail",
+    });
+    expect(publicReadinessSnapshot()).toEqual({
+      status: "not_ready",
+      ready: false,
+      reasonCode: "key_custody_unhealthy",
     });
   });
 });

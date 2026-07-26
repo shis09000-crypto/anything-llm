@@ -14,9 +14,9 @@ class EncryptionManager {
     this.algorithm = "aes-256-cbc";
     this.separator = ":";
 
-    // Used to send key to collector process to be able to decrypt data since they do not share ENVs
-    // this value should use the CommunicationKey.encrypt process before sending anywhere outside the
-    // server process so it is never sent in its raw format.
+    // Legacy compatibility export. Collector bootstrapping persists this once
+    // into its local read-only keyring mount; it is never sent in an HTTP
+    // request. New Collector payloads derive a purpose-specific AEAD key.
     this.xPayload = this.key.toString("base64");
   }
 

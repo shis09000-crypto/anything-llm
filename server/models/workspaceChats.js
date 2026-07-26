@@ -347,6 +347,21 @@ const WorkspaceChats = {
         { attachmentMode: "reference" }
       );
       try {
+        require("../utils/chats/threadCompaction").invalidateThreadCompactionStatus(
+          {
+            workspaceId,
+            userId: user?.id || null,
+            threadId,
+            apiSessionId,
+          }
+        );
+      } catch (error) {
+        console.warn(
+          "[ThreadCompaction] failed to invalidate status cache",
+          error.message
+        );
+      }
+      try {
         if (process.env.NODE_ENV === "test")
           return {
             chat: persistedChat,

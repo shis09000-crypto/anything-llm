@@ -84,11 +84,11 @@ const WorkspaceCognition = {
     );
   },
 
-  retryJob(slug, id) {
+  retryJob(slug, id, body = {}) {
     return unwrap(
       postJson(
         `/workspace/${slug}/cognition/extraction/jobs/${id}/retry`,
-        {},
+        body,
         {
           communicationScene: "workspace-cognition-action",
           task: cognitiveTask("cognition:retry-job", slug, true),

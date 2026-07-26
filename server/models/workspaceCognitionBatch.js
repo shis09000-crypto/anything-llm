@@ -4,6 +4,10 @@ const { v4: uuidv4 } = require("uuid");
 const { jsonrepair } = require("jsonrepair");
 const prisma = require("../utils/prisma");
 const { getTaskConnector } = require("../utils/llmTasks");
+const {
+  beginModelExecution,
+  estimatedTokens,
+} = require("../utils/aiGovernance");
 const { WorkspaceChats } = require("./workspaceChats");
 const { SyncV2 } = require("./syncV2");
 const { nodeKeys } = require("../utils/syncV2/nodeRegistry");
@@ -14,41 +18,27 @@ const {
 const {
   CognitionWorkerLifecycle,
 } = require("../utils/workspaceCognition/workerLifecycle");
+const {
+  createWorkspaceCognitionPipelineProtocol,
+} = require("../utils/workspaceCognition/pipelineProtocol");
 
 const BATCH_SIZE = 5;
 const SILENCE_MS = 10 * 60 * 1000;
-const PIPELINE_VERSION = 3;
+const PIPELINE_VERSION = 4;
 const REFINE_GROUP_SIZE = 3;
-const SEGMENT_MAX_CHARS = 1_200;
-const MAX_ROUGH_SEGMENTS = 32;
-const ROUGH_WINDOW_MAX_CHARS = 5_000;
-const MAX_REFINED_ITEMS = 18;
-const ROUGH_MAX_TOKENS = 512;
-const REFINE_MAX_TOKENS = 3_072;
-const REPAIR_MAX_TOKENS = 768;
+const USER_GATE_INPUT_TOKENS = 2_000;
+const ROUGH_INPUT_TOKENS = 4_500;
+const REFINE_INPUT_TOKENS = 6_500;
+const USER_GATE_MAX_TOKENS = 160;
+const ASSISTANT_EVIDENCE_MAX_TOKENS = 160;
+const ROUGH_MAX_TOKENS = 320;
+const REFINE_MAX_TOKENS = 1_200;
+const REPAIR_INPUT_TOKENS = 1_200;
+const REPAIR_MAX_TOKENS = 256;
 const ROUGH_MODEL_OVERRIDE =
   process.env.WORKSPACE_COGNITIVE_SCREEN_MODEL || "deepseek-v4-flash";
 const LEASE_MS = 10 * 60 * 1000;
 const RETRY_DELAYS_MS = [60_000, 300_000, 1_800_000, 7_200_000, 43_200_000];
-const ASSERTION_TYPES = new Set([
-  "document_fact",
-  "user_position",
-  "conclusion",
-  "decision",
-  "hypothesis",
-  "risk",
-  "constraint",
-  "open_question",
-]);
-const RELATION_TYPES = new Set([
-  "confirms",
-  "extends",
-  "qualifies",
-  "contradicts",
-  "supersedes",
-  "withdraws",
-  "duplicates",
-]);
 const TERMINAL_REVIEW_EVENTS = new Set([
   "confirmed",
   "temporary_confirmed",
@@ -160,119 +150,29 @@ function extractionPlanForPending(pendingCount, flushReason = null) {
   return null;
 }
 
-function sourceCatalog(chats = []) {
-  return chats.flatMap((chat) => {
-    const response = responsePayload(chat);
-    return (Array.isArray(response.sources) ? response.sources : []).map(
-      (source, index) => {
-        const metadata = source?.metadata || {};
-        const documentId = source?.docId || metadata.docId || null;
-        const chunkId =
-          source?.chunkId ||
-          source?.vectorId ||
-          source?.id ||
-          metadata.chunkId ||
-          metadata.vectorId ||
-          metadata.id ||
-          null;
-        const graphEdgeId = source?.graphEdgeId || metadata.graphEdgeId || null;
-        return {
-          ref: `chat:${chat.id}:source:${index}`,
-          chatId: chat.id,
-          sourceIndex: index,
-          sourceType: graphEdgeId
-            ? "knowledge_graph_edge"
-            : documentId && chunkId
-              ? "document_chunk"
-              : "external_reference",
-          documentId: documentId ? String(documentId) : null,
-          chunkId: chunkId ? String(chunkId) : null,
-          graphEdgeId: graphEdgeId ? String(graphEdgeId) : null,
-          title:
-            source?.title ||
-            source?.documentName ||
-            metadata.title ||
-            metadata.documentName ||
-            null,
-          excerpt: cleanText(
-            source?.text || metadata.text || source?.excerpt || "",
-            2_000
-          ),
-          metadata,
-        };
-      }
-    );
-  });
+function shouldScheduleSilentRough(unscreenedPending) {
+  return unscreenedPending > 0 && unscreenedPending < BATCH_SIZE;
 }
 
-function splitMechanicalSegments(value = "") {
-  const text = String(value || "")
-    .replace(/<think>[\s\S]*?<\/think>/gi, "")
-    .trim();
-  if (!text) return [];
-  const units = text.split(/(?<=\n)\s*\n+|(?<=[。！？.!?])\s+/u);
-  const segments = [];
-  for (const raw of units) {
-    let remaining = raw.trim();
-    while (remaining) {
-      if (remaining.length <= SEGMENT_MAX_CHARS) {
-        segments.push(remaining);
-        break;
-      }
-      let cut = remaining.lastIndexOf("\n", SEGMENT_MAX_CHARS);
-      if (cut < SEGMENT_MAX_CHARS * 0.5)
-        cut = remaining.lastIndexOf(" ", SEGMENT_MAX_CHARS);
-      if (cut < SEGMENT_MAX_CHARS * 0.5) cut = SEGMENT_MAX_CHARS;
-      segments.push(remaining.slice(0, cut).trim());
-      remaining = remaining.slice(cut).trim();
-    }
-  }
-  return segments.filter(Boolean);
-}
-
-function dedupedSourceCatalog(chats = []) {
-  const sources = sourceCatalog(chats);
-  const seen = new Set();
-  return sources.filter((source) => {
-    const key =
-      source.sourceType === "external_reference"
-        ? source.ref
-        : [
-            source.sourceType,
-            source.documentId || "",
-            source.chunkId || "",
-            source.graphEdgeId || "",
-          ].join(":");
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function segmentCatalog(chats = []) {
-  const catalog = [];
-  for (const chat of chats) {
-    const response = responsePayload(chat);
-    const speakers = [
-      ["user", chat.user_id || null, chat.prompt],
-      ["assistant", null, response.text],
-    ];
-    for (const [speaker, userId, text] of speakers) {
-      splitMechanicalSegments(text).forEach((segment, index) => {
-        const segmentId = `c${chat.id}${speaker === "user" ? "u" : "a"}${index}-${sha(segment).slice(0, 10)}`;
-        catalog.push({
-          segmentId,
-          chatId: Number(chat.id),
-          threadId: chat.thread_id ? Number(chat.thread_id) : null,
-          speaker,
-          userId,
-          text: segment,
-        });
-      });
-    }
-  }
-  return catalog;
-}
+const {
+  ASSERTION_TYPES,
+  MAX_ROUGH_SEGMENTS,
+  RELATION_TYPES,
+  assistantEvidencePrompt,
+  dedupedSourceCatalog,
+  refinePrompt,
+  segmentCatalog,
+  sourceCatalog,
+  userGatePrompt,
+  validateRefinement,
+  validateScreening,
+  validateUserGate,
+} = createWorkspaceCognitionPipelineProtocol({
+  responsePayload,
+  cleanText,
+  sha,
+  json,
+});
 
 async function workspaceScope(workspace) {
   const documents = await prisma.workspace_documents.findMany({
@@ -302,13 +202,32 @@ async function completeTask(
     { workspace },
     modelOverride ? { model: modelOverride } : {}
   );
-  const result = await connector.getChatCompletion(messages, {
-    temperature: 0,
-    responseFormat: { type: "json_object" },
-    maxTokens,
-    thinking: "enabled",
-    reasoningEffort: "low",
-  });
+  const execution = await beginModelExecution(
+    {
+      ownerType: "workspace",
+      ownerId: String(workspace.id),
+      workspaceId: workspace.id,
+      taskType: taskName,
+      provider,
+      model,
+    },
+    { messages, outputTokens: maxTokens, durationMs: 120_000 }
+  );
+  let result;
+  try {
+    result = await connector.getChatCompletion(messages, {
+      temperature: 0,
+      responseFormat: { type: "json_object" },
+      maxTokens,
+      thinking: "disabled",
+    });
+    await execution.settle(result?.metrics || {}, {
+      pipelineVersion: PIPELINE_VERSION,
+    });
+  } catch (error) {
+    await execution.fail(error).catch(() => null);
+    throw error;
+  }
   const payload = parseJson(result?.textResponse, null);
   return {
     payload,
@@ -317,258 +236,6 @@ async function completeTask(
     provider,
     model,
   };
-}
-
-function screeningPrompt(segments, scope, selectionLimit = MAX_ROUGH_SEGMENTS) {
-  return [
-    {
-      role: "system",
-      content: `你是工作区长期认知的初筛模型。只输出严格 JSON：{"keep":["segment-id"]}。
-删除寒暄、确认词、重复表达、纯格式修改、与工作区无关的闲聊和无长期价值内容。保留有长期价值的事实、观点、结论、决策、假设、风险、约束、开放问题，尤其不能丢失日期、数字、金额、机构、条件和例外。只能返回输入中存在的 segmentId，不要返回原文，不要解释，不要提取或改写认知命题。输出必须是一行 JSON，最多选择 ${selectionLimit} 个；允许空数组。`,
-    },
-    {
-      role: "user",
-      content: json({
-        workspace: scope,
-        segments: segments.map(({ segmentId, chatId, speaker, text }) => ({
-          segmentId,
-          chatId,
-          speaker,
-          text,
-        })),
-      }),
-    },
-    {
-      role: "user",
-      content: `立即返回一行 {"keep":[]} JSON；只填 segmentId，不输出分析或说明，最多 ${selectionLimit} 个。`,
-    },
-  ];
-}
-
-function roughWindows(segments, maxChars = ROUGH_WINDOW_MAX_CHARS) {
-  const windows = [];
-  let current = [];
-  let chars = 0;
-  for (const segment of segments) {
-    const size = segment.text.length + segment.segmentId.length + 80;
-    if (current.length && chars + size > maxChars) {
-      windows.push(current);
-      current = [];
-      chars = 0;
-    }
-    current.push(segment);
-    chars += size;
-  }
-  if (current.length) windows.push(current);
-  return windows.length ? windows : [[]];
-}
-
-function validateScreening(payload, segments) {
-  if (!Array.isArray(payload?.keep))
-    throw Object.assign(new Error("screening_schema_invalid"), {
-      code: "screening_schema_invalid",
-    });
-  const byId = new Map(segments.map((segment) => [segment.segmentId, segment]));
-  return [...new Set(payload.keep.map((id) => String(id || "")))]
-    .slice(0, MAX_ROUGH_SEGMENTS)
-    .map((segmentId) => {
-      const segment = byId.get(segmentId);
-      if (!segment) {
-        const error = new Error("screening_reference_invalid");
-        error.code = "screening_reference_invalid";
-        throw error;
-      }
-      return segment;
-    });
-}
-
-function refinePrompt({ segments, sources, activeItems }) {
-  return [
-    {
-      role: "system",
-      content: `你是 Workspace Cognitive Refiner。你会同时复核多个粗筛结果。只输出严格 JSON：
-{"items":[{"assertionType":"document_fact|user_position|conclusion|decision|hypothesis|risk|constraint|open_question","statement":"单一命题","origin":"user|assistant|document","confidence":0.0,"stance":"supports|opposes|conditional|uncertain|undecided|null","rationale":null,"conditions":{},"evidenceSegmentIds":["segment-id"],"sourceRefs":["chat:1:source:0"],"suggestedRelation":{"relationType":"confirms|extends|qualifies|contradicts|supersedes|withdraws|duplicates|null","targetItemId":1,"rationale":""}}]}。
-规则：最多 ${MAX_REFINED_ITEMS} 项，每项只能有一个命题；允许 items 为空。证据只能引用输入中的 segmentId，不要复述 excerpt。用户观点只能来自 user segment；assistant 内容绝不能变成 user_position。AI 产生的判断只能 origin=assistant。document_fact 必须选择可用 sourceRefs 中的 document_chunk 或 knowledge_graph_edge。对照 activeItems 判断新增、重复、补充、限定、冲突、替代或撤回；不确定则 relationType=null。不要把 Conversation State Capsule 当输入或证据。`,
-    },
-    {
-      role: "user",
-      content: json({
-        selectedSegments: segments.map(
-          ({ segmentId, chatId, threadId, speaker, userId, text }) => ({
-            segmentId,
-            chatId,
-            threadId,
-            speaker,
-            userId,
-            text,
-          })
-        ),
-        sources: sources.map(
-          ({
-            ref,
-            chatId,
-            sourceType,
-            documentId,
-            chunkId,
-            graphEdgeId,
-            title,
-          }) => ({
-            ref,
-            chatId,
-            sourceType,
-            documentId,
-            chunkId,
-            graphEdgeId,
-            title,
-          })
-        ),
-        activeItems,
-      }),
-    },
-    {
-      role: "user",
-      content: `立即返回一行 {"items":[]} JSON；不得输出分析、markdown 或证据原文，最多 ${MAX_REFINED_ITEMS} 项。`,
-    },
-  ];
-}
-
-function validateRefinement(
-  payload,
-  { segments = [], turns = [], sources, activeItems }
-) {
-  if (!Array.isArray(payload?.items))
-    throw Object.assign(new Error("refinement_schema_invalid"), {
-      code: "refinement_schema_invalid",
-    });
-  const segmentMap = new Map(
-    segments.map((segment) => [segment.segmentId, segment])
-  );
-  const turnMap = new Map(
-    turns.map((turn) => [`${turn.chatId}:${turn.speaker}`, turn])
-  );
-  const sourceMap = new Map(sources.map((source) => [source.ref, source]));
-  const itemIds = new Set(activeItems.map((item) => Number(item.id)));
-  return payload.items.slice(0, MAX_REFINED_ITEMS).map((item) => {
-    const assertionType = String(item?.assertionType || "");
-    const statement = cleanText(item?.statement, 8_000);
-    const origin = item?.origin;
-    if (!ASSERTION_TYPES.has(assertionType) || !statement)
-      throw Object.assign(new Error("candidate_schema_invalid"), {
-        code: "candidate_schema_invalid",
-      });
-    const evidenceRefs = Array.isArray(item.evidenceSegmentIds)
-      ? item.evidenceSegmentIds.map((id) => {
-          const segment = segmentMap.get(String(id));
-          if (!segment)
-            throw Object.assign(new Error("candidate_evidence_invalid"), {
-              code: "candidate_evidence_invalid",
-            });
-          return {
-            segmentId: segment.stableSegmentId || segment.segmentId,
-            chatId: segment.chatId,
-            threadId: segment.threadId,
-            speaker: segment.speaker,
-            excerpt: segment.text,
-            userId: segment.userId || null,
-          };
-        })
-      : Array.isArray(item.evidenceRefs)
-        ? item.evidenceRefs.map((ref) => {
-            const chatId = Number(ref?.chatId);
-            const speaker = ref?.speaker;
-            const excerpt = cleanText(ref?.excerpt, 4_000);
-            const turn = turnMap.get(`${chatId}:${speaker}`);
-            if (!turn || !excerpt || !turn.text.includes(excerpt))
-              throw Object.assign(new Error("candidate_evidence_invalid"), {
-                code: "candidate_evidence_invalid",
-              });
-            return { chatId, speaker, excerpt, userId: turn.userId || null };
-          })
-        : [];
-    if (!evidenceRefs.length)
-      throw Object.assign(new Error("candidate_evidence_required"), {
-        code: "candidate_evidence_required",
-      });
-    if (assertionType === "user_position") {
-      const owners = new Set(
-        evidenceRefs
-          .filter((ref) => ref.speaker === "user" && ref.userId)
-          .map((ref) => Number(ref.userId))
-      );
-      if (
-        origin !== "user" ||
-        !evidenceRefs.some((ref) => ref.speaker === "user") ||
-        owners.size !== 1
-      )
-        throw Object.assign(new Error("user_position_origin_invalid"), {
-          code: "user_position_origin_invalid",
-        });
-    } else if (
-      origin === "user" &&
-      !evidenceRefs.some((ref) => ref.speaker === "user")
-    ) {
-      throw Object.assign(new Error("user_origin_invalid"), {
-        code: "user_origin_invalid",
-      });
-    }
-    if (
-      origin === "assistant" &&
-      !evidenceRefs.some((ref) => ref.speaker === "assistant")
-    )
-      throw Object.assign(new Error("assistant_origin_invalid"), {
-        code: "assistant_origin_invalid",
-      });
-    const sourceRefs = Array.isArray(item.sourceRefs)
-      ? item.sourceRefs.filter((ref) => sourceMap.has(ref))
-      : [];
-    if (
-      assertionType === "document_fact" &&
-      !sourceRefs.some((ref) =>
-        ["document_chunk", "knowledge_graph_edge"].includes(
-          sourceMap.get(ref)?.sourceType
-        )
-      )
-    )
-      throw Object.assign(new Error("document_fact_source_required"), {
-        code: "document_fact_source_required",
-      });
-    const proposed = item?.suggestedRelation || {};
-    const relationType = RELATION_TYPES.has(proposed.relationType)
-      ? proposed.relationType
-      : null;
-    const targetItemId = Number(proposed.targetItemId) || null;
-    return {
-      assertionType,
-      statement,
-      origin:
-        assertionType === "document_fact"
-          ? "document"
-          : origin === "user"
-            ? "user"
-            : "assistant",
-      subjectUserId:
-        origin === "user"
-          ? evidenceRefs.find((ref) => ref.speaker === "user")?.userId || null
-          : null,
-      stance: item?.stance || null,
-      rationale: cleanText(item?.rationale, 4_000) || null,
-      conditions:
-        item?.conditions && typeof item.conditions === "object"
-          ? item.conditions
-          : {},
-      confidence: Math.max(0, Math.min(1, Number(item?.confidence) || 0)),
-      evidenceRefs,
-      sourceRefs,
-      suggestedRelation: {
-        relationType:
-          relationType && itemIds.has(targetItemId) ? relationType : null,
-        targetItemId:
-          relationType && itemIds.has(targetItemId) ? targetItemId : null,
-        rationale: cleanText(proposed.rationale, 2_000) || null,
-      },
-      raw: item,
-    };
-  });
 }
 
 async function currentCanonicalItems(workspaceId) {
@@ -713,7 +380,9 @@ async function createNextJob(
       scopeKey,
       pipelineVersion: PIPELINE_VERSION,
       jobType: "rough_screen",
-      status: { in: ["pending", "running", "retry_wait", "failed"] },
+      status: {
+        in: ["pending", "running", "retry_wait", "failed", "budget_blocked"],
+      },
     },
     orderBy: { id: "asc" },
   });
@@ -864,6 +533,10 @@ function cognitiveNamespace(workspaceId) {
   return `workspace-cognition-${Number(workspaceId)}`;
 }
 
+function pendingCognitiveNamespace(workspaceId) {
+  return `workspace-cognition-pending-v4-${Number(workspaceId)}`;
+}
+
 async function indexCanonicalItem(item) {
   if (process.env.NODE_ENV === "test") return;
   try {
@@ -904,7 +577,7 @@ async function activeIndexForModel(workspaceId, query = "") {
           embedTextInput: (input) => EmbedderEngine.embedTextInput(input),
         },
         similarityThreshold: 0.15,
-        topN: 20,
+        topN: 12,
       });
       const recalledIds = new Set(
         (result.sources || [])
@@ -920,13 +593,93 @@ async function activeIndexForModel(workspaceId, query = "") {
       );
     }
   }
-  return selected.slice(0, 20).map((item) => ({
+  return selected.slice(0, 12).map((item) => ({
     id: item.id,
     itemKey: item.itemKey,
     version: item.version,
     assertionType: item.assertionType,
     statement: item.statement,
     isTemporary: item.isTemporary,
+  }));
+}
+
+async function indexPendingCandidate(candidate) {
+  if (process.env.NODE_ENV === "test") return;
+  try {
+    const VectorDb = getVectorDbClass();
+    await VectorDb.addDocumentToNamespace(
+      pendingCognitiveNamespace(candidate.workspaceId),
+      {
+        pageContent: candidate.statement,
+        docId: `cognitive-candidate-${candidate.id}`,
+        candidateId: candidate.id,
+        workspaceId: candidate.workspaceId,
+      },
+      null,
+      true
+    );
+  } catch (error) {
+    console.warn(
+      "[WorkspaceCognitionBatch] pending candidate index unavailable",
+      {
+        candidateId: candidate.id,
+        message: error.message,
+      }
+    );
+  }
+}
+
+async function pendingCandidatesForModel(workspaceId, query = "") {
+  const candidates = await prisma.workspace_cognitive_candidates.findMany({
+    where: {
+      workspaceId: Number(workspaceId),
+      pipelineVersion: PIPELINE_VERSION,
+      legacyPipeline: false,
+    },
+    orderBy: { id: "desc" },
+    take: 24,
+  });
+  if (!candidates.length) return [];
+  const events = await prisma.workspace_cognitive_candidate_events.findMany({
+    where: {
+      candidateId: { in: candidates.map((candidate) => candidate.id) },
+      eventType: { in: [...TERMINAL_REVIEW_EVENTS] },
+    },
+    select: { candidateId: true },
+  });
+  const reviewed = new Set(events.map((event) => event.candidateId));
+  const pending = candidates.filter((candidate) => !reviewed.has(candidate.id));
+  let selected = pending;
+  if (pending.length > 8 && cleanText(query)) {
+    try {
+      const VectorDb = getVectorDbClass();
+      const EmbedderEngine = getEmbeddingEngineSelection();
+      const result = await VectorDb.performSimilaritySearch({
+        namespace: pendingCognitiveNamespace(workspaceId),
+        input: cleanText(query, 8_000),
+        LLMConnector: {
+          embedTextInput: (input) => EmbedderEngine.embedTextInput(input),
+        },
+        similarityThreshold: 0.15,
+        topN: 8,
+      });
+      const recalledIds = new Set(
+        (result.sources || [])
+          .map((source) =>
+            Number(source?.metadata?.candidateId || source?.candidateId)
+          )
+          .filter(Number.isInteger)
+      );
+      const recalled = pending.filter((candidate) =>
+        recalledIds.has(candidate.id)
+      );
+      if (recalled.length) selected = recalled;
+    } catch {}
+  }
+  return selected.slice(0, 8).map((candidate) => ({
+    id: candidate.id,
+    assertionType: candidate.assertionType,
+    statement: candidate.statement,
   }));
 }
 
@@ -965,7 +718,7 @@ async function persistCandidates(job, candidates, sources) {
       }),
     ];
     try {
-      await prisma.workspace_cognitive_candidates.create({
+      const created = await prisma.workspace_cognitive_candidates.create({
         data: {
           candidateKey: uuidv4(),
           workspaceId: job.workspaceId,
@@ -989,10 +742,12 @@ async function persistCandidates(job, candidates, sources) {
             candidate.statement
           ),
           rawModelOutputJson: json(candidate.raw),
+          qualityJson: json(candidate.quality),
           pipelineVersion: PIPELINE_VERSION,
           legacyPipeline: false,
         },
       });
+      await indexPendingCandidate(created);
       count += 1;
     } catch (error) {
       if (error?.code !== "P2002") throw error;
@@ -1002,7 +757,7 @@ async function persistCandidates(job, candidates, sources) {
 }
 
 function protocolError(error) {
-  return /^(model_json_invalid|screening_|refinement_|candidate_|user_position_|user_origin_|assistant_origin_|document_fact_)/.test(
+  return /^(model_json_invalid|protocol_output_|screening_|user_gate_|refinement_|candidate_|user_position_|user_origin_|user_cognition_|assistant_origin_|assistant_inference_|document_fact_)/.test(
     String(error?.code || "")
   );
 }
@@ -1022,6 +777,8 @@ async function recordAttempt({
   messages,
   outcome,
   error = null,
+  estimatedPromptTokens = null,
+  budgetDecision = "allowed",
 }) {
   const attemptNo =
     (await prisma.workspace_cognitive_extraction_attempts.count({
@@ -1064,20 +821,65 @@ async function recordAttempt({
       outputHash: call?.raw ? sha(call.raw) : null,
       outcome,
       errorCode: error?.code || null,
+      finishReason: metrics.finish_reason || null,
+      thinkingMode: metrics.thinking_mode || "disabled",
+      reasoningTokens: metricNumber(metrics, "reasoning_tokens"),
+      estimatedPromptTokens: estimatedPromptTokens ?? estimatedTokens(messages),
+      budgetDecision,
       metricsJson: json(metrics),
     },
   });
 }
 
-function repairPrompt(messages, raw, instruction) {
+function repairPrompt(raw, instruction, repairContext = {}) {
   return [
-    ...messages,
-    { role: "assistant", content: String(raw || "{}") },
+    {
+      role: "system",
+      content:
+        "你是 JSON 协议修复器。只修复结构和引用，只输出一行 JSON，不增加新语义。",
+    },
     {
       role: "user",
-      content: `上一个 JSON 不符合协议：${instruction}。只修复 JSON 结构和引用，不增加输入中不存在的信息。`,
+      content: json({
+        error: instruction,
+        schema: repairContext.schema || null,
+        allowedSegmentIds: repairContext.allowedSegmentIds || [],
+        allowedChatIds: repairContext.allowedChatIds || [],
+        allowedSourceRefs: repairContext.allowedSourceRefs || [],
+        allowedItemIds: repairContext.allowedItemIds || [],
+        raw: cleanText(raw, 8_000),
+      }),
     },
   ];
+}
+
+function budgetOverrideEnabled(job) {
+  return parseJson(job?.metadataJson, {}).budgetOverrideOnce === true;
+}
+
+function consumedBudgetMetadata(job, extra = {}) {
+  const metadata = { ...parseJson(job?.metadataJson, {}), ...extra };
+  if (metadata.budgetOverrideOnce === true) {
+    metadata.budgetOverrideOnce = false;
+    metadata.budgetOverrideUsed = true;
+    metadata.budgetOverrideConsumedAt = new Date().toISOString();
+  }
+  return metadata;
+}
+
+function assertPromptBudget(job, messages, limit, stage) {
+  const estimate = estimatedTokens(messages);
+  if (estimate <= limit || budgetOverrideEnabled(job))
+    return {
+      estimate,
+      decision: estimate <= limit ? "allowed" : "override_once",
+    };
+  const error = new Error("cognitive_budget_blocked");
+  error.code = "cognitive_budget_blocked";
+  error.budgetBlocked = true;
+  error.nonRetryable = true;
+  error.details = { stage, estimatedPromptTokens: estimate, limit };
+  throw error;
 }
 
 async function runValidatedModel({
@@ -1089,7 +891,10 @@ async function runValidatedModel({
   maxTokens,
   validate,
   modelOverride = null,
+  inputTokenLimit,
+  repairContext = {},
 }) {
+  const budget = assertPromptBudget(job, messages, inputTokenLimit, stage);
   let call = null;
   try {
     call = await completeTask(
@@ -1099,13 +904,26 @@ async function runValidatedModel({
       maxTokens,
       modelOverride
     );
+    if (call?.metrics?.hit_output_limit) {
+      const error = new Error("protocol_output_truncated");
+      error.code = "protocol_output_truncated";
+      throw error;
+    }
     if (!call.payload) {
       const error = new Error("model_json_invalid");
       error.code = "model_json_invalid";
       throw error;
     }
     const validated = validate(call.payload);
-    await recordAttempt({ job, stage, call, messages, outcome: "success" });
+    await recordAttempt({
+      job,
+      stage,
+      call,
+      messages,
+      outcome: "success",
+      estimatedPromptTokens: budget.estimate,
+      budgetDecision: budget.decision,
+    });
     return { payload: call.payload, validated };
   } catch (error) {
     await recordAttempt({
@@ -1115,8 +933,16 @@ async function runValidatedModel({
       messages,
       outcome: protocolError(error) ? "protocol_error" : "failed",
       error,
+      estimatedPromptTokens: budget.estimate,
+      budgetDecision: budget.decision,
     });
     if (!protocolError(error)) throw error;
+    if (!call?.raw || call?.metrics?.hit_output_limit) {
+      error.code = call?.metrics?.hit_output_limit
+        ? "protocol_output_truncated"
+        : error.code;
+      throw error;
+    }
     const metadata = parseJson(job.metadataJson, {});
     const repairedStages = new Set(metadata.protocolRepairedStages || []);
     if (repairedStages.has(stage)) {
@@ -1140,7 +966,13 @@ async function runValidatedModel({
     });
     job.protocolRepairAttempted = true;
     job.metadataJson = json(nextMetadata);
-    const repairedMessages = repairPrompt(messages, call?.raw, error.code);
+    const repairedMessages = repairPrompt(call.raw, error.code, repairContext);
+    const repairBudget = assertPromptBudget(
+      job,
+      repairedMessages,
+      REPAIR_INPUT_TOKENS,
+      `protocol_repair:${stage}`
+    );
     let repairCall = null;
     try {
       repairCall = await completeTask(
@@ -1162,6 +994,8 @@ async function runValidatedModel({
         call: repairCall,
         messages: repairedMessages,
         outcome: "success",
+        estimatedPromptTokens: repairBudget.estimate,
+        budgetDecision: repairBudget.decision,
       });
       return { payload: repairCall.payload, validated };
     } catch (repairError) {
@@ -1172,6 +1006,8 @@ async function runValidatedModel({
         messages: repairedMessages,
         outcome: "failed",
         error: repairError,
+        estimatedPromptTokens: repairBudget.estimate,
+        budgetDecision: repairBudget.decision,
       });
       repairError.code = "protocol_repair_failed";
       repairError.nonRetryable = true;
@@ -1378,94 +1214,136 @@ async function processRoughJob(job) {
       nonRetryable: true,
     });
   const segments = segmentCatalog(chats);
+  const segmentMap = new Map(
+    segments.map((segment) => [segment.segmentId, segment])
+  );
+  const userSegments = segments.filter((segment) => segment.speaker === "user");
   let output = parseJson(job.screeningOutputJson, null);
-  let selected = [];
-  if (output) {
-    selected = validateScreening(output, segments);
-  } else {
+  if (!output) {
     await prisma.workspace_cognitive_extraction_jobs.update({
       where: { id: job.id },
       data: {
-        phase: "screening",
+        phase: "rough_user_gate",
         heartbeatAt: new Date(),
         leaseExpiresAt: new Date(Date.now() + LEASE_MS),
       },
     });
     const scope = await workspaceScope(workspace);
-    const jobMetadata = parseJson(job.metadataJson, {});
-    const windows = roughWindows(
-      segments,
-      Number(jobMetadata.roughWindowMaxChars) || ROUGH_WINDOW_MAX_CHARS
-    );
-    const selectedIds = [];
-    const windowOutputs = { ...(jobMetadata.roughWindowOutputs || {}) };
-    const windowHashes = { ...(jobMetadata.roughWindowHashes || {}) };
-    for (const [index, window] of windows.entries()) {
-      const remaining = MAX_ROUGH_SEGMENTS - selectedIds.length;
-      if (remaining <= 0) break;
-      const windowsLeft = windows.length - index;
-      const selectionLimit = Math.max(1, Math.ceil(remaining / windowsLeft));
-      const aliasedWindow = window.map((segment, segmentIndex) => ({
+    const aliasedUsers = userSegments.map((segment, index) => ({
+      ...segment,
+      stableSegmentId: segment.segmentId,
+      segmentId: `u${index + 1}`,
+    }));
+    const gateMessages = userGatePrompt(aliasedUsers, scope);
+    const gate = await runValidatedModel({
+      job,
+      taskName: "workspace_cognitive_screen",
+      workspace,
+      stage: "rough_user_gate",
+      messages: gateMessages,
+      maxTokens: USER_GATE_MAX_TOKENS,
+      inputTokenLimit: USER_GATE_INPUT_TOKENS,
+      modelOverride: ROUGH_MODEL_OVERRIDE,
+      repairContext: {
+        schema: { keep: ["segment-id"], assistantChatIds: [1] },
+        allowedSegmentIds: aliasedUsers.map((segment) => segment.segmentId),
+        allowedChatIds: [
+          ...new Set(aliasedUsers.map((segment) => segment.chatId)),
+        ],
+      },
+      validate: (payload) => validateUserGate(payload, aliasedUsers),
+    });
+    const selectedUsers = gate.validated.kept
+      .map((segment) => segmentMap.get(segment.stableSegmentId))
+      .filter(Boolean)
+      .slice(0, MAX_ROUGH_SEGMENTS);
+    const assistantSegments = segments
+      .filter(
+        (segment) =>
+          segment.speaker === "assistant" &&
+          gate.validated.assistantChatIds.includes(Number(segment.chatId))
+      )
+      .map((segment, index) => ({
         ...segment,
         stableSegmentId: segment.segmentId,
-        segmentId: `s${segmentIndex + 1}`,
+        segmentId: `a${index + 1}`,
       }));
-      const windowKey = String(index + 1);
-      const windowHash = sha(
-        aliasedWindow
-          .map((segment) => `${segment.stableSegmentId}:${sha(segment.text)}`)
-          .join(":")
+    let selectedAssistants = [];
+    let assistantEvidenceDeferred = false;
+    if (selectedUsers.length && assistantSegments.length) {
+      const assistantMessages = assistantEvidencePrompt({
+        userSegments: selectedUsers,
+        assistantSegments,
+        scope,
+      });
+      const remainingBudget = Math.max(
+        1,
+        ROUGH_INPUT_TOKENS - estimatedTokens(gateMessages)
       );
       if (
-        windowHashes[windowKey] === windowHash &&
-        Array.isArray(windowOutputs[windowKey])
+        estimatedTokens(assistantMessages) > remainingBudget &&
+        !budgetOverrideEnabled(job)
       ) {
-        selectedIds.push(...windowOutputs[windowKey]);
-        continue;
+        assistantEvidenceDeferred = true;
+      } else {
+        await prisma.workspace_cognitive_extraction_jobs.update({
+          where: { id: job.id },
+          data: {
+            phase: "rough_assistant_evidence",
+            heartbeatAt: new Date(),
+            leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+          },
+        });
+        const assistant = await runValidatedModel({
+          job,
+          taskName: "workspace_cognitive_screen",
+          workspace,
+          stage: "rough_assistant_evidence",
+          messages: assistantMessages,
+          maxTokens: ASSISTANT_EVIDENCE_MAX_TOKENS,
+          inputTokenLimit: remainingBudget,
+          modelOverride: ROUGH_MODEL_OVERRIDE,
+          repairContext: {
+            schema: { keep: ["segment-id"] },
+            allowedSegmentIds: assistantSegments.map(
+              (segment) => segment.segmentId
+            ),
+          },
+          validate: (payload) => validateScreening(payload, assistantSegments),
+        });
+        selectedAssistants = assistant.validated
+          .map((segment) => segmentMap.get(segment.stableSegmentId))
+          .filter(Boolean)
+          .slice(0, Math.max(0, MAX_ROUGH_SEGMENTS - selectedUsers.length));
       }
-      const messages = screeningPrompt(aliasedWindow, scope, selectionLimit);
-      const result = await runValidatedModel({
-        job,
-        taskName: "workspace_cognitive_screen",
-        workspace,
-        stage: `rough_screen_window_${index + 1}`,
-        messages,
-        maxTokens: ROUGH_MAX_TOKENS,
-        modelOverride: ROUGH_MODEL_OVERRIDE,
-        validate: (payload) =>
-          validateScreening(payload, aliasedWindow).slice(0, selectionLimit),
-      });
-      const stableIds = result.validated.map(
-        (segment) => segment.stableSegmentId || segment.segmentId
-      );
-      selectedIds.push(...stableIds);
-      windowOutputs[windowKey] = stableIds;
-      windowHashes[windowKey] = windowHash;
-      const currentMetadata = parseJson(job.metadataJson, {});
-      const nextMetadata = {
-        ...currentMetadata,
-        roughWindowOutputs: windowOutputs,
-        roughWindowHashes: windowHashes,
-      };
-      await prisma.workspace_cognitive_extraction_jobs.update({
-        where: { id: job.id },
-        data: {
-          metadataJson: json(nextMetadata),
-          heartbeatAt: new Date(),
-          leaseExpiresAt: new Date(Date.now() + LEASE_MS),
-        },
-      });
-      job.metadataJson = json(nextMetadata);
     }
     output = {
-      keep: [...new Set(selectedIds)].slice(0, MAX_ROUGH_SEGMENTS),
+      userKeep: selectedUsers.map((segment) => segment.segmentId),
+      assistantKeep: selectedAssistants.map((segment) => segment.segmentId),
+      assistantChatIds: gate.validated.assistantChatIds,
+      assistantEvidenceDeferred,
     };
-    selected = validateScreening(output, segments);
     await prisma.workspace_cognitive_extraction_jobs.update({
       where: { id: job.id },
-      data: { screeningOutputJson: json(output), phase: "persisting" },
+      data: {
+        screeningOutputJson: json(output),
+        phase: "persisting",
+        metadataJson: json({
+          ...consumedBudgetMetadata(job, { assistantEvidenceDeferred }),
+        }),
+      },
     });
   }
+  const selectedIds = [
+    ...(Array.isArray(output.userKeep) ? output.userKeep : []),
+    ...(Array.isArray(output.assistantKeep) ? output.assistantKeep : []),
+  ];
+  const selected = selectedIds.map((id) => segmentMap.get(id)).filter(Boolean);
+  if (selected.length !== selectedIds.length)
+    throw Object.assign(new Error("screening_reference_invalid"), {
+      code: "screening_reference_invalid",
+      nonRetryable: true,
+    });
   const segmentRefs = selected.map((segment) => segment.segmentId);
   const roughResult = await prisma.$transaction(async (tx) => {
     const result = await tx.workspace_cognitive_rough_results.upsert({
@@ -1478,6 +1356,7 @@ async function processRoughJob(job) {
         chatIdsJson: job.chatIdsJson,
         inputContentHash: job.inputContentHash,
         segmentRefsJson: json(segmentRefs, "[]"),
+        selectionJson: json(output),
         outputHash: sha(json(segmentRefs)),
         status: segmentRefs.length ? "ready" : "empty",
       },
@@ -1502,7 +1381,9 @@ async function processRoughJob(job) {
       where: { id: job.id },
       data: {
         status: "completed",
-        phase: "completed",
+        phase: output.assistantEvidenceDeferred
+          ? "completed_with_deferred_evidence"
+          : "completed",
         extractedCount: 0,
         lastScannedChatId: job.toChatId,
         completedAt: new Date(),
@@ -1606,7 +1487,7 @@ async function processRefineJob(job) {
       selected.push(segment);
     }
   }
-  const sources = dedupedSourceCatalog(chats);
+  const sources = dedupedSourceCatalog(chats).slice(0, 12);
   const refineSegments = selected.map((segment, index) => ({
     ...segment,
     stableSegmentId: segment.segmentId,
@@ -1616,6 +1497,38 @@ async function processRefineJob(job) {
     job.workspaceId,
     selected.map((segment) => segment.text).join("\n")
   );
+  const pendingItems = await pendingCandidatesForModel(
+    job.workspaceId,
+    selected.map((segment) => segment.text).join("\n")
+  );
+  const episodes = chats
+    .map((chat) => {
+      const episodeSegments = refineSegments.filter(
+        (segment) => Number(segment.chatId) === Number(chat.id)
+      );
+      return {
+        workspaceId: job.workspaceId,
+        threadId: chat.thread_id ? Number(chat.thread_id) : null,
+        chatId: Number(chat.id),
+        userSegments: episodeSegments
+          .filter((segment) => segment.speaker === "user")
+          .map(({ segmentId, userId, text }) => ({
+            segmentId,
+            userId,
+            text,
+          })),
+        assistantSegments: episodeSegments
+          .filter((segment) => segment.speaker === "assistant")
+          .map(({ segmentId, text }) => ({ segmentId, text })),
+        sourceRefs: sources
+          .filter((source) => Number(source.chatId) === Number(chat.id))
+          .map((source) => source.ref),
+      };
+    })
+    .filter(
+      (episode) =>
+        episode.userSegments.length || episode.assistantSegments.length
+    );
   let output = parseJson(job.refiningOutputJson, null);
   let candidates = [];
   if (output) {
@@ -1623,6 +1536,7 @@ async function processRefineJob(job) {
       segments: refineSegments,
       sources,
       activeItems,
+      pendingItems,
     });
   } else {
     await prisma.workspace_cognitive_extraction_jobs.update({
@@ -1634,9 +1548,10 @@ async function processRefineJob(job) {
       },
     });
     const messages = refinePrompt({
-      segments: refineSegments,
+      episodes,
       sources,
       activeItems,
+      pendingItems,
     });
     const result = await runValidatedModel({
       job,
@@ -1645,11 +1560,19 @@ async function processRefineJob(job) {
       stage: "multi_refine",
       messages,
       maxTokens: REFINE_MAX_TOKENS,
+      inputTokenLimit: REFINE_INPUT_TOKENS,
+      repairContext: {
+        schema: { items: [] },
+        allowedSegmentIds: refineSegments.map((segment) => segment.segmentId),
+        allowedSourceRefs: sources.map((source) => source.ref),
+        allowedItemIds: activeItems.map((item) => item.id),
+      },
       validate: (payload) =>
         validateRefinement(payload, {
           segments: refineSegments,
           sources,
           activeItems,
+          pendingItems,
         }),
     });
     output = result.payload;
@@ -1700,6 +1623,7 @@ async function processRefineJob(job) {
         error: null,
         errorCode: null,
         errorDetail: null,
+        metadataJson: json(consumedBudgetMetadata(job)),
       },
     });
   });
@@ -1737,6 +1661,7 @@ async function processJob(job) {
 
 async function failJob(job, error) {
   const attemptCount = Number(job.attemptCount || 0) + 1;
+  const budgetBlocked = error?.budgetBlocked === true;
   const terminal =
     error?.nonRetryable === true ||
     attemptCount >= Number(job.maxAttempts || 5);
@@ -1746,14 +1671,23 @@ async function failJob(job, error) {
     await tx.workspace_cognitive_extraction_jobs.update({
       where: { id: job.id },
       data: {
-        status: terminal ? "failed" : "retry_wait",
+        status: budgetBlocked
+          ? "budget_blocked"
+          : terminal
+            ? "failed"
+            : "retry_wait",
         attemptCount,
-        nextRetryAt: terminal ? null : new Date(Date.now() + delay),
+        nextRetryAt:
+          terminal || budgetBlocked ? null : new Date(Date.now() + delay),
         leaseOwner: null,
         leaseExpiresAt: null,
         error: cleanText(error?.message, 2_000),
         errorCode: error?.code || "extraction_failed",
-        errorDetail: cleanText(error?.stack || error?.message, 8_000),
+        errorDetail: cleanText(
+          error?.details ? json(error.details) : error?.stack || error?.message,
+          8_000
+        ),
+        metadataJson: json(consumedBudgetMetadata(job)),
       },
     });
     await tx.workspace_cognitive_thread_state.updateMany({
@@ -1871,15 +1805,29 @@ async function scanSilence() {
   const cutoff = new Date(Date.now() - SILENCE_MS);
   const states = await prisma.workspace_cognitive_thread_state.findMany({
     where: {
-      pendingTurnCount: { gt: 0, lt: BATCH_SIZE },
+      // pendingTurnCount intentionally includes screened turns because those
+      // have not crossed the extraction watermark yet. It therefore cannot be
+      // used to decide whether the remaining rough batch contains 1-4 turns.
+      pendingTurnCount: { gt: 0 },
       lastActivityAt: { lte: cutoff },
       pausedAt: null,
       activeJobId: null,
     },
     take: 100,
   });
-  for (const state of states)
-    await createNextJob(state.workspaceId, state.scopeKey, "silence");
+  for (const state of states) {
+    const unscreenedPending =
+      await prisma.workspace_cognitive_turn_buffer.count({
+        where: {
+          workspaceId: state.workspaceId,
+          scopeKey: state.scopeKey,
+          status: "pending",
+          jobId: null,
+        },
+      });
+    if (shouldScheduleSilentRough(unscreenedPending))
+      await createNextJob(state.workspaceId, state.scopeKey, "silence");
+  }
   const workspaces = await prisma.workspace_cognitive_rough_results.findMany({
     where: {
       status: "ready",
@@ -1894,25 +1842,50 @@ async function scanSilence() {
     await createRefineJobsForWorkspace(row.workspaceId);
 }
 
-async function retryExtractionJob(workspaceId, jobId) {
+async function retryExtractionJob(
+  workspaceId,
+  jobId,
+  { budgetOverride = null, actorUserId = null } = {}
+) {
   const job = await prisma.workspace_cognitive_extraction_jobs.findFirst({
     where: {
       id: Number(jobId),
       workspaceId: Number(workspaceId),
-      status: "failed",
+      status: { in: ["failed", "budget_blocked"] },
       pipelineVersion: PIPELINE_VERSION,
     },
   });
   if (!job) return null;
   const metadata = parseJson(job.metadataJson, {});
   delete metadata.protocolRepairedStages;
-  if (job.errorCode === "protocol_repair_failed") {
-    metadata.roughWindowMaxChars = Math.max(
-      2_500,
-      Math.floor(
-        (Number(metadata.roughWindowMaxChars) || ROUGH_WINDOW_MAX_CHARS) / 2
-      )
-    );
+  if (budgetOverride === "once") {
+    const blockedBudget = parseJson(job.errorDetail, {});
+    metadata.budgetOverrideOnce = true;
+    metadata.budgetOverrideAuthorizedBy = actorUserId
+      ? Number(actorUserId)
+      : null;
+    metadata.budgetOverrideAuthorizedAt = new Date().toISOString();
+    metadata.budgetOverrideReason = "manager_one_time_high_cost_retry";
+    metadata.budgetOverrideBudget = {
+      stage: blockedBudget.stage || job.phase || null,
+      automaticInputLimit: Number(blockedBudget.limit) || null,
+      estimatedPromptTokens:
+        Number(blockedBudget.estimatedPromptTokens) || null,
+      outputTokenLimit: Number(job.modelMaxTokens) || null,
+    };
+    metadata.budgetOverrideHistory = [
+      ...(Array.isArray(metadata.budgetOverrideHistory)
+        ? metadata.budgetOverrideHistory
+        : []),
+      {
+        actorUserId: actorUserId ? Number(actorUserId) : null,
+        authorizedAt: metadata.budgetOverrideAuthorizedAt,
+        reason: metadata.budgetOverrideReason,
+        budget: metadata.budgetOverrideBudget,
+      },
+    ];
+  } else {
+    metadata.budgetOverrideOnce = false;
   }
   return await prisma.workspace_cognitive_extraction_jobs.update({
     where: { id: job.id },
@@ -1981,6 +1954,7 @@ async function listExtractionState(workspaceId) {
       ...row,
       chatIds: parseJson(row.chatIdsJson, []),
       segmentRefs: parseJson(row.segmentRefsJson, []),
+      selection: parseJson(row.selectionJson, {}),
     })),
     aggregation: {
       readyCount,
@@ -1994,6 +1968,7 @@ async function listExtractionState(workspaceId) {
     },
     jobs: jobs.map((job) => ({
       ...job,
+      metadata: parseJson(job.metadataJson, {}),
       attempts: attemptsByJob.get(job.id) || [],
       roughResultIds: inputsByJob.get(job.id) || [],
       tokenUsage: (attemptsByJob.get(job.id) || []).reduce(
@@ -2076,6 +2051,8 @@ async function backfillLegacyCognition() {
           confidence: assertion.confidence,
           normalizedHash: assertion.normalizedHash,
           rawModelOutputJson: json({ legacyAssertionId: assertion.id }),
+          pipelineVersion: 2,
+          legacyPipeline: true,
         },
         update: {},
       });
@@ -2354,6 +2331,10 @@ async function stopWorkspaceCognitionWorker(options = {}) {
   return await workerLifecycle.stop(options);
 }
 
+function workspaceCognitionWorkerSnapshot() {
+  return workerLifecycle.snapshot();
+}
+
 async function candidateReviewState(candidateIds = []) {
   const events = candidateIds.length
     ? await prisma.workspace_cognitive_candidate_events.findMany({
@@ -2396,6 +2377,7 @@ async function listCandidates(
       sourceChatIds: parseJson(candidate.sourceChatIdsJson, []),
       evidence: parseJson(candidate.evidenceJson, []),
       suggestedRelation: parseJson(candidate.suggestedRelationJson, {}),
+      quality: parseJson(candidate.qualityJson, {}),
       reviewStatus: terminal?.eventType || "pending",
       events: history,
     };
@@ -2448,6 +2430,15 @@ async function createManualCandidate({
       suggestedRelationJson: json(suggestedRelation),
       normalizedHash: normalizedHash(assertionType, statement),
       rawModelOutputJson: json({ manual: true }),
+      qualityJson: json({
+        retentionReason: "explicit_position",
+        workspaceRelevance: 1,
+        durability: 1,
+        userCentrality: 1,
+        manual: true,
+      }),
+      pipelineVersion: PIPELINE_VERSION,
+      legacyPipeline: false,
     },
   });
 }
@@ -2826,6 +2817,9 @@ async function reviewCandidate({
               parentCandidateId: candidate.id,
               reviewEdit: payload,
             }),
+            qualityJson: candidate.qualityJson,
+            pipelineVersion: candidate.pipelineVersion,
+            legacyPipeline: candidate.legacyPipeline,
           },
         })
       );
@@ -2858,6 +2852,9 @@ async function reviewCandidate({
                 parentCandidateId: candidate.id,
                 splitPart: part,
               }),
+              qualityJson: candidate.qualityJson,
+              pipelineVersion: candidate.pipelineVersion,
+              legacyPipeline: candidate.legacyPipeline,
             },
           })
         );
@@ -3580,11 +3577,14 @@ async function deleteWorkspaceBatchData(workspaceIds = [], db = prisma) {
   if (db === prisma && process.env.NODE_ENV !== "test") {
     const VectorDb = getVectorDbClass();
     for (const id of ids) {
-      try {
-        await VectorDb["delete-namespace"]({
-          namespace: cognitiveNamespace(id),
-        });
-      } catch {}
+      for (const namespace of [
+        cognitiveNamespace(id),
+        pendingCognitiveNamespace(id),
+      ]) {
+        try {
+          await VectorDb["delete-namespace"]({ namespace });
+        } catch {}
+      }
     }
   }
   const where = { workspaceId: { in: ids } };
@@ -3633,11 +3633,19 @@ module.exports = {
   backfillLegacyCognition,
   startWorkspaceCognitionWorker,
   stopWorkspaceCognitionWorker,
+  workspaceCognitionWorkerSnapshot,
   deleteWorkspaceBatchData,
   validateScreening,
+  validateUserGate,
   validateRefinement,
+  userGatePrompt,
+  assistantEvidencePrompt,
+  refinePrompt,
+  repairPrompt,
+  assertPromptBudget,
   scopeKeyForChat,
   extractionPlanForPending,
+  shouldScheduleSilentRough,
   segmentCatalog,
   createRefineJobsForWorkspace,
   refineGroupSize,

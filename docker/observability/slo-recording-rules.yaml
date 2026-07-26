@@ -1,0 +1,178 @@
+groups:
+  - name: athena-crypto-observability
+    interval: 30s
+    rules:
+      - record: athena:crypto_suite:usage_ratio_15m
+        expr: |
+          sum by (purpose, suite) (rate(athena_crypto_suite_operations_total[15m]))
+          /
+          clamp_min(sum by (purpose) (rate(athena_crypto_suite_operations_total[15m])), 0.000001)
+      - record: athena:crypto_signature_verify:p95_seconds_15m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (family, suite, le) (
+              rate(athena_crypto_signature_verification_duration_seconds_bucket[15m])
+            )
+          )
+      - record: athena:crypto_tls:hybrid_ratio_15m
+        expr: |
+          sum(rate(athena_crypto_tls_negotiations_total{channel="edge",outcome="hybrid"}[15m]))
+          /
+          clamp_min(sum(rate(athena_crypto_tls_negotiations_total{channel="edge"}[15m])), 0.000001)
+      - record: athena:crypto_tls:downgrade_ratio_15m
+        expr: |
+          sum(rate(athena_crypto_tls_negotiations_total{channel="edge",outcome="downgrade_rejected"}[15m]))
+          /
+          clamp_min(sum(rate(athena_crypto_tls_negotiations_total{channel="edge"}[15m])), 0.000001)
+      - record: athena:crypto_tls:middlebox_block_ratio_15m
+        expr: |
+          sum(rate(athena_crypto_tls_client_compatibility_total{reason="middlebox_blocked"}[15m]))
+          /
+          clamp_min(sum(rate(athena_crypto_tls_client_compatibility_total[15m])), 0.000001)
+      - record: athena:crypto_tls:ttfb_p95_seconds_15m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le, cohort) (rate(athena_crypto_tls_ttfb_duration_seconds_bucket[15m]))
+          )
+      - record: athena:crypto_vault_kem:unseal_failure_ratio_15m
+        expr: |
+          sum(rate(athena_crypto_vault_kem_operations_total{operation="unseal",outcome!="success"}[15m]))
+          /
+          clamp_min(sum(rate(athena_crypto_vault_kem_operations_total{operation="unseal"}[15m])), 0.000001)
+
+  - name: athena-golden-journey-slos
+    interval: 30s
+    rules:
+      - record: athena:golden_journey:success_ratio_5m
+        expr: |
+          (
+            (
+              sum by (journey) (increase(athena_golden_journey_operations_total{outcome="success"}[5m]))
+              or on (journey)
+              (0 * sum by (journey) (increase(athena_golden_journey_operations_total[5m])))
+            )
+            /
+            sum by (journey) (increase(athena_golden_journey_operations_total[5m]))
+          )
+          and on (journey)
+          (sum by (journey) (increase(athena_golden_journey_operations_total[5m])) > 0)
+      - record: athena:golden_journey:operations_30m
+        expr: |
+          sum by (journey) (increase(athena_golden_journey_operations_total[30m]))
+      - record: athena:golden_journey:success_ratio_30m
+        expr: |
+          (
+            (
+              sum by (journey) (increase(athena_golden_journey_operations_total{outcome="success"}[30m]))
+              or on (journey)
+              (0 * sum by (journey) (increase(athena_golden_journey_operations_total[30m])))
+            )
+            /
+            sum by (journey) (increase(athena_golden_journey_operations_total[30m]))
+          )
+          and on (journey)
+          (sum by (journey) (increase(athena_golden_journey_operations_total[30m])) > 0)
+      - record: athena:golden_journey:latency_p95_seconds_5m
+        expr: |
+          histogram_quantile(0.95,
+            sum by (journey, le) (rate(athena_golden_journey_duration_seconds_bucket[5m])))
+      - record: athena:operation_context:coverage_ratio_15m
+        expr: |
+          (
+            (
+              sum(increase(athena_operation_context_total{coverage="complete",journey!="background"}[15m]))
+              or vector(0)
+            )
+            /
+            sum(increase(athena_operation_context_total{journey!="background"}[15m]))
+          )
+          and
+          (sum(increase(athena_operation_context_total{journey!="background"}[15m])) > 0)
+      - record: athena:operation_context:operations_15m
+        expr: |
+          sum(increase(athena_operation_context_total{journey!="background"}[15m]))
+
+      - alert: AthenaOperationCorrelationCoverageLow
+        expr: |
+          athena:operation_context:coverage_ratio_15m < 0.95
+          and
+          athena:operation_context:operations_15m > 0
+        for: 15m
+        labels:
+          severity: critical
+          owner: ai-operations
+        annotations:
+          summary: Critical-flow OperationContext coverage is below 95 percent
+
+      - alert: AthenaLoginJourneySLOBurn
+        expr: |
+          athena:golden_journey:success_ratio_30m{journey="login"} < 0.999
+          and on (journey)
+          athena:golden_journey:operations_30m{journey="login"} > 0
+        for: 10m
+        labels: { severity: critical, journey: login }
+        annotations:
+          { summary: "Login journey is burning its 99.9% availability SLO" }
+      - alert: AthenaChatJourneySLOBurn
+        expr: |
+          athena:golden_journey:success_ratio_30m{journey="chat"} < 0.99
+          and on (journey)
+          athena:golden_journey:operations_30m{journey="chat"} > 0
+        for: 10m
+        labels: { severity: critical, journey: chat }
+        annotations:
+          { summary: "Chat journey is burning its 99% availability SLO" }
+      - alert: AthenaAgentToolJourneySLOBurn
+        expr: |
+          athena:golden_journey:success_ratio_30m{journey="agent_tool"} < 0.98
+          and on (journey)
+          athena:golden_journey:operations_30m{journey="agent_tool"} > 0
+        for: 10m
+        labels: { severity: warning, journey: agent_tool }
+        annotations:
+          { summary: "Agent tool journey is burning its 98% availability SLO" }
+      - alert: AthenaKnowledgeIngestJourneySLOBurn
+        expr: |
+          athena:golden_journey:success_ratio_30m{journey="knowledge_ingest"} < 0.99
+          and on (journey)
+          athena:golden_journey:operations_30m{journey="knowledge_ingest"} > 0
+        for: 10m
+        labels: { severity: critical, journey: knowledge_ingest }
+        annotations:
+          {
+            summary: "Knowledge ingest journey is burning its 99% availability SLO",
+          }
+      - alert: AthenaCrossDeviceSyncJourneySLOBurn
+        expr: |
+          athena:golden_journey:success_ratio_30m{journey="cross_device_sync"} < 0.995
+          and on (journey)
+          athena:golden_journey:operations_30m{journey="cross_device_sync"} > 0
+        for: 10m
+        labels: { severity: critical, journey: cross_device_sync }
+        annotations:
+          {
+            summary: "Cross-device sync journey is burning its 99.5% availability SLO",
+          }
+
+  - name: athena-chat-client-slos
+    interval: 30s
+    rules:
+      - record: athena:chat_client:stream_stall_ratio_15m
+        expr: |
+          sum(rate(athena_chat_client_stream_events_total{event="stream_stalled",visibility="visible"}[15m]))
+          /
+          clamp_min(sum(rate(athena_chat_client_stream_events_total{event="first_chunk_received"}[15m])), 0.000001)
+      - record: athena:chat_client:reconnect_failure_ratio_15m
+        expr: |
+          sum(rate(athena_chat_client_stream_events_total{event="reconnect_failed"}[15m]))
+          /
+          clamp_min(sum(rate(athena_chat_client_stream_events_total{event="reconnect_started"}[15m])), 0.000001)
+      - record: athena:chat_client:receive_to_paint_p95_seconds_15m
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (
+              rate(athena_chat_client_receive_to_paint_seconds_bucket{visibility="visible"}[15m])
+            )
+          )

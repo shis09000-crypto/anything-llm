@@ -1,0 +1,60 @@
+rule_files:
+  - slo-recording-rules.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - name: no traffic produces no golden journey or context alerts
+    interval: 1m
+    alert_rule_test:
+      - eval_time: 45m
+        alertname: AthenaLoginJourneySLOBurn
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: AthenaCrossDeviceSyncJourneySLOBurn
+        exp_alerts: []
+      - eval_time: 45m
+        alertname: AthenaOperationCorrelationCoverageLow
+        exp_alerts: []
+
+  - name: a successful login does not burn the login SLO
+    interval: 1m
+    input_series:
+      - series: athena_golden_journey_operations_total{journey="login",outcome="success"}
+        values: 0 1+0x44
+    alert_rule_test:
+      - eval_time: 40m
+        alertname: AthenaLoginJourneySLOBurn
+        exp_alerts: []
+
+  - name: a failed login without successes burns the login SLO
+    interval: 1m
+    input_series:
+      - series: athena_golden_journey_operations_total{journey="login",outcome="failure"}
+        values: 0 1+0x44
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: AthenaLoginJourneySLOBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              journey: login
+            exp_annotations:
+              summary: Login journey is burning its 99.9% availability SLO
+
+  - name: incomplete operation context with traffic alerts
+    interval: 1m
+    input_series:
+      - series: athena_operation_context_total{component="http",journey="login",coverage="complete"}
+        values: 0+1x44
+      - series: athena_operation_context_total{component="http",journey="login",coverage="partial"}
+        values: 0+1x44
+    alert_rule_test:
+      - eval_time: 35m
+        alertname: AthenaOperationCorrelationCoverageLow
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              owner: ai-operations
+            exp_annotations:
+              summary: Critical-flow OperationContext coverage is below 95 percent

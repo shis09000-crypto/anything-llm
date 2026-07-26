@@ -5,6 +5,7 @@ const prisma = require("../utils/prisma");
 const authPrisma = require("../utils/authPrisma");
 const { appEnvironment, storageBaseDir } = require("../utils/environment");
 const {
+  CREDENTIAL_TYPES,
   hashPassword,
   verifyPassword,
 } = require("../utils/security/passwordCredential");
@@ -34,6 +35,7 @@ const SYNC_FIELDS = [
   "username",
   "displayName",
   "password",
+  "credentialType",
   "pfpFilename",
   "role",
   "status",
@@ -145,6 +147,7 @@ function copyAuthFields(authUser = {}) {
 function authUserCreateData({
   username,
   passwordHash,
+  credentialType = CREDENTIAL_TYPES.PASSWORD,
   role = ROLES.user,
   status = null,
   allowedEnvs = null,
@@ -184,6 +187,7 @@ function authUserCreateData({
     username,
     displayName: displayName || username,
     password: passwordHash,
+    credentialType,
     role: roleDefaults.role,
     status: roleDefaults.status,
     allowedEnvs: roleDefaults.allowedEnvs,
@@ -444,11 +448,14 @@ async function matchingLocalShadowPassword(authUser = null, password = "") {
           username: true,
           email: true,
           password: true,
+          credentialType: true,
         },
       });
 
       if (
         shadow?.password &&
+        (!shadow.credentialType ||
+          shadow.credentialType === CREDENTIAL_TYPES.PASSWORD) &&
         (await verifyPassword(String(password), shadow.password)).valid
       ) {
         return { envName, shadow };
@@ -468,7 +475,7 @@ async function repairPasswordFromLocalShadow(authUser = null, password = "") {
   const passwordHash = await hashPassword(password);
   const repairedAuthUser = await authPrisma.users.update({
     where: { id: Number(authUser.id) },
-    data: { password: passwordHash },
+    data: { password: passwordHash, credentialType: CREDENTIAL_TYPES.PASSWORD },
   });
   return { authUser: repairedAuthUser, repairedFromEnv: match.envName };
 }
@@ -478,11 +485,11 @@ async function upgradePasswordHash(authUser = null, password = "") {
   const passwordHash = await hashPassword(password);
   const upgraded = await authPrisma.users.update({
     where: { id: Number(authUser.id) },
-    data: { password: passwordHash },
+    data: { password: passwordHash, credentialType: CREDENTIAL_TYPES.PASSWORD },
   });
   await prisma.users.updateMany({
     where: { authUserId: Number(authUser.id) },
-    data: { password: passwordHash },
+    data: { password: passwordHash, credentialType: CREDENTIAL_TYPES.PASSWORD },
   });
   return upgraded;
 }

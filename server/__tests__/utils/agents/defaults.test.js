@@ -6,9 +6,13 @@ const {
   SystemPromptVariables,
 } = require("../../../models/systemPromptVariables");
 const Provider = require("../../../utils/agents/aibitat/providers/ai-provider");
+const mockCryptoAccountEligibility = jest.fn();
 
 jest.mock("../../../models/systemPromptVariables");
 jest.mock("../../../models/systemSettings");
+jest.mock("../../../utils/cryptoAccount", () => ({
+  cryptoAccountEligibility: (...args) => mockCryptoAccountEligibility(...args),
+}));
 jest.mock("../../../utils/agents/imported", () => ({
   activeImportedPlugins: jest.fn().mockReturnValue([]),
 }));
@@ -38,6 +42,7 @@ function expectMandatoryAgentPolicies(role, basePrompt) {
 describe("WORKSPACE_AGENT.getDefinition", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockCryptoAccountEligibility.mockResolvedValue({ available: false });
     // Mock SystemSettings to return empty arrays for agent skills
     const { SystemSettings } = require("../../../models/systemSettings");
     SystemSettings.getValueOrFallback = jest.fn().mockResolvedValue("[]");
@@ -172,6 +177,44 @@ describe("WORKSPACE_AGENT.getDefinition", () => {
     expect(functions).not.toContain(
       "document-formatting-agent#format-docx-file"
     );
+  });
+
+  it("completely hides private crypto tools for an ineligible account", async () => {
+    const functions = await agentSkillsFromSystemSettings({
+      id: 1,
+      authUserId: 11,
+    });
+
+    expect(
+      functions.some((name) => name.startsWith("crypto-account-agent#"))
+    ).toBe(false);
+  });
+
+  it("loads private crypto tools only when eligible and not disabled globally", async () => {
+    mockCryptoAccountEligibility.mockResolvedValue({ available: true });
+    const eligibleUser = { id: 1, authUserId: 11 };
+    const functions = await agentSkillsFromSystemSettings(eligibleUser);
+    expect(functions).toEqual(
+      expect.arrayContaining([
+        "crypto-account-agent#crypto_account_overview",
+        "crypto-account-agent#crypto_account_holdings",
+        "crypto-account-agent#crypto_account_positions",
+        "crypto-account-agent#crypto_account_activity",
+      ])
+    );
+
+    const { SystemSettings } = require("../../../models/systemSettings");
+    SystemSettings.getValueOrFallback = jest
+      .fn()
+      .mockImplementation(async ({ label }) =>
+        label === "disabled_agent_skills"
+          ? JSON.stringify(["crypto-account-agent"])
+          : "[]"
+      );
+    const disabled = await agentSkillsFromSystemSettings(eligibleUser);
+    expect(
+      disabled.some((name) => name.startsWith("crypto-account-agent#"))
+    ).toBe(false);
   });
 
   it("deduplicates legacy create-files default settings", async () => {

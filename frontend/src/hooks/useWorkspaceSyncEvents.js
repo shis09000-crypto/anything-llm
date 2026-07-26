@@ -3,6 +3,11 @@ import { getClientIdentity } from "@/lib/communication/clientIdentity";
 import { useChatThreadDrafts } from "@/contexts/ChatThreadDraftProvider";
 import { useSyncCenterEvents } from "@/hooks/useSyncCenterEvents";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import { recordChatStreamObservation } from "@/lib/communication/chatStreamObservability";
+import {
+  historySyncRetryDelay,
+  resolveWorkspaceHistorySyncChatKey,
+} from "@/utils/chat/workspaceHistorySync";
 import {
   dispatchThreadCreateVisual,
   dispatchThreadDeleteVisual,
@@ -37,6 +42,7 @@ export function useWorkspaceSyncEvents({
   const chatDrafts = useChatThreadDrafts();
   const clientId = useMemo(() => getClientIdentity().clientId, []);
   const refreshTimersRef = useRef(new Map());
+  const refreshGenerationsRef = useRef(new Map());
 
   const scheduleHistoryRefresh = useCallback(
     ({ threadSlug = null, reason = "workspace-sync" } = {}) => {
@@ -44,16 +50,83 @@ export function useWorkspaceSyncEvents({
       const key = `${workspaceSlug}:${threadSlug || "__workspace__"}`;
       const existing = refreshTimersRef.current.get(key);
       if (existing) window.clearTimeout(existing);
+      const generation =
+        Number(refreshGenerationsRef.current.get(key) || 0) + 1;
+      refreshGenerationsRef.current.set(key, generation);
+      const startedAt = performance.now();
+      const clientTurnId = `sync:${key}`;
 
-      const timer = window.setTimeout(() => {
-        refreshTimersRef.current.delete(key);
-        chatDrafts.refreshLatestHistory?.({
-          workspaceSlug,
-          threadSlug,
-          reason,
-          limit: 40,
+      const finish = (refreshed) => {
+        if (refreshGenerationsRef.current.get(key) !== generation) return;
+        recordChatStreamObservation({
+          event: refreshed ? "history_sync_recovered" : "history_sync_failed",
+          clientTurnId,
+          durationMs: performance.now() - startedAt,
+          outcome: refreshed ? "recovered" : "failed",
         });
-      }, HISTORY_REFRESH_DEBOUNCE_MS);
+      };
+
+      const runAttempt = (attempt) => {
+        if (refreshGenerationsRef.current.get(key) !== generation) return;
+        refreshTimersRef.current.delete(key);
+        Promise.resolve(
+          chatDrafts.refreshLatestHistory?.({
+            chatKey: resolveWorkspaceHistorySyncChatKey({
+              workspaceSlug,
+              threadSlug,
+              getChatKey: chatDrafts.getChatKey,
+            }),
+            workspaceSlug,
+            threadSlug,
+            reason,
+            limit: 100,
+            priority: "P1",
+            policy: "visible",
+            deadlineMs: 10_000,
+          })
+        )
+          .then((refreshed) => {
+            if (
+              refreshed ||
+              refreshGenerationsRef.current.get(key) !== generation
+            ) {
+              if (refreshed) finish(true);
+              return;
+            }
+            const retryDelay = historySyncRetryDelay(attempt);
+            if (retryDelay === null) {
+              finish(false);
+              return;
+            }
+            const retryTimer = window.setTimeout(
+              () => runAttempt(attempt + 1),
+              retryDelay
+            );
+            refreshTimersRef.current.set(key, retryTimer);
+          })
+          .catch(() => {
+            if (refreshGenerationsRef.current.get(key) !== generation) return;
+            const retryDelay = historySyncRetryDelay(attempt);
+            if (retryDelay === null) {
+              finish(false);
+              return;
+            }
+            const retryTimer = window.setTimeout(
+              () => runAttempt(attempt + 1),
+              retryDelay
+            );
+            refreshTimersRef.current.set(key, retryTimer);
+          });
+      };
+
+      recordChatStreamObservation({
+        event: "history_sync_started",
+        clientTurnId,
+      });
+      const timer = window.setTimeout(
+        () => runAttempt(0),
+        HISTORY_REFRESH_DEBOUNCE_MS
+      );
       refreshTimersRef.current.set(key, timer);
     },
     [chatDrafts, workspaceSlug]
@@ -329,6 +402,7 @@ export function useWorkspaceSyncEvents({
     return () => {
       refreshTimersRef.current.forEach((timer) => window.clearTimeout(timer));
       refreshTimersRef.current.clear();
+      refreshGenerationsRef.current.clear();
     };
   }, []);
 }

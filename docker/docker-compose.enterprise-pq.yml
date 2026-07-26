@@ -1,0 +1,54 @@
+services:
+  anything-llm-api:
+    environment:
+      ATHENA_ENTERPRISE_RELEASE_GATE: "true"
+      ATHENA_REQUIRE_NODE24_PQ_PROBE: "true"
+      ATHENA_PQ_RUNTIME_EXPECTED_CAPABILITIES: "ml_kem_768,ml_dsa_65,encapsulation_api,classical_provider_baseline"
+      ATHENA_AUDIT_HYBRID_SIGNATURES: "required"
+      ATHENA_RELEASE_EVIDENCE_HYBRID_REQUIRED: "true"
+      ATHENA_IOS_HIGH_RISK_PQ_REQUIRED: "true"
+      ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED: "true"
+      ATHENA_DEVICE_ATTESTATION_MODE: "required"
+      ATHENA_APP_ATTEST_APP_ID: ${ATHENA_APP_ATTEST_APP_ID:?required}
+      ATHENA_APP_ATTEST_VERIFIER_URL: ${ATHENA_APP_ATTEST_VERIFIER_URL:?required}
+      ATHENA_AUDIT_MLDSA65_KEY_ID: ${ATHENA_AUDIT_MLDSA65_KEY_ID:?required}
+      ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE: /run/secrets/audit-mldsa65-private.pem
+      ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE: /run/secrets/audit-mldsa65-public.pem
+      ATHENA_AGENT_MLDSA65_KEY_ID: ${ATHENA_AGENT_MLDSA65_KEY_ID:?required}
+      ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE: /run/secrets/agent-mldsa65-private.pem
+      ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE: /run/secrets/agent-mldsa65-public.pem
+      ATHENA_EDGE_SECURITY_EVIDENCE_FILE: /run/evidence/edge.json
+      ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE: /run/evidence/edge-ed25519.pem
+      ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE: /run/evidence/edge-mldsa65.pem
+      ATHENA_DR_EVIDENCE_FILE: /run/evidence/dr.json
+      ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE: /run/evidence/dr-ed25519.pem
+      ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE: /run/evidence/dr-mldsa65.pem
+    volumes:
+      - ${ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_HOST_FILE:?required}:/run/secrets/audit-mldsa65-private.pem:ro
+      - ${ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/secrets/audit-mldsa65-public.pem:ro
+      - ${ATHENA_AGENT_MLDSA65_PRIVATE_KEY_HOST_FILE:?required}:/run/secrets/agent-mldsa65-private.pem:ro
+      - ${ATHENA_AGENT_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/secrets/agent-mldsa65-public.pem:ro
+      - ${ATHENA_EDGE_SECURITY_EVIDENCE_HOST_FILE:?required}:/run/evidence/edge.json:ro
+      - ${ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_HOST_FILE:?required}:/run/evidence/edge-ed25519.pem:ro
+      - ${ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/evidence/edge-mldsa65.pem:ro
+      - ${ATHENA_DR_EVIDENCE_HOST_FILE:?required}:/run/evidence/dr.json:ro
+      - ${ATHENA_DR_EVIDENCE_PUBLIC_KEY_HOST_FILE:?required}:/run/evidence/dr-ed25519.pem:ro
+      - ${ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/evidence/dr-mldsa65.pem:ro
+
+  anything-llm-background-worker:
+    environment:
+      ATHENA_REQUIRE_NODE24_PQ_PROBE: "true"
+      ATHENA_PQ_RUNTIME_EXPECTED_CAPABILITIES: "ml_kem_768,ml_dsa_65,encapsulation_api,classical_provider_baseline"
+      ATHENA_AUDIT_HYBRID_SIGNATURES: "required"
+      ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED: "true"
+      ATHENA_AUDIT_MLDSA65_KEY_ID: ${ATHENA_AUDIT_MLDSA65_KEY_ID:?required}
+      ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE: /run/secrets/audit-mldsa65-private.pem
+      ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE: /run/secrets/audit-mldsa65-public.pem
+      ATHENA_AGENT_MLDSA65_KEY_ID: ${ATHENA_AGENT_MLDSA65_KEY_ID:?required}
+      ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE: /run/secrets/agent-mldsa65-private.pem
+      ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE: /run/secrets/agent-mldsa65-public.pem
+    volumes:
+      - ${ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_HOST_FILE:?required}:/run/secrets/audit-mldsa65-private.pem:ro
+      - ${ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/secrets/audit-mldsa65-public.pem:ro
+      - ${ATHENA_AGENT_MLDSA65_PRIVATE_KEY_HOST_FILE:?required}:/run/secrets/agent-mldsa65-private.pem:ro
+      - ${ATHENA_AGENT_MLDSA65_PUBLIC_KEY_HOST_FILE:?required}:/run/secrets/agent-mldsa65-public.pem:ro

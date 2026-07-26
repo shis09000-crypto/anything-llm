@@ -1,12 +1,6 @@
-import React, { memo, useState } from "react";
+import React, { memo } from "react";
 import useCopyText from "@/hooks/useCopyText";
-import {
-  Check,
-  ArrowsClockwise,
-  Copy,
-  SpeakerHigh,
-  SpeakerSlash,
-} from "@phosphor-icons/react";
+import { Check, ArrowsClockwise, Copy } from "@phosphor-icons/react";
 import { EditMessageAction } from "./EditMessage";
 import RenderMetrics from "./RenderMetrics";
 import ActionMenu from "./ActionMenu";
@@ -30,7 +24,6 @@ const Actions = ({
       <div className="flex justify-start items-center gap-x-[8px]">
         <div className="md:group-hover:opacity-100 motion-hover md:opacity-0 flex justify-start items-center gap-x-[8px]">
           <div className="flex justify-start items-center gap-x-[8px]">
-            {role !== "user" && <ReadAloudMessage message={message} />}
             <CopyMessage message={message} />
             <EditMessageAction
               chatId={chatId}
@@ -58,40 +51,6 @@ const Actions = ({
     </div>
   );
 };
-
-function ReadAloudMessage({ message }) {
-  const [speaking, setSpeaking] = useState(false);
-  const toggle = () => {
-    if (!window.speechSynthesis) return;
-    if (speaking) {
-      window.speechSynthesis.cancel();
-      setSpeaking(false);
-      return;
-    }
-    const utterance = new SpeechSynthesisUtterance(String(message || ""));
-    utterance.onend = () => setSpeaking(false);
-    utterance.onerror = () => setSpeaking(false);
-    setSpeaking(true);
-    window.speechSynthesis.speak(utterance);
-  };
-  return (
-    <div className="mt-3 relative">
-      <button
-        onClick={toggle}
-        data-tooltip-id="read-assistant-text"
-        data-tooltip-content={speaking ? "停止朗读" : "朗读"}
-        className="text-zinc-300 light:text-slate-500"
-        aria-label={speaking ? "停止朗读" : "朗读"}
-      >
-        {speaking ? (
-          <SpeakerSlash size={20} className="mb-1" />
-        ) : (
-          <SpeakerHigh size={20} className="mb-1" />
-        )}
-      </button>
-    </div>
-  );
-}
 
 function CopyMessage({ message }) {
   const { copied, copyText } = useCopyText();

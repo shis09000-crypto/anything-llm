@@ -517,7 +517,9 @@ function serverGroupToItems(group, chatKey = null) {
     role: "assistant",
     turnId,
     userMessageId: userMessage.id,
-    status: TURN_STATUSES.completed,
+    status: isAgentHandoffPlaceholder(assistant)
+      ? TURN_STATUSES.running
+      : TURN_STATUSES.completed,
     finalContent: assistant.content || "",
     truncated: Boolean(assistant.truncated),
     textRef: assistant.textRef || null,
@@ -670,6 +672,12 @@ function clientTurnIdsMatch(localAssistant = {}, serverAssistant = {}) {
   );
 }
 
+function isAgentHandoffPlaceholder(assistant = {}) {
+  return String(assistant.finalContent || assistant.content || "").includes(
+    "@agent: Swapping over to agent chat"
+  );
+}
+
 function localTurnTimeDistance(
   localItems = [],
   assistant = {},
@@ -710,7 +718,12 @@ function turnHasAttachments(localItems = [], assistant = {}) {
   );
 }
 
-function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
+function patchLocalTurnWithServer(
+  localItems,
+  serverUser,
+  serverAssistant,
+  options = {}
+) {
   let localAssistantIdx = localItems.findIndex(
     (item) => isAssistantTurn(item) && clientTurnIdsMatch(item, serverAssistant)
   );
@@ -781,6 +794,11 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
   if (localAssistantIdx === -1) return null;
 
   const localAssistant = localItems[localAssistantIdx];
+  const preserveRunningTurnIds = new Set(options.preserveRunningTurnIds || []);
+  const preserveRunningTurn =
+    isAgentHandoffPlaceholder(serverAssistant) &&
+    (localAssistant.status === TURN_STATUSES.running ||
+      preserveRunningTurnIds.has(localAssistant.turnId));
   const localUserIdx = localItems.findIndex(
     (item) => item.id === localAssistant.userMessageId
   );
@@ -811,7 +829,9 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
       serverAssistant.publicChatId || localAssistant.publicChatId || null,
     clientTurnId:
       serverAssistant.clientTurnId || localAssistant.clientTurnId || null,
-    finalContent: serverAssistant.finalContent || localAssistant.finalContent,
+    finalContent: preserveRunningTurn
+      ? localAssistant.finalContent
+      : serverAssistant.finalContent || localAssistant.finalContent,
     truncated: Boolean(serverAssistant.truncated),
     textRef: serverAssistant.textRef || localAssistant.textRef || null,
     sources: serverAssistant.sources || localAssistant.sources,
@@ -824,8 +844,10 @@ function patchLocalTurnWithServer(localItems, serverUser, serverAssistant) {
       [],
     responseType: serverAssistant.responseType || localAssistant.responseType,
     hydrationStatus: serverAssistant.hydrationStatus || null,
-    status: TURN_STATUSES.completed,
-    error: null,
+    status: preserveRunningTurn
+      ? TURN_STATUSES.running
+      : TURN_STATUSES.completed,
+    error: preserveRunningTurn ? localAssistant.error : null,
     timeline: normalizeStoredTimeline([
       ...(localAssistant.timeline || []),
       ...(serverAssistant.timeline || []),
@@ -853,7 +875,8 @@ export function mergeServerHistoryIntoTurns(
     const patched = patchLocalTurnWithServer(
       merged,
       serverUser,
-      serverAssistant
+      serverAssistant,
+      options
     );
     if (patched) {
       merged = patched;

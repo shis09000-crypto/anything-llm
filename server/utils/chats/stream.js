@@ -6,6 +6,7 @@ const WorkspaceParsedFiles = lazyDataAccessFacade("workspaceParsedFile");
 const UserMemory = lazyDataAccessFacade("userMemory");
 const { getVectorDbClass, getLLMProvider } = require("../helpers");
 const { writeResponseChunk } = require("../helpers/chat/responses");
+const { enrichOperationContext } = require("../observability/operationContext");
 const { grepAgents } = require("./agents");
 const {
   grepCommand,
@@ -167,6 +168,12 @@ async function streamChatWithWorkspace(
   attachments = [],
   options = {}
 ) {
+  enrichOperationContext({
+    clientTurnId: options.clientTurnId || null,
+    workspaceId: workspace?.id || null,
+    threadId: thread?.id || null,
+    journey: "chat",
+  });
   const uuid = uuidv4();
   const syncEvent = options.syncEvent || null;
   let updatedMessage = await grepCommand(message, user);

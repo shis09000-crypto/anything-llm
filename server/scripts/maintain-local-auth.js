@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 const path = require("path");
-const { hashPassword } = require("../utils/security/passwordCredential");
+const {
+  CREDENTIAL_TYPES,
+  hashPassword,
+} = require("../utils/security/passwordCredential");
 const {
   assertDatabaseSchema,
   bootstrapCliRuntime,
@@ -327,7 +330,14 @@ async function resetPassword({ authDb, envClients, envs, identifier, logger }) {
   const passwordHash = await hashPassword(password);
   await authDb.users.update({
     where: { id: authUser.id },
-    data: { password: passwordHash },
+    data: {
+      password: passwordHash,
+      credentialType: CREDENTIAL_TYPES.PASSWORD,
+    },
+  });
+  await authDb.auth_sessions.updateMany({
+    where: { authUserId: authUser.id, revokedAt: null },
+    data: { revokedAt: new Date(), revokeReason: "password_changed" },
   });
 
   for (const envName of envs) {
@@ -335,7 +345,10 @@ async function resetPassword({ authDb, envClients, envs, identifier, logger }) {
     if (!envClient?.db) continue;
     const result = await envClient.db.users.updateMany({
       where: { OR: shadowIdentityClauses(authUser) },
-      data: { password: passwordHash },
+      data: {
+        password: passwordHash,
+        credentialType: CREDENTIAL_TYPES.PASSWORD,
+      },
     });
     logger.log(
       `[maintain-local-auth] ${envName}: updated ${result.count} shadow password hash(es).`

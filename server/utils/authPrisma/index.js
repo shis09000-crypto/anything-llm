@@ -7,6 +7,9 @@ const {
   installMigrationWriteBarrier,
   installRawSqlDialectAdapter,
 } = require("../database/sqlDialect");
+const {
+  instrumentPrismaClient,
+} = require("../observability/prismaInstrumentation");
 
 const logLevels = ["error", "info", "warn"];
 
@@ -40,6 +43,7 @@ const authPrisma = new PrismaClient({
     },
   },
 });
+instrumentPrismaClient(authPrisma, { provider, database: "auth" });
 installRawSqlDialectAdapter(authPrisma);
 installMigrationWriteBarrier(authPrisma);
 

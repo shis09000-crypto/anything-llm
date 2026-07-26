@@ -39,6 +39,19 @@ final class NativeAppContractTests: XCTestCase {
         XCTAssertEqual(bootstrap.app.minimumOSVersion, "26.0")
         XCTAssertTrue(bootstrap.app.liquidGlass.nativeRequired)
         XCTAssertFalse(bootstrap.app.liquidGlass.fallbackPromised)
+        XCTAssertEqual(bootstrap.security.cryptoSuiteRegistryVersion, "athena-crypto-suites:v1")
+        XCTAssertEqual(
+            bootstrap.security.cryptoSuites?.first?.suiteId,
+            AthenaCryptoSuiteRegistry.requestDeviceP256V2
+        )
+        XCTAssertEqual(
+            bootstrap.security.highRiskRequestSigning?.enforcementMode,
+            "required"
+        )
+        XCTAssertEqual(
+            bootstrap.security.highRiskRequestSigning?.postQuantumSuiteId,
+            AthenaCryptoSuiteRegistry.requestDeviceMLDSA65V1
+        )
     }
 
     func testBootstrapDecodeKeepsV1FeatureBoundaries() throws {
@@ -390,7 +403,64 @@ final class NativeAppContractTests: XCTestCase {
             "clientIdentityQuery": { "clientId": "athenaClientId" },
             "nativeAppHeaders": { "osVersion": "X-Athena-OS-Version" },
             "preferredSignatureVersion": "v2-device-p256",
-            "requestSigningHeaders": { "signature": "X-Athena-Signature" },
+            "cryptoSuiteRegistryVersion": "athena-crypto-suites:v1",
+            "cryptoSuites": [
+              {
+                "suiteId": "v2-device-p256",
+                "purpose": "request-signature",
+                "classicalAlgorithm": "ECDSA-P256-SHA256",
+                "pqAlgorithm": null,
+                "parameterSet": "secp256r1",
+                "keyEncoding": "jwk",
+                "signatureEncoding": "ieee-p1363-base64url",
+                "minimumClientVersion": "0.0.0",
+                "status": "active",
+                "notBefore": "2020-01-01T00:00:00.000Z",
+                "deprecatedAfter": null
+              },
+              {
+                "suiteId": "request-device-mldsa65-v1",
+                "purpose": "request-signature",
+                "classicalAlgorithm": null,
+                "pqAlgorithm": "ML-DSA-65",
+                "parameterSet": "ML-DSA-65",
+                "keyEncoding": "raw-base64url",
+                "signatureEncoding": "raw-base64url",
+                "minimumClientVersion": "2.4.0",
+                "status": "active",
+                "notBefore": "2026-07-22T00:00:00.000Z",
+                "deprecatedAfter": null
+              },
+              {
+                "suiteId": "device-hybrid-p256-mldsa65-v1",
+                "purpose": "request-signature",
+                "classicalAlgorithm": "ECDSA-P256-SHA256",
+                "pqAlgorithm": "ML-DSA-65",
+                "parameterSet": "secp256r1+ML-DSA-65",
+                "keyEncoding": "composite-cbor-v1",
+                "signatureEncoding": "composite-base64url-v1",
+                "minimumClientVersion": "2.4.0",
+                "status": "active",
+                "notBefore": "2026-07-22T00:00:00.000Z",
+                "deprecatedAfter": null
+              }
+            ],
+            "highRiskRequestSigning": {
+              "enforcementMode": "required",
+              "minimumOSVersion": "26.0",
+              "minimumAppVersion": "2.4.0",
+              "classicalSuiteId": "v2-device-p256",
+              "postQuantumSuiteId": "request-device-mldsa65-v1",
+              "hybridSuiteId": "device-hybrid-p256-mldsa65-v1",
+              "hardwareBackedPostQuantumKeyRequired": true
+            },
+            "requestSigningHeaders": {
+              "signature": "X-Athena-Signature",
+              "hybridSignatureVersion": "X-Athena-Hybrid-Signature-Version",
+              "pqSignature": "X-Athena-PQ-Signature",
+              "pqPublicKey": "X-Athena-PQ-Public-Key",
+              "pqKeyAlgorithm": "X-Athena-PQ-Key-Algorithm"
+            },
             "signingSecretPath": "/api/client-identity/signing-secret",
             "sensitiveSessionHeader": "X-Athena-Sensitive-Session"
           },

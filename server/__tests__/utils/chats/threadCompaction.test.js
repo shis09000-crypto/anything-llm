@@ -888,6 +888,44 @@ describe("Thread compaction memory", () => {
     );
   });
 
+  it("coalesces concurrent status work, expires after three seconds, and invalidates on demand", async () => {
+    mockCompactionWhere.mockResolvedValue(
+      Array.from({ length: 12 }, (_, index) => chat(index + 1))
+    );
+    const baseNow = Date.now();
+    const now = jest.spyOn(Date, "now").mockReturnValue(baseNow);
+    const {
+      getThreadCompactionStatus,
+      invalidateThreadCompactionStatus,
+    } = require("../../../utils/chats/threadCompaction");
+    const options = {
+      workspace,
+      user,
+      thread: { ...thread, historyRevision: 4 },
+      historyRevision: 4,
+    };
+
+    const [first, second] = await Promise.all([
+      getThreadCompactionStatus(options),
+      getThreadCompactionStatus(options),
+    ]);
+    expect(first).toEqual(second);
+    expect(mockLatest).toHaveBeenCalledTimes(1);
+    expect(mockCompactionWhere).toHaveBeenCalledTimes(1);
+
+    await getThreadCompactionStatus(options);
+    expect(mockCompactionWhere).toHaveBeenCalledTimes(1);
+
+    now.mockReturnValue(baseNow + 3_001);
+    await getThreadCompactionStatus(options);
+    expect(mockCompactionWhere).toHaveBeenCalledTimes(2);
+
+    invalidateThreadCompactionStatus(options);
+    await getThreadCompactionStatus(options);
+    expect(mockCompactionWhere).toHaveBeenCalledTimes(3);
+    now.mockRestore();
+  });
+
   it("uses the compaction window as the thread memory budget", async () => {
     process.env.THREAD_COMPACTION_CONTEXT_WINDOW_TOKENS = "1000000";
     process.env.THREAD_COMPACTION_TARGET_BASE = "absolute";

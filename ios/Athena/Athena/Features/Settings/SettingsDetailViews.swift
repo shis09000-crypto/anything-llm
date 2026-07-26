@@ -435,6 +435,17 @@ struct LoginSecuritySettingsView: View {
     @State private var currentPassword = ""
     @State private var newPassword = ""
     @State private var confirmPassword = ""
+    @State private var rootPassword = ""
+    @State private var showsRootPassword = false
+    @State private var domainMigrationPassword = ""
+    @State private var showsDomainMigrationPassword = false
+    @State private var isMigratingDomainKeys = false
+    @State private var domainMigrationMessage: String?
+    @State private var authorizationTarget:
+        VaultHybridKeyDistribution.DeviceRegistration?
+    @State private var authorizationPassword = ""
+    @State private var isAuthorizingDevice = false
+    @State private var authorizationMessage: String?
 
     var body: some View {
         Form {
@@ -487,6 +498,84 @@ struct LoginSecuritySettingsView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
+            Section("用户根密钥") {
+                LabeledContent(
+                    "状态",
+                    value: dependencies.userRootKeyCenter.status.displayTitle
+                )
+                switch dependencies.userRootKeyCenter.status {
+                case .ready(let rootEpoch, let rootKeyId):
+                    LabeledContent("Root Epoch", value: "\(rootEpoch)")
+                    LabeledContent("Root ID", value: rootKeyId)
+                        .lineLimit(1)
+                    Label(
+                        "Data、File 与 Agent 密钥按域即时派生，Root 不会上传服务器。",
+                        systemImage: "key.horizontal"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    Button("迁移旧数据密钥", systemImage: "arrow.triangle.2.circlepath") {
+                        showsDomainMigrationPassword = true
+                    }
+                    .disabled(isMigratingDomainKeys)
+                    if isMigratingDomainKeys {
+                        ProgressView("正在通过当前设备重包装…")
+                    }
+                    if let domainMigrationMessage {
+                        Text(domainMigrationMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(
+                        dependencies.userRootKeyCenter.authorizationTargets,
+                        id: \.clientId
+                    ) { target in
+                        Button(
+                            "授权新设备 \(target.clientId.suffix(8))",
+                            systemImage: "iphone.and.arrow.forward"
+                        ) {
+                            authorizationTarget = target
+                        }
+                        .disabled(isAuthorizingDevice)
+                    }
+                    Button(
+                        "检查待授权设备",
+                        systemImage: "arrow.clockwise"
+                    ) {
+                        Task { await refreshAuthorizationTargets() }
+                    }
+                    .disabled(isAuthorizingDevice)
+                    if let authorizationMessage {
+                        Text(authorizationMessage)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                case .notInitialized:
+                    Button("初始化用户根密钥", systemImage: "key.badge") {
+                        showsRootPassword = true
+                    }
+                case .authorizationRequired:
+                    Button(
+                        "领取此设备的根密钥",
+                        systemImage: "iphone.and.arrow.forward"
+                    ) {
+                        Task { try? await receivePendingRoot() }
+                    }
+                case .failed(let reason):
+                    Text(reason)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("重新检查", systemImage: "arrow.clockwise") {
+                        Task { try? await refreshRootStatus() }
+                    }
+                case .loading:
+                    ProgressView()
+                case .idle:
+                    Button("检查密钥状态", systemImage: "checkmark.shield") {
+                        Task { try? await refreshRootStatus() }
+                    }
+                }
+            }
             Section("登录方式") {
                 NavigationLink(value: NativeSettingsDestination.quickLogin) {
                     Label("快速登录", systemImage: "bolt")
@@ -507,11 +596,184 @@ struct LoginSecuritySettingsView: View {
             async let passkeys: Void = center.loadPasskeys()
             async let quick: Void = dependencies.quickLoginCenter.refreshDevices()
             _ = await (email, passkeys, quick)
+            try? await refreshRootStatus()
+            await refreshAuthorizationTargets()
+        }
+        .alert("初始化用户根密钥", isPresented: $showsRootPassword) {
+            SecureField("当前密码", text: $rootPassword)
+            Button("初始化") {
+                let submitted = rootPassword
+                rootPassword = ""
+                Task {
+                    try? await initializeRoot(currentPassword: submitted)
+                }
+            }
+            Button("取消", role: .cancel) {
+                rootPassword = ""
+            }
+        } message: {
+            Text("Root 将在本机随机生成，并通过 X-Wing 格密码 Envelope 绑定当前设备。")
+        }
+        .alert("迁移旧数据密钥", isPresented: $showsDomainMigrationPassword) {
+            SecureField("当前密码", text: $domainMigrationPassword)
+            Button("开始迁移") {
+                let submitted = domainMigrationPassword
+                domainMigrationPassword = ""
+                Task {
+                    await migrateDomainWraps(currentPassword: submitted)
+                }
+            }
+            Button("取消", role: .cancel) {
+                domainMigrationPassword = ""
+            }
+        } message: {
+            Text("当前设备会解开旧平台包装并立即重包装到用户 Root 域；不会重写聊天或文件密文。")
+        }
+        .alert(
+            "授权新设备",
+            isPresented: Binding(
+                get: { authorizationTarget != nil },
+                set: {
+                    if !$0 {
+                        authorizationTarget = nil
+                        authorizationPassword = ""
+                    }
+                }
+            )
+        ) {
+            SecureField("当前密码", text: $authorizationPassword)
+            Button("授权") {
+                guard let target = authorizationTarget else { return }
+                let submitted = authorizationPassword
+                authorizationPassword = ""
+                authorizationTarget = nil
+                Task {
+                    await authorizeDevice(
+                        target,
+                        currentPassword: submitted
+                    )
+                }
+            }
+            Button("取消", role: .cancel) {
+                authorizationPassword = ""
+                authorizationTarget = nil
+            }
+        } message: {
+            Text("当前已授权设备会为新设备签发一次性 Root Envelope；Root 本身不会上传服务器。")
         }
     }
     private var center: AccountSettingsCenter { dependencies.accountSettingsCenter }
     private var securityRisk: NativeLoginMethodRisk? {
         center.securityStore.loginRisk
+    }
+
+    private func refreshRootStatus() async throws {
+        try await dependencies.userRootKeyCenter.refresh(
+            authUserId: dependencies.authCenter.user?.authenticationID,
+            clientId: dependencies.clientIdentityCenter.clientID,
+            using: dependencies.apiClient
+        )
+    }
+
+    private func initializeRoot(currentPassword: String) async throws {
+        guard
+            let authUserId = dependencies.authCenter.user?.authenticationID,
+            let clientId = dependencies.clientIdentityCenter.clientID
+        else {
+            throw VaultHybridKeyDistribution.DistributionError.invalidUserRoot
+        }
+        try await dependencies.userRootKeyCenter.initialize(
+            authUserId: authUserId,
+            clientId: clientId,
+            currentPassword: currentPassword,
+            using: dependencies.apiClient
+        )
+    }
+
+    private func receivePendingRoot() async throws {
+        guard
+            let authUserId = dependencies.authCenter.user?.authenticationID,
+            let clientId = dependencies.clientIdentityCenter.clientID
+        else {
+            throw VaultHybridKeyDistribution.DistributionError.invalidUserRoot
+        }
+        try await dependencies.userRootKeyCenter.receivePending(
+            authUserId: authUserId,
+            clientId: clientId,
+            using: dependencies.apiClient
+        )
+    }
+
+    private func refreshAuthorizationTargets() async {
+        do {
+            _ = try await dependencies.userRootKeyCenter
+                .refreshAuthorizationTargets(using: dependencies.apiClient)
+            authorizationMessage =
+                dependencies.userRootKeyCenter.authorizationTargets.isEmpty
+                    ? "当前没有待授权的新设备。"
+                    : nil
+        } catch {
+            authorizationMessage = error.localizedDescription
+        }
+    }
+
+    private func authorizeDevice(
+        _ target: VaultHybridKeyDistribution.DeviceRegistration,
+        currentPassword: String
+    ) async {
+        guard
+            !currentPassword.isEmpty,
+            let authUserId = dependencies.authCenter.user?.authenticationID,
+            let sourceClientId = dependencies.clientIdentityCenter.clientID
+        else {
+            authorizationMessage = "当前密码、共享身份或设备身份不可用。"
+            return
+        }
+        isAuthorizingDevice = true
+        authorizationMessage = nil
+        defer { isAuthorizingDevice = false }
+        do {
+            _ = try await dependencies.userRootKeyCenter.authorize(
+                target: target,
+                authUserId: authUserId,
+                sourceClientId: sourceClientId,
+                currentPassword: currentPassword,
+                using: dependencies.apiClient
+            )
+            authorizationMessage = "已签发设备 Root Envelope。"
+            await refreshAuthorizationTargets()
+        } catch {
+            authorizationMessage = error.localizedDescription
+        }
+    }
+
+    private func migrateDomainWraps(currentPassword: String) async {
+        guard
+            !currentPassword.isEmpty,
+            let authUserId = dependencies.authCenter.user?.authenticationID,
+            let clientId = dependencies.clientIdentityCenter.clientID
+        else {
+            domainMigrationMessage = "当前密码、共享身份或设备身份不可用。"
+            return
+        }
+        isMigratingDomainKeys = true
+        domainMigrationMessage = nil
+        defer { isMigratingDomainKeys = false }
+        do {
+            let result =
+                try await dependencies.userRootKeyCenter
+                    .migratePendingUserDomainWraps(
+                        authUserId: authUserId,
+                        clientId: clientId,
+                        currentPassword: currentPassword,
+                        using: dependencies.apiClient
+                    )
+            domainMigrationMessage =
+                "发现 \(result.discovered) 项，完成 \(result.completed) 项，"
+                + "设备材料待处理 \(result.deferredDeviceMaterial) 项，失败 \(result.failed) 项。"
+        } catch {
+            domainMigrationMessage = error.localizedDescription
+        }
     }
 }
 

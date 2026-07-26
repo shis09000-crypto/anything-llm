@@ -8,6 +8,12 @@ const { SENSITIVE_SESSION_HEADER } = require("./authz/sensitiveSessions");
 const { transportSecurityStatus } = require("./security/transportSecurity");
 const { broadcastTransportSummary } = require("./broadcast/transportRegistry");
 const { syncV2Enabled } = require("./syncV2/config");
+const {
+  PURPOSES: CRYPTO_PURPOSES,
+  REGISTRY_VERSION: CRYPTO_SUITE_REGISTRY_VERSION,
+  SUITE_IDS: CRYPTO_SUITE_IDS,
+  publicCryptoSuites,
+} = require("./security/cryptoSuiteRegistry");
 
 const NATIVE_APP_PROTOCOL_VERSION = "ios-native-v1";
 const IOS_MINIMUM_OS_VERSION = "26.0";
@@ -411,6 +417,39 @@ function buildNativeAppBootstrap({
         osVersion: NATIVE_OS_VERSION_HEADER,
       },
       preferredSignatureVersion: DEVICE_SIGNATURE_VERSION,
+      cryptoSuiteRegistryVersion: CRYPTO_SUITE_REGISTRY_VERSION,
+      cryptoSuites: publicCryptoSuites({
+        purposes: [
+          CRYPTO_PURPOSES.REQUEST_SIGNATURE,
+          CRYPTO_PURPOSES.DEVICE_KEY,
+        ],
+      }),
+      highRiskRequestSigning: {
+        enforcementMode:
+          env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED === "true"
+            ? "required"
+            : "disabled",
+        minimumOSVersion: "26.0",
+        minimumAppVersion: "2.4.0",
+        classicalSuiteId: CRYPTO_SUITE_IDS.REQUEST_DEVICE_P256_V2,
+        postQuantumSuiteId: CRYPTO_SUITE_IDS.REQUEST_DEVICE_MLDSA65_V1,
+        hybridSuiteId: CRYPTO_SUITE_IDS.DEVICE_HYBRID_P256_MLDSA65_V1,
+        hardwareBackedPostQuantumKeyRequired: true,
+      },
+      postQuantumExperiments: {
+        enabled: envFlag(env.ATHENA_IOS_PQ_EXPERIMENTS),
+        productionEffect: false,
+        minimumOSVersion: "26.0",
+        suiteIds: publicCryptoSuites({
+          purposes: [
+            CRYPTO_PURPOSES.DEVICE_KEY,
+            CRYPTO_PURPOSES.DEVICE_KEY_ESTABLISHMENT,
+            CRYPTO_PURPOSES.VAULT_DEVICE_AUTHORIZATION,
+          ],
+        })
+          .filter((suite) => suite.pqAlgorithm)
+          .map((suite) => suite.suiteId),
+      },
       requestSigningHeaders: { ...SIGNING_HEADERS },
       signingSecretPath: "/api/client-identity/signing-secret",
       sensitiveSessionHeader: SENSITIVE_SESSION_HEADER,

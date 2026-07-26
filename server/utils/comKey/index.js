@@ -16,6 +16,7 @@ const keyPath = storagePath("comkey");
 class CommunicationKey {
   #privKeyName = "ipc-priv.pem";
   #pubKeyName = "ipc-pub.pem";
+  #payloadKeyName = "ipc-payload.key";
   #storageLoc = keyPath;
 
   // Bootstrapping is intentionally idempotent. Hot reloads, health supervisors,
@@ -36,7 +37,67 @@ class CommunicationKey {
     return {
       privateKeyPath: path.resolve(this.#storageLoc, this.#privKeyName),
       publicKeyPath: path.resolve(this.#storageLoc, this.#pubKeyName),
+      payloadKeyPath: path.resolve(this.#storageLoc, this.#payloadKeyName),
     };
+  }
+
+  #validatePayloadKey(payloadKeyPath) {
+    const encoded = fs.readFileSync(payloadKeyPath, "utf8").trim();
+    const decoded = Buffer.from(encoded, "base64");
+    if (
+      !encoded ||
+      decoded.length !== 32 ||
+      decoded.toString("base64") !== encoded
+    )
+      throw new Error(
+        "Collector payload key is invalid; refusing automatic replacement."
+      );
+    return decoded;
+  }
+
+  #generateInitialPayloadKey(payloadKeyPath) {
+    const initializeLockPath = path.resolve(
+      this.#storageLoc,
+      ".ipc-payload-key-initialize.lock"
+    );
+    let initializeLock;
+    let temporaryPath;
+    fs.mkdirSync(this.#storageLoc, { recursive: true, mode: 0o700 });
+    try {
+      try {
+        initializeLock = fs.openSync(initializeLockPath, "wx", 0o600);
+      } catch (error) {
+        if (error?.code === "EEXIST")
+          throw new Error(
+            "Collector payload key initialization is already in progress; refusing a concurrent write."
+          );
+        throw error;
+      }
+
+      // Preserve legacy source-payload readability without copying SIG_KEY or
+      // SIG_SALT into Collector. New writes derive a purpose-specific AEAD key
+      // from this 32-byte root with HKDF and never use it directly.
+      const { EncryptionManager } = require("../EncryptionManager");
+      const encoded = new EncryptionManager().xPayload;
+      const nonce = `${process.pid}-${crypto.randomBytes(8).toString("hex")}`;
+      temporaryPath = `${payloadKeyPath}.${nonce}.tmp`;
+      fs.writeFileSync(temporaryPath, encoded, { flag: "wx", mode: 0o600 });
+      this.#validatePayloadKey(temporaryPath);
+      if (fs.existsSync(payloadKeyPath))
+        throw new Error(
+          "Collector payload key destination changed during initialization; refusing replacement."
+        );
+      fs.renameSync(temporaryPath, payloadKeyPath);
+    } finally {
+      if (temporaryPath) fs.rmSync(temporaryPath, { force: true });
+      if (initializeLock !== undefined) {
+        fs.closeSync(initializeLock);
+        fs.rmSync(initializeLockPath, { force: true });
+      }
+    }
+    this.log(
+      "Collector payload keyring initialized without rotating source credentials."
+    );
   }
 
   #validatePair(privateKeyPath, publicKeyPath) {
@@ -120,7 +181,11 @@ class CommunicationKey {
   }
 
   ensureReady() {
-    const { privateKeyPath, publicKeyPath } = this.#keyLocations();
+    fs.mkdirSync(this.#storageLoc, { recursive: true, mode: 0o700 });
+    if ((fs.statSync(this.#storageLoc).mode & 0o777) !== 0o700)
+      fs.chmodSync(this.#storageLoc, 0o700);
+    const { privateKeyPath, publicKeyPath, payloadKeyPath } =
+      this.#keyLocations();
     const privateKeyExists = fs.existsSync(privateKeyPath);
     const publicKeyExists = fs.existsSync(publicKeyPath);
 
@@ -129,35 +194,74 @@ class CommunicationKey {
         "Communication key pair is incomplete; refusing automatic replacement."
       );
 
+    let pairCreated = false;
     if (!privateKeyExists) {
       this.#generateInitialPair(privateKeyPath, publicKeyPath);
-      return { created: true };
+      pairCreated = true;
+    } else {
+      this.#validatePair(privateKeyPath, publicKeyPath);
+      if ((fs.statSync(privateKeyPath).mode & 0o777) !== 0o600)
+        fs.chmodSync(privateKeyPath, 0o600);
+      if ((fs.statSync(publicKeyPath).mode & 0o777) !== 0o644)
+        fs.chmodSync(publicKeyPath, 0o644);
+      this.log("Validated existing RSA key pair without rotation.");
     }
 
-    this.#validatePair(privateKeyPath, publicKeyPath);
-    if ((fs.statSync(privateKeyPath).mode & 0o777) !== 0o600)
-      fs.chmodSync(privateKeyPath, 0o600);
-    if ((fs.statSync(publicKeyPath).mode & 0o777) !== 0o644)
-      fs.chmodSync(publicKeyPath, 0o644);
-    this.log("Validated existing RSA key pair without rotation.");
-    return { created: false };
+    let payloadKeyCreated = false;
+    if (!fs.existsSync(payloadKeyPath)) {
+      this.#generateInitialPayloadKey(payloadKeyPath);
+      payloadKeyCreated = true;
+    } else {
+      this.#validatePayloadKey(payloadKeyPath);
+      if ((fs.statSync(payloadKeyPath).mode & 0o777) !== 0o600)
+        fs.chmodSync(payloadKeyPath, 0o600);
+    }
+
+    return { created: pairCreated, payloadKeyCreated };
   }
 
-  // This instance of ComKey on server is intended for generation of Priv/Pub key for signing and decoding.
-  // this resource is shared with /collector/ via a class of the same name in /utils which does decoding/verification only
-  // while this server class only does signing with the private key.
+  // The server owns the private signing key. Collector receives only the
+  // public verification key and the separately scoped payload keyring root.
   sign(textData = "") {
     return crypto
       .sign("RSA-SHA256", Buffer.from(textData), this.#readPrivateKey())
       .toString("hex");
   }
 
-  // Use the IPC private key to encrypt arbitrary data that is text
-  // returns the encrypted content as a base64 string.
-  encrypt(textData = "") {
-    return crypto
-      .privateEncrypt(this.#readPrivateKey(), Buffer.from(textData, "utf-8"))
-      .toString("base64");
+  /**
+   * Sign a complete Collector request envelope. Binding the HTTP method,
+   * route, timestamp, nonce, and body digest prevents a valid payload from
+   * being replayed against another endpoint or outside the accepted window.
+   */
+  signRequest({ method = "POST", requestPath = "/", body = "" } = {}) {
+    const timestamp = Date.now().toString();
+    const nonce = crypto.randomBytes(16).toString("base64url");
+    const bodyBuffer = Buffer.isBuffer(body)
+      ? body
+      : Buffer.from(
+          typeof body === "string" ? body : JSON.stringify(body ?? ""),
+          "utf8"
+        );
+    const bodySha256 = crypto
+      .createHash("sha256")
+      .update(bodyBuffer)
+      .digest("hex");
+    const canonical = [
+      "ATHENA-COLLECTOR-IPC-V2",
+      String(method).toUpperCase(),
+      requestPath,
+      timestamp,
+      nonce,
+      bodySha256,
+    ].join("\n");
+
+    return {
+      "X-Athena-IPC-Version": "2",
+      "X-Athena-IPC-Timestamp": timestamp,
+      "X-Athena-IPC-Nonce": nonce,
+      "X-Athena-IPC-Body-SHA256": bodySha256,
+      "X-Integrity": this.sign(canonical),
+    };
   }
 }
 

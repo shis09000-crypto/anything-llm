@@ -1,4 +1,5 @@
 const bodyParser = require("body-parser");
+const crypto = require("crypto");
 
 const LIMITS = Object.freeze({
   control: { maxBytes: 1 * 1_024 * 1_024, parserLimit: "1mb" },
@@ -21,6 +22,10 @@ function requestBodyPolicy(request, response, next) {
     limit: limit.parserLimit,
     verify(req, _res, buffer) {
       req.bodyByteLength = buffer.length;
+      req.rawBodySha256 = crypto
+        .createHash("sha256")
+        .update(buffer)
+        .digest("hex");
     },
   };
   const contentType = String(request.headers["content-type"] || "");

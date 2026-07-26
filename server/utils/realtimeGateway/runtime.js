@@ -1,6 +1,7 @@
 const { broadcastCenter } = require("../broadcast");
 const { broadcastTransportSummary } = require("../broadcast/transportRegistry");
 const { DataAccessCenter } = require("../dataAccess");
+const { serviceIdentitySummary } = require("../security/serviceIdentity");
 
 class RealtimeGatewayRuntime {
   constructor({ now = () => new Date() } = {}) {
@@ -11,6 +12,12 @@ class RealtimeGatewayRuntime {
   }
 
   async start() {
+    const identity = serviceIdentitySummary("realtime-gateway");
+    if (!identity.valid) {
+      this.status = "not-ready";
+      this.lastError = identity.error;
+      return this.snapshot();
+    }
     const transport = broadcastTransportSummary();
     const tickets = DataAccessCenter.adminSystem.realtimeTicket.storeSummary();
     if (!transport.gatewaySafe) {
@@ -59,6 +66,9 @@ class RealtimeGatewayRuntime {
         DataAccessCenter.adminSystem.realtimeTicket.storeSummary(),
       broadcast: broadcastCenter.snapshot(),
       lastError: this.lastError,
+      serviceIdentity: serviceIdentitySummary("realtime-gateway", {
+        required: false,
+      }),
       boundary: {
         owns: ["sync.events.sse", "realtime.broadcast.websocket"],
         doesNotOwn: ["chat.sse", "agent.websocket", "crypto.websocket"],

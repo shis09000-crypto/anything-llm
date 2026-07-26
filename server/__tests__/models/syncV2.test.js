@@ -39,6 +39,71 @@ describe("SyncV2 transactional writer", () => {
     ).toEqual(["users/7/profile", "workspaces/4/metadata"]);
   });
 
+  test("lets only one concurrent Outbox claimant own a lane head", async () => {
+    jest.spyOn(SyncV2, "schemaReady").mockResolvedValue(true);
+    const event = {
+      seq: 91,
+      eventId: "event-91",
+      nodeKey: "users/7/profile",
+      status: "pending",
+      dispatchedAt: null,
+      deadLetteredAt: null,
+      expiresAt: new Date("2026-07-30T00:00:00.000Z"),
+      nextAttemptAt: null,
+      leaseOwner: null,
+    };
+    jest.spyOn(prisma.sync_outbox, "updateMany").mockResolvedValue({ count: 0 });
+    jest.spyOn(prisma.sync_outbox, "groupBy").mockResolvedValue([
+      { nodeKey: event.nodeKey, _min: { seq: event.seq } },
+    ]);
+    jest
+      .spyOn(prisma.sync_outbox, "findMany")
+      .mockImplementation(async ({ where }) => {
+        if (where?.seq?.in || where?.nodeKey?.in) return [{ ...event }];
+        return [];
+      });
+    const tx = {
+      sync_outbox: {
+        updateMany: jest.fn(async ({ data }) => {
+          if (event.status !== "pending") return { count: 0 };
+          Object.assign(event, data);
+          return { count: 1 };
+        }),
+        findMany: jest.fn(async ({ where }) =>
+          event.status === "claimed" &&
+          event.leaseOwner === where.leaseOwner
+            ? [{ ...event }]
+            : []
+        ),
+      },
+    };
+    jest
+      .spyOn(prisma, "$transaction")
+      .mockImplementation(async (callback) => callback(tx));
+    const now = new Date("2026-07-25T00:00:00.000Z");
+
+    const [first, second] = await Promise.all([
+      SyncV2.claimOutbox({
+        limit: 10,
+        leaseOwner: "worker-a",
+        leaseMs: 30_000,
+        now,
+      }),
+      SyncV2.claimOutbox({
+        limit: 10,
+        leaseOwner: "worker-b",
+        leaseMs: 30_000,
+        now,
+      }),
+    ]);
+
+    expect([...first, ...second]).toHaveLength(1);
+    expect(new Set([...first, ...second].map((row) => row.seq))).toEqual(
+      new Set([91])
+    );
+    expect([first.length, second.length].sort()).toEqual([0, 1]);
+  });
+
   test("deduplicates an Auth DB sidechain event with the same source revision", async () => {
     jest.spyOn(SyncV2, "enabled").mockReturnValue(true);
     jest.spyOn(SyncV2, "schemaReady").mockResolvedValue(true);

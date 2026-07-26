@@ -39,6 +39,7 @@ const {
 const {
   publishCommittedChatDeletion,
 } = require("../utils/chats/chatTurnMutations");
+const { chatStreamRunManager } = require("../utils/chats/chatStreamRuns");
 
 const User = DataAccessCenter.user;
 const WorkspaceChats = DataAccessCenter.workspaceChat;
@@ -239,6 +240,147 @@ function attachThreadTitleUpdateStream(response, { workspace, thread } = {}) {
   };
 }
 
+function chatStreamScope({
+  workspace,
+  thread = null,
+  user = null,
+  clientTurnId,
+}) {
+  return {
+    clientTurnId: String(clientTurnId || "").trim(),
+    workspaceId: Number(workspace.id),
+    threadId: thread?.id || null,
+    userId: user?.id || null,
+  };
+}
+
+async function executeDetachedChatRun({
+  response,
+  workspace,
+  effectiveWorkspace = workspace,
+  thread = null,
+  user,
+  clientContext,
+  message,
+  displayPrompt = null,
+  attachments = [],
+  fileAccess = {},
+  nodeContext = null,
+  clientTurnId,
+  editContext = null,
+  regenerateContext = null,
+  isMultiUser = false,
+}) {
+  const detachTitleUpdates = thread
+    ? attachThreadTitleUpdateStream(response, { workspace, thread })
+    : () => {};
+  try {
+    if (isMultiUser && !(await User.canSendChat(user))) {
+      writeResponseChunk(response, {
+        id: uuidv4(),
+        type: "abort",
+        textResponse: null,
+        sources: [],
+        close: true,
+        error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
+        errorCode: "chat_quota_exceeded",
+      });
+      return;
+    }
+
+    await prepareNativeTurnMutationStream({
+      response,
+      workspace,
+      thread,
+      user,
+      clientContext,
+      editContext,
+      regenerateContext,
+      clientTurnId,
+    });
+    if (
+      await replayFinalizedClientTurn({
+        response,
+        workspace,
+        thread,
+        user,
+        clientTurnId,
+      })
+    )
+      return;
+
+    publishWorkspaceSyncEvent({
+      type: "chat_prompt_submitted",
+      workspaceId: workspace.id,
+      workspaceSlug: workspace.slug,
+      userId: user?.id ?? null,
+      threadId: thread?.id || null,
+      threadSlug: thread?.slug || null,
+      senderClientId: clientContext.clientId,
+      clientTurnId,
+      message: displayPrompt || message,
+    });
+
+    await streamChatWithWorkspace(
+      response,
+      effectiveWorkspace,
+      message,
+      workspace?.chatMode,
+      user,
+      thread,
+      attachments,
+      {
+        fileAccess,
+        nodeContext,
+        clientTurnId,
+        displayPrompt,
+        syncEvent: {
+          workspaceId: workspace.id,
+          workspaceSlug: workspace.slug,
+          userId: user?.id ?? null,
+          threadId: thread?.id || null,
+          threadSlug: thread?.slug || null,
+          senderClientId: clientContext.clientId,
+        },
+      }
+    );
+
+    await Telemetry.sendTelemetry("sent_chat", {
+      multiUserMode: isMultiUser,
+      LLMSelection: process.env.LLM_PROVIDER || "openai",
+      Embedder: process.env.EMBEDDING_ENGINE || "inherit",
+      VectorDbSelection: process.env.VECTOR_DB || "lancedb",
+      multiModal: Array.isArray(attachments) && attachments.length !== 0,
+      TTSSelection: process.env.TTS_PROVIDER || "native",
+      LLMModel: getModelTag(),
+    });
+    await EventLogs.logEvent(
+      "sent_chat",
+      {
+        workspaceName: workspace?.name,
+        ...(thread ? { thread: thread.name } : {}),
+        chatModel: effectiveWorkspace.chatModel || "System Default",
+      },
+      user?.id
+    );
+  } catch (error) {
+    publishWorkspaceSyncEvent({
+      type: "chat_failed",
+      workspaceId: workspace.id,
+      workspaceSlug: workspace.slug,
+      userId: user?.id ?? null,
+      threadId: thread?.id || null,
+      threadSlug: thread?.slug || null,
+      senderClientId: clientContext.clientId,
+      clientTurnId,
+      error: error.message,
+    });
+    throw error;
+  } finally {
+    detachTitleUpdates();
+  }
+}
+
 function chatEndpoints(app) {
   if (!app) return;
 
@@ -267,6 +409,198 @@ function chatEndpoints(app) {
         response
           .status(e.httpStatus || 500)
           .json({ success: false, error: e.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/chat-runs/:clientTurnId/state",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const run = await chatStreamRunManager.state(
+          chatStreamScope({
+            workspace: response.locals.workspace,
+            user,
+            clientTurnId: request.params.clientTurnId,
+          })
+        );
+        if (!run) {
+          return response.status(404).json({
+            success: false,
+            error: "chat_stream_run_not_found",
+          });
+        }
+        return response.status(200).json({ success: true, run });
+      } catch (error) {
+        return response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/chat-runs/:clientTurnId/stream",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const workspace = response.locals.workspace;
+        const scope = chatStreamScope({
+          workspace,
+          user,
+          clientTurnId: request.params.clientTurnId,
+        });
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
+        response.flushHeaders();
+        await chatStreamRunManager.attach(
+          response,
+          scope,
+          request.query.afterRevision
+        );
+      } catch (error) {
+        if (!response.writableEnded && !response.destroyed) {
+          writeResponseChunk(response, {
+            id: uuidv4(),
+            type: "abort",
+            close: true,
+            error: error.message,
+            errorCode: error.code || "chat_stream_reconnect_failed",
+          });
+          response.end();
+        }
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/chat-runs/:clientTurnId/cancel",
+    [validatedRequest, flexUserRoleValid([ROLES.all]), validWorkspaceSlug],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const cancelled = await chatStreamRunManager.cancel(
+          chatStreamScope({
+            workspace: response.locals.workspace,
+            user,
+            clientTurnId: request.params.clientTurnId,
+          })
+        );
+        response.status(cancelled ? 200 : 409).json({
+          success: cancelled,
+          status: cancelled ? "cancelling" : "not_running",
+        });
+      } catch (error) {
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/chat-runs/:clientTurnId/state",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const run = await chatStreamRunManager.state(
+          chatStreamScope({
+            workspace: response.locals.workspace,
+            thread: response.locals.thread,
+            user,
+            clientTurnId: request.params.clientTurnId,
+          })
+        );
+        if (!run) {
+          return response.status(404).json({
+            success: false,
+            error: "chat_stream_run_not_found",
+          });
+        }
+        return response.status(200).json({ success: true, run });
+      } catch (error) {
+        return response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
+      }
+    }
+  );
+
+  app.get(
+    "/workspace/:slug/thread/:threadSlug/chat-runs/:clientTurnId/stream",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const scope = chatStreamScope({
+          workspace: response.locals.workspace,
+          thread: response.locals.thread,
+          user,
+          clientTurnId: request.params.clientTurnId,
+        });
+        setSseTransportHeaders(response, {
+          "Access-Control-Allow-Origin": "*",
+        });
+        response.flushHeaders();
+        await chatStreamRunManager.attach(
+          response,
+          scope,
+          request.query.afterRevision
+        );
+      } catch (error) {
+        if (!response.writableEnded && !response.destroyed) {
+          writeResponseChunk(response, {
+            id: uuidv4(),
+            type: "abort",
+            close: true,
+            error: error.message,
+            errorCode: error.code || "chat_stream_reconnect_failed",
+          });
+          response.end();
+        }
+      }
+    }
+  );
+
+  app.post(
+    "/workspace/:slug/thread/:threadSlug/chat-runs/:clientTurnId/cancel",
+    [
+      validatedRequest,
+      flexUserRoleValid([ROLES.all]),
+      validWorkspaceAndThreadSlug,
+    ],
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const cancelled = await chatStreamRunManager.cancel(
+          chatStreamScope({
+            workspace: response.locals.workspace,
+            thread: response.locals.thread,
+            user,
+            clientTurnId: request.params.clientTurnId,
+          })
+        );
+        response.status(cancelled ? 200 : 409).json({
+          success: cancelled,
+          status: cancelled ? "cancelling" : "not_running",
+        });
+      } catch (error) {
+        response
+          .status(error.httpStatus || 500)
+          .json({ success: false, error: error.message });
       }
     }
   );
@@ -328,96 +662,42 @@ function chatEndpoints(app) {
         });
         response.flushHeaders();
         const clientContext = getClientContext(request, { user });
-
-        if (multiUserMode(response) && !(await User.canSendChat(user))) {
-          writeResponseChunk(response, {
-            id: uuidv4(),
-            type: "abort",
-            textResponse: null,
-            sources: [],
-            close: true,
-            error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
-          });
-          return;
-        }
-
-        await prepareNativeTurnMutationStream({
-          response,
+        const resolvedClientTurnId =
+          String(clientTurnId || "").trim() || uuidv4();
+        const scope = chatStreamScope({
           workspace,
-          thread: null,
           user,
-          clientContext,
-          editContext,
-          regenerateContext,
-          clientTurnId,
+          clientTurnId: resolvedClientTurnId,
         });
-        if (
-          await replayFinalizedClientTurn({
+        const { run, created } = await chatStreamRunManager.claim(scope);
+        if (!created) {
+          await chatStreamRunManager.attach(
             response,
-            workspace,
-            thread: null,
-            user,
-            clientTurnId,
-          })
-        ) {
-          response.end();
+            scope,
+            request.query.afterRevision
+          );
           return;
         }
-
-        publishWorkspaceSyncEvent({
-          type: "chat_prompt_submitted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: null,
-          threadSlug: null,
-          senderClientId: clientContext.clientId,
-          clientTurnId,
-          message: displayPrompt || message,
-        });
-
-        await streamChatWithWorkspace(
-          response,
-          workspace,
-          message,
-          workspace?.chatMode,
-          user,
-          null,
-          attachments,
-          {
+        const runtime = chatStreamRunManager.start(run, (streamResponse) =>
+          executeDetachedChatRun({
+            response: streamResponse,
+            workspace,
+            user,
+            clientContext,
+            message,
+            displayPrompt,
+            attachments,
             fileAccess,
             nodeContext,
-            clientTurnId,
-            displayPrompt,
-            syncEvent: {
-              workspaceId: workspace.id,
-              workspaceSlug: workspace.slug,
-              userId: user?.id ?? null,
-              threadId: null,
-              threadSlug: null,
-              senderClientId: clientContext.clientId,
-            },
-          }
+            clientTurnId: resolvedClientTurnId,
+            editContext,
+            regenerateContext,
+            isMultiUser: multiUserMode(response),
+          })
         );
-        await Telemetry.sendTelemetry("sent_chat", {
-          multiUserMode: multiUserMode(response),
-          LLMSelection: process.env.LLM_PROVIDER || "openai",
-          Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-          VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-          multiModal: Array.isArray(attachments) && attachments?.length !== 0,
-          TTSSelection: process.env.TTS_PROVIDER || "native",
-          LLMModel: getModelTag(),
-        });
-
-        await EventLogs.logEvent(
-          "sent_chat",
-          {
-            workspaceName: workspace?.name,
-            chatModel: workspace?.chatModel || "System Default",
-          },
-          user?.id
-        );
-        response.end();
+        runtime.sink.__athenaGoldenJourney =
+          response.__athenaGoldenJourney || null;
+        await runtime.attach(response, request.query.afterRevision);
       } catch (e) {
         console.error(e);
         const workspace = response.locals.workspace;
@@ -438,16 +718,18 @@ function chatEndpoints(app) {
             error: e.message,
           });
         }
-        writeResponseChunk(response, {
-          id: uuidv4(),
-          type: "abort",
-          textResponse: null,
-          sources: [],
-          close: true,
-          error: e.message,
-          errorCode: e.code || "chat_stream_failed",
-        });
-        response.end();
+        if (!response.writableEnded && !response.destroyed) {
+          writeResponseChunk(response, {
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+            errorCode: e.code || "chat_stream_failed",
+          });
+          response.end();
+        }
       }
     }
   );
@@ -517,105 +799,46 @@ function chatEndpoints(app) {
           "Access-Control-Allow-Origin": "*",
         });
         response.flushHeaders();
-        const detachTitleUpdates = attachThreadTitleUpdateStream(response, {
-          workspace,
-          thread,
-        });
         const clientContext = getClientContext(request, { user });
-
-        if (multiUserMode(response) && !(await User.canSendChat(user))) {
-          writeResponseChunk(response, {
-            id: uuidv4(),
-            type: "abort",
-            textResponse: null,
-            sources: [],
-            close: true,
-            error: `You have met your maximum 24 hour chat quota of ${user.dailyMessageLimit} chats. Try again later.`,
-          });
-          detachTitleUpdates();
-          return;
-        }
-
-        await prepareNativeTurnMutationStream({
-          response,
+        const resolvedClientTurnId =
+          String(clientTurnId || "").trim() || uuidv4();
+        const scope = chatStreamScope({
           workspace,
           thread,
           user,
-          clientContext,
-          editContext,
-          regenerateContext,
-          clientTurnId,
+          clientTurnId: resolvedClientTurnId,
         });
-        if (
-          await replayFinalizedClientTurn({
+        const { run, created } = await chatStreamRunManager.claim(scope);
+        if (!created) {
+          await chatStreamRunManager.attach(
             response,
+            scope,
+            request.query.afterRevision
+          );
+          return;
+        }
+        const runtime = chatStreamRunManager.start(run, (streamResponse) =>
+          executeDetachedChatRun({
+            response: streamResponse,
             workspace,
+            effectiveWorkspace,
             thread,
             user,
-            clientTurnId,
-          })
-        ) {
-          detachTitleUpdates();
-          response.end();
-          return;
-        }
-
-        publishWorkspaceSyncEvent({
-          type: "chat_prompt_submitted",
-          workspaceId: workspace.id,
-          workspaceSlug: workspace.slug,
-          userId: user?.id ?? null,
-          threadId: thread.id,
-          threadSlug: thread.slug,
-          senderClientId: clientContext.clientId,
-          clientTurnId,
-          message: displayPrompt || message,
-        });
-
-        await streamChatWithWorkspace(
-          response,
-          effectiveWorkspace,
-          message,
-          workspace?.chatMode,
-          user,
-          thread,
-          attachments,
-          {
+            clientContext,
+            message,
+            displayPrompt,
+            attachments,
             fileAccess,
             nodeContext,
-            clientTurnId,
-            displayPrompt,
-            syncEvent: {
-              workspaceId: workspace.id,
-              workspaceSlug: workspace.slug,
-              userId: user?.id ?? null,
-              threadId: thread.id,
-              threadSlug: thread.slug,
-              senderClientId: clientContext.clientId,
-            },
-          }
+            clientTurnId: resolvedClientTurnId,
+            editContext,
+            regenerateContext,
+            isMultiUser: multiUserMode(response),
+          })
         );
-
-        await Telemetry.sendTelemetry("sent_chat", {
-          multiUserMode: multiUserMode(response),
-          LLMSelection: process.env.LLM_PROVIDER || "openai",
-          Embedder: process.env.EMBEDDING_ENGINE || "inherit",
-          VectorDbSelection: process.env.VECTOR_DB || "lancedb",
-          multiModal: Array.isArray(attachments) && attachments?.length !== 0,
-          TTSSelection: process.env.TTS_PROVIDER || "native",
-          LLMModel: getModelTag(),
-        });
-
-        await EventLogs.logEvent(
-          "sent_chat",
-          {
-            workspaceName: workspace.name,
-            thread: thread.name,
-            chatModel: effectiveWorkspace.chatModel,
-          },
-          user?.id
-        );
-        response.end();
+        runtime.sink.__athenaGoldenJourney =
+          response.__athenaGoldenJourney || null;
+        await runtime.attach(response, request.query.afterRevision);
       } catch (e) {
         console.error(e);
         const workspace = response.locals.workspace;
@@ -637,16 +860,18 @@ function chatEndpoints(app) {
             error: e.message,
           });
         }
-        writeResponseChunk(response, {
-          id: uuidv4(),
-          type: "abort",
-          textResponse: null,
-          sources: [],
-          close: true,
-          error: e.message,
-          errorCode: e.code || "chat_stream_failed",
-        });
-        response.end();
+        if (!response.writableEnded && !response.destroyed) {
+          writeResponseChunk(response, {
+            id: uuidv4(),
+            type: "abort",
+            textResponse: null,
+            sources: [],
+            close: true,
+            error: e.message,
+            errorCode: e.code || "chat_stream_failed",
+          });
+          response.end();
+        }
       }
     }
   );

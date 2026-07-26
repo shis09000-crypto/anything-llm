@@ -30,6 +30,23 @@ server/storage/embedding-batches/
 server/storage/tool-runs/
 server/storage/tmp/
 server/storage/shared/backups/
+# Security drills contain restored databases and user/key coverage evidence.
+# They must never be staged from a working checkout.
+output/security/drills/
+output/security/key-closure/
+# Local browser/document QA output and design intermediates are reproducible
+# release artifacts, not source inputs.
+/e2e-artifacts/
+/"e2e-artifacts/
+/tmp/
+/output/*.png
+/athena-login-*.png
+
+# Local container runtime snapshots may contain databases and provider state.
+server/storage/docker-config/
+
+# Ignore an accidental empty file created with a literal pair of quotes.
+/""
 collector/hotdir/*
 !collector/hotdir/__HOTDIR__.md
 collector/outputs/*

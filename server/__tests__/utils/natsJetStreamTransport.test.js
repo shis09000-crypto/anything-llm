@@ -5,6 +5,7 @@ jest.mock("../../utils/security/keyCustody", () => ({
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 
 const {
   irreversibleScope,
@@ -75,15 +76,39 @@ describe("NATS JetStream transport metadata", () => {
 
   it("accepts a production mTLS and NKey workload identity contract", () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), "athena-nats-"));
-    const files = Object.fromEntries(
-      ["nkey", "ca", "cert", "key"].map((name) => {
-        const filePath = path.join(directory, name);
-        fs.writeFileSync(filePath, name, { mode: 0o600 });
-        return [name, filePath];
-      })
-    );
-    expect(
-      natsSecurityFindings({
+    try {
+      const files = Object.fromEntries(
+        ["nkey", "ca", "cert", "key"].map((name) => [
+          name,
+          path.join(directory, name),
+        ])
+      );
+      fs.writeFileSync(files.nkey, "test-nkey-seed", { mode: 0o600 });
+      execFileSync(
+        "openssl",
+        [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          files.key,
+          "-out",
+          files.cert,
+          "-days",
+          "1",
+          "-subj",
+          "/CN=athena-api",
+          "-addext",
+          "subjectAltName=URI:spiffe://athena/production/api",
+        ],
+        { stdio: "ignore" }
+      );
+      fs.copyFileSync(files.cert, files.ca);
+      for (const filePath of Object.values(files))
+        fs.chmodSync(filePath, 0o600);
+      const secureEnvironment = {
         NODE_ENV: "production",
         ATHENA_BROADCAST_TRANSPORT: "nats",
         ATHENA_NATS_SERVERS: "tls://nats.internal:4222",
@@ -91,8 +116,20 @@ describe("NATS JetStream transport metadata", () => {
         ATHENA_NATS_TLS_CA_FILE: files.ca,
         ATHENA_NATS_TLS_CERT_FILE: files.cert,
         ATHENA_NATS_TLS_KEY_FILE: files.key,
-      })
-    ).toEqual([]);
-    fs.rmSync(directory, { recursive: true, force: true });
+      };
+      expect(natsSecurityFindings(secureEnvironment)).toEqual([]);
+
+      execFileSync(
+        "openssl",
+        ["genpkey", "-algorithm", "RSA", "-out", files.key],
+        { stdio: "ignore" }
+      );
+      fs.chmodSync(files.key, 0o600);
+      expect(natsSecurityFindings(secureEnvironment)).toContain(
+        "NATS client certificate private key mismatch."
+      );
+    } finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

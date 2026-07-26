@@ -43,7 +43,7 @@ function buildMetricsString(metrics = {}) {
     metrics?.model ? metrics.model : "",
     `${formatDuration(metrics.duration)} (${formatTps(metrics.outputTps)} tok/s)`,
     metrics?.timestamp
-      ? formatDateTimeAsMoment(metrics.timestamp, "MMM D, h:mm A")
+      ? formatDateTimeAsMoment(metrics.timestamp, "MMM D, HH:mm")
       : "",
   ]
     .filter(Boolean)

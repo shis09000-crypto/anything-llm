@@ -12,11 +12,27 @@ import { signWithDeviceIdentityKey } from "./deviceIdentityKey";
 import { assertSecureHttpUrl } from "./transportSecurity";
 import { AUTH_SESSION_CLEARED_EVENT } from "@/utils/authTokenStorage";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
+import {
+  CRYPTO_SUITE_IDS,
+  CRYPTO_SUITE_PURPOSES,
+  cryptoSuite,
+  preferredCryptoSuite,
+} from "./cryptoSuiteRegistry";
 
-export const SIGNATURE_VERSION = "v1";
-export const SIGNATURE_PREFIX = "ATHENA-SIGN-V1";
-export const DEVICE_SIGNATURE_VERSION = "v2-device-p256";
-export const DEVICE_SIGNATURE_PREFIX = "ATHENA-DEVICE-SIGN-V1";
+const hmacSignatureSuite = cryptoSuite(
+  CRYPTO_SUITE_IDS.requestHmacV1,
+  CRYPTO_SUITE_PURPOSES.requestSignature
+);
+const deviceSignatureSuite = preferredCryptoSuite(
+  CRYPTO_SUITE_PURPOSES.requestSignature
+);
+if (!hmacSignatureSuite || !deviceSignatureSuite) {
+  throw new Error("request_signature_crypto_suite_unavailable");
+}
+export const SIGNATURE_VERSION = hmacSignatureSuite.suiteId;
+export const SIGNATURE_PREFIX = hmacSignatureSuite.protocolPrefix;
+export const DEVICE_SIGNATURE_VERSION = deviceSignatureSuite.suiteId;
+export const DEVICE_SIGNATURE_PREFIX = deviceSignatureSuite.protocolPrefix;
 export const SIGNING_SECRET_SESSION_PREFIX = "athena_signing_secret_v1:";
 
 export const SIGNING_HEADERS = {
@@ -128,7 +144,15 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
   const normalizedPath = comparablePath(path);
   if (
     normalizedMethod === "GET" &&
-    /^\/vault\/items\/[^/]+$/.test(normalizedPath)
+    (/^\/vault\/items\/[^/]+$/.test(normalizedPath) ||
+      normalizedPath === "/vault/key-epochs" ||
+      normalizedPath === "/vault/device-key-envelopes" ||
+      normalizedPath === "/vault/user-root-key" ||
+      normalizedPath === "/vault/user-root-key/authorization-targets" ||
+      normalizedPath === "/vault/user-root-key/envelopes" ||
+      /^\/vault\/recovery-packages\/[^/]+$/.test(normalizedPath) ||
+      /^\/vault\/user-domain-wraps(?:\/coverage)?$/.test(normalizedPath) ||
+      normalizedPath === "/sync/events/replay")
   ) {
     return true;
   }
@@ -150,6 +174,37 @@ export function shouldSignHighRiskRequest({ method = "GET", path = "" } = {}) {
     {
       methods: ["POST"],
       pattern: /^\/client-identity\/device-key-rotation\/(?:prepare|commit)$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/client-identity\/(?:vault-kem-key(?:\/rotate)?|crypto-observations|attestation\/(?:challenge|verify))$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/admin\/security\/keys\/(?:session|preflight|rotations|rotations\/[^/]+\/(?:approve|execute)|recovery\/verify)$/,
+    },
+    {
+      methods: ["POST", "GET"],
+      pattern: /^\/vault\/device-key-envelopes(?:\/[^/]+\/consume)?$/,
+    },
+    {
+      methods: ["POST"],
+      pattern:
+        /^\/vault\/user-root-key(?:\/initialize|\/challenge|\/envelopes(?:\/[^/]+\/consume)?)?$/,
+    },
+    {
+      methods: ["POST", "PUT"],
+      pattern: /^\/vault\/user-domain-wraps\/[^/]+(?:\/prepare)?$/,
+    },
+    {
+      methods: ["POST"],
+      pattern: /^\/vault\/key-epochs\/(?:rotate|[^/]+\/(?:ack|retire|cancel))$/,
+    },
+    {
+      methods: ["POST", "DELETE"],
+      pattern: /^\/vault\/recovery-packages(?:\/[^/]+)?$/,
     },
     {
       methods: ["POST"],

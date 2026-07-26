@@ -16,12 +16,28 @@ const {
 const { appEnvironment } = require("../../environment");
 const { resolveActiveKey } = require("../../security/keyCustody");
 const { metrics } = require("../../observability/metrics");
+const {
+  certificateHasIdentity,
+  certificateChainsToCA,
+  certificateMatchesPrivateKey,
+  expectedServiceId,
+  identitySettings,
+} = require("../../security/serviceIdentity");
+const {
+  observeCertificateRemaining,
+  observeTlsNegotiation,
+} = require("../../security/cryptoObservability");
 
 const STREAM = "ATHENA_BROADCAST";
 const DEFAULT_MAX_AGE_NS = 30 * 24 * 60 * 60 * 1_000_000_000;
 const codec = JSONCodec();
 
 function settings(env = process.env) {
+  const runtimeRole = String(env.ATHENA_RUNTIME_ROLE || "api").replace(
+    /^worker$/,
+    "background-worker"
+  );
+  const workloadIdentity = identitySettings(runtimeRole, env);
   const servers = String(env.ATHENA_NATS_SERVERS || env.NATS_URL || "")
     .split(",")
     .map((value) => value.trim())
@@ -42,12 +58,22 @@ function settings(env = process.env) {
     nkeySeedFile:
       String(env.ATHENA_NATS_NKEY_SEED_FILE || "").trim() || undefined,
     tls: {
-      caFile: String(env.ATHENA_NATS_TLS_CA_FILE || "").trim() || undefined,
-      certFile: String(env.ATHENA_NATS_TLS_CERT_FILE || "").trim() || undefined,
-      keyFile: String(env.ATHENA_NATS_TLS_KEY_FILE || "").trim() || undefined,
+      caFile:
+        String(env.ATHENA_NATS_TLS_CA_FILE || "").trim() ||
+        workloadIdentity.caFile ||
+        undefined,
+      certFile:
+        String(env.ATHENA_NATS_TLS_CERT_FILE || "").trim() ||
+        workloadIdentity.certFile ||
+        undefined,
+      keyFile:
+        String(env.ATHENA_NATS_TLS_KEY_FILE || "").trim() ||
+        workloadIdentity.keyFile ||
+        undefined,
       serverName:
         String(env.ATHENA_NATS_TLS_SERVER_NAME || "").trim() || undefined,
     },
+    serviceId: expectedServiceId(runtimeRole, env),
     stream: String(env.ATHENA_NATS_STREAM || STREAM),
     consumer: instance,
     maxAgeNs: Number(env.ATHENA_NATS_MAX_AGE_NS || DEFAULT_MAX_AGE_NS),
@@ -112,6 +138,44 @@ function natsSecurityFindings(env = process.env) {
       }
     } catch {
       findings.push(`NATS ${label} file is missing or unreadable.`);
+    }
+  }
+  if (production && config.tls.certFile) {
+    try {
+      const certificate = new crypto.X509Certificate(
+        fs.readFileSync(path.resolve(config.tls.certFile), "utf8")
+      );
+      if (!certificateHasIdentity(certificate, config.serviceId))
+        findings.push("NATS client certificate service identity SAN mismatch.");
+      if (
+        !config.tls.caFile ||
+        !certificateChainsToCA(
+          certificate,
+          fs.readFileSync(path.resolve(config.tls.caFile), "utf8")
+        )
+      )
+        findings.push(
+          "NATS client certificate is not issued by the trusted CA."
+        );
+      if (Date.parse(certificate.validFrom) > Date.now() + 60_000)
+        findings.push("NATS client certificate is not yet valid.");
+      if (Date.parse(certificate.validTo) <= Date.now())
+        findings.push("NATS client certificate is expired.");
+      observeCertificateRemaining({
+        role: "nats",
+        slot: "selected",
+        validTo: certificate.validTo,
+      });
+      if (
+        config.tls.keyFile &&
+        !certificateMatchesPrivateKey(
+          certificate,
+          fs.readFileSync(path.resolve(config.tls.keyFile), "utf8")
+        )
+      )
+        findings.push("NATS client certificate private key mismatch.");
+    } catch {
+      findings.push("NATS client certificate could not be validated.");
     }
   }
   return findings;
@@ -259,17 +323,28 @@ class NatsJetStreamTransport {
       error.code = "NATS_SECURITY_POLICY_FAILED";
       throw error;
     }
-    this.connection = await connect({
-      servers: config.servers,
-      name: `athena-${config.consumer}`,
-      token: config.token,
-      user: config.user,
-      pass: config.pass,
-      ...connectionSecurityOptions(config),
-      maxReconnectAttempts: -1,
-      reconnectTimeWait: 1_000,
-      timeout: 5_000,
-    });
+    try {
+      this.connection = await connect({
+        servers: config.servers,
+        name: `athena-${config.consumer}`,
+        token: config.token,
+        user: config.user,
+        pass: config.pass,
+        ...connectionSecurityOptions(config),
+        maxReconnectAttempts: -1,
+        reconnectTimeWait: 1_000,
+        timeout: 5_000,
+      });
+      observeTlsNegotiation(
+        "nats",
+        config.servers.every((server) => String(server).startsWith("tls://"))
+          ? "classical"
+          : "failure"
+      );
+    } catch (error) {
+      observeTlsNegotiation("nats", "failure");
+      throw error;
+    }
     this.jetstream = this.connection.jetstream();
     await this.ensureStream();
     this.startedAt = new Date().toISOString();

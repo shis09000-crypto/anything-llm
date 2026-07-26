@@ -18,6 +18,7 @@ const { documentIndexStatusTool } = require("./document-index-status-tool.js");
 const { workspaceSupplementTool } = require("./workspace-supplement-tool.js");
 const { requestUserInput } = require("./request-user-input.js");
 const { cryptoMarketAgent } = require("./crypto-market");
+const { cryptoAccountAgent } = require("./crypto-account");
 const { weatherAgent } = require("./weather");
 const { globalMarketAgent } = require("./global-market");
 const { documentFormattingAgent } = require("./document-formatting");
@@ -43,6 +44,7 @@ module.exports = {
   workspaceSupplementTool,
   requestUserInput,
   cryptoMarketAgent,
+  cryptoAccountAgent,
   weatherAgent,
   globalMarketAgent,
   documentFormattingAgent,
@@ -68,6 +70,7 @@ module.exports = {
   [workspaceSupplementTool.name]: workspaceSupplementTool,
   [requestUserInput.name]: requestUserInput,
   [cryptoMarketAgent.name]: cryptoMarketAgent,
+  [cryptoAccountAgent.name]: cryptoAccountAgent,
   [weatherAgent.name]: weatherAgent,
   [globalMarketAgent.name]: globalMarketAgent,
   [documentFormattingAgent.name]: documentFormattingAgent,

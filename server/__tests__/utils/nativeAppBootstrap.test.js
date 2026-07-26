@@ -28,6 +28,7 @@ describe("native app bootstrap contract", () => {
         NODE_ENV: "production",
         ENABLE_HTTPS: "true",
         DEPLOYMENT_VERSION: "2.2.4",
+        ATHENA_IOS_HIGH_RISK_PQ_REQUIRED: "true",
       },
       generatedAt: new Date("2026-07-08T00:00:00.000Z"),
     });
@@ -51,6 +52,42 @@ describe("native app bootstrap contract", () => {
       features: {
         readerMaxUploadBytes: READER_MAX_UPLOAD_BYTES,
         syncV2: false,
+      },
+      security: {
+        preferredSignatureVersion: "v2-device-p256",
+        cryptoSuiteRegistryVersion: "athena-crypto-suites:v1",
+        cryptoSuites: expect.arrayContaining([
+          expect.objectContaining({
+            suiteId: "v2-device-p256",
+            purpose: "request-signature",
+            status: "active",
+          }),
+          expect.objectContaining({
+            suiteId: "p256-secure-enclave-v1",
+            purpose: "device-key",
+            status: "active",
+          }),
+        ]),
+        highRiskRequestSigning: {
+          enforcementMode: "required",
+          minimumOSVersion: "26.0",
+          minimumAppVersion: "2.4.0",
+          classicalSuiteId: "v2-device-p256",
+          postQuantumSuiteId: "request-device-mldsa65-v1",
+          hybridSuiteId: "device-hybrid-p256-mldsa65-v1",
+          hardwareBackedPostQuantumKeyRequired: true,
+        },
+        postQuantumExperiments: {
+          enabled: false,
+          productionEffect: false,
+          minimumOSVersion: "26.0",
+          suiteIds: expect.arrayContaining([
+            "ios-se-mldsa65-exp-v1",
+            "ml-kem-768-exp-v1",
+            "x-wing-mlkem768-x25519-exp-v1",
+            "vault-xwing-mldsa65-exp-v1",
+          ]),
+        },
       },
       endpoints: {
         bootstrapPath: "/api/native-app/bootstrap",

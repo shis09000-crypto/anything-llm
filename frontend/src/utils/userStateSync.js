@@ -19,6 +19,7 @@ const DRAFT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const pendingWrites = new Map();
 const pendingReadCursorWrites = new Map();
 const hydrationKeys = new Set();
+const promptDraftClearIntents = new Map();
 
 function storage() {
   try {
@@ -350,6 +351,9 @@ export async function hydratePromptDraft(scope, fallback = "") {
     const remote = await getRemoteState(USER_STATE_NAMESPACES.chatDraft, scope);
     const draft = remote?.value;
     if (!draft) return fallback;
+    const key = stateKey(USER_STATE_NAMESPACES.chatDraft, scope);
+    const clearedAt = Number(promptDraftClearIntents.get(key) || 0);
+    if (clearedAt && remoteTimestamp(remote) <= clearedAt) return fallback;
     touchMeta(USER_STATE_NAMESPACES.chatDraft, scope, remoteTimestamp(remote));
     return draftTextFromValue(scope, draft, fallback);
   } catch {
@@ -360,6 +364,7 @@ export async function hydratePromptDraft(scope, fallback = "") {
 export function persistPromptDraft(scope, value = "", options = {}) {
   const normalizedScope = scope || DEFAULT_SCOPE;
   const key = stateKey(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
+  if (String(value || "").trim()) promptDraftClearIntents.delete(key);
   clearPendingWrite(key);
   const updatedAt = touchMeta(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
   const preview = normalizeDraftValue(value, options);
@@ -395,10 +400,15 @@ export function flushPromptDraft(scope) {
 }
 
 export function clearPromptDraft(scope) {
-  const key = stateKey(USER_STATE_NAMESPACES.chatDraft, scope);
+  const normalizedScope = scope || DEFAULT_SCOPE;
+  const key = stateKey(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
   clearPendingWrite(key);
-  touchMeta(USER_STATE_NAMESPACES.chatDraft, scope);
-  void deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, scope);
+  const clearedAt = touchMeta(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
+  // Keep a local tombstone until a new non-empty draft is intentionally
+  // persisted. This prevents a slow or cached cross-device hydration from
+  // restoring a prompt after the user has already submitted it.
+  promptDraftClearIntents.set(key, clearedAt);
+  void deleteSyncedState(USER_STATE_NAMESPACES.chatDraft, normalizedScope);
 }
 
 export function threadReadStateScope({

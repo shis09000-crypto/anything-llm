@@ -1469,6 +1469,95 @@ const SyncV2 = {
     });
   },
 
+  async deadLetterOutbox({ seqs = [], limit = 100 } = {}) {
+    if (!(await this.schemaReady())) return [];
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    return await prisma.sync_outbox.findMany({
+      where: {
+        status: "dead_letter",
+        ...(normalized.length ? { seq: { in: normalized } } : {}),
+      },
+      orderBy: { seq: "asc" },
+      take: Math.max(1, Math.min(Number(limit) || 100, 200)),
+      select: {
+        seq: true,
+        eventId: true,
+        nodeKey: true,
+        attemptCount: true,
+        lastErrorCode: true,
+        deadLetteredAt: true,
+        requestId: true,
+        traceId: true,
+      },
+    });
+  },
+
+  async outboxRows(seqs = []) {
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    if (!normalized.length || !(await this.schemaReady())) return [];
+    return await prisma.sync_outbox.findMany({
+      where: { seq: { in: normalized } },
+      orderBy: { seq: "asc" },
+      select: {
+        seq: true,
+        status: true,
+        dispatchedAt: true,
+        attemptCount: true,
+        lastErrorCode: true,
+        deadLetteredAt: true,
+      },
+    });
+  },
+
+  async requeueDeadLetters(seqs = []) {
+    const normalized = [...new Set(seqs.map(Number).filter(Number.isInteger))];
+    if (!normalized.length) return { count: 0 };
+    return await prisma.sync_outbox.updateMany({
+      where: { seq: { in: normalized }, status: "dead_letter" },
+      data: {
+        status: "retry",
+        attemptCount: 0,
+        nextAttemptAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        lastErrorCode: null,
+        lastErrorDetail: null,
+        deadLetteredAt: null,
+      },
+    });
+  },
+
+  async restoreDeadLetters(snapshots = []) {
+    const safe = (Array.isArray(snapshots) ? snapshots : [])
+      .filter((row) => Number.isInteger(Number(row?.seq)))
+      .slice(0, 100);
+    if (!safe.length) return { restored: 0, skipped: 0 };
+    let restored = 0;
+    for (const row of safe) {
+      const result = await prisma.sync_outbox.updateMany({
+        where: {
+          seq: Number(row.seq),
+          dispatchedAt: null,
+          status: { in: ["pending", "retry"] },
+        },
+        data: {
+          status: "dead_letter",
+          attemptCount: Math.max(1, Number(row.attemptCount) || 1),
+          nextAttemptAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          lastErrorCode: String(
+            row.lastErrorCode || "operations_requeue_rolled_back"
+          ).slice(0, 160),
+          lastErrorDetail: null,
+          deadLetteredAt: new Date(row.deadLetteredAt || Date.now()),
+        },
+      });
+      restored += Number(result.count || 0);
+    }
+    return { restored, skipped: safe.length - restored };
+  },
+
   async claimOutbox({
     limit = 100,
     leaseOwner,
@@ -1484,81 +1573,86 @@ const SyncV2 = {
     const leaseUntil = new Date(
       now.getTime() + Math.max(Number(leaseMs) || 30_000, 5_000)
     );
-    return await prisma.$transaction(async (tx) => {
-      await tx.sync_outbox.updateMany({
-        where: {
-          dispatchedAt: null,
-          deadLetteredAt: null,
-          status: "claimed",
-          leaseExpiresAt: { lte: now },
-        },
-        data: {
-          status: "retry",
-          leaseOwner: null,
-          leaseExpiresAt: null,
-          nextAttemptAt: now,
-        },
-      });
-      const laneHeads = await tx.sync_outbox.groupBy({
-        by: ["nodeKey"],
-        where: {
-          dispatchedAt: null,
-          deadLetteredAt: null,
-          expiresAt: { gt: now },
-        },
-        _min: { seq: true },
-        orderBy: { _min: { seq: "asc" } },
-        take,
-      });
-      const headSeqs = laneHeads
-        .map((row) => Number(row._min.seq))
-        .filter(Number.isInteger);
-      if (!headSeqs.length) return [];
-      const headRows = await tx.sync_outbox.findMany({
-        where: {
-          seq: { in: headSeqs },
-          dispatchedAt: null,
-          deadLetteredAt: null,
-          expiresAt: { gt: now },
-          status: { in: ["pending", "retry"] },
-          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
-        },
-        orderBy: { seq: "asc" },
-      });
-      const eligibleHeadKeys = new Set(headRows.map((row) => row.nodeKey));
-      if (!eligibleHeadKeys.size) return [];
-      const laneRows = await tx.sync_outbox.findMany({
-        where: {
-          nodeKey: { in: [...eligibleHeadKeys] },
-          dispatchedAt: null,
-          deadLetteredAt: null,
-          expiresAt: { gt: now },
-        },
-        orderBy: { seq: "asc" },
-        take: Math.min(take * 4, 2_000),
-      });
-      const blocked = new Set();
-      const candidates = [];
-      for (const row of laneRows) {
-        if (candidates.length >= take) break;
-        if (blocked.has(row.nodeKey)) continue;
-        const due =
-          ["pending", "retry"].includes(row.status) &&
-          (!row.nextAttemptAt || row.nextAttemptAt <= now);
-        if (!due) {
-          blocked.add(row.nodeKey);
-          continue;
-        }
-        candidates.push({ seq: row.seq });
+    // Lease recovery and candidate discovery are deliberately outside the
+    // interactive transaction. They are idempotent reads/updates and can be
+    // repeated by competing workers without weakening the conditional claim.
+    await prisma.sync_outbox.updateMany({
+      where: {
+        dispatchedAt: null,
+        deadLetteredAt: null,
+        status: "claimed",
+        leaseExpiresAt: { lte: now },
+      },
+      data: {
+        status: "retry",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        nextAttemptAt: now,
+      },
+    });
+    const laneHeads = await prisma.sync_outbox.groupBy({
+      by: ["nodeKey"],
+      where: {
+        dispatchedAt: null,
+        deadLetteredAt: null,
+        expiresAt: { gt: now },
+      },
+      _min: { seq: true },
+      orderBy: { _min: { seq: "asc" } },
+      take,
+    });
+    const headSeqs = laneHeads
+      .map((row) => Number(row._min.seq))
+      .filter(Number.isInteger);
+    if (!headSeqs.length) return [];
+    const headRows = await prisma.sync_outbox.findMany({
+      where: {
+        seq: { in: headSeqs },
+        dispatchedAt: null,
+        deadLetteredAt: null,
+        expiresAt: { gt: now },
+        status: { in: ["pending", "retry"] },
+        OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
+      },
+      orderBy: { seq: "asc" },
+    });
+    const eligibleHeadKeys = new Set(headRows.map((row) => row.nodeKey));
+    if (!eligibleHeadKeys.size) return [];
+    const laneRows = await prisma.sync_outbox.findMany({
+      where: {
+        nodeKey: { in: [...eligibleHeadKeys] },
+        dispatchedAt: null,
+        deadLetteredAt: null,
+        expiresAt: { gt: now },
+      },
+      orderBy: { seq: "asc" },
+      take: Math.min(take * 4, 2_000),
+    });
+    const blocked = new Set();
+    const candidates = [];
+    for (const row of laneRows) {
+      if (candidates.length >= take) break;
+      if (blocked.has(row.nodeKey)) continue;
+      const due =
+        ["pending", "retry"].includes(row.status) &&
+        (!row.nextAttemptAt || row.nextAttemptAt <= now);
+      if (!due) {
+        blocked.add(row.nodeKey);
+        continue;
       }
-      if (!candidates.length) return [];
-      const seqs = candidates.map((row) => Number(row.seq));
+      candidates.push({ seq: row.seq });
+    }
+    if (!candidates.length) return [];
+    const seqs = candidates.map((row) => Number(row.seq));
+    return await prisma.$transaction(async (tx) => {
       await tx.sync_outbox.updateMany({
         where: {
           seq: { in: seqs },
           dispatchedAt: null,
           deadLetteredAt: null,
+          expiresAt: { gt: now },
           status: { in: ["pending", "retry"] },
+          OR: [{ nextAttemptAt: null }, { nextAttemptAt: { lte: now } }],
         },
         data: {
           status: "claimed",

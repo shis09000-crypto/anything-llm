@@ -10,14 +10,9 @@ const { CommunicationKey } = require("../utils/comKey");
 // property so that if can be used to encrypt/decrypt arbitrary data via response object.
 // eg: Encrypting API keys in chunk sources.
 
-// The persisted RSA Communication Key is used server-side to private-key encrypt the raw
-// key of the persistent EncryptionManager credentials. Since EncryptionManager credentials do _not_ roll, we should not send them
-// even between server<>collector in plaintext because if the user configured the server/collector to be public they could technically
-// be exposing the key in transit via the X-Payload-Signer header. Even if this risk is minimal we should not do this.
-
-// This middleware uses the CommunicationKey public key to first decrypt the base64 representation of the EncryptionManager credentials
-// and then loads that in to the EncryptionWorker as a buffer so we can use the same credentials across the system. Should we ever break the
-// collector out into its own service this would still work without SSL/TLS.
+// The payload key is provisioned once by the server into the read-only comkey
+// mount. It is never transported in a request header. EncryptionWorker derives
+// an AEAD sub-key with HKDF and retains the root only for legacy CBC reads.
 
 /**
  *
@@ -26,17 +21,17 @@ const { CommunicationKey } = require("../utils/comKey");
  * @param {import("express").NextFunction} next
  */
 function setDataSigner(request, response, next) {
-  const comKey = new CommunicationKey();
-  const encryptedPayloadSigner = request.header("X-Payload-Signer");
-  if (!encryptedPayloadSigner)
-    console.log(
-      "Failed to find signed-payload to set encryption worker! Encryption calls will fail."
-    );
-
-  const decryptedPayloadSignerKey = comKey.decrypt(encryptedPayloadSigner);
-  const encryptionWorker = new EncryptionWorker(decryptedPayloadSignerKey);
-  response.locals.encryptionWorker = encryptionWorker;
-  next();
+  try {
+    const payloadKey = new CommunicationKey().payloadKey();
+    response.locals.encryptionWorker = new EncryptionWorker(payloadKey);
+    next();
+  } catch (error) {
+    console.error("Collector payload keyring is unavailable.", error.message);
+    return response.status(503).json({
+      success: false,
+      error: "collector_payload_key_unavailable",
+    });
+  }
 }
 
 module.exports = {

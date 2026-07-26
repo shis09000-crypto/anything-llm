@@ -37,8 +37,9 @@ describe("account role and environment policy", () => {
       originEnv: "development",
       allowedEnvs: JSON.stringify(["development"]),
     });
-    expect(normalizeAllowedEnvs(deriveRoleDefaults({ role: "admin" }).allowedEnvs))
-      .toEqual(["production", "development"]);
+    expect(
+      normalizeAllowedEnvs(deriveRoleDefaults({ role: "admin" }).allowedEnvs)
+    ).toEqual(["production", "development"]);
     expect(deriveRoleDefaults({ role: "disabled" })).toMatchObject({
       role: "disabled",
       status: "disabled",
@@ -68,7 +69,9 @@ describe("account role and environment policy", () => {
   it("separates admin and owner privileges", () => {
     expect(canAccessAdmin(deriveRoleDefaults({ role: "admin" }))).toBe(true);
     expect(canAccessAdmin(deriveRoleDefaults({ role: "owner" }))).toBe(true);
-    expect(canAccessAdmin(deriveRoleDefaults({ role: "developer" }))).toBe(false);
+    expect(canAccessAdmin(deriveRoleDefaults({ role: "developer" }))).toBe(
+      false
+    );
     expect(canAccessOwner(deriveRoleDefaults({ role: "admin" }))).toBe(false);
     expect(canAccessOwner(deriveRoleDefaults({ role: "owner" }))).toBe(true);
   });
@@ -77,7 +80,9 @@ describe("account role and environment policy", () => {
     expect(canCreateRole({ role: "admin" }, "developer")).toBe(true);
     expect(canCreateRole({ role: "admin" }, "admin")).toBe(true);
     expect(canCreateRole({ role: "admin" }, "owner")).toBe(false);
-    expect(canCreateRole({ role: "owner", ownerType: "secondary" }, "owner")).toBe(false);
+    expect(
+      canCreateRole({ role: "owner", ownerType: "secondary" }, "owner")
+    ).toBe(false);
     expect(
       canCreateRole(
         {
@@ -91,12 +96,12 @@ describe("account role and environment policy", () => {
     ).toBe(true);
   });
 
-  it("recognizes the fixed primary owner and blocks secondary owner hierarchy changes", () => {
+  it("recognizes the persisted primary owner and blocks ordinary hierarchy transfer", () => {
     const primary = {
       role: "owner",
       ownerType: "primary",
-      username: "shis500225",
-      email: "shis500225@gmail.com",
+      username: "new-primary",
+      email: "new-primary@example.com",
     };
     expect(isPrimaryOwner(primary)).toBe(true);
     expect(() =>
@@ -127,6 +132,13 @@ describe("account role and environment policy", () => {
         updates: { role: "owner", ownerType: "secondary" },
       })
     ).not.toThrow();
+    expect(() =>
+      assertOwnerHierarchyMutationAllowed({
+        actor: primary,
+        target: { role: "admin", ownerType: null },
+        updates: { role: "owner", ownerType: "primary" },
+      })
+    ).toThrow(/controlled maintenance workflow/i);
   });
 
   it("prevents the last active owner from disappearing", async () => {
@@ -264,9 +276,9 @@ describe("account role and environment policy", () => {
     expect(
       canUnbanAccount(nonPrimaryOwner, secondaryOwner, { restoreRole: "owner" })
     ).toBe(false);
-    expect(canUnbanAccount(admin, secondaryOwner, { restoreRole: "owner" })).toBe(
-      false
-    );
+    expect(
+      canUnbanAccount(admin, secondaryOwner, { restoreRole: "owner" })
+    ).toBe(false);
     expect(canUnbanAccount(admin, disabledUser, { restoreRole: "user" })).toBe(
       true
     );

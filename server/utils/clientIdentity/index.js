@@ -10,6 +10,10 @@ const { nodeKeys } = require("../syncV2/nodeRegistry");
 const { clientDevicesProjection } = require("../syncV2/securityProjection");
 const AdminSystem = lazyDataAccessFacade("adminSystem");
 const AuthSession = AdminSystem.authSession;
+const {
+  PURPOSES,
+  keyMetadataForSuite,
+} = require("../security/cryptoSuiteRegistry");
 
 const CLIENT_HEADERS = {
   clientId: "X-Athena-Client-Id",
@@ -41,6 +45,19 @@ const TRUST_LEVELS = new Set(["low", "medium", "high"]);
 const CAPABILITY_SOURCE = new Set(["declared", "detected", "unknown"]);
 const LAST_SEEN_THROTTLE_MS = 60_000;
 const lastSeenWrites = new Map();
+const clientRegistrationQueues = new Map();
+
+function serializeClientRegistration(userId, clientId, operation) {
+  const key = `${Number(userId)}:${String(clientId)}`;
+  const previous = clientRegistrationQueues.get(key) || Promise.resolve();
+  const current = previous.catch(() => undefined).then(operation);
+  clientRegistrationQueues.set(key, current);
+  return current.finally(() => {
+    if (clientRegistrationQueues.get(key) === current) {
+      clientRegistrationQueues.delete(key);
+    }
+  });
+}
 
 async function recordClientNodeChange(
   tx,
@@ -90,6 +107,19 @@ function compactString(value, maxLength = 200) {
   const next = String(value).trim();
   if (!next) return null;
   return next.slice(0, maxLength);
+}
+
+function devicePublicKeyMetadata(deviceKeyAlgorithm = null) {
+  const metadata = keyMetadataForSuite(deviceKeyAlgorithm, {
+    purpose: PURPOSES.DEVICE_KEY,
+  });
+  if (!metadata) return {};
+  return {
+    publicKeyAlgorithm: metadata.algorithm,
+    publicKeyParameterSet: metadata.parameterSet,
+    publicKeyOrigin: metadata.keyOrigin,
+    publicKeyHardwareProtection: metadata.hardwareProtection,
+  };
 }
 
 function normalizePlatform(value) {
@@ -337,10 +367,15 @@ function getClientContext(request, { user = null } = {}) {
     userId: user?.id ? Number(user.id) : existing?.userId || null,
   };
   if (request) request.clientContext = next;
+  require("../observability/operationContext").enrichOperationContext({
+    clientId: next.clientId,
+    platform: next.platform,
+    requestId: next.requestId,
+  });
   return next;
 }
 
-async function registerClient({
+async function registerClientUnlocked({
   userId,
   clientId,
   platform,
@@ -362,6 +397,7 @@ async function registerClient({
       ? capabilities
       : defaultCapabilities(normalizedPlatform);
   const now = new Date();
+  const publicKeyMetadata = devicePublicKeyMetadata(deviceFingerprintVersion);
 
   const where = {
     userId_clientId: {
@@ -390,38 +426,38 @@ async function registerClient({
       where,
     });
     if (existing?.revokedAt) return existing;
-    if (existing) {
-      const nextPublicKey =
-        !existing.publicKey && publicKey
-          ? compactString(publicKey, 2048)
-          : null;
-      return clientIdentityDb.athena_clients.update({
-        where: { id: existing.id },
-        data: {
-          ...data,
-          ...(nextPublicKey
-            ? {
-                publicKey: nextPublicKey,
-                deviceFingerprintVersion: compactString(
-                  deviceFingerprintVersion,
-                  32
-                ),
-              }
-            : {}),
-          lastSeenAt: now,
-        },
-      });
-    }
-    return clientIdentityDb.athena_clients.create({
-      data: {
+    let saved = await clientIdentityDb.athena_clients.upsert({
+      where,
+      create: {
         userId: Number(userId),
         clientId: String(clientId),
         ...data,
-        publicKey: publicKey || null,
+        publicKey: compactString(publicKey, 2048),
         deviceFingerprintVersion: compactString(deviceFingerprintVersion, 32),
+        ...(publicKey ? publicKeyMetadata : {}),
+        lastSeenAt: now,
+      },
+      update: {
+        ...data,
         lastSeenAt: now,
       },
     });
+    if (!saved.revokedAt && !saved.publicKey && publicKey) {
+      const enrolled = await clientIdentityDb.athena_clients.updateMany({
+        where: { id: saved.id, revokedAt: null, publicKey: null },
+        data: {
+          publicKey: compactString(publicKey, 2048),
+          deviceFingerprintVersion: compactString(deviceFingerprintVersion, 32),
+          ...publicKeyMetadata,
+        },
+      });
+      if (enrolled.count > 0) {
+        saved = await clientIdentityDb.athena_clients.findUnique({
+          where: { id: saved.id },
+        });
+      }
+    }
+    return saved;
   }
 
   return await clientIdentityDb.$transaction(async (tx) => {
@@ -445,30 +481,37 @@ async function registerClient({
       existing.capabilitySource !== data.capabilitySource ||
       Boolean(nextPublicKey) ||
       existing.deviceFingerprintVersion !== nextFingerprintVersion;
-    const saved = existing
-      ? await tx.athena_clients.update({
-          where: { id: existing.id },
-          data: {
-            ...data,
-            ...(nextPublicKey
-              ? {
-                  publicKey: nextPublicKey,
-                  deviceFingerprintVersion: nextFingerprintVersion,
-                }
-              : {}),
-            lastSeenAt: now,
-          },
-        })
-      : await tx.athena_clients.create({
-          data: {
-            userId: Number(userId),
-            clientId: String(clientId),
-            ...data,
-            publicKey: publicKey || null,
-            deviceFingerprintVersion: nextFingerprintVersion,
-            lastSeenAt: now,
-          },
+    let saved = await tx.athena_clients.upsert({
+      where,
+      create: {
+        userId: Number(userId),
+        clientId: String(clientId),
+        ...data,
+        publicKey: compactString(publicKey, 2048),
+        deviceFingerprintVersion: nextFingerprintVersion,
+        ...(publicKey ? publicKeyMetadata : {}),
+        lastSeenAt: now,
+      },
+      update: {
+        ...data,
+        lastSeenAt: now,
+      },
+    });
+    if (!saved.revokedAt && !saved.publicKey && nextPublicKey) {
+      const enrolled = await tx.athena_clients.updateMany({
+        where: { id: saved.id, revokedAt: null, publicKey: null },
+        data: {
+          publicKey: nextPublicKey,
+          deviceFingerprintVersion: nextFingerprintVersion,
+          ...publicKeyMetadata,
+        },
+      });
+      if (enrolled.count > 0) {
+        saved = await tx.athena_clients.findUnique({
+          where: { id: saved.id },
         });
+      }
+    }
     if (meaningfulChange) {
       await recordClientNodeChange(tx, {
         userId,
@@ -485,6 +528,14 @@ async function registerClient({
   });
 }
 
+async function registerClient(options = {}) {
+  const { userId, clientId } = options;
+  if (!userId || !clientId || clientId === "legacy") return null;
+  return serializeClientRegistration(userId, clientId, () =>
+    registerClientUnlocked(options)
+  );
+}
+
 function safeCapabilities(value) {
   if (!value) return null;
   try {
@@ -496,6 +547,20 @@ function safeCapabilities(value) {
 
 function safeClientRecord(client = null, { currentClientId = null } = {}) {
   if (!client) return null;
+  const vaultKeyDistribution =
+    client.hybridKemPublicKey &&
+    client.hybridKemSuiteId &&
+    client.vaultSigningP256PublicKey &&
+    client.vaultSigningMLDSA65PublicKey &&
+    client.vaultSigningSuiteId === client.hybridKemSuiteId
+      ? {
+          suiteId: client.hybridKemSuiteId,
+          keyGeneration: Math.max(Number(client.vaultKeyGeneration || 0), 1),
+          kemPublicKey: client.hybridKemPublicKey,
+          p256PublicKey: client.vaultSigningP256PublicKey,
+          mlDSA65PublicKey: client.vaultSigningMLDSA65PublicKey,
+        }
+      : null;
   return {
     clientId: client.clientId,
     platform: client.platform,
@@ -505,6 +570,11 @@ function safeClientRecord(client = null, { currentClientId = null } = {}) {
     capabilities: safeCapabilities(client.capabilities),
     capabilitySource: client.capabilitySource || "unknown",
     hasDevicePublicKey: !!client.publicKey,
+    publicKeyAlgorithm: client.publicKeyAlgorithm || null,
+    publicKeyParameterSet: client.publicKeyParameterSet || null,
+    publicKeyOrigin: client.publicKeyOrigin || null,
+    publicKeyHardwareProtection: client.publicKeyHardwareProtection || null,
+    vaultKeyDistribution,
     createdAt: client.createdAt,
     lastSeenAt: client.lastSeenAt,
     revokedAt: client.revokedAt || null,
@@ -549,11 +619,16 @@ async function prepareClientDeviceKeyRotation({
     return { client, prepared: false, alreadyCurrent: true };
   }
   const expiresAt = new Date(Date.now() + 10 * 60_000);
+  const metadata = devicePublicKeyMetadata(deviceKeyAlgorithm);
   const updated = await clientIdentityDb.athena_clients.update({
     where: { id: client.id },
     data: {
       pendingPublicKey: publicKey,
       pendingDeviceKeyAlgorithm: deviceKeyAlgorithm,
+      pendingPublicKeyParameterSet: metadata.publicKeyParameterSet || null,
+      pendingPublicKeyOrigin: metadata.publicKeyOrigin || null,
+      pendingPublicKeyHardwareProtection:
+        metadata.publicKeyHardwareProtection || null,
       pendingDeviceKeyExpiresAt: expiresAt,
     },
   });
@@ -596,9 +671,35 @@ async function commitClientDeviceKeyRotation({
       data: {
         publicKey,
         deviceFingerprintVersion: deviceKeyAlgorithm,
+        publicKeyAlgorithm:
+          devicePublicKeyMetadata(deviceKeyAlgorithm).publicKeyAlgorithm ||
+          null,
+        publicKeyParameterSet:
+          client.pendingPublicKeyParameterSet ||
+          devicePublicKeyMetadata(deviceKeyAlgorithm).publicKeyParameterSet ||
+          null,
+        publicKeyOrigin:
+          client.pendingPublicKeyOrigin ||
+          devicePublicKeyMetadata(deviceKeyAlgorithm).publicKeyOrigin ||
+          null,
+        publicKeyHardwareProtection:
+          client.pendingPublicKeyHardwareProtection ||
+          devicePublicKeyMetadata(deviceKeyAlgorithm)
+            .publicKeyHardwareProtection ||
+          null,
         trustLevel: "high",
+        attestationProvider: null,
+        attestationKeyIdHash: null,
+        attestationStatus: "unverified",
+        attestationEnvironment: null,
+        attestationCounter: 0,
+        attestedAt: null,
+        attestationExpiresAt: null,
         pendingPublicKey: null,
         pendingDeviceKeyAlgorithm: null,
+        pendingPublicKeyParameterSet: null,
+        pendingPublicKeyOrigin: null,
+        pendingPublicKeyHardwareProtection: null,
         pendingDeviceKeyExpiresAt: null,
       },
     });
@@ -609,6 +710,7 @@ async function commitClientDeviceKeyRotation({
         changedPaths: [
           `clients.${String(clientId)}.hasDevicePublicKey`,
           `clients.${String(clientId)}.deviceFingerprintVersion`,
+          `clients.${String(clientId)}.attestationStatus`,
         ],
         payloadHint: {
           operation: "device-key-rotate",
@@ -652,6 +754,14 @@ async function revokeClient({ userId, clientId } = {}) {
           data: { revokedAt },
         });
         if (updated.count > 0) {
+          await tx.vault_device_key_registrations.updateMany({
+            where: {
+              userId: Number(userId),
+              clientId: String(clientId),
+              revokedAt: null,
+            },
+            data: { status: "revoked", revokedAt },
+          });
           await recordClientNodeChange(tx, {
             userId,
             eventType: "client.revoked",
@@ -661,13 +771,26 @@ async function revokeClient({ userId, clientId } = {}) {
         }
         return updated;
       })
-    : await clientIdentityDb.athena_clients.updateMany({
-        where: {
-          userId: Number(userId),
-          clientId: String(clientId),
-          revokedAt: null,
-        },
-        data: { revokedAt },
+    : await clientIdentityDb.$transaction(async (tx) => {
+        const updated = await tx.athena_clients.updateMany({
+          where: {
+            userId: Number(userId),
+            clientId: String(clientId),
+            revokedAt: null,
+          },
+          data: { revokedAt },
+        });
+        if (updated.count > 0) {
+          await tx.vault_device_key_registrations.updateMany({
+            where: {
+              userId: Number(userId),
+              clientId: String(clientId),
+              revokedAt: null,
+            },
+            data: { status: "revoked", revokedAt },
+          });
+        }
+        return updated;
       });
   if (result.count > 0) await revokeAuthSessionsForClient({ userId, clientId });
   return {
@@ -695,9 +818,23 @@ async function revokeAllOtherClients({ userId, currentClientId } = {}) {
     maintainShadow: true,
   });
   if (!syncReady) {
-    const result = await clientIdentityDb.athena_clients.updateMany({
-      where,
-      data: { revokedAt: new Date() },
+    const revokedAt = new Date();
+    const result = await clientIdentityDb.$transaction(async (tx) => {
+      const updated = await tx.athena_clients.updateMany({
+        where,
+        data: { revokedAt },
+      });
+      if (updated.count > 0) {
+        await tx.vault_device_key_registrations.updateMany({
+          where: {
+            userId: Number(userId),
+            clientId: { not: String(currentClientId) },
+            revokedAt: null,
+          },
+          data: { status: "revoked", revokedAt },
+        });
+      }
+      return updated;
     });
     await Promise.all(
       targets.map(({ clientId }) =>
@@ -707,11 +844,20 @@ async function revokeAllOtherClients({ userId, currentClientId } = {}) {
     return result;
   }
   const result = await clientIdentityDb.$transaction(async (tx) => {
+    const revokedAt = new Date();
     const result = await tx.athena_clients.updateMany({
       where,
-      data: { revokedAt: new Date() },
+      data: { revokedAt },
     });
     if (result.count > 0) {
+      await tx.vault_device_key_registrations.updateMany({
+        where: {
+          userId: Number(userId),
+          clientId: { not: String(currentClientId) },
+          revokedAt: null,
+        },
+        data: { status: "revoked", revokedAt },
+      });
       await recordClientNodeChange(tx, {
         userId,
         eventType: "client.revoked_all_others",
@@ -878,5 +1024,7 @@ module.exports = {
   revokeClient,
   resolveTrustLevel,
   attachAuthenticatedClientContext,
+  clientSecuritySyncReady,
+  recordClientNodeChange,
   updateLastSeen,
 };

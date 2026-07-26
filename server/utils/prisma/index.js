@@ -9,6 +9,9 @@ const {
   installMigrationWriteBarrier,
   installRawSqlDialectAdapter,
 } = require("../database/sqlDialect");
+const {
+  instrumentPrismaClient,
+} = require("../observability/prismaInstrumentation");
 
 // npx prisma introspect
 // npx prisma generate
@@ -46,6 +49,7 @@ const prisma = new PrismaClient({
     },
   },
 });
+instrumentPrismaClient(prisma, { provider, database: "main" });
 installRawSqlDialectAdapter(prisma);
 installMigrationWriteBarrier(prisma);
 

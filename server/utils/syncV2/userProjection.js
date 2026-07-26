@@ -11,6 +11,7 @@ const PROFILE_FIELDS = new Set([
 
 const SECURITY_POLICY_FIELDS = new Set([
   "password",
+  "credentialType",
   "role",
   "status",
   "allowedEnvs",
@@ -66,7 +67,10 @@ function userSecurityPolicyProjection(user = {}) {
     ownerType: user.ownerType,
     suspended: Boolean(user.suspended),
     bannedAt: user.bannedAt || null,
-    passwordConfigured: Boolean(user.password),
+    credentialType: user.credentialType || "password",
+    passwordConfigured:
+      (user.credentialType || "password") === "password" &&
+      Boolean(user.password),
   };
 }
 

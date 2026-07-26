@@ -1,5 +1,31 @@
 import SwiftUI
 
+enum AgentInlinePresentationPolicy {
+    static func shouldRender(
+        session: AgentSessionSnapshot,
+        messages: [AthenaChatMessage]
+    ) -> Bool {
+        let finalAnswerIsInHistory = messages.contains { message in
+            guard message.role == .assistant else { return false }
+            if let finalChatID = session.finalChatID,
+               message.chatID == finalChatID {
+                return true
+            }
+            if let finalPublicChatID = session.finalPublicChatID,
+               message.publicChatID == finalPublicChatID {
+                return true
+            }
+            return false
+        }
+        guard !finalAnswerIsInHistory else {
+            return false
+        }
+        return !session.phase.isTerminal ||
+            !session.assistantText.isEmpty ||
+            session.phase == .failed
+    }
+}
+
 struct AgentInlineSessionView: View {
     let store: AgentSessionRenderStore
     let agentControlKit: AgentControlKit
@@ -400,7 +426,7 @@ private struct AgentSessionActions: View {
     let agentControlKit: AgentControlKit
 
     var body: some View {
-        if session.phase == .failed || session.phase == .closed {
+        if session.phase == .failed {
             Button("重新连接", systemImage: "arrow.clockwise") {
                 Task {
                     await agentControlKit.resume(invocationID: session.invocationID)

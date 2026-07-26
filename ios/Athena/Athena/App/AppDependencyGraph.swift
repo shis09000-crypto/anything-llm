@@ -24,6 +24,8 @@ final class AppDependencies {
     let quickLoginCenter: QuickLoginCenter
     let clientIdentityCenter: ClientIdentityCenter
     let requestSigningCenter: RequestSigningCenter
+    let deviceAttestationCenter: DeviceAttestationCenter
+    let userRootKeyCenter: UserRootKeyCenter
     let realtimeBroadcastClient: RealtimeBroadcastClient
     let nativeSyncCenter: NativeSyncCenter
     let userStateSyncClient: UserStateSyncClient
@@ -43,6 +45,7 @@ final class AppDependencies {
     var passkeyLoginError: String? = nil
     private var started = false
     private var deferredStartupTask: Task<Void, Never>?
+    private let clientIdentityRecoveryGate = APISecurityRecoveryGate()
 
     init(
         apiClient: APIClient,
@@ -54,6 +57,8 @@ final class AppDependencies {
         quickLoginCenter: QuickLoginCenter,
         clientIdentityCenter: ClientIdentityCenter,
         requestSigningCenter: RequestSigningCenter,
+        deviceAttestationCenter: DeviceAttestationCenter,
+        userRootKeyCenter: UserRootKeyCenter,
         realtimeBroadcastClient: RealtimeBroadcastClient,
         nativeSyncCenter: NativeSyncCenter,
         userStateSyncClient: UserStateSyncClient,
@@ -79,6 +84,8 @@ final class AppDependencies {
         self.quickLoginCenter = quickLoginCenter
         self.clientIdentityCenter = clientIdentityCenter
         self.requestSigningCenter = requestSigningCenter
+        self.deviceAttestationCenter = deviceAttestationCenter
+        self.userRootKeyCenter = userRootKeyCenter
         self.realtimeBroadcastClient = realtimeBroadcastClient
         self.nativeSyncCenter = nativeSyncCenter
         self.userStateSyncClient = userStateSyncClient
@@ -98,15 +105,39 @@ final class AppDependencies {
 
     static func live() -> AppDependencies {
         let profile = NativeClientProfile.current()
-        let baseURL = URL(string: "https://athenallm.online")!
-        let apiClient = APIClient(
-            configuration: APIClientConfiguration(
-                baseURL: baseURL,
-                appVersion: profile.appVersion,
-                osVersion: profile.osVersion,
-                platform: profile.platform
-            )
+        let baseURL: URL = {
+            let productionURL = URL(string: "https://athenallm.online")!
+            #if DEBUG
+            guard
+                let value = ProcessInfo.processInfo.environment[
+                    "ATHENA_IOS_API_BASE_URL"
+                ]?.trimmingCharacters(in: .whitespacesAndNewlines),
+                let overrideURL = URL(string: value),
+                overrideURL.scheme == "https",
+                overrideURL.host?.isEmpty == false
+            else {
+                return productionURL
+            }
+            return overrideURL
+            #else
+            return productionURL
+            #endif
+        }()
+        let apiConfiguration = APIClientConfiguration(
+            baseURL: baseURL,
+            appVersion: profile.appVersion,
+            osVersion: profile.osVersion,
+            platform: profile.platform
         )
+        #if DEBUG
+        let apiClient = APIClient(
+            configuration: apiConfiguration,
+            session: DevelopmentServerTrustDelegate.session(for: baseURL) ??
+                .shared
+        )
+        #else
+        let apiClient = APIClient(configuration: apiConfiguration)
+        #endif
         let secureStore = KeychainStore(service: "online.athenallm.ios")
         let nativeBootstrapClient = NativeBootstrapClient(
             apiClient: apiClient,
@@ -117,6 +148,10 @@ final class AppDependencies {
         let passkeyAuthenticationClient = PasskeyAuthenticationClient()
         let clientIdentityCenter = ClientIdentityCenter(secureStore: secureStore)
         let requestSigningCenter = RequestSigningCenter(secureStore: secureStore)
+        let deviceAttestationCenter = DeviceAttestationCenter(
+            secureStore: secureStore
+        )
+        let userRootKeyCenter = UserRootKeyCenter(secureStore: secureStore)
         let userStateSyncClient = UserStateSyncClient()
         let localCache = LocalCache()
         let taskScheduler = TaskScheduler()
@@ -200,6 +235,8 @@ final class AppDependencies {
             quickLoginCenter: quickLoginCenter,
             clientIdentityCenter: clientIdentityCenter,
             requestSigningCenter: requestSigningCenter,
+            deviceAttestationCenter: deviceAttestationCenter,
+            userRootKeyCenter: userRootKeyCenter,
             realtimeBroadcastClient: realtimeBroadcastClient,
             nativeSyncCenter: nativeSyncCenter,
             userStateSyncClient: userStateSyncClient,
@@ -282,6 +319,10 @@ final class AppDependencies {
         let passkeyAuthenticationClient = PasskeyAuthenticationClient()
         let clientIdentityCenter = ClientIdentityCenter(secureStore: secureStore)
         let requestSigningCenter = RequestSigningCenter(secureStore: secureStore)
+        let deviceAttestationCenter = DeviceAttestationCenter(
+            secureStore: secureStore
+        )
+        let userRootKeyCenter = UserRootKeyCenter(secureStore: secureStore)
         let userStateSyncClient = UserStateSyncClient()
         let localCache = LocalCache()
         let taskScheduler = TaskScheduler()
@@ -326,7 +367,9 @@ final class AppDependencies {
         )
         accountProfileCenter.seedPreview(user: previewUser)
         accountSettingsCenter.start(ownerScope: "preview-owner")
+        #if DEBUG
         accountSettingsCenter.seedPreview()
+        #endif
         let agentControlKit = AgentControlKit(events: PreviewData.agentEvents)
         let workspaceCenter = WorkspaceCenter(
             api: nil,
@@ -366,6 +409,8 @@ final class AppDependencies {
             quickLoginCenter: quickLoginCenter,
             clientIdentityCenter: clientIdentityCenter,
             requestSigningCenter: requestSigningCenter,
+            deviceAttestationCenter: deviceAttestationCenter,
+            userRootKeyCenter: userRootKeyCenter,
             realtimeBroadcastClient: realtimeBroadcastClient,
             nativeSyncCenter: nativeSyncCenter,
             userStateSyncClient: userStateSyncClient,
@@ -427,6 +472,10 @@ final class AppDependencies {
             sessionState = .blocked(runtime.preflight?.reasons.joined(separator: "\n") ?? "当前版本不可用。")
             return
         }
+        guard requestSigningCenter.postQuantumContractReady else {
+            sessionState = .blocked(postQuantumContractErrorMessage)
+            return
+        }
 
         do {
             _ = try clientIdentityCenter.prepare()
@@ -457,6 +506,10 @@ final class AppDependencies {
     }
 
     func login(identifier: String, password: String) async {
+        guard requestSigningCenter.postQuantumContractReady else {
+            sessionState = .blocked(postQuantumContractErrorMessage)
+            return
+        }
         sessionState = .authenticating
         do {
             _ = try clientIdentityCenter.prepare()
@@ -477,6 +530,10 @@ final class AppDependencies {
     }
 
     func loginWithPasskey() async {
+        guard requestSigningCenter.postQuantumContractReady else {
+            sessionState = .blocked(postQuantumContractErrorMessage)
+            return
+        }
         passkeyLoginError = nil
         sessionState = .authenticating
         do {
@@ -578,7 +635,9 @@ final class AppDependencies {
         userStateSyncClient.reset()
         try? requestSigningCenter.clearSigningSecret()
         try? authCenter.clearToken()
+        userRootKeyCenter.lock()
         if resetDeviceIdentity {
+            try? userRootKeyCenter.resetDeviceIdentity()
             try? requestSigningCenter.resetDeviceKey()
             try? clientIdentityCenter.reset()
         }
@@ -621,6 +680,7 @@ final class AppDependencies {
             paused: backgrounded,
             reason: "application-background"
         )
+        await workspaceCenter.setApplicationBackgrounded(backgrounded)
         await agentControlKit.setApplicationBackgrounded(backgrounded)
         await nativeSyncCenter.setApplicationBackgrounded(backgrounded)
         if backgrounded {
@@ -648,10 +708,64 @@ final class AppDependencies {
         try await runSecurityTask(label: "security:refresh-signing-secret") { [self] in
             try await self.requestSigningCenter.refreshSigningSecret(using: self.apiClient)
         }
-        _ = try await runSecurityTask(label: "security:migrate-device-key") { [self] in
-            try await self.requestSigningCenter.migrateDeviceKeyToSecureEnclave(
-                using: self.apiClient
-            )
+        do {
+            _ = try await runSecurityTask(label: "security:migrate-device-key") { [self] in
+                try await self.requestSigningCenter.migrateDeviceKeyToSecureEnclave(
+                    using: self.apiClient
+                )
+            }
+        } catch {
+            // Secure Enclave migration hardens an already authenticated client,
+            // but the existing signing key remains valid when migration is not
+            // yet supported by the server. Authentication failures still leave
+            // through the normal security recovery path.
+            guard authCenter.accessToken != nil else {
+                throw error
+            }
+        }
+        if #available(iOS 26.0, *),
+           let clientID = clientIdentityCenter.clientID
+        {
+            do {
+                _ = try await runSecurityTask(
+                    label: "security:device-attestation"
+                ) { [self] in
+                    try await self.deviceAttestationCenter
+                        .establishBoundDeviceIdentity(
+                            clientID: clientID,
+                            using: self.apiClient
+                        )
+                }
+            } catch {
+                // Attestation is a fail-closed gate for high-risk operations,
+                // not for restoring cached workspaces or reading ordinary data.
+                // The next authenticated startup retries the durable challenge.
+                guard authCenter.accessToken != nil else {
+                    throw error
+                }
+            }
+        }
+        if let authUserID = authCenter.user?.authenticationID,
+           let clientID = clientIdentityCenter.clientID
+        {
+            do {
+                _ = try await runSecurityTask(
+                    label: "security:user-root-status"
+                ) { [self] in
+                    try await self.userRootKeyCenter.refresh(
+                        authUserId: authUserID,
+                        clientId: clientID,
+                        using: self.apiClient
+                    )
+                }
+            } catch {
+                // Root readiness is required only by Root-backed data domains.
+                // Existing UMK/VMK and ordinary reads remain available while a
+                // legacy account initializes or a new device awaits approval.
+                guard authCenter.accessToken != nil else {
+                    throw error
+                }
+            }
         }
         let ownerScope = authCenter.cacheOwnerScope(
             fallbackClientID: clientIdentityCenter.clientID
@@ -703,11 +817,20 @@ final class AppDependencies {
                     ownerScope: ownerScope,
                     user: self.authCenter.user
                 )
+                await self.workspaceCenter.restorePersistedChatStreams()
                 await self.agentControlKit.restorePersistedSessions(ownerScope: ownerScope)
                 AppPerformanceSignposts.event("DeferredCentersFinished")
             } catch {
                 if !readinessGate.isResolved {
-                    readinessGate.fail(error)
+                    if self.isTransientServiceFailure(error),
+                       await self.workspaceCenter.useCachedFallback()
+                    {
+                        self.workspaceCenter.lastError = error.localizedDescription
+                        self.sessionState = .ready
+                        readinessGate.succeed()
+                    } else {
+                        readinessGate.fail(error)
+                    }
                 } else if !Task.isCancelled {
                     self.workspaceCenter.lastError = error.localizedDescription
                 }
@@ -754,6 +877,16 @@ final class AppDependencies {
         case .invalidSignature, .clientRevoked:
             signOut(resetDeviceIdentity: true)
             return false
+        case .clientIdentityReauthRequired:
+            return await clientIdentityRecoveryGate.run { [weak self] in
+                guard let self else { return false }
+                self.nativeSyncCenter.stop(clearCursor: true)
+                self.signOut(resetDeviceIdentity: true)
+                await self.loginWithPasskey()
+                await self.deferredStartupTask?.value
+                return self.authCenter.accessToken != nil &&
+                    self.sessionState == .ready
+            }
         case .sessionExpired:
             signOut()
             return false
@@ -765,6 +898,10 @@ final class AppDependencies {
             return message
         }
         return "无法完成原生客户端启动检查。"
+    }
+
+    private var postQuantumContractErrorMessage: String {
+        "服务器尚未提供 Athena 2.4 所要求的硬件后量子签名契约，已阻止登录以避免降级到旧签名协议。"
     }
 
     private func waitForLaunchGate(startedAt: Date) async {
@@ -781,6 +918,24 @@ final class AppDependencies {
         case .invalidCredentials, .invalidSession, .missingToken:
             return true
         }
+    }
+
+    private func isTransientServiceFailure(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            return [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(urlError.code)
+        }
+        guard let apiError = error as? APIClientError,
+              case .httpStatus(let status, _, _) = apiError else {
+            return false
+        }
+        return [502, 503, 504].contains(status)
     }
 }
 

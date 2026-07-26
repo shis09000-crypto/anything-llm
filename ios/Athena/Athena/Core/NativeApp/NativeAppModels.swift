@@ -80,10 +80,31 @@ struct NativeSecurityInfo: Decodable, Equatable {
     let clientIdentityQuery: [String: String]?
     let nativeAppHeaders: [String: String]?
     let preferredSignatureVersion: String
+    let cryptoSuiteRegistryVersion: String?
+    let cryptoSuites: [AthenaCryptoSuiteDescriptor]?
+    let highRiskRequestSigning: NativeHighRiskRequestSigningInfo?
+    let postQuantumExperiments: NativePostQuantumExperimentInfo?
     let requestSigningHeaders: [String: String]?
     let signingSecretPath: String
     let sensitiveSessionHeader: String
     let opaque: NativeOpaqueInfo?
+}
+
+struct NativeHighRiskRequestSigningInfo: Decodable, Equatable {
+    let enforcementMode: String
+    let minimumOSVersion: String
+    let minimumAppVersion: String
+    let classicalSuiteId: String
+    let postQuantumSuiteId: String
+    let hybridSuiteId: String
+    let hardwareBackedPostQuantumKeyRequired: Bool
+}
+
+struct NativePostQuantumExperimentInfo: Decodable, Equatable {
+    let enabled: Bool
+    let productionEffect: Bool
+    let minimumOSVersion: String
+    let suiteIds: [String]
 }
 
 struct NativeOpaqueInfo: Decodable, Equatable {

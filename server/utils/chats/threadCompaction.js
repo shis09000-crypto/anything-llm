@@ -22,9 +22,12 @@ const TARGET_RATIO_MIN = 0.1;
 const TARGET_RATIO_MAX = 0.2;
 const CONVERSATION_CAPSULE_TAG = "athena_conversation_capsule";
 const DEFAULT_TEMPORARY_CONTEXT_TTL = 3;
+const COMPACTION_STATUS_TTL_MS = 3_000;
+const COMPACTION_STATUS_CACHE_MAX = 250;
 const inFlightCompactions = new Set();
 const recentAutoCompactions = new Map();
 const recentTargetFailures = new Map();
+const compactionStatusCache = new Map();
 
 function envBool(name, defaultValue = false) {
   if (process.env[name] === undefined) return defaultValue;
@@ -175,6 +178,42 @@ function scopeKey(scope = {}) {
     normalized.thread_id === null ? "null" : normalized.thread_id,
     normalized.api_session_id === null ? "null" : normalized.api_session_id,
   ].join(":");
+}
+
+function invalidateThreadCompactionStatus(options = {}) {
+  let scope;
+  try {
+    scope =
+      options.workspace_id || options.workspaceId
+        ? buildCompactionScope(options)
+        : buildCompactionScope({
+            workspace: options.workspace,
+            user: options.user,
+            thread: options.thread,
+            apiSessionId: options.apiSessionId,
+          });
+  } catch {
+    return 0;
+  }
+  const prefix = `${scopeKey(scope)}:`;
+  let deleted = 0;
+  for (const key of compactionStatusCache.keys()) {
+    if (!key.startsWith(prefix)) continue;
+    compactionStatusCache.delete(key);
+    deleted += 1;
+  }
+  return deleted;
+}
+
+function trimCompactionStatusCache(now = Date.now()) {
+  for (const [key, entry] of compactionStatusCache) {
+    if (!entry.promise && entry.expiresAt <= now) {
+      compactionStatusCache.delete(key);
+    }
+  }
+  while (compactionStatusCache.size >= COMPACTION_STATUS_CACHE_MAX) {
+    compactionStatusCache.delete(compactionStatusCache.keys().next().value);
+  }
 }
 
 function stripProviderReasoning(input = "") {
@@ -1421,6 +1460,12 @@ async function compactThread({
       metadata_json: JSON.stringify(metadata),
       reason,
     });
+    invalidateThreadCompactionStatus({
+      workspace,
+      user,
+      thread,
+      apiSessionId,
+    });
 
     recentAutoCompactions.set(key, Date.now());
     if (
@@ -1462,9 +1507,58 @@ async function getThreadCompactionStatus({
   user = null,
   thread = null,
   apiSessionId = null,
+  historyRevision = undefined,
 } = {}) {
-  const config = getConfig();
   const scope = buildCompactionScope({ workspace, user, thread, apiSessionId });
+  const revision =
+    historyRevision === undefined
+      ? thread?.historyRevision ?? "unknown"
+      : historyRevision;
+  const key = `${scopeKey(scope)}:${String(revision)}`;
+  const now = Date.now();
+  trimCompactionStatusCache(now);
+  const cached = compactionStatusCache.get(key);
+  if (cached?.promise) return cached.promise;
+  if (cached && cached.expiresAt > now) {
+    compactionStatusCache.delete(key);
+    compactionStatusCache.set(key, cached);
+    return cached.value;
+  }
+
+  let statusPromise;
+  statusPromise = computeThreadCompactionStatus({
+    workspace,
+    user,
+    thread,
+    apiSessionId,
+    scope,
+  })
+    .then((value) => {
+      if (compactionStatusCache.get(key)?.promise === statusPromise) {
+        compactionStatusCache.set(key, {
+          value,
+          promise: null,
+          expiresAt: Date.now() + COMPACTION_STATUS_TTL_MS,
+        });
+      }
+      return value;
+    })
+    .catch((error) => {
+      if (compactionStatusCache.get(key)?.promise === statusPromise) {
+        compactionStatusCache.delete(key);
+      }
+      throw error;
+    });
+  compactionStatusCache.set(key, {
+    value: null,
+    promise: statusPromise,
+    expiresAt: Number.POSITIVE_INFINITY,
+  });
+  return statusPromise;
+}
+
+async function computeThreadCompactionStatus({ workspace, scope } = {}) {
+  const config = getConfig();
   const compactionInfo = resolveCompactionLLM(workspace);
   const compactionLLM = compactionInfo.llm;
   const budgets = resolveTargetBudgets({
@@ -1480,10 +1574,9 @@ async function getThreadCompactionStatus({
     limit: null,
     orderBy: "asc",
   });
-  const { compactable } = await compactionCandidates(
-    scope,
-    config.keepRecentMessages
-  );
+  const keepCount = Math.max(1, Number(config.keepRecentMessages || 10));
+  const compactable =
+    rawHistory.length > keepCount ? rawHistory.slice(0, -keepCount) : [];
   const targetPlan = targetCompactionPlan({
     llm: compactionLLM,
     rawHistory,
@@ -1715,6 +1808,7 @@ module.exports = {
   extractExactValueCandidates,
   getConfig,
   getThreadCompactionStatus,
+  invalidateThreadCompactionStatus,
   maybeAutoCompact,
   normalizeCompactionSummary,
   normalizeConversationCapsule,

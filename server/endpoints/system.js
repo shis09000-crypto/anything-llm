@@ -128,7 +128,8 @@ const { apiErrorStatus: httpStatus } = require("../utils/http/apiError");
 const {
   filterSettingsBySections,
 } = require("../utils/providerSettingsBootstrap");
-const { verifyPassword } = require("../utils/security/passwordCredential");
+const { canUsePasswordCredential, verifyPassword } =
+  require("../utils/security/passwordCredentialRuntime").assertPasswordCredentialRuntime();
 
 function publishUserProfileUpdatedEvent({
   request,
@@ -1128,10 +1129,11 @@ function systemEndpoints(app) {
           .split(",")
           .map((section) => section.trim())
           .filter(Boolean);
-        const results =
-          await SystemSettings.currentSettingsForSections(sections);
+        const [results, user] = await Promise.all([
+          SystemSettings.currentSettingsForSections(sections),
+          userFromSession(request, response).catch(() => null),
+        ]);
         const settings = filterSettingsBySections(results, sections);
-        const user = await userFromSession(request, response).catch(() => null);
         response.status(200).json({
           success: true,
           sections,
@@ -1534,10 +1536,12 @@ function systemEndpoints(app) {
         }
 
         let verifiedAuthUser = authUser;
-        let passwordVerification = await verifyPassword(
-          String(password),
-          verifiedAuthUser.password
-        );
+        const passwordCredentialEnabled =
+          canUsePasswordCredential(verifiedAuthUser);
+        let passwordVerification = passwordCredentialEnabled
+          ? await verifyPassword(String(password), verifiedAuthUser.password)
+          : { valid: false, kind: "disabled", needsUpgrade: false };
+        if (!passwordCredentialEnabled) await dummyPasswordCompare(password);
         let passwordValid = passwordVerification.valid;
         if (passwordValid && passwordVerification.needsUpgrade) {
           verifiedAuthUser = await AuthIdentity.upgradePasswordHash(
@@ -1559,7 +1563,7 @@ function systemEndpoints(app) {
             null
           );
         }
-        if (!passwordValid) {
+        if (!passwordValid && passwordCredentialEnabled) {
           const repaired = await AuthIdentity.repairPasswordFromLocalShadow(
             verifiedAuthUser,
             password

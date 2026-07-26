@@ -64,7 +64,10 @@ export function isDefaultAgentSkillEnabled(
   return !disabledAgentSkills.includes(skill);
 }
 
-export const getDefaultSkills = (t) => ({
+export const getDefaultSkills = (
+  t,
+  { cryptoAccountAvailable = false } = {}
+) => ({
   "create-files-agent": {
     title: t("agent.skill.createFiles.title"),
     description: t("agent.skill.createFiles.description"),
@@ -90,6 +93,17 @@ export const getDefaultSkills = (t) => ({
     skill: "crypto-market-agent",
     configKind: "crypto",
   },
+  ...(cryptoAccountAvailable && {
+    "crypto-account-agent": {
+      title: "加密账户信息",
+      description:
+        "读取当前账户绑定的 Gate 加密专区资产、持仓、活动和手续费。所有交互调用均需逐次批准。",
+      component: DefaultSkillPanel,
+      icon: CurrencyBtc,
+      image: GenerateChartsImage,
+      skill: "crypto-account-agent",
+    },
+  }),
   "weather-agent": {
     title: t("agent.skill.weather.title"),
     description: t("agent.skill.weather.description"),

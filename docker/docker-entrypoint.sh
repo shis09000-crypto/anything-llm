@@ -16,13 +16,22 @@ if [ -z "$STORAGE_DIR" ]; then
     echo "================================================================"
 fi
 
+verify_crypto_runtime() {
+  if [ "${ATHENA_REQUIRE_NODE24_PQ_PROBE:-false}" = "true" ]; then
+    node /app/server/scripts/verify-crypto-runtime-capabilities.js \
+      --require-node24-pq
+  fi
+}
+
 run_server() {
   cd /app/server/ &&
+    verify_crypto_runtime &&
     # Disable Prisma CLI telemetry (https://www.prisma.io/docs/orm/tools/prisma-cli#how-to-opt-out-of-data-collection)
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     node scripts/prisma-runtime.js --execute migrate deploy &&
     node scripts/auth-prisma-runtime.js --execute migrate deploy &&
+    node scripts/verify-runtime-prisma-contract.js &&
     exec node /app/server/index.js
 }
 
@@ -32,6 +41,7 @@ run_collector() {
 
 run_reader_worker() {
   cd /app/server/ &&
+    verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     exec node /app/server/reader-worker.js
@@ -39,6 +49,7 @@ run_reader_worker() {
 
 run_background_worker() {
   cd /app/server/ &&
+    verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     exec node /app/server/background-worker.js
@@ -46,6 +57,7 @@ run_background_worker() {
 
 run_realtime_gateway() {
   cd /app/server/ &&
+    verify_crypto_runtime &&
     export CHECKPOINT_DISABLE=1 &&
     node scripts/prisma-runtime.js generate &&
     exec node /app/server/realtime-gateway.js

@@ -22,6 +22,7 @@ import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClie
 import { hasStoredAuthUser } from "@/utils/authUserStorage";
 import {
   clearRouteAuthCache,
+  preserveRouteAuthOnTransient,
   readRouteAuthCache,
   resolveRouteAuthCache,
   routeAuthCacheKey,
@@ -32,6 +33,7 @@ const EMPTY_AUTH_STATE = {
   shouldRedirectToOnboarding: false,
   multiUserMode: false,
   authUnavailable: false,
+  reconnecting: false,
 };
 
 function currentRouteAuthCacheKey() {
@@ -47,6 +49,7 @@ function authResult({
   shouldRedirectToOnboarding = false,
   multiUserMode = false,
   authUnavailable = false,
+  reconnecting = false,
   mode = "unknown",
   success = null,
   cacheable = true,
@@ -56,6 +59,7 @@ function authResult({
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
     mode,
     success,
     cacheable,
@@ -70,10 +74,11 @@ async function validateRouteAuthState() {
     });
   }
 
-  const onboardingComplete = await System.isOnboardingComplete();
-  const settings = await System.keys();
+  const [onboardingComplete, settings] = await Promise.all([
+    System.isOnboardingComplete(),
+    System.keys(),
+  ]);
   if (!settings) {
-    clearRouteAuthCache();
     return authResult({
       isAuthd: false,
       authUnavailable: true,
@@ -119,6 +124,7 @@ async function validateRouteAuthState() {
       return authResult({
         isAuthd: true,
         multiUserMode: false,
+        reconnecting: true,
         mode: "single-password-transient",
         success: true,
         cacheable: false,
@@ -170,6 +176,7 @@ async function validateRouteAuthState() {
     return authResult({
       isAuthd: true,
       multiUserMode: true,
+      reconnecting: true,
       mode: "multi-transient",
       success: true,
       cacheable: false,
@@ -198,6 +205,7 @@ function toHookState(result = EMPTY_AUTH_STATE) {
     shouldRedirectToOnboarding: Boolean(result.shouldRedirectToOnboarding),
     multiUserMode: Boolean(result.multiUserMode),
     authUnavailable: Boolean(result.authUnavailable),
+    reconnecting: Boolean(result.reconnecting),
   };
 }
 
@@ -232,6 +240,51 @@ function useIsAuthenticated() {
 
   useEffect(() => {
     let cancelled = false;
+    let retryTimer = null;
+
+    const scheduleRetry = () => {
+      if (cancelled || retryTimer) return;
+      retryTimer = window.setTimeout(() => {
+        retryTimer = null;
+        void validate();
+      }, 3_000);
+    };
+
+    const validate = async () => {
+      try {
+        const result = await resolveRouteAuthCache(
+          cacheKey,
+          validateRouteAuthState
+        );
+        if (cancelled) return;
+        const preserved = preserveRouteAuthOnTransient(cacheKey, result);
+        setAuthState(toHookState(preserved));
+        markRouteAuthValidated(preserved);
+        if (preserved.reconnecting) scheduleRetry();
+      } catch {
+        if (cancelled) return;
+        const preserved = preserveRouteAuthOnTransient(
+          cacheKey,
+          authResult({
+            isAuthd: false,
+            authUnavailable: true,
+            mode: "auth-bootstrap-error",
+            success: false,
+            cacheable: false,
+          })
+        );
+        setAuthState(toHookState(preserved));
+        markRouteAuthValidated(preserved);
+        if (preserved.reconnecting) scheduleRetry();
+      }
+    };
+
+    const recoverNow = () => {
+      if (document.visibilityState !== "visible" || !navigator.onLine) return;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      retryTimer = null;
+      void validate();
+    };
 
     const cached = readRouteAuthCache(cacheKey);
     if (cached) {
@@ -241,34 +294,15 @@ function useIsAuthenticated() {
     }
 
     setAuthState(EMPTY_AUTH_STATE);
-    resolveRouteAuthCache(cacheKey, validateRouteAuthState)
-      .then((result) => {
-        if (cancelled) return;
-        setAuthState(toHookState(result));
-        markRouteAuthValidated(result);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        clearRouteAuthCache();
-        setAuthState(
-          toHookState(
-            authResult({
-              isAuthd: false,
-              authUnavailable: true,
-              mode: "auth-bootstrap-error",
-              success: false,
-              cacheable: false,
-            })
-          )
-        );
-        markRouteAuthValidated({
-          mode: "auth-bootstrap-error",
-          success: false,
-        });
-      });
+    void validate();
+    window.addEventListener("online", recoverNow);
+    document.addEventListener("visibilitychange", recoverNow);
 
     return () => {
       cancelled = true;
+      if (retryTimer) window.clearTimeout(retryTimer);
+      window.removeEventListener("online", recoverNow);
+      document.removeEventListener("visibilitychange", recoverNow);
     };
   }, [cacheKey]);
 
@@ -283,6 +317,7 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
   } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -293,7 +328,11 @@ export function AdminRoute({ Component, hideUserMenu = false }) {
 
   const user = userFromStorage();
   return isAuthd && (canSeeAdmin(user) || !multiUserMode) ? (
-    <RouteShell Component={Component} hideUserMenu={hideUserMenu} />
+    <RouteShell
+      Component={Component}
+      hideUserMenu={hideUserMenu}
+      reconnecting={reconnecting}
+    />
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -307,6 +346,7 @@ export function ManagerRoute({ Component }) {
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
   } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -317,7 +357,7 @@ export function ManagerRoute({ Component }) {
 
   const user = userFromStorage();
   return isAuthd && (canSeeAdmin(user) || !multiUserMode) ? (
-    <RouteShell Component={Component} />
+    <RouteShell Component={Component} reconnecting={reconnecting} />
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -329,6 +369,7 @@ export function DeveloperRoute({ Component }) {
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
   } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -339,7 +380,7 @@ export function DeveloperRoute({ Component }) {
 
   const user = userFromStorage();
   return isAuthd && (canSeeExperiment(user) || !multiUserMode) ? (
-    <RouteShell Component={Component} />
+    <RouteShell Component={Component} reconnecting={reconnecting} />
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -351,6 +392,7 @@ export function OwnerRoute({ Component }) {
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
   } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -361,7 +403,7 @@ export function OwnerRoute({ Component }) {
 
   const user = userFromStorage();
   return isAuthd && (canSeeOwnerSecurity(user) || !multiUserMode) ? (
-    <RouteShell Component={Component} />
+    <RouteShell Component={Component} reconnecting={reconnecting} />
   ) : (
     <Navigate to={paths.home()} />
   );
@@ -374,6 +416,7 @@ export function SingleUserRoute({ Component }) {
     shouldRedirectToOnboarding,
     multiUserMode,
     authUnavailable,
+    reconnecting,
   } = useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -385,6 +428,7 @@ export function SingleUserRoute({ Component }) {
   return isAuthd && !multiUserMode ? (
     <KeyboardShortcutWrapper>
       <Component />
+      {reconnecting ? <ConnectionRecoveryPill /> : null}
     </KeyboardShortcutWrapper>
   ) : (
     <Navigate to={paths.home()} />
@@ -392,7 +436,7 @@ export function SingleUserRoute({ Component }) {
 }
 
 export default function PrivateRoute({ Component }) {
-  const { isAuthd, shouldRedirectToOnboarding, authUnavailable } =
+  const { isAuthd, shouldRedirectToOnboarding, authUnavailable, reconnecting } =
     useIsAuthenticated();
   if (isAuthd === null) return <FullScreenLoader />;
   if (authUnavailable) return <AuthBootstrapError />;
@@ -402,18 +446,19 @@ export default function PrivateRoute({ Component }) {
   }
 
   return isAuthd ? (
-    <RouteShell Component={Component} />
+    <RouteShell Component={Component} reconnecting={reconnecting} />
   ) : (
     <Navigate to={paths.login(true)} />
   );
 }
 
-function RouteShell({ Component, hideUserMenu = false }) {
+function RouteShell({ Component, hideUserMenu = false, reconnecting = false }) {
   if (hideUserMenu) {
     return (
       <KeyboardShortcutWrapper>
         <UserActionActivityTracker />
         <Component />
+        {reconnecting ? <ConnectionRecoveryPill /> : null}
       </KeyboardShortcutWrapper>
     );
   }
@@ -423,7 +468,19 @@ function RouteShell({ Component, hideUserMenu = false }) {
       <UserMenu>
         <UserActionActivityTracker />
         <Component />
+        {reconnecting ? <ConnectionRecoveryPill /> : null}
       </UserMenu>
     </KeyboardShortcutWrapper>
+  );
+}
+
+function ConnectionRecoveryPill() {
+  return (
+    <div
+      role="status"
+      className="pointer-events-none fixed right-4 top-4 z-[200] rounded-full border border-amber-200/20 bg-zinc-950/80 px-4 py-2 text-xs font-semibold text-amber-100 shadow-xl backdrop-blur-xl"
+    >
+      正在重新连接服务…
+    </div>
   );
 }

@@ -68,6 +68,29 @@ const SecurityKeys = {
     return data;
   },
 
+  async approveRotation(jobId) {
+    const approvalId = globalThis.crypto?.randomUUID?.() || `${Date.now()}`;
+    const options = sensitiveOptions("approve-rotation");
+    const { data } = await postJson(
+      `/admin/security/keys/rotations/${encodeURIComponent(jobId)}/approve`,
+      { approvalId },
+      {
+        ...options,
+        headers: { ...options.headers, "Idempotency-Key": approvalId },
+      }
+    );
+    return data;
+  },
+
+  async executeRotation(jobId) {
+    const { data } = await postJson(
+      `/admin/security/keys/rotations/${encodeURIComponent(jobId)}/execute`,
+      {},
+      sensitiveOptions("execute-rotation")
+    );
+    return data;
+  },
+
   close() {
     return sensitiveSessionCenter.endViewer(target, "key-center-close");
   },

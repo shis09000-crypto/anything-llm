@@ -1,4 +1,5 @@
 /* eslint-env jest */
+const crypto = require("crypto");
 
 const mockLedger = [];
 const mockCheckpoints = [];
@@ -6,6 +7,9 @@ const mockKeyDescriptor = {
   keyId: "audit-test-key",
   material: Buffer.alloc(32, 7),
 };
+const mockKeyDescriptors = new Map([
+  [mockKeyDescriptor.keyId, mockKeyDescriptor],
+]);
 
 const mockLedgerApi = {
   findUnique: jest.fn(async ({ where }) =>
@@ -50,9 +54,22 @@ const mockCheckpointApi = {
   }),
   findMany: jest.fn(async ({ where }) =>
     mockCheckpoints
-      .filter((row) => row.chainId === where.chainId)
+      .filter(
+        (row) =>
+          (!where.chainId || row.chainId === where.chainId) &&
+          (!where.keyId || row.keyId === where.keyId)
+      )
       .sort((left, right) => left.throughSequence - right.throughSequence)
   ),
+  updateMany: jest.fn(async ({ where, data }) => {
+    const row = mockCheckpoints.find(
+      (checkpoint) =>
+        checkpoint.id === where.id && checkpoint.keyId === where.keyId
+    );
+    if (!row) return { count: 0 };
+    Object.assign(row, data);
+    return { count: 1 };
+  }),
 };
 
 jest.mock("../../utils/prisma", () => ({
@@ -68,9 +85,7 @@ jest.mock("../../utils/prisma", () => ({
 
 jest.mock("../../utils/security/keyCustody", () => ({
   resolveActiveKey: jest.fn(() => mockKeyDescriptor),
-  resolveKey: jest.fn((keyId) =>
-    keyId === mockKeyDescriptor.keyId ? mockKeyDescriptor : null
-  ),
+  resolveKey: jest.fn((keyId) => mockKeyDescriptors.get(keyId) || null),
 }));
 
 jest.mock("../../utils/environment", () => ({
@@ -79,7 +94,9 @@ jest.mock("../../utils/environment", () => ({
 
 const {
   appendSecurityAudit,
+  resignSecurityAuditCheckpoints,
   verifySecurityAudit,
+  _internals,
 } = require("../../utils/security/auditLedger");
 
 describe("security audit ledger", () => {
@@ -89,6 +106,8 @@ describe("security audit ledger", () => {
   beforeEach(() => {
     mockLedger.length = 0;
     mockCheckpoints.length = 0;
+    mockKeyDescriptors.clear();
+    mockKeyDescriptors.set(mockKeyDescriptor.keyId, mockKeyDescriptor);
     jest.clearAllMocks();
     process.env.ATHENA_SECURITY_AUDIT_CHECKPOINT_INTERVAL = "1";
   });
@@ -120,6 +139,26 @@ describe("security audit ledger", () => {
       failures: [],
     });
     expect(mockLedger[1].previousHash).toBe(mockLedger[0].entryHash);
+    expect(mockCheckpoints[0].algorithm).toBe("audit-ed25519-v1");
+    expect(mockCheckpoints[0]).toMatchObject({
+      parameterSet: "Ed25519",
+      keyOrigin: "hkdf-derived-from-key-custody",
+      hardwareProtection: "software-runtime-derived",
+    });
+    expect(JSON.parse(mockCheckpoints[0].signatureEnvelopeJson)).toMatchObject({
+      format: "athena-audit-signature-envelope:v1",
+      policy: { threshold: 1, pqRequired: false },
+      signatures: [
+        expect.objectContaining({
+          suiteId: "audit-ed25519-v1",
+          keyId: mockKeyDescriptor.keyId,
+          postQuantum: false,
+          parameterSet: "Ed25519",
+          keyOrigin: "hkdf-derived-from-key-custody",
+          hardwareProtection: "software-runtime-derived",
+        }),
+      ],
+    });
   });
 
   test("detects ledger content tampering", async () => {
@@ -138,6 +177,47 @@ describe("security audit ledger", () => {
     );
   });
 
+  test("verifies pre-classicalRequired signature envelopes without weakening policy", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-legacy-envelope",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const checkpoint = mockCheckpoints[0];
+    const envelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+    delete envelope.policy.classicalRequired;
+    const key = _internals.signingKey(checkpoint.keyId);
+    const data = Buffer.from(
+      _internals.ledgerCanonical(
+        _internals.checkpointSigningPayload({
+          chainId: checkpoint.chainId,
+          throughSequence: checkpoint.throughSequence,
+          throughHash: checkpoint.throughHash,
+          policy: envelope.policy,
+          legacyPolicyShape: true,
+        })
+      ),
+      "utf8"
+    );
+    const signature = crypto
+      .sign(null, data, key.privateKey)
+      .toString("base64");
+    envelope.signatures[0].signature = signature;
+    checkpoint.signature = signature;
+    checkpoint.signatureEnvelopeJson = JSON.stringify(envelope);
+
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: true,
+      failures: [],
+    });
+    expect(
+      _internals.parseCheckpointSignatureEnvelope(checkpoint)
+    ).toMatchObject({
+      legacyPolicyShape: true,
+      policy: { classicalRequired: true },
+    });
+  });
+
   test("rejects a checkpoint public key that is not anchored in key custody", async () => {
     await appendSecurityAudit({
       eventId: "audit-1",
@@ -151,5 +231,193 @@ describe("security audit ledger", () => {
     expect(result.failures).toContainEqual(
       expect.objectContaining({ code: "checkpoint_public_key_untrusted" })
     );
+  });
+
+  test("rejects an unregistered checkpoint suite", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-1",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    mockCheckpoints[0].algorithm = "audit-unknown-v9";
+
+    const result = await verifySecurityAudit({ pageSize: 50 });
+    expect(result.valid).toBe(false);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ code: "checkpoint_algorithm_mismatch" })
+    );
+  });
+
+  test("rejects tampered public-key assurance metadata", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-1",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const envelope = JSON.parse(mockCheckpoints[0].signatureEnvelopeJson);
+    envelope.signatures[0].hardwareProtection = "hardware-backed";
+    mockCheckpoints[0].hardwareProtection = "hardware-backed";
+    mockCheckpoints[0].signatureEnvelopeJson = JSON.stringify(envelope);
+
+    const result = await verifySecurityAudit({ pageSize: 50 });
+    expect(result.valid).toBe(false);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ code: "checkpoint_key_metadata_mismatch" })
+    );
+  });
+
+  test("rejects a signature envelope whose threshold cannot be satisfied", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-1",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const envelope = JSON.parse(mockCheckpoints[0].signatureEnvelopeJson);
+    envelope.policy.threshold = 2;
+    mockCheckpoints[0].signatureEnvelopeJson = JSON.stringify(envelope);
+
+    const result = await verifySecurityAudit({ pageSize: 50 });
+    expect(result.valid).toBe(false);
+    expect(result.failures).toContainEqual(
+      expect.objectContaining({ code: "checkpoint_unreadable" })
+    );
+  });
+
+  test("verifies a threshold-two envelope without requiring a PQ signature", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-1",
+      event: "session_revoked",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const secondDescriptor = {
+      keyId: "audit-test-key-2",
+      material: Buffer.alloc(32, 9),
+    };
+    mockKeyDescriptors.set(secondDescriptor.keyId, secondDescriptor);
+    const firstKey = _internals.signingKey(mockKeyDescriptor.keyId);
+    const secondKey = _internals.signingKey(secondDescriptor.keyId);
+    const policy = { threshold: 2, pqRequired: false };
+    const data = Buffer.from(
+      _internals.ledgerCanonical(
+        _internals.checkpointSigningPayload({
+          chainId: mockCheckpoints[0].chainId,
+          throughSequence: mockCheckpoints[0].throughSequence,
+          throughHash: mockCheckpoints[0].throughHash,
+          policy,
+        })
+      ),
+      "utf8"
+    );
+    const firstSignature = crypto
+      .sign(null, data, firstKey.privateKey)
+      .toString("base64");
+    const secondSignature = crypto
+      .sign(null, data, secondKey.privateKey)
+      .toString("base64");
+    const signatures = [
+      {
+        suiteId: "audit-ed25519-v1",
+        keyId: firstKey.keyId,
+        publicKey: firstKey.publicKey,
+        signature: firstSignature,
+        signedAt: mockCheckpoints[0].createdAt.toISOString(),
+        postQuantum: false,
+        parameterSet: firstKey.parameterSet,
+        keyOrigin: firstKey.keyOrigin,
+        hardwareProtection: firstKey.hardwareProtection,
+      },
+      {
+        suiteId: "audit-ed25519-v1",
+        keyId: secondKey.keyId,
+        publicKey: secondKey.publicKey,
+        signature: secondSignature,
+        signedAt: mockCheckpoints[0].createdAt.toISOString(),
+        postQuantum: false,
+        parameterSet: secondKey.parameterSet,
+        keyOrigin: secondKey.keyOrigin,
+        hardwareProtection: secondKey.hardwareProtection,
+      },
+    ];
+    Object.assign(mockCheckpoints[0], {
+      algorithm: signatures[0].suiteId,
+      keyId: signatures[0].keyId,
+      publicKey: signatures[0].publicKey,
+      signature: signatures[0].signature,
+      signatureEnvelopeJson: JSON.stringify({
+        format: "athena-audit-signature-envelope:v1",
+        policy,
+        signatures,
+      }),
+    });
+
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: true,
+      failures: [],
+    });
+  });
+
+  test("re-signs checkpoints before a platform key is retired", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-before-rotation",
+      event: "key_rotation_started",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const targetDescriptor = {
+      keyId: "audit-target-key",
+      material: Buffer.alloc(32, 11),
+    };
+    mockKeyDescriptors.set(targetDescriptor.keyId, targetDescriptor);
+
+    await expect(
+      resignSecurityAuditCheckpoints({
+        sourceKeyId: mockKeyDescriptor.keyId,
+        targetKeyId: targetDescriptor.keyId,
+        now: new Date("2026-07-19T00:01:00.000Z"),
+      })
+    ).resolves.toMatchObject({
+      migrated: 1,
+      verified: true,
+    });
+
+    const envelope = JSON.parse(mockCheckpoints[0].signatureEnvelopeJson);
+    expect(mockCheckpoints[0].keyId).toBe(targetDescriptor.keyId);
+    expect(envelope.signatures).toEqual([
+      expect.objectContaining({ keyId: targetDescriptor.keyId }),
+    ]);
+    expect(envelope.retiredSignatureHistory).toEqual([
+      expect.objectContaining({
+        format: "athena-audit-signature-migration:v1",
+        sourceKeyId: mockKeyDescriptor.keyId,
+        targetKeyId: targetDescriptor.keyId,
+      }),
+    ]);
+
+    mockKeyDescriptors.delete(mockKeyDescriptor.keyId);
+    await expect(verifySecurityAudit({ pageSize: 50 })).resolves.toMatchObject({
+      valid: true,
+      failures: [],
+    });
+  });
+
+  test("does not migrate checkpoints when the source ledger is invalid", async () => {
+    await appendSecurityAudit({
+      eventId: "audit-before-failed-rotation",
+      event: "key_rotation_started",
+      occurredAt: new Date("2026-07-19T00:00:00.000Z"),
+    });
+    const targetDescriptor = {
+      keyId: "audit-target-key",
+      material: Buffer.alloc(32, 11),
+    };
+    mockKeyDescriptors.set(targetDescriptor.keyId, targetDescriptor);
+    mockLedger[0].metadataJson = JSON.stringify({ tampered: true });
+
+    await expect(
+      resignSecurityAuditCheckpoints({
+        sourceKeyId: mockKeyDescriptor.keyId,
+        targetKeyId: targetDescriptor.keyId,
+      })
+    ).rejects.toThrow("security_audit_signature_migration_source_invalid");
+    expect(mockCheckpoints[0].keyId).toBe(mockKeyDescriptor.keyId);
   });
 });

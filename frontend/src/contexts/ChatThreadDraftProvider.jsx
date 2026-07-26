@@ -15,6 +15,7 @@ import {
   streamWorkspaceThreadChat,
 } from "@/lib/communication/chatStreamClient";
 import { respondToChatToolApproval } from "@/lib/communication/chatControlClient";
+import { recordChatStreamPaint } from "@/lib/communication/chatStreamObservability";
 import {
   AgentSessionState,
   canReuseAgentSessionForInvocation,
@@ -42,6 +43,11 @@ import {
 } from "@/utils/chat/persistedTurn";
 import { requestPriorityQueue } from "@/utils/chat/requestPriorityQueue";
 import { workspaceNavigationCache } from "@/utils/chat/workspaceNavigationCache";
+import {
+  applyChatStreamRevision,
+  chatStreamProjectionDelay,
+  createChatStreamAccumulator,
+} from "@/utils/chat/streamAccumulator";
 
 import {
   ChatThreadDraftContext,
@@ -115,6 +121,7 @@ export function ChatThreadDraftProvider({ children }) {
   const confirmPersistedRef = useRef(null);
   const settledTurnRefs = useRef({});
   const deltaFlushRefs = useRef({});
+  const draftPersistRefs = useRef({});
   const draftListenersRef = useRef(new Map());
   const activityListenersRef = useRef(new Map());
   const activityVersionRef = useRef(0);
@@ -267,6 +274,33 @@ export function ChatThreadDraftProvider({ children }) {
     [emitListeners]
   );
 
+  const flushScheduledDraftPersistence = useCallback((chatKey = null) => {
+    const keys = chatKey ? [chatKey] : Object.keys(draftPersistRefs.current);
+    keys.forEach((key) => {
+      const entry = draftPersistRefs.current[key];
+      if (!entry) return;
+      if (entry.timer) clearTimeout(entry.timer);
+      delete draftPersistRefs.current[key];
+      persistDraft(entry.draft);
+    });
+  }, []);
+
+  const scheduleDraftPersistence = useCallback(
+    (chatKey, draft) => {
+      const existing = draftPersistRefs.current[chatKey];
+      if (existing) {
+        existing.draft = draft;
+        return;
+      }
+      const entry = { draft, timer: null };
+      entry.timer = setTimeout(() => {
+        flushScheduledDraftPersistence(chatKey);
+      }, 750);
+      draftPersistRefs.current[chatKey] = entry;
+    },
+    [flushScheduledDraftPersistence]
+  );
+
   const updateDraft = useCallback(
     (chatKey, updater, options = {}) => {
       setDrafts((prev) => {
@@ -299,7 +333,17 @@ export function ChatThreadDraftProvider({ children }) {
           turnId: next.activeTurnId || current.activeTurnId || null,
           draft: next,
         });
-        persistDraft(next);
+        if (options.persist === false) {
+          scheduleDraftPersistence(chatKey, next);
+        } else {
+          const scheduled = draftPersistRefs.current[chatKey];
+          if (scheduled) {
+            scheduled.draft = next;
+            flushScheduledDraftPersistence(chatKey);
+          } else {
+            persistDraft(next);
+          }
+        }
         const nextDrafts = pruneDraftCollection(
           { ...prev, [chatKey]: next },
           activeChatKeyRef.current || chatKey
@@ -309,7 +353,12 @@ export function ChatThreadDraftProvider({ children }) {
         return nextDrafts;
       });
     },
-    [debugRuntime, emitListeners]
+    [
+      debugRuntime,
+      emitListeners,
+      flushScheduledDraftPersistence,
+      scheduleDraftPersistence,
+    ]
   );
 
   const markThreadRunning = useCallback(
@@ -723,56 +772,106 @@ export function ChatThreadDraftProvider({ children }) {
     [debugRuntime, updateDraft]
   );
 
-  const enqueueAssistantDelta = useCallback(
-    (chatKey, turnId, event = {}) => {
-      const key = `${chatKey}:${turnId}`;
-      const pending = deltaFlushRefs.current[key] || {
-        content: "",
-        sources: [],
-        metrics: null,
-        chatId: null,
-        publicChatId: null,
-        frame: null,
-      };
-      pending.content += event.content || "";
-      pending.sources =
-        event.sources?.length > 0 ? event.sources : pending.sources;
-      pending.metrics = event.metrics || pending.metrics;
-      pending.chatId = event.chatId || pending.chatId;
-      pending.publicChatId = event.publicChatId || pending.publicChatId;
-
-      if (!pending.frame) {
-        pending.frame = requestAnimationFrame(() => {
-          const nextPending = deltaFlushRefs.current[key];
-          delete deltaFlushRefs.current[key];
-          if (!nextPending) return;
-          updateDraft(chatKey, (draft) => {
-            const turn = canApplyTurnEvent(draft, turnId);
-            if (!turn || turn.status !== TURN_STATUSES.running) return draft;
-            return {
-              ...draft,
-              items: updateAssistantTurnInItems(draft.items, turnId, {
-                finalContent: `${turn.finalContent || ""}${nextPending.content}`,
-                sources:
-                  nextPending.sources?.length > 0
-                    ? nextPending.sources
-                    : turn.sources || [],
-                metrics: nextPending.metrics || turn.metrics || {},
-                chatId: nextPending.chatId || turn.chatId,
-                publicChatId: nextPending.publicChatId || turn.publicChatId,
-                status: TURN_STATUSES.running,
-              }),
-              isStreaming: true,
-              activeTurnId: turnId,
-            };
-          });
-        });
+  const flushAssistantDelta = useCallback(
+    (key, { allowHidden = false, persist = false } = {}) => {
+      const pending = deltaFlushRefs.current[key];
+      if (!pending) return;
+      if (!allowHidden && typeof document !== "undefined" && document.hidden) {
+        pending.timer = null;
+        return;
       }
-
-      deltaFlushRefs.current[key] = pending;
+      if (pending.timer) clearTimeout(pending.timer);
+      delete deltaFlushRefs.current[key];
+      updateDraft(
+        pending.chatKey,
+        (draft) => {
+          const turn = canApplyTurnEvent(draft, pending.turnId);
+          if (!turn || turn.status !== TURN_STATUSES.running) return draft;
+          return {
+            ...draft,
+            items: updateAssistantTurnInItems(draft.items, pending.turnId, {
+              finalContent: pending.content,
+              sources:
+                pending.sources?.length > 0
+                  ? pending.sources
+                  : turn.sources || [],
+              metrics: pending.metrics || turn.metrics || {},
+              chatId: pending.chatId || turn.chatId,
+              publicChatId: pending.publicChatId || turn.publicChatId,
+              status: TURN_STATUSES.running,
+            }),
+            isStreaming: true,
+            activeTurnId: pending.turnId,
+          };
+        },
+        { persist }
+      );
+      if (typeof document === "undefined" || document.hidden) return;
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() =>
+          recordChatStreamPaint(pending.turnId, pending.revision)
+        );
+      } else {
+        setTimeout(
+          () => recordChatStreamPaint(pending.turnId, pending.revision),
+          0
+        );
+      }
     },
     [updateDraft]
   );
+
+  const enqueueAssistantDelta = useCallback(
+    (chatKey, turnId, event = {}, { replace = false } = {}) => {
+      const key = `${chatKey}:${turnId}`;
+      const currentTurn = findAssistantTurn(
+        draftsRef.current[chatKey]?.items || [],
+        turnId
+      );
+      const pending =
+        deltaFlushRefs.current[key] ||
+        createChatStreamAccumulator({ chatKey, turnId, turn: currentTurn });
+      applyChatStreamRevision(pending, event, { replace });
+      deltaFlushRefs.current[key] = pending;
+
+      if (typeof document !== "undefined" && document.hidden) {
+        return;
+      }
+      if (pending.timer) return;
+      const isCompactViewport =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(max-width: 768px)")?.matches;
+      pending.timer = setTimeout(
+        () => flushAssistantDelta(key),
+        chatStreamProjectionDelay({ compact: isCompactViewport })
+      );
+    },
+    [flushAssistantDelta]
+  );
+
+  useEffect(() => {
+    const flushPending = ({ persist = false } = {}) => {
+      Object.keys(deltaFlushRefs.current).forEach((key) =>
+        flushAssistantDelta(key, { allowHidden: true, persist })
+      );
+      if (persist) flushScheduledDraftPersistence();
+    };
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        flushPending({ persist: true });
+        return;
+      }
+      flushPending();
+    };
+    const onPageHide = () => flushPending({ persist: true });
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("pagehide", onPageHide);
+      flushPending({ persist: true });
+    };
+  }, [flushAssistantDelta, flushScheduledDraftPersistence]);
 
   const appendTimelineEvent = useCallback(
     (chatKey, turnId, rawEvent) => {
@@ -836,7 +935,7 @@ export function ChatThreadDraftProvider({ children }) {
           findAssistantTurn(current.items || [], turnId) || turn;
         const pendingKey = `${chatKey}:${turnId}`;
         const pendingDelta = deltaFlushRefs.current[pendingKey];
-        if (pendingDelta?.frame) cancelAnimationFrame(pendingDelta.frame);
+        if (pendingDelta?.timer) clearTimeout(pendingDelta.timer);
         delete deltaFlushRefs.current[pendingKey];
         const patchHasFinalContent =
           (typeof patch.finalContent === "string" &&
@@ -846,7 +945,7 @@ export function ChatThreadDraftProvider({ children }) {
           pendingDelta?.content && !patchHasFinalContent
             ? {
                 ...patch,
-                finalContent: `${currentTurn.finalContent || ""}${pendingDelta.content}`,
+                finalContent: pendingDelta.content,
                 sources:
                   pendingDelta.sources?.length > 0
                     ? pendingDelta.sources
@@ -930,10 +1029,15 @@ export function ChatThreadDraftProvider({ children }) {
       threadSlug = null,
       reason = "latest-history-refresh",
       limit = LATEST_HISTORY_REFRESH_LIMIT,
+      priority = "P3",
+      policy = "prefetch",
+      deadlineMs = null,
     } = {}) => {
-      if (!chatKey || !workspaceSlug) return false;
+      const resolvedChatKey =
+        chatKey || getChatThreadKey(workspaceSlug, threadSlug);
+      if (!resolvedChatKey || !workspaceSlug) return false;
       debugRuntime("mergeLatestPersistedHistory:before", {
-        chatKey,
+        chatKey: resolvedChatKey,
         turnId,
         workspaceSlug,
         threadSlug,
@@ -958,7 +1062,7 @@ export function ChatThreadDraftProvider({ children }) {
                   signal,
                 }),
           {
-            priority: "P3",
+            priority,
             label: "chat:stream-refresh-fallback",
             kind: "chat",
             scope: {
@@ -968,8 +1072,9 @@ export function ChatThreadDraftProvider({ children }) {
               turnId,
               reason,
             },
-            policy: "prefetch",
-            dedupeKey: `chat:stream-refresh:${chatKey}:${reason}`,
+            policy,
+            deadlineMs,
+            dedupeKey: `chat:stream-refresh:${resolvedChatKey}:${reason}`,
           }
         );
         if (!result) return false;
@@ -984,7 +1089,7 @@ export function ChatThreadDraftProvider({ children }) {
         }
 
         updateDraft(
-          chatKey,
+          resolvedChatKey,
           (current) => {
             const restoredCurrent = restoreDraftFromRunningActivity(
               current,
@@ -1017,7 +1122,7 @@ export function ChatThreadDraftProvider({ children }) {
               },
             };
             debugRuntime("mergeLatestPersistedHistory:after", {
-              chatKey,
+              chatKey: resolvedChatKey,
               turnId,
               reason,
               historyLength: history.length,
@@ -1034,7 +1139,7 @@ export function ChatThreadDraftProvider({ children }) {
         return true;
       } catch (error) {
         debugRuntime("mergeLatestPersistedHistory:error", {
-          chatKey,
+          chatKey: resolvedChatKey,
           turnId,
           reason,
           error: error.message,
@@ -1062,8 +1167,27 @@ export function ChatThreadDraftProvider({ children }) {
       });
       const settledStatus =
         settledTurnRefs.current[turnRefKey(chatKey, turnId)] || null;
+      const activeAgentTurnId =
+        agentSessionRefs.current[chatKey]?.getState?.()?.turnId || null;
+      const reviveSettledAgentTurn =
+        !!settledStatus && activeAgentTurnId === turnId;
+      if (reviveSettledAgentTurn) {
+        delete settledTurnRefs.current[turnRefKey(chatKey, turnId)];
+        updateDraft(chatKey, (draft) => ({
+          ...draft,
+          items: updateAssistantTurnInItems(draft.items, turnId, {
+            status: TURN_STATUSES.running,
+            error: null,
+          }),
+          activeTurnId: turnId,
+          isStreaming: false,
+          isAgentRunning: true,
+          persistError: null,
+        }));
+      }
       if (
         settledStatus &&
+        !reviveSettledAgentTurn &&
         !["assistant_final", "assistant_patch"].includes(event.type)
       ) {
         debugRuntime("applyTurnEvent:ignored", {
@@ -1083,7 +1207,41 @@ export function ChatThreadDraftProvider({ children }) {
         });
         return null;
       }
-      if (event.type === "agent_socket_start") return event;
+      if (event.type === "agent_socket_start") {
+        updateDraft(chatKey, (draft) => {
+          const turn = canApplyTurnEvent(draft, turnId);
+          if (!turn || turn.status !== TURN_STATUSES.running) return draft;
+          return {
+            ...draft,
+            items: updateAssistantTurnInItems(draft.items, turnId, {
+              websocketUUID: event.websocketUUID,
+              status: TURN_STATUSES.running,
+            }),
+            activeTurnId: turnId,
+            isStreaming: false,
+            isAgentRunning: true,
+          };
+        });
+        return event;
+      }
+
+      if (event.type === "connection_status") {
+        updateDraft(
+          chatKey,
+          (draft) => {
+            const turn = canApplyTurnEvent(draft, turnId);
+            if (!turn || turn.status !== TURN_STATUSES.running) return draft;
+            return {
+              ...draft,
+              items: updateAssistantTurnInItems(draft.items, turnId, {
+                streamConnectionState: event.state,
+              }),
+            };
+          },
+          { persist: false }
+        );
+        return event;
+      }
 
       if (event.type === "timeline_event") {
         const turn = canApplyTurnEvent(draftsRef.current[chatKey], turnId);
@@ -1122,7 +1280,24 @@ export function ChatThreadDraftProvider({ children }) {
           return null;
         }
         enqueueAssistantDelta(chatKey, turnId, event);
-        markThreadRunning(chatKey, turnId);
+        return event;
+      }
+
+      if (event.type === "assistant_snapshot") {
+        const currentTurn = canApplyTurnEvent(
+          draftsRef.current[chatKey],
+          turnId
+        );
+        if (!currentTurn || currentTurn.status !== TURN_STATUSES.running) {
+          debugRuntime("applyTurnEvent:ignored", {
+            chatKey,
+            turnId,
+            eventType: event.type,
+            reason: currentTurn ? "target-not-running" : "missing-target-turn",
+          });
+          return null;
+        }
+        enqueueAssistantDelta(chatKey, turnId, event, { replace: true });
         return event;
       }
 
@@ -1201,6 +1376,7 @@ export function ChatThreadDraftProvider({ children }) {
           sources:
             event.sources?.length > 0 ? event.sources : turn?.sources || [],
           metrics: event.metrics || turn?.metrics || {},
+          streamConnectionState: null,
         };
         if (event.content && event.content.length > 0) {
           completionPatch.finalContent = event.content;
@@ -1266,7 +1442,6 @@ export function ChatThreadDraftProvider({ children }) {
       debugRuntime,
       enqueueAssistantDelta,
       failAssistantTurn,
-      markThreadRunning,
       updateDraft,
     ]
   );
@@ -2339,6 +2514,7 @@ export function ChatThreadDraftProvider({ children }) {
           ? streamWorkspaceThreadChat
           : streamWorkspaceChat;
         let streamTask = null;
+        let agentSocketStarted = false;
         streamTask = requestPriorityQueue.handle(
           () =>
             streamChat({
@@ -2402,6 +2578,7 @@ export function ChatThreadDraftProvider({ children }) {
                   }
                 }
                 if (applied?.type === "agent_socket_start") {
+                  agentSocketStarted = true;
                   openAgentSocket(chatKey, turnId, applied.websocketUUID, {
                     workspaceSlug,
                     threadSlug,
@@ -2433,28 +2610,40 @@ export function ChatThreadDraftProvider({ children }) {
             dedupeKey: `chat:stream:${chatKey}:${turnId}`,
           }
         );
-        await streamTask.promise;
-        setTimeout(() => {
-          void (async () => {
-            if (completedChatId) {
-              const hydrated = await confirmPersisted(
+        const runtimeHeartbeat = window.setInterval(() => {
+          markThreadRunning(chatKey, turnId, {
+            ...runningSnapshot,
+            acceptedByServer: true,
+          });
+        }, 30_000);
+        try {
+          await streamTask.promise;
+        } finally {
+          window.clearInterval(runtimeHeartbeat);
+        }
+        if (!agentSocketStarted) {
+          setTimeout(() => {
+            void (async () => {
+              if (completedChatId) {
+                const hydrated = await confirmPersisted(
+                  chatKey,
+                  turnId,
+                  completedChatId
+                );
+                if (hydrated !== false) return;
+              }
+              mergeLatestPersistedHistory({
                 chatKey,
                 turnId,
-                completedChatId
-              );
-              if (hydrated !== false) return;
-            }
-            mergeLatestPersistedHistory({
-              chatKey,
-              turnId,
-              workspaceSlug,
-              threadSlug,
-              reason: completedChatId
-                ? "stream-complete-refresh-fallback"
-                : "stream-missing-chat-id",
-            });
-          })();
-        }, 500);
+                workspaceSlug,
+                threadSlug,
+                reason: completedChatId
+                  ? "stream-complete-refresh-fallback"
+                  : "stream-missing-chat-id",
+              });
+            })();
+          }, 500);
+        }
         if (threadSlug) {
           [1_000, 3_000, 7_000, 15_000].forEach((delay) => {
             setTimeout(() => {
@@ -2469,6 +2658,7 @@ export function ChatThreadDraftProvider({ children }) {
           chatKey,
           turnId,
           completedChatId,
+          agentSocketStarted,
         });
         return {
           ok: true,
@@ -2688,6 +2878,8 @@ export function ChatThreadDraftProvider({ children }) {
       updateDraft(
         chatKey,
         (draft) => {
+          const activeAgentTurnId =
+            agentSessionRefs.current[chatKey]?.getState?.()?.turnId || null;
           const restoredDraft = restoreDraftFromRunningActivity(
             draft,
             runningStateRef.current.threadActivityByKey?.[chatKey] || null
@@ -2702,6 +2894,20 @@ export function ChatThreadDraftProvider({ children }) {
               preserveTurnIds: [
                 restoredDraft.activeTurnId,
                 ...preserveTurnIds,
+              ].filter(Boolean),
+              preserveRunningTurnIds: [
+                activeAgentTurnId,
+                restoredDraft.isAgentRunning
+                  ? restoredDraft.activeTurnId
+                  : null,
+                ...restoredDraft.items
+                  .filter(
+                    (item) =>
+                      item.type === "assistant_turn" &&
+                      item.status === TURN_STATUSES.running &&
+                      item.websocketUUID
+                  )
+                  .map((item) => item.turnId),
               ].filter(Boolean),
             }
           );

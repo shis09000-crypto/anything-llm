@@ -72,9 +72,7 @@ describe("DeepSeekLLM", () => {
       messages: [{ role: "user", content: "classify" }],
       temperature: 0.1,
       max_tokens: 65_536,
-      extra_body: {
-        thinking: { type: "disabled" },
-      },
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
     });
   });
@@ -90,10 +88,8 @@ describe("DeepSeekLLM", () => {
       model: "deepseek-v4-flash",
       messages: [{ role: "user", content: "remembered" }],
       max_tokens: 65_536,
-      extra_body: {
-        thinking: { type: "enabled" },
-        reasoning_effort: "high",
-      },
+      thinking: { type: "enabled" },
+      reasoning_effort: "high",
     });
   });
 
@@ -127,6 +123,20 @@ describe("DeepSeekLLM", () => {
   it("uses the official DeepSeek V4 context window", () => {
     expect(DeepSeekLLM.promptWindowLimit("deepseek-v4-flash")).toBe(1_000_000);
     expect(DeepSeekLLM.promptWindowLimit("deepseek-v4-pro")).toBe(1_000_000);
+  });
+
+  it("does not reject official chat models when model discovery is unavailable", async () => {
+    mockModelsList.mockRejectedValueOnce(
+      new Error("temporary discovery error")
+    );
+    const llm = new DeepSeekLLM(null, "deepseek-v4-flash");
+
+    await expect(
+      llm.getChatCompletion([{ role: "user", content: "classify" }])
+    ).resolves.toEqual(
+      expect.objectContaining({ textResponse: '{"ok":true}' })
+    );
+    expect(mockModelsList).not.toHaveBeenCalled();
   });
 
   it("opts into cache-stable history and emits redacted cache diagnostics", () => {
@@ -166,6 +176,37 @@ describe("DeepSeekLLM", () => {
     );
     expect(JSON.stringify(diagnostics)).not.toContain("secret history");
     expect(JSON.stringify(diagnostics)).not.toContain("current question");
+  });
+
+  it("keeps invalid compaction timestamps out of cache diagnostics", () => {
+    expect(() =>
+      deepSeekPromptCacheDiagnostics({
+        provider: "DeepSeekLLM",
+        model: "deepseek-v4-pro",
+        providerPath: "agent",
+        messages: [{ role: "user", content: "do not leak" }],
+        compaction: {
+          id: 7,
+          created_at: "not-a-date",
+          updated_at: Number.NaN,
+        },
+      })
+    ).not.toThrow();
+
+    const diagnostics = deepSeekPromptCacheDiagnostics({
+      provider: "DeepSeekLLM",
+      model: "deepseek-v4-pro",
+      providerPath: "agent",
+      messages: [{ role: "user", content: "do not leak" }],
+      compaction: {
+        id: 7,
+        created_at: "not-a-date",
+        updated_at: Number.NaN,
+      },
+    });
+
+    expect(diagnostics.compactionFingerprint).toEqual(expect.any(String));
+    expect(JSON.stringify(diagnostics)).not.toContain("do not leak");
   });
 
   it("keeps dynamic context out of the stable system and history prefix", () => {
@@ -286,9 +327,7 @@ describe("DeepSeekLLM", () => {
         model: "deepseek-v4-flash",
         stream: true,
         max_tokens: 65_536,
-        extra_body: {
-          thinking: { type: "disabled" },
-        },
+        thinking: { type: "disabled" },
         stream_options: {
           include_usage: true,
         },
@@ -339,10 +378,8 @@ describe("DeepSeekLLM", () => {
     expect(mockCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         max_tokens: 65_536,
-        extra_body: {
-          thinking: { type: "enabled" },
-          reasoning_effort: "high",
-        },
+        thinking: { type: "enabled" },
+        reasoning_effort: "high",
       })
     );
     expect(mockCreate.mock.calls.at(-1)[0]).not.toHaveProperty("temperature");

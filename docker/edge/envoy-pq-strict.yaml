@@ -1,0 +1,62 @@
+static_resources:
+  listeners:
+    - name: athena_edge_pq_strict_https
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8443 }
+      filter_chains:
+        - transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                  tls_maximum_protocol_version: TLSv1_3
+                  ecdh_curves:
+                    - X25519MLKEM768
+                tls_certificates:
+                  - certificate_chain:
+                      filename: /run/secrets/athena_edge_tls_cert.pem
+                    private_key:
+                      filename: /run/secrets/athena_edge_tls_key.pem
+              require_client_certificate: false
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: athena_edge_pq_strict
+                use_remote_address: true
+                normalize_path: true
+                merge_slashes: true
+                route_config:
+                  name: athena_routes
+                  virtual_hosts:
+                    - name: athena
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/" }
+                          route:
+                            cluster: athena_web
+                            timeout: 3600s
+                http_filters:
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: athena_web
+      connect_timeout: 5s
+      type: STRICT_DNS
+      load_assignment:
+        cluster_name: athena_web
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: anything-llm-web
+                      port_value: 8080
+
+admin:
+  access_log_path: /tmp/envoy-admin.log
+  address:
+    socket_address: { address: 127.0.0.1, port_value: 9901 }

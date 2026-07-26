@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import * as apiError from "./apiError.js";
+import * as cryptoSuites from "./cryptoSuiteRegistry.js";
 
 const signingClientUrl = new URL("./requestSigningClient.js", import.meta.url);
 const routeCasesUrl = new URL(
@@ -26,6 +27,7 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
     Authorization: "Bearer test-token",
   });
   globalThis.__signingTestApiError = apiError;
+  globalThis.__signingTestCryptoSuites = cryptoSuites;
   globalThis.__signingTestIdentity = {
     ATHENA_CLIENT_ID_HEADER: "X-Athena-Client-Id",
     ATHENA_REQUEST_ID_HEADER: "X-Athena-Request-Id",
@@ -92,6 +94,15 @@ async function loadSigningClient({ dev = false, prod = false } = {}) {
     .replace(
       'import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";',
       "const { runScheduledTaskRequest } = globalThis.__signingTestTaskRequestMetadata;"
+    )
+    .replace(
+      /import\s+\{[\s\S]*?\}\s+from\s+"\.\/cryptoSuiteRegistry";/,
+      `const {
+        CRYPTO_SUITE_IDS,
+        CRYPTO_SUITE_PURPOSES,
+        cryptoSuite,
+        preferredCryptoSuite,
+      } = globalThis.__signingTestCryptoSuites;`
     )
     .replaceAll("import.meta.env.PROD", JSON.stringify(prod))
     .replaceAll("import.meta.env.DEV", JSON.stringify(dev));

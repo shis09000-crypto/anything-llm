@@ -1,4 +1,5 @@
 const client = require("prom-client");
+const fs = require("fs");
 
 const registry = new client.Registry();
 registry.setDefaultLabels({
@@ -90,10 +91,142 @@ const securityAuditArchiveHealthy = new client.Gauge({
   help: "Whether immutable archive and SIEM delivery last completed successfully.",
   registers: [registry],
 });
+const deviceAttestationOperations = new client.Counter({
+  name: "athena_device_attestation_operations_total",
+  help: "Device attestation challenge and verification outcomes.",
+  labelNames: ["operation", "outcome", "provider"],
+  registers: [registry],
+});
+const keyRotationOperations = new client.Counter({
+  name: "athena_key_rotation_operations_total",
+  help: "Key rotation maker-checker and execution outcomes.",
+  labelNames: ["operation", "outcome"],
+  registers: [registry],
+});
+const decryptOnlyKeyReads = new client.Counter({
+  name: "athena_decrypt_only_key_reads_total",
+  help: "Successful reads served by legacy decrypt-only data keys.",
+  labelNames: ["key_id", "domain", "runtime_role"],
+  registers: [registry],
+});
+const cryptoSuiteOperations = new client.Counter({
+  name: "athena_crypto_suite_operations_total",
+  help: "Cryptographic operations by registered suite and purpose.",
+  labelNames: ["purpose", "suite", "operation", "outcome"],
+  registers: [registry],
+});
+const cryptoSignatureVerificationDuration = new client.Histogram({
+  name: "athena_crypto_signature_verification_duration_seconds",
+  help: "Classical and post-quantum signature verification duration.",
+  labelNames: ["family", "suite", "outcome"],
+  buckets: [
+    0.0001, 0.00025, 0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
+    0.5, 1,
+  ],
+  registers: [registry],
+});
+const cryptoVerificationFailures = new client.Counter({
+  name: "athena_crypto_verification_failures_total",
+  help: "Cryptographic verification failures grouped by bounded reason.",
+  labelNames: ["reason", "family"],
+  registers: [registry],
+});
+const cryptoTlsNegotiations = new client.Counter({
+  name: "athena_crypto_tls_negotiations_total",
+  help: "Observed hybrid and classical TLS negotiation outcomes.",
+  labelNames: ["channel", "outcome"],
+  registers: [registry],
+});
+const cryptoTlsHandshakeDuration = new client.Histogram({
+  name: "athena_crypto_tls_handshake_duration_seconds",
+  help: "Observed edge TLS handshake duration for bounded rollout cohorts.",
+  labelNames: ["cohort", "outcome"],
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15],
+  registers: [registry],
+});
+const cryptoTlsTtfbDuration = new client.Histogram({
+  name: "athena_crypto_tls_ttfb_duration_seconds",
+  help: "Observed edge TLS time to first byte for bounded rollout cohorts.",
+  labelNames: ["cohort", "outcome"],
+  buckets: [0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 15],
+  registers: [registry],
+});
+const cryptoTlsClientCompatibility = new client.Counter({
+  name: "athena_crypto_tls_client_compatibility_total",
+  help: "Bounded client compatibility outcomes for hybrid edge TLS.",
+  labelNames: ["client_class", "outcome", "reason"],
+  registers: [registry],
+});
+const cryptoTlsEdgeCpuUtilization = new client.Gauge({
+  name: "athena_crypto_tls_edge_cpu_utilization_ratio",
+  help: "Provider-reported edge CPU utilization for a rollout cohort.",
+  labelNames: ["cohort"],
+  registers: [registry],
+});
+const cryptoTlsRolloutPercent = new client.Gauge({
+  name: "athena_crypto_tls_rollout_percent",
+  help: "Desired strict hybrid TLS cohort percentage owned by the edge.",
+  registers: [registry],
+});
+const cryptoVaultKemOperations = new client.Counter({
+  name: "athena_crypto_vault_kem_operations_total",
+  help: "Vault hybrid KEM lifecycle and client unseal outcomes.",
+  labelNames: ["operation", "outcome"],
+  registers: [registry],
+});
+const cryptoCertificateRemaining = new client.Gauge({
+  name: "athena_crypto_certificate_remaining_seconds",
+  help: "Remaining validity of workload identity certificates.",
+  labelNames: ["role", "slot"],
+  registers: [registry],
+});
+const cryptoDeviceEpochConflicts = new client.Counter({
+  name: "athena_crypto_device_epoch_conflicts_total",
+  help: "Rejected device key epochs grouped by bounded conflict kind.",
+  labelNames: ["kind"],
+  registers: [registry],
+});
+const cryptoRuntimePqCapability = new client.Gauge({
+  name: "athena_crypto_runtime_pq_capability",
+  help: "Current Node runtime post-quantum capability availability.",
+  labelNames: ["capability"],
+  registers: [registry],
+});
+const cryptoRuntimePqCapabilityExpected = new client.Gauge({
+  name: "athena_crypto_runtime_pq_capability_expected",
+  help: "Policy baseline for Node runtime post-quantum capabilities.",
+  labelNames: ["capability"],
+  registers: [registry],
+});
+const cryptoRuntimePqCapabilityDrift = new client.Gauge({
+  name: "athena_crypto_runtime_pq_capability_drift",
+  help: "Whether a Node runtime post-quantum capability differs from policy.",
+  labelNames: ["capability"],
+  registers: [registry],
+});
 const pluginPolicyDecisions = new client.Counter({
   name: "athena_plugin_policy_decisions_total",
   help: "Plugin and scheduled tool capability decisions.",
   labelNames: ["kind", "decision"],
+  registers: [registry],
+});
+const cryptoAccountReads = new client.Counter({
+  name: "athena_crypto_account_reads_total",
+  help: "Private crypto account reads grouped by bounded function and outcome.",
+  labelNames: ["function", "outcome"],
+  registers: [registry],
+});
+const cryptoAccountApprovals = new client.Counter({
+  name: "athena_crypto_account_approvals_total",
+  help: "Private crypto account approval outcomes.",
+  labelNames: ["outcome"],
+  registers: [registry],
+});
+const cryptoAccountReadDuration = new client.Histogram({
+  name: "athena_crypto_account_read_duration_seconds",
+  help: "Private crypto account read latency grouped by bounded function and outcome.",
+  labelNames: ["function", "outcome"],
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
   registers: [registry],
 });
 const runtimeShutdowns = new client.Counter({
@@ -156,6 +289,245 @@ const aiCostMicros = new client.Counter({
   labelNames: ["provider"],
   registers: [registry],
 });
+const semanticEvents = new client.Counter({
+  name: "athena_semantic_events_total",
+  help: "Semantic Event v1 records emitted by category and severity.",
+  labelNames: ["category", "severity"],
+  registers: [registry],
+});
+const operationsEvents = new client.Counter({
+  name: "athena_operations_events_total",
+  help: "AI Operations Plane event lifecycle outcomes.",
+  labelNames: ["stage", "outcome"],
+  registers: [registry],
+});
+const operationsRetryQueue = new client.Gauge({
+  name: "athena_operations_retry_queue",
+  help: "Semantic events waiting for Operations Plane delivery.",
+  registers: [registry],
+});
+const operationsConsumerLag = new client.Gauge({
+  name: "athena_operations_consumer_lag",
+  help: "Pending Operations JetStream events for the ClickHouse consumer.",
+  registers: [registry],
+});
+const operationsConsumerStreamSequence = new client.Gauge({
+  name: "athena_operations_consumer_stream_sequence",
+  help: "Latest stream sequence delivered to the Operations consumer.",
+  registers: [registry],
+});
+const operationsConsumerAckFloor = new client.Gauge({
+  name: "athena_operations_consumer_ack_floor_stream_sequence",
+  help: "Latest stream sequence acknowledged by the Operations consumer.",
+  registers: [registry],
+});
+const operationsConsumerAckPending = new client.Gauge({
+  name: "athena_operations_consumer_ack_pending",
+  help: "Operations consumer messages delivered but not yet acknowledged.",
+  registers: [registry],
+});
+const operationsConsumerRedeliveries = new client.Gauge({
+  name: "athena_operations_consumer_redeliveries",
+  help: "Operations consumer messages currently marked as redelivered.",
+  registers: [registry],
+});
+const operationsClickHouseLastSuccess = new client.Gauge({
+  name: "athena_operations_clickhouse_last_success_timestamp_seconds",
+  help: "Unix timestamp of the latest successful ClickHouse event batch.",
+  registers: [registry],
+});
+const operationsClickHouseBatchSize = new client.Histogram({
+  name: "athena_operations_clickhouse_batch_size",
+  help: "Number of semantic events in a ClickHouse insert batch.",
+  buckets: [1, 4, 16, 32, 64, 128, 256],
+  registers: [registry],
+});
+const operationsClickHouseWriteDuration = new client.Histogram({
+  name: "athena_operations_clickhouse_write_duration_seconds",
+  help: "Duration of confirmed ClickHouse semantic event batch writes.",
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+  registers: [registry],
+});
+const operationsCircuitBreakerOpen = new client.Gauge({
+  name: "athena_operations_clickhouse_circuit_breaker_open",
+  help: "Whether the Operations ClickHouse consumer circuit is open.",
+  registers: [registry],
+});
+const operationsConsecutiveFailures = new client.Gauge({
+  name: "athena_operations_clickhouse_consecutive_failures",
+  help: "Consecutive failed Operations ClickHouse batch attempts.",
+  registers: [registry],
+});
+const operationsDlqEvents = new client.Counter({
+  name: "athena_operations_dlq_events_total",
+  help: "Permanently invalid Operations messages persisted to the DLQ.",
+  labelNames: ["reason"],
+  registers: [registry],
+});
+const operationsDlqMessages = new client.Gauge({
+  name: "athena_operations_dlq_messages",
+  help: "Current number of retained Operations DLQ messages.",
+  registers: [registry],
+});
+const operationsShadowAgentRuns = new client.Counter({
+  name: "athena_operations_shadow_agent_runs_total",
+  help: "Read-only Operations Agent shadow evaluation and scan outcomes.",
+  labelNames: ["agent", "outcome"],
+  registers: [registry],
+});
+const operationsShadowFindings = new client.Counter({
+  name: "athena_operations_shadow_findings_total",
+  help: "Advisory-only findings produced by Operations Agents in shadow mode.",
+  labelNames: ["agent", "severity"],
+  registers: [registry],
+});
+const operationsShadowEvaluation = new client.Gauge({
+  name: "athena_operations_shadow_evaluation",
+  help: "Versioned incident-corpus evaluation scores for shadow Operations Agents.",
+  labelNames: ["metric", "agent"],
+  registers: [registry],
+});
+const operationsActionStages = new client.Counter({
+  name: "athena_operations_action_stages_total",
+  help: "Controlled Operations Action lifecycle stages and outcomes.",
+  labelNames: ["action", "stage", "outcome"],
+  registers: [registry],
+});
+const operationsActionDuration = new client.Histogram({
+  name: "athena_operations_action_duration_seconds",
+  help: "End-to-end duration of approved controlled Operations Actions.",
+  labelNames: ["action", "outcome"],
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 900],
+  registers: [registry],
+});
+const operationsActionRollbacks = new client.Counter({
+  name: "athena_operations_action_rollbacks_total",
+  help: "Automatic rollback outcomes for controlled Operations Actions.",
+  labelNames: ["action", "outcome"],
+  registers: [registry],
+});
+const operationCorrelation = new client.Counter({
+  name: "athena_operation_context_total",
+  help: "Instrumented operations partitioned by correlation coverage.",
+  labelNames: ["component", "journey", "coverage"],
+  registers: [registry],
+});
+const dataAccessOperations = new client.Counter({
+  name: "athena_data_access_operations_total",
+  help: "DataAccessCenter operation outcomes.",
+  labelNames: ["domain", "access_type", "outcome"],
+  registers: [registry],
+});
+const dataAccessDuration = new client.Histogram({
+  name: "athena_data_access_duration_seconds",
+  help: "DataAccessCenter operation duration in seconds.",
+  labelNames: ["domain", "access_type", "outcome"],
+  buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+  registers: [registry],
+});
+const databaseOperations = new client.Counter({
+  name: "athena_database_operations_total",
+  help: "Prisma database operation outcomes.",
+  labelNames: ["system", "operation", "outcome"],
+  registers: [registry],
+});
+const databaseDuration = new client.Histogram({
+  name: "athena_database_operation_duration_seconds",
+  help: "Prisma database operation duration in seconds.",
+  labelNames: ["system", "operation", "outcome"],
+  buckets: [0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5],
+  registers: [registry],
+});
+const modelOperations = new client.Counter({
+  name: "athena_model_operations_total",
+  help: "LLM and Agent model invocation outcomes.",
+  labelNames: ["task", "provider", "outcome"],
+  registers: [registry],
+});
+const modelDuration = new client.Histogram({
+  name: "athena_model_operation_duration_seconds",
+  help: "LLM and Agent model invocation duration in seconds.",
+  labelNames: ["task", "provider", "outcome"],
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120, 300],
+  registers: [registry],
+});
+const ragOperations = new client.Counter({
+  name: "athena_rag_operations_total",
+  help: "RAG retrieval and index operation outcomes.",
+  labelNames: ["operation", "backend", "outcome"],
+  registers: [registry],
+});
+const ragDuration = new client.Histogram({
+  name: "athena_rag_operation_duration_seconds",
+  help: "RAG retrieval and index operation duration in seconds.",
+  labelNames: ["operation", "backend", "outcome"],
+  buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60],
+  registers: [registry],
+});
+const agentToolOperations = new client.Counter({
+  name: "athena_agent_tool_operations_total",
+  help: "Agent tool execution outcomes.",
+  labelNames: ["tool", "outcome"],
+  registers: [registry],
+});
+const agentToolDuration = new client.Histogram({
+  name: "athena_agent_tool_duration_seconds",
+  help: "Agent tool execution duration in seconds.",
+  labelNames: ["tool", "outcome"],
+  buckets: [
+    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300,
+  ],
+  registers: [registry],
+});
+const goldenJourneyOperations = new client.Counter({
+  name: "athena_golden_journey_operations_total",
+  help: "Golden journey completion outcomes.",
+  labelNames: ["journey", "outcome"],
+  registers: [registry],
+});
+const goldenJourneyDuration = new client.Histogram({
+  name: "athena_golden_journey_duration_seconds",
+  help: "Golden journey end-to-end duration in seconds.",
+  labelNames: ["journey", "outcome"],
+  buckets: [
+    0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600,
+  ],
+  registers: [registry],
+});
+const goldenJourneyMilestones = new client.Histogram({
+  name: "athena_golden_journey_milestone_seconds",
+  help: "Time from journey start to a named user-visible milestone.",
+  labelNames: ["journey", "milestone"],
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 30, 60, 120],
+  registers: [registry],
+});
+const chatClientStreamEvents = new client.Counter({
+  name: "athena_chat_client_stream_events_total",
+  help: "Metadata-only client chat stream lifecycle and rendering events.",
+  labelNames: ["event", "platform", "visibility", "outcome"],
+  registers: [registry],
+});
+const chatClientReceiveToPaint = new client.Histogram({
+  name: "athena_chat_client_receive_to_paint_seconds",
+  help: "Client delay from receiving a chat revision to painting it.",
+  labelNames: ["platform", "visibility"],
+  buckets: [0.016, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  registers: [registry],
+});
+const chatClientBacklog = new client.Histogram({
+  name: "athena_chat_client_unpainted_backlog_seconds",
+  help: "Maximum age of received but not yet painted chat revisions.",
+  labelNames: ["platform", "visibility"],
+  buckets: [0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30],
+  registers: [registry],
+});
+const chatClientLongTasks = new client.Histogram({
+  name: "athena_chat_client_long_task_seconds",
+  help: "Browser main-thread long tasks observed during chat generation.",
+  labelNames: ["platform"],
+  buckets: [0.05, 0.08, 0.12, 0.25, 0.5, 1, 2, 5],
+  registers: [registry],
+});
 
 function routeLabel(request) {
   const route = request.route?.path;
@@ -196,7 +568,15 @@ function isLoopback(address = "") {
 }
 
 function metricsRequestAuthorized(request) {
-  const configured = String(process.env.ATHENA_METRICS_TOKEN || "").trim();
+  let configured = String(process.env.ATHENA_METRICS_TOKEN || "").trim();
+  const tokenFile = String(process.env.ATHENA_METRICS_TOKEN_FILE || "").trim();
+  if (!configured && tokenFile) {
+    try {
+      configured = fs.readFileSync(tokenFile, "utf8").trim();
+    } catch {
+      configured = "";
+    }
+  }
   if (!configured) {
     if (process.env.NODE_ENV !== "production") return true;
     return (
@@ -223,6 +603,9 @@ async function metricsEndpoint(request, response) {
       .status(403)
       .json({ success: false, error: "metrics_forbidden" });
   }
+  // These refreshers are deliberately lazy to keep the metrics registry free
+  // from a dependency cycle with the crypto suite registry.
+  require("../security/cryptoObservability").refreshCryptoObservability();
   response.setHeader("Content-Type", registry.contentType);
   response.setHeader("Cache-Control", "no-store");
   return response.status(200).send(await registry.metrics());
@@ -237,15 +620,54 @@ module.exports = {
     aiCostMicros,
     aiExecutions,
     aiTokens,
+    agentToolDuration,
+    agentToolOperations,
     authSessionReconciles,
+    chatClientBacklog,
+    chatClientLongTasks,
+    chatClientReceiveToPaint,
+    chatClientStreamEvents,
     contentObjectBytes,
     contentObjectOperations,
+    cryptoCertificateRemaining,
+    cryptoAccountApprovals,
+    cryptoAccountReadDuration,
+    cryptoAccountReads,
+    cryptoDeviceEpochConflicts,
+    cryptoRuntimePqCapability,
+    cryptoRuntimePqCapabilityDrift,
+    cryptoRuntimePqCapabilityExpected,
+    cryptoSignatureVerificationDuration,
+    cryptoSuiteOperations,
+    cryptoTlsClientCompatibility,
+    cryptoTlsEdgeCpuUtilization,
+    cryptoTlsHandshakeDuration,
+    cryptoTlsNegotiations,
+    cryptoTlsRolloutPercent,
+    cryptoTlsTtfbDuration,
+    cryptoVaultKemOperations,
+    cryptoVerificationFailures,
+    deviceAttestationOperations,
+    dataAccessDuration,
+    dataAccessOperations,
+    databaseDuration,
+    databaseOperations,
+    goldenJourneyDuration,
+    goldenJourneyMilestones,
+    goldenJourneyOperations,
+    decryptOnlyKeyReads,
+    keyRotationOperations,
+    modelDuration,
+    modelOperations,
     natsConsumerLag,
     natsEvents,
     pluginPolicyDecisions,
     realtimeMessages,
+    ragDuration,
+    ragOperations,
     runtimeShutdowns,
     securityAuditEvents,
+    semanticEvents,
     securityAuditChainValid,
     securityAuditArchiveHealthy,
     syncCursorLag,
@@ -256,5 +678,26 @@ module.exports = {
     syncOutboxDeadLetters,
     syncReceiptEvents,
     syncReceiptPending,
+    operationCorrelation,
+    operationsConsumerLag,
+    operationsConsumerStreamSequence,
+    operationsConsumerAckFloor,
+    operationsConsumerAckPending,
+    operationsConsumerRedeliveries,
+    operationsClickHouseLastSuccess,
+    operationsClickHouseBatchSize,
+    operationsClickHouseWriteDuration,
+    operationsCircuitBreakerOpen,
+    operationsConsecutiveFailures,
+    operationsDlqEvents,
+    operationsDlqMessages,
+    operationsEvents,
+    operationsRetryQueue,
+    operationsShadowAgentRuns,
+    operationsShadowEvaluation,
+    operationsShadowFindings,
+    operationsActionDuration,
+    operationsActionRollbacks,
+    operationsActionStages,
   },
 };

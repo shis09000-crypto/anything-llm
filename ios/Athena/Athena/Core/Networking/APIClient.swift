@@ -40,6 +40,29 @@ enum APISecurityIncident: Equatable {
     case clientRevoked
     case invalidSignature
     case signingSecretRotated
+    case clientIdentityReauthRequired
+}
+
+@MainActor
+final class APISecurityRecoveryGate {
+    private var inFlight: Task<Bool, Never>?
+
+    func run(
+        _ operation: @escaping @MainActor () async -> Bool
+    ) async -> Bool {
+        if let inFlight {
+            return await inFlight.value
+        }
+        let task = Task { @MainActor in
+            await operation()
+        }
+        inFlight = task
+        let recovered = await task.value
+        if inFlight != nil {
+            inFlight = nil
+        }
+        return recovered
+    }
 }
 
 struct APIEmptyResponse: Decodable, Equatable {
@@ -59,6 +82,8 @@ enum APIClientError: LocalizedError, Equatable {
     case authenticationRequired
     case clientIdentityRequired
     case signingUnavailable
+    case postQuantumSigningUnavailable
+    case clientIdentityReauthenticationRequired(String?)
     case httpStatus(status: Int, code: String?, message: String?)
     case superseded
 
@@ -74,6 +99,10 @@ enum APIClientError: LocalizedError, Equatable {
             "Client identity is required"
         case .signingUnavailable:
             "Request signing is not ready"
+        case .postQuantumSigningUnavailable:
+            "Post-quantum request signing is required but unavailable"
+        case .clientIdentityReauthenticationRequired(let message):
+            message ?? "Device identity must be reauthenticated"
         case .httpStatus(let status, _, let message):
             message ?? "Server returned HTTP \(status)"
         case .superseded:
@@ -86,6 +115,8 @@ private struct APIErrorEnvelope: Decodable {
     let error: String?
     let code: String?
     let message: String?
+    let recovery: String?
+    let reason: String?
 }
 
 @MainActor
@@ -99,20 +130,31 @@ final class APIClient {
 
     private let session: URLSession
     private let retrySession: URLSession
+    private let transientRetryDelaysNanoseconds: [UInt64]
     private weak var authCenter: AuthCenter?
     private weak var clientIdentityCenter: ClientIdentityCenter?
     private weak var requestSigningCenter: RequestSigningCenter?
 
     init(
         configuration: APIClientConfiguration,
-        session: URLSession = .shared
+        session: URLSession = .shared,
+        transientRetryDelaysNanoseconds: [UInt64] = [
+            500_000_000,
+            1_000_000_000,
+            2_000_000_000,
+        ]
     ) {
         self.configuration = configuration
         self.session = session
+        self.transientRetryDelaysNanoseconds = transientRetryDelaysNanoseconds
         let retryConfiguration = session.configuration
         retryConfiguration.requestCachePolicy = .reloadIgnoringLocalCacheData
         retryConfiguration.waitsForConnectivity = true
-        self.retrySession = URLSession(configuration: retryConfiguration)
+        self.retrySession = URLSession(
+            configuration: retryConfiguration,
+            delegate: session.delegate,
+            delegateQueue: nil
+        )
     }
 
     func configureSecurity(
@@ -201,7 +243,18 @@ final class APIClient {
         if data.isEmpty, let empty = APIEmptyResponse() as? Value {
             return empty
         }
-        return try decoder.decode(Value.self, from: data)
+        do {
+            return try decoder.decode(Value.self, from: data)
+        } catch {
+            #if DEBUG
+            print(
+                "[AthenaNetwork] decode path=\(path) "
+                    + "type=\(String(reflecting: Value.self)) "
+                    + "bytes=\(data.count) error=\(String(reflecting: error))"
+            )
+            #endif
+            throw error
+        }
     }
 
     func requestJSON<Value: Decodable, Body: Encodable>(
@@ -232,7 +285,18 @@ final class APIClient {
         if data.isEmpty, let empty = APIEmptyResponse() as? Value {
             return empty
         }
-        return try decoder.decode(Value.self, from: data)
+        do {
+            return try decoder.decode(Value.self, from: data)
+        } catch {
+            #if DEBUG
+            print(
+                "[AthenaNetwork] decode path=\(path) "
+                    + "type=\(String(reflecting: Value.self)) "
+                    + "bytes=\(data.count) error=\(String(reflecting: error))"
+            )
+            #endif
+            throw error
+        }
     }
 
     func requestData(
@@ -280,10 +344,13 @@ final class APIClient {
                     attempt: transportAttempt + 1
                 )
 #endif
-                if retryOnConnectionLoss,
-                   transportAttempt == 0,
-                   error.code == .networkConnectionLost
-                {
+                if shouldRetryTransport(
+                    error,
+                    method: method,
+                    retryOnConnectionLoss: retryOnConnectionLoss,
+                    attempt: transportAttempt
+                ) {
+                    try await waitBeforeTransientRetry(attempt: transportAttempt)
                     transportAttempt += 1
                     continue
                 }
@@ -305,6 +372,15 @@ final class APIClient {
                     attempt: transportAttempt + 1
                 )
 #endif
+                if shouldRetryGatewayStatus(
+                    httpResponse.statusCode,
+                    method: method,
+                    attempt: transportAttempt
+                ) {
+                    try await waitBeforeTransientRetry(attempt: transportAttempt)
+                    transportAttempt += 1
+                    continue
+                }
                 if authorization != .none,
                    retryCount == 0,
                    let incident = securityIncident(for: error),
@@ -361,6 +437,34 @@ final class APIClient {
         return (bytes, httpResponse)
     }
 
+    func openEventStream(
+        path: String,
+        queryItems: [URLQueryItem] = [],
+        authorization: APIAuthorizationPolicy = .required
+    ) async throws -> (URLSession.AsyncBytes, HTTPURLResponse) {
+        let targetURL = try url(for: path, queryItems: queryItems)
+        let request = try makeRequest(
+            url: targetURL,
+            method: .get,
+            headers: ["Accept": "text/event-stream"],
+            body: nil,
+            authorization: authorization,
+            signing: .none
+        )
+        let (bytes, response) = try await session.bytes(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            throw APIClientError.httpStatus(
+                status: httpResponse.statusCode,
+                code: nil,
+                message: "Server returned HTTP \(httpResponse.statusCode)"
+            )
+        }
+        return (bytes, httpResponse)
+    }
+
     func makeAuthenticatedWebSocketTask(
         path: String,
         queryItems: [URLQueryItem] = []
@@ -394,6 +498,10 @@ final class APIClient {
     ) throws -> URLRequest {
         let requestID = "req_\(UUID().uuidString.lowercased())"
         var request = URLRequest(url: url)
+        // API responses must never be satisfied by a cached SPA fallback page.
+        // This also ensures key status and authorization checks observe the
+        // current server state after a transient development proxy outage.
+        request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpMethod = method.rawValue
         request.httpBody = body
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -435,7 +543,8 @@ final class APIClient {
                 for: request,
                 body: body ?? Data(),
                 requestID: requestID,
-                clientID: clientIdentityCenter?.clientID
+                clientID: clientIdentityCenter?.clientID,
+                requirePostQuantum: signing == .required
             ) else {
                 if signing == .required {
                     throw APIClientError.signingUnavailable
@@ -452,13 +561,69 @@ final class APIClient {
 
     private func serverError(status: Int, data: Data) -> APIClientError {
         let payload = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data)
+        if payload?.recovery == "CLIENT_IDENTITY_REAUTH_REQUIRED" {
+            return .clientIdentityReauthenticationRequired(
+                payload?.message ?? payload?.error
+            )
+        }
+        if payload?.reason == "post_quantum_signature_required" {
+            return .postQuantumSigningUnavailable
+        }
         let code = payload?.code ?? payload?.error
         let message = payload?.message ?? payload?.error
         return .httpStatus(status: status, code: code, message: message)
     }
 
+    private func shouldRetryTransport(
+        _ error: URLError,
+        method: HTTPMethod,
+        retryOnConnectionLoss: Bool,
+        attempt: Int
+    ) -> Bool {
+        if method == .get,
+           attempt < transientRetryDelaysNanoseconds.count
+        {
+            return [
+                .timedOut,
+                .cannotFindHost,
+                .cannotConnectToHost,
+                .networkConnectionLost,
+                .dnsLookupFailed,
+                .notConnectedToInternet,
+            ].contains(error.code)
+        }
+        return retryOnConnectionLoss &&
+            attempt == 0 &&
+            error.code == .networkConnectionLost
+    }
+
+    private func shouldRetryGatewayStatus(
+        _ status: Int,
+        method: HTTPMethod,
+        attempt: Int
+    ) -> Bool {
+        method == .get &&
+            attempt < transientRetryDelaysNanoseconds.count &&
+            [502, 503, 504].contains(status)
+    }
+
+    private func waitBeforeTransientRetry(attempt: Int) async throws {
+        guard transientRetryDelaysNanoseconds.indices.contains(attempt) else {
+            return
+        }
+        try await Task.sleep(
+            nanoseconds: transientRetryDelaysNanoseconds[attempt]
+        )
+    }
+
     private func securityIncident(for error: APIClientError) -> APISecurityIncident? {
-        guard case .httpStatus(let status, let code, _) = error else {
+        if case .postQuantumSigningUnavailable = error {
+            return nil
+        }
+        if case .clientIdentityReauthenticationRequired = error {
+            return .clientIdentityReauthRequired
+        }
+        guard case .httpStatus(_, let code, _) = error else {
             return nil
         }
         switch code {
@@ -468,8 +633,20 @@ final class APIClient {
             return .invalidSignature
         case "SIGNING_SECRET_ROTATED":
             return .signingSecretRotated
+        case "session_revoked",
+             "session_expired",
+             "Token expired or failed validation.",
+             "No auth token found.",
+             "Invalid auth credentials.",
+             "Legacy session expired.":
+            return .sessionExpired
         default:
-            return status == 401 || status == 403 ? .sessionExpired : nil
+            // A protected feature may reject an otherwise valid session when a
+            // narrower contract is missing (for example a Root/PQ signature,
+            // vault grant, approval, or account role). Those 401/403 responses
+            // must remain local feature errors instead of clearing the user's
+            // authenticated session.
+            return nil
         }
     }
 
@@ -490,6 +667,12 @@ final class APIClient {
     }
 
     private func errorCode(for error: APIClientError) -> String? {
+        if case .postQuantumSigningUnavailable = error {
+            return "POST_QUANTUM_SIGNING_REQUIRED"
+        }
+        if case .clientIdentityReauthenticationRequired = error {
+            return "CLIENT_IDENTITY_REAUTH_REQUIRED"
+        }
         guard case .httpStatus(_, let code, _) = error else { return nil }
         return code
     }

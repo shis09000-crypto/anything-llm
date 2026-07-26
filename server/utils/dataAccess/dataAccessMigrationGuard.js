@@ -99,6 +99,14 @@ const SCRIPT_ACCESS_ALLOWLIST = Object.freeze([
     action: "keep-script-boundary",
   },
   {
+    pattern: /^scripts\/audit-password-credentials\.js$/,
+    category: "diagnostic",
+    risk: "sensitive-read",
+    reason:
+      "Password credential audit reads only credential type and hash-format metadata from the main and shared Auth databases.",
+    action: "keep-script-boundary",
+  },
+  {
     pattern: /^scripts\/audit-shared-auth-identity\.js$/,
     category: "diagnostic",
     risk: "sensitive-read",

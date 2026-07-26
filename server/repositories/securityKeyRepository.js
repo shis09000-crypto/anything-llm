@@ -1,4 +1,5 @@
 const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
 
 function json(value, fallback = null) {
   if (value === undefined) return fallback;
@@ -28,6 +29,13 @@ const SecurityKeyRepository = {
       throw new Error("security_key_probe_select_required");
     }
     return prisma.$queryRawUnsafe(sql);
+  },
+
+  async probeAuthSample({ sql } = {}) {
+    if (typeof sql !== "string" || !/^\s*SELECT\b/i.test(sql)) {
+      throw new Error("security_key_probe_select_required");
+    }
+    return authPrisma.$queryRawUnsafe(sql);
   },
 
   async listRegistry({ purpose = null } = {}) {
@@ -127,12 +135,100 @@ const SecurityKeyRepository = {
     return hydrate(row, ["progress"]);
   },
 
+  async claimRotationExecution({ jobId, actorUserId, progress = {} } = {}) {
+    const claimed = await prisma.security_key_rotation_jobs.updateMany({
+      where: {
+        jobId,
+        status: { in: ["pending", "failed"] },
+      },
+      data: {
+        status: "running",
+        stage: "authorized",
+        executionStartedBy: Number(actorUserId) || null,
+        progress: json(progress, "{}"),
+        failure: null,
+      },
+    });
+    if (claimed.count !== 1)
+      throw new Error("key_rotation_execution_already_claimed");
+    const row = await prisma.security_key_rotation_jobs.findUnique({
+      where: { jobId },
+    });
+    return hydrate(row, ["progress"]);
+  },
+
   async listRotationJobs({ limit = 50 } = {}) {
     const rows = await prisma.security_key_rotation_jobs.findMany({
       orderBy: { createdAt: "desc" },
       take: Math.max(1, Math.min(Number(limit) || 50, 200)),
     });
     return rows.map((row) => hydrate(row, ["progress"]));
+  },
+
+  async rotationApprovals({ jobId, now = new Date() } = {}) {
+    const rows = await prisma.security_key_rotation_approvals.findMany({
+      where: {
+        jobId,
+        decision: "approved",
+        expiresAt: { gt: now },
+      },
+      orderBy: { approvedAt: "asc" },
+    });
+    return rows.map((row) => hydrate(row, ["metadata"]));
+  },
+
+  async recordRotationApproval({
+    jobId,
+    approvalId,
+    approverUserId,
+    expiresAt,
+    metadata = null,
+    now = new Date(),
+  } = {}) {
+    return prisma.$transaction(async (tx) => {
+      const job = await tx.security_key_rotation_jobs.findUnique({
+        where: { jobId },
+      });
+      if (!job) throw new Error("key_rotation_job_not_found");
+      const existing = await tx.security_key_rotation_approvals.findUnique({
+        where: {
+          jobId_approverUserId: { jobId, approverUserId },
+        },
+      });
+      let approval = existing;
+      if (!approval) {
+        approval = await tx.security_key_rotation_approvals.create({
+          data: {
+            approvalId,
+            jobId,
+            approverUserId,
+            decision: "approved",
+            metadata: json(metadata),
+            expiresAt,
+          },
+        });
+      }
+      const approvalCount = await tx.security_key_rotation_approvals.count({
+        where: {
+          jobId,
+          decision: "approved",
+          expiresAt: { gt: now },
+        },
+      });
+      const approved = approvalCount >= Number(job.requiredApprovals || 0);
+      const updatedJob = approved
+        ? await tx.security_key_rotation_jobs.update({
+            where: { jobId },
+            data: { stage: "approved", approvedAt: now },
+          })
+        : job;
+      return {
+        approval: hydrate(approval, ["metadata"]),
+        approvalCount,
+        approved,
+        job: hydrate(updatedJob, ["progress"]),
+      };
+    });
   },
 
   async appendEvent(data = {}) {

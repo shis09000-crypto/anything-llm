@@ -80,6 +80,14 @@ class CognitionWorkerLifecycle {
     }
     return !this.isBusy();
   }
+
+  snapshot() {
+    return {
+      running: Boolean(this.workerTimer),
+      recovering: Boolean(this.recoveryPromise),
+      busy: Boolean(this.isBusy()),
+    };
+  }
 }
 
 module.exports = { CognitionWorkerLifecycle, waitForSettlement };

@@ -1,0 +1,72 @@
+name: anythingllm
+
+volumes:
+  athena-clickhouse-data:
+
+services:
+  anything-llm:
+    environment:
+      ATHENA_OPERATIONS_ENABLED: "true"
+      ATHENA_OPERATIONS_SHADOW_AGENTS_ENABLED: "true"
+      ATHENA_OPERATIONS_SHADOW_INTERVAL_MS: "60000"
+      ATHENA_OPERATIONS_SHADOW_LOOKBACK_MS: "900000"
+      ATHENA_OPERATIONS_SHADOW_COST_THRESHOLD_MICROS: "25000000"
+      ATHENA_OPERATIONS_SHADOW_TOKEN_THRESHOLD: "5000000"
+      ATHENA_OPERATIONS_ACTIONS_ENABLED: "true"
+      ATHENA_BROADCAST_TRANSPORT: nats
+      ATHENA_NATS_SERVERS: ${ATHENA_NATS_SERVERS:?ATHENA_NATS_SERVERS is required}
+      ATHENA_NATS_CREDENTIALS_FILE: /run/secrets/athena_nats_credentials
+      ATHENA_NATS_TLS_CA_FILE: /run/secrets/athena_nats_ca
+      ATHENA_NATS_TLS_CERT_FILE: /run/secrets/athena_nats_client_cert
+      ATHENA_NATS_TLS_KEY_FILE: /run/secrets/athena_nats_client_key
+      ATHENA_NATS_TLS_SERVER_NAME: ${ATHENA_NATS_TLS_SERVER_NAME:?ATHENA_NATS_TLS_SERVER_NAME is required}
+      ATHENA_OPERATIONS_NATS_STREAM: ATHENA_OPERATIONS
+      ATHENA_OPERATIONS_NATS_SUBJECT: operations.semantic.v1
+      ATHENA_OPERATIONS_NATS_CONSUMER: athena-operations-clickhouse
+      ATHENA_OPERATIONS_NATS_DLQ_STREAM: ATHENA_OPERATIONS_DLQ
+      ATHENA_OPERATIONS_NATS_DLQ_SUBJECT: operations.dead-letter.v1
+      ATHENA_OPERATIONS_NATS_MAX_BYTES: "4294967296"
+      ATHENA_OPERATIONS_BATCH_MAX_MESSAGES: "256"
+      ATHENA_OPERATIONS_BATCH_MAX_BYTES: "1048576"
+      ATHENA_OPERATIONS_BATCH_MAX_WAIT_MS: "1000"
+      ATHENA_OPERATIONS_ACK_WAIT_MS: "60000"
+      ATHENA_OPERATIONS_WORKING_INTERVAL_MS: "20000"
+      ATHENA_OPERATIONS_CIRCUIT_BASE_DELAY_MS: "5000"
+      ATHENA_OPERATIONS_CIRCUIT_MAX_DELAY_MS: "120000"
+      ATHENA_CLICKHOUSE_ASYNC_INSERT_BUSY_TIMEOUT_MS: "250"
+      ATHENA_CLICKHOUSE_URL: http://clickhouse:8123
+      ATHENA_CLICKHOUSE_DATABASE: athena_operations
+      ATHENA_CLICKHOUSE_USER: athena_ops
+      ATHENA_CLICKHOUSE_PASSWORD_FILE: /run/secrets/athena_clickhouse_password
+    volumes:
+      - ${ATHENA_CLICKHOUSE_PASSWORD_FILE:?ATHENA_CLICKHOUSE_PASSWORD_FILE is required}:/run/secrets/athena_clickhouse_password:ro
+      - ${ATHENA_NATS_CREDENTIALS_HOST_FILE:?ATHENA_NATS_CREDENTIALS_HOST_FILE is required}:/run/secrets/athena_nats_credentials:ro
+      - ${ATHENA_NATS_TLS_CA_HOST_FILE:?ATHENA_NATS_TLS_CA_HOST_FILE is required}:/run/secrets/athena_nats_ca:ro
+      - ${ATHENA_NATS_TLS_CERT_HOST_FILE:?ATHENA_NATS_TLS_CERT_HOST_FILE is required}:/run/secrets/athena_nats_client_cert:ro
+      - ${ATHENA_NATS_TLS_KEY_HOST_FILE:?ATHENA_NATS_TLS_KEY_HOST_FILE is required}:/run/secrets/athena_nats_client_key:ro
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.6.3.116
+    restart: unless-stopped
+    mem_limit: 768m
+    environment:
+      CLICKHOUSE_DB: athena_operations
+      CLICKHOUSE_USER: athena_ops
+      CLICKHOUSE_PASSWORD_FILE: /run/secrets/athena_clickhouse_password
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - athena-clickhouse-data:/var/lib/clickhouse
+      - ./clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ./clickhouse/config.d/low-resource.xml:/etc/clickhouse-server/config.d/low-resource.xml:ro
+      - ${ATHENA_CLICKHOUSE_PASSWORD_FILE:?ATHENA_CLICKHOUSE_PASSWORD_FILE is required}:/run/secrets/athena_clickhouse_password:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - clickhouse-client --user athena_ops --password "$$(cat /run/secrets/athena_clickhouse_password)" --query "SELECT 1" >/dev/null
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks: [anything-llm]

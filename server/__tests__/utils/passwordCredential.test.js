@@ -4,8 +4,11 @@ const os = require("os");
 const path = require("path");
 const {
   ARGON2_POLICY,
+  CREDENTIAL_TYPES,
+  canUsePasswordCredential,
   hashPassword,
   passwordHashKind,
+  passwordCredentialType,
   passwordPepper,
   resetPasswordCredentialForTests,
   verifyPassword,
@@ -51,6 +54,24 @@ describe("password credential policy", () => {
       kind: "bcrypt",
       needsUpgrade: true,
     });
+  });
+
+  it("blocks explicit non-password and unknown legacy credentials", () => {
+    expect(
+      passwordCredentialType({
+        credentialType: CREDENTIAL_TYPES.PASSKEY_ONLY,
+        password: "$2b$10$ignored",
+      })
+    ).toBe(CREDENTIAL_TYPES.PASSKEY_ONLY);
+    expect(
+      canUsePasswordCredential({
+        credentialType: CREDENTIAL_TYPES.LEGACY_UNKNOWN,
+        password: "historical-value",
+      })
+    ).toBe(false);
+    expect(passwordCredentialType({ password: "historical-value" })).toBe(
+      CREDENTIAL_TYPES.LEGACY_UNKNOWN
+    );
   });
 
   it("uses a protected external pepper file and migrates unpeppered hashes", async () => {

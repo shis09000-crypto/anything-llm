@@ -121,6 +121,107 @@ test("server hydration can patch an interrupted local turn", () => {
   assert.equal(merged[1].finalContent, "落库成功回答");
 });
 
+test("server hydration preserves an active agent turn during handoff", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.running,
+    finalContent: "",
+  });
+  items[0].clientTurnId = "turn:local";
+  items[1].clientTurnId = "turn:local";
+  items[1].websocketUUID = "agent-invocation";
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 43,
+        role: "user",
+        content: "用户问题",
+        clientTurnId: "turn:local",
+        sentAt: 100,
+      },
+      {
+        chatId: 43,
+        role: "assistant",
+        content: "@agent: Swapping over to agent chat.",
+        clientTurnId: "turn:local",
+        sentAt: 100,
+      },
+    ],
+    items,
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.chatId, 43);
+  assert.equal(assistant.status, TURN_STATUSES.running);
+  assert.equal(assistant.finalContent, "");
+  assert.equal(assistant.websocketUUID, "agent-invocation");
+});
+
+test("server hydration revives a raced agent handoff while its session is active", () => {
+  const { items } = localTurn({
+    status: TURN_STATUSES.completed,
+    finalContent: "@agent: Swapping over to agent chat.",
+  });
+  items[0].clientTurnId = "turn:local";
+  items[1].clientTurnId = "turn:local";
+
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 44,
+        role: "user",
+        content: "用户问题",
+        clientTurnId: "turn:local",
+        sentAt: 100,
+      },
+      {
+        chatId: 44,
+        role: "assistant",
+        content: "@agent: Swapping over to agent chat.",
+        clientTurnId: "turn:local",
+        sentAt: 100,
+      },
+    ],
+    items,
+    {
+      chatKey: "workspace:thread",
+      preserveRunningTurnIds: ["turn:local"],
+    }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.chatId, 44);
+  assert.equal(assistant.status, TURN_STATUSES.running);
+  assert.equal(assistant.finalContent, "@agent: Swapping over to agent chat.");
+});
+
+test("server-only agent handoff history remains running", () => {
+  const merged = mergeServerHistoryIntoTurns(
+    [
+      {
+        chatId: 45,
+        role: "user",
+        content: "用户问题",
+        clientTurnId: "turn:server",
+        sentAt: 100,
+      },
+      {
+        chatId: 45,
+        role: "assistant",
+        content: "@agent: Swapping over to agent chat.",
+        clientTurnId: "turn:server",
+        sentAt: 100,
+      },
+    ],
+    [],
+    { chatKey: "workspace:thread" }
+  );
+
+  const assistant = merged.find((item) => item.type === "assistant_turn");
+  assert.equal(assistant.status, TURN_STATUSES.running);
+});
+
 test("server hydration does not patch a repeated prompt from stale history", () => {
   const { items } = localTurn({ status: TURN_STATUSES.running });
   const currentUserCreatedAt = Date.parse("2026-06-26T14:40:47.496Z");

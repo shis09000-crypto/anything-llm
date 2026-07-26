@@ -55,6 +55,13 @@ function compactApprovalPayload(payload = {}) {
     "fileTypes",
     "glob",
     "excludedByReason",
+    "approvalClass",
+    "scope",
+    "exchange",
+    "environment",
+    "symbol",
+    "days",
+    "limit",
   ];
   return allowedKeys.reduce((acc, key) => {
     if (payload[key] === undefined) return acc;

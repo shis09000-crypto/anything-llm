@@ -4,6 +4,10 @@ const path = require("path");
 const { safeJsonParse } = require("../http");
 const { storagePath } = require("../environment");
 const { metrics } = require("../observability/metrics");
+const {
+  agentSignatureRequired,
+  verifyAgentManifest,
+} = require("../security/agentManifestSignature");
 
 const SAFE_INHERITED_ENV = new Set([
   "PATH",
@@ -43,6 +47,36 @@ function policyMode(env = process.env) {
 function normalizeCapabilityManifest(value = {}) {
   const parsed =
     typeof value === "string" ? safeJsonParse(value, {}) : value || {};
+  const privateRead = parsed.accountPrivateRead;
+  const accountPrivateRead =
+    privateRead && typeof privateRead === "object"
+      ? {
+          approved: privateRead.approved === true,
+          provider:
+            String(privateRead.provider || "").toLowerCase() === "gate"
+              ? "gate"
+              : null,
+          functions: compactList(privateRead.functions, 20),
+          symbols: compactList(privateRead.symbols, 50).map((entry) =>
+            entry.toUpperCase()
+          ),
+          maxDays: Math.max(1, Math.min(Number(privateRead.maxDays) || 7, 90)),
+          maxLimit: Math.max(
+            1,
+            Math.min(Number(privateRead.maxLimit) || 20, 100)
+          ),
+          credentialVersion:
+            Number(privateRead.credentialVersion) > 0
+              ? Number(privateRead.credentialVersion)
+              : null,
+          rootKeyId: String(privateRead.rootKeyId || "") || null,
+          domainKeyVersion:
+            Number(privateRead.domainKeyVersion) > 0
+              ? Number(privateRead.domainKeyVersion)
+              : null,
+          approvedAt: String(privateRead.approvedAt || "") || null,
+        }
+      : null;
   return {
     version: Math.max(Number(parsed.version) || 1, 1),
     tools: compactList(parsed.tools),
@@ -69,6 +103,7 @@ function normalizeCapabilityManifest(value = {}) {
       Number(parsed.maxToolCalls) > 0
         ? Math.min(Number(parsed.maxToolCalls), 100)
         : null,
+    accountPrivateRead,
   };
 }
 
@@ -227,6 +262,17 @@ function assertMCPServerPolicy({ name, server, type, env = process.env }) {
   const violations = [];
   if (!rawManifest || typeof rawManifest !== "object")
     violations.push("capability_manifest_required");
+  if (type !== "stdio" && agentSignatureRequired(env)) {
+    const verification = verifyAgentManifest(
+      manifest,
+      server?.anythingllm?.capabilitySignature,
+      { env }
+    );
+    if (!verification.valid)
+      violations.push(
+        verification.reason || "capability_manifest_signature_invalid"
+      );
+  }
   if (
     type === "stdio" &&
     !["process", "container"].includes(manifest.isolation)
@@ -543,12 +589,49 @@ function assertToolInvocationPolicy({ policy, args = {} }) {
   return true;
 }
 
-function scheduledApprovalDecision({ job, skillName, forceApproval = false }) {
+function accountPrivateScopeAllows(grant, tool, payload = {}) {
+  if (!grant?.approved || grant.provider !== "gate") return false;
+  if (!grant.functions.includes(tool)) return false;
+  if (payload.approvalClass !== "account-private-read") return false;
+  if (
+    payload.days !== undefined &&
+    Number(payload.days) > Number(grant.maxDays)
+  )
+    return false;
+  if (
+    payload.limit !== undefined &&
+    Number(payload.limit) > Number(grant.maxLimit)
+  )
+    return false;
+  if (payload.symbol) {
+    const symbol = String(payload.symbol).toUpperCase();
+    if (!grant.symbols.includes("*") && !grant.symbols.includes(symbol))
+      return false;
+  }
+  return true;
+}
+
+function scheduledApprovalDecision({
+  job,
+  skillName,
+  forceApproval = false,
+  approvalClass = null,
+  payload = {},
+}) {
   const manifest = normalizeCapabilityManifest(job?.capabilityManifest);
   const tool = String(skillName || "").trim();
-  const explicitlyAllowed = manifest.scheduledAutoApprove.includes(tool);
+  const isAccountPrivateRead =
+    approvalClass === "account-private-read" ||
+    payload?.approvalClass === "account-private-read";
+  const explicitlyAllowed = isAccountPrivateRead
+    ? accountPrivateScopeAllows(manifest.accountPrivateRead, tool, {
+        ...payload,
+        approvalClass: "account-private-read",
+      })
+    : manifest.scheduledAutoApprove.includes(tool);
   const highRisk =
-    forceApproval || /(shell|delete|send|write|move|copy|edit)/i.test(tool);
+    !isAccountPrivateRead &&
+    (forceApproval || /(shell|delete|send|write|move|copy|edit)/i.test(tool));
   const wouldApprove =
     explicitlyAllowed && (!highRisk || manifest.allowHighRisk);
   const mode = policyMode();
@@ -573,6 +656,7 @@ function scheduledApprovalDecision({ job, skillName, forceApproval = false }) {
     tool,
     highRisk,
     policyMode: mode,
+    approvalClass: isAccountPrivateRead ? "account-private-read" : "standard",
   };
 }
 

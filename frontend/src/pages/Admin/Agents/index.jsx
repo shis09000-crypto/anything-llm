@@ -68,8 +68,9 @@ export default function AdminAgents() {
 
   const [fileSystemAgentAvailable, setFileSystemAgentAvailable] =
     useState(false);
+  const [cryptoAccountAvailable, setCryptoAccountAvailable] = useState(false);
 
-  const defaultSkills = getDefaultSkills(t);
+  const defaultSkills = getDefaultSkills(t, { cryptoAccountAvailable });
   const enabledAgentSkills = configurableAgentSkillsFromSettings(agentSkills);
   const enabledDefaultSkills = Object.keys(defaultSkills).filter((skill) =>
     isDefaultAgentSkillEnabled(skill, disabledAgentSkills, settings)
@@ -114,18 +115,24 @@ export default function AdminAgents() {
 
   useEffect(() => {
     async function fetchSettings() {
-      const [_settings, _preferences, flowsRes, fsAgentAvailable] =
-        await Promise.all([
-          System.keys(),
-          Admin.systemPreferencesByFields([
-            "disabled_agent_skills",
-            "default_agent_skills",
-            "imported_agent_skills",
-            "active_agent_flows",
-          ]),
-          AgentFlows.listFlows(),
-          System.isFileSystemAgentAvailable(),
-        ]);
+      const [
+        _settings,
+        _preferences,
+        flowsRes,
+        fsAgentAvailable,
+        cryptoAccountStatus,
+      ] = await Promise.all([
+        System.keys(),
+        Admin.systemPreferencesByFields([
+          "disabled_agent_skills",
+          "default_agent_skills",
+          "imported_agent_skills",
+          "active_agent_flows",
+        ]),
+        AgentFlows.listFlows(),
+        System.isFileSystemAgentAvailable(),
+        System.cryptoAccountAgentStatus(),
+      ]);
       if (!mountedRef.current) return;
 
       const { flows = [] } = flowsRes;
@@ -142,6 +149,7 @@ export default function AdminAgents() {
       setActiveFlowIds(flows.filter((f) => f.active).map((f) => f.uuid));
       setAgentFlows(flows);
       setFileSystemAgentAvailable(fsAgentAvailable);
+      setCryptoAccountAvailable(cryptoAccountStatus?.available === true);
       setLoading(false);
     }
     fetchSettings();

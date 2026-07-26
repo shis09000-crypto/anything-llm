@@ -99,6 +99,15 @@ function authDatabaseUrl() {
   return url.toString();
 }
 
+function managedEnvironmentPath() {
+  if (process.env.DESKTOP_ENV_PATH)
+    return path.resolve(process.env.DESKTOP_ENV_PATH);
+  return path.resolve(
+    __dirname,
+    appEnvironment() === "development" ? "../../.env.development" : "../../.env"
+  );
+}
+
 function vectorNamespacePrefix() {
   return `${appEnvironment()}__`;
 }
@@ -193,6 +202,7 @@ module.exports = {
   databasePath,
   diagnosticSummary,
   ensureStoragePath,
+  managedEnvironmentPath,
   storageBaseDir,
   storagePath,
   storageRoot,

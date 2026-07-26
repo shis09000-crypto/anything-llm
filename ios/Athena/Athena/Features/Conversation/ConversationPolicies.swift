@@ -53,8 +53,14 @@ struct MessageActionCapabilities: Equatable {
 }
 
 struct ComposerLayoutPolicy {
+    static let topBarHeight: CGFloat = 52
+    static let topContentSpacing: CGFloat = 12
     static let bottomContentSpacing: CGFloat = 12
     static let defaultBottomContentClearance: CGFloat = 52 + bottomContentSpacing
+
+    static func topViewportInset(safeAreaTop: CGFloat) -> CGFloat {
+        max(safeAreaTop, 44) + topBarHeight + topContentSpacing
+    }
 
     static func bottomContentClearance(
         composerHeight: CGFloat,
@@ -63,6 +69,16 @@ struct ComposerLayoutPolicy {
         max(
             defaultBottomContentClearance,
             composerHeight + max(bottomGap, 0) + bottomContentSpacing
+        )
+    }
+
+    static func bottomContentClearance(
+        composerTop: CGFloat,
+        viewportBottom: CGFloat
+    ) -> CGFloat {
+        max(
+            defaultBottomContentClearance,
+            viewportBottom - composerTop + bottomContentSpacing
         )
     }
 

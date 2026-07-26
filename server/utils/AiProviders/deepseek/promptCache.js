@@ -52,6 +52,12 @@ function contentText(content) {
   return stableStringify(content);
 }
 
+function safeIsoString(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const timestamp = new Date(value);
+  return Number.isFinite(timestamp.getTime()) ? timestamp.toISOString() : null;
+}
+
 function deepSeekPromptShape(messages = []) {
   return messages.map((message, index) => {
     const content = contentText(message?.content);
@@ -117,12 +123,8 @@ function deepSeekCompactionShape(compaction = null) {
     token_before: compaction.token_before ?? null,
     token_after: compaction.token_after ?? null,
     reason: compaction.reason ?? null,
-    created_at: compaction.created_at
-      ? new Date(compaction.created_at).toISOString()
-      : null,
-    updated_at: compaction.updated_at
-      ? new Date(compaction.updated_at).toISOString()
-      : null,
+    created_at: safeIsoString(compaction.created_at),
+    updated_at: safeIsoString(compaction.updated_at),
   };
 }
 

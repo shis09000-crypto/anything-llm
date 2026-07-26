@@ -2,6 +2,28 @@ import CryptoKit
 import Foundation
 import Observation
 
+@available(iOS 26.0, *)
+private final class AthenaHighRiskPQSigner {
+    let privateKey: SecureEnclave.MLDSA65.PrivateKey
+
+    init(dataRepresentation: Data?) throws {
+        if let dataRepresentation {
+            privateKey = try SecureEnclave.MLDSA65.PrivateKey(
+                dataRepresentation: dataRepresentation
+            )
+        } else {
+            privateKey = try SecureEnclave.MLDSA65.PrivateKey()
+        }
+    }
+
+    var dataRepresentation: Data { privateKey.dataRepresentation }
+    var publicKey: Data { privateKey.publicKey.rawRepresentation }
+
+    func signature(for data: Data) throws -> Data {
+        try privateKey.signature(for: data)
+    }
+}
+
 private struct SigningSecretResponse: Decodable {
     let success: Bool
     let signingSecret: String
@@ -34,8 +56,8 @@ private enum AthenaDeviceSigningKey {
 
     var algorithm: String {
         switch self {
-        case .software: "p256-software-v1"
-        case .secureEnclave: "p256-secure-enclave-v1"
+        case .software: AthenaCryptoSuiteRegistry.deviceP256SoftwareV1
+        case .secureEnclave: AthenaCryptoSuiteRegistry.deviceP256SecureEnclaveV1
         }
     }
 
@@ -50,9 +72,13 @@ private enum AthenaDeviceSigningKey {
 @MainActor
 @Observable
 final class RequestSigningCenter {
+    typealias PostQuantumTestSignatureProvider =
+        (_ payload: Data) throws -> (signature: Data, publicKey: Data)
+
     enum Status: Equatable {
         case missingDeviceKey
         case missingSigningSecret
+        case postQuantumContractUnavailable
         case ready
 
         var displayTitle: String {
@@ -61,6 +87,8 @@ final class RequestSigningCenter {
                 "Device Key Needed"
             case .missingSigningSecret:
                 "Signing Secret Needed"
+            case .postQuantumContractUnavailable:
+                "Post-Quantum Contract Required"
             case .ready:
                 "Ready"
             }
@@ -73,26 +101,69 @@ final class RequestSigningCenter {
         static let secureEnclaveRotationPending = "requestSigning.secureEnclaveRotationPending"
         static let signingSecret = "requestSigning.secret"
         static let signingSecretVersion = "requestSigning.secretVersion"
+        static let highRiskPQKeyReference = "requestSigning.highRiskPQKeyReference"
     }
 
     private let secureStore: SecureValueStore
     private var privateKey: AthenaDeviceSigningKey?
     private var signingSecret: String?
+    private var highRiskPQSigner: Any?
+    private let postQuantumTestSignatureProvider:
+        PostQuantumTestSignatureProvider?
+    private var cryptoSuites = AthenaCryptoSuiteRegistry.fallbackSuites
+    private var pqHighRiskRequired = false
+    private var pqHighRiskAvailable = false
+    private(set) var postQuantumContractReady = false
 
     var status: Status = .missingDeviceKey
-    var preferredSignatureVersion = "v2-device-p256"
+    var preferredSignatureVersion = AthenaCryptoSuiteRegistry.requestDeviceP256V2
     var signingSecretPath = "/api/client-identity/signing-secret"
     var signingHeaders: [String: String] = [:]
     var signingSecretVersion: String?
 
-    init(secureStore: SecureValueStore) {
+    init(
+        secureStore: SecureValueStore,
+        postQuantumTestSignatureProvider:
+            PostQuantumTestSignatureProvider? = nil
+    ) {
         self.secureStore = secureStore
+        self.postQuantumTestSignatureProvider =
+            postQuantumTestSignatureProvider
     }
 
     func applyBootstrap(_ bootstrap: NativeAppBootstrap?) {
-        preferredSignatureVersion = bootstrap?.security.preferredSignatureVersion ?? "v2-device-p256"
+        if let advertised = bootstrap?.security.cryptoSuites, !advertised.isEmpty {
+            cryptoSuites = advertised
+        }
+        let policy = bootstrap?.security.highRiskRequestSigning
+        pqHighRiskRequired =
+            policy?.enforcementMode == "required" &&
+            policy?.hardwareBackedPostQuantumKeyRequired == true
+        preferredSignatureVersion = AthenaCryptoSuiteRegistry.preferredRequestSignature(
+            serverPreferred: bootstrap?.security.preferredSignatureVersion,
+            suites: cryptoSuites
+        ).suiteId
+        let expectedRegistry =
+            bootstrap?.security.cryptoSuiteRegistryVersion ==
+            AthenaCryptoSuiteRegistry.registryVersion
+        let expectedPolicy =
+            policy?.classicalSuiteId == AthenaCryptoSuiteRegistry.requestDeviceP256V2 &&
+            policy?.postQuantumSuiteId == AthenaCryptoSuiteRegistry.requestDeviceMLDSA65V1 &&
+            policy?.hybridSuiteId == AthenaCryptoSuiteRegistry.deviceHybridP256MLDSA65V1
+        pqHighRiskAvailable = expectedRegistry && expectedPolicy && cryptoSuites.contains {
+            $0.suiteId == policy?.postQuantumSuiteId &&
+                $0.status == "active"
+        } && cryptoSuites.contains {
+            $0.suiteId == policy?.hybridSuiteId &&
+                $0.status == "active"
+        }
+        postQuantumContractReady =
+            pqHighRiskRequired &&
+            pqHighRiskAvailable &&
+            policy?.minimumOSVersion == "26.0"
         signingSecretPath = bootstrap?.security.signingSecretPath ?? "/api/client-identity/signing-secret"
         signingHeaders = bootstrap?.security.requestSigningHeaders ?? [:]
+        updateStatus()
     }
 
     func prepareDeviceKey() throws {
@@ -185,7 +256,7 @@ final class RequestSigningCenter {
         )
         let request = DeviceKeyRotationRequest(
             publicKey: try publicJWK(for: candidate.publicKey),
-            deviceKeyAlgorithm: "p256-secure-enclave-v1"
+            deviceKeyAlgorithm: AthenaCryptoSuiteRegistry.deviceP256SecureEnclaveV1
         )
         let prepared = try await apiClient.requestJSON(
             DeviceKeyRotationResponse.self,
@@ -196,7 +267,7 @@ final class RequestSigningCenter {
             signing: .required
         )
         guard prepared.success,
-              prepared.deviceKeyAlgorithm == "p256-secure-enclave-v1" else {
+              prepared.deviceKeyAlgorithm == AthenaCryptoSuiteRegistry.deviceP256SecureEnclaveV1 else {
             throw APIClientError.signingUnavailable
         }
         try secureStore.setData(
@@ -218,7 +289,7 @@ final class RequestSigningCenter {
             throw APIClientError.signingUnavailable
         }
         guard response.success,
-              response.deviceKeyAlgorithm == "p256-secure-enclave-v1" else {
+              response.deviceKeyAlgorithm == AthenaCryptoSuiteRegistry.deviceP256SecureEnclaveV1 else {
             privateKey = currentKey
             try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
             throw APIClientError.signingUnavailable
@@ -278,6 +349,7 @@ final class RequestSigningCenter {
         try secureStore.removeData(forKey: Keys.devicePrivateKey)
         try secureStore.removeData(forKey: Keys.secureEnclaveKeyReference)
         try secureStore.removeData(forKey: Keys.secureEnclaveRotationPending)
+        try secureStore.removeData(forKey: Keys.highRiskPQKeyReference)
         try clearSigningSecret()
         status = .missingDeviceKey
     }
@@ -286,7 +358,8 @@ final class RequestSigningCenter {
         for request: URLRequest,
         body: Data,
         requestID: String,
-        clientID: String?
+        clientID: String?,
+        requirePostQuantum: Bool = false
     ) throws -> [String: String]? {
         guard let privateKey, let clientID, let url = request.url else {
             return nil
@@ -308,7 +381,7 @@ final class RequestSigningCenter {
         ].joined(separator: "\n")
         let signature = try privateKey.signature(for: Data(canonical.utf8))
 
-        return [
+        var headers = [
             headerName(for: "timestamp", fallback: "X-Athena-Timestamp"): timestamp,
             headerName(for: "nonce", fallback: "X-Athena-Nonce"): nonce,
             headerName(for: "bodySha256", fallback: "X-Athena-Body-SHA256"): bodyHash,
@@ -317,6 +390,82 @@ final class RequestSigningCenter {
             headerName(for: "devicePublicKey", fallback: "X-Athena-Device-Public-Key"): try publicJWK(for: privateKey.publicKey),
             headerName(for: "deviceKeyAlgorithm", fallback: "X-Athena-Device-Key-Algorithm"): privateKey.algorithm,
         ]
+        if requirePostQuantum {
+            guard postQuantumContractReady else {
+                throw APIClientError.postQuantumSigningUnavailable
+            }
+            let pqPayload = Data(canonical.utf8)
+            let pqMaterial: (signature: Data, publicKey: Data)
+            if let postQuantumTestSignatureProvider {
+                pqMaterial = try postQuantumTestSignatureProvider(pqPayload)
+            } else {
+                guard #available(iOS 26.0, *), SecureEnclave.isAvailable else {
+                    throw APIClientError.postQuantumSigningUnavailable
+                }
+                let signer = try highRiskSigner()
+                pqMaterial = (
+                    signature: try signer.signature(for: pqPayload),
+                    publicKey: signer.publicKey
+                )
+            }
+            headers[
+                headerName(
+                    for: "hybridSignatureVersion",
+                    fallback: "X-Athena-Hybrid-Signature-Version"
+                )
+            ] = AthenaCryptoSuiteRegistry.deviceHybridP256MLDSA65V1
+            headers[
+                headerName(
+                    for: "pqSignature",
+                    fallback: "X-Athena-PQ-Signature"
+                )
+            ] = pqMaterial.signature.base64URLEncodedString()
+            headers[
+                headerName(
+                    for: "pqPublicKey",
+                    fallback: "X-Athena-PQ-Public-Key"
+                )
+            ] = pqMaterial.publicKey.base64URLEncodedString()
+            headers[
+                headerName(
+                    for: "pqKeyAlgorithm",
+                    fallback: "X-Athena-PQ-Key-Algorithm"
+                )
+            ] = AthenaCryptoSuiteRegistry.requestDeviceMLDSA65V1
+            headers[
+                headerName(
+                    for: "pqKeyOrigin",
+                    fallback: "X-Athena-PQ-Key-Origin"
+                )
+            ] = "apple-secure-enclave-ios26"
+            headers[
+                headerName(
+                    for: "pqHardwareProtection",
+                    fallback: "X-Athena-PQ-Hardware-Protection"
+                )
+            ] = "secure-enclave"
+        }
+        return headers
+    }
+
+    @available(iOS 26.0, *)
+    private func highRiskSigner() throws -> AthenaHighRiskPQSigner {
+        if let signer = highRiskPQSigner as? AthenaHighRiskPQSigner {
+            return signer
+        }
+        guard SecureEnclave.isAvailable else {
+            throw APIClientError.signingUnavailable
+        }
+        let stored = try secureStore.data(forKey: Keys.highRiskPQKeyReference)
+        let signer = try AthenaHighRiskPQSigner(dataRepresentation: stored)
+        if stored == nil {
+            try secureStore.setData(
+                signer.dataRepresentation,
+                forKey: Keys.highRiskPQKeyReference
+            )
+        }
+        highRiskPQSigner = signer
+        return signer
     }
 
     func signedWebSocketMessage<Payload: Encodable>(
@@ -326,6 +475,9 @@ final class RequestSigningCenter {
     ) throws -> Data {
         guard let privateKey, let clientID else {
             throw APIClientError.signingUnavailable
+        }
+        guard postQuantumContractReady else {
+            throw APIClientError.postQuantumSigningUnavailable
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -344,7 +496,21 @@ final class RequestSigningCenter {
             clientID,
             bodyHash,
         ].joined(separator: "\n")
-        let signature = try privateKey.signature(for: Data(canonical.utf8))
+        let canonicalData = Data(canonical.utf8)
+        let signature = try privateKey.signature(for: canonicalData)
+        let pqMaterial: (signature: Data, publicKey: Data)
+        if let postQuantumTestSignatureProvider {
+            pqMaterial = try postQuantumTestSignatureProvider(canonicalData)
+        } else {
+            guard #available(iOS 26.0, *), SecureEnclave.isAvailable else {
+                throw APIClientError.postQuantumSigningUnavailable
+            }
+            let signer = try highRiskSigner()
+            pqMaterial = (
+                signature: try signer.signature(for: canonicalData),
+                publicKey: signer.publicKey
+            )
+        }
         let signed = WebSocketSignedMetadata(
             clientId: clientID,
             requestId: requestID,
@@ -353,7 +519,11 @@ final class RequestSigningCenter {
             bodySha256: bodyHash,
             signature: signature.rawRepresentation.base64URLEncodedString(),
             devicePublicKey: try publicJWK(for: privateKey.publicKey),
-            deviceKeyAlgorithm: privateKey.algorithm
+            deviceKeyAlgorithm: privateKey.algorithm,
+            hybridSignatureVersion: AthenaCryptoSuiteRegistry.deviceHybridP256MLDSA65V1,
+            pqSignature: pqMaterial.signature.base64URLEncodedString(),
+            pqPublicKey: pqMaterial.publicKey.base64URLEncodedString(),
+            pqKeyAlgorithm: AthenaCryptoSuiteRegistry.requestDeviceMLDSA65V1
         )
         return try encoder.encode(
             WebSocketSignedEnvelope(
@@ -366,7 +536,9 @@ final class RequestSigningCenter {
     }
 
     private func updateStatus() {
-        if privateKey == nil {
+        if !postQuantumContractReady {
+            status = .postQuantumContractUnavailable
+        } else if privateKey == nil {
             status = .missingDeviceKey
         } else if signingSecret == nil {
             status = .missingSigningSecret
@@ -419,6 +591,10 @@ private struct WebSocketSignedMetadata: Encodable {
     let signature: String
     let devicePublicKey: String
     let deviceKeyAlgorithm: String
+    let hybridSignatureVersion: String
+    let pqSignature: String
+    let pqPublicKey: String
+    let pqKeyAlgorithm: String
 }
 
 private struct EmptyRequestBody: Encodable {}

@@ -46,6 +46,7 @@ describe("Crypto Hub background runtime", () => {
   });
 
   test("skips when the background runtime is disabled", async () => {
+    process.env.ATHENA_CRYPTO_ACCOUNT_SCOPED = "false";
     process.env.CRYPTO_HUB_BACKGROUND_ENABLED = "false";
     const hub = mockHub();
 
@@ -59,7 +60,23 @@ describe("Crypto Hub background runtime", () => {
     expect(hub.start).not.toHaveBeenCalled();
   });
 
+  test("disables the process-global private runtime by default in account-scoped mode", async () => {
+    delete process.env.ATHENA_CRYPTO_ACCOUNT_SCOPED;
+    delete process.env.CRYPTO_HUB_LEGACY_BACKGROUND_ENABLED;
+    const hub = mockHub();
+
+    const result = await startCryptoHubBackgroundRuntime({ hub });
+
+    expect(result).toEqual({
+      started: false,
+      skipped: true,
+      reason: "disabled",
+    });
+    expect(hub.start).not.toHaveBeenCalled();
+  });
+
   test("skips when Gate is not configured for read-only private REST", async () => {
+    process.env.CRYPTO_HUB_LEGACY_BACKGROUND_ENABLED = "true";
     const hub = mockHub(
       configuredStatus({
         enabled: true,
@@ -77,6 +94,7 @@ describe("Crypto Hub background runtime", () => {
   });
 
   test("starts shared polling and prewarms equity history when configured", async () => {
+    process.env.CRYPTO_HUB_LEGACY_BACKGROUND_ENABLED = "true";
     const hub = mockHub();
 
     const result = await startCryptoHubBackgroundRuntime({ hub });

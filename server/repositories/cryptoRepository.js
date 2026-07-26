@@ -1,4 +1,6 @@
 const { CryptoRuntime } = require("../modules/crypto");
+const prisma = require("../utils/prisma");
+const authPrisma = require("../utils/authPrisma");
 
 function safeCall(fn, fallback) {
   try {
@@ -49,6 +51,59 @@ const CryptoRepository = {
       loading: this.loadingProgress(),
       recentEvents: this.recentEvents({ limit: 25 }),
     };
+  },
+
+  activeUserRoot({ authUserId }) {
+    return authPrisma.user_root_key_epochs.findFirst({
+      where: { authUserId: Number(authUserId), status: "active" },
+      orderBy: { rootEpoch: "desc" },
+    });
+  },
+
+  findAccountConnection({ where, orderBy = undefined, select = undefined }) {
+    return prisma.crypto_account_connections.findFirst({
+      where,
+      ...(orderBy ? { orderBy } : {}),
+      ...(select ? { select } : {}),
+    });
+  },
+
+  uniqueAccountConnection({ where, select = undefined }) {
+    return prisma.crypto_account_connections.findUnique({
+      where,
+      ...(select ? { select } : {}),
+    });
+  },
+
+  upsertAccountConnection({ where, create, update }) {
+    return prisma.crypto_account_connections.upsert({
+      where,
+      create,
+      update,
+    });
+  },
+
+  listAccountConnections({ where, select = undefined, take = undefined }) {
+    return prisma.crypto_account_connections.findMany({
+      where,
+      ...(select ? { select } : {}),
+      ...(take ? { take } : {}),
+    });
+  },
+
+  updateAccountConnection({ where, data }) {
+    return prisma.crypto_account_connections.update({ where, data });
+  },
+
+  updateAccountConnections({ where, data }) {
+    return prisma.crypto_account_connections.updateMany({ where, data });
+  },
+
+  findUserDomainWrap({ where, orderBy = undefined }) {
+    return prisma.user_domain_key_wraps.findFirst({
+      where,
+      ...(orderBy ? { orderBy } : {}),
+    });
   },
 };
 

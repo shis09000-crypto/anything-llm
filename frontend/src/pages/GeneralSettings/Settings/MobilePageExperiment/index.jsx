@@ -1126,6 +1126,7 @@ function mobileDraftToMessages(draft = null) {
         timeline,
         clarifyingQuestions,
         status: item.status,
+        streamConnectionState: item.streamConnectionState || null,
         error: item.error,
         draftTurnId: item.turnId || null,
         draftTurnStatus: item.status || null,
@@ -1737,6 +1738,9 @@ export function MobilePageExperimentContent({
   const [localRuntimeActivity, setLocalRuntimeActivity] = useState(null);
   const messagesEndRef = useRef(null);
   const chatPaneRef = useRef(null);
+  const mobileShouldFollowRef = useRef(true);
+  const mobileLastScrollTopRef = useRef(0);
+  const [mobileHasNewMessages, setMobileHasNewMessages] = useState(false);
   const runtimeSheetRef = useRef(null);
   const replyTimerRef = useRef(null);
   const copiedTimerRef = useRef(null);
@@ -2596,7 +2600,7 @@ export function MobilePageExperimentContent({
     )
       return;
 
-    const reason = "请求连接中断，请重试。";
+    const reason = "实时连接暂时中断，正在恢复已提交的回复。";
     mobileChatDebug("pending:stream-stalled", {
       threadId: thread?.id || null,
       workspaceSlug: thread?.workspaceSlug || null,
@@ -2604,26 +2608,25 @@ export function MobilePageExperimentContent({
       submittedAt: pending?.submittedAt || null,
       clientTurnId: pending?.clientTurnId || null,
       ageMs: pending ? Date.now() - pendingSubmittedCreatedAtMs(pending) : null,
+      recoveryMessage: reason,
       ...details,
     });
 
-    if (pending?.clientTurnId && thread?.workspaceSlug) {
-      const chatKey = chatDrafts.getChatKey(
-        thread.workspaceSlug,
-        thread.threadSlug
-      );
-      chatDrafts.failAssistantTurn?.(chatKey, pending.clientTurnId, reason);
-    }
-
     setStreaming(false);
     sendInFlightRef.current = false;
-    setActionError(reason);
-    setInput((current) => (current.trim() ? current : pending?.text || ""));
-    setMessages((current) =>
-      current.filter((message) => message.id !== pending?.messageId)
-    );
-    clearPendingSubmittedMessage(thread);
-    pendingOrphanRecoveryKeyRef.current = null;
+    setActionError(null);
+    const reconnectingPending = {
+      ...pending,
+      attempts: 0,
+      reconnectingAtMs: Date.now(),
+    };
+    pendingSubmittedMessageRef.current = reconnectingPending;
+    storePendingSubmittedMessage(reconnectingPending);
+    setLocalRuntimeActivity({
+      ...localThinkingActivity(thread, reconnectingPending),
+      label: "正在恢复回复",
+    });
+    schedulePendingHistoryRefresh(thread, 250);
   }
 
   async function refreshThreadHistoryAfterRuntime(
@@ -2770,8 +2773,14 @@ export function MobilePageExperimentContent({
   }
 
   const scrollMobileTailIntoView = useCallback(
-    ({ focusRuntimeSheet = false } = {}) => {
+    ({ focusRuntimeSheet = false, force = false } = {}) => {
       if (typeof window === "undefined") return;
+      if (!force && !mobileShouldFollowRef.current) {
+        setMobileHasNewMessages(true);
+        return;
+      }
+      mobileShouldFollowRef.current = true;
+      setMobileHasNewMessages(false);
 
       const scrollOnce = () => {
         const chatPane = chatPaneRef.current;
@@ -2799,9 +2808,39 @@ export function MobilePageExperimentContent({
     []
   );
 
+  const handleMobileChatScroll = useCallback((event) => {
+    const element = event.currentTarget;
+    const nextScrollTop = element.scrollTop;
+    const bottomGap =
+      element.scrollHeight - nextScrollTop - element.clientHeight;
+    const movedUp = nextScrollTop < mobileLastScrollTopRef.current - 1;
+    if (bottomGap <= 48) {
+      mobileShouldFollowRef.current = true;
+      setMobileHasNewMessages(false);
+    } else if (movedUp) {
+      mobileShouldFollowRef.current = false;
+    }
+    mobileLastScrollTopRef.current = nextScrollTop;
+  }, []);
+
+  const leaveMobileFollow = useCallback(() => {
+    mobileShouldFollowRef.current = false;
+  }, []);
+
+  const mobileTailSignature = useMemo(() => {
+    const tail = displayMessages[displayMessages.length - 1];
+    return [
+      tail?.id || "empty",
+      tail?.role || "",
+      tail?.text?.length || 0,
+      runtimeActivity?.key || "",
+    ].join(":");
+  }, [displayMessages, runtimeActivity?.key]);
+
   useEffect(() => {
-    scrollMobileTailIntoView();
-  }, [displayMessages.length, scrollMobileTailIntoView]);
+    const tail = displayMessages[displayMessages.length - 1];
+    scrollMobileTailIntoView({ force: tail?.role === "user" });
+  }, [mobileTailSignature, scrollMobileTailIntoView]);
 
   useEffect(() => {
     if (!filteredDraftMessages.length) return;
@@ -2821,11 +2860,6 @@ export function MobilePageExperimentContent({
     filteredDraftMessagesKey,
     messages.length,
   ]);
-
-  useEffect(() => {
-    if (!runtimeActivity?.key) return;
-    scrollMobileTailIntoView();
-  }, [runtimeActivity?.key, scrollMobileTailIntoView]);
 
   useEffect(() => {
     const pending = currentPendingSubmittedMessage(activeThread);
@@ -2986,6 +3020,7 @@ export function MobilePageExperimentContent({
     const pending = currentPendingSubmittedMessage(activeThread);
     if (
       !pending ||
+      pending.reconnectingAtMs ||
       activeThreadIsOverview ||
       hasPendingRuntimeIntervention ||
       sendInFlightRef.current
@@ -4604,6 +4639,15 @@ export function MobilePageExperimentContent({
                     loadingThreadHistory && displayMessages.length === 0
                   }
                   messagesEndRef={messagesEndRef}
+                  hasNewMessages={mobileHasNewMessages}
+                  onScroll={handleMobileChatScroll}
+                  onWheel={(event) => {
+                    if (event.deltaY < 0) leaveMobileFollow();
+                  }}
+                  onTouchMove={leaveMobileFollow}
+                  onJumpToLatest={() =>
+                    scrollMobileTailIntoView({ force: true })
+                  }
                   onQuizUpdate={handleQuizMessageUpdate}
                   copiedMessageId={copiedMessageId}
                   editingMessageId={null}
@@ -4820,6 +4864,15 @@ export function MobilePageExperimentContent({
                               displayMessages.length === 0
                             }
                             messagesEndRef={messagesEndRef}
+                            hasNewMessages={mobileHasNewMessages}
+                            onScroll={handleMobileChatScroll}
+                            onWheel={(event) => {
+                              if (event.deltaY < 0) leaveMobileFollow();
+                            }}
+                            onTouchMove={leaveMobileFollow}
+                            onJumpToLatest={() =>
+                              scrollMobileTailIntoView({ force: true })
+                            }
                             onQuizUpdate={handleQuizMessageUpdate}
                             copiedMessageId={copiedMessageId}
                             editingMessageId={null}
@@ -5833,6 +5886,11 @@ function ChatPane({
   threadSlug,
   loadingRecent = false,
   messagesEndRef,
+  hasNewMessages = false,
+  onScroll,
+  onWheel,
+  onTouchMove,
+  onJumpToLatest,
   onQuizUpdate,
   copiedMessageId,
   editingMessageId,
@@ -5882,6 +5940,9 @@ function ChatPane({
   return (
     <div
       ref={chatPaneRef}
+      onScroll={onScroll}
+      onWheel={onWheel}
+      onTouchMove={onTouchMove}
       className="no-scroll -mr-4 flex h-full flex-col gap-3 overflow-y-auto pr-4 pt-[92px]"
       style={{
         paddingBottom: "calc(116px + var(--mobile-keyboard-inset, 0px))",
@@ -5944,6 +6005,15 @@ function ChatPane({
           onSpeakMessage={onSpeakMessage}
           onStartEdit={onStartEdit}
         />
+      )}
+      {hasNewMessages && (
+        <button
+          type="button"
+          onClick={onJumpToLatest}
+          className="sticky bottom-[104px] z-20 mx-auto rounded-full border border-sky-200/80 bg-white/90 px-4 py-2 text-xs font-black text-sky-700 shadow-lg backdrop-blur-xl"
+        >
+          新消息
+        </button>
       )}
       <div ref={messagesEndRef} />
     </div>
@@ -6609,10 +6679,14 @@ function MessageBubble({
   const actionChatId = message.publicChatId || message.chatId;
   const canUseRealActions = !!workspaceSlug && !!threadSlug && !!actionChatId;
   const hasText = !!message.text?.trim();
+  const isStreamingAssistant =
+    !isUser && (message.status === "running" || !!runtimeActivity);
   const renderedAssistant = useMemo(
     () =>
-      isUser ? null : DOMPurify.sanitize(renderMarkdown(message.text || "")),
-    [isUser, message.text]
+      isUser || isStreamingAssistant
+        ? null
+        : DOMPurify.sanitize(renderMarkdown(message.text || "")),
+    [isStreamingAssistant, isUser, message.text]
   );
   const userMessageChars = useMemo(
     () => Array.from(message.text || ""),
@@ -6650,12 +6724,17 @@ function MessageBubble({
               className={hasAssistantText ? "mb-3" : "mb-1"}
             />
           )}
-          {hasAssistantText && (
-            <div
-              className="mobile-experiment-markdown markdown text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
-              dangerouslySetInnerHTML={{ __html: renderedAssistant }}
-            />
-          )}
+          {hasAssistantText &&
+            (isStreamingAssistant ? (
+              <div className="whitespace-pre-wrap break-words text-[17px] font-normal leading-[1.72] text-slate-900">
+                {message.text}
+              </div>
+            ) : (
+              <div
+                className="mobile-experiment-markdown markdown text-[17px] font-normal leading-[1.72] text-slate-900 [&_*]:!text-slate-900 [&_a]:!text-sky-700 [&_code]:rounded-md [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:!text-slate-800 [&_h1]:!text-[22px] [&_h2]:!text-[20px] [&_h3]:!text-[18px] [&_li::marker]:!text-slate-500 [&_strong]:!font-black [&_table]:!text-sm"
+                dangerouslySetInnerHTML={{ __html: renderedAssistant }}
+              />
+            ))}
           {hasRuntimeActivity && (
             <MobileAgentActivityText
               key={runtimeActivity.key}
@@ -6669,6 +6748,10 @@ function MessageBubble({
                 .join(" ")}
             />
           )}
+          {isStreamingAssistant &&
+            message.streamConnectionState === "reconnecting" && (
+              <p className="mt-2 text-xs font-bold text-slate-500">正在重连…</p>
+            )}
           {!runtimeOnly && (
             <>
               <p className="mt-2 text-[10px] font-black uppercase tracking-wide text-slate-400">

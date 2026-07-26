@@ -86,7 +86,6 @@ private struct TokenCheckResponse: Decodable {
     let valid: Bool?
     let token: String?
     let legacyTokenUpgraded: Bool?
-    let idleExpiresAt: String?
 }
 
 private struct RefreshUserResponse: Decodable {

@@ -62,7 +62,11 @@ function verifyDatabase(sourcePath, destinationPath, execute) {
 }
 
 function verifyKeyCustody() {
-  return require("../utils/security/keyCustody").verifyKeyCustodyRoundTrip();
+  const index = process.argv.indexOf("--key-id");
+  const keyId = index >= 0 ? process.argv[index + 1] : null;
+  return require("../utils/security/keyCustody").verifyKeyCustodyRoundTrip(
+    keyId
+  );
 }
 
 async function main() {

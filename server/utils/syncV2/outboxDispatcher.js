@@ -19,6 +19,8 @@ const DEFAULT_LANE_CONCURRENCY = 4;
 const DEFAULT_MAX_ATTEMPTS = 8;
 const WORKER_ID = `${hostname()}:${process.pid}:${randomUUID()}`;
 let timer = null;
+let dispatcherStarted = false;
+let configuredIntervalMs = null;
 let activeFlush = null;
 let lastPrunedAt = 0;
 let lastMetricsAt = 0;
@@ -65,6 +67,18 @@ function retryDelayMs(attemptCount = 0) {
   const exponential = Math.min(
     base * 2 ** Math.min(Math.max(Number(attemptCount), 0), 12),
     ceiling
+  );
+  return Math.round(exponential * (0.8 + Math.random() * 0.4));
+}
+
+function dispatcherRetryDelayMs(consecutiveFailures = 1) {
+  const base = Math.max(
+    Math.min(Number(configuredIntervalMs || syncV2OutboxIntervalMs()), 1_000),
+    100
+  );
+  const exponential = Math.min(
+    base * 2 ** Math.min(Math.max(Number(consecutiveFailures) - 1, 0), 8),
+    30_000
   );
   return Math.round(exponential * (0.8 + Math.random() * 0.4));
 }
@@ -385,33 +399,81 @@ async function flushSyncV2Outbox({ limit = 100, drain = false } = {}) {
   return activeFlush;
 }
 
+function scheduleNextFlush(delayMs) {
+  if (!dispatcherStarted) return;
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(
+    async () => {
+      timer = null;
+      try {
+        await flushSyncV2Outbox();
+      } catch (error) {
+        console.error("[SyncV2] outbox flush failed", {
+          code: error?.code || "outbox_flush_failed",
+          consecutiveFailures: healthState.consecutiveFailures,
+        });
+      } finally {
+        if (dispatcherStarted) {
+          scheduleNextFlush(
+            healthState.consecutiveFailures > 0
+              ? dispatcherRetryDelayMs(healthState.consecutiveFailures)
+              : configuredIntervalMs
+          );
+        }
+      }
+    },
+    Math.max(Number(delayMs) || 0, 50)
+  );
+  timer.unref?.();
+}
+
 async function startSyncV2OutboxDispatcher({ intervalMs = null } = {}) {
-  if (!syncV2OutboxDispatchEnabled() || timer) return false;
+  if (!syncV2OutboxDispatchEnabled() || dispatcherStarted) return false;
   if (!(await SyncV2.schemaReady())) return false;
-  await flushSyncV2Outbox();
-  const configuredIntervalMs =
+  configuredIntervalMs =
     intervalMs === null || intervalMs === undefined
       ? syncV2OutboxIntervalMs()
       : positiveInteger(intervalMs, syncV2OutboxIntervalMs(), 60 * 60_000);
-  timer = setInterval(
-    () => {
-      void flushSyncV2Outbox().catch((error) =>
-        console.error("[SyncV2] outbox flush failed", {
-          code: error?.code || "outbox_flush_failed",
-        })
-      );
-    },
-    Math.max(configuredIntervalMs, 50)
+  dispatcherStarted = true;
+  try {
+    await flushSyncV2Outbox();
+  } catch (error) {
+    console.error("[SyncV2] initial outbox flush deferred", {
+      code: error?.code || "outbox_flush_failed",
+      consecutiveFailures: healthState.consecutiveFailures,
+    });
+  }
+  scheduleNextFlush(
+    healthState.consecutiveFailures > 0
+      ? dispatcherRetryDelayMs(healthState.consecutiveFailures)
+      : configuredIntervalMs
   );
-  timer.unref?.();
   return true;
 }
 
 async function stopSyncV2OutboxDispatcher({ drain = true } = {}) {
-  if (timer) clearInterval(timer);
+  dispatcherStarted = false;
+  if (timer) clearTimeout(timer);
   timer = null;
   if (activeFlush) await activeFlush.catch(() => null);
-  if (drain) await flushSyncV2Outbox({ drain: true });
+  if (drain) {
+    const drainTimeoutMs = positiveInteger(
+      process.env.SYNC_V2_OUTBOX_DRAIN_TIMEOUT_MS,
+      10_000,
+      60_000
+    );
+    await Promise.race([
+      flushSyncV2Outbox({ drain: true }).catch((error) => {
+        console.error("[SyncV2] bounded outbox drain failed", {
+          code: error?.code || "outbox_drain_failed",
+        });
+      }),
+      new Promise((resolve) => {
+        const timeout = setTimeout(resolve, drainTimeoutMs);
+        timeout.unref?.();
+      }),
+    ]);
+  }
 }
 
 function syncV2OutboxSnapshot() {
@@ -424,7 +486,7 @@ function syncV2OutboxSnapshot() {
     enabled: syncV2OutboxDispatchEnabled(),
     mode: syncV2ControlPlaneMode(),
     intervalMs: syncV2OutboxIntervalMs(),
-    running: Boolean(timer),
+    running: dispatcherStarted,
     workerId: WORKER_ID,
     healthy: healthState.consecutiveFailures < 3,
     degraded:
@@ -448,6 +510,7 @@ module.exports = {
     dispatchFailure,
     partitionLanes,
     processLane,
+    dispatcherRetryDelayMs,
     retryDelayMs,
     runBounded,
   },

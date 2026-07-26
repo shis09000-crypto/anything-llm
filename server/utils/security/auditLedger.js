@@ -7,10 +7,26 @@ const { storagePath } = require("../environment");
 const { canonicalJson } = require("../syncV2/canonicalJson");
 const { redactLogObject } = require("./redaction");
 const { resolveActiveKey, resolveKey } = require("./keyCustody");
+const { recordDecryptOnlyKeyRead } = require("./legacyKeyReadObservation");
 const { metrics } = require("../observability/metrics");
+const {
+  PURPOSES,
+  SUITE_IDS,
+  cryptoSuite,
+  preferredCryptoSuite,
+  signatureBufferEncoding,
+  signWithCryptoSuite,
+  supportsNodeSignatureSuite,
+  verifyWithCryptoSuite,
+} = require("./cryptoSuiteRegistry");
 
 const CHAIN_ID = "security-v1";
 const GENESIS_HASH = "0".repeat(64);
+const CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT =
+  "athena-audit-signature-envelope:v1";
+const CHECKPOINT_SIGNING_PAYLOAD_FORMAT = "athena-audit-checkpoint-payload:v2";
+const CHECKPOINT_SIGNATURE_MIGRATION_FORMAT =
+  "athena-audit-signature-migration:v1";
 const ED25519_PKCS8_SEED_PREFIX = Buffer.from(
   "302e020100300506032b657004220420",
   "hex"
@@ -21,6 +37,73 @@ const durabilityState = {
   lastFatalAt: null,
   lastFatalCode: null,
 };
+const AUDIT_SIGNATURE_SUITE = preferredCryptoSuite(
+  PURPOSES.SECURITY_AUDIT_CHECKPOINT
+);
+if (
+  !AUDIT_SIGNATURE_SUITE ||
+  !supportsNodeSignatureSuite(AUDIT_SIGNATURE_SUITE)
+)
+  throw new Error("security_audit_crypto_suite_unavailable");
+const AUDIT_PQ_SIGNATURE_SUITE = cryptoSuite(SUITE_IDS.AUDIT_MLDSA65_V1, {
+  purpose: PURPOSES.SECURITY_AUDIT_CHECKPOINT,
+});
+
+function auditHybridMode(env = process.env) {
+  const configured = String(env.ATHENA_AUDIT_HYBRID_SIGNATURES || "")
+    .trim()
+    .toLowerCase();
+  if (["required", "optional", "off"].includes(configured)) return configured;
+  return env.NODE_ENV === "production" ? "required" : "optional";
+}
+
+function auditSignaturePolicy(env = process.env) {
+  const mode = auditHybridMode(env);
+  return {
+    threshold: mode === "required" ? 2 : 1,
+    classicalRequired: true,
+    pqRequired: mode === "required",
+  };
+}
+
+function classicalCheckpointSignature({ key, payload, signedAt }) {
+  return {
+    suiteId: AUDIT_SIGNATURE_SUITE.suiteId,
+    keyId: key.keyId,
+    publicKey: key.publicKey,
+    signature: signWithCryptoSuite({
+      suite: AUDIT_SIGNATURE_SUITE,
+      data: payload,
+      privateKey: key.privateKey,
+    }).toString(signatureBufferEncoding(AUDIT_SIGNATURE_SUITE)),
+    signedAt: new Date(signedAt).toISOString(),
+    postQuantum: false,
+    parameterSet: key.parameterSet,
+    keyOrigin: key.keyOrigin,
+    hardwareProtection: key.hardwareProtection,
+  };
+}
+
+function postQuantumCheckpointSignature({ payload, signedAt }) {
+  if (!AUDIT_PQ_SIGNATURE_SUITE)
+    throw new Error("security_audit_pq_suite_unavailable");
+  const key = pqSigningKey();
+  return {
+    suiteId: AUDIT_PQ_SIGNATURE_SUITE.suiteId,
+    keyId: key.keyId,
+    publicKey: key.publicKey,
+    signature: signWithCryptoSuite({
+      suite: AUDIT_PQ_SIGNATURE_SUITE,
+      data: payload,
+      privateKey: key.privateKey,
+    }).toString(signatureBufferEncoding(AUDIT_PQ_SIGNATURE_SUITE)),
+    signedAt: new Date(signedAt).toISOString(),
+    postQuantum: true,
+    parameterSet: key.parameterSet,
+    keyOrigin: key.keyOrigin,
+    hardwareProtection: key.hardwareProtection,
+  };
+}
 
 function sha256(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
@@ -111,6 +194,15 @@ function signingKey(keyId = null) {
   const publicKey = crypto.createPublicKey(privateKey);
   return {
     keyId: descriptor.keyId,
+    purpose: descriptor.purpose,
+    status: descriptor.status,
+    parameterSet: AUDIT_SIGNATURE_SUITE.parameterSet,
+    keyOrigin: `hkdf-derived-from-${String(
+      descriptor.providerType || "key-custody"
+    )}`,
+    // The Ed25519 seed is derived in application memory even when the root
+    // provider has stronger protection. Do not overstate hardware assurance.
+    hardwareProtection: "software-runtime-derived",
     privateKey,
     publicKey: publicKey
       .export({ format: "der", type: "spki" })
@@ -118,8 +210,116 @@ function signingKey(keyId = null) {
   };
 }
 
-function checkpointEnvelope({ chainId, throughSequence, throughHash, keyId }) {
-  return { chainId, throughSequence, throughHash, keyId };
+function pqSigningKey(keyId = null, { privateKeyRequired = true } = {}) {
+  const configuredKeyId = String(
+    process.env.ATHENA_AUDIT_MLDSA65_KEY_ID || "audit-mldsa65-primary"
+  ).trim();
+  if (keyId && keyId !== configuredKeyId)
+    throw new Error("security_audit_pq_key_untrusted");
+  const privateKeyFile = String(
+    process.env.ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE || ""
+  ).trim();
+  const publicKeyFile = String(
+    process.env.ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE || ""
+  ).trim();
+  if (!publicKeyFile || (privateKeyRequired && !privateKeyFile))
+    throw new Error("security_audit_pq_key_unavailable");
+  if (privateKeyRequired) {
+    const stat = fs.statSync(path.resolve(privateKeyFile));
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0)
+      throw new Error("security_audit_pq_private_key_permissions_unsafe");
+  }
+  const privateKey = privateKeyRequired
+    ? fs.readFileSync(path.resolve(privateKeyFile), "utf8")
+    : null;
+  const publicKey = crypto.createPublicKey(
+    fs.readFileSync(path.resolve(publicKeyFile), "utf8")
+  );
+  return {
+    keyId: configuredKeyId,
+    parameterSet: AUDIT_PQ_SIGNATURE_SUITE.parameterSet,
+    keyOrigin: "external-pq-key-provider",
+    hardwareProtection: String(
+      process.env.ATHENA_AUDIT_MLDSA65_HARDWARE_PROTECTION ||
+        "provider-asserted"
+    ),
+    privateKey,
+    publicKey: publicKey
+      .export({ format: "der", type: "spki" })
+      .toString("base64"),
+  };
+}
+
+function checkpointEnvelope({
+  chainId,
+  throughSequence,
+  throughHash,
+  keyId,
+  suiteId = null,
+}) {
+  return {
+    chainId,
+    throughSequence,
+    throughHash,
+    keyId,
+    ...(suiteId ? { suiteId } : {}),
+  };
+}
+
+function checkpointSigningPayload({
+  chainId,
+  throughSequence,
+  throughHash,
+  policy,
+  legacyPolicyShape = false,
+}) {
+  return {
+    format: CHECKPOINT_SIGNING_PAYLOAD_FORMAT,
+    chainId,
+    throughSequence,
+    throughHash,
+    policy: {
+      threshold: Math.max(Number(policy?.threshold) || 1, 1),
+      ...(!legacyPolicyShape
+        ? { classicalRequired: policy?.classicalRequired !== false }
+        : {}),
+      pqRequired: policy?.pqRequired === true,
+    },
+  };
+}
+
+function parseCheckpointSignatureEnvelope(checkpoint) {
+  if (!checkpoint?.signatureEnvelopeJson) return null;
+  const envelope = JSON.parse(checkpoint.signatureEnvelopeJson);
+  if (
+    envelope?.format !== CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT ||
+    !Array.isArray(envelope.signatures) ||
+    envelope.signatures.length < 1 ||
+    envelope.signatures.length > 8
+  ) {
+    throw new Error("security_audit_signature_envelope_invalid");
+  }
+  const threshold = Number(envelope.policy?.threshold);
+  if (
+    !Number.isSafeInteger(threshold) ||
+    threshold < 1 ||
+    threshold > envelope.signatures.length
+  ) {
+    throw new Error("security_audit_signature_threshold_invalid");
+  }
+  return {
+    format: envelope.format,
+    legacyPolicyShape: !Object.prototype.hasOwnProperty.call(
+      envelope.policy || {},
+      "classicalRequired"
+    ),
+    policy: {
+      threshold,
+      classicalRequired: envelope.policy?.classicalRequired !== false,
+      pqRequired: envelope.policy?.pqRequired === true,
+    },
+    signatures: envelope.signatures,
+  };
 }
 
 async function maybeCreateCheckpoint(tx, row, now = new Date()) {
@@ -144,21 +344,51 @@ async function maybeCreateCheckpoint(tx, row, now = new Date()) {
     now.getTime() - latest.createdAt.getTime() >= maxAgeMs;
   if (!due) return null;
   const key = signingKey();
-  const payload = checkpointEnvelope({
+  const policy = auditSignaturePolicy();
+  const payload = checkpointSigningPayload({
     chainId: row.chainId,
     throughSequence: row.sequence,
     throughHash: row.entryHash,
-    keyId: key.keyId,
+    policy,
   });
-  const signature = crypto
-    .sign(null, Buffer.from(ledgerCanonical(payload), "utf8"), key.privateKey)
-    .toString("base64");
+  const signingPayload = Buffer.from(ledgerCanonical(payload), "utf8");
+  const signatureRecord = classicalCheckpointSignature({
+    key,
+    payload: signingPayload,
+    signedAt: now,
+  });
+  const signature = signatureRecord.signature;
+  const signatures = [signatureRecord];
+  if (auditHybridMode() !== "off") {
+    try {
+      signatures.push(
+        postQuantumCheckpointSignature({
+          payload: signingPayload,
+          signedAt: now,
+        })
+      );
+    } catch (error) {
+      if (policy.pqRequired) throw error;
+    }
+  }
+  const signatureEnvelope = {
+    format: CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT,
+    policy,
+    signatures,
+  };
   return await tx.security_audit_checkpoints.create({
     data: {
-      ...payload,
-      algorithm: "ed25519",
+      chainId: row.chainId,
+      throughSequence: row.sequence,
+      throughHash: row.entryHash,
+      algorithm: AUDIT_SIGNATURE_SUITE.suiteId,
+      parameterSet: key.parameterSet,
+      keyOrigin: key.keyOrigin,
+      hardwareProtection: key.hardwareProtection,
+      keyId: key.keyId,
       publicKey: key.publicKey,
       signature,
+      signatureEnvelopeJson: JSON.stringify(signatureEnvelope),
       createdAt: now,
     },
   });
@@ -374,8 +604,9 @@ async function reconcileSecurityAuditSpool({ limit = 100 } = {}) {
 async function verifySecurityAudit({
   chainId = CHAIN_ID,
   pageSize = 500,
+  client = prisma,
 } = {}) {
-  const checkpoints = await prisma.security_audit_checkpoints.findMany({
+  const checkpoints = await client.security_audit_checkpoints.findMany({
     where: { chainId },
     orderBy: { throughSequence: "asc" },
   });
@@ -394,7 +625,7 @@ async function verifySecurityAudit({
   let afterSequence = Number.MIN_SAFE_INTEGER;
   const take = Math.min(Math.max(Number(pageSize) || 500, 50), 2_000);
   while (true) {
-    const rows = await prisma.security_audit_ledger.findMany({
+    const rows = await client.security_audit_ledger.findMany({
       where: { chainId, sequence: { gt: afterSequence } },
       orderBy: { sequence: "asc" },
       take,
@@ -462,44 +693,248 @@ async function verifySecurityAudit({
   }
   for (const checkpoint of checkpoints) {
     try {
-      if (String(checkpoint.algorithm).toLowerCase() !== "ed25519")
-        addFailure({
-          sequence: checkpoint.throughSequence,
-          code: "checkpoint_algorithm_mismatch",
-        });
-      const trusted = signingKey(checkpoint.keyId);
-      const trustedPublicKey = trusted.publicKey;
-      if (checkpoint.publicKey !== trustedPublicKey)
-        addFailure({
-          sequence: checkpoint.throughSequence,
-          code: "checkpoint_public_key_untrusted",
-        });
-      const publicKey = crypto.createPublicKey({
-        key: Buffer.from(trustedPublicKey, "base64"),
-        format: "der",
-        type: "spki",
-      });
-      const valid = crypto.verify(
-        null,
-        Buffer.from(
-          ledgerCanonical(
-            checkpointEnvelope({
-              chainId: checkpoint.chainId,
-              throughSequence: checkpoint.throughSequence,
-              throughHash: checkpoint.throughHash,
-              keyId: checkpoint.keyId,
+      const signatureEnvelope = parseCheckpointSignatureEnvelope(checkpoint);
+      if (signatureEnvelope) {
+        const primary = signatureEnvelope.signatures[0];
+        if (primary?.suiteId !== checkpoint.algorithm) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_algorithm_mismatch",
+          });
+        }
+        if (primary?.publicKey !== checkpoint.publicKey) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_public_key_untrusted",
+          });
+        }
+        if (
+          primary?.parameterSet !== checkpoint.parameterSet ||
+          primary?.keyOrigin !== checkpoint.keyOrigin ||
+          primary?.hardwareProtection !== checkpoint.hardwareProtection
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_key_metadata_mismatch",
+          });
+        }
+        if (
+          primary?.suiteId !== checkpoint.algorithm ||
+          primary?.keyId !== checkpoint.keyId ||
+          primary?.publicKey !== checkpoint.publicKey ||
+          primary?.signature !== checkpoint.signature
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_signature_envelope_primary_mismatch",
+          });
+        }
+        const payloads = [signatureEnvelope.legacyPolicyShape, false]
+          .filter((legacyPolicyShape, index, values) => {
+            return values.indexOf(legacyPolicyShape) === index;
+          })
+          .map((legacyPolicyShape) =>
+            Buffer.from(
+              ledgerCanonical(
+                checkpointSigningPayload({
+                  chainId: checkpoint.chainId,
+                  throughSequence: checkpoint.throughSequence,
+                  throughHash: checkpoint.throughHash,
+                  policy: signatureEnvelope.policy,
+                  legacyPolicyShape,
+                })
+              ),
+              "utf8"
+            )
+          );
+        let validSignatures = 0;
+        let validPostQuantumSignatures = 0;
+        let validClassicalSignatures = 0;
+        const verifiedKeyIds = new Set();
+        for (const signature of signatureEnvelope.signatures) {
+          if (!signature?.keyId || verifiedKeyIds.has(signature.keyId)) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_signature_key_duplicate_or_missing",
+            });
+            continue;
+          }
+          verifiedKeyIds.add(signature.keyId);
+          const suite = cryptoSuite(signature.suiteId, {
+            purpose: PURPOSES.SECURITY_AUDIT_CHECKPOINT,
+            at: new Date(
+              signature.signedAt || checkpoint.createdAt || Date.now()
+            ),
+          });
+          if (!suite) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_algorithm_mismatch",
+            });
+            continue;
+          }
+          if (
+            !supportsNodeSignatureSuite(suite) ||
+            !signatureBufferEncoding(suite)
+          ) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_algorithm_implementation_unavailable",
+            });
+            continue;
+          }
+          const trusted = suite.pqAlgorithm
+            ? pqSigningKey(signature.keyId, { privateKeyRequired: false })
+            : signingKey(signature.keyId);
+          if (
+            signature.parameterSet !== suite.parameterSet ||
+            signature.parameterSet !== trusted.parameterSet ||
+            signature.keyOrigin !== trusted.keyOrigin ||
+            signature.hardwareProtection !== trusted.hardwareProtection
+          ) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_key_metadata_mismatch",
+            });
+            continue;
+          }
+          if (signature.publicKey !== trusted.publicKey) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_public_key_untrusted",
+            });
+            continue;
+          }
+          const publicKey = crypto.createPublicKey({
+            key: Buffer.from(trusted.publicKey, "base64"),
+            format: "der",
+            type: "spki",
+          });
+          const valid = payloads.some((data) =>
+            verifyWithCryptoSuite({
+              suite,
+              data,
+              publicKey,
+              signature: signature.signature,
             })
-          ),
-          "utf8"
-        ),
-        publicKey,
-        Buffer.from(checkpoint.signature, "base64")
-      );
-      if (!valid)
-        addFailure({
-          sequence: checkpoint.throughSequence,
-          code: "checkpoint_signature_invalid",
+          );
+          if (!valid) {
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_signature_invalid",
+            });
+            continue;
+          }
+          if (!suite.pqAlgorithm) {
+            recordDecryptOnlyKeyRead(trusted, {
+              domain: "security-audit-checkpoint",
+              runtimeRole: process.env.ATHENA_RUNTIME_ROLE || "audit-verifier",
+              resource: checkpoint.id,
+            });
+          }
+          validSignatures += 1;
+          if (suite.pqAlgorithm) validPostQuantumSignatures += 1;
+          else validClassicalSignatures += 1;
+        }
+        if (validSignatures < signatureEnvelope.policy.threshold) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_signature_threshold_not_met",
+          });
+        }
+        if (
+          signatureEnvelope.policy.pqRequired &&
+          validPostQuantumSignatures < 1
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_post_quantum_signature_required",
+          });
+        }
+        if (
+          signatureEnvelope.policy.classicalRequired &&
+          validClassicalSignatures < 1
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_classical_signature_required",
+          });
+        }
+        const requiredPolicy = auditSignaturePolicy();
+        if (
+          requiredPolicy.pqRequired &&
+          (!signatureEnvelope.policy.pqRequired ||
+            signatureEnvelope.policy.threshold < requiredPolicy.threshold)
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_signature_policy_downgrade",
+          });
+        }
+      } else {
+        const checkpointSuite = cryptoSuite(checkpoint.algorithm, {
+          purpose: PURPOSES.SECURITY_AUDIT_CHECKPOINT,
+          at: new Date(checkpoint.createdAt || Date.now()),
         });
+        if (!checkpointSuite) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_algorithm_mismatch",
+          });
+        } else if (
+          !supportsNodeSignatureSuite(checkpointSuite) ||
+          !signatureBufferEncoding(checkpointSuite)
+        ) {
+          addFailure({
+            sequence: checkpoint.throughSequence,
+            code: "checkpoint_algorithm_implementation_unavailable",
+          });
+        } else {
+          const trusted = signingKey(checkpoint.keyId);
+          const trustedPublicKey = trusted.publicKey;
+          if (checkpoint.publicKey !== trustedPublicKey)
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_public_key_untrusted",
+            });
+          const publicKey = crypto.createPublicKey({
+            key: Buffer.from(trustedPublicKey, "base64"),
+            format: "der",
+            type: "spki",
+          });
+          const valid = verifyWithCryptoSuite({
+            suite: checkpointSuite,
+            data: Buffer.from(
+              ledgerCanonical(
+                checkpointEnvelope({
+                  chainId: checkpoint.chainId,
+                  throughSequence: checkpoint.throughSequence,
+                  throughHash: checkpoint.throughHash,
+                  keyId: checkpoint.keyId,
+                  suiteId:
+                    checkpoint.algorithm === checkpointSuite.suiteId
+                      ? checkpointSuite.suiteId
+                      : null,
+                })
+              ),
+              "utf8"
+            ),
+            publicKey,
+            signature: checkpoint.signature,
+          });
+          if (!valid)
+            addFailure({
+              sequence: checkpoint.throughSequence,
+              code: "checkpoint_signature_invalid",
+            });
+          else
+            recordDecryptOnlyKeyRead(trusted, {
+              domain: "security-audit-checkpoint",
+              runtimeRole: process.env.ATHENA_RUNTIME_ROLE || "audit-verifier",
+              resource: checkpoint.id,
+            });
+        }
+      }
       if (
         checkpointEntryHashes.get(Number(checkpoint.throughSequence)) !==
         checkpoint.throughHash
@@ -526,6 +961,169 @@ async function verifySecurityAudit({
   };
 }
 
+async function resignSecurityAuditCheckpoints({
+  sourceKeyId,
+  targetKeyId,
+  now = new Date(),
+} = {}) {
+  const sourceId = String(sourceKeyId || "").trim();
+  const targetId = String(targetKeyId || "").trim();
+  if (!sourceId || !targetId)
+    throw new Error("security_audit_signature_migration_key_required");
+  if (sourceId === targetId)
+    throw new Error("security_audit_signature_migration_keys_equal");
+
+  // Fail closed before touching any signature. This proves that the old
+  // custody key still anchors every checkpoint we are about to migrate.
+  const before = await verifySecurityAudit();
+  if (!before.valid)
+    throw new Error("security_audit_signature_migration_source_invalid");
+
+  const sourceKey = signingKey(sourceId);
+  const targetKey = signingKey(targetId);
+  const checkpoints = await prisma.security_audit_checkpoints.findMany({
+    where: { keyId: sourceId },
+    orderBy: { throughSequence: "asc" },
+  });
+  if (!checkpoints.length) {
+    return {
+      sourceKeyId: sourceId,
+      targetKeyId: targetId,
+      migrated: 0,
+      verified: true,
+    };
+  }
+
+  const migrations = checkpoints.map((checkpoint) => {
+    const parsedEnvelope = parseCheckpointSignatureEnvelope(checkpoint);
+    const originalEnvelope = checkpoint.signatureEnvelopeJson
+      ? JSON.parse(checkpoint.signatureEnvelopeJson)
+      : null;
+    const legacyPolicyShape = parsedEnvelope?.legacyPolicyShape === true;
+    const policy = parsedEnvelope?.policy || auditSignaturePolicy();
+    const storedPolicy = legacyPolicyShape
+      ? {
+          threshold: policy.threshold,
+          pqRequired: policy.pqRequired,
+        }
+      : policy;
+    const payload = Buffer.from(
+      ledgerCanonical(
+        checkpointSigningPayload({
+          chainId: checkpoint.chainId,
+          throughSequence: checkpoint.throughSequence,
+          throughHash: checkpoint.throughHash,
+          policy,
+          legacyPolicyShape,
+        })
+      ),
+      "utf8"
+    );
+    const targetSignature = classicalCheckpointSignature({
+      key: targetKey,
+      payload,
+      signedAt: now,
+    });
+    const retainedSignatures = (parsedEnvelope?.signatures || []).filter(
+      (signature) =>
+        signature?.keyId !== sourceId && signature?.keyId !== targetId
+    );
+    const signatures = [targetSignature, ...retainedSignatures];
+    if (
+      policy.pqRequired &&
+      !signatures.some((signature) => signature?.postQuantum === true)
+    ) {
+      signatures.push(
+        postQuantumCheckpointSignature({ payload, signedAt: now })
+      );
+    }
+    if (
+      signatures.length < policy.threshold ||
+      (policy.classicalRequired !== false &&
+        !signatures.some((signature) => signature?.postQuantum !== true)) ||
+      (policy.pqRequired &&
+        !signatures.some((signature) => signature?.postQuantum === true))
+    ) {
+      throw new Error("security_audit_signature_migration_policy_unmet");
+    }
+
+    const priorHistory = Array.isArray(
+      originalEnvelope?.retiredSignatureHistory
+    )
+      ? originalEnvelope.retiredSignatureHistory.slice(-31)
+      : [];
+    const previousEnvelope = originalEnvelope
+      ? Object.fromEntries(
+          Object.entries(originalEnvelope).filter(
+            ([key]) => key !== "retiredSignatureHistory"
+          )
+        )
+      : null;
+    const signatureEnvelope = {
+      format: CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT,
+      policy: storedPolicy,
+      signatures,
+      retiredSignatureHistory: [
+        ...priorHistory,
+        {
+          format: CHECKPOINT_SIGNATURE_MIGRATION_FORMAT,
+          migratedAt: new Date(now).toISOString(),
+          sourceKeyId: sourceKey.keyId,
+          targetKeyId: targetKey.keyId,
+          previousCheckpoint: {
+            algorithm: checkpoint.algorithm,
+            parameterSet: checkpoint.parameterSet,
+            keyOrigin: checkpoint.keyOrigin,
+            hardwareProtection: checkpoint.hardwareProtection,
+            keyId: checkpoint.keyId,
+            publicKey: checkpoint.publicKey,
+            signature: checkpoint.signature,
+          },
+          previousSignatureEnvelope: previousEnvelope,
+        },
+      ],
+    };
+    return {
+      id: checkpoint.id,
+      previousKeyId: checkpoint.keyId,
+      data: {
+        algorithm: targetSignature.suiteId,
+        parameterSet: targetSignature.parameterSet,
+        keyOrigin: targetSignature.keyOrigin,
+        hardwareProtection: targetSignature.hardwareProtection,
+        keyId: targetSignature.keyId,
+        publicKey: targetSignature.publicKey,
+        signature: targetSignature.signature,
+        signatureEnvelopeJson: JSON.stringify(signatureEnvelope),
+      },
+    };
+  });
+
+  await prisma.$transaction(async (tx) => {
+    for (const migration of migrations) {
+      const changed = await tx.security_audit_checkpoints.updateMany({
+        where: {
+          id: migration.id,
+          keyId: migration.previousKeyId,
+        },
+        data: migration.data,
+      });
+      if (Number(changed?.count || 0) !== 1)
+        throw new Error("security_audit_signature_migration_write_conflict");
+    }
+    const after = await verifySecurityAudit({ client: tx });
+    if (!after.valid)
+      throw new Error("security_audit_signature_migration_target_invalid");
+  });
+
+  return {
+    sourceKeyId: sourceId,
+    targetKeyId: targetId,
+    migrated: migrations.length,
+    verified: true,
+  };
+}
+
 module.exports = {
   CHAIN_ID,
   GENESIS_HASH,
@@ -534,13 +1132,22 @@ module.exports = {
   appendSecurityAuditDurably,
   isSecurityRelevantEvent,
   reconcileSecurityAuditSpool,
+  resignSecurityAuditCheckpoints,
   securityAuditDurabilitySnapshot,
   verifySecurityAudit,
   _internals: {
+    CHECKPOINT_SIGNATURE_ENVELOPE_FORMAT,
+    CHECKPOINT_SIGNING_PAYLOAD_FORMAT,
+    CHECKPOINT_SIGNATURE_MIGRATION_FORMAT,
     checkpointEnvelope,
+    checkpointSigningPayload,
+    parseCheckpointSignatureEnvelope,
     boundAuditValue,
     entryEnvelope,
     ledgerCanonical,
     signingKey,
+    pqSigningKey,
+    auditHybridMode,
+    auditSignaturePolicy,
   },
 };

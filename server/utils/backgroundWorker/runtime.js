@@ -4,6 +4,7 @@ const {
   metricsRequestAuthorized,
   registry,
 } = require("../observability/metrics");
+const { serviceIdentitySummary } = require("../security/serviceIdentity");
 
 class BackgroundWorkerRuntime {
   constructor({
@@ -23,6 +24,8 @@ class BackgroundWorkerRuntime {
     if (this.service) return this.snapshot();
     this.status = "starting";
     try {
+      const identity = serviceIdentitySummary("background-worker");
+      if (!identity.valid) throw new Error(identity.error);
       this.service = this.backgroundServiceFactory();
       await this.service.boot();
       this.status = "running";
@@ -43,6 +46,9 @@ class BackgroundWorkerRuntime {
       inline: false,
       jobs: this.service?.jobs?.().map((job) => job.name) || [],
       lastError: this.lastError,
+      serviceIdentity: serviceIdentitySummary("background-worker", {
+        required: false,
+      }),
     };
   }
 

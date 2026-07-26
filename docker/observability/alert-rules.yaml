@@ -29,3 +29,158 @@ groups:
           severity: warning
         annotations:
           summary: Athena API 5xx error rate is above one percent.
+      - alert: AthenaCryptoUnknownSuiteOrCorruptKey
+        expr: sum(rate(athena_crypto_verification_failures_total{reason=~"unknown_suite|corrupt_public_key|expired_key_id"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: security
+        annotations:
+          summary: Cryptographic verification rejected an unknown suite, expired key, or corrupt public key.
+      - alert: AthenaCryptoInvalidSignatureSpike
+        expr: sum(rate(athena_crypto_verification_failures_total{reason="invalid_signature"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          owner: security
+        annotations:
+          summary: Invalid cryptographic signatures exceed the expected background rate.
+      - alert: AthenaHybridTlsDowngradeDetected
+        expr: athena:crypto_tls:downgrade_ratio_15m > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: edge-security
+        annotations:
+          summary: The hybrid TLS release gate rejected a classical downgrade.
+      - alert: AthenaCryptoTlsMiddleboxBlockRate
+        expr: athena:crypto_tls:middlebox_block_ratio_15m > 0.005
+        for: 10m
+        labels:
+          severity: warning
+          owner: edge-security
+        annotations:
+          summary: Hybrid TLS middlebox blocking exceeds the promotion gate.
+      - alert: AthenaCryptoTlsEdgeCpuSaturation
+        expr: max(athena_crypto_tls_edge_cpu_utilization_ratio) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          owner: edge-security
+        annotations:
+          summary: Edge CPU utilization exceeds the hybrid TLS rollout gate.
+      - alert: AthenaVaultKemUnsealFailures
+        expr: athena:crypto_vault_kem:unseal_failure_ratio_15m > 0.01
+        for: 10m
+        labels:
+          severity: critical
+          owner: vault
+        annotations:
+          summary: Vault hybrid KEM unseal failures exceed one percent.
+      - alert: AthenaWorkloadCertificateExpiring
+        expr: athena_crypto_certificate_remaining_seconds < 604800
+        for: 15m
+        labels:
+          severity: warning
+          owner: platform-security
+        annotations:
+          summary: A workload identity certificate expires in less than seven days.
+      - alert: AthenaWorkloadCertificateExpiryCritical
+        expr: athena_crypto_certificate_remaining_seconds < 86400
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-security
+        annotations:
+          summary: A workload identity certificate expires in less than 24 hours.
+      - alert: AthenaDeviceKeyEpochConflicts
+        expr: sum(rate(athena_crypto_device_epoch_conflicts_total[10m])) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          owner: identity
+        annotations:
+          summary: Device key epoch conflicts or stale updates are recurring.
+      - alert: AthenaPostQuantumRuntimeCapabilityDrift
+        expr: max(athena_crypto_runtime_pq_capability_drift) > 0
+        for: 5m
+        labels:
+          severity: critical
+          owner: platform-security
+        annotations:
+          summary: Node cryptographic runtime capabilities differ from the declared baseline.
+      - alert: AthenaChatClientStreamStallRatioHigh
+        expr: |
+          sum(rate(athena_chat_client_stream_events_total{event="stream_stalled",visibility="visible"}[15m]))
+          /
+          clamp_min(sum(rate(athena_chat_client_stream_events_total{event="first_chunk_received"}[15m])), 0.000001)
+          > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          owner: ai-operations
+        annotations:
+          summary: Visible chat clients are stalling above one percent.
+      - alert: AthenaChatClientReconnectFailureRatioHigh
+        expr: |
+          sum(rate(athena_chat_client_stream_events_total{event="reconnect_failed"}[15m]))
+          /
+          clamp_min(sum(rate(athena_chat_client_stream_events_total{event="reconnect_started"}[15m])), 0.000001)
+          > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          owner: ai-operations
+        annotations:
+          summary: Chat client reconnect failures are above one percent.
+      - alert: AthenaChatClientReceiveToPaintP95High
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (le) (rate(athena_chat_client_receive_to_paint_seconds_bucket{visibility="visible"}[15m]))
+          ) > 0.25
+        for: 5m
+        labels:
+          severity: warning
+          owner: ai-operations
+        annotations:
+          summary: Chat client receive-to-paint p95 exceeds 250 milliseconds.
+      - alert: AthenaOperationsConsumerAckStalled
+        expr: |
+          athena_operations_consumer_lag > 0
+          and
+          changes(athena_operations_consumer_ack_floor_stream_sequence[5m]) == 0
+        for: 1m
+        labels:
+          severity: critical
+          owner: ai-operations
+        annotations:
+          summary: Operations events are backlogged without ACK progress for five minutes.
+      - alert: AthenaOperationsClickHouseCircuitOpen
+        expr: |
+          athena_operations_clickhouse_circuit_breaker_open == 1
+          and
+          athena_operations_consumer_lag > 0
+        for: 2m
+        labels:
+          severity: critical
+          owner: ai-operations
+        annotations:
+          summary: Operations ClickHouse persistence is unavailable while events are backlogged.
+      - alert: AthenaOperationsConsumerNakStorm
+        expr: |
+          increase(athena_operations_events_total{stage="jetstream_consume",outcome="nacked"}[5m]) > 100
+        for: 1m
+        labels:
+          severity: critical
+          owner: ai-operations
+        annotations:
+          summary: Operations consumer is repeatedly NAKing the same event backlog.
+      - alert: AthenaOperationsDlqNotEmpty
+        expr: athena_operations_dlq_messages > 0
+        for: 1m
+        labels:
+          severity: warning
+          owner: ai-operations
+        annotations:
+          summary: Operations DLQ contains permanently invalid messages.

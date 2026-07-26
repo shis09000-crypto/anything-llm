@@ -67,4 +67,121 @@ describe("agentSessionLedger", () => {
     expect(state.status).toBe("finalizing");
     expect(state.retryable).toBe(true);
   });
+
+  it("replaces streamed preview with the authoritative full response", () => {
+    ledger.recordAgentSessionEvent("dedupe", {
+      type: "reportStreamEvent",
+      content: {
+        type: "textResponseChunk",
+        uuid: "msg-1",
+        content: "final ",
+      },
+    });
+    ledger.recordAgentSessionEvent("dedupe", {
+      type: "reportStreamEvent",
+      content: {
+        type: "textResponseChunk",
+        uuid: "msg-1",
+        content: "answer",
+      },
+    });
+    ledger.recordAgentSessionEvent("dedupe", {
+      type: "reportStreamEvent",
+      content: {
+        type: "fullTextResponse",
+        uuid: "msg-1",
+        content: "final answer",
+      },
+    });
+    ledger.recordAgentSessionEvent("dedupe", {
+      to: "USER",
+      from: "@agent",
+      content: "final answer",
+      state: "success",
+    });
+
+    expect(ledger.getAgentSessionState("dedupe").partialTextPreview).toBe(
+      "final answer"
+    );
+  });
+
+  it("redacts account-private output from replay while preserving live delivery", () => {
+    ledger.recordAgentSessionEvent("private", {
+      type: "reportStreamEvent",
+      content: {
+        type: "toolCallInvocation",
+        toolName: "crypto_account_overview",
+      },
+    });
+    const result = ledger.recordAgentSessionEvent("private", {
+      type: "reportStreamEvent",
+      content: {
+        type: "fullTextResponse",
+        content: "private balance 12345",
+      },
+    });
+
+    expect(result.deliveryPayload.content.content).toBe(
+      "private balance 12345"
+    );
+    expect(result.payload.content.content).toBe(
+      "[account-private output redacted]"
+    );
+    expect(JSON.stringify(ledger.readAgentSessionEvents("private"))).not.toContain(
+      "private balance 12345"
+    );
+    expect(ledger.getAgentSessionState("private").partialTextPreview).not.toContain(
+      "private balance 12345"
+    );
+  });
+
+  it("marks finalized chat output terminal without closing the reusable invocation", () => {
+    ledger.recordAgentSessionEvent("terminal", {
+      type: "reportStreamEvent",
+      content: {
+        type: "chatId",
+        chatId: 87,
+        publicChatId: "public-87",
+        clientTurnId: "turn-87",
+      },
+    });
+
+    expect(ledger.getAgentSessionState("terminal")).toMatchObject({
+      status: "completed",
+      terminal: true,
+      retryable: false,
+      closed: false,
+      finalChatId: 87,
+      finalPublicChatId: "public-87",
+      clientTurnId: "turn-87",
+    });
+  });
+
+  it("does not regress completed state when a late final envelope arrives", () => {
+    ledger.recordAgentSessionEvent("terminal-late-envelope", {
+      type: "reportStreamEvent",
+      content: {
+        type: "chatId",
+        chatId: 88,
+        publicChatId: "public-88",
+        clientTurnId: "turn-88",
+      },
+    });
+    ledger.recordAgentSessionEvent("terminal-late-envelope", {
+      to: "USER",
+      from: "@agent",
+      content: "final answer",
+      state: "success",
+    });
+
+    expect(
+      ledger.getAgentSessionState("terminal-late-envelope")
+    ).toMatchObject({
+      status: "completed",
+      terminal: true,
+      retryable: false,
+      finalChatId: 88,
+      partialTextPreview: "final answer",
+    });
+  });
 });

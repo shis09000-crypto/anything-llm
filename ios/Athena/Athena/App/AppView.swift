@@ -80,25 +80,69 @@ private struct SessionFailureView: View {
     let signOut: (() -> Void)?
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            if let retryTitle, let retry {
-                Button(retryTitle, action: retry)
-                    .buttonStyle(.glassProminent)
+        ZStack {
+            AthenaLoginBackdrop()
+
+            ScrollView {
+                VStack(spacing: 22) {
+                    Spacer(minLength: 112)
+
+                    AthenaAuthBrandBubble(animates: false)
+
+                    VStack(spacing: 8) {
+                        Label(title, systemImage: "exclamationmark.triangle.fill")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.primary)
+                        Text(message)
+                            .font(.body)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .accessibilityElement(children: .combine)
+
+                    VStack(spacing: 10) {
+                        if let retryTitle, let retry {
+                            AuthActionButton(
+                                title: retryTitle,
+                                systemImage: "arrow.clockwise",
+                                prominent: true,
+                                enabled: true,
+                                tint: .black,
+                                action: retry
+                            )
+                        }
+                        if let cachedFallback {
+                            AuthActionButton(
+                                title: "查看缓存内容",
+                                systemImage: "internaldrive",
+                                prominent: false,
+                                enabled: true,
+                                action: cachedFallback
+                            )
+                        }
+                        if let signOut {
+                            AuthActionButton(
+                                title: "退出登录",
+                                systemImage: "rectangle.portrait.and.arrow.right",
+                                prominent: false,
+                                enabled: true,
+                                tint: .red,
+                                action: signOut
+                            )
+                        }
+                    }
+
+                    Spacer(minLength: 56)
+                }
+                .frame(maxWidth: 390)
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 28)
             }
-            if let cachedFallback {
-                Button("查看缓存内容", action: cachedFallback)
-                    .buttonStyle(.glass)
-            }
-            if let signOut {
-                Button("退出登录", action: signOut)
-                    .buttonStyle(.glass)
-            }
+            .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .background(Color(.systemBackground))
+        .preferredColorScheme(.light)
     }
 }
 

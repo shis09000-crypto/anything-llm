@@ -221,7 +221,7 @@ final class AccountProfileCenter {
                     ],
                     body: body,
                     authorization: .required,
-                    signing: .whenAvailable,
+                    signing: .required,
                     retryOnConnectionLoss: true
                 )
                 return (try? JSONDecoder().decode(AccountAvatarUploadResponse.self, from: data))?.message

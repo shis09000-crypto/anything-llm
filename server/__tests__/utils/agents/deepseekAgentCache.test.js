@@ -144,6 +144,37 @@ describe("DeepSeek agent cache metrics", () => {
     );
   });
 
+  it("does not fail a completed stream when compaction dates are invalid", async () => {
+    mockCreate.mockResolvedValueOnce(
+      streamWithUsage({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+      })
+    );
+    const provider = new DeepSeekProvider({ model: "deepseek-v4-pro" });
+    provider.attachHandlerProps({
+      promptCacheDiagnostics: {
+        historyWindow: historyWindow(),
+        compaction: {
+          id: 9,
+          created_at: "invalid-date",
+          updated_at: Number.NaN,
+        },
+      },
+    });
+
+    await expect(
+      provider.stream(
+        [
+          { role: "system", content: "stable system" },
+          { role: "user", content: "current request" },
+        ],
+        [toolDefinition()]
+      )
+    ).resolves.toEqual(expect.objectContaining({ textResponse: "ok" }));
+  });
+
   it("preserves DeepSeek cache metrics and diagnostics for tooled completion", async () => {
     mockCreate.mockResolvedValueOnce({
       choices: [{ message: { content: "done" } }],

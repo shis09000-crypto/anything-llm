@@ -19,16 +19,16 @@ const REGISTRY_KEY = {
 describe("Key Lifecycle runtime authority", () => {
   afterEach(() => resetKeyProviderForTests());
 
-  test("keeps the database registry authoritative when its key remains in the keyring", () => {
+  test("fails closed until provider and registry active keys are reconciled", () => {
     resetKeyProviderForTests({
       resolveActiveKey: () => PROVIDER_KEY,
       resolveKey: (keyId) =>
         keyId === REGISTRY_KEY.keyId ? REGISTRY_KEY : null,
     });
 
-    expect(
+    expect(() =>
       selectRuntimeDescriptor(PROVIDER_KEY, { keyId: REGISTRY_KEY.keyId })
-    ).toBe(REGISTRY_KEY);
+    ).toThrow("key_provider_registry_active_mismatch");
   });
 
   test("fails closed when the registered key cannot be resolved", () => {

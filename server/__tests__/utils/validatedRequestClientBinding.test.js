@@ -182,4 +182,24 @@ describe("validatedRequest client-bound sessions", () => {
     expect(mockRequireSignedHighRiskRequest).toHaveBeenCalled();
     expect(next).toHaveBeenCalled();
   });
+
+  it("returns retryable 503 instead of rejecting when identity storage is unavailable", async () => {
+    const error = new Error("Unknown argument publicKeyAlgorithm");
+    error.name = "PrismaClientValidationError";
+    mockAttachAuthenticatedClientContext.mockRejectedValueOnce(error);
+    const response = responseDouble();
+    const next = jest.fn();
+
+    await expect(
+      validatedRequest(requestDouble(sessionToken()), response, next)
+    ).resolves.toBe(response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(response.json).toHaveBeenCalledWith({
+      success: false,
+      error: "authentication_state_unavailable",
+      retryable: true,
+    });
+    expect(next).not.toHaveBeenCalled();
+  });
 });

@@ -1,5 +1,6 @@
 const { log, conclude } = require("./helpers/index.js");
 require("../utils/logger")();
+const crypto = require("crypto");
 const { v4: uuidv4 } = require("uuid");
 const { safeJsonParse } = require("../utils/http");
 const {
@@ -69,9 +70,31 @@ process.on("message", async (payload) => {
     const { handler, thoughts, toolCalls, state } = agentActionCb();
 
     const { EphemeralAgentHandler } = require("../utils/agents/ephemeral.js");
+    const User = require("../utils/dataAccess/lazyFacade").lazyDataAccessFacade(
+      "user"
+    );
+    const ownerUserId = Number(job.ownerUserId);
+    const ownerAuthUserId = Number(job.ownerAuthUserId);
+    if (
+      !Number.isSafeInteger(ownerUserId) ||
+      ownerUserId < 1 ||
+      !Number.isSafeInteger(ownerAuthUserId) ||
+      ownerAuthUserId < 1
+    ) {
+      const error = new Error("SCHEDULED_JOB_OWNER_REQUIRED");
+      error.code = "SCHEDULED_JOB_OWNER_REQUIRED";
+      throw error;
+    }
+    const owner = await User.get({ id: ownerUserId });
+    if (!owner || Number(owner.authUserId) !== ownerAuthUserId) {
+      const error = new Error("SCHEDULED_JOB_OWNER_MISMATCH");
+      error.code = "SCHEDULED_JOB_OWNER_MISMATCH";
+      throw error;
+    }
     const agentHandler = await new EphemeralAgentHandler({
       uuid: uuidv4(),
       prompt: job.prompt,
+      userId: ownerUserId,
     }).init();
 
     // Tool overrides control which tools the agent can use:
@@ -79,6 +102,22 @@ process.on("message", async (payload) => {
     // - Empty array: no tools are loaded
     const toolOverrides = safeJsonParse(job.tools, []);
     const jobCapabilities = normalizeCapabilityManifest(job.capabilityManifest);
+    if (jobCapabilities.accountPrivateRead?.approved) {
+      const { cryptoAccountEligibility } = require("../utils/cryptoAccount");
+      const eligibility = await cryptoAccountEligibility(owner);
+      const grant = jobCapabilities.accountPrivateRead;
+      if (
+        !eligibility.available ||
+        Number(eligibility.credentialVersion) !==
+          Number(grant.credentialVersion) ||
+        eligibility.rootKeyId !== grant.rootKeyId ||
+        Number(eligibility.domainKeyVersion) !== Number(grant.domainKeyVersion)
+      ) {
+        const error = new Error("SCHEDULED_CRYPTO_ACCOUNT_GRANT_STALE");
+        error.code = "SCHEDULED_CRYPTO_ACCOUNT_GRANT_STALE";
+        throw error;
+      }
+    }
     if (policyMode() === "enforce") {
       const deniedTools = toolOverrides.filter(
         (tool) => !jobCapabilities.tools.includes(String(tool))
@@ -110,6 +149,8 @@ process.on("message", async (payload) => {
         job,
         skillName: request.skillName,
         forceApproval: request.forceApproval === true,
+        approvalClass: request.approvalClass,
+        payload: request.payload || {},
       });
       toolCalls.push({
         type: "capability-decision",
@@ -118,6 +159,7 @@ process.on("message", async (payload) => {
         approved: decision.approved,
         highRisk: decision.highRisk,
         policyMode: decision.policyMode,
+        approvalClass: decision.approvalClass,
         timestamp: Date.now(),
       });
       log(
@@ -141,10 +183,32 @@ process.on("message", async (payload) => {
     // Capture tool results for the execution trace
     agentHandler.aibitat.onToolCallResult(
       ({ toolName, arguments: args, result }) => {
+        const privateAccountResult = String(toolName || "").startsWith(
+          "crypto_account_"
+        );
         toolCalls.push({
           toolName,
-          arguments: redactForLog(args),
-          result: redactForLog(result),
+          ...(privateAccountResult
+            ? {
+                resultPolicy: "account-private/summary-only",
+                argumentsSha256: crypto
+                  .createHash("sha256")
+                  .update(JSON.stringify(args ?? null))
+                  .digest("hex"),
+                resultSha256: crypto
+                  .createHash("sha256")
+                  .update(
+                    typeof result === "string"
+                      ? result
+                      : JSON.stringify(result ?? null)
+                  )
+                  .digest("hex"),
+                status: "completed",
+              }
+            : {
+                arguments: redactForLog(args),
+                result: redactForLog(result),
+              }),
           timestamp: Date.now(),
         });
       }
@@ -169,20 +233,25 @@ process.on("message", async (payload) => {
     // Get outputs from aibitat which include proper type info (e.g., PptxFileDownload, ExcelFileDownload)
     // for correct re-rendering when porting to workspace chat
     const outputs = agentHandler.getPendingOutputs();
+    const containsAccountPrivateRead =
+      jobCapabilities.accountPrivateRead?.approved === true;
+    const persistedText = containsAccountPrivateRead
+      ? "加密账户只读任务已完成；私有结果未写入调度执行记录。"
+      : state.textResponse;
 
     status = "success";
     await ScheduledJobRun.complete(runId, {
       result: {
-        text: state.textResponse,
-        thoughts,
+        text: persistedText,
+        thoughts: containsAccountPrivateRead ? [] : thoughts,
         toolCalls,
-        outputs,
+        outputs: containsAccountPrivateRead ? [] : outputs,
         metrics: state.metrics,
         duration,
       },
     });
     log(`Scheduled job "${job.name}" completed in ${duration}ms)`);
-    await sendWebPushNotification(job, runId, state.textResponse, log);
+    await sendWebPushNotification(job, runId, persistedText, log);
   } catch (error) {
     if (error.message === "SCHEDULED_JOB_TIMEOUT") {
       status = "timed_out";

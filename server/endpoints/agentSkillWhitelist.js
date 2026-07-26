@@ -12,6 +12,46 @@ function agentSkillWhitelistEndpoints(app) {
   if (!app) return;
 
   app.get(
+    "/agent-skills/crypto-account-agent/status",
+    [validatedRequest, flexUserRoleValid(ROLES.all)],
+    async (request, response) => {
+      try {
+        const user =
+          response.locals?.user || (await userFromSession(request, response));
+        const { cryptoAccountEligibility } = require("../utils/cryptoAccount");
+        const status = await cryptoAccountEligibility(user);
+        const {
+          agentSkillsFromSystemSettings,
+        } = require("../utils/agents/defaults");
+        const enabledFunctions = await agentSkillsFromSystemSettings(user);
+        const enabled = enabledFunctions.some((name) =>
+          String(name).startsWith("crypto-account-agent#")
+        );
+        return response.status(200).json({
+          registered: status.registered === true,
+          available: status.available === true && enabled,
+          approvalRequired: true,
+          schedulable: status.schedulable === true && enabled,
+          provider: status.provider || "gate",
+          reason:
+            status.reason ||
+            (enabled ? null : "crypto_account_disabled_by_admin"),
+        });
+      } catch (error) {
+        console.error(error);
+        return response.status(error.httpStatus || 500).json({
+          registered: true,
+          available: false,
+          approvalRequired: true,
+          schedulable: false,
+          provider: "gate",
+          reason: error.code || "crypto_account_status_failed",
+        });
+      }
+    }
+  );
+
+  app.get(
     "/agent-skills/filesystem-agent/is-available",
     [validatedRequest],
     async (_request, response) => {

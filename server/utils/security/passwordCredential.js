@@ -12,6 +12,14 @@ const ARGON2_POLICY = Object.freeze({
   outputLen: 32,
 });
 
+const CREDENTIAL_TYPES = Object.freeze({
+  PASSWORD: "password",
+  PASSKEY_ONLY: "passkey_only",
+  NO_PASSWORD: "no_password",
+  LEGACY_UNKNOWN: "legacy_unknown",
+  DISABLED: "disabled",
+});
+
 function passwordPepper(env = process.env) {
   const configured = String(env.ATHENA_PASSWORD_PEPPER_FILE || "").trim();
   if (!configured) return null;
@@ -44,6 +52,21 @@ function passwordHashKind(encoded = "") {
   if (value.startsWith("$argon2id$")) return "argon2id";
   if (/^\$2[aby]\$/.test(value)) return "bcrypt";
   return "unknown";
+}
+
+function passwordCredentialType(credential = {}) {
+  const explicit = String(credential?.credentialType || "")
+    .trim()
+    .toLowerCase();
+  const hashKind = passwordHashKind(credential?.password);
+  if (explicit && explicit !== CREDENTIAL_TYPES.PASSWORD) return explicit;
+  return hashKind === "unknown"
+    ? CREDENTIAL_TYPES.LEGACY_UNKNOWN
+    : CREDENTIAL_TYPES.PASSWORD;
+}
+
+function canUsePasswordCredential(credential = {}) {
+  return passwordCredentialType(credential) === CREDENTIAL_TYPES.PASSWORD;
 }
 
 function argonHashMatchesPolicy(encoded = "") {
@@ -114,11 +137,14 @@ function resetPasswordCredentialForTests() {
 
 module.exports = {
   ARGON2_POLICY,
+  CREDENTIAL_TYPES,
   argonHashMatchesPolicy,
   argonOptions,
+  canUsePasswordCredential,
   dummyPasswordCompare,
   hashPassword,
   passwordHashKind,
+  passwordCredentialType,
   passwordPepper,
   resetPasswordCredentialForTests,
   verifyPassword,

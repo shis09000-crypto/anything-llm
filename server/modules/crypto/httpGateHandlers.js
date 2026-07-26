@@ -38,12 +38,35 @@ function gateAccessMiddleware() {
     async (request, response, next) => {
       if (isCryptoCenterDevAuthBypassEnabled(request)) {
         response.locals.multiUserMode = false;
+        response.locals.cryptoCenterDevBypass = true;
         return next();
       }
       return validatedRequest(request, response, (error) => {
         if (error) return next(error);
         return roleCheck(request, response, next);
       });
+    },
+    async (_request, response, next) => {
+      try {
+        if (response.locals.cryptoCenterDevBypass) {
+          response.locals.cryptoDataHub = cryptoDataHub;
+          return next();
+        }
+        const {
+          resolveCryptoHubForHttp,
+        } = require("../../utils/cryptoAccount");
+        const resolved = await resolveCryptoHubForHttp(response.locals.user);
+        response.locals.cryptoDataHub = resolved.hub;
+        response.locals.cryptoDataHubMode = resolved.mode;
+        return next();
+      } catch (error) {
+        return response.status(403).json({
+          success: false,
+          safeErrorMessage: safeErrorMessage(
+            error.code || "crypto_account_unavailable"
+          ),
+        });
+      }
     },
   ];
 }
@@ -62,6 +85,21 @@ function safeConfigStatus() {
       error: safeErrorMessage(error),
     };
   }
+}
+
+function scopedConfigStatus(response) {
+  if (response?.locals?.cryptoDataHubMode !== "account") {
+    return safeConfigStatus();
+  }
+  return {
+    enabled: true,
+    env: response.locals.cryptoDataHub?.credentials?.env || "production",
+    readOnly: true,
+    hasApiKey: true,
+    hasApiSecret: true,
+    maskedApiKey: null,
+    source: "account-envelope",
+  };
 }
 
 function legacyErrorResponse(response, error, fallback, extra = {}) {
@@ -114,7 +152,7 @@ function cryptoGateProbeEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getAllocation({
+          await response.locals.cryptoDataHub.getAllocation({
             quote: request.query?.quote || "USDT",
           })
         );
@@ -134,7 +172,7 @@ function cryptoGateProbeEndpoints(app) {
       try {
         response
           .status(200)
-          .json(await cryptoDataHub.getOpenFuturesPositions());
+          .json(await response.locals.cryptoDataHub.getOpenFuturesPositions());
       } catch (error) {
         legacyErrorResponse(response, error, "Gate futures positions failed", {
           marketType: "futures",
@@ -156,7 +194,9 @@ function cryptoGateProbeEndpoints(app) {
     "/crypto/gate/futures/open-positions/stream",
     gateAccessMiddleware(),
     async (_request, response) => {
-      await cryptoDataHub.subscribeOpenFuturesPositionsLegacy(response);
+      await response.locals.cryptoDataHub.subscribeOpenFuturesPositionsLegacy(
+        response
+      );
     }
   );
 
@@ -166,7 +206,7 @@ function cryptoGateProbeEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTradeRecords({
+          await response.locals.cryptoDataHub.getTradeRecords({
             from: request.query?.from,
             to: request.query?.to,
             cursorTs: request.query?.cursorTs,
@@ -198,7 +238,7 @@ function cryptoGateProbeEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTradeRecordsFeeSummary({
+          await response.locals.cryptoDataHub.getTradeRecordsFeeSummary({
             from: request.query?.from,
             to: request.query?.to,
             includeYear: request.query?.includeYear !== "false",
@@ -229,11 +269,14 @@ function cryptoGateProbeEndpoints(app) {
     "/crypto/gate/trade-records/stream",
     gateAccessMiddleware(),
     async (request, response) => {
-      await cryptoDataHub.subscribeTradeRecordsLegacy(response, {
-        from: request.query?.from,
-        to: request.query?.to,
-        limit: request.query?.limit,
-      });
+      await response.locals.cryptoDataHub.subscribeTradeRecordsLegacy(
+        response,
+        {
+          from: request.query?.from,
+          to: request.query?.to,
+          limit: request.query?.limit,
+        }
+      );
     }
   );
 
@@ -359,12 +402,18 @@ function cryptoGateProbeEndpoints(app) {
       try {
         response.status(200).json({
           success: true,
-          config: safeConfigStatus(),
-          hub: cryptoDataHub.getStatus(),
-          ws: cryptoGateWsManager.status(),
+          config: scopedConfigStatus(response),
+          hub: response.locals.cryptoDataHub.getStatus(),
+          ws:
+            response.locals.cryptoDataHubMode === "account"
+              ? response.locals.cryptoDataHub.getStatus().gate
+              : cryptoGateWsManager.status(),
           marketStreams: cryptoGateMarketStreamManager.status(),
           lastRestSnapshotAt,
-          recentEventCount: cryptoGateEventBuffer.recent(500).length,
+          recentEventCount:
+            response.locals.cryptoDataHubMode === "account"
+              ? response.locals.cryptoDataHub.recentEvents().length
+              : cryptoGateEventBuffer.recent(500).length,
         });
       } catch (error) {
         response.status(500).json({
@@ -380,26 +429,32 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (_request, response) => {
       try {
-        const credentials = getGateCredentials();
-        const snapshot = await new GateRestClient(credentials).snapshot();
-        await cryptoDataHub.getEquityHistory({ equityMode: "api_total" });
-        lastRestSnapshotAt = Date.now();
-        cryptoGateEventBuffer.push({
-          source: "rest",
-          eventType: "snapshot",
-          channel: "rest.snapshot",
-          payload: snapshot,
+        const snapshot =
+          response.locals.cryptoDataHubMode === "account"
+            ? await response.locals.cryptoDataHub.privateSnapshot()
+            : await new GateRestClient(getGateCredentials()).snapshot();
+        await response.locals.cryptoDataHub.getEquityHistory({
+          equityMode: "api_total",
         });
+        lastRestSnapshotAt = Date.now();
+        if (response.locals.cryptoDataHubMode !== "account") {
+          cryptoGateEventBuffer.push({
+            source: "rest",
+            eventType: "snapshot",
+            channel: "rest.snapshot",
+            payload: snapshot,
+          });
+        }
         response.status(200).json({
           success: true,
-          config: safeConfigStatus(),
+          config: scopedConfigStatus(response),
           snapshot,
         });
       } catch (error) {
         response.status(500).json({
           success: false,
           error: safeErrorMessage(error),
-          config: safeConfigStatus(),
+          config: scopedConfigStatus(response),
         });
       }
     }
@@ -410,18 +465,21 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (_request, response) => {
       try {
-        const result = cryptoDataHub.start();
+        const result = response.locals.cryptoDataHub.start();
         response.status(200).json({
           success: true,
-          config: safeConfigStatus(),
-          ws: cryptoGateWsManager.status(),
+          config: scopedConfigStatus(response),
+          ws:
+            response.locals.cryptoDataHubMode === "account"
+              ? response.locals.cryptoDataHub.getStatus().gate
+              : cryptoGateWsManager.status(),
           freshness: result.serviceDetails?.equity?.freshness || null,
         });
       } catch (error) {
         response.status(500).json({
           success: false,
           error: safeErrorMessage(error),
-          config: safeConfigStatus(),
+          config: scopedConfigStatus(response),
         });
       }
     }
@@ -432,7 +490,7 @@ function cryptoGateProbeEndpoints(app) {
     gateAccessMiddleware(),
     async (_request, response) => {
       try {
-        response.status(200).json(cryptoDataHub.stopIfIdle());
+        response.status(200).json(response.locals.cryptoDataHub.stopIfIdle());
       } catch (error) {
         response.status(500).json({
           success: false,
@@ -450,9 +508,14 @@ function cryptoGateProbeEndpoints(app) {
         const limit = Number(request.query?.limit || 100);
         response.status(200).json({
           success: true,
-          events: cryptoGateEventBuffer.recent(
-            Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 100
-          ),
+          events:
+            response.locals.cryptoDataHubMode === "account"
+              ? response.locals.cryptoDataHub.recentEvents()
+              : cryptoGateEventBuffer.recent(
+                  Number.isFinite(limit)
+                    ? Math.min(Math.max(limit, 1), 500)
+                    : 100
+                ),
         });
       } catch (error) {
         response.status(500).json({
@@ -478,7 +541,7 @@ function cryptoGateProbeEndpoints(app) {
         }
 
         response.status(200).json(
-          await cryptoDataHub.getEquityHistory({
+          await response.locals.cryptoDataHub.getEquityHistory({
             equityMode: request.query?.equityMode,
             sinceTs: request.query?.sinceTs,
           })
@@ -487,7 +550,7 @@ function cryptoGateProbeEndpoints(app) {
         response.status(500).json({
           success: false,
           error: safeErrorMessage(error),
-          config: safeConfigStatus(),
+          config: scopedConfigStatus(response),
         });
       }
     }

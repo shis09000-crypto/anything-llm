@@ -23,6 +23,7 @@ services:
       - no-new-privileges:true
     volumes:
       - "./.env:/app/server/.env"
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
       - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
@@ -32,6 +33,7 @@ services:
     env_file:
       - .env
     environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: api
       ATHENA_API_ONLY: "true"
       ATHENA_COLLECTOR_INLINE: "false"
@@ -72,11 +74,13 @@ services:
       - realtime-gateway
     volumes:
       - "./.env:/app/server/.env"
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
       - "../server/storage:/app/server/storage"
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
       - .env
     environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: realtime-gateway
       REALTIME_GATEWAY_PORT: 3013
       ATHENA_BROADCAST_TRANSPORT: ${ATHENA_BROADCAST_TRANSPORT:-memory}
@@ -96,11 +100,13 @@ services:
       - reader-worker
     volumes:
       - "./.env:/app/server/.env"
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
       - "../server/storage:/app/server/storage"
     user: "${UID:-1000}:${GID:-1000}"
     env_file:
       - .env
     environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: reader-worker
       READER_WORKER_PORT: 3011
     networks:
@@ -119,6 +125,7 @@ services:
       - anything-llm-collector
     volumes:
       - "./.env:/app/server/.env"
+      - "${ATHENA_PASSWORD_PEPPER_HOST_FILE:?required}:/run/secrets/athena_password_pepper:ro"
       - "../server/storage:/app/server/storage"
       - "../collector/hotdir/:/app/collector/hotdir"
       - "../collector/outputs/:/app/collector/outputs"
@@ -126,6 +133,7 @@ services:
     env_file:
       - .env
     environment:
+      ATHENA_PASSWORD_PEPPER_FILE: /run/secrets/athena_password_pepper
       ATHENA_RUNTIME_ROLE: background-worker
       ATHENA_BACKGROUND_INLINE: "false"
       COLLECTOR_ENDPOINT: http://anything-llm-collector:8888
@@ -163,6 +171,8 @@ services:
       APP_ENV: ${APP_ENV:-production}
       ATHENA_RUNTIME_ROLE: collector
       ATHENA_COLLECTOR_GUARD_V2: "true"
+      ATHENA_COLLECTOR_IPC_REPLAY_WINDOW_MS: ${ATHENA_COLLECTOR_IPC_REPLAY_WINDOW_MS:-300000}
+      ATHENA_COLLECTOR_LEGACY_PAYLOAD_DECRYPT: ${ATHENA_COLLECTOR_LEGACY_PAYLOAD_DECRYPT:-false}
       COLLECTOR_PORT: 8888
       COLLECTOR_BIND_HOST: 0.0.0.0
       COLLECTOR_PRIVATE_NETWORK_ALLOWLIST: ${COLLECTOR_PRIVATE_NETWORK_ALLOWLIST:-}

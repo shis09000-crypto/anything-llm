@@ -1,0 +1,211 @@
+/* eslint-env jest */
+
+const {
+  boundedLimit,
+  filtersFromQuery,
+  operationsEndpoints,
+} = require("../../endpoints/operations");
+const { operationsPlane } = require("../../utils/operations/operationsPlane");
+
+describe("Operations endpoints", () => {
+  test("registers every Operations Plane API behind both auth guards", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    expect(routes.map(([path]) => path)).toEqual([
+      "/operations/client-chat-observations",
+      "/operations/health",
+      "/operations/schemas",
+      "/operations/schemas/:name/:version",
+      "/operations/services",
+      "/operations/agents",
+      "/operations/shadow-agents",
+      "/operations/evaluations/latest",
+      "/operations/evaluations/corpus",
+      "/operations/actions/catalog",
+      "/operations/actions/runs",
+      "/operations/actions/runs/:runId",
+      "/operations/actions/runs",
+      "/operations/actions/runs/:runId/approve",
+      "/operations/actions/runs/:runId/reject",
+      "/operations/actions/runs/:runId/execute",
+      "/operations/actions/runs/:runId/reconcile",
+      "/operations/timeline",
+      "/operations/state-graph",
+      "/operations/explain",
+    ]);
+    for (const [, guards, handler] of routes) {
+      expect(guards).toHaveLength(3);
+      expect(guards.every((guard) => typeof guard === "function")).toBe(true);
+      expect(typeof handler).toBe("function");
+    }
+  });
+
+  test("bounds timeline requests and only projects supported filters", () => {
+    expect(boundedLimit("900")).toBe(500);
+    expect(
+      filtersFromQuery({
+        eventId: "event-1",
+        operationId: "operation-1",
+        limit: "0",
+        prompt: "must-not-pass",
+      })
+    ).toEqual({
+      after: undefined,
+      before: undefined,
+      eventId: "event-1",
+      eventType: undefined,
+      subjectId: undefined,
+      operationId: "operation-1",
+      limit: 100,
+    });
+  });
+
+  test("exposes only read-only shadow state and a redacted corpus manifest", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    const invoke = (path) => {
+      const route = routes.find(([candidate]) => candidate === path);
+      const json = jest.fn();
+      const response = { status: jest.fn(() => ({ json })) };
+      route.at(-1)({}, response);
+      return json.mock.calls[0][0];
+    };
+
+    const shadow = invoke("/operations/shadow-agents");
+    const evaluation = invoke("/operations/evaluations/latest");
+    const corpus = invoke("/operations/evaluations/corpus");
+
+    expect(shadow).toMatchObject({
+      success: true,
+      mode: "shadow",
+      actionPolicy: "observe_only",
+      canExecuteActions: false,
+    });
+    expect(evaluation.report.canExecuteActions).toBe(false);
+    expect(
+      corpus.manifest.cases.every(
+        (testCase) =>
+          testCase.observations === undefined && testCase.expected === undefined
+      )
+    ).toBe(true);
+  });
+
+  test("returns 503 instead of a false 404 when evidence is partial", async () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    jest.spyOn(operationsPlane, "timelineWithMetadata").mockResolvedValueOnce({
+      events: [],
+      source: "nats",
+      sources: ["nats", "recent-buffer"],
+      degraded: true,
+      completeness: "partial",
+    });
+    const route = routes.find(([path]) => path === "/operations/explain");
+    const json = jest.fn();
+    const response = {
+      status: jest.fn(() => response),
+      json,
+    };
+
+    await route.at(-1)({ query: { eventId: "missing-event" } }, response);
+
+    expect(response.status).toHaveBeenCalledWith(503);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        error: "operations_evidence_incomplete",
+        completeness: "partial",
+      })
+    );
+  });
+
+  test("accepts redacted iOS native reconnect observations", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    const route = routes.find(
+      ([path]) => path === "/operations/client-chat-observations"
+    );
+    const json = jest.fn();
+    const response = {
+      locals: { user: { id: 7, role: "default" } },
+      setHeader: jest.fn(),
+      status: jest.fn(() => response),
+      json,
+    };
+    const request = {
+      headers: { "x-athena-client-id": "ios-device" },
+      body: {
+        event: "reconnect_recovered",
+        platform: "ios_native",
+        visibility: "visible",
+        outcome: "recovered",
+        durationMs: 120,
+        clientTurnId: "turn-ios",
+        invocationId: "invocation-ios",
+        runKind: "agent",
+        transport: "websocket",
+      },
+    };
+
+    route.at(-1)(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith({ success: true, accepted: 1 });
+  });
+
+  test("accepts metadata-only web history sync and memory status observations", () => {
+    const routes = [];
+    operationsEndpoints({
+      get: (...args) => routes.push(args),
+      post: (...args) => routes.push(args),
+    });
+    const route = routes.find(
+      ([path]) => path === "/operations/client-chat-observations"
+    );
+    const json = jest.fn();
+    const response = {
+      locals: { user: { id: 7, role: "default" } },
+      setHeader: jest.fn(),
+      status: jest.fn(() => response),
+      json,
+    };
+    const request = {
+      headers: { "x-client-id": "mobile-web-device" },
+      body: {
+        observations: [
+          {
+            event: "history_sync_recovered",
+            platform: "mobile_web",
+            visibility: "visible",
+            outcome: "recovered",
+            durationMs: 84,
+            clientTurnId: "sync:workspace:thread",
+          },
+          {
+            event: "memory_status_failed",
+            platform: "mobile_web",
+            visibility: "visible",
+            outcome: "failed",
+            clientTurnId: "memory:workspace:thread",
+          },
+        ],
+      },
+    };
+
+    route.at(-1)(request, response);
+
+    expect(response.status).toHaveBeenCalledWith(202);
+    expect(json).toHaveBeenCalledWith({ success: true, accepted: 2 });
+  });
+});

@@ -170,6 +170,7 @@ class EnvFileKeyProvider {
     if (active?.keyId === keyId) return active;
     const ring = readKeyring(this.keyringPath);
     const entry = ring?.keys?.[keyId];
+    if (entry?.status === "retired") return null;
     if (!entry?.material) return null;
     const material = normalizeKey(entry.material, `keyring:${keyId}`);
     const descriptor = this.descriptorFor(
@@ -180,6 +181,21 @@ class EnvFileKeyProvider {
       throw new EncryptionConfigError("keyring_key_id_mismatch");
     }
     return descriptor;
+  }
+
+  keyState(keyId) {
+    const active = this.resolveActiveKey();
+    if (active?.keyId === keyId)
+      return { keyId, status: "active", materialPresent: true };
+    const entry = readKeyring(this.keyringPath)?.keys?.[keyId];
+    if (!entry) return null;
+    return {
+      keyId,
+      status: entry.status || "decrypt_only",
+      materialPresent: Boolean(entry.material),
+      retiredAt: entry.retiredAt || null,
+      destroyedAt: entry.destroyedAt || null,
+    };
   }
 
   bootstrapKey() {
@@ -257,8 +273,14 @@ class EnvFileKeyProvider {
     }
     if (!ring.keys[keyId])
       throw new EncryptionConfigError("keyring_key_not_found");
-    ring.keys[keyId].status = "retired";
-    ring.keys[keyId].retiredAt = new Date().toISOString();
+    const retiredAt = new Date().toISOString();
+    ring.keys[keyId] = {
+      status: "retired",
+      fingerprint: keyId.replace(/^[^_]+_/, ""),
+      createdAt: ring.keys[keyId].createdAt || null,
+      retiredAt,
+      destroyedAt: retiredAt,
+    };
     atomicWrite(this.keyringPath, `${JSON.stringify(ring, null, 2)}\n`);
     return true;
   }
@@ -473,6 +495,32 @@ class ExternalLeaseKeyProvider {
     if (lease.purpose !== SERVER_DATA_PURPOSE) {
       throw new EncryptionConfigError("external_key_lease_purpose_invalid");
     }
+    const environment = String(
+      this.env.APP_ENV || this.env.NODE_ENV || "development"
+    )
+      .trim()
+      .toLowerCase();
+    const runtimeRole = String(this.env.ATHENA_RUNTIME_ROLE || "api")
+      .trim()
+      .replace(/^worker$/, "background-worker");
+    const expectedAudience = String(
+      this.env.ATHENA_KEY_LEASE_AUDIENCE ||
+        `spiffe://athena/${environment}/${runtimeRole}`
+    ).trim();
+    if (environment === "production") {
+      if (!String(lease.leaseId || "").trim())
+        throw new EncryptionConfigError("external_key_lease_id_missing");
+      if (!String(lease.attestationId || "").trim())
+        throw new EncryptionConfigError(
+          "external_key_lease_attestation_missing"
+        );
+      if (lease.environment !== environment)
+        throw new EncryptionConfigError(
+          "external_key_lease_environment_mismatch"
+        );
+      if (lease.audience !== expectedAudience)
+        throw new EncryptionConfigError("external_key_lease_audience_mismatch");
+    }
     const issuedAt = Date.parse(lease.issuedAt);
     const expiresAt = Date.parse(lease.expiresAt);
     const maximumLeaseMs = Math.max(
@@ -490,7 +538,7 @@ class ExternalLeaseKeyProvider {
         "external_key_lease_expired_or_oversized"
       );
     }
-    const entries = (
+    const sourceEntries =
       Array.isArray(lease.keys) && lease.keys.length
         ? lease.keys
         : [
@@ -499,8 +547,10 @@ class ExternalLeaseKeyProvider {
               keyId: lease.keyId,
               status: "active",
             },
-          ]
-    ).map((entry) => {
+          ];
+    if (sourceEntries.length > 8)
+      throw new EncryptionConfigError("external_key_lease_too_many_keys");
+    const entries = sourceEntries.map((entry) => {
       const material = normalizeKey(
         entry.material,
         "external key lease material"
@@ -515,6 +565,8 @@ class ExternalLeaseKeyProvider {
         status: entry.status === "decrypt_only" ? "decrypt_only" : "active",
       };
     });
+    if (new Set(entries.map((entry) => entry.keyId)).size !== entries.length)
+      throw new EncryptionConfigError("external_key_lease_duplicate_key_id");
     const activeEntries = entries.filter(
       (entry) =>
         entry.keyId === lease.activeKeyId ||
@@ -523,7 +575,13 @@ class ExternalLeaseKeyProvider {
     if (activeEntries.length !== 1) {
       throw new EncryptionConfigError("external_key_lease_active_key_invalid");
     }
-    return { ...lease, entries, activeEntry: activeEntries[0] };
+    return {
+      ...lease,
+      environment: lease.environment || environment,
+      audience: lease.audience || expectedAudience,
+      entries,
+      activeEntry: activeEntries[0],
+    };
   }
 
   resolveActiveKey() {
@@ -568,6 +626,8 @@ class ExternalLeaseKeyProvider {
         keyId: active.keyId,
         fingerprint: active.fingerprint,
         expiresAt: active.expiresAt,
+        leaseId: lease.leaseId || null,
+        audience: lease.audience,
         attested: Boolean(active.attestationId),
         decryptOnlyKeyCount: lease.entries.filter(
           (entry) => entry.status === "decrypt_only"

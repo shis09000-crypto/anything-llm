@@ -17,6 +17,7 @@ jest.mock("../../utils/authPrisma", () => ({
 jest.mock("../../utils/middleware/validatedRequest", () => ({
   validatedRequest: jest.fn((_request, _response, next) => next()),
 }));
+const { isoCBOR } = require("@simplewebauthn/server/helpers");
 
 const authPrisma = require("../../utils/authPrisma");
 const {
@@ -33,6 +34,7 @@ const {
     nativeWebPasskeyRegistrationPage,
     normalizeNativeHandoffPurpose,
     normalizeBase64Url,
+    passkeyCryptoMetadata,
     providerMetadata,
     resetRateLimits,
     sanitizePasskey,
@@ -156,6 +158,10 @@ describe("passkey security helpers", () => {
       provider: "google",
       providerName: "Google Password Manager",
       backedUp: true,
+      algorithm: "ES256",
+      parameterSet: "P-256",
+      keyOrigin: "synced-passkey-provider",
+      hardwareProtection: "not-attested",
       transports: '["internal"]',
       createdAt: new Date("2026-06-12T00:00:00.000Z"),
       lastUsedAt: null,
@@ -170,12 +176,40 @@ describe("passkey security helpers", () => {
       provider: "google",
       providerName: "Google Password Manager",
       backedUp: true,
+      algorithm: "ES256",
+      parameterSet: "P-256",
+      keyOrigin: "synced-passkey-provider",
+      hardwareProtection: "not-attested",
       transports: ["internal"],
       createdAt: expect.any(Date),
       lastUsedAt: null,
     });
     expect(sanitized.publicKey).toBeUndefined();
     expect(sanitized.credentialId).toBeUndefined();
+  });
+
+  it("records WebAuthn COSE algorithm metadata without claiming attestation", async () => {
+    const coseKey = await isoCBOR.encode(
+      new Map([
+        [1, 2],
+        [3, -7],
+        [-1, 1],
+        [-2, Buffer.alloc(32, 1)],
+        [-3, Buffer.alloc(32, 2)],
+      ])
+    );
+
+    expect(
+      passkeyCryptoMetadata(coseKey, {
+        credentialBackedUp: false,
+        deviceType: "platform",
+      })
+    ).toEqual({
+      algorithm: "ES256",
+      parameterSet: "P-256",
+      keyOrigin: "platform-authenticator",
+      hardwareProtection: "not-attested",
+    });
   });
 
   it("recognizes Apple Passwords and managed iCloud Keychain AAGUIDs", () => {

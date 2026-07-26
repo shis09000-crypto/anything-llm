@@ -8,6 +8,8 @@ const { EncryptionFormatError, EncryptionOperationError } = require("./errors");
 const { getMasterKey, getMasterKeyDescriptor } = require("./keyManager");
 const { recordEncryptionBlock } = require("./encryptionDiagnostics");
 const { assertEncryptionWriteAllowed } = require("./keyRuntimeState");
+const { assertLegacyEnvelopeWriteAllowed } = require("./legacyWritePolicy");
+const { recordDecryptOnlyKeyRead } = require("./legacyKeyReadObservation");
 
 function isEmptySecret(value) {
   return value === null || value === undefined || value === "";
@@ -35,6 +37,7 @@ function v2AdditionalData(keyId, purpose) {
 
 function encryptSecret(plainText, context = {}) {
   if (isEmptySecret(plainText)) return plainText;
+  assertLegacyEnvelopeWriteAllowed(plainText);
   if (isEncryptedSecret(plainText)) return plainText;
 
   try {
@@ -82,7 +85,8 @@ function encryptSecret(plainText, context = {}) {
   } catch (error) {
     const finalError =
       error.name === "EncryptionConfigError" ||
-      error.code === "KEY_CUSTODY_QUARANTINED"
+      error.code === "KEY_CUSTODY_QUARANTINED" ||
+      error.code === "LEGACY_SECRET_WRITES_CLOSED"
         ? error
         : new EncryptionOperationError("Failed to encrypt secret.");
     recordEncryptionBlock({
@@ -152,10 +156,12 @@ function decryptSecret(encryptedText, context = {}) {
       decipher.setAAD(v2AdditionalData(payload.keyId, payload.purpose));
     }
     decipher.setAuthTag(payload.authTag);
-    return Buffer.concat([
+    const plaintext = Buffer.concat([
       decipher.update(payload.cipherText),
       decipher.final(),
     ]).toString("utf8");
+    recordDecryptOnlyKeyRead(descriptor, context);
+    return plaintext;
   } catch (error) {
     const finalError =
       error.name === "EncryptionConfigError" ||

@@ -24,8 +24,21 @@ describe("S0-S4 data security catalog", () => {
   it("classifies credential stores as non-exportable S4", () => {
     expect(dataHandlingPolicy("vault")).toMatchObject({
       securityLevel: "S4",
+      confidentialityHorizon: "10-years-or-more",
       exportPolicy: "non-exportable-by-default",
       dlpPolicy: "non-exportable",
     });
+  });
+
+  it("distinguishes retention from cryptographic confidentiality horizon", () => {
+    expect(dataHandlingPolicy("telemetry").confidentialityHorizon).toBe(
+      "less-than-1-year"
+    );
+    expect(dataHandlingPolicy("userState").confidentialityHorizon).toBe(
+      "1-to-5-years"
+    );
+    expect(dataHandlingPolicy("workspaceChat").confidentialityHorizon).toBe(
+      "5-to-10-years"
+    );
   });
 });

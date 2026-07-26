@@ -17,11 +17,14 @@ const {
   authSessionFingerprintFromRequest,
 } = require("../utils/authz/vaultAccessGrants");
 const {
+  approveRotation,
   keyGovernanceStatus,
   prepareRotation,
   runSecurityPreflight,
 } = require("../utils/security/keyLifecycle");
+const { executeRotationJob } = require("../utils/security/keyRotation");
 const { verifyPassword } = require("../utils/security/passwordCredential");
+const { metrics } = require("../utils/observability/metrics");
 
 const KEY_CONTROL_RESOURCE = "key-control";
 const KEY_CONTROL_OWNER_SCOPE = "system:key-control";
@@ -148,7 +151,7 @@ function securityKeyEndpoints(app) {
     async (request, response) => {
       try {
         const user = await userFromSession(request, response);
-        recordClientTrustCheckpoint(request, {
+        await recordClientTrustCheckpoint(request, {
           action: "key_preflight",
           resourceType: KEY_CONTROL_RESOURCE,
           outcome: "received",
@@ -216,7 +219,89 @@ function securityKeyEndpoints(app) {
           .status(404)
           .json({ success: false, error: "not_found" });
       }
-      return response.status(200).json({ success: true, job });
+      const approvals = await DataAccessCenter.securityKey.rotationApprovals({
+        jobId: job.jobId,
+      });
+      return response.status(200).json({ success: true, job, approvals });
+    }
+  );
+
+  app.post(
+    "/admin/security/keys/rotations/:id/approve",
+    adminGuards({ sensitive: true }),
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        const approvalId =
+          request.header?.("Idempotency-Key") ||
+          reqBody(request)?.approvalId ||
+          request.signedRequest?.requestId;
+        const result = await approveRotation({
+          jobId: request.params.id,
+          approvalId,
+          approvedBy: user?.id,
+          metadata: {
+            clientId: getClientContext(request)?.clientId || null,
+            requestId: request.signedRequest?.requestId || null,
+          },
+        });
+        metrics.keyRotationOperations.inc({
+          operation: "approve",
+          outcome: result.approved ? "approved" : "pending",
+        });
+        await recordClientTrustCheckpoint(request, {
+          action: "key_rotation_approved",
+          resourceType: KEY_CONTROL_RESOURCE,
+          resourceId: request.params.id,
+          outcome: result.approved ? "approved" : "pending",
+        });
+        return response.status(200).json({ success: true, ...result });
+      } catch (error) {
+        metrics.keyRotationOperations.inc({
+          operation: "approve",
+          outcome: "rejected",
+        });
+        return response.status(409).json({
+          success: false,
+          error:
+            error?.code || error?.message || "key_rotation_approval_failed",
+        });
+      }
+    }
+  );
+
+  app.post(
+    "/admin/security/keys/rotations/:id/execute",
+    adminGuards({ sensitive: true }),
+    async (request, response) => {
+      try {
+        const user = await userFromSession(request, response);
+        await recordClientTrustCheckpoint(request, {
+          action: "key_rotation_execution_requested",
+          resourceType: KEY_CONTROL_RESOURCE,
+          resourceId: request.params.id,
+          outcome: "received",
+        });
+        const job = await executeRotationJob({
+          jobId: request.params.id,
+          actorUserId: user?.id,
+        });
+        metrics.keyRotationOperations.inc({
+          operation: "execute",
+          outcome: "completed",
+        });
+        return response.status(200).json({ success: true, job });
+      } catch (error) {
+        metrics.keyRotationOperations.inc({
+          operation: "execute",
+          outcome: "failed",
+        });
+        return response.status(409).json({
+          success: false,
+          error: error?.code || "key_rotation_execution_failed",
+          reason: error?.message || String(error),
+        });
+      }
     }
   );
 

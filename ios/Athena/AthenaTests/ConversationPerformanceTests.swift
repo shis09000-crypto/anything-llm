@@ -53,6 +53,20 @@ final class ConversationPerformanceTests: XCTestCase {
         )
     }
 
+    func testComposerBottomClearanceUsesActualComposerPosition() {
+        XCTAssertEqual(
+            ComposerLayoutPolicy.bottomContentClearance(
+                composerTop: 742,
+                viewportBottom: 844
+            ),
+            114
+        )
+        XCTAssertEqual(
+            ComposerLayoutPolicy.topViewportInset(safeAreaTop: 59),
+            123
+        )
+    }
+
     func testConversationReturnsToRootOnlyAfterKeyboardGuideReachesBottom() {
         XCTAssertFalse(
             ConversationKeyboardLayoutPolicy.keyboardIsFullyDismissed(

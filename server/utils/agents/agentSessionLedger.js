@@ -1,11 +1,14 @@
 const fs = require("fs");
 const path = require("path");
+const crypto = require("crypto");
 const { safeJsonParse } = require("../http");
 const { storageRoot: environmentStorageRoot } = require("../environment");
 
 const MAX_PARTIAL_TEXT_PREVIEW_CHARS = 1_000;
 const MAX_EVENT_CONTENT_CHARS = 1_000;
 const MAX_LEDGER_EVENTS = 500;
+const ACCOUNT_PRIVATE_SENSITIVITY = "account-private";
+const ACCOUNT_PRIVATE_REDACTION = "[account-private output redacted]";
 
 function storageRoot() {
   return environmentStorageRoot();
@@ -30,6 +33,72 @@ function statePath(uuid) {
 function truncate(value = "", maxChars = MAX_EVENT_CONTENT_CHARS) {
   const text = value === undefined || value === null ? "" : String(value);
   return text.length > maxChars ? text.slice(0, maxChars) : text;
+}
+
+function sha256(value = "") {
+  return crypto
+    .createHash("sha256")
+    .update(String(value || ""))
+    .digest("hex");
+}
+
+function accountPrivateToolEvent(payload = {}, eventType = "") {
+  if (eventType !== "toolCallInvocation") return false;
+  const content =
+    payload?.content && typeof payload.content === "object"
+      ? payload.content
+      : {};
+  return String(content.toolName || payload.toolName || "").startsWith(
+    "crypto_account_"
+  );
+}
+
+function redactAccountPrivatePayload(payload = {}, eventType = "") {
+  const next = { ...payload };
+  const content =
+    next.content && typeof next.content === "object"
+      ? { ...next.content }
+      : next.content;
+
+  if (next.type === "reportStreamEvent" && content?.type) {
+    if (content.type === "textResponseChunk") {
+      const raw = content.content || content.textResponse || "";
+      next.content = {
+        ...content,
+        content: "",
+        textResponse: "",
+        redacted: true,
+        contentHash: sha256(raw),
+      };
+      return next;
+    }
+    if (content.type === "fullTextResponse") {
+      next.content = {
+        ...content,
+        content: ACCOUNT_PRIVATE_REDACTION,
+        redacted: true,
+        contentHash: sha256(content.content || ""),
+      };
+      return next;
+    }
+    if (content.type === "toolCallResult") {
+      next.content = {
+        ...content,
+        content: "Private account tool completed.",
+        summary: "Private account tool completed.",
+        outputPreview: "",
+        redacted: true,
+      };
+      return next;
+    }
+  }
+
+  if (eventType === "fullTextResponse" && typeof content === "string") {
+    next.content = ACCOUNT_PRIVATE_REDACTION;
+    next.redacted = true;
+    next.contentHash = sha256(content);
+  }
+  return next;
 }
 
 function ensureSessionDir(uuid) {
@@ -136,6 +205,8 @@ function updateStateFromEvent(uuid, record) {
     lastMeaningfulOutputAt: null,
     retryable: true,
   });
+  const alreadyCompleted =
+    current.terminal === true && current.status === "completed";
   const content = record.payload?.content || {};
   const isToolEvent = ["toolCallInvocation", "toolCallResult"].includes(
     record.eventType
@@ -157,16 +228,48 @@ function updateStateFromEvent(uuid, record) {
     lastMeaningfulOutputAt: isMeaningfulEvent(record.eventType)
       ? record.createdAt
       : current.lastMeaningfulOutputAt,
-    partialTextPreview: truncate(
-      `${current.partialTextPreview || ""}${text}`,
-      MAX_PARTIAL_TEXT_PREVIEW_CHARS
-    ),
-    status:
-      record.eventType === "fullTextResponse" || record.eventType === "chatId"
-        ? "finalizing"
-        : record.eventType === "wssFailure"
-          ? "error"
-          : current.status || "running",
+    partialTextPreview:
+      record.eventType === "fullTextResponse"
+        ? truncate(text, MAX_PARTIAL_TEXT_PREVIEW_CHARS)
+        : truncate(
+            `${current.partialTextPreview || ""}${text}`,
+            MAX_PARTIAL_TEXT_PREVIEW_CHARS
+          ),
+    sensitivity: record.sensitivity || current.sensitivity || "metadata-only",
+    status: alreadyCompleted
+      ? "completed"
+      : record.eventType === "chatId"
+        ? "completed"
+        : record.eventType === "fullTextResponse"
+          ? "finalizing"
+          : record.eventType === "wssFailure"
+            ? "failed"
+            : current.status || "running",
+    terminal:
+      record.eventType === "chatId" || record.eventType === "wssFailure"
+        ? true
+        : current.terminal || false,
+    retryable:
+      record.eventType === "chatId" || record.eventType === "wssFailure"
+        ? false
+        : current.retryable !== false,
+    finalChatId:
+      record.eventType === "chatId"
+        ? Number(content.chatId || 0) || current.finalChatId || null
+        : current.finalChatId || null,
+    finalPublicChatId:
+      record.eventType === "chatId"
+        ? content.publicChatId || current.finalPublicChatId || null
+        : current.finalPublicChatId || null,
+    clientTurnId: content.clientTurnId || current.clientTurnId || null,
+    errorCode:
+      record.eventType === "wssFailure"
+        ? content.code ||
+          content.errorCode ||
+          record.payload?.code ||
+          record.payload?.errorCode ||
+          "agent_connection_failed"
+        : current.errorCode || null,
   };
   writeJson(statePath(uuid), next);
   return next;
@@ -177,20 +280,32 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
   ensureSessionDir(uuid);
   const seq = nextSeq(uuid);
   const { payload, eventType } = normalizePayload(rawPayload);
+  const currentState = readJson(statePath(uuid), null);
+  const accountPrivate =
+    currentState?.sensitivity === ACCOUNT_PRIVATE_SENSITIVITY ||
+    accountPrivateToolEvent(payload, eventType);
+  const deliveryPayload = {
+    ...payload,
+    seq,
+    ...(payload.type === "reportStreamEvent" &&
+    payload.content &&
+    typeof payload.content === "object"
+      ? { content: { ...payload.content, seq } }
+      : {}),
+  };
   const record = {
     seq,
     eventType,
-    payload: {
-      ...payload,
-      seq,
-      ...(payload.type === "reportStreamEvent" &&
-      payload.content &&
-      typeof payload.content === "object"
-        ? { content: { ...payload.content, seq } }
-        : {}),
-    },
+    payload: accountPrivate
+      ? redactAccountPrivatePayload(deliveryPayload, eventType)
+      : deliveryPayload,
     createdAt: Date.now(),
+    ...(accountPrivate ? { sensitivity: ACCOUNT_PRIVATE_SENSITIVITY } : {}),
   };
+  Object.defineProperty(record, "deliveryPayload", {
+    value: deliveryPayload,
+    enumerable: false,
+  });
   fs.appendFileSync(eventsPath(uuid), `${JSON.stringify(record)}\n`, "utf8");
   updateStateFromEvent(uuid, record);
 
@@ -206,6 +321,61 @@ function recordAgentSessionEvent(uuid, rawPayload = {}) {
     );
   }
   return record;
+}
+
+function sanitizeAccountPrivateSessionLedgers({ apply = false } = {}) {
+  const root = sessionsRoot();
+  if (!fs.existsSync(root)) {
+    return { scannedSessions: 0, matchedSessions: 0, redactedEvents: 0 };
+  }
+
+  let scannedSessions = 0;
+  let matchedSessions = 0;
+  let redactedEvents = 0;
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    scannedSessions += 1;
+    const uuid = entry.name;
+    const events = readEvents(uuid);
+    const privateStart = events.findIndex((event) =>
+      accountPrivateToolEvent(event.payload, event.eventType)
+    );
+    if (privateStart === -1) continue;
+    matchedSessions += 1;
+
+    const sanitized = events.map((event, index) => {
+      if (index < privateStart) return event;
+      const payload = redactAccountPrivatePayload(
+        event.payload,
+        event.eventType
+      );
+      if (JSON.stringify(payload) !== JSON.stringify(event.payload)) {
+        redactedEvents += 1;
+      }
+      return {
+        ...event,
+        payload,
+        sensitivity: ACCOUNT_PRIVATE_SENSITIVITY,
+      };
+    });
+
+    if (!apply) continue;
+    fs.writeFileSync(
+      eventsPath(uuid),
+      `${sanitized.map((event) => JSON.stringify(event)).join("\n")}\n`,
+      "utf8"
+    );
+    const state = readJson(statePath(uuid), null);
+    if (state) {
+      writeJson(statePath(uuid), {
+        ...state,
+        sensitivity: ACCOUNT_PRIVATE_SENSITIVITY,
+        partialTextPreview: ACCOUNT_PRIVATE_REDACTION,
+      });
+    }
+  }
+
+  return { scannedSessions, matchedSessions, redactedEvents };
 }
 
 function readAgentSessionEvents(uuid, afterSeq = 0) {
@@ -263,4 +433,5 @@ module.exports = {
   markAgentSessionState,
   readAgentSessionEvents,
   recordAgentSessionEvent,
+  sanitizeAccountPrivateSessionLedgers,
 };

@@ -8,6 +8,7 @@ applyEnvironmentStorage();
 
 require("./utils/logger")();
 const express = require("express");
+const https = require("https");
 const path = require("path");
 const { ACCEPTED_MIMES } = require("./utils/constants");
 const { reqBody } = require("./utils/http");
@@ -17,6 +18,7 @@ const { wipeCollectorStorage } = require("./utils/files");
 const extensions = require("./extensions");
 const { processRawText } = require("./processRawText");
 const { verifyPayloadIntegrity } = require("./middleware/verifyIntegrity");
+const { CommunicationKey } = require("./utils/comKey");
 const { httpLogger } = require("./middleware/httpLogger");
 const { requestBodyPolicy } = require("./middleware/requestBodyPolicy");
 const {
@@ -25,9 +27,21 @@ const {
   taskStats,
 } = require("./utils/taskContext");
 const { assertCollectorRuntimeSecurity } = require("./utils/runtimeSecurity");
+const {
+  authorizePeer,
+  collectorServerIdentity,
+} = require("./utils/serviceIdentity");
 const app = express();
 let ready = false;
 let httpServer = null;
+let serverIdentity = null;
+
+app.use((request, response, next) => {
+  if (!serverIdentity || authorizePeer(request, serverIdentity)) return next();
+  return response
+    .status(401)
+    .json({ success: false, error: "collector_mtls_identity_denied" });
+});
 
 // Only log HTTP requests in development mode and if the ENABLE_HTTP_LOGGER environment variable is set to true
 if (
@@ -218,10 +232,55 @@ app.get("/accepts", function (_, response) {
 });
 
 app.get("/health", function (_, response) {
+  let payloadKeyAvailable = false;
+  try {
+    new CommunicationKey().payloadKey();
+    payloadKeyAvailable = true;
+  } catch {}
   response.status(ready ? 200 : 503).json({
     ready,
     tasks: taskStats(),
+    security: {
+      ipcProtocol: 2,
+      payloadEncryption: "AES-256-GCM",
+      payloadKeyAvailable,
+      legacyPayloadDecryptEnabled:
+        process.env.ATHENA_COLLECTOR_LEGACY_PAYLOAD_DECRYPT === "true",
+      serviceIdentity: serverIdentity
+        ? {
+            suiteId: "service-identity-mtls-v1",
+            serviceId: serverIdentity.serviceId,
+            fingerprint256: serverIdentity.fingerprint256,
+            serialNumber: serverIdentity.serialNumber,
+            validTo: serverIdentity.validTo,
+            certificateSlot: serverIdentity.certificateSlot,
+          }
+        : { suiteId: null, serviceId: null },
+    },
   });
+});
+
+app.get("/metrics", function (_, response) {
+  response.setHeader("Content-Type", "text/plain; version=0.0.4");
+  response.setHeader("Cache-Control", "no-store");
+  const remaining = serverIdentity?.validTo
+    ? Math.max((Date.parse(serverIdentity.validTo) - Date.now()) / 1000, 0)
+    : 0;
+  response
+    .status(200)
+    .send(
+      [
+        "# HELP athena_crypto_certificate_remaining_seconds Remaining validity of workload identity certificates.",
+        "# TYPE athena_crypto_certificate_remaining_seconds gauge",
+        `athena_crypto_certificate_remaining_seconds{service="athena-collector",runtime_role="collector",app_env="${String(
+          process.env.APP_ENV || process.env.NODE_ENV || "development"
+        ).replace(
+          /[^A-Za-z0-9_-]/g,
+          "_"
+        )}",role="collector",slot="selected"} ${remaining}`,
+        "",
+      ].join("\n")
+    );
 });
 
 app.all("*", function (_, response) {
@@ -236,18 +295,37 @@ app.use((error, _request, response, _next) => {
 
 async function start() {
   await assertCollectorRuntimeSecurity();
+  const identity = collectorServerIdentity();
+  serverIdentity = identity;
   await wipeCollectorStorage();
   const bindHost =
     process.env.COLLECTOR_BIND_HOST ||
     (process.env.NODE_ENV === "production" ? "0.0.0.0" : "127.0.0.1");
-  httpServer = app.listen(process.env.COLLECTOR_PORT || 8888, bindHost, () => {
-    ready = true;
-    console.log(
-      `Document processor app listening on port ${
-        process.env.COLLECTOR_PORT || 8888
-      } on ${bindHost}`
-    );
-  });
+  const listener = identity
+    ? https.createServer(
+        {
+          ca: identity.ca,
+          cert: identity.cert,
+          key: identity.key,
+          minVersion: "TLSv1.3",
+          requestCert: true,
+          rejectUnauthorized: true,
+        },
+        app
+      )
+    : app;
+  httpServer = listener.listen(
+    process.env.COLLECTOR_PORT || 8888,
+    bindHost,
+    () => {
+      ready = true;
+      console.log(
+        `Document processor app listening on port ${
+          process.env.COLLECTOR_PORT || 8888
+        } on ${bindHost}`
+      );
+    }
+  );
   httpServer.on("error", function (_) {
     process.once("SIGUSR2", function () {
       process.kill(process.pid, "SIGUSR2");

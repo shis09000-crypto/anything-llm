@@ -1,0 +1,57 @@
+services:
+  anything-llm-api:
+    environment:
+      ATHENA_SERVICE_MTLS_REQUIRED: "true"
+      ATHENA_SERVICE_ID: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api}
+      ATHENA_API_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
+      ATHENA_API_MTLS_CERT_FILE: /run/secrets/athena_api.pem
+      ATHENA_API_MTLS_KEY_FILE: /run/secrets/athena_api.key
+      ATHENA_API_MTLS_SERVER_NAME: ${ATHENA_COLLECTOR_TLS_SERVER_NAME:?required}
+      COLLECTOR_ENDPOINT: https://anything-llm-collector:8888
+    volumes:
+      - ${ATHENA_SERVICE_CA_HOST_FILE:?required}:/run/secrets/athena_service_ca.pem:ro
+      - ${ATHENA_API_MTLS_CERT_HOST_FILE:?required}:/run/secrets/athena_api.pem:ro
+      - ${ATHENA_API_MTLS_KEY_HOST_FILE:?required}:/run/secrets/athena_api.key:ro
+
+  anything-llm-background-worker:
+    environment:
+      ATHENA_SERVICE_MTLS_REQUIRED: "true"
+      ATHENA_SERVICE_ID: ${ATHENA_BACKGROUND_WORKER_SERVICE_ID:-spiffe://athena/production/background-worker}
+      ATHENA_BACKGROUND_WORKER_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
+      ATHENA_BACKGROUND_WORKER_MTLS_CERT_FILE: /run/secrets/athena_background_worker.pem
+      ATHENA_BACKGROUND_WORKER_MTLS_KEY_FILE: /run/secrets/athena_background_worker.key
+      ATHENA_API_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
+      ATHENA_API_MTLS_CERT_FILE: /run/secrets/athena_background_worker.pem
+      ATHENA_API_MTLS_KEY_FILE: /run/secrets/athena_background_worker.key
+      ATHENA_API_MTLS_SERVER_NAME: ${ATHENA_COLLECTOR_TLS_SERVER_NAME:?required}
+      COLLECTOR_ENDPOINT: https://anything-llm-collector:8888
+    volumes:
+      - ${ATHENA_SERVICE_CA_HOST_FILE:?required}:/run/secrets/athena_service_ca.pem:ro
+      - ${ATHENA_BACKGROUND_WORKER_MTLS_CERT_HOST_FILE:?required}:/run/secrets/athena_background_worker.pem:ro
+      - ${ATHENA_BACKGROUND_WORKER_MTLS_KEY_HOST_FILE:?required}:/run/secrets/athena_background_worker.key:ro
+
+  anything-llm-realtime-gateway:
+    environment:
+      ATHENA_SERVICE_MTLS_REQUIRED: "true"
+      ATHENA_SERVICE_ID: ${ATHENA_GATEWAY_SERVICE_ID:-spiffe://athena/production/realtime-gateway}
+      ATHENA_REALTIME_GATEWAY_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
+      ATHENA_REALTIME_GATEWAY_MTLS_CERT_FILE: /run/secrets/athena_realtime_gateway.pem
+      ATHENA_REALTIME_GATEWAY_MTLS_KEY_FILE: /run/secrets/athena_realtime_gateway.key
+    volumes:
+      - ${ATHENA_SERVICE_CA_HOST_FILE:?required}:/run/secrets/athena_service_ca.pem:ro
+      - ${ATHENA_GATEWAY_MTLS_CERT_HOST_FILE:?required}:/run/secrets/athena_realtime_gateway.pem:ro
+      - ${ATHENA_GATEWAY_MTLS_KEY_HOST_FILE:?required}:/run/secrets/athena_realtime_gateway.key:ro
+
+  anything-llm-collector:
+    environment:
+      ATHENA_SERVICE_MTLS_REQUIRED: "true"
+      ATHENA_COLLECTOR_SERVICE_ID: ${ATHENA_COLLECTOR_SERVICE_ID:-spiffe://athena/production/collector}
+      ATHENA_API_SERVICE_ID: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api}
+      COLLECTOR_MTLS_ALLOWED_CLIENT_IDS: ${ATHENA_API_SERVICE_ID:-spiffe://athena/production/api},${ATHENA_BACKGROUND_WORKER_SERVICE_ID:-spiffe://athena/production/background-worker}
+      COLLECTOR_MTLS_CA_FILE: /run/secrets/athena_service_ca.pem
+      COLLECTOR_MTLS_CERT_FILE: /run/secrets/athena_collector.pem
+      COLLECTOR_MTLS_KEY_FILE: /run/secrets/athena_collector.key
+    volumes:
+      - ${ATHENA_SERVICE_CA_HOST_FILE:?required}:/run/secrets/athena_service_ca.pem:ro
+      - ${ATHENA_COLLECTOR_MTLS_CERT_HOST_FILE:?required}:/run/secrets/athena_collector.pem:ro
+      - ${ATHENA_COLLECTOR_MTLS_KEY_HOST_FILE:?required}:/run/secrets/athena_collector.key:ro

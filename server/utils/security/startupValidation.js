@@ -4,6 +4,11 @@ const {
   assertProductionTransportConfig,
   envFlag,
 } = require("./transportSecurity");
+const {
+  requiredPostQuantumFindings,
+  runtimeCapabilities,
+} = require("./cryptoRuntimeCapabilities");
+const { passwordPepper } = require("./passwordCredential");
 
 const WEAK_SECRET_VALUES = new Set([
   "secret",
@@ -59,10 +64,25 @@ function validateMasterKey(env = process.env) {
 }
 
 function productionSecurityFindings(env = process.env) {
-  if (env.NODE_ENV !== "production") return [];
+  const runtimeEnvironment = present(env.APP_ENV || env.NODE_ENV).toLowerCase();
+  if (runtimeEnvironment !== "production") return [];
   const findings = [];
   const distributed = present(env.ATHENA_RUNTIME_TOPOLOGY) === "distributed";
   const enterpriseGate = envFlag(env.ATHENA_ENTERPRISE_RELEASE_GATE);
+
+  if (!present(env.ATHENA_PASSWORD_PEPPER_FILE)) {
+    findings.push(
+      "Production password authentication requires ATHENA_PASSWORD_PEPPER_FILE."
+    );
+  } else {
+    try {
+      passwordPepper(env);
+    } catch {
+      findings.push(
+        "ATHENA_PASSWORD_PEPPER_FILE must reference a readable 32+ byte file with owner-only permissions."
+      );
+    }
+  }
 
   if (distributed && !enterpriseGate) {
     findings.push(
@@ -77,6 +97,9 @@ function productionSecurityFindings(env = process.env) {
   if (distributed && env.ATHENA_DATABASE_PROVIDER !== "postgresql") {
     findings.push("Distributed production requires PostgreSQL authority.");
   }
+  if (distributed && env.ATHENA_SERVICE_MTLS_REQUIRED !== "true") {
+    findings.push("Distributed production requires workload service mTLS.");
+  }
 
   if (env.ATHENA_BROADCAST_TRANSPORT === "nats") {
     const {
@@ -85,7 +108,65 @@ function productionSecurityFindings(env = process.env) {
     findings.push(...natsSecurityFindings(env));
   }
 
+  const iosHighRiskPQRequired = env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED === "true";
+  const pqRuntimeRequired =
+    enterpriseGate ||
+    iosHighRiskPQRequired ||
+    env.ATHENA_REQUIRE_NODE24_PQ_PROBE === "true";
+  if (pqRuntimeRequired) {
+    const runtimeFindings = requiredPostQuantumFindings({
+      required: true,
+      capabilities: runtimeCapabilities(),
+    });
+    for (const finding of runtimeFindings) {
+      if (finding.startsWith("node24_required:")) {
+        findings.push(
+          "Post-quantum production requires the Node.js 24 LTS runtime."
+        );
+        continue;
+      }
+      findings.push(
+        `Post-quantum runtime capability check failed: ${finding}.`
+      );
+    }
+  }
+  if (iosHighRiskPQRequired && env.ATHENA_REQUIRE_NODE24_PQ_PROBE !== "true") {
+    findings.push(
+      "Required iOS post-quantum request signing requires ATHENA_REQUIRE_NODE24_PQ_PROBE=true."
+    );
+  }
+
   if (enterpriseGate) {
+    if (env.ATHENA_SERVICE_MTLS_REQUIRED !== "true")
+      findings.push("Enterprise production requires workload service mTLS.");
+    if (env.ATHENA_DEVICE_ATTESTATION_MODE !== "required")
+      findings.push(
+        "Enterprise production requires Apple App Attest for supported iOS devices."
+      );
+    if (!present(env.ATHENA_APP_ATTEST_APP_ID))
+      findings.push("ATHENA_APP_ATTEST_APP_ID is required.");
+    const attestationVerifier = present(env.ATHENA_APP_ATTEST_VERIFIER_URL);
+    if (!attestationVerifier) {
+      findings.push("ATHENA_APP_ATTEST_VERIFIER_URL is required.");
+    } else {
+      try {
+        const verifierURL = new URL(attestationVerifier);
+        if (verifierURL.protocol !== "https:")
+          findings.push(
+            "ATHENA_APP_ATTEST_VERIFIER_URL must use HTTPS in production."
+          );
+        if (verifierURL.username || verifierURL.password)
+          findings.push(
+            "ATHENA_APP_ATTEST_VERIFIER_URL must not contain credentials."
+          );
+      } catch {
+        findings.push("ATHENA_APP_ATTEST_VERIFIER_URL must be a valid URL.");
+      }
+    }
+    if (env.ATHENA_RELEASE_EVIDENCE_HYBRID_REQUIRED !== "true")
+      findings.push(
+        "Enterprise production requires hybrid release and disaster-recovery evidence."
+      );
     if (!envFlag(env.ATHENA_SECURITY_AUDIT_ARCHIVE_ENABLED)) {
       findings.push(
         "Enterprise production requires immutable security audit archiving."
@@ -100,24 +181,23 @@ function productionSecurityFindings(env = process.env) {
         "Enterprise production requires a Vault/KMS external key lease provider."
       );
     }
-    if (!present(env.ATHENA_PASSWORD_PEPPER_FILE)) {
-      findings.push(
-        "Enterprise production requires ATHENA_PASSWORD_PEPPER_FILE."
-      );
-    }
     for (const name of [
       "ATHENA_EDGE_SECURITY_EVIDENCE_FILE",
       "ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE",
+      "ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE",
       "ATHENA_DR_EVIDENCE_FILE",
       "ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE",
+      "ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE",
     ]) {
       if (!present(env[name])) findings.push(`${name} is required.`);
     }
     if (
       present(env.ATHENA_EDGE_SECURITY_EVIDENCE_FILE) &&
       present(env.ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE) &&
+      present(env.ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE) &&
       present(env.ATHENA_DR_EVIDENCE_FILE) &&
-      present(env.ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE)
+      present(env.ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE) &&
+      present(env.ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE)
     ) {
       const { verifyReleaseEvidenceFile } = require("./releaseEvidence");
       for (const evidence of [
@@ -125,11 +205,14 @@ function productionSecurityFindings(env = process.env) {
           profile: "edge",
           evidenceFile: env.ATHENA_EDGE_SECURITY_EVIDENCE_FILE,
           publicKeyFile: env.ATHENA_EDGE_SECURITY_EVIDENCE_PUBLIC_KEY_FILE,
+          pqPublicKeyFile:
+            env.ATHENA_EDGE_SECURITY_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE,
         },
         {
           profile: "disasterRecovery",
           evidenceFile: env.ATHENA_DR_EVIDENCE_FILE,
           publicKeyFile: env.ATHENA_DR_EVIDENCE_PUBLIC_KEY_FILE,
+          pqPublicKeyFile: env.ATHENA_DR_EVIDENCE_MLDSA65_PUBLIC_KEY_FILE,
         },
       ]) {
         try {
@@ -149,6 +232,57 @@ function productionSecurityFindings(env = process.env) {
         }
       }
     }
+  }
+
+  if (enterpriseGate) {
+    if (env.ATHENA_REQUIRE_NODE24_PQ_PROBE !== "true")
+      findings.push(
+        "Enterprise production requires ATHENA_REQUIRE_NODE24_PQ_PROBE=true."
+      );
+    const declaredCapabilities = present(
+      env.ATHENA_PQ_RUNTIME_EXPECTED_CAPABILITIES
+    )
+      .split(",")
+      .map((value) => value.trim().toLowerCase().replace(/-/g, "_"))
+      .filter(Boolean);
+    const expectedCapabilities = new Set(declaredCapabilities);
+    const allowedCapabilities = new Set([
+      "ml_kem_768",
+      "ml_dsa_65",
+      "encapsulation_api",
+      "classical_provider_baseline",
+    ]);
+    for (const capability of declaredCapabilities) {
+      if (!allowedCapabilities.has(capability))
+        findings.push(
+          `Enterprise production capability baseline contains unknown capability ${capability}.`
+        );
+    }
+    for (const capability of allowedCapabilities) {
+      if (!expectedCapabilities.has(capability))
+        findings.push(
+          `Enterprise production capability baseline must include ${capability}.`
+        );
+    }
+    if (env.ATHENA_AUDIT_HYBRID_SIGNATURES !== "required")
+      findings.push("Enterprise production requires hybrid audit signatures.");
+    for (const name of [
+      "ATHENA_AUDIT_MLDSA65_PRIVATE_KEY_FILE",
+      "ATHENA_AUDIT_MLDSA65_PUBLIC_KEY_FILE",
+      "ATHENA_AGENT_MLDSA65_PUBLIC_KEY_FILE",
+    ]) {
+      if (!present(env[name])) findings.push(`${name} is required.`);
+    }
+    if (envFlag(env.ATHENA_OPERATIONS_ENABLED)) {
+      if (!present(env.ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE))
+        findings.push("ATHENA_AGENT_MLDSA65_PRIVATE_KEY_FILE is required.");
+      if (env.ATHENA_EXTERNAL_AGENT_MLDSA_REQUIRED !== "true")
+        findings.push(
+          "External Agent Registry ML-DSA verification is required."
+        );
+    }
+    if (env.ATHENA_IOS_HIGH_RISK_PQ_REQUIRED !== "true")
+      findings.push("iOS high-risk hybrid request signatures are required.");
   }
 
   if (envFlag(env.ATHENA_SECURITY_AUDIT_ARCHIVE_ENABLED)) {
@@ -267,7 +401,11 @@ function productionSecurityFindings(env = process.env) {
 
 function assertProductionSecurityConfig(env = process.env) {
   const findings = productionSecurityFindings(env);
-  if (!findings.length) return { production: env.NODE_ENV === "production" };
+  if (!findings.length)
+    return {
+      production:
+        present(env.APP_ENV || env.NODE_ENV).toLowerCase() === "production",
+    };
   throw new Error(
     `Unsafe production security configuration:\n- ${findings.join("\n- ")}`
   );

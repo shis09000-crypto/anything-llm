@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const {
   CLASSIFICATION_LEVEL_MAP,
+  CONFIDENTIALITY_HORIZONS,
   DATA_ACCESS_CLASSIFICATIONS,
   DATA_HANDLING_POLICIES,
   DATA_SECURITY_LEVELS,
@@ -29,6 +30,14 @@ const catalog = dataSecurityCatalog();
 for (const entry of catalog) {
   if (!entry.domain || !entry.securityLevel || !entry.classification)
     findings.push(`incomplete_catalog_entry:${entry.domain || "unknown"}`);
+  if (
+    !Object.values(CONFIDENTIALITY_HORIZONS).includes(
+      entry.confidentialityHorizon
+    )
+  )
+    findings.push(
+      `invalid_confidentiality_horizon:${entry.domain || "unknown"}`
+    );
 }
 
 console.log(

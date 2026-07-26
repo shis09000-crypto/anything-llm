@@ -213,18 +213,46 @@ function cleanupToolRuns() {
   }
 }
 
-async function storeToolRun({ toolName, arguments: args, result }) {
+async function storeToolRun({
+  toolName,
+  arguments: args,
+  result,
+  resultPolicy = null,
+}) {
   const runId = uuidv4();
-  const summary = summarizeToolResult({ toolName, result });
+  const privateSummaryOnly = resultPolicy === "account-private/summary-only";
+  const summary = privateSummaryOnly
+    ? {
+        summary: "Private account read completed.",
+        outputPreview: "",
+        resultSize: resultSize(result),
+        truncated: false,
+      }
+    : summarizeToolResult({ toolName, result });
+  const resultSha256 = crypto
+    .createHash("sha256")
+    .update(safeStringify(result))
+    .digest("hex");
   const record = {
     runId,
     toolName,
-    arguments: args,
-    result,
-    resultSha256: crypto
-      .createHash("sha256")
-      .update(safeStringify(result))
-      .digest("hex"),
+    ...(privateSummaryOnly
+      ? {
+          resultPolicy,
+          argumentsSha256: crypto
+            .createHash("sha256")
+            .update(safeStringify(args))
+            .digest("hex"),
+          resultSha256,
+          status:
+            parseMaybeJson(result)?.success === false ? "failed" : "completed",
+          resultSize: resultSize(result),
+        }
+      : {
+          arguments: args,
+          result,
+          resultSha256,
+        }),
     createdAt: new Date().toISOString(),
   };
 
@@ -237,7 +265,13 @@ async function storeToolRun({ toolName, arguments: args, result }) {
       "utf8"
     );
     cleanupToolRuns();
-    return { ...summary, runId, stored: true, storageError: null };
+    return {
+      ...summary,
+      ...(privateSummaryOnly ? { resultPolicy } : {}),
+      runId,
+      stored: true,
+      storageError: null,
+    };
   } catch (error) {
     console.warn(`[tool-runs] Failed to store tool run: ${error.message}`);
     return {
@@ -253,9 +287,13 @@ function prepareToolResultForModel(result, storedRun = null) {
   const text = safeStringify(result);
   if (text.length <= MAX_MODEL_TOOL_RESULT_CHARS) return text;
 
-  const suffix = storedRun?.stored
-    ? `\n\n[Tool result truncated: full result stored as runId=${storedRun.runId}]`
-    : "\n\n[Tool result truncated: full result omitted because local tool-run storage failed]";
+  const privateSummaryOnly =
+    storedRun?.resultPolicy === "account-private/summary-only";
+  const suffix = privateSummaryOnly
+    ? "\n\n[Private tool result truncated in memory; the omitted private content was not persisted.]"
+    : storedRun?.stored
+      ? `\n\n[Tool result truncated: full result stored as runId=${storedRun.runId}]`
+      : "\n\n[Tool result truncated: full result omitted because local tool-run storage failed]";
   return `${text.slice(0, MAX_MODEL_TOOL_RESULT_CHARS)}${suffix}`;
 }
 
@@ -361,6 +399,13 @@ function sanitizePayload(payload = {}) {
     "fileTypes",
     "glob",
     "excludedByReason",
+    "approvalClass",
+    "scope",
+    "exchange",
+    "environment",
+    "symbol",
+    "days",
+    "limit",
   ];
   const next = {};
   for (const key of allowedKeys) {

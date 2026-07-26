@@ -2,12 +2,17 @@
 
 const {
   metricsRequestAuthorized,
+  registry,
 } = require("../../utils/observability/metrics");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 describe("observability metrics access", () => {
   const originalNodeEnv = process.env.NODE_ENV;
   const originalToken = process.env.ATHENA_METRICS_TOKEN;
   const originalLoopback = process.env.ATHENA_METRICS_ALLOW_LOOPBACK;
+  const originalTokenFile = process.env.ATHENA_METRICS_TOKEN_FILE;
 
   afterEach(() => {
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
@@ -17,6 +22,9 @@ describe("observability metrics access", () => {
     if (originalLoopback === undefined)
       delete process.env.ATHENA_METRICS_ALLOW_LOOPBACK;
     else process.env.ATHENA_METRICS_ALLOW_LOOPBACK = originalLoopback;
+    if (originalTokenFile === undefined)
+      delete process.env.ATHENA_METRICS_TOKEN_FILE;
+    else process.env.ATHENA_METRICS_TOKEN_FILE = originalTokenFile;
   });
 
   test("fails closed in production when no metrics credential is configured", () => {
@@ -48,5 +56,40 @@ describe("observability metrics access", () => {
         socket: { remoteAddress: "203.0.113.5" },
       })
     ).toBe(false);
+  });
+
+  test("reads the production metrics credential from a secret file", () => {
+    const tokenFile = path.join(os.tmpdir(), `athena-metrics-${process.pid}`);
+    fs.writeFileSync(tokenFile, "file-backed-token\n", { mode: 0o600 });
+    process.env.NODE_ENV = "production";
+    delete process.env.ATHENA_METRICS_TOKEN;
+    process.env.ATHENA_METRICS_TOKEN_FILE = tokenFile;
+    try {
+      expect(
+        metricsRequestAuthorized({
+          headers: { authorization: "Bearer file-backed-token" },
+          socket: { remoteAddress: "203.0.113.5" },
+        })
+      ).toBe(true);
+    } finally {
+      fs.rmSync(tokenFile, { force: true });
+    }
+  });
+
+  test("registers the bounded cryptographic health metric families", () => {
+    for (const name of [
+      "athena_crypto_suite_operations_total",
+      "athena_crypto_signature_verification_duration_seconds",
+      "athena_crypto_verification_failures_total",
+      "athena_crypto_tls_negotiations_total",
+      "athena_crypto_vault_kem_operations_total",
+      "athena_crypto_certificate_remaining_seconds",
+      "athena_crypto_device_epoch_conflicts_total",
+      "athena_crypto_runtime_pq_capability",
+      "athena_crypto_runtime_pq_capability_expected",
+      "athena_crypto_runtime_pq_capability_drift",
+    ]) {
+      expect(registry.getSingleMetric(name)).toBeTruthy();
+    }
   });
 });

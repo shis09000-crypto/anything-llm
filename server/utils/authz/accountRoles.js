@@ -95,13 +95,15 @@ function isPrimaryOwnerIdentity(user = {}) {
 
 function normalizeOwnerType(ownerType = null, role = ROLES.user, user = {}) {
   if (normalizeRole(role) !== ROLES.owner) return null;
-  if (isPrimaryOwnerIdentity(user)) return OWNER_TYPES.primary;
   const value = String(ownerType || "")
     .trim()
     .toLowerCase();
-  return value === OWNER_TYPES.primary
-    ? OWNER_TYPES.secondary
-    : OWNER_TYPES.secondary;
+  if (value === OWNER_TYPES.primary) return OWNER_TYPES.primary;
+  // Preserve the original bootstrap identity for installations that have not
+  // yet persisted ownerType. Once persisted, the database value is authority
+  // and may be transferred only by the controlled maintenance workflow.
+  if (isPrimaryOwnerIdentity(user)) return OWNER_TYPES.primary;
+  return OWNER_TYPES.secondary;
 }
 
 function normalizeEnv(env = "development") {
@@ -634,9 +636,11 @@ function assertOwnerHierarchyMutationAllowed({
   if (
     Object.prototype.hasOwnProperty.call(updates, "ownerType") &&
     updates.ownerType === OWNER_TYPES.primary &&
-    !isPrimaryOwnerIdentity(target)
+    !isPrimaryOwner(target)
   ) {
-    throw new Error("Primary owner cannot be transferred.");
+    throw new Error(
+      "Primary owner transfer requires the controlled maintenance workflow."
+    );
   }
 
   return true;

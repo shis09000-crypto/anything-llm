@@ -29,12 +29,35 @@ function cryptoHubAccessMiddleware() {
     async (request, response, next) => {
       if (isCryptoCenterDevAuthBypassEnabled(request)) {
         response.locals.multiUserMode = false;
+        response.locals.cryptoCenterDevBypass = true;
         return next();
       }
       return validatedRequest(request, response, (error) => {
         if (error) return next(error);
         return roleCheck(request, response, next);
       });
+    },
+    async (_request, response, next) => {
+      try {
+        if (response.locals.cryptoCenterDevBypass) {
+          response.locals.cryptoDataHub = cryptoDataHub;
+          return next();
+        }
+        const {
+          resolveCryptoHubForHttp,
+        } = require("../../utils/cryptoAccount");
+        const resolved = await resolveCryptoHubForHttp(response.locals.user);
+        response.locals.cryptoDataHub = resolved.hub;
+        response.locals.cryptoDataHubMode = resolved.mode;
+        return next();
+      } catch (error) {
+        return response.status(403).json({
+          success: false,
+          safeErrorMessage: safeErrorMessage(
+            error.code || "crypto_account_unavailable"
+          ),
+        });
+      }
     },
   ];
 }
@@ -53,14 +76,14 @@ function cryptoHubEndpoints(app) {
   if (!app) return;
 
   app.get("/crypto-hub/status", cryptoHubAccessMiddleware(), (_req, res) => {
-    res.status(200).json(cryptoDataHub.getStatus());
+    res.status(200).json(res.locals.cryptoDataHub.getStatus());
   });
 
   app.get(
     "/crypto-hub/loading-progress",
     cryptoHubAccessMiddleware(),
     (_req, res) => {
-      res.status(200).json(cryptoDataHub.getLoadingProgress());
+      res.status(200).json(res.locals.cryptoDataHub.getLoadingProgress());
     }
   );
 
@@ -69,7 +92,7 @@ function cryptoHubEndpoints(app) {
     cryptoHubAccessMiddleware(),
     async (_req, res) => {
       try {
-        res.status(200).json(await cryptoDataHub.init());
+        res.status(200).json(await res.locals.cryptoDataHub.init());
       } catch (error) {
         errorResponse(res, error, "Crypto Hub init failed");
       }
@@ -90,7 +113,7 @@ function cryptoHubEndpoints(app) {
           return;
         }
         response.status(200).json(
-          await cryptoDataHub.getEquityHistory({
+          await response.locals.cryptoDataHub.getEquityHistory({
             equityMode: request.query?.equityMode,
             sinceTs: request.query?.sinceTs,
           })
@@ -107,7 +130,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getAllocation({
+          await response.locals.cryptoDataHub.getAllocation({
             quote: request.query?.quote || "USDT",
           })
         );
@@ -129,7 +152,7 @@ function cryptoHubEndpoints(app) {
       try {
         response
           .status(200)
-          .json(await cryptoDataHub.getOpenFuturesPositions());
+          .json(await response.locals.cryptoDataHub.getOpenFuturesPositions());
       } catch (error) {
         errorResponse(response, error, "Crypto Hub open futures failed", {
           exchange: "gate",
@@ -155,7 +178,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTopAssets({
+          await response.locals.cryptoDataHub.getTopAssets({
             limit: request.query?.limit,
             exclude: request.query?.exclude,
             quote: request.query?.quote || "USDT",
@@ -178,7 +201,9 @@ function cryptoHubEndpoints(app) {
     "/crypto-hub/open-futures-positions/stream",
     cryptoHubAccessMiddleware(),
     async (_request, response) => {
-      await cryptoDataHub.subscribeOpenFuturesPositions(response);
+      await response.locals.cryptoDataHub.subscribeOpenFuturesPositions(
+        response
+      );
     }
   );
 
@@ -245,7 +270,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTradeRecords({
+          await response.locals.cryptoDataHub.getTradeRecords({
             from: request.query?.from,
             to: request.query?.to,
             cursorTs: request.query?.cursorTs,
@@ -281,7 +306,7 @@ function cryptoHubEndpoints(app) {
     async (request, response) => {
       try {
         response.status(200).json(
-          await cryptoDataHub.getTradeRecordsFeeSummary({
+          await response.locals.cryptoDataHub.getTradeRecordsFeeSummary({
             from: request.query?.from,
             to: request.query?.to,
             includeYear: request.query?.includeYear !== "false",
@@ -316,7 +341,7 @@ function cryptoHubEndpoints(app) {
     "/crypto-hub/trade-records/stream",
     cryptoHubAccessMiddleware(),
     async (request, response) => {
-      await cryptoDataHub.subscribeTradeRecords(response, {
+      await response.locals.cryptoDataHub.subscribeTradeRecords(response, {
         from: request.query?.from,
         to: request.query?.to,
         limit: request.query?.limit,

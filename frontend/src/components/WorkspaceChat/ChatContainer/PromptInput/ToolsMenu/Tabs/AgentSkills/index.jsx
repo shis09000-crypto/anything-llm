@@ -27,12 +27,15 @@ export default function AgentSkillsTab({
   const agentSessionActive = useIsAgentSessionActive();
 
   // Get skill definitions
-  const defaultSkills = getDefaultSkills(t);
+  const baseDefaultSkills = getDefaultSkills(t, {
+    cryptoAccountAvailable: true,
+  });
   const appIntegrationSkills = getAppIntegrationSkills(t);
 
   // All skill state management
   const {
     fileSystemAgentAvailable,
+    cryptoAccountAvailable,
     importedSkills,
     flows,
     mcpServers,
@@ -47,7 +50,9 @@ export default function AgentSkillsTab({
     isSubSkillEnabled,
     toggleSubSkill,
     disabledSubSkills,
-  } = useAgentSkillsState(defaultSkills);
+  } = useAgentSkillsState(baseDefaultSkills);
+
+  const defaultSkills = getDefaultSkills(t, { cryptoAccountAvailable });
 
   const configurableSkills = getConfigurableSkills(t, {
     fileSystemAgentAvailable,

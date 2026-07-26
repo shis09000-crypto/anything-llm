@@ -17,7 +17,7 @@ const AuthIdentity = DataAccessCenter.authIdentity.model;
 const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
 
-async function validatedRequest(request, response, next) {
+async function validateRequest(request, response, next) {
   if (applyCodexDevAuthBypass(request, response)) {
     await attachAuthenticatedClientContext({
       request,
@@ -115,6 +115,39 @@ async function validatedRequest(request, response, next) {
   response.locals.legacySingleUserToken = true;
 
   return requireSignedHighRiskRequest(request, response, next);
+}
+
+function validatedRequest(request, response, next) {
+  return validateRequest(request, response, next).catch((error) => {
+    if (response.headersSent) return next(error);
+
+    const unavailable = isAuthenticationStateUnavailable(error);
+    console.error("[validatedRequest] request validation failed", {
+      name: error?.name || "Error",
+      code: error?.code || null,
+      path: request.originalUrl || request.path || null,
+      unavailable,
+    });
+
+    return response.status(unavailable ? 503 : 500).json({
+      success: false,
+      error: unavailable
+        ? "authentication_state_unavailable"
+        : "request_validation_failed",
+      retryable: unavailable,
+    });
+  });
+}
+
+function isAuthenticationStateUnavailable(error) {
+  const name = String(error?.name || "");
+  const code = String(error?.code || "");
+  return (
+    name.startsWith("PrismaClient") ||
+    /^P\d{4}$/.test(code) ||
+    code === "database_operation_failed" ||
+    code === "AUTH_DB_FOREIGN_KEY_VIOLATION"
+  );
 }
 
 async function validateMultiUserRequest(request, response, next) {

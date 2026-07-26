@@ -2,6 +2,7 @@ const { runtimeCoordinator } = require("./runtimeCoordinator");
 
 function detailedReadinessSnapshot() {
   const snapshot = runtimeCoordinator.snapshot();
+  const keyCustody = require("./security/keyRuntimeState").securityState();
   const outbox = require("./syncV2/outboxDispatcher").syncV2OutboxSnapshot();
   const receipts =
     require("./mutationReceiptSweeper").mutationReceiptSweeperSnapshot();
@@ -12,6 +13,9 @@ function detailedReadinessSnapshot() {
   const outboxRequired =
     require("./syncV2/config").syncV2OutboxDispatchEnabled();
   const controlPlaneReady =
+    keyCustody.status === "ready" &&
+    !keyCustody.quarantined &&
+    !keyCustody.writeBarrier &&
     receipts.running &&
     receipts.healthy &&
     authSessions.running &&
@@ -22,7 +26,13 @@ function detailedReadinessSnapshot() {
   return {
     ...snapshot,
     ready: snapshot.ready && controlPlaneReady,
-    controlPlane: { outbox, receipts, authSessions, securityAudit },
+    controlPlane: {
+      keyCustody,
+      outbox,
+      receipts,
+      authSessions,
+      securityAudit,
+    },
   };
 }
 
@@ -30,6 +40,12 @@ function readinessReason(snapshot) {
   if (snapshot.ready) return "ready";
   if (snapshot.status !== "running")
     return `runtime_${snapshot.status || "unknown"}`;
+  if (
+    snapshot.controlPlane?.keyCustody?.status !== "ready" ||
+    snapshot.controlPlane?.keyCustody?.quarantined ||
+    snapshot.controlPlane?.keyCustody?.writeBarrier
+  )
+    return "key_custody_unhealthy";
   return "control_plane_unhealthy";
 }
 

@@ -267,6 +267,7 @@ final class AgentControlKit {
     private var ownerScope: String?
     private var connectionHandles: [String: ScheduledTaskHandle<Void>] = [:]
     private var sockets: [String: URLSessionWebSocketTask] = [:]
+    private var replayingInvocationIDs = Set<String>()
     private var applicationBackgrounded = false
 
     init(
@@ -327,7 +328,9 @@ final class AgentControlKit {
                 workspaceID: $0.workspaceID,
                 threadID: $0.threadID,
                 clientTurnID: $0.clientTurnID,
-                phase: $0.phase.isTerminal ? .closed : .reconnecting,
+                phase: $0.phase == .finalized || $0.phase == .closed
+                    ? .closed
+                    : .reconnecting,
                 lastEventSequence: $0.lastEventSequence,
                 retryCount: 0,
                 assistantText: "",
@@ -337,7 +340,8 @@ final class AgentControlKit {
                 updatedAt: $0.updatedAt
             )
         }
-        for descriptor in descriptors where !descriptor.phase.isTerminal {
+        for descriptor in descriptors
+        where descriptor.phase != .finalized && descriptor.phase != .closed {
             await hydrateAndResume(invocationID: descriptor.invocationID)
         }
     }
@@ -460,6 +464,7 @@ final class AgentControlKit {
             sockets[invocationID] = nil
             connectionHandles[invocationID]?.cancel()
             connectionHandles[invocationID] = nil
+            replayingInvocationIDs.remove(invocationID)
             setPhase(.closed, invocationID: invocationID)
             persistSessions()
             return true
@@ -490,6 +495,14 @@ final class AgentControlKit {
 
     func setApplicationBackgrounded(_ backgrounded: Bool) async {
         applicationBackgrounded = backgrounded
+        for session in sessions where !session.phase.isTerminal {
+            await recordObservation(
+                event: "visibility_changed",
+                outcome: "observed",
+                invocationID: session.invocationID,
+                visibility: backgrounded ? "hidden" : "visible"
+            )
+        }
         if backgrounded {
             for (invocationID, socket) in sockets {
                 socket.cancel(with: .goingAway, reason: nil)
@@ -502,12 +515,13 @@ final class AgentControlKit {
             }
             sockets.removeAll()
             connectionHandles.removeAll()
+            replayingInvocationIDs.removeAll()
             persistSessions()
             return
         }
 
         for session in sessions where !session.phase.isTerminal {
-            await connect(invocationID: session.invocationID)
+            await hydrateAndResume(invocationID: session.invocationID)
         }
     }
 
@@ -520,6 +534,7 @@ final class AgentControlKit {
         }
         sockets.removeAll()
         connectionHandles.removeAll()
+        replayingInvocationIDs.removeAll()
         if clearPersistedState,
            let ownerScope,
            let apiClient,
@@ -545,6 +560,11 @@ final class AgentControlKit {
         guard let apiClient, let taskScheduler else {
             return
         }
+        await recordObservation(
+            event: "reconnect_started",
+            outcome: "observed",
+            invocationID: invocationID
+        )
         let stateTemplate = statePathTemplate
         do {
             let response = try await taskScheduler.run(
@@ -569,13 +589,57 @@ final class AgentControlKit {
             if let sequence = response.state.latestSeq {
                 updateSequence(sequence, invocationID: invocationID)
             }
-            guard response.success, response.state.retryable != false, response.state.closed != true else {
+            updateTerminalIdentifiers(
+                response.state,
+                invocationID: invocationID
+            )
+            if response.state.status == "failed" {
+                setFailure(
+                    response.state.errorCode ?? "Agent 任务失败。",
+                    invocationID: invocationID
+                )
+                return
+            }
+            if ["stopped", "cancelled", "closed"].contains(response.state.status ?? "") {
                 setPhase(.closed, invocationID: invocationID)
                 persistSessions()
                 return
             }
+            if response.state.status == "completed" ||
+                response.state.finalChatId != nil
+            {
+                await recordObservation(
+                    event: "reconnect_recovered",
+                    outcome: "recovered",
+                    invocationID: invocationID
+                )
+                finalize(invocationID: invocationID)
+                return
+            }
+            if response.state.terminal == true {
+                setPhase(.closed, invocationID: invocationID)
+                persistSessions()
+                return
+            }
+            guard response.success,
+                  response.state.retryable != false,
+                  response.state.closed != true else {
+                setPhase(.closed, invocationID: invocationID)
+                persistSessions()
+                return
+            }
+            await recordObservation(
+                event: "reconnect_recovered",
+                outcome: "recovered",
+                invocationID: invocationID
+            )
             await connect(invocationID: invocationID)
         } catch {
+            await recordObservation(
+                event: "reconnect_failed",
+                outcome: "failed",
+                invocationID: invocationID
+            )
             setFailure(error.localizedDescription, invocationID: invocationID)
         }
     }
@@ -672,6 +736,7 @@ final class AgentControlKit {
                 }
             } catch {
                 sockets[invocationID] = nil
+                replayingInvocationIDs.remove(invocationID)
                 if Task.isCancelled || applicationBackgrounded {
                     return
                 }
@@ -699,15 +764,50 @@ final class AgentControlKit {
         }
         let type = string(raw["type"])
         if type == nil {
-            appendAssistant(string(raw["content"]) ?? "", invocationID: invocationID)
-            finalize(invocationID: invocationID)
+            guard isAssistantRootMessage(raw) else {
+                persistSessions()
+                return
+            }
+            replaceAssistant(string(raw["content"]) ?? "", invocationID: invocationID)
+            // The root delivery envelope is content, not the persistence
+            // boundary. Wait for chatId (or replay/state terminal metadata)
+            // before reconciling so an echoed USER envelope cannot finish the
+            // run and the authoritative chat identifiers are never skipped.
+            persistSessions()
             return
         }
 
         switch type {
-        case "agentReplayStart", "agentReplayEnd":
+        case "agentReplayStart":
+            // `latestSeq` describes the server head, not the last event already
+            // applied by this client. Advancing here would make every replayed
+            // event look stale and silently drop the missing response tail.
+            replayingInvocationIDs.insert(invocationID)
+        case "agentReplayEnd":
+            replayingInvocationIDs.remove(invocationID)
             if let latest = raw["latestSeq"] {
                 updateSequence(int(latest), invocationID: invocationID)
+            }
+            if !bool(raw["terminal"]),
+               let index = sessionIndex(invocationID),
+               sessions[index].finalChatID != nil
+            {
+                finalize(invocationID: invocationID)
+                break
+            }
+            guard bool(raw["terminal"]) else { break }
+            updateFinalIdentifiers(raw, invocationID: invocationID)
+            switch string(raw["status"]) {
+            case "completed":
+                finalize(invocationID: invocationID)
+            case "failed":
+                setFailure(
+                    string(raw["errorCode"]) ?? "Agent 任务失败。",
+                    invocationID: invocationID
+                )
+            default:
+                setPhase(.closed, invocationID: invocationID)
+                persistSessions()
             }
         case "WAITING_ON_INPUT":
             setPhase(.waitingOnInput, invocationID: invocationID)
@@ -765,7 +865,9 @@ final class AgentControlKit {
         case "chatId":
             let content = raw["content"] as? [String: Any] ?? raw
             updateFinalIdentifiers(content, invocationID: invocationID)
-            finalize(invocationID: invocationID)
+            if !replayingInvocationIDs.contains(invocationID) {
+                finalize(invocationID: invocationID)
+            }
         case "rename_thread", "thread_rename":
             let content = (raw["content"] as? [String: Any])
                 ?? (raw["thread"] as? [String: Any])
@@ -862,7 +964,9 @@ final class AgentControlKit {
             )
         case "chatId":
             updateFinalIdentifiers(content, invocationID: invocationID)
-            finalize(invocationID: invocationID)
+            if !replayingInvocationIDs.contains(invocationID) {
+                finalize(invocationID: invocationID)
+            }
         default:
             break
         }
@@ -988,16 +1092,31 @@ final class AgentControlKit {
         sessions[index].clientTurnID = string(payload["clientTurnId"]) ?? sessions[index].clientTurnID
     }
 
+    private func updateTerminalIdentifiers(
+        _ state: AgentStateResponse.State,
+        invocationID: String
+    ) {
+        guard let index = sessionIndex(invocationID) else { return }
+        sessions[index].finalChatID = state.finalChatId ?? sessions[index].finalChatID
+        sessions[index].finalPublicChatID =
+            state.finalPublicChatId ?? sessions[index].finalPublicChatID
+        sessions[index].clientTurnID =
+            state.clientTurnId ?? sessions[index].clientTurnID
+        sessions[index].updatedAt = Date()
+    }
+
     private func finalize(invocationID: String) {
         guard let index = sessionIndex(invocationID), sessions[index].phase != .finalized else {
             return
         }
+        replayingInvocationIDs.remove(invocationID)
         setPhase(.finalized, invocationID: invocationID)
         persistSessions()
         onSessionFinalized?(sessions[index])
     }
 
     private func setFailure(_ message: String, invocationID: String) {
+        replayingInvocationIDs.remove(invocationID)
         lastError = message
         setPhase(.failed, invocationID: invocationID)
         appendTimeline(
@@ -1036,7 +1155,7 @@ final class AgentControlKit {
             return
         }
         let descriptors = sessions
-            .filter { !$0.phase.isTerminal }
+            .filter { $0.phase != .finalized && $0.phase != .closed }
             .map {
                 PersistedAgentSessionDescriptor(
                     invocationID: $0.invocationID,
@@ -1057,6 +1176,35 @@ final class AgentControlKit {
         } catch {
             lastError = error.localizedDescription
         }
+    }
+
+    private func recordObservation(
+        event: String,
+        outcome: String,
+        invocationID: String,
+        visibility: String? = nil
+    ) async {
+        guard let apiClient,
+              let index = sessionIndex(invocationID) else {
+            return
+        }
+        let session = sessions[index]
+        _ = try? await apiClient.requestJSON(
+            AgentObservationResponse.self,
+            method: .post,
+            path: "/api/operations/client-chat-observations",
+            body: ConversationStreamObservation(
+                event: event,
+                visibility: visibility ?? (applicationBackgrounded ? "hidden" : "visible"),
+                outcome: outcome,
+                durationMs: 0,
+                clientTurnId: session.clientTurnID ?? "",
+                invocationId: invocationID,
+                runKind: "agent",
+                transport: "websocket"
+            ),
+            authorization: .required
+        )
     }
 
     private func sessionIndex(_ invocationID: String) -> Int? {
@@ -1122,6 +1270,23 @@ final class AgentControlKit {
         }
     }
 
+    private func isAssistantRootMessage(_ payload: [String: Any]) -> Bool {
+        let from = string(payload["from"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+        let to = string(payload["to"])?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+
+        // Preserve compatibility with older root envelopes that did not carry
+        // routing metadata, while rejecting any explicitly non-assistant
+        // direction such as USER -> @agent.
+        guard from != nil || to != nil else {
+            return true
+        }
+        return from == "@AGENT" && to == "USER"
+    }
+
     private func int(_ value: Any?) -> Int {
         switch value {
         case let value as Int:
@@ -1165,6 +1330,12 @@ private struct AgentStateResponse: Decodable, Sendable {
         let closed: Bool?
         let retryable: Bool?
         let latestSeq: Int?
+        let terminal: Bool?
+        let status: String?
+        let finalChatId: Int?
+        let finalPublicChatId: String?
+        let clientTurnId: String?
+        let errorCode: String?
     }
 
     let success: Bool
@@ -1174,6 +1345,11 @@ private struct AgentStateResponse: Decodable, Sendable {
 private struct AgentActionResponse: Decodable, Sendable {
     let success: Bool
     let closed: Bool?
+}
+
+private struct AgentObservationResponse: Decodable, Sendable {
+    let success: Bool
+    let accepted: Int
 }
 
 private struct AgentApprovalPayload: Encodable, Sendable {

@@ -29,7 +29,10 @@ const {
   normalizeRole,
   normalizeStatus,
 } = require("../utils/authz/accountRoles");
-const { hashPassword } = require("../utils/security/passwordCredential");
+const {
+  CREDENTIAL_TYPES,
+  hashPassword,
+} = require("../utils/security/passwordCredential");
 
 /**
  * @typedef {Object} User
@@ -245,6 +248,7 @@ const User = {
           username: validatedUsername,
           displayName,
           password: hashedPassword,
+          credentialType: CREDENTIAL_TYPES.PASSWORD,
           role: validatedRole,
           status: roleDefaults.status,
           allowedEnvs: roleDefaults.allowedEnvs,
@@ -345,6 +349,7 @@ const User = {
           return { success: false, error: passwordCheck.error };
         }
         updates.password = await hashPassword(updates.password);
+        updates.credentialType = CREDENTIAL_TYPES.PASSWORD;
       }
 
       const updateFields = Object.keys(updates);
@@ -450,6 +455,25 @@ const User = {
           error.cause = authError;
           throw error;
         }
+      }
+
+      const passwordChanged = updateFields.includes("password");
+      const accountDisabled =
+        user.status === "disabled" || Boolean(user.suspended);
+      if (user.authUserId && (passwordChanged || accountDisabled)) {
+        const { AuthSession } = require("./authSession");
+        const {
+          revokeVaultAccessGrants,
+        } = require("../utils/authz/vaultAccessGrants");
+        const {
+          revokeSensitiveSessions,
+        } = require("../utils/authz/sensitiveSessions");
+        await AuthSession.revokeAllForUser(
+          user.authUserId,
+          passwordChanged ? "password_changed" : "account_disabled"
+        );
+        revokeVaultAccessGrants({ userId: user.id });
+        revokeSensitiveSessions({ userId: user.id });
       }
 
       await EventLogs.logEvent(

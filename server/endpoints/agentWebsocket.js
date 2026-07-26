@@ -34,9 +34,37 @@ const {
   authenticateRealtimeRequest,
   monitorRealtimePrincipal,
 } = require("../utils/authz/realtimePrincipal");
+const { emitSemanticEvent } = require("../utils/observability/semanticEvents");
 
 const WorkspaceAgentInvocation = DataAccessCenter.workspaceAgentInvocation;
 const activeAgentSessions = new Map();
+
+function emitAgentTransportEvent(uuid, eventType, outcome, invocation = null) {
+  emitSemanticEvent({
+    eventType,
+    category: "agent",
+    severity: outcome === "failed" ? "warning" : "info",
+    outcome,
+    subject: {
+      type: "agent-invocation",
+      id: String(uuid),
+      component: "agent-websocket",
+    },
+    actor: {
+      type: invocation?.user_id ? "user" : "system",
+      id: invocation?.user_id || "system",
+    },
+    correlation: {
+      invocationId: String(uuid),
+      clientTurnId: invocation?.clientTurnId || undefined,
+    },
+    impact: {
+      scope: "conversation-run",
+      status: outcome,
+    },
+    sensitivity: "metadata_only",
+  });
+}
 
 function agentSilencePolicy(provider = null, model = null) {
   const normalizedProvider = String(provider || "").toLowerCase();
@@ -91,12 +119,15 @@ class ResumableAgentSocket {
 
   attach(socket) {
     this.currentSocket = socket;
-    markAgentSessionState(this.uuid, {
-      status: "running",
-      closed: false,
-      retryable: true,
-      connectedAt: Date.now(),
-    });
+    const current = getAgentSessionState(this.uuid);
+    if (!current.terminal) {
+      markAgentSessionState(this.uuid, {
+        status: "running",
+        closed: false,
+        retryable: true,
+        connectedAt: Date.now(),
+      });
+    }
   }
 
   detach(socket) {
@@ -122,7 +153,7 @@ class ResumableAgentSocket {
     const payload =
       typeof rawPayload === "string" ? safeJsonParse(rawPayload, null) : null;
     const record = payload ? recordAgentSessionEvent(this.uuid, payload) : null;
-    const nextPayload = record?.payload || payload;
+    const nextPayload = record?.deliveryPayload || record?.payload || payload;
     if (!this.currentSocket || this.currentSocket.readyState !== 1) return;
 
     try {
@@ -266,14 +297,31 @@ function agentWebsocket(app) {
         });
       }
       const { invocation } = authorized;
+      const includeEvents = request.query?.includeEvents === "1";
+      const requestedAfterSeq = Number(request.query?.afterSeq || 0);
+      const afterSeq = Number.isFinite(requestedAfterSeq)
+        ? Math.max(0, requestedAfterSeq)
+        : 0;
 
       return response.status(200).json({
         success: true,
         state: {
           ...getAgentSessionState(uuid),
           closed: !!invocation.closed,
-          retryable: !invocation.closed,
+          retryable:
+            !invocation.closed && getAgentSessionState(uuid).terminal !== true,
+          clientTurnId:
+            getAgentSessionState(uuid).clientTurnId ||
+            invocation.clientTurnId ||
+            null,
         },
+        ...(includeEvents
+          ? {
+              events: readAgentSessionEvents(uuid, afterSeq)
+                .slice(0, 100)
+                .map((event) => event.payload),
+            }
+          : {}),
       });
     }
   );
@@ -488,6 +536,35 @@ function agentWebsocket(app) {
 
       if (isResume && !session) {
         if (invocation.closed) {
+          const terminalState = getAgentSessionState(uuid);
+          socket.send(
+            JSON.stringify({
+              type: "agentReplayStart",
+              latestSeq: terminalState.latestSeq || 0,
+            })
+          );
+          for (const event of readAgentSessionEvents(uuid, lastEventSeq)) {
+            if (socket.readyState !== 1) break;
+            socket.send(JSON.stringify(event.payload));
+          }
+          socket.send(
+            JSON.stringify({
+              type: "agentReplayEnd",
+              latestSeq: terminalState.latestSeq || 0,
+              terminal: true,
+              status: terminalState.status || "closed",
+              finalChatId: terminalState.finalChatId || null,
+              finalPublicChatId: terminalState.finalPublicChatId || null,
+              clientTurnId:
+                terminalState.clientTurnId || invocation.clientTurnId || null,
+            })
+          );
+          emitAgentTransportEvent(
+            uuid,
+            "agent.invocation.replayed",
+            "recovered",
+            invocation
+          );
           socket.close();
           return;
         }
@@ -525,10 +602,17 @@ function agentWebsocket(app) {
           agentHandler.closeAlert();
           WorkspaceAgentInvocation.close(uuid);
           clearInvocationFileAccess(uuid);
+          const current = getAgentSessionState(uuid);
+          const completed = current.terminal && current.status === "completed";
           markAgentSessionState(uuid, {
-            status: session.bridge.__clientStopped ? "stopped" : "closed",
+            status: session.bridge.__clientStopped
+              ? "stopped"
+              : completed
+                ? "completed"
+                : "closed",
             closed: true,
             retryable: false,
+            terminal: true,
             closedAt: Date.now(),
           });
           activeAgentSessions.delete(uuid);
@@ -601,22 +685,45 @@ function agentWebsocket(app) {
           agentHandler.closeAlert();
           WorkspaceAgentInvocation.close(uuid);
           clearInvocationFileAccess(uuid);
+          const current = getAgentSessionState(uuid);
+          const completed = current.terminal && current.status === "completed";
           markAgentSessionState(uuid, {
-            status: bridge.__clientStopped ? "stopped" : "closed",
+            status: bridge.__clientStopped
+              ? "stopped"
+              : completed
+                ? "completed"
+                : "closed",
             closed: true,
             retryable: false,
+            terminal: true,
             closedAt: Date.now(),
           });
           activeAgentSessions.delete(uuid);
           return;
         }
 
+        const current = getAgentSessionState(uuid);
+        if (current.terminal) {
+          markAgentSessionState(uuid, {
+            status: current.status || "completed",
+            closed: false,
+            retryable: false,
+            disconnectedAt: Date.now(),
+          });
+          return;
+        }
         markAgentSessionState(uuid, {
           status: "disconnected",
           closed: false,
           retryable: true,
           disconnectedAt: Date.now(),
         });
+        emitAgentTransportEvent(
+          uuid,
+          "agent.invocation.disconnected",
+          "observed",
+          invocation
+        );
       });
 
       bridge.checkBailCommand = (data) => {
@@ -649,6 +756,12 @@ function agentWebsocket(app) {
             type: "agentReplayEnd",
             latestSeq: getAgentSessionState(uuid).latestSeq || 0,
           })
+        );
+        emitAgentTransportEvent(
+          uuid,
+          "agent.invocation.replayed",
+          "recovered",
+          invocation
         );
       }
 
