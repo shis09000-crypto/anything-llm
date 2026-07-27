@@ -30,6 +30,8 @@ const {
   deviceAttestationMode,
   validDeviceAttestation,
 } = require("../security/deviceAttestation");
+const { emitSemanticEvent } = require("../observability/semanticEvents");
+const { metrics } = require("../observability/metrics");
 
 const HMAC_SIGNATURE_SUITE = cryptoSuite(SUITE_IDS.REQUEST_HMAC_V1, {
   purpose: PURPOSES.REQUEST_SIGNATURE,
@@ -712,6 +714,10 @@ function isHighRiskSignedRequest({ method, path } = {}) {
   if (["GET", "HEAD", "OPTIONS"].includes(normalizedMethod)) return false;
 
   const highRiskRoutes = [
+    {
+      methods: ["POST"],
+      pattern: /^\/auth\/session\/recovery\/enroll$/,
+    },
     {
       methods: ["POST"],
       pattern: /^\/auth\/passkeys\/register\/(?:options|verify)$/,
@@ -1637,6 +1643,35 @@ async function requireSignedHighRiskRequest(request, response, next) {
       "device_key_mismatch",
       "post_quantum_device_key_mismatch",
     ].includes(result.reasonCode);
+    if (reauthenticationRequired) {
+      metrics.authClientIdentityRecoveryRequired.inc({
+        reason: result.reasonCode,
+      });
+      emitSemanticEvent({
+        eventType: "auth.client_identity.recovery_required",
+        category: "auth",
+        severity: "warning",
+        outcome: "denied",
+        subject: {
+          type: "component",
+          component: "request-signing",
+          operation: "client-identity-verification",
+        },
+        stateTransition: {
+          from: "authenticated",
+          to: "recovery-required",
+          reasonCode: result.reasonCode,
+        },
+        correlation: {
+          requestId: request?.clientContext?.requestId || null,
+          clientId: null,
+        },
+        metadata: {
+          platform: request?.clientContext?.platform || "unknown",
+        },
+        sensitivity: "metadata_only",
+      });
+    }
     return response.status(401).json({
       success: false,
       error: INVALID_SIGNATURE_ERROR,

@@ -13,6 +13,11 @@ const {
 describe("golden journey correlation", () => {
   test.each([
     ["POST", "/api/request-token", GOLDEN_JOURNEYS.login],
+    [
+      "POST",
+      "/api/auth/session/recovery/finish",
+      GOLDEN_JOURNEYS.login,
+    ],
     ["POST", "/api/workspace/a/stream-chat", GOLDEN_JOURNEYS.chat],
     [
       "POST",

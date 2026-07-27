@@ -113,6 +113,18 @@ async function createUserSessionToken(user, options = {}) {
   });
 }
 
+function resumeUserSessionToken(user, session, options = {}) {
+  if (!user || !session?.sessionId) return null;
+  return issueUserSessionToken(user, {
+    ...options,
+    clientId: session.clientId,
+    sessionId: session.sessionId,
+    tokenVersion: session.tokenVersion,
+    authMode: session.authMode,
+    persistedSession: true,
+  });
+}
+
 async function createSingleUserSessionToken(options = {}) {
   const AuthSession = AdminSystem.authSession;
   const session = AuthSession.enabled()
@@ -176,6 +188,7 @@ module.exports = {
   createSingleUserSessionToken,
   createUserSessionToken,
   issueUserSessionToken,
+  resumeUserSessionToken,
   jwtIdleState,
   sessionClientIdFromToken,
   sessionTokenOptionsFromClientContext,

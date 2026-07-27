@@ -289,6 +289,64 @@ describe("AuthSession", () => {
     ).resolves.toMatchObject({ valid: false, code: "session_revoked" });
   });
 
+  it("enables device-bound recovery without creating a second session", async () => {
+    const session = {
+      sessionId: "sess_recoverable",
+      subjectType: "user",
+      authUserId: 42,
+      clientId: "client_ios",
+      authMode: "zk",
+      tokenVersion: 1,
+      revokedAt: null,
+      idleExpiresAt: new Date(Date.now() + 60_000),
+      absoluteExpiresAt: new Date(Date.now() + 120_000),
+    };
+    mockFindUnique.mockResolvedValue(session);
+
+    const enrolled = await AuthSession.enableRecovery(session.sessionId, {
+      authUserId: 42,
+      clientId: "client_ios",
+    });
+
+    expect(enrolled).toEqual({
+      recoveryHandle: expect.any(String),
+      expiresAt: session.absoluteExpiresAt.getTime(),
+    });
+    expect(enrolled.recoveryHandle.length).toBeGreaterThanOrEqual(40);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(mockUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          sessionId: "sess_recoverable",
+          authUserId: 42,
+          clientId: "client_ios",
+          revokedAt: null,
+        }),
+        data: expect.objectContaining({
+          recoveryHandleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          recoveryEnabledAt: expect.any(Date),
+        }),
+      })
+    );
+  });
+
+  it("resolves recovery handles by hash and never queries with the raw handle", async () => {
+    const session = { sessionId: "sess_recoverable" };
+    mockFindUnique.mockResolvedValue(session);
+
+    await expect(
+      AuthSession.findByRecoveryHandle("raw-recovery-handle")
+    ).resolves.toBe(session);
+    expect(mockFindUnique).toHaveBeenCalledWith({
+      where: {
+        recoveryHandleHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      },
+    });
+    expect(
+      mockFindUnique.mock.calls[0][0].where.recoveryHandleHash
+    ).not.toContain("raw-recovery-handle");
+  });
+
   it("persists a single-user legacy cutoff once", async () => {
     mockGetValue.mockResolvedValue(null);
     mockUpdateSettings.mockResolvedValue({ success: true, error: null });

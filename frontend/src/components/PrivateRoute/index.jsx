@@ -27,6 +27,7 @@ import {
   resolveRouteAuthCache,
   routeAuthCacheKey,
 } from "@/utils/routeAuthCache";
+import { attemptSessionRecovery } from "@/utils/authRecoveryCoordinator";
 
 const EMPTY_AUTH_STATE = {
   isAuthd: null,
@@ -148,6 +149,33 @@ async function validateRouteAuthState() {
   const localUser = hasStoredAuthUser();
   const localAuthToken = getAuthToken();
   if (!localUser || !localAuthToken) {
+    markLoginBoot("route_auth_recovery_started", {
+      mode: "multi",
+      reason: "missing_session_storage",
+    });
+    const recovery = await attemptSessionRecovery({
+      source: "route-guard",
+    });
+    if (recovery.recovered) {
+      return authResult({
+        isAuthd: true,
+        multiUserMode: true,
+        mode: "multi-recovered",
+        success: true,
+        cacheable: false,
+      });
+    }
+    if (recovery.transient) {
+      return authResult({
+        isAuthd: false,
+        multiUserMode: true,
+        authUnavailable: true,
+        reconnecting: true,
+        mode: "multi-recovery-transient",
+        success: false,
+        cacheable: false,
+      });
+    }
     markRouteAuthLoginRedirect("multi", "missing-local-auth");
     return authResult({
       isAuthd: false,
@@ -296,12 +324,14 @@ function useIsAuthenticated() {
     setAuthState(EMPTY_AUTH_STATE);
     void validate();
     window.addEventListener("online", recoverNow);
+    window.addEventListener("focus", recoverNow);
     document.addEventListener("visibilitychange", recoverNow);
 
     return () => {
       cancelled = true;
       if (retryTimer) window.clearTimeout(retryTimer);
       window.removeEventListener("online", recoverNow);
+      window.removeEventListener("focus", recoverNow);
       document.removeEventListener("visibilitychange", recoverNow);
     };
   }, [cacheKey]);

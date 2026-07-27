@@ -247,6 +247,38 @@ const authSessionReconciles = new client.Counter({
   labelNames: ["outcome"],
   registers: [registry],
 });
+const authSessionRecoveryAttempts = new client.Counter({
+  name: "athena_auth_session_recovery_total",
+  help: "Device-bound auth session recovery outcomes.",
+  labelNames: ["stage", "outcome", "reason"],
+  registers: [registry],
+});
+const authSessionRecoveryDuration = new client.Histogram({
+  name: "athena_auth_session_recovery_duration_seconds",
+  help: "Device-bound auth session recovery duration.",
+  labelNames: ["outcome"],
+  buckets: [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+  registers: [registry],
+});
+const authClientIdentityRecoveryRequired = new client.Counter({
+  name: "athena_auth_client_identity_recovery_required_total",
+  help: "Requests requiring explicit client identity recovery.",
+  labelNames: ["reason"],
+  registers: [registry],
+});
+const authRouteGuardRecovery = new client.Counter({
+  name: "athena_auth_route_guard_recovery_total",
+  help: "Route guard recovery starts and login fallbacks.",
+  labelNames: ["outcome", "reason"],
+  registers: [registry],
+});
+const authActiveSessionsPerClient = new client.Histogram({
+  name: "athena_auth_active_sessions_per_client",
+  help: "Active session count observed for one account client after login.",
+  labelNames: [],
+  buckets: [1, 2, 3, 4, 5, 8, 13, 21],
+  registers: [registry],
+});
 const natsEvents = new client.Counter({
   name: "athena_nats_events_total",
   help: "NATS JetStream transport outcomes.",
@@ -622,6 +654,11 @@ module.exports = {
     aiTokens,
     agentToolDuration,
     agentToolOperations,
+    authActiveSessionsPerClient,
+    authClientIdentityRecoveryRequired,
+    authRouteGuardRecovery,
+    authSessionRecoveryAttempts,
+    authSessionRecoveryDuration,
     authSessionReconciles,
     chatClientBacklog,
     chatClientLongTasks,

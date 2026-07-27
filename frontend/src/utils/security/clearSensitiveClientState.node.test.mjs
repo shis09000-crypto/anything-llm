@@ -38,6 +38,7 @@ async function loadClearSensitiveClientState() {
     lockedVaults: 0,
     threadClears: 0,
     workspaceClears: 0,
+    recoveryBindingClears: 0,
   };
 
   const transformed = source
@@ -110,6 +111,12 @@ async function loadClearSensitiveClientState() {
     .replace(
       'import { serverStateCache } from "@/utils/serverState/serverStateCache";',
       "const serverStateCache = { clear() {} };"
+    )
+    .replace(
+      'import { clearSessionRecoveryBinding } from "@/utils/authRecoveryStorage";',
+      `const clearSessionRecoveryBinding = async () => {
+        globalThis.__clearSensitiveStateTest.recoveryBindingClears += 1;
+      };`
     );
 
   return import(
@@ -147,6 +154,7 @@ test("session-only clear preserves durable caches when requested", async () => {
     assert.equal(globalThis.__clearSensitiveStateTest.lockedVaults, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.threadClears, 0);
     assert.equal(globalThis.__clearSensitiveStateTest.workspaceClears, 0);
+    assert.equal(globalThis.__clearSensitiveStateTest.recoveryBindingClears, 1);
   } finally {
     globalThis.window = originalWindow;
   }
@@ -177,6 +185,27 @@ test("default session clear removes durable local work caches", async () => {
     assert.equal(globalThis.__clearSensitiveStateTest.lockedVaults, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.threadClears, 1);
     assert.equal(globalThis.__clearSensitiveStateTest.workspaceClears, 1);
+    assert.equal(globalThis.__clearSensitiveStateTest.recoveryBindingClears, 1);
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
+
+test("transient session clear can preserve the durable recovery binding", async () => {
+  const originalWindow = globalThis.window;
+  globalThis.window = {
+    localStorage: memoryStorage(),
+    sessionStorage: memoryStorage(),
+  };
+
+  try {
+    const mod = await loadClearSensitiveClientState();
+    mod.clearSensitiveClientSession({
+      includeDurableCaches: false,
+      preserveRecovery: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(globalThis.__clearSensitiveStateTest.recoveryBindingClears, 0);
   } finally {
     globalThis.window = originalWindow;
   }

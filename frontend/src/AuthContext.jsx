@@ -18,6 +18,10 @@ import {
 } from "@/utils/authSessionMaintenance";
 import { clearSensitiveClientSession } from "@/utils/security/clearSensitiveClientState";
 import { getStoredAuthUser, setStoredAuthUser } from "@/utils/authUserStorage";
+import {
+  AUTH_SESSION_RECOVERED_EVENT,
+  enrollSessionRecovery,
+} from "@/utils/authRecoveryCoordinator";
 
 export const AuthContext = createContext(null);
 
@@ -74,6 +78,35 @@ export function AuthProvider(props) {
       setStore({ user: null, authToken: null });
     },
   });
+
+  useEffect(() => {
+    function handleRecoveredSession(event) {
+      const user = event?.detail?.user;
+      const authToken = event?.detail?.token;
+      if (!user || !authToken) return;
+      setStore({ user, authToken });
+      markLoginBoot("session_recovery_completed", {
+        userId: user?.id || null,
+      });
+    }
+
+    window.addEventListener(
+      AUTH_SESSION_RECOVERED_EVENT,
+      handleRecoveredSession
+    );
+    return () =>
+      window.removeEventListener(
+        AUTH_SESSION_RECOVERED_EVENT,
+        handleRecoveredSession
+      );
+  }, []);
+
+  useEffect(() => {
+    if (!store.authToken || isCodexDevAuthBypassEnabled()) return;
+    const controller = new AbortController();
+    void enrollSessionRecovery({ signal: controller.signal });
+    return () => controller.abort();
+  }, [store.authToken]);
 
   /*
    * On initial mount and whenever the token changes, fetch a new user object

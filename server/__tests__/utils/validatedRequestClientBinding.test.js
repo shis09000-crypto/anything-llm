@@ -144,6 +144,7 @@ describe("validatedRequest client-bound sessions", () => {
       success: false,
       error: "CLIENT_REVOKED",
     });
+    expect(response.locals.authFailureReason).toBe("client_revoked");
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -170,6 +171,7 @@ describe("validatedRequest client-bound sessions", () => {
     expect(response.json).toHaveBeenCalledWith({
       error: "Session client mismatch.",
     });
+    expect(response.locals.authFailureReason).toBe("session_client_mismatch");
     expect(next).not.toHaveBeenCalled();
   });
 
@@ -200,6 +202,9 @@ describe("validatedRequest client-bound sessions", () => {
       error: "authentication_state_unavailable",
       retryable: true,
     });
+    expect(response.locals.authFailureReason).toBe(
+      "authentication_state_unavailable"
+    );
     expect(next).not.toHaveBeenCalled();
   });
 });

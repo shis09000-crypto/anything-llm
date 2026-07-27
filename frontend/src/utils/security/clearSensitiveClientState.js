@@ -17,6 +17,7 @@ import { clearLocalCacheCryptoKeys } from "@/utils/security/localCacheCrypto";
 import { lockVault } from "@/utils/security/vaultCrypto";
 import { clearVaultAccessGrant } from "@/lib/communication/vaultClient";
 import { serverStateCache } from "@/utils/serverState/serverStateCache";
+import { clearSessionRecoveryBinding } from "@/utils/authRecoveryStorage";
 
 const CHAT_THREAD_DRAFT_PREFIX = "chat-thread-draft:";
 const CHAT_THREAD_ACTIVE_RUNNING_KEY = "chat-thread-active-running";
@@ -95,6 +96,7 @@ export function clearSensitiveClientCaches() {
 
 export function clearSensitiveClientSession({
   includeDurableCaches = true,
+  preserveRecovery = false,
 } = {}) {
   if (includeDurableCaches) clearSensitiveClientCaches();
   clearVaultAccessGrant();
@@ -102,4 +104,7 @@ export function clearSensitiveClientSession({
   removeStoredAuthUser();
   removeLocalStorageKeys([AUTH_TIMESTAMP, LAST_USER_ACTION_AT]);
   removeAuthToken();
+  if (!preserveRecovery) {
+    void clearSessionRecoveryBinding().catch(() => null);
+  }
 }

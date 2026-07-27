@@ -224,6 +224,18 @@ export default forwardRef(function (
   const shouldVirtualize = baseShouldVirtualize && !layoutFallbackActive;
   const normalizedBottomInset =
     Number.isFinite(bottomInset) && bottomInset >= 0 ? bottomInset : null;
+  const scrollBottomButtonStyle = isMobileShell
+    ? {
+        "--athena-chat-scroll-bottom-button-right": "16px",
+        ...(normalizedBottomInset === null
+          ? {}
+          : {
+              "--athena-chat-scroll-bottom-button-bottom": `${
+                normalizedBottomInset + 8
+              }px`,
+            }),
+      }
+    : undefined;
   const textSizeFontSize = chatTextSizeStyle?.fontSize || "";
   const rowLayoutContextKey = [
     textSize || "",
@@ -2338,7 +2350,10 @@ export default forwardRef(function (
           )}
         </div>
         {(!isNearBottom || scrollCoordinatorState.hasNewMessagesBelow) && (
-          <div className="athena-chat-scroll-bottom-button absolute bottom-40 right-10 z-50 cursor-pointer animate-pulse">
+          <div
+            className="athena-chat-scroll-bottom-button absolute bottom-40 right-10 z-50 cursor-pointer animate-pulse"
+            style={scrollBottomButtonStyle}
+          >
             <div className="flex flex-col items-center">
               {scrollCoordinatorState.hasNewMessagesBelow && (
                 <div className="mb-2 rounded-full border border-sky-300/30 bg-sky-500/15 px-3 py-1 text-xs font-medium text-sky-100 shadow-lg backdrop-blur light:border-sky-500/30 light:bg-sky-100 light:text-sky-700">

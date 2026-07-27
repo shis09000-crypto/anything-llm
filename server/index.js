@@ -48,6 +48,9 @@ const {
 } = require("./endpoints/authTrustedDevices");
 const { authZkLoginEndpoints } = require("./endpoints/authZkLogin");
 const {
+  authSessionRecoveryEndpoints,
+} = require("./endpoints/authSessionRecovery");
+const {
   drainWorkspaceDeleteJobs,
   workspaceEndpoints,
 } = require("./endpoints/workspaces");
@@ -243,6 +246,7 @@ syncCenterEndpoints(apiRouter);
 authPasskeyEndpoints(apiRouter);
 authTrustedDeviceEndpoints(apiRouter);
 authZkLoginEndpoints(apiRouter);
+authSessionRecoveryEndpoints(apiRouter);
 extensionEndpoints(apiRouter);
 workspaceEndpoints(apiRouter);
 workspaceHealthEndpoints(apiRouter);

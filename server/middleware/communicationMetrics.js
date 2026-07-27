@@ -86,6 +86,13 @@ function routeScope(request, response) {
   };
 }
 
+function authFailureReason(response) {
+  const reason = String(response?.locals?.authFailureReason || "")
+    .trim()
+    .toLowerCase();
+  return /^[a-z0-9_:-]{1,96}$/.test(reason) ? reason : null;
+}
+
 function communicationMetricsMiddleware(request, response, next) {
   const startedAt = nowMs();
   const requestId =
@@ -142,6 +149,7 @@ function communicationMetricsMiddleware(request, response, next) {
       clientTurnId: request.athenaTraceContext?.clientTurnId || null,
       invocationId: request.athenaTraceContext?.invocationId || null,
       journey,
+      reasonCode: authFailureReason(response),
     };
     pushEvent(event);
     observeHttp({
@@ -180,6 +188,12 @@ function communicationMetricsMiddleware(request, response, next) {
           subject: { component: "http", operation: event.route || "unmatched" },
           impact: { userEffect: "journey_not_completed" },
           evidence: [{ kind: "trace", ref: event.traceId }],
+          correlation: ["login", "cross_device_sync"].includes(journey)
+            ? { clientId: null }
+            : undefined,
+          stateTransition: event.reasonCode
+            ? { reasonCode: event.reasonCode }
+            : undefined,
           metadata: { statusCode: response.statusCode, durationMs },
         });
       }

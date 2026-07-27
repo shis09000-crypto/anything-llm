@@ -71,6 +71,7 @@ const OBJECT_FIELDS = Object.freeze({
     "provider",
     "model",
     "backend",
+    "platform",
   ]),
   recommendation: new Set(["actionId", "risk", "permission"]),
 });

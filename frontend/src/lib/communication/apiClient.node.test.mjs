@@ -6,7 +6,11 @@ import * as apiError from "./apiError.js";
 
 const apiClientUrl = new URL("./apiClient.js", import.meta.url);
 
-async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
+async function loadApiClient({
+  dev = false,
+  signingOverrides = {},
+  sessionRecoveryOverrides = {},
+} = {}) {
   const source = await readFile(apiClientUrl, "utf8");
   globalThis.__apiClientTestBaseHeaders = () => ({
     Authorization: "Bearer test-token",
@@ -98,6 +102,30 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
       },
     },
   };
+  globalThis.__apiClientTestSessionRecovery = {
+    attempts: [],
+    async attemptSessionRecovery(options = {}) {
+      globalThis.__apiClientTestSessionRecovery.attempts.push(options);
+      return {
+        recovered: false,
+        terminal: true,
+        reason: "recovery_binding_missing",
+      };
+    },
+    recoveryReplayAllowed({ method = "GET", headers = {}, task = null } = {}) {
+      const normalizedMethod = String(method).toUpperCase();
+      return (
+        ["GET", "HEAD", "OPTIONS"].includes(normalizedMethod) ||
+        Boolean(
+          headers["Idempotency-Key"] ||
+            headers["idempotency-key"] ||
+            task?.sourceActionId ||
+            task?.idempotencyKey
+        )
+      );
+    },
+    ...sessionRecoveryOverrides,
+  };
 
   const transformed = source
     .replace(
@@ -139,6 +167,10 @@ async function loadApiClient({ dev = false, signingOverrides = {} } = {}) {
     .replace(
       'import { recoveryCenter } from "@/utils/recovery/recoveryCenter";',
       "const { recoveryCenter } = globalThis.__apiClientTestRecovery;"
+    )
+    .replace(
+      /import\s+\{\s*attemptSessionRecovery,\s*recoveryReplayAllowed,?\s*\}\s+from\s+"@\/utils\/authRecoveryCoordinator";/,
+      "const { attemptSessionRecovery, recoveryReplayAllowed } = globalThis.__apiClientTestSessionRecovery;"
     )
     .replaceAll("import.meta.env.DEV", "globalThis.__apiClientTestDev");
 
@@ -258,13 +290,17 @@ test("requestJson clears stale auth on session client mismatch without rotating 
       requestJson("/system/user"),
       (error) =>
         error.code === apiError.API_ERROR_CODES.HTTP_OPEN_ERROR &&
-        error.status === 401 &&
-        globalThis.__apiClientTestSigning.cleared === 1 &&
-        globalThis.__apiClientTestIdentity.resetCalls.length === 0 &&
-        globalThis.__apiClientTestSensitiveState.cleared.length === 1 &&
-        globalThis.__apiClientTestSensitiveState.cleared[0].reason ===
-          "auth_error"
+        error.status === 401
     );
+    assert.equal(globalThis.__apiClientTestSigning.cleared, 2);
+    assert.equal(globalThis.__apiClientTestIdentity.resetCalls.length, 0);
+    assert.equal(globalThis.__apiClientTestSessionRecovery.attempts.length, 1);
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, [
+      {
+        reason: "auth_error",
+        includeDurableCaches: false,
+      },
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -310,7 +346,56 @@ test("requestJson clears stale signing secret and retries recoverable signature 
   }
 });
 
-test("requestJson resets a mismatched device identity instead of retrying it", async () => {
+test("requestJson recovers a mismatched device identity and safely replays GET once", async () => {
+  const originalFetch = globalThis.fetch;
+  let fetchCount = 0;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    if (fetchCount === 2) {
+      return new Response(JSON.stringify({ success: true, recovered: true }), {
+        status: 200,
+      });
+    }
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: "INVALID_SIGNATURE",
+        recovery: "CLIENT_IDENTITY_REAUTH_REQUIRED",
+      }),
+      { status: 401 }
+    );
+  };
+
+  try {
+    const { requestJson } = await loadApiClient({
+      sessionRecoveryOverrides: {
+        async attemptSessionRecovery(options = {}) {
+          globalThis.__apiClientTestSessionRecovery.attempts.push(options);
+          return { recovered: true };
+        },
+      },
+      signingOverrides: {
+        maybeSignedRequestHeaders: async () => ({
+          headers: { "X-Athena-Signature": "sig" },
+          signed: true,
+        }),
+      },
+    });
+    const result = await requestJson("/system/user");
+    assert.deepEqual(result.data, { success: true, recovered: true });
+    assert.equal(fetchCount, 2);
+    assert.equal(globalThis.__apiClientTestSigning.cleared, 1);
+    assert.deepEqual(globalThis.__apiClientTestSessionRecovery.attempts, [
+      { source: "api" },
+    ]);
+    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestJson does not replay an ordinary non-idempotent POST after recovery", async () => {
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
   globalThis.fetch = async () => {
@@ -327,6 +412,12 @@ test("requestJson resets a mismatched device identity instead of retrying it", a
 
   try {
     const { requestJson } = await loadApiClient({
+      sessionRecoveryOverrides: {
+        async attemptSessionRecovery(options = {}) {
+          globalThis.__apiClientTestSessionRecovery.attempts.push(options);
+          return { recovered: true };
+        },
+      },
       signingOverrides: {
         maybeSignedRequestHeaders: async () => ({
           headers: { "X-Athena-Signature": "sig" },
@@ -344,18 +435,66 @@ test("requestJson resets a mismatched device identity instead of retrying it", a
         error.status === 401
     );
     assert.equal(fetchCount, 1);
-    assert.equal(globalThis.__apiClientTestSigning.cleared, 1);
-    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, [
-      { rotateDeviceKey: true },
-    ]);
+    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
+    assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("requestJson falls back to login only after terminal device mismatch", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  const assigned = [];
+  globalThis.window = {
+    location: {
+      pathname: "/workspace/operations",
+      assign(value) {
+        assigned.push(value);
+      },
+    },
+  };
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        success: false,
+        error: "INVALID_SIGNATURE",
+        recovery: "CLIENT_IDENTITY_REAUTH_REQUIRED",
+      }),
+      { status: 401 }
+    );
+
+  try {
+    const { requestJson } = await loadApiClient({
+      sessionRecoveryOverrides: {
+        async attemptSessionRecovery(options = {}) {
+          globalThis.__apiClientTestSessionRecovery.attempts.push(options);
+          return {
+            recovered: false,
+            terminal: true,
+            reason: "device_key_mismatch",
+          };
+        },
+      },
+      signingOverrides: {
+        maybeSignedRequestHeaders: async () => ({
+          headers: { "X-Athena-Signature": "sig" },
+          signed: true,
+        }),
+      },
+    });
+    await assert.rejects(requestJson("/system/user"));
+    assert.deepEqual(globalThis.__apiClientTestIdentity.resetCalls, []);
     assert.deepEqual(globalThis.__apiClientTestSensitiveState.cleared, [
       {
         reason: "client_identity_mismatch",
         includeDurableCaches: false,
       },
     ]);
+    assert.deepEqual(assigned, ["/login?reason=device-identity-reauth"]);
   } finally {
     globalThis.fetch = originalFetch;
+    globalThis.window = originalWindow;
   }
 });
 

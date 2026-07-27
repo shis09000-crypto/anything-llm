@@ -121,7 +121,8 @@
         "durationMs": { "type": "string" },
         "provider": { "type": "string" },
         "model": { "type": "string" },
-        "backend": { "type": "string" }
+        "backend": { "type": "string" },
+        "platform": { "type": "string" }
       }
     },
     "evidence": {

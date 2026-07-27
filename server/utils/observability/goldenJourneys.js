@@ -27,6 +27,7 @@ function classifyGoldenJourney(request) {
       "/api/request-token",
       "/api/auth/passkeys/login/verify",
       "/api/auth/zk-login/login/finish",
+      "/api/auth/session/recovery/finish",
     ].includes(path)
   )
     return GOLDEN_JOURNEYS.login;

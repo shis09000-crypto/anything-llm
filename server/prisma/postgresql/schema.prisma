@@ -439,19 +439,22 @@ model users {
 }
 
 model auth_sessions {
-  sessionId         String    @id
-  subjectType       String
-  authUserId        Int?
-  clientId          String?
-  authMode          String
-  tokenVersion      Int       @default(1)
-  createdAt         DateTime  @default(now())
-  lastSeenAt        DateTime  @default(now())
-  idleExpiresAt     DateTime
-  absoluteExpiresAt DateTime
-  revokedAt         DateTime?
-  revokeReason      String?
-  authUser          users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
+  sessionId            String    @id
+  subjectType          String
+  authUserId           Int?
+  clientId             String?
+  authMode             String
+  tokenVersion         Int       @default(1)
+  createdAt            DateTime  @default(now())
+  lastSeenAt           DateTime  @default(now())
+  idleExpiresAt        DateTime
+  absoluteExpiresAt    DateTime
+  revokedAt            DateTime?
+  revokeReason         String?
+  recoveryHandleHash   String?   @unique
+  recoveryEnabledAt    DateTime?
+  recoveryLastUsedAt   DateTime?
+  authUser             users?    @relation(fields: [authUserId], references: [id], onDelete: Cascade)
 
   @@index([authUserId, revokedAt])
   @@index([clientId, revokedAt])

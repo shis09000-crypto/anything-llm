@@ -257,6 +257,15 @@
   bottom: var(--athena-chat-scroll-bottom-button-bottom, 160px) !important;
 }
 
+@media (max-width: 767px) {
+  :root {
+    --athena-chat-scroll-bottom-button-right: 16px;
+    --athena-chat-scroll-bottom-button-bottom: calc(
+      env(safe-area-inset-bottom, 0px) + 112px
+    );
+  }
+}
+
 @media (min-width: 768px) and (max-width: 1366px) and (pointer: coarse) {
   .athena-workspace-sidebar .text-sm {
     font-size: calc(0.875rem * var(--athena-tablet-inline-scale, 1));

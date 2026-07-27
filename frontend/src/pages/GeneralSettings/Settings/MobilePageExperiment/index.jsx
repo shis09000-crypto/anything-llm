@@ -74,6 +74,12 @@ import { setAuthToken } from "@/utils/authTokenStorage";
 import { setLoginUserActionNow } from "@/utils/userAction";
 import { setStoredAuthUser } from "@/utils/authUserStorage";
 import {
+  MOBILE_COMPOSER_FALLBACK_INSET,
+  mobileChatPanePaddingBottom,
+  mobileNewMessageButtonBottom,
+  normalizeMobileComposerInset,
+} from "@/utils/mobileChatLayout";
+import {
   getPreferredLocalZkDevice,
   listLocalZkDevices,
 } from "@/utils/zkLoginStorage";
@@ -1741,6 +1747,9 @@ export function MobilePageExperimentContent({
   const mobileShouldFollowRef = useRef(true);
   const mobileLastScrollTopRef = useRef(0);
   const [mobileHasNewMessages, setMobileHasNewMessages] = useState(false);
+  const [mobileComposerBottomInset, setMobileComposerBottomInset] = useState(
+    MOBILE_COMPOSER_FALLBACK_INSET
+  );
   const runtimeSheetRef = useRef(null);
   const replyTimerRef = useRef(null);
   const copiedTimerRef = useRef(null);
@@ -1763,6 +1772,12 @@ export function MobilePageExperimentContent({
   const drawerPresence = useAnimatedPresence(menuOpen, 220);
   const attachmentPresence = useAnimatedPresence(attachmentSheetOpen, 140);
   const moreMenuPresence = useAnimatedPresence(moreMenuOpen, 140);
+  const handleMobileComposerHeightChange = useCallback((height) => {
+    const nextInset = normalizeMobileComposerInset(height);
+    setMobileComposerBottomInset((currentInset) =>
+      currentInset === nextInset ? currentInset : nextInset
+    );
+  }, []);
   const chatDrafts = useChatThreadDrafts();
   useThreadActivitySnapshot();
   const fullscreenPresentation = presentation === "fullscreen";
@@ -4640,6 +4655,7 @@ export function MobilePageExperimentContent({
                   }
                   messagesEndRef={messagesEndRef}
                   hasNewMessages={mobileHasNewMessages}
+                  composerBottomInset={mobileComposerBottomInset}
                   onScroll={handleMobileChatScroll}
                   onWheel={(event) => {
                     if (event.deltaY < 0) leaveMobileFollow();
@@ -4710,6 +4726,7 @@ export function MobilePageExperimentContent({
                   showExperimentalActions={false}
                   editMode={!!chatEditSession}
                   onCancelEdit={cancelEditMessage}
+                  onHeightChange={handleMobileComposerHeightChange}
                 />
               )}
             </DnDFileUploaderProvider>
@@ -4865,6 +4882,7 @@ export function MobilePageExperimentContent({
                             }
                             messagesEndRef={messagesEndRef}
                             hasNewMessages={mobileHasNewMessages}
+                            composerBottomInset={mobileComposerBottomInset}
                             onScroll={handleMobileChatScroll}
                             onWheel={(event) => {
                               if (event.deltaY < 0) leaveMobileFollow();
@@ -4940,6 +4958,7 @@ export function MobilePageExperimentContent({
                             showExperimentalActions
                             editMode={!!chatEditSession}
                             onCancelEdit={cancelEditMessage}
+                            onHeightChange={handleMobileComposerHeightChange}
                           />
                         )}
                       </>
@@ -5887,6 +5906,7 @@ function ChatPane({
   loadingRecent = false,
   messagesEndRef,
   hasNewMessages = false,
+  composerBottomInset = MOBILE_COMPOSER_FALLBACK_INSET,
   onScroll,
   onWheel,
   onTouchMove,
@@ -5943,9 +5963,10 @@ function ChatPane({
       onScroll={onScroll}
       onWheel={onWheel}
       onTouchMove={onTouchMove}
+      data-mobile-chat-pane="true"
       className="no-scroll -mr-4 flex h-full flex-col gap-3 overflow-y-auto pr-4 pt-[92px]"
       style={{
-        paddingBottom: "calc(116px + var(--mobile-keyboard-inset, 0px))",
+        paddingBottom: mobileChatPanePaddingBottom(composerBottomInset),
         overscrollBehavior: "contain",
       }}
     >
@@ -6010,7 +6031,11 @@ function ChatPane({
         <button
           type="button"
           onClick={onJumpToLatest}
-          className="sticky bottom-[104px] z-20 mx-auto rounded-full border border-sky-200/80 bg-white/90 px-4 py-2 text-xs font-black text-sky-700 shadow-lg backdrop-blur-xl"
+          data-mobile-new-messages-button="true"
+          className="sticky z-20 self-end rounded-full border border-sky-200/80 bg-white/90 px-4 py-2 text-xs font-black text-sky-700 shadow-lg backdrop-blur-xl"
+          style={{
+            bottom: mobileNewMessageButtonBottom(composerBottomInset),
+          }}
         >
           新消息
         </button>
@@ -7306,6 +7331,7 @@ function MobileComposer({
   showExperimentalActions = true,
   editMode = false,
   onCancelEdit = null,
+  onHeightChange = null,
 }) {
   const inputPlaceholder =
     disabledReason === "overview"
@@ -7320,6 +7346,7 @@ function MobileComposer({
               ? "正在录音..."
               : "发送消息";
   const [toolsExpanded, setToolsExpanded] = useState(false);
+  const composerFrameRef = useRef(null);
   const composerRef = useRef(null);
   const inputAreaRef = useRef(null);
   const textareaRef = useRef(null);
@@ -7395,6 +7422,36 @@ function MobileComposer({
   useLayoutEffect(() => {
     syncTextareaHeight();
   }, [syncTextareaHeight, value]);
+
+  useLayoutEffect(() => {
+    const composerFrame = composerFrameRef.current;
+    if (!composerFrame || typeof onHeightChange !== "function") return;
+
+    let animationFrameId = null;
+    const measure = () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        onHeightChange(composerFrame.getBoundingClientRect().height);
+      });
+    };
+
+    measure();
+    const resizeObserver =
+      typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    resizeObserver?.observe(composerFrame);
+    window.addEventListener("resize", measure);
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [onHeightChange]);
 
   function handleComposerPointerDown(event) {
     internalPointerDownRef.current = true;
@@ -7527,6 +7584,8 @@ function MobileComposer({
 
   return (
     <div
+      ref={composerFrameRef}
+      data-mobile-composer-frame="true"
       className="pointer-events-none absolute left-0 right-0 z-20 px-4 pb-4 pt-2 transition-[bottom] duration-150 ease-out"
       style={{
         bottom: "var(--mobile-keyboard-inset, 0px)",

@@ -17,6 +17,13 @@ const AuthIdentity = DataAccessCenter.authIdentity.model;
 const User = DataAccessCenter.authIdentity.shadowUser;
 const EncryptionMgr = new EncryptionManager();
 
+function rejectAuthentication(response, status, payload, reasonCode) {
+  response.locals.authFailureReason = String(
+    reasonCode || "authentication_failed"
+  ).slice(0, 96);
+  return response.status(status).json(payload);
+}
+
 async function validateRequest(request, response, next) {
   if (applyCodexDevAuthBypass(request, response)) {
     await attachAuthenticatedClientContext({
@@ -42,20 +49,26 @@ async function validateRequest(request, response, next) {
   }
 
   if (!process.env.AUTH_TOKEN) {
-    response.status(401).json({
-      error: "You need to set an AUTH_TOKEN environment variable.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      {
+        error: "You need to set an AUTH_TOKEN environment variable.",
+      },
+      "server_auth_not_configured"
+    );
   }
 
   const auth = request.header("Authorization");
   const token = auth ? auth.split(" ")[1] : null;
 
   if (!token) {
-    response.status(401).json({
-      error: "No auth token found.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "No auth token found." },
+      "missing_session_storage"
+    );
   }
 
   const bcrypt = require("bcryptjs");
@@ -81,10 +94,12 @@ async function validateRequest(request, response, next) {
   const { p } = decoded;
 
   if (p === null || !/\w{32}:\w{32}/.test(p)) {
-    response.status(401).json({
-      error: "Token expired or failed validation.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "Token expired or failed validation." },
+      "invalid_auth_token"
+    );
   }
 
   // Since the blame of this comment we have been encrypting the `p` property of JWTs with the persistent
@@ -93,11 +108,15 @@ async function validateRequest(request, response, next) {
   // in ln:44 will be marked invalid so they can be logged out and forced to log back in and obtain an encrypted token.
   // This kind of methodology only applies to single-user password mode.
   if (!(await AuthSession.legacySingleUserTokenAllowed())) {
-    response.status(401).json({
-      error: "Legacy session expired.",
-      code: "session_revoked",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      {
+        error: "Legacy session expired.",
+        code: "session_revoked",
+      },
+      "session_revoked"
+    );
   }
 
   let legacyPassword = null;
@@ -106,10 +125,12 @@ async function validateRequest(request, response, next) {
   } catch {}
   const authTokenHash = await bcrypt.hash(process.env.AUTH_TOKEN, 10);
   if (!(await bcrypt.compare(String(legacyPassword || ""), authTokenHash))) {
-    response.status(401).json({
-      error: "Invalid auth credentials.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "Invalid auth credentials." },
+      "invalid_auth_credentials"
+    );
   }
 
   response.locals.legacySingleUserToken = true;
@@ -129,13 +150,20 @@ function validatedRequest(request, response, next) {
       unavailable,
     });
 
-    return response.status(unavailable ? 503 : 500).json({
-      success: false,
-      error: unavailable
+    return rejectAuthentication(
+      response,
+      unavailable ? 503 : 500,
+      {
+        success: false,
+        error: unavailable
+          ? "authentication_state_unavailable"
+          : "request_validation_failed",
+        retryable: unavailable,
+      },
+      unavailable
         ? "authentication_state_unavailable"
-        : "request_validation_failed",
-      retryable: unavailable,
-    });
+        : "request_validation_failed"
+    );
   });
 }
 
@@ -155,28 +183,36 @@ async function validateMultiUserRequest(request, response, next) {
   const token = auth ? auth.split(" ")[1] : null;
 
   if (!token) {
-    response.status(401).json({
-      error: "No auth token found.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "No auth token found." },
+      "missing_session_storage"
+    );
   }
 
   const valid = decodeJWT(token);
   if (!valid || !valid.id) {
-    response.status(401).json({
-      error: "Invalid auth token.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "Invalid auth token." },
+      "invalid_auth_token"
+    );
   }
 
   const idleState = jwtIdleState(valid);
   if (idleState.idleExpired) {
-    response.status(401).json({
-      error: "Session expired due to inactivity.",
-      idleExpiresAt: idleState.idleExpiresAt,
-      idleRemainingMs: 0,
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      {
+        error: "Session expired due to inactivity.",
+        idleExpiresAt: idleState.idleExpiresAt,
+        idleRemainingMs: 0,
+      },
+      "session_idle_expired"
+    );
   }
 
   const sessionId = valid.sid;
@@ -198,10 +234,12 @@ async function validateMultiUserRequest(request, response, next) {
 
   const shadow = await User._get({ id: valid.id });
   if (!shadow) {
-    response.status(401).json({
-      error: "Invalid auth for user.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "Invalid auth for user." },
+      "account_unavailable"
+    );
   }
 
   let authUser = valid.authUserId
@@ -222,10 +260,12 @@ async function validateMultiUserRequest(request, response, next) {
   }
 
   if (!authUser || !(await AuthIdentity.canLoginInCurrentEnvAsync(authUser))) {
-    response.status(401).json({
-      error: "Invalid auth for user.",
-    });
-    return;
+    return rejectAuthentication(
+      response,
+      401,
+      { error: "Invalid auth for user." },
+      "account_unavailable"
+    );
   }
 
   const syncedUser = await AuthIdentity.ensureShadowUser(authUser);
@@ -239,10 +279,12 @@ async function validateMultiUserRequest(request, response, next) {
   const tokenClientId = sessionClientIdFromToken(valid);
   if (tokenClientId) {
     if (clientContext.legacy || clientContext.clientId !== tokenClientId) {
-      response.status(401).json({
-        error: "Session client mismatch.",
-      });
-      return;
+      return rejectAuthentication(
+        response,
+        401,
+        { error: "Session client mismatch." },
+        "session_client_mismatch"
+      );
     }
 
     const client = await getClientRecord({
@@ -251,11 +293,15 @@ async function validateMultiUserRequest(request, response, next) {
       includeRevoked: true,
     });
     if (client?.revokedAt) {
-      response.status(403).json({
-        success: false,
-        error: CLIENT_REVOKED_ERROR,
-      });
-      return;
+      return rejectAuthentication(
+        response,
+        403,
+        {
+          success: false,
+          error: CLIENT_REVOKED_ERROR,
+        },
+        "client_revoked"
+      );
     }
   }
 
@@ -277,12 +323,17 @@ function multiUserSessionRequired(env = process.env) {
 
 function sessionRejected(response, reason = "session_revoked") {
   const expired = /expired/.test(String(reason));
-  response.status(401).json({
-    success: false,
-    error: "session_revoked",
-    reason,
-    ...(expired ? { expired: true } : {}),
-  });
+  return rejectAuthentication(
+    response,
+    401,
+    {
+      success: false,
+      error: "session_revoked",
+      reason,
+      ...(expired ? { expired: true } : {}),
+    },
+    reason
+  );
 }
 
 module.exports = {

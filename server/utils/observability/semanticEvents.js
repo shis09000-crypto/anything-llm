@@ -124,7 +124,15 @@ function semanticEvent(input = {}) {
     ),
     metadata: compactObject(
       input.metadata,
-      ["errorCode", "statusCode", "durationMs", "provider", "model", "backend"],
+      [
+        "errorCode",
+        "statusCode",
+        "durationMs",
+        "provider",
+        "model",
+        "backend",
+        "platform",
+      ],
       160
     ),
     sensitivity: compact(input.sensitivity || "metadata_only", 48),

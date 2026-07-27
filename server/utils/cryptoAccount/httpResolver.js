@@ -8,18 +8,13 @@ const {
 const { emitSemanticEvent } = require("../observability/semanticEvents");
 const { metrics } = require("../observability/metrics");
 
-async function isUniquePrimaryOwner(user) {
-  if (!user?.id || !user?.authUserId) return false;
+async function hasUniquePrimaryOwner() {
   const owners = await User.where(
     { status: "active", ownerType: "primary" },
     2,
     { id: "asc" }
   );
-  return (
-    owners.length === 1 &&
-    Number(owners[0].id) === Number(user.id) &&
-    Number(owners[0].authUserId) === Number(user.authUserId)
-  );
+  return owners.length === 1 && Boolean(owners[0]?.authUserId);
 }
 
 function legacyFallbackAllowed(user) {
@@ -63,7 +58,7 @@ async function resolveCryptoHubForHttp(user) {
       mode: "account",
     };
   }
-  if (legacyFallbackAllowed(user) && (await isUniquePrimaryOwner(user))) {
+  if (legacyFallbackAllowed(user) && (await hasUniquePrimaryOwner())) {
     emitLegacyFallback();
     const { cryptoDataHub } = require("../cryptoHub");
     return { hub: cryptoDataHub, mode: "legacy-primary-owner" };

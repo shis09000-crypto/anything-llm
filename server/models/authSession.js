@@ -25,6 +25,16 @@ function newSessionId() {
   return `sess_${crypto.randomUUID?.() || crypto.randomBytes(16).toString("hex")}`;
 }
 
+function newRecoveryHandle() {
+  return crypto.randomBytes(32).toString("base64url");
+}
+
+function recoveryHandleHash(handle) {
+  const normalized = String(handle || "").trim();
+  if (!normalized) return null;
+  return crypto.createHash("sha256").update(normalized).digest("hex");
+}
+
 function cacheSession(session) {
   if (!session || session.revokedAt) return;
   sessionCache.set(session.sessionId, {
@@ -150,6 +160,28 @@ const AuthSession = {
       },
     });
     cacheSession(created);
+    if (
+      created.authUserId &&
+      created.clientId &&
+      typeof authPrisma.auth_sessions.count === "function"
+    ) {
+      authPrisma.auth_sessions
+        .count({
+          where: {
+            authUserId: created.authUserId,
+            clientId: created.clientId,
+            revokedAt: null,
+            idleExpiresAt: { gt: new Date(now) },
+            absoluteExpiresAt: { gt: new Date(now) },
+          },
+        })
+        .then((count) =>
+          require("../utils/observability/metrics").metrics.authActiveSessionsPerClient.observe(
+            Math.max(1, Number(count) || 1)
+          )
+        )
+        .catch(() => null);
+    }
     await publishSessionChange({
       authUserId: created.authUserId,
       eventType: "session.created",
@@ -266,6 +298,74 @@ const AuthSession = {
     });
     invalidate(sessionId);
     return result.count;
+  },
+
+  enableRecovery: async function (
+    sessionId,
+    { authUserId = null, clientId = null } = {}
+  ) {
+    if (!enabled() || !sessionId || !authUserId || !clientId) return null;
+    const sessionResult = await this.validate(sessionId, {
+      authoritative: true,
+      subjectType: "user",
+    });
+    const session = sessionResult.session;
+    if (
+      !sessionResult.valid ||
+      !session ||
+      Number(session.authUserId) !== Number(authUserId) ||
+      String(session.clientId || "") !== String(clientId)
+    ) {
+      return null;
+    }
+
+    const recoveryHandle = newRecoveryHandle();
+    const now = new Date();
+    const updated = await authPrisma.auth_sessions.updateMany({
+      where: {
+        sessionId: String(sessionId),
+        subjectType: "user",
+        authUserId: Number(authUserId),
+        clientId: String(clientId),
+        revokedAt: null,
+        idleExpiresAt: { gt: now },
+        absoluteExpiresAt: { gt: now },
+      },
+      data: {
+        recoveryHandleHash: recoveryHandleHash(recoveryHandle),
+        recoveryEnabledAt: now,
+      },
+    });
+    if (updated.count !== 1) return null;
+    invalidate(sessionId);
+    return {
+      recoveryHandle,
+      // Normal authenticated activity extends idle expiry. Persist only the
+      // non-extendable bound locally and keep idle validity authoritative here.
+      expiresAt: new Date(session.absoluteExpiresAt).getTime(),
+    };
+  },
+
+  findByRecoveryHandle: async function (recoveryHandle) {
+    if (!enabled()) return null;
+    const hash = recoveryHandleHash(recoveryHandle);
+    if (!hash) return null;
+    return await authPrisma.auth_sessions.findUnique({
+      where: { recoveryHandleHash: hash },
+    });
+  },
+
+  markRecoveryUsed: async function (sessionId) {
+    if (!enabled() || !sessionId) return { count: 0 };
+    const result = await authPrisma.auth_sessions.updateMany({
+      where: {
+        sessionId: String(sessionId),
+        revokedAt: null,
+      },
+      data: { recoveryLastUsedAt: new Date() },
+    });
+    invalidate(sessionId);
+    return result;
   },
 
   revoke: async function (sessionId, reason = "logout") {
@@ -554,6 +654,11 @@ const AuthSession = {
     sessionCache.clear();
     lastSeenWrites.clear();
     syncReconcileAfterAuthUserId = 0;
+  },
+
+  _recoveryInternals: {
+    newRecoveryHandle,
+    recoveryHandleHash,
   },
 };
 

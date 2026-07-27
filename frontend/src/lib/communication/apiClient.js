@@ -20,6 +20,10 @@ import {
 } from "./communicationMetrics";
 import { runScheduledTaskRequest } from "@/utils/tasks/taskRequestMetadata";
 import { recoveryCenter } from "@/utils/recovery/recoveryCenter";
+import {
+  attemptSessionRecovery,
+  recoveryReplayAllowed,
+} from "@/utils/authRecoveryCoordinator";
 
 const CLIENT_IDENTITY_REAUTH_RECOVERY = "CLIENT_IDENTITY_REAUTH_REQUIRED";
 
@@ -122,16 +126,23 @@ function requiresClientIdentityReauth(data) {
   return data?.recovery === CLIENT_IDENTITY_REAUTH_RECOVERY;
 }
 
+function shouldAttemptSessionRecovery(response, data) {
+  if (requiresClientIdentityReauth(data)) return true;
+  if (response?.status !== 401) return false;
+  const message = String(
+    data?.reason || data?.error || data?.message || ""
+  ).toLowerCase();
+  return [
+    "no auth token",
+    "session client mismatch",
+    "session expired",
+    "session_revoked",
+  ].some((needle) => message.includes(needle));
+}
+
 async function recoverMismatchedClientIdentity() {
   clearSigningSecretCache();
-  await resetClientIdentity({ rotateDeviceKey: true }).catch(() => null);
-  clearSensitiveClientSession({
-    reason: "client_identity_mismatch",
-    includeDurableCaches: false,
-  });
-  if (typeof window !== "undefined" && window.location?.pathname !== "/login") {
-    window.location.assign("/login?reason=device-identity-reset");
-  }
+  return attemptSessionRecovery({ source: "api" });
 }
 
 export function apiUrl(path = "") {
@@ -195,7 +206,7 @@ async function requestJsonCore(path, options = {}) {
     signing = "auto",
     communicationScene = null,
     acceptNotModified = false,
-    task: _task,
+    task: requestTask,
     schedulerInternal: _schedulerInternal,
     ...rest
   } = options;
@@ -265,11 +276,57 @@ async function requestJsonCore(path, options = {}) {
     }
     if (!response.ok) {
       const clientIdentityReauthRequired = requiresClientIdentityReauth(data);
-      if (clientIdentityReauthRequired) {
-        await recoverMismatchedClientIdentity();
+      const sessionRecoveryRequired = shouldAttemptSessionRecovery(
+        response,
+        data
+      );
+      let sessionRecovery = null;
+      if (sessionRecoveryRequired && retryAttempt < 1) {
+        sessionRecovery = await recoverMismatchedClientIdentity();
+        if (
+          sessionRecovery.recovered &&
+          recoveryReplayAllowed({
+            method: normalizedMethod,
+            headers,
+            task: requestTask,
+          })
+        ) {
+          return requestJsonCore(path, {
+            method,
+            body,
+            headers,
+            signal,
+            timeoutMs,
+            includeBaseHeaders,
+            retryAttempt: retryAttempt + 1,
+            rawBody,
+            signing,
+            communicationScene,
+            acceptNotModified,
+            task: requestTask,
+            ...rest,
+          });
+        }
       }
       if (
-        !clientIdentityReauthRequired &&
+        clientIdentityReauthRequired &&
+        sessionRecovery &&
+        !sessionRecovery.recovered &&
+        !sessionRecovery.transient
+      ) {
+        clearSensitiveClientSession({
+          reason: "client_identity_mismatch",
+          includeDurableCaches: false,
+        });
+        if (
+          typeof window !== "undefined" &&
+          window.location?.pathname !== "/login"
+        ) {
+          window.location.assign("/login?reason=device-identity-reauth");
+        }
+      }
+      if (
+        !sessionRecoveryRequired &&
         signingResult.signed &&
         retryAttempt < 1 &&
         isRecoverableSigningError(data?.error)
@@ -316,10 +373,14 @@ async function requestJsonCore(path, options = {}) {
           signing,
           communicationScene,
           acceptNotModified,
+          task: requestTask,
           ...rest,
         });
       }
-      if (!clientIdentityReauthRequired) {
+      if (
+        !clientIdentityReauthRequired &&
+        !(sessionRecovery?.recovered || sessionRecovery?.transient)
+      ) {
         clearSensitiveAuthState(response, data);
       }
       const apiError = normalizeApiError(null, response, {
